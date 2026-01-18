@@ -108,6 +108,9 @@ BLOOM_LEVELS = {
 # Автоматическое повышение уровня: после N тем на текущем уровне
 BLOOM_AUTO_UPGRADE_AFTER = 7  # после 7 тем уровень повышается
 
+# Лимит тем в день (для развития систематичности)
+DAILY_TOPICS_LIMIT = 2
+
 # ============= СОСТОЯНИЯ FSM =============
 
 class OnboardingStates(StatesGroup):
@@ -165,6 +168,8 @@ async def init_db():
                 completed_topics TEXT DEFAULT '[]',
                 bloom_level INTEGER DEFAULT 1,
                 topics_at_current_bloom INTEGER DEFAULT 0,
+                topics_today INTEGER DEFAULT 0,
+                last_topic_date DATE DEFAULT NULL,
                 onboarding_completed BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
@@ -177,6 +182,8 @@ async def init_db():
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS desires TEXT DEFAULT \'\'')
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS bloom_level INTEGER DEFAULT 1')
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_bloom INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_today INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_topic_date DATE DEFAULT NULL')
         
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS answers (
@@ -216,6 +223,8 @@ async def get_intern(chat_id: int) -> dict:
                 'completed_topics': json.loads(row['completed_topics']),
                 'bloom_level': row['bloom_level'] if row['bloom_level'] else 1,
                 'topics_at_current_bloom': row['topics_at_current_bloom'] if row['topics_at_current_bloom'] else 0,
+                'topics_today': row['topics_today'] if row['topics_today'] else 0,
+                'last_topic_date': row['last_topic_date'],
                 'onboarding_completed': row['onboarding_completed']
             }
         else:
@@ -242,6 +251,8 @@ async def get_intern(chat_id: int) -> dict:
                 'completed_topics': [],
                 'bloom_level': 1,
                 'topics_at_current_bloom': 0,
+                'topics_today': 0,
+                'last_topic_date': None,
                 'onboarding_completed': False
             }
 
@@ -273,6 +284,17 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> list:
             time_str
         )
         return [{'chat_id': row['chat_id'], 'name': row['name']} for row in rows]
+
+def get_topics_today(intern: dict) -> int:
+    """Получить количество тем, пройденных сегодня"""
+    today = datetime.now().date()
+    last_date = intern.get('last_topic_date')
+
+    # Если last_topic_date — это дата сегодня, возвращаем topics_today
+    if last_date and last_date == today:
+        return intern.get('topics_today', 0)
+    # Иначе — новый день, счётчик обнуляется
+    return 0
 
 def get_personalization_prompt(intern: dict) -> str:
     """Генерирует промпт для персонализации"""
@@ -814,15 +836,35 @@ async def on_schedule(message: Message, state: FSMContext):
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
     await update_intern(callback.message.chat.id, onboarding_completed=True)
     intern = await get_intern(callback.message.chat.id)
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
 
     await callback.answer("Сохранено!")
+
+    # Приветственное сообщение с описанием бота
     await callback.message.edit_text(
-        f"✅ *Готово!*\n\n"
-        f"Буду отправлять материал в *{intern['schedule_time']}*\n\n"
-        f"• {intern['study_duration']} мин — изучение темы\n"
-        f"• 5 мин — ответ на вопрос\n"
-        f"• Ответил = тема засчитана ✅\n\n"
-        f"Начнём?",
+        f"🎉 *Добро пожаловать, {intern['name']}!*\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"*Что это за бот?*\n\n"
+        f"Я помогу тебе перейти от *случайного саморазвития* "
+        f"к *систематическому обучению*.\n\n"
+        f"Моя цель — развить у тебя:\n"
+        f"• *Системное мировоззрение* — видеть целое и связи\n"
+        f"• *Системную грамотность* — владеть инструментами мышления\n"
+        f"• *Агентность* — способность действовать и менять реальность\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"*Как устроено обучение?*\n\n"
+        f"📚 *28 тем* в 4 разделах — от проблем к решениям\n"
+        f"⏱ *{intern['study_duration']} минут* — на изучение темы\n"
+        f"❓ *Вопрос* — для закрепления материала\n"
+        f"📈 *{DAILY_TOPICS_LIMIT} темы в день* — тренируем систематичность\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"*Сложность вопросов*\n\n"
+        f"Сейчас: {bloom['emoji']} *{bloom['name']}*\n\n"
+        f"Сложность растёт автоматически по мере прогресса.\n"
+        f"Можно изменить вручную: /update → Уровень сложности\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"⏰ Буду напоминать в *{intern['schedule_time']}* каждый день.\n\n"
+        f"Готов начать?",
         parse_mode="Markdown",
         reply_markup=kb_learn()
     )
@@ -1068,12 +1110,18 @@ async def on_answer(message: Message, state: FSMContext):
         topics_at_bloom = 0
         level_upgraded = True
 
+    # Обновляем счётчик тем за сегодня
+    today = datetime.now().date()
+    topics_today = get_topics_today(intern) + 1
+
     await update_intern(
         message.chat.id,
         completed_topics=completed,
         current_topic_index=intern['current_topic_index'] + 1,
         bloom_level=bloom_level,
-        topics_at_current_bloom=topics_at_bloom
+        topics_at_current_bloom=topics_at_bloom,
+        topics_today=topics_today,
+        last_topic_date=today
     )
 
     done = len(completed)
@@ -1179,6 +1227,26 @@ async def on_bonus_answer(message: Message, state: FSMContext):
 
 async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
     intern = await get_intern(chat_id)
+
+    # Проверяем дневной лимит
+    topics_today = get_topics_today(intern)
+    if topics_today >= DAILY_TOPICS_LIMIT:
+        await bot.send_message(
+            chat_id,
+            f"🎯 *Сегодня ты уже прошёл {topics_today} темы — это отлично!*\n\n"
+            f"Лимит: *{DAILY_TOPICS_LIMIT} темы в день*\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"*Почему так?*\n\n"
+            f"Мы тренируем *систематичность* — это ключевой навык.\n\n"
+            f"Намного важнее учиться *понемногу каждый день*, "
+            f"чем много за раз, а потом ничего.\n\n"
+            f"Регулярность > Интенсивность\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Возвращайся завтра! Или в *{intern['schedule_time']}* я сам напомню.",
+            parse_mode="Markdown"
+        )
+        return
+
     topic = get_topic(intern['current_topic_index'])
 
     if not topic:
