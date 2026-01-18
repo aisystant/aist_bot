@@ -2,11 +2,7 @@
 AIST Pilot Bot — Telegram-бот для персонального обучения стажера
 GitHub: https://github.com/aisystant/aist_pilot_bot
 
-Функции:
-- Онбординг с профилированием стажера
-- Персонализированный контент на основе профиля
-- Расписание обучения
-- Отслеживание прогресса
+С поддержкой PostgreSQL для хранения данных пользователей.
 """
 
 import asyncio
@@ -28,19 +24,20 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
+import asyncpg
 
 # ============= КОНФИГУРАЦИЯ =============
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
-GUIDES_MCP_URL = os.getenv("GUIDES_MCP_URL", "https://guides-mcp.aisystant.workers.dev/mcp")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Проверка обязательных переменных
 if not BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не установлен!")
 if not ANTHROPIC_API_KEY:
     raise ValueError("ANTHROPIC_API_KEY не установлен!")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL не установлен!")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,59 +84,148 @@ class OnboardingStates(StatesGroup):
 class LearningStates(StatesGroup):
     waiting_for_answer = State()
 
-# ============= ХРАНИЛИЩЕ (в памяти, для продакшена замените на БД) =============
+# ============= БАЗА ДАННЫХ =============
 
-interns_db = {}
+db_pool: Optional[asyncpg.Pool] = None
 
-class InternProfile:
-    def __init__(self, chat_id: int):
-        self.chat_id = chat_id
-        self.registered = False
-        self.onboarding_completed = False
-        self.name = ""
-        self.role = ""
-        self.domain = ""
-        self.interests = []
-        self.experience_level = ""
-        self.difficulty_preference = ""
-        self.learning_style = ""
-        self.goals = ""
-        self.schedule_time = "09:00"
-        self.current_topic_index = 0
-        self.completed_topics = []
-        self.current_question = None
-
-    def to_dict(self):
-        return self.__dict__.copy()
-
-    def get_personalization_prompt(self) -> str:
-        diff = DIFFICULTY_LEVELS.get(self.difficulty_preference, {})
-        style = LEARNING_STYLES.get(self.learning_style, {})
-        exp = EXPERIENCE_LEVELS.get(self.experience_level, {})
+async def init_db():
+    """Инициализация базы данных"""
+    global db_pool
+    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    
+    async with db_pool.acquire() as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS interns (
+                chat_id BIGINT PRIMARY KEY,
+                name TEXT DEFAULT '',
+                role TEXT DEFAULT '',
+                domain TEXT DEFAULT '',
+                interests TEXT DEFAULT '[]',
+                experience_level TEXT DEFAULT '',
+                difficulty_preference TEXT DEFAULT '',
+                learning_style TEXT DEFAULT '',
+                goals TEXT DEFAULT '',
+                schedule_time TEXT DEFAULT '09:00',
+                current_topic_index INTEGER DEFAULT 0,
+                completed_topics TEXT DEFAULT '[]',
+                onboarding_completed BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
         
-        return f"""
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS answers (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT,
+                topic_index INTEGER,
+                answer TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+    
+    logger.info("✅ База данных инициализирована")
+
+async def get_intern(chat_id: int) -> dict:
+    """Получить профиль стажера из БД"""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT * FROM interns WHERE chat_id = $1', chat_id
+        )
+        
+        if row:
+            return {
+                'chat_id': row['chat_id'],
+                'name': row['name'],
+                'role': row['role'],
+                'domain': row['domain'],
+                'interests': json.loads(row['interests']),
+                'experience_level': row['experience_level'],
+                'difficulty_preference': row['difficulty_preference'],
+                'learning_style': row['learning_style'],
+                'goals': row['goals'],
+                'schedule_time': row['schedule_time'],
+                'current_topic_index': row['current_topic_index'],
+                'completed_topics': json.loads(row['completed_topics']),
+                'onboarding_completed': row['onboarding_completed']
+            }
+        else:
+            # Создаём нового пользователя
+            await conn.execute(
+                'INSERT INTO interns (chat_id) VALUES ($1) ON CONFLICT DO NOTHING',
+                chat_id
+            )
+            return {
+                'chat_id': chat_id,
+                'name': '',
+                'role': '',
+                'domain': '',
+                'interests': [],
+                'experience_level': '',
+                'difficulty_preference': '',
+                'learning_style': '',
+                'goals': '',
+                'schedule_time': '09:00',
+                'current_topic_index': 0,
+                'completed_topics': [],
+                'onboarding_completed': False
+            }
+
+async def update_intern(chat_id: int, **kwargs):
+    """Обновить данные стажера"""
+    async with db_pool.acquire() as conn:
+        for key, value in kwargs.items():
+            if key in ['interests', 'completed_topics']:
+                value = json.dumps(value)
+            await conn.execute(
+                f'UPDATE interns SET {key} = $1, updated_at = NOW() WHERE chat_id = $2',
+                value, chat_id
+            )
+
+async def save_answer(chat_id: int, topic_index: int, answer: str):
+    """Сохранить ответ стажера"""
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO answers (chat_id, topic_index, answer) VALUES ($1, $2, $3)',
+            chat_id, topic_index, answer
+        )
+
+async def get_all_scheduled_interns(hour: int, minute: int) -> list:
+    """Получить всех стажеров с заданным временем обучения"""
+    time_str = f"{hour:02d}:{minute:02d}"
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT chat_id, name FROM interns WHERE schedule_time = $1 AND onboarding_completed = TRUE',
+            time_str
+        )
+        return [{'chat_id': row['chat_id'], 'name': row['name']} for row in rows]
+
+def get_personalization_prompt(intern: dict) -> str:
+    """Генерирует промпт для персонализации"""
+    diff = DIFFICULTY_LEVELS.get(intern['difficulty_preference'], {})
+    style = LEARNING_STYLES.get(intern['learning_style'], {})
+    exp = EXPERIENCE_LEVELS.get(intern['experience_level'], {})
+    
+    interests = ', '.join(intern['interests']) if intern['interests'] else 'не указаны'
+    
+    return f"""
 ПРОФИЛЬ СТАЖЕРА:
-- Имя: {self.name}
-- Роль: {self.role}
-- Предметная область: {self.domain}
-- Интересы: {', '.join(self.interests) if self.interests else 'не указаны'}
+- Имя: {intern['name']}
+- Роль: {intern['role']}
+- Предметная область: {intern['domain']}
+- Интересы: {interests}
 - Уровень опыта: {exp.get('name', '')} ({exp.get('desc', '')})
 - Желаемая сложность: {diff.get('name', '')} ({diff.get('desc', '')})
 - Стиль обучения: {style.get('name', '')} ({style.get('desc', '')})
-- Цели: {self.goals}
+- Цели: {intern['goals']}
 
 ИНСТРУКЦИИ:
-1. Используй примеры из области "{self.domain}" и интересов стажера
+1. Используй примеры из области "{intern['domain']}" и интересов стажера
 2. Адаптируй сложность под уровень "{diff.get('name', 'средний')}"
-3. {'Начинай с теории' if self.learning_style == 'theoretical' else 'Начинай с практических примеров' if self.learning_style == 'practical' else 'Чередуй теорию и практику'}
+3. {'Начинай с теории' if intern['learning_style'] == 'theoretical' else 'Начинай с практических примеров' if intern['learning_style'] == 'practical' else 'Чередуй теорию и практику'}
 """
 
-def get_intern(chat_id: int) -> InternProfile:
-    if chat_id not in interns_db:
-        interns_db[chat_id] = InternProfile(chat_id)
-    return interns_db[chat_id]
-
-# ============= CLAUDE API КЛИЕНТ =============
+# ============= CLAUDE API =============
 
 class ClaudeClient:
     def __init__(self):
@@ -174,9 +260,9 @@ class ClaudeClient:
                 logger.error(f"Claude API exception: {e}")
                 return None
 
-    async def generate_content(self, topic: dict, intern: InternProfile) -> str:
+    async def generate_content(self, topic: dict, intern: dict) -> str:
         system_prompt = f"""Ты — персональный наставник.
-{intern.get_personalization_prompt()}
+{get_personalization_prompt(intern)}
 
 Создай текст на 20 минут чтения (~2000 слов). Без заголовков, только абзацы."""
 
@@ -187,9 +273,9 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
 
-    async def generate_question(self, topic: dict, intern: InternProfile) -> str:
+    async def generate_question(self, topic: dict, intern: dict) -> str:
         system_prompt = f"""Создай один вопрос для проверки понимания темы.
-{intern.get_personalization_prompt()}
+{get_personalization_prompt(intern)}
 Вопрос должен требовать развёрнутого ответа и быть связан с областью стажера."""
 
         user_prompt = f"""Тема: {topic.get('title')}
@@ -200,7 +286,7 @@ class ClaudeClient:
 
 claude = ClaudeClient()
 
-# ============= ТЕМЫ (заглушка, в реальности из MCP) =============
+# ============= ТЕМЫ =============
 
 TOPICS = [
     {
@@ -278,11 +364,11 @@ router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
+    intern = await get_intern(message.chat.id)
     
-    if intern.onboarding_completed:
+    if intern['onboarding_completed']:
         await message.answer(
-            f"👋 С возвращением, {intern.name}!\n\n"
+            f"👋 С возвращением, {intern['name']}!\n\n"
             f"/learn — продолжить обучение\n"
             f"/progress — статистика\n"
             f"/profile — твой профиль"
@@ -298,52 +384,49 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @router.message(OnboardingStates.waiting_for_name)
 async def on_name(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
-    intern.name = message.text.strip()
-    await message.answer(f"Приятно познакомиться, {intern.name}! 👋\n\nКем ты работаешь или учишься?")
+    await update_intern(message.chat.id, name=message.text.strip())
+    await message.answer(f"Приятно познакомиться, {message.text.strip()}! 👋\n\nКем ты работаешь или учишься?")
     await state.set_state(OnboardingStates.waiting_for_role)
 
 @router.message(OnboardingStates.waiting_for_role)
 async def on_role(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
-    intern.role = message.text.strip()
+    await update_intern(message.chat.id, role=message.text.strip())
     await message.answer("В какой предметной области работаешь?\n\nНапример: IT, маркетинг, финансы, дизайн")
     await state.set_state(OnboardingStates.waiting_for_domain)
 
 @router.message(OnboardingStates.waiting_for_domain)
 async def on_domain(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
-    intern.domain = message.text.strip()
+    await update_intern(message.chat.id, domain=message.text.strip())
     await message.answer("Расскажи о своих интересах/хобби?\n\nЭто поможет приводить близкие тебе примеры.")
     await state.set_state(OnboardingStates.waiting_for_interests)
 
 @router.message(OnboardingStates.waiting_for_interests)
 async def on_interests(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
-    intern.interests = [i.strip() for i in message.text.replace(',', ';').split(';') if i.strip()]
+    interests = [i.strip() for i in message.text.replace(',', ';').split(';') if i.strip()]
+    await update_intern(message.chat.id, interests=interests)
     await message.answer("Какой у тебя уровень опыта?", reply_markup=kb_experience())
     await state.set_state(OnboardingStates.waiting_for_experience)
 
 @router.callback_query(OnboardingStates.waiting_for_experience, F.data.startswith("exp_"))
 async def on_experience(callback: CallbackQuery, state: FSMContext):
-    intern = get_intern(callback.message.chat.id)
-    intern.experience_level = callback.data.replace("exp_", "")
+    level = callback.data.replace("exp_", "")
+    await update_intern(callback.message.chat.id, experience_level=level)
     await callback.answer()
     await callback.message.edit_text("Какую сложность материала предпочитаешь?", reply_markup=kb_difficulty())
     await state.set_state(OnboardingStates.waiting_for_difficulty)
 
 @router.callback_query(OnboardingStates.waiting_for_difficulty, F.data.startswith("diff_"))
 async def on_difficulty(callback: CallbackQuery, state: FSMContext):
-    intern = get_intern(callback.message.chat.id)
-    intern.difficulty_preference = callback.data.replace("diff_", "")
+    level = callback.data.replace("diff_", "")
+    await update_intern(callback.message.chat.id, difficulty_preference=level)
     await callback.answer()
     await callback.message.edit_text("Как тебе комфортнее учиться?", reply_markup=kb_learning_style())
     await state.set_state(OnboardingStates.waiting_for_learning_style)
 
 @router.callback_query(OnboardingStates.waiting_for_learning_style, F.data.startswith("style_"))
 async def on_style(callback: CallbackQuery, state: FSMContext):
-    intern = get_intern(callback.message.chat.id)
-    intern.learning_style = callback.data.replace("style_", "")
+    style = callback.data.replace("style_", "")
+    await update_intern(callback.message.chat.id, learning_style=style)
     await callback.answer()
     await callback.message.edit_text("✅ Принято!")
     await callback.message.answer("Какие цели обучения? Чего хочешь достичь?")
@@ -351,8 +434,7 @@ async def on_style(callback: CallbackQuery, state: FSMContext):
 
 @router.message(OnboardingStates.waiting_for_goals)
 async def on_goals(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
-    intern.goals = message.text.strip()
+    await update_intern(message.chat.id, goals=message.text.strip())
     await message.answer("Когда отправлять материал?\n\nНапиши время (например: 09:00)")
     await state.set_state(OnboardingStates.waiting_for_schedule)
 
@@ -366,24 +448,24 @@ async def on_schedule(message: Message, state: FSMContext):
         await message.answer("Формат: ЧЧ:ММ (например 09:00)")
         return
     
-    intern = get_intern(message.chat.id)
-    intern.schedule_time = message.text.strip()
+    await update_intern(message.chat.id, schedule_time=message.text.strip())
+    intern = await get_intern(message.chat.id)
     
-    exp = EXPERIENCE_LEVELS.get(intern.experience_level, {})
-    diff = DIFFICULTY_LEVELS.get(intern.difficulty_preference, {})
-    style = LEARNING_STYLES.get(intern.learning_style, {})
+    exp = EXPERIENCE_LEVELS.get(intern['experience_level'], {})
+    diff = DIFFICULTY_LEVELS.get(intern['difficulty_preference'], {})
+    style = LEARNING_STYLES.get(intern['learning_style'], {})
     
     await message.answer(
         f"📋 *Твой профиль:*\n\n"
-        f"👤 {intern.name}\n"
-        f"💼 {intern.role}\n"
-        f"🎯 {intern.domain}\n"
-        f"🎨 {', '.join(intern.interests)}\n\n"
+        f"👤 {intern['name']}\n"
+        f"💼 {intern['role']}\n"
+        f"🎯 {intern['domain']}\n"
+        f"🎨 {', '.join(intern['interests'])}\n\n"
         f"{exp.get('emoji','')} {exp.get('name','')}\n"
         f"{diff.get('emoji','')} {diff.get('name','')}\n"
         f"{style.get('emoji','')} {style.get('name','')}\n\n"
-        f"🎯 {intern.goals}\n"
-        f"⏰ {intern.schedule_time}\n\n"
+        f"🎯 {intern['goals']}\n"
+        f"⏰ {intern['schedule_time']}\n\n"
         f"Всё верно?",
         parse_mode="Markdown",
         reply_markup=kb_confirm()
@@ -392,16 +474,13 @@ async def on_schedule(message: Message, state: FSMContext):
 
 @router.callback_query(OnboardingStates.confirming_profile, F.data == "confirm")
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
-    intern = get_intern(callback.message.chat.id)
-    intern.registered = True
-    intern.onboarding_completed = True
-    
-    await schedule_daily(callback.message.chat.id, intern.schedule_time)
+    await update_intern(callback.message.chat.id, onboarding_completed=True)
+    intern = await get_intern(callback.message.chat.id)
     
     await callback.answer("Сохранено!")
     await callback.message.edit_text(
         f"✅ *Готово!*\n\n"
-        f"Буду отправлять материал в *{intern.schedule_time}*\n\n"
+        f"Буду отправлять материал в *{intern['schedule_time']}*\n\n"
         f"• 20 мин — изучение\n"
         f"• 5 мин — ответ на вопрос\n"
         f"• Ответил = тема засчитана ✅\n\n"
@@ -421,8 +500,8 @@ async def on_restart(callback: CallbackQuery, state: FSMContext):
 
 @router.message(Command("learn"))
 async def cmd_learn(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
-    if not intern.onboarding_completed:
+    intern = await get_intern(message.chat.id)
+    if not intern['onboarding_completed']:
         await message.answer("Сначала /start")
         return
     await send_topic(message.chat.id, state, message.bot)
@@ -435,21 +514,21 @@ async def cb_learn(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "later")
 async def cb_later(callback: CallbackQuery):
-    intern = get_intern(callback.message.chat.id)
+    intern = await get_intern(callback.message.chat.id)
     await callback.answer()
-    await callback.message.edit_text(f"Жду тебя в {intern.schedule_time}! Или /learn")
+    await callback.message.edit_text(f"Жду тебя в {intern['schedule_time']}! Или /learn")
 
 @router.message(Command("progress"))
 async def cmd_progress(message: Message):
-    intern = get_intern(message.chat.id)
-    if not intern.onboarding_completed:
+    intern = await get_intern(message.chat.id)
+    if not intern['onboarding_completed']:
         await message.answer("Сначала /start")
         return
     
-    done = len(intern.completed_topics)
+    done = len(intern['completed_topics'])
     total = len(TOPICS)
     await message.answer(
-        f"📊 *{intern.name}*\n\n"
+        f"📊 *{intern['name']}*\n\n"
         f"✅ {done} из {total} тем\n"
         f"{progress_bar(done, total)}\n\n"
         f"/learn — продолжить",
@@ -458,40 +537,47 @@ async def cmd_progress(message: Message):
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message):
-    intern = get_intern(message.chat.id)
-    if not intern.onboarding_completed:
+    intern = await get_intern(message.chat.id)
+    if not intern['onboarding_completed']:
         await message.answer("Сначала /start")
         return
     
-    exp = EXPERIENCE_LEVELS.get(intern.experience_level, {})
-    diff = DIFFICULTY_LEVELS.get(intern.difficulty_preference, {})
-    style = LEARNING_STYLES.get(intern.learning_style, {})
+    exp = EXPERIENCE_LEVELS.get(intern['experience_level'], {})
+    diff = DIFFICULTY_LEVELS.get(intern['difficulty_preference'], {})
+    style = LEARNING_STYLES.get(intern['learning_style'], {})
     
     await message.answer(
-        f"👤 *{intern.name}*\n"
-        f"💼 {intern.role}\n"
-        f"🎯 {intern.domain}\n"
-        f"🎨 {', '.join(intern.interests)}\n\n"
+        f"👤 *{intern['name']}*\n"
+        f"💼 {intern['role']}\n"
+        f"🎯 {intern['domain']}\n"
+        f"🎨 {', '.join(intern['interests'])}\n\n"
         f"{exp.get('emoji','')} {exp.get('name','')}\n"
         f"{diff.get('emoji','')} {diff.get('name','')}\n"
         f"{style.get('emoji','')} {style.get('name','')}\n\n"
-        f"⏰ Обучение в {intern.schedule_time}",
+        f"⏰ Обучение в {intern['schedule_time']}",
         parse_mode="Markdown"
     )
 
 @router.message(LearningStates.waiting_for_answer)
 async def on_answer(message: Message, state: FSMContext):
-    intern = get_intern(message.chat.id)
+    intern = await get_intern(message.chat.id)
     
     if len(message.text.strip()) < 20:
         await message.answer("Напиши подробнее (хотя бы 2-3 предложения)")
         return
     
-    intern.completed_topics.append(intern.current_topic_index)
-    intern.current_topic_index += 1
-    intern.current_question = None
+    # Сохраняем ответ
+    await save_answer(message.chat.id, intern['current_topic_index'], message.text.strip())
     
-    done = len(intern.completed_topics)
+    # Обновляем прогресс
+    completed = intern['completed_topics'] + [intern['current_topic_index']]
+    await update_intern(
+        message.chat.id,
+        completed_topics=completed,
+        current_topic_index=intern['current_topic_index'] + 1
+    )
+    
+    done = len(completed)
     total = len(TOPICS)
     
     await message.answer(
@@ -505,8 +591,8 @@ async def on_answer(message: Message, state: FSMContext):
 # --- Отправка темы ---
 
 async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
-    intern = get_intern(chat_id)
-    topic = get_topic(intern.current_topic_index)
+    intern = await get_intern(chat_id)
+    topic = get_topic(intern['current_topic_index'])
     
     if not topic:
         await bot.send_message(chat_id, "🎉 Все темы пройдены!")
@@ -523,7 +609,6 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
         f"⏱ 20 минут\n{'─'*25}\n\n"
     )
     
-    # Разбиваем на части если длинный
     full = header + content
     if len(full) > 4000:
         await bot.send_message(chat_id, header, parse_mode="Markdown")
@@ -538,49 +623,46 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
         parse_mode="Markdown"
     )
     
-    intern.current_question = topic
     await state.set_state(LearningStates.waiting_for_answer)
 
 # ============= ПЛАНИРОВЩИК =============
 
 scheduler = AsyncIOScheduler()
 
-async def schedule_daily(chat_id: int, time_str: str):
-    h, m = map(int, time_str.split(":"))
-    job_id = f"daily_{chat_id}"
+async def scheduled_check():
+    """Проверка расписания каждую минуту"""
+    now = datetime.now()
+    interns = await get_all_scheduled_interns(now.hour, now.minute)
     
-    if scheduler.get_job(job_id):
-        scheduler.remove_job(job_id)
-    
-    scheduler.add_job(
-        send_reminder,
-        CronTrigger(hour=h, minute=m),
-        args=[chat_id],
-        id=job_id
-    )
-    logger.info(f"Scheduled {chat_id} at {time_str}")
-
-async def send_reminder(chat_id: int):
     bot = Bot(token=BOT_TOKEN)
-    intern = get_intern(chat_id)
-    await bot.send_message(
-        chat_id,
-        f"⏰ *{intern.schedule_time}* — время учиться, {intern.name}!",
-        parse_mode="Markdown",
-        reply_markup=kb_learn()
-    )
+    for intern in interns:
+        try:
+            await bot.send_message(
+                intern['chat_id'],
+                f"⏰ Время учиться, {intern['name']}!",
+                reply_markup=kb_learn()
+            )
+            logger.info(f"Sent reminder to {intern['chat_id']}")
+        except Exception as e:
+            logger.error(f"Failed to send reminder to {intern['chat_id']}: {e}")
+    
     await bot.session.close()
 
 # ============= ЗАПУСК =============
 
 async def main():
+    # Инициализация БД
+    await init_db()
+    
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
+    # Запуск планировщика
+    scheduler.add_job(scheduled_check, 'cron', minute='*')
     scheduler.start()
     
-    logger.info("🚀 Бот запущен!")
+    logger.info("🚀 Бот запущен с PostgreSQL!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
