@@ -80,6 +80,34 @@ STUDY_DURATIONS = {
     "25": {"emoji": "🕓", "name": "25 минут", "words": 2500, "desc": "Полное погружение"}
 }
 
+# Уровни сложности по таксономии Блума (сгруппированы в 3 уровня)
+BLOOM_LEVELS = {
+    1: {
+        "emoji": "🔵",
+        "name": "Понимание",
+        "desc": "Запоминание и понимание концепций",
+        "question_type": "Объясни своими словами, что такое {concept}? Приведи пример из своей области.",
+        "prompt": "Создай вопрос на ПОНИМАНИЕ темы. Попроси объяснить концепцию своими словами или привести пример."
+    },
+    2: {
+        "emoji": "🟡",
+        "name": "Применение",
+        "desc": "Применение и анализ в практике",
+        "question_type": "Как бы ты применил {concept} в своей работе? Разбери конкретную ситуацию.",
+        "prompt": "Создай вопрос на ПРИМЕНЕНИЕ темы. Попроси применить концепцию к конкретной рабочей ситуации стажера или проанализировать кейс."
+    },
+    3: {
+        "emoji": "🔴",
+        "name": "Создание",
+        "desc": "Оценка и создание нового",
+        "question_type": "Предложи своё решение на основе {concept}. Оцени плюсы и минусы разных подходов.",
+        "prompt": "Создай вопрос на СОЗДАНИЕ/ОЦЕНКУ. Попроси предложить своё решение, оценить подходы или создать план действий на основе изученного."
+    }
+}
+
+# Автоматическое повышение уровня: после N тем на текущем уровне
+BLOOM_AUTO_UPGRADE_AFTER = 7  # после 7 тем уровень повышается
+
 # ============= СОСТОЯНИЯ FSM =============
 
 class OnboardingStates(StatesGroup):
@@ -99,12 +127,14 @@ class OnboardingStates(StatesGroup):
 
 class LearningStates(StatesGroup):
     waiting_for_answer = State()
+    waiting_for_bonus_answer = State()  # ответ на дополнительный вопрос посложнее
 
 class UpdateStates(StatesGroup):
     choosing_field = State()
     updating_problems = State()
     updating_desires = State()
     updating_goals = State()
+    updating_bloom_level = State()  # смена уровня сложности Блума
 
 # ============= БАЗА ДАННЫХ =============
 
@@ -133,6 +163,8 @@ async def init_db():
                 schedule_time TEXT DEFAULT '09:00',
                 current_topic_index INTEGER DEFAULT 0,
                 completed_topics TEXT DEFAULT '[]',
+                bloom_level INTEGER DEFAULT 1,
+                topics_at_current_bloom INTEGER DEFAULT 0,
                 onboarding_completed BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
@@ -143,6 +175,8 @@ async def init_db():
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS study_duration INTEGER DEFAULT 15')
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_problems TEXT DEFAULT \'\'')
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS desires TEXT DEFAULT \'\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS bloom_level INTEGER DEFAULT 1')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_bloom INTEGER DEFAULT 0')
         
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS answers (
@@ -180,6 +214,8 @@ async def get_intern(chat_id: int) -> dict:
                 'schedule_time': row['schedule_time'],
                 'current_topic_index': row['current_topic_index'],
                 'completed_topics': json.loads(row['completed_topics']),
+                'bloom_level': row['bloom_level'] if row['bloom_level'] else 1,
+                'topics_at_current_bloom': row['topics_at_current_bloom'] if row['topics_at_current_bloom'] else 0,
                 'onboarding_completed': row['onboarding_completed']
             }
         else:
@@ -204,6 +240,8 @@ async def get_intern(chat_id: int) -> dict:
                 'schedule_time': '09:00',
                 'current_topic_index': 0,
                 'completed_topics': [],
+                'bloom_level': 1,
+                'topics_at_current_bloom': 0,
                 'onboarding_completed': False
             }
 
@@ -361,16 +399,26 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
 
-    async def generate_question(self, topic: dict, intern: dict) -> str:
+    async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
+        """Генерирует вопрос по теме с учётом уровня Блума"""
+        level = bloom_level or intern.get('bloom_level', 1)
+        bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
+
         system_prompt = f"""Создай один вопрос для проверки понимания темы.
 {get_personalization_prompt(intern)}
-Вопрос должен требовать развёрнутого ответа и быть связан с областью стажера."""
+
+УРОВЕНЬ СЛОЖНОСТИ ВОПРОСА: {bloom['name']} ({bloom['desc']})
+{bloom['prompt']}
+
+Вопрос должен требовать развёрнутого ответа и быть связан с областью стажера "{intern['domain']}"."""
 
         user_prompt = f"""Тема: {topic.get('title')}
-Понятие: {topic.get('main_concept')}"""
+Понятие: {topic.get('main_concept')}
+
+Создай вопрос уровня "{bloom['name']}" для этой темы."""
 
         result = await self.generate(system_prompt, user_prompt)
-        return result or "Что ты понял из этой темы? Приведи пример из своей практики."
+        return result or bloom['question_type'].format(concept=topic.get('main_concept', 'эту тему'))
 
 claude = ClaudeClient()
 
@@ -581,7 +629,25 @@ def kb_update_profile() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="😓 Проблемы", callback_data="upd_problems")],
         [InlineKeyboardButton(text="✨ Желания", callback_data="upd_desires")],
         [InlineKeyboardButton(text="🎯 Цели", callback_data="upd_goals")],
+        [InlineKeyboardButton(text="🎚 Уровень сложности", callback_data="upd_bloom")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="upd_cancel")]
+    ])
+
+def kb_bloom_level() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора уровня Блума"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"{v['emoji']} {v['name']}",
+            callback_data=f"bloom_{k}"
+        )]
+        for k, v in BLOOM_LEVELS.items()
+    ])
+
+def kb_bonus_question() -> InlineKeyboardMarkup:
+    """Клавиатура для предложения дополнительного вопроса"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Да, давай сложнее!", callback_data="bonus_yes")],
+        [InlineKeyboardButton(text="✅ Достаточно", callback_data="bonus_no")]
     ])
 
 def progress_bar(completed: int, total: int) -> str:
@@ -818,6 +884,7 @@ async def cmd_profile(message: Message):
     diff = DIFFICULTY_LEVELS.get(intern['difficulty_preference'], {})
     style = LEARNING_STYLES.get(intern['learning_style'], {})
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
 
     problems_short = intern['current_problems'][:100] + '...' if len(intern['current_problems']) > 100 else intern['current_problems']
     desires_short = intern['desires'][:100] + '...' if len(intern['desires']) > 100 else intern['desires']
@@ -832,7 +899,8 @@ async def cmd_profile(message: Message):
         f"{exp.get('emoji','')} {exp.get('name','')}\n"
         f"{diff.get('emoji','')} {diff.get('name','')}\n"
         f"{style.get('emoji','')} {style.get('name','')}\n"
-        f"{duration.get('emoji','')} {duration.get('name','')} на тему\n\n"
+        f"{duration.get('emoji','')} {duration.get('name','')} на тему\n"
+        f"{bloom['emoji']} Уровень вопросов: {bloom['name']}\n\n"
         f"🎯 {intern['goals']}\n"
         f"⏰ Обучение в {intern['schedule_time']}\n\n"
         f"/update — обновить профиль",
@@ -908,6 +976,37 @@ async def on_upd_goals(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(UpdateStates.updating_goals)
 
+@router.callback_query(UpdateStates.choosing_field, F.data == "upd_bloom")
+async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
+    intern = await get_intern(callback.message.chat.id)
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+    await callback.answer()
+    await callback.message.edit_text(
+        f"🎚 *Текущий уровень:* {bloom['emoji']} {bloom['name']}\n"
+        f"_{bloom['desc']}_\n\n"
+        f"Пройдено тем на этом уровне: {intern['topics_at_current_bloom']}/{BLOOM_AUTO_UPGRADE_AFTER}\n\n"
+        "Выбери новый уровень сложности вопросов:",
+        parse_mode="Markdown",
+        reply_markup=kb_bloom_level()
+    )
+    await state.set_state(UpdateStates.updating_bloom_level)
+
+@router.callback_query(UpdateStates.updating_bloom_level, F.data.startswith("bloom_"))
+async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
+    level = int(callback.data.replace("bloom_", ""))
+    await update_intern(callback.message.chat.id, bloom_level=level, topics_at_current_bloom=0)
+
+    bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
+    await callback.answer(f"Уровень: {bloom['name']}")
+    await callback.message.edit_text(
+        f"✅ Уровень сложности изменён на *{bloom['name']}*!\n\n"
+        f"{bloom['desc']}\n\n"
+        f"/learn — продолжить обучение\n"
+        f"/update — обновить ещё что-то",
+        parse_mode="Markdown"
+    )
+    await state.clear()
+
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_cancel")
 async def on_upd_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer("Отменено")
@@ -949,28 +1048,128 @@ async def on_save_goals(message: Message, state: FSMContext):
 @router.message(LearningStates.waiting_for_answer)
 async def on_answer(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
-    
+
     if len(message.text.strip()) < 20:
         await message.answer("Напиши подробнее (хотя бы 2-3 предложения)")
         return
-    
+
     # Сохраняем ответ
     await save_answer(message.chat.id, intern['current_topic_index'], message.text.strip())
-    
-    # Обновляем прогресс
+
+    # Обновляем прогресс и счётчик тем на текущем уровне Блума
     completed = intern['completed_topics'] + [intern['current_topic_index']]
+    topics_at_bloom = intern['topics_at_current_bloom'] + 1
+    bloom_level = intern['bloom_level']
+
+    # Автоматическое повышение уровня после N тем
+    level_upgraded = False
+    if topics_at_bloom >= BLOOM_AUTO_UPGRADE_AFTER and bloom_level < 3:
+        bloom_level += 1
+        topics_at_bloom = 0
+        level_upgraded = True
+
     await update_intern(
         message.chat.id,
         completed_topics=completed,
-        current_topic_index=intern['current_topic_index'] + 1
+        current_topic_index=intern['current_topic_index'] + 1,
+        bloom_level=bloom_level,
+        topics_at_current_bloom=topics_at_bloom
     )
-    
+
     done = len(completed)
     total = get_total_topics()
-    
+    bloom = BLOOM_LEVELS.get(bloom_level, BLOOM_LEVELS[1])
+
+    # Сообщение о повышении уровня
+    upgrade_msg = ""
+    if level_upgraded:
+        upgrade_msg = f"\n\n🎉 *Поздравляю!* Ты перешёл на уровень *{bloom['name']}*!"
+
+    # Если уровень ниже максимального — предлагаем дополнительный вопрос
+    if intern['bloom_level'] < 3:
+        # Сохраняем индекс темы в state для бонусного вопроса
+        await state.update_data(topic_index=intern['current_topic_index'])
+
+        await message.answer(
+            f"✅ *Тема засчитана!*\n\n"
+            f"{progress_bar(done, total)}\n"
+            f"{bloom['emoji']} Уровень: {bloom['name']}{upgrade_msg}\n\n"
+            f"Хочешь дополнительный вопрос посложнее?",
+            parse_mode="Markdown",
+            reply_markup=kb_bonus_question()
+        )
+        # Не очищаем state — ждём выбора
+    else:
+        await message.answer(
+            f"✅ *Тема засчитана!*\n\n"
+            f"{progress_bar(done, total)}\n"
+            f"{bloom['emoji']} Уровень: {bloom['name']}{upgrade_msg}\n\n"
+            f"/learn — следующая тема",
+            parse_mode="Markdown"
+        )
+        await state.clear()
+
+@router.callback_query(F.data == "bonus_yes")
+async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
+    """Пользователь хочет дополнительный вопрос посложнее"""
+    await callback.answer()
+
+    data = await state.get_data()
+    topic_index = data.get('topic_index', 0)
+
+    intern = await get_intern(callback.message.chat.id)
+    topic = get_topic(topic_index)
+
+    if not topic:
+        await callback.message.edit_text("Не удалось найти тему. /learn для продолжения")
+        await state.clear()
+        return
+
+    await callback.message.edit_text("⏳ Генерирую вопрос посложнее...")
+
+    # Генерируем вопрос следующего уровня
+    next_level = min(intern['bloom_level'] + 1, 3)
+    question = await claude.generate_question(topic, intern, bloom_level=next_level)
+
+    bloom = BLOOM_LEVELS.get(next_level, BLOOM_LEVELS[1])
+
+    await callback.message.answer(
+        f"🚀 *Бонусный вопрос* ({bloom['emoji']} {bloom['name']})\n\n"
+        f"{question}\n\n"
+        f"Напиши ответ 👇",
+        parse_mode="Markdown"
+    )
+    await state.set_state(LearningStates.waiting_for_bonus_answer)
+
+@router.callback_query(F.data == "bonus_no")
+async def on_bonus_no(callback: CallbackQuery, state: FSMContext):
+    """Пользователь отказался от дополнительного вопроса"""
+    await callback.answer("Хорошо!")
+    await callback.message.edit_text(
+        callback.message.text + "\n\n/learn — следующая тема",
+        parse_mode="Markdown"
+    )
+    await state.clear()
+
+@router.message(LearningStates.waiting_for_bonus_answer)
+async def on_bonus_answer(message: Message, state: FSMContext):
+    """Обработка ответа на бонусный вопрос"""
+    if len(message.text.strip()) < 20:
+        await message.answer("Напиши подробнее (хотя бы 2-3 предложения)")
+        return
+
+    intern = await get_intern(message.chat.id)
+    data = await state.get_data()
+    topic_index = data.get('topic_index', 0)
+
+    # Сохраняем ответ на бонусный вопрос
+    await save_answer(message.chat.id, topic_index, f"[BONUS] {message.text.strip()}")
+
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+
     await message.answer(
-        f"✅ *Тема засчитана!*\n\n"
-        f"{progress_bar(done, total)}\n\n"
+        f"🌟 *Отлично!* Бонусный вопрос засчитан!\n\n"
+        f"Ты тренируешь навыки уровня *{bloom['name']}* и выше.\n\n"
         f"/learn — следующая тема",
         parse_mode="Markdown"
     )
@@ -991,13 +1190,15 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
     # Генерируем контент с контекстом из MCP
     content = await claude.generate_content(topic, intern, mcp_client=mcp)
     question = await claude.generate_question(topic, intern)
-    
+
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+
     header = (
         f"📚 *{topic['section']}* → {topic['subsection']}\n\n"
         f"*{topic['title']}*\n"
         f"⏱ {intern['study_duration']} минут\n{'─'*25}\n\n"
     )
-    
+
     full = header + content
     if len(full) > 4000:
         await bot.send_message(chat_id, header, parse_mode="Markdown")
@@ -1005,13 +1206,16 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
             await bot.send_message(chat_id, content[i:i+4000])
     else:
         await bot.send_message(chat_id, full, parse_mode="Markdown")
-    
+
     await bot.send_message(
         chat_id,
-        f"{'─'*25}\n\n❓ *Вопрос:*\n\n{question}\n\n⏱ 5 минут\nНапиши ответ 👇",
+        f"{'─'*25}\n\n"
+        f"❓ *Вопрос* ({bloom['emoji']} {bloom['name']})\n\n"
+        f"{question}\n\n"
+        f"⏱ 5 минут\nНапиши ответ 👇",
         parse_mode="Markdown"
     )
-    
+
     await state.set_state(LearningStates.waiting_for_answer)
 
 # ============= ПЛАНИРОВЩИК =============
