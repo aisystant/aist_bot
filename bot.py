@@ -1,6 +1,10 @@
 """
-AIST Pilot Bot — Telegram-бот для персонального обучения стажера
+AIST Pilot Bot — Telegram-бот для систематического обучения
 GitHub: https://github.com/aisystant/aist_pilot_bot
+
+Миссия: Помочь стажёрам трансформироваться из людей с «непродуктивными убеждениями»
+и случайных учеников в систематических учеников, которые собраны и удерживают
+внимание на своём системном развитии.
 
 С поддержкой PostgreSQL для хранения данных пользователей.
 """
@@ -25,6 +29,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.base import StorageKey
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
@@ -80,28 +85,31 @@ STUDY_DURATIONS = {
     "25": {"emoji": "🕓", "name": "25 минут", "words": 2500, "desc": "Полное погружение"}
 }
 
-# Уровни сложности по таксономии Блума (сгруппированы в 3 уровня)
+# Уровни сложности вопросов (по таксономии Блума)
 BLOOM_LEVELS = {
     1: {
         "emoji": "🔵",
-        "name": "Понимание",
+        "name": "Понимаю",
+        "short_name": "Сложность-1",
         "desc": "Запоминание и понимание концепций",
         "question_type": "Объясни своими словами, что такое {concept}? Приведи пример из своей области.",
         "prompt": "Создай вопрос на ПОНИМАНИЕ темы. Попроси объяснить концепцию своими словами или привести пример."
     },
     2: {
         "emoji": "🟡",
-        "name": "Применение",
+        "name": "Применяю",
+        "short_name": "Сложность-2",
         "desc": "Применение и анализ в практике",
         "question_type": "Как бы ты применил {concept} в своей работе? Разбери конкретную ситуацию.",
         "prompt": "Создай вопрос на ПРИМЕНЕНИЕ темы. Попроси применить концепцию к конкретной рабочей ситуации стажера или проанализировать кейс."
     },
     3: {
         "emoji": "🔴",
-        "name": "Создание",
+        "name": "Анализирую",
+        "short_name": "Сложность-3",
         "desc": "Оценка и создание нового",
         "question_type": "Предложи своё решение на основе {concept}. Оцени плюсы и минусы разных подходов.",
-        "prompt": "Создай вопрос на СОЗДАНИЕ/ОЦЕНКУ. Попроси предложить своё решение, оценить подходы или создать план действий на основе изученного."
+        "prompt": "Создай вопрос на АНАЛИЗ/ОЦЕНКУ. Попроси предложить своё решение, оценить подходы или создать план действий на основе изученного."
     }
 }
 
@@ -307,14 +315,21 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
         )
 
 async def get_all_scheduled_interns(hour: int, minute: int) -> list:
-    """Получить всех стажеров с заданным временем обучения"""
-    time_str = f"{hour:02d}:{minute:02d}"
+    """Получить всех стажеров с заданным временем обучения (за 5 минут до времени)"""
+    # Вычисляем время, которое будет через 5 минут
+    target_hour = hour
+    target_minute = minute + 5
+    if target_minute >= 60:
+        target_minute -= 60
+        target_hour = (target_hour + 1) % 24
+
+    time_str = f"{target_hour:02d}:{target_minute:02d}"
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
-            'SELECT chat_id, name FROM interns WHERE schedule_time = $1 AND onboarding_completed = TRUE',
+            'SELECT chat_id FROM interns WHERE schedule_time = $1 AND onboarding_completed = TRUE',
             time_str
         )
-        return [{'chat_id': row['chat_id'], 'name': row['name']} for row in rows]
+        return [row['chat_id'] for row in rows]
 
 def get_topics_today(intern: dict) -> int:
     """Получить количество тем, пройденных сегодня"""
@@ -346,11 +361,16 @@ def get_personalization_prompt(intern: dict) -> str:
 - Время на изучение: {intern['study_duration']} минут (~{duration.get('words', 1500)} слов)
 
 ИНСТРУКЦИИ ПО ПЕРСОНАЛИЗАЦИИ:
-1. Используй примеры из области "{occupation}" и интересов стажера ({interests})
-2. Показывай, как тема помогает достичь того, что стажер хочет изменить: "{goals}"
-3. Добавляй мотивационный блок, опираясь на ценности стажера: "{motivation}"
-4. Объём текста должен быть рассчитан на {intern['study_duration']} минут чтения (~{duration.get('words', 1500)} слов)
-5. Пиши простым языком, избегай академического стиля
+1. Показывай, как тема помогает достичь того, что стажер хочет изменить: "{goals}"
+2. Добавляй мотивационный блок, опираясь на ценности стажера: "{motivation}"
+3. Объём текста должен быть рассчитан на {intern['study_duration']} минут чтения (~{duration.get('words', 1500)} слов)
+4. Пиши простым языком, избегай академического стиля
+
+ПРАВИЛА ДЛЯ ПРИМЕРОВ:
+- Первый пример — из рабочей сферы стажера ("{occupation}")
+- Второй пример — из близкой профессиональной сферы
+- Третий пример (если нужен) — из интересов/хобби ({interests}), НЕ БОЛЕЕ ОДНОГО примера из интересов
+- Четвёртый пример (если нужен) — из абсолютно далёкой сферы для контраста
 """
 
 # ============= CLAUDE API =============
@@ -793,10 +813,10 @@ def kb_update_profile() -> InlineKeyboardMarkup:
     ])
 
 def kb_bloom_level() -> InlineKeyboardMarkup:
-    """Клавиатура для выбора уровня Блума"""
+    """Клавиатура для выбора уровня сложности"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"{v['emoji']} {v['name']}",
+            text=f"{v['emoji']} {v['short_name']} «{v['name']}»",
             callback_data=f"bloom_{k}"
         )]
         for k, v in BLOOM_LEVELS.items()
@@ -916,7 +936,8 @@ async def on_duration(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_text(
         "Во сколько напоминать о новой теме?\n\n"
-        "_Напиши время в формате ЧЧ:ММ (например: 09:00)_",
+        "_Напиши время в формате ЧЧ:ММ (например: 09:00)_\n"
+        "_Часовой пояс: UTC+3 (Москва)_",
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_schedule)
@@ -979,7 +1000,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         f"❓ *Вопрос* — для закрепления материала\n"
         f"📈 *{DAILY_TOPICS_LIMIT} темы в день* — тренируем систематичность\n\n"
         f"➡️ *Сложность вопросов*\n\n"
-        f"Сейчас: {bloom['emoji']} *{bloom['name']}*\n\n"
+        f"Сейчас: {bloom['emoji']} *{bloom['short_name']} «{bloom['name']}»*\n\n"
         f"Сложность растёт автоматически по мере прогресса.\n"
         f"Можно изменить вручную: /update → Уровень сложности\n\n"
         f"➡️ *Напоминания*\n\n"
@@ -1050,7 +1071,7 @@ async def cmd_progress(message: Message):
         f"*По разделам*\n"
         f"{sections_text}\n"
         f"*Уровень вопросов*\n"
-        f"{bloom['emoji']} {bloom['name']} ({intern['topics_at_current_bloom']}/{BLOOM_AUTO_UPGRADE_AFTER} до повышения)\n\n"
+        f"{bloom['short_name']} ({intern['topics_at_current_bloom']}/{BLOOM_AUTO_UPGRADE_AFTER} до повышения)\n\n"
         f"/learn — продолжить обучение",
         parse_mode="Markdown"
     )
@@ -1076,7 +1097,7 @@ async def cmd_profile(message: Message):
         f"💫 *Что важно:* {motivation_short or 'не указано'}\n"
         f"🎯 *Что изменить:* {goals_short}\n\n"
         f"{duration.get('emoji', '')} {duration.get('name', '')} на тему\n"
-        f"{bloom['emoji']} Уровень вопросов: {bloom['name']}\n"
+        f"{bloom['emoji']} Уровень: {bloom['short_name']} «{bloom['name']}»\n"
         f"⏰ Напоминание в {intern['schedule_time']}\n\n"
         f"/update — обновить профиль",
         parse_mode="Markdown"
@@ -1127,7 +1148,7 @@ async def cmd_update(message: Message, state: FSMContext):
         f"💫 *Важно:* {motivation_short}\n"
         f"🎯 *Изменить:* {goals_short}\n\n"
         f"{duration.get('emoji', '')} {duration.get('name', '')} на тему\n"
-        f"{bloom['emoji']} Уровень: {bloom['name']}\n"
+        f"{bloom['emoji']} Уровень: {bloom['short_name']}\n"
         f"{topic_order['emoji']} Порядок: {topic_order['name']}\n"
         f"⏰ Напоминание в {intern['schedule_time']}\n\n"
         f"*Что хочешь обновить?*",
@@ -1212,7 +1233,8 @@ async def on_upd_schedule(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"⏰ *Текущее время напоминания:* {intern['schedule_time']}\n\n"
         "Во сколько напоминать о новой теме?\n"
-        "_Напиши время в формате ЧЧ:ММ (например: 09:00)_",
+        "_Напиши время в формате ЧЧ:ММ (например: 09:00)_\n"
+        "_Часовой пояс: UTC+3 (Москва)_",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_schedule)
@@ -1223,7 +1245,7 @@ async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
     bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
     await callback.answer()
     await callback.message.edit_text(
-        f"🎚 *Текущий уровень:* {bloom['emoji']} {bloom['name']}\n"
+        f"🎚 *Текущий уровень:* {bloom['emoji']} {bloom['short_name']} «{bloom['name']}»\n"
         f"_{bloom['desc']}_\n\n"
         f"Пройдено тем на этом уровне: {intern['topics_at_current_bloom']}/{BLOOM_AUTO_UPGRADE_AFTER}\n\n"
         "Выбери новый уровень сложности вопросов:",
@@ -1238,9 +1260,9 @@ async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
     await update_intern(callback.message.chat.id, bloom_level=level, topics_at_current_bloom=0)
 
     bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
-    await callback.answer(f"Уровень: {bloom['name']}")
+    await callback.answer(f"Уровень: {bloom['short_name']}")
     await callback.message.edit_text(
-        f"✅ Уровень сложности изменён на *{bloom['name']}*!\n\n"
+        f"✅ Уровень сложности изменён на *{bloom['short_name']} «{bloom['name']}»*!\n\n"
         f"{bloom['desc']}\n\n"
         f"/learn — продолжить обучение\n"
         f"/update — обновить ещё что-то",
@@ -1421,7 +1443,7 @@ async def on_answer(message: Message, state: FSMContext):
     # Сообщение о повышении уровня
     upgrade_msg = ""
     if level_upgraded:
-        upgrade_msg = f"\n\n🎉 *Поздравляю!* Ты перешёл на уровень *{bloom['name']}*!"
+        upgrade_msg = f"\n\n🎉 *Поздравляю!* Ты перешёл на *{bloom['short_name']} «{bloom['name']}»*!"
 
     # Если уровень ниже максимального — предлагаем дополнительный вопрос
     if intern['bloom_level'] < 3:
@@ -1431,7 +1453,7 @@ async def on_answer(message: Message, state: FSMContext):
         await message.answer(
             f"✅ *Тема засчитана!*\n\n"
             f"{progress_bar(done, total)}\n"
-            f"{bloom['emoji']} Уровень: {bloom['name']}{upgrade_msg}\n\n"
+            f"{bloom['short_name']}{upgrade_msg}\n\n"
             f"Хочешь дополнительный вопрос посложнее?",
             parse_mode="Markdown",
             reply_markup=kb_bonus_question()
@@ -1441,7 +1463,7 @@ async def on_answer(message: Message, state: FSMContext):
         await message.answer(
             f"✅ *Тема засчитана!*\n\n"
             f"{progress_bar(done, total)}\n"
-            f"{bloom['emoji']} Уровень: {bloom['name']}{upgrade_msg}\n\n"
+            f"{bloom['short_name']}{upgrade_msg}\n\n"
             f"/learn — следующая тема",
             parse_mode="Markdown"
         )
@@ -1472,7 +1494,7 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
     bloom = BLOOM_LEVELS.get(next_level, BLOOM_LEVELS[1])
 
     await callback.message.answer(
-        f"🚀 *Бонусный вопрос* ({bloom['emoji']} {bloom['name']})\n\n"
+        f"🚀 *Бонусный вопрос* ({bloom['short_name']})\n\n"
         f"{question}\n\n"
         f"Напиши ответ 👇",
         parse_mode="Markdown"
@@ -1507,7 +1529,7 @@ async def on_bonus_answer(message: Message, state: FSMContext):
 
     await message.answer(
         f"🌟 *Отлично!* Бонусный вопрос засчитан!\n\n"
-        f"Ты тренируешь навыки уровня *{bloom['name']}* и выше.\n\n"
+        f"Ты тренируешь навыки *{bloom['short_name']}* и выше.\n\n"
         f"/learn — следующая тема",
         parse_mode="Markdown"
     )
@@ -1626,11 +1648,13 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
     else:
         await bot.send_message(chat_id, full, parse_mode="Markdown")
 
+    # Вопрос отдельным сообщением
     await bot.send_message(
         chat_id,
-        f"❓ *Вопрос* ({bloom['emoji']} {bloom['name']})\n\n"
+        f"💭 *Вопрос для размышления* ({bloom['short_name']})\n\n"
         f"{question}\n\n"
-        f"_Ответ не проверяется автоматически._",
+        f"_Напишите ответ в сообщении. Он не проверяется автоматически — "
+        f"после получения любого ответа тема считается пройденной._",
         parse_mode="Markdown",
         reply_markup=kb_skip_topic()
     )
@@ -1641,34 +1665,117 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
 
 scheduler = AsyncIOScheduler()
 
-async def scheduled_check():
-    """Проверка расписания каждую минуту"""
-    now = datetime.now()
-    interns = await get_all_scheduled_interns(now.hour, now.minute)
-    
-    bot = Bot(token=BOT_TOKEN)
-    for intern in interns:
-        try:
+# Глобальный dispatcher для доступа к FSM storage
+_dispatcher: Optional[Dispatcher] = None
+
+async def send_scheduled_topic(chat_id: int, bot: Bot):
+    """Отправка темы по расписанию (генерация контента сразу)"""
+    intern = await get_intern(chat_id)
+
+    # Проверяем дневной лимит
+    topics_today = get_topics_today(intern)
+    if topics_today >= DAILY_TOPICS_LIMIT:
+        await bot.send_message(
+            chat_id,
+            f"Сегодня ты уже прошёл {topics_today} темы — лимит на сегодня.\n"
+            f"Возвращайся завтра!",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Получаем следующую тему
+    topic_index = get_next_topic_index(intern)
+    topic = get_topic(topic_index) if topic_index is not None else None
+
+    if topic_index is not None and topic_index != intern['current_topic_index']:
+        await update_intern(chat_id, current_topic_index=topic_index)
+
+    if not topic:
+        total_topics = get_total_topics()
+        completed_count = len(intern['completed_topics'])
+
+        if completed_count >= total_topics and total_topics > 0:
             await bot.send_message(
-                intern['chat_id'],
-                f"⏰ Время учиться, {intern['name']}!",
-                reply_markup=kb_learn()
+                chat_id,
+                "🎉 *Все темы пройдены!*\n\n"
+                "Заходи в [Мастерскую](https://system-school.ru/) для продвинутых программ.",
+                parse_mode="Markdown"
             )
-            logger.info(f"Sent reminder to {intern['chat_id']}")
+        return
+
+    await bot.send_message(chat_id, "⏳ Генерирую персональный материал...")
+
+    # Генерируем контент
+    content = await claude.generate_content(topic, intern, mcp_client=mcp)
+    question = await claude.generate_question(topic, intern)
+
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+
+    header = (
+        f"📚 *{topic['section']}* → {topic['subsection']}\n\n"
+        f"*{topic['title']}*\n"
+        f"⏱ {intern['study_duration']} минут\n\n"
+    )
+
+    full = header + content
+    if len(full) > 4000:
+        await bot.send_message(chat_id, header, parse_mode="Markdown")
+        for i in range(0, len(content), 4000):
+            await bot.send_message(chat_id, content[i:i+4000])
+    else:
+        await bot.send_message(chat_id, full, parse_mode="Markdown")
+
+    # Вопрос отдельным сообщением
+    await bot.send_message(
+        chat_id,
+        f"💭 *Вопрос для размышления* ({bloom['short_name']})\n\n"
+        f"{question}\n\n"
+        f"_Напишите ответ в сообщении. Он не проверяется автоматически — "
+        f"после получения любого ответа тема считается пройденной._",
+        parse_mode="Markdown",
+        reply_markup=kb_skip_topic()
+    )
+
+    # Устанавливаем состояние ожидания ответа через глобальный dispatcher
+    if _dispatcher:
+        state = FSMContext(
+            storage=_dispatcher.storage,
+            key=StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
+        )
+        await state.set_state(LearningStates.waiting_for_answer)
+
+async def scheduled_check():
+    """Проверка расписания каждую минуту — генерация контента за 5 минут до времени"""
+    now = datetime.now()
+    chat_ids = await get_all_scheduled_interns(now.hour, now.minute)
+
+    if not chat_ids:
+        return
+
+    bot = Bot(token=BOT_TOKEN)
+    for chat_id in chat_ids:
+        try:
+            await send_scheduled_topic(chat_id, bot)
+            logger.info(f"Sent scheduled topic to {chat_id}")
         except Exception as e:
-            logger.error(f"Failed to send reminder to {intern['chat_id']}: {e}")
-    
+            logger.error(f"Failed to send scheduled topic to {chat_id}: {e}")
+
     await bot.session.close()
 
 # ============= ЗАПУСК =============
 
 async def main():
+    global _dispatcher
+
     # Инициализация БД
     await init_db()
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+
+    # Сохраняем dispatcher для доступа к FSM storage из планировщика
+    _dispatcher = dp
 
     # Установка команд бота (Menu-кнопка)
     await bot.set_my_commands([
