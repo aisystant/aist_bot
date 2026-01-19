@@ -1595,6 +1595,20 @@ async def on_answer(message: Message, state: FSMContext):
     if level_upgraded:
         upgrade_msg = f"\n\n🎉 *Поздравляю!* Ты перешёл на *{bloom['short_name']} «{bloom['name']}»*!"
 
+    # Получаем информацию о следующей доступной теме
+    updated_intern = {
+        **intern,
+        'completed_topics': completed,
+        'current_topic_index': intern['current_topic_index'] + 1,
+        'topics_today': topics_today,
+        'last_topic_date': today
+    }
+    next_available = get_available_topics(updated_intern)
+    next_topic_hint = ""
+    if next_available:
+        next_topic = next_available[0][1]  # (index, topic) -> topic
+        next_topic_hint = f"\n\n📚 *Следующая тема:* {next_topic['title']}"
+
     # Если уровень ниже максимального — предлагаем дополнительный вопрос
     if intern['bloom_level'] < 3:
         # Сохраняем индекс темы в state для бонусного вопроса
@@ -1603,7 +1617,7 @@ async def on_answer(message: Message, state: FSMContext):
         await message.answer(
             f"✅ *Тема засчитана!*\n\n"
             f"{progress_bar(done, total)}\n"
-            f"{bloom['short_name']}{upgrade_msg}\n\n"
+            f"{bloom['short_name']}{upgrade_msg}{next_topic_hint}\n\n"
             f"Хочешь дополнительный вопрос посложнее?",
             parse_mode="Markdown",
             reply_markup=kb_bonus_question()
@@ -1613,7 +1627,7 @@ async def on_answer(message: Message, state: FSMContext):
         await message.answer(
             f"✅ *Тема засчитана!*\n\n"
             f"{progress_bar(done, total)}\n"
-            f"{bloom['short_name']}{upgrade_msg}\n\n"
+            f"{bloom['short_name']}{upgrade_msg}{next_topic_hint}\n\n"
             f"/learn — следующая тема",
             parse_mode="Markdown"
         )
@@ -1677,9 +1691,16 @@ async def on_bonus_answer(message: Message, state: FSMContext):
 
     bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
 
+    # Получаем информацию о следующей доступной теме
+    next_available = get_available_topics(intern)
+    next_topic_hint = ""
+    if next_available:
+        next_topic = next_available[0][1]  # (index, topic) -> topic
+        next_topic_hint = f"\n\n📚 *Следующая тема:* {next_topic['title']}"
+
     await message.answer(
         f"🌟 *Отлично!* Бонусный вопрос засчитан!\n\n"
-        f"Ты тренируешь навыки *{bloom['short_name']}* и выше.\n\n"
+        f"Ты тренируешь навыки *{bloom['short_name']}* и выше.{next_topic_hint}\n\n"
         f"/learn — следующая тема",
         parse_mode="Markdown"
     )
