@@ -326,15 +326,8 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
         )
 
 async def get_all_scheduled_interns(hour: int, minute: int) -> list:
-    """Получить всех стажеров с заданным временем обучения (за 5 минут до времени)"""
-    # Вычисляем время, которое будет через 5 минут
-    target_hour = hour
-    target_minute = minute + 5
-    if target_minute >= 60:
-        target_minute -= 60
-        target_hour = (target_hour + 1) % 24
-
-    time_str = f"{target_hour:02d}:{target_minute:02d}"
+    """Получить всех стажеров с заданным временем обучения"""
+    time_str = f"{hour:02d}:{minute:02d}"
     async with db_pool.acquire() as conn:
         rows = await conn.fetch(
             'SELECT chat_id FROM interns WHERE schedule_time = $1 AND onboarding_completed = TRUE',
@@ -1991,7 +1984,7 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
 
 # ============= ПЛАНИРОВЩИК =============
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
 
 # Глобальный dispatcher для доступа к FSM storage
 _dispatcher: Optional[Dispatcher] = None
@@ -2138,16 +2131,18 @@ async def check_reminders():
 async def scheduled_check():
     """Проверка расписания каждую минуту"""
     now = moscow_now()
+    time_str = f"{now.hour:02d}:{now.minute:02d}"
     chat_ids = await get_all_scheduled_interns(now.hour, now.minute)
 
     if chat_ids:
+        logger.info(f"[Scheduler] {time_str} MSK — найдено {len(chat_ids)} пользователей для отправки")
         bot = Bot(token=BOT_TOKEN)
         for chat_id in chat_ids:
             try:
                 await send_scheduled_topic(chat_id, bot)
-                logger.info(f"Sent scheduled topic to {chat_id}")
+                logger.info(f"[Scheduler] Отправлена тема пользователю {chat_id}")
             except Exception as e:
-                logger.error(f"Failed to send scheduled topic to {chat_id}: {e}")
+                logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
         await bot.session.close()
 
     # Проверяем напоминания
