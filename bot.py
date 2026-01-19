@@ -137,11 +137,13 @@ TOPIC_ORDERS = {
 
 # Лимит тем в день (для развития систематичности)
 DAILY_TOPICS_LIMIT = 2
+MAX_TOPICS_PER_DAY = 4  # макс тем в день (нагнать 1 день)
+MARATHON_DAYS = 14  # длительность марафона
 
 # ============= СОСТОЯНИЯ FSM =============
 
 class OnboardingStates(StatesGroup):
-    """Упрощённый онбординг в 7 шагов"""
+    """Онбординг для марафона"""
     waiting_for_name = State()           # 1. Имя
     waiting_for_occupation = State()     # 2. Чем занимаешься
     waiting_for_interests = State()      # 3. Интересы/хобби
@@ -149,11 +151,13 @@ class OnboardingStates(StatesGroup):
     waiting_for_goals = State()          # 5. Что хочешь изменить
     waiting_for_study_duration = State() # 6. Время на тему
     waiting_for_schedule = State()       # 7. Время напоминания
+    waiting_for_start_date = State()     # 8. Дата старта марафона
     confirming_profile = State()
 
 class LearningStates(StatesGroup):
-    waiting_for_answer = State()
-    waiting_for_bonus_answer = State()  # ответ на дополнительный вопрос посложнее
+    waiting_for_answer = State()           # ответ на вопрос теории
+    waiting_for_work_product = State()     # название рабочего продукта (практика)
+    waiting_for_bonus_answer = State()     # ответ на дополнительный вопрос посложнее
 
 class UpdateStates(StatesGroup):
     choosing_field = State()
@@ -217,6 +221,19 @@ async def init_db():
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS motivation TEXT DEFAULT \'\'')
         # Порядок тем: default, by_interests, hybrid
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topic_order TEXT DEFAULT \'default\'')
+        # Марафон: дата старта
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_start_date DATE DEFAULT NULL')
+        # Таблица для напоминаний
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS reminders (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT,
+                reminder_type TEXT,
+                scheduled_for TIMESTAMP,
+                sent BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
         
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS answers (
@@ -261,6 +278,7 @@ async def get_intern(chat_id: int) -> dict:
                 'topics_today': row['topics_today'] if row['topics_today'] else 0,
                 'last_topic_date': row['last_topic_date'],
                 'topic_order': row['topic_order'] if 'topic_order' in row.keys() else 'default',
+                'marathon_start_date': row['marathon_start_date'] if 'marathon_start_date' in row.keys() else None,
                 'onboarding_completed': row['onboarding_completed']
             }
         else:
@@ -292,6 +310,7 @@ async def get_intern(chat_id: int) -> dict:
                 'topics_today': 0,
                 'last_topic_date': None,
                 'topic_order': 'default',
+                'marathon_start_date': None,
                 'onboarding_completed': False
             }
 
@@ -409,6 +428,7 @@ class ClaudeClient:
                 return None
 
     async def generate_content(self, topic: dict, intern: dict, mcp_client=None) -> str:
+        """Генерирует контент для теоретической темы марафона"""
         duration = STUDY_DURATIONS.get(str(intern['study_duration']), {"words": 1500})
         words = duration.get('words', 1500)
 
@@ -425,7 +445,6 @@ class ClaudeClient:
                         if isinstance(item, dict):
                             text = item.get('text', item.get('content', ''))
                             if text:
-                                # Ограничиваем длину каждого фрагмента
                                 context_parts.append(text[:1500])
                         elif isinstance(item, str):
                             context_parts.append(item[:1500])
@@ -436,6 +455,9 @@ class ClaudeClient:
             except Exception as e:
                 logger.error(f"MCP search error: {e}")
 
+        # Используем content_prompt из структуры знаний, если есть
+        content_prompt = topic.get('content_prompt', '')
+
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
 {get_personalization_prompt(intern)}
 
@@ -443,7 +465,6 @@ class ClaudeClient:
 Текст должен быть вовлекающим, с примерами из жизни читателя.
 {"Используй предоставленный контекст из руководств Aisystant как основу для материала." if mcp_context else ""}"""
 
-        # Формируем контекст из структуры знаний
         pain_point = topic.get('pain_point', '')
         key_insight = topic.get('key_insight', '')
         source = topic.get('source', '')
@@ -456,6 +477,8 @@ class ClaudeClient:
 {"Ключевой инсайт: " + key_insight if key_insight else ""}
 {"Источник: " + source if source else ""}
 
+{f"ИНСТРУКЦИЯ ПО КОНТЕНТУ:{chr(10)}{content_prompt}" if content_prompt else ""}
+
 {f"КОНТЕКСТ ИЗ РУКОВОДСТВ AISYSTANT:{chr(10)}{mcp_context}" if mcp_context else ""}
 
 Начни с признания боли читателя, затем раскрой тему и подведи к ключевому инсайту.
@@ -463,6 +486,28 @@ class ClaudeClient:
 
         result = await self.generate(system_prompt, user_prompt)
         return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
+
+    async def generate_practice_intro(self, topic: dict, intern: dict) -> str:
+        """Генерирует вводный текст для практического задания"""
+        system_prompt = f"""Ты — персональный наставник по системному мышлению.
+{get_personalization_prompt(intern)}
+
+Напиши краткое (3-5 предложений) введение к практическому заданию.
+Объясни, зачем это задание и как оно связано с темой дня."""
+
+        task = topic.get('task', '')
+        work_product = topic.get('work_product', '')
+
+        user_prompt = f"""Практическое задание: {topic.get('title')}
+Основное понятие: {topic.get('main_concept')}
+
+Задание: {task}
+Рабочий продукт: {work_product}
+
+Напиши краткое введение, которое мотивирует выполнить задание."""
+
+        result = await self.generate(system_prompt, user_prompt)
+        return result or ""
 
     async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
         """Генерирует вопрос по теме с учётом уровня Блума"""
@@ -606,42 +651,61 @@ mcp = MCPClient()
 
 # ============= СТРУКТУРА ЗНАНИЙ =============
 
-def load_knowledge_structure() -> List[dict]:
-    """Загружает структуру знаний из YAML файла"""
+def load_knowledge_structure() -> tuple:
+    """Загружает структуру знаний из YAML файла для марафона"""
     yaml_path = Path(__file__).parent / "knowledge_structure.yaml"
 
     if not yaml_path.exists():
         logger.warning(f"Файл {yaml_path} не найден, используем пустую структуру")
-        return []
+        return [], {}
 
     with open(yaml_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 
-    # Преобразуем иерархическую структуру в плоский список тем
+    meta = data.get('meta', {})
+    sections = {s['id']: s for s in data.get('sections', [])}
+
+    # Загружаем темы для марафона
     topics = []
-    for section in data.get('sections', []):
-        section_title = section.get('title', '')
-        for topic in section.get('topics', []):
-            topics.append({
-                'id': topic.get('id', ''),
-                'section': section_title,
-                'subsection': f"Тема {topic.get('order', 0)}",
-                'title': topic.get('title', ''),
-                'main_concept': topic.get('main_concept', ''),
-                'related_concepts': topic.get('related_concepts', []),
-                'key_insight': topic.get('key_insight', ''),
-                'pain_point': topic.get('pain_point', ''),
-                'source': topic.get('source', '')
-            })
+    for topic in data.get('topics', []):
+        day = topic.get('day', 1)
+        topic_type = topic.get('type', 'theory')
 
-    # Сортируем по порядку
-    topics.sort(key=lambda x: int(x['id'].split('-')[0]) * 100 + int(x['id'].split('-')[1]) if '-' in x['id'] else 0)
+        # Определяем раздел по дню
+        section_id = 'week-1' if day <= 7 else 'week-2'
+        section = sections.get(section_id, {})
 
-    logger.info(f"✅ Загружено {len(topics)} тем из структуры знаний")
-    return topics
+        topics.append({
+            'id': topic.get('id', ''),
+            'day': day,
+            'type': topic_type,  # theory / practice
+            'section': section.get('title', f'Неделя {1 if day <= 7 else 2}'),
+            'title': topic.get('title', ''),
+            'main_concept': topic.get('main_concept', ''),
+            'related_concepts': topic.get('related_concepts', []),
+            'key_insight': topic.get('key_insight', ''),
+            'pain_point': topic.get('pain_point', ''),
+            'source': topic.get('source', ''),
+            # Для генерации контента
+            'content_prompt': topic.get('content_prompt', ''),
+            # Для практических заданий
+            'task': topic.get('task', ''),
+            'work_product': topic.get('work_product', ''),
+            'work_product_examples': topic.get('work_product_examples', [])
+        })
+
+    # Сортируем по дню, затем theory перед practice
+    def sort_key(t):
+        type_order = 0 if t['type'] == 'theory' else 1
+        return (t['day'], type_order)
+
+    topics.sort(key=sort_key)
+
+    logger.info(f"✅ Загружено {len(topics)} тем марафона ({meta.get('total_days', 14)} дней)")
+    return topics, meta
 
 # Загружаем темы при старте
-TOPICS = load_knowledge_structure()
+TOPICS, MARATHON_META = load_knowledge_structure()
 
 def get_topic(index: int) -> Optional[dict]:
     """Получить тему по индексу"""
@@ -651,29 +715,86 @@ def get_total_topics() -> int:
     """Получить общее количество тем"""
     return len(TOPICS)
 
-def get_sections_progress(completed_topics: list) -> list:
-    """Получить прогресс по разделам"""
-    sections = {}
+def get_marathon_day(intern: dict) -> int:
+    """Получить текущий день марафона для участника"""
+    start_date = intern.get('marathon_start_date')
+    if not start_date:
+        return 0
 
-    # Собираем темы по разделам
+    today = datetime.now().date()
+    if isinstance(start_date, datetime):
+        start_date = start_date.date()
+
+    days_passed = (today - start_date).days
+    return min(days_passed + 1, MARATHON_DAYS)  # День 1-14
+
+def get_topics_for_day(day: int) -> List[dict]:
+    """Получить темы для конкретного дня марафона"""
+    return [t for t in TOPICS if t['day'] == day]
+
+def get_available_topics(intern: dict) -> List[dict]:
+    """Получить доступные темы с учётом правил марафона"""
+    marathon_day = get_marathon_day(intern)
+    completed = set(intern.get('completed_topics', []))
+    topics_today = get_topics_today(intern)
+
+    # Нельзя изучать больше MAX_TOPICS_PER_DAY в день
+    if topics_today >= MAX_TOPICS_PER_DAY:
+        return []
+
+    # Собираем все темы до текущего дня марафона
+    available = []
     for i, topic in enumerate(TOPICS):
-        section = topic['section']
-        if section not in sections:
-            sections[section] = {'total': 0, 'completed': 0, 'name': section}
-        sections[section]['total'] += 1
+        if i in completed:
+            continue
+        if topic['day'] > marathon_day:
+            continue  # Нельзя идти вперёд
+        available.append((i, topic))
+
+    return available
+
+def get_sections_progress(completed_topics: list) -> list:
+    """Получить прогресс по неделям марафона"""
+    weeks = {
+        'week-1': {'total': 0, 'completed': 0, 'name': 'Неделя 1: От диагностики к практике'},
+        'week-2': {'total': 0, 'completed': 0, 'name': 'Неделя 2: От практики к системе'}
+    }
+
+    # Собираем темы по неделям
+    for i, topic in enumerate(TOPICS):
+        week_id = 'week-1' if topic['day'] <= 7 else 'week-2'
+        weeks[week_id]['total'] += 1
         if i in completed_topics:
-            sections[section]['completed'] += 1
+            weeks[week_id]['completed'] += 1
 
-    # Возвращаем в порядке появления
-    result = []
-    seen = set()
-    for topic in TOPICS:
-        section = topic['section']
-        if section not in seen:
-            seen.add(section)
-            result.append(sections[section])
+    return [weeks['week-1'], weeks['week-2']]
 
-    return result
+def get_days_progress(completed_topics: list, marathon_day: int) -> list:
+    """Получить прогресс по дням марафона"""
+    days = []
+    completed_set = set(completed_topics)
+
+    for day in range(1, MARATHON_DAYS + 1):
+        day_topics = [(i, t) for i, t in enumerate(TOPICS) if t['day'] == day]
+        completed_count = sum(1 for i, _ in day_topics if i in completed_set)
+
+        status = 'locked'
+        if day <= marathon_day:
+            if completed_count == len(day_topics):
+                status = 'completed'
+            elif completed_count > 0:
+                status = 'in_progress'
+            else:
+                status = 'available'
+
+        days.append({
+            'day': day,
+            'total': len(day_topics),
+            'completed': completed_count,
+            'status': status
+        })
+
+    return days
 
 def score_topic_by_interests(topic: dict, interests: list) -> int:
     """Оценка темы по совпадению с интересами пользователя"""
@@ -703,60 +824,14 @@ def score_topic_by_interests(topic: dict, interests: list) -> int:
     return score
 
 def get_next_topic_index(intern: dict) -> Optional[int]:
-    """Получить индекс следующей темы с учётом порядка"""
-    completed = set(intern['completed_topics'])
-    current_idx = intern['current_topic_index']
-    topic_order = intern.get('topic_order', 'default')
-    interests = intern.get('interests', [])
+    """Получить индекс следующей темы с учётом правил марафона"""
+    available = get_available_topics(intern)
 
-    # Получаем список непройденных тем
-    remaining = [(i, t) for i, t in enumerate(TOPICS) if i not in completed]
-
-    if not remaining:
+    if not available:
         return None
 
-    if topic_order == 'default':
-        # Просто следующая по порядку непройденная тема
-        for i, _ in remaining:
-            if i >= current_idx:
-                return i
-        # Если все после current_idx пройдены, берём первую непройденную
-        return remaining[0][0] if remaining else None
-
-    elif topic_order == 'by_interests':
-        # Сортируем все непройденные по интересам (descending), потом по индексу
-        scored = [(i, t, score_topic_by_interests(t, interests)) for i, t in remaining]
-        scored.sort(key=lambda x: (-x[2], x[0]))  # сначала по score (desc), потом по index
-        return scored[0][0] if scored else None
-
-    elif topic_order == 'hybrid':
-        # Находим текущий раздел (первый незавершённый)
-        sections_order = []
-        seen = set()
-        for topic in TOPICS:
-            sec = topic['section']
-            if sec not in seen:
-                seen.add(sec)
-                sections_order.append(sec)
-
-        # Находим первый раздел с непройденными темами
-        current_section = None
-        for sec in sections_order:
-            sec_topics = [(i, t) for i, t in remaining if t['section'] == sec]
-            if sec_topics:
-                current_section = sec
-                break
-
-        if not current_section:
-            return remaining[0][0] if remaining else None
-
-        # Внутри текущего раздела сортируем по интересам
-        section_remaining = [(i, t) for i, t in remaining if t['section'] == current_section]
-        scored = [(i, t, score_topic_by_interests(t, interests)) for i, t in section_remaining]
-        scored.sort(key=lambda x: (-x[2], x[0]))
-        return scored[0][0] if scored else None
-
-    return current_idx
+    # Возвращаем первую доступную тему (они уже отсортированы по дню и типу)
+    return available[0][0]
 
 # ============= КЛАВИАТУРЫ =============
 
@@ -843,6 +918,24 @@ def kb_skip_topic() -> InlineKeyboardMarkup:
     """Клавиатура с кнопкой пропуска темы"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭ Пропустить тему", callback_data="skip_topic")]
+    ])
+
+def kb_marathon_start() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора даты старта марафона"""
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
+    day_after = today + timedelta(days=2)
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Сегодня", callback_data="start_today")],
+        [InlineKeyboardButton(text=f"📅 Завтра ({tomorrow.strftime('%d.%m')})", callback_data="start_tomorrow")],
+        [InlineKeyboardButton(text=f"📅 Послезавтра ({day_after.strftime('%d.%m')})", callback_data="start_day_after")]
+    ])
+
+def kb_submit_work_product() -> InlineKeyboardMarkup:
+    """Клавиатура для практического задания"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Пропустить практику", callback_data="skip_practice")]
     ])
 
 def progress_bar(completed: int, total: int) -> str:
@@ -953,14 +1046,40 @@ async def on_schedule(message: Message, state: FSMContext):
         return
 
     await update_intern(message.chat.id, schedule_time=message.text.strip())
-    intern = await get_intern(message.chat.id)
+
+    await message.answer(
+        "🗓 *Когда начнём марафон?*\n\n"
+        "Марафон длится *14 дней*. Каждый день — 2 темы:\n"
+        "• *Теория* — материал + вопрос для размышления\n"
+        "• *Практика* — задание + рабочий продукт\n\n"
+        "Выбери дату старта:",
+        parse_mode="Markdown",
+        reply_markup=kb_marathon_start()
+    )
+    await state.set_state(OnboardingStates.waiting_for_start_date)
+
+@router.callback_query(OnboardingStates.waiting_for_start_date, F.data.startswith("start_"))
+async def on_start_date(callback: CallbackQuery, state: FSMContext):
+    today = datetime.now().date()
+
+    if callback.data == "start_today":
+        start_date = today
+    elif callback.data == "start_tomorrow":
+        start_date = today + timedelta(days=1)
+    else:  # start_day_after
+        start_date = today + timedelta(days=2)
+
+    await update_intern(callback.message.chat.id, marathon_start_date=start_date)
+    await callback.answer()
+
+    intern = await get_intern(callback.message.chat.id)
 
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
     interests_str = ', '.join(intern['interests']) if intern['interests'] else 'не указаны'
     motivation_short = intern['motivation'][:100] + '...' if len(intern['motivation']) > 100 else intern['motivation']
     goals_short = intern['goals'][:100] + '...' if len(intern['goals']) > 100 else intern['goals']
 
-    await message.answer(
+    await callback.message.edit_text(
         f"📋 *Твой профиль:*\n\n"
         f"👤 *Имя:* {intern['name']}\n"
         f"💼 *Занятие:* {intern['occupation']}\n"
@@ -968,7 +1087,8 @@ async def on_schedule(message: Message, state: FSMContext):
         f"💫 *Что важно:* {motivation_short}\n"
         f"🎯 *Что изменить:* {goals_short}\n\n"
         f"{duration.get('emoji', '')} {duration.get('name', '')} на тему\n"
-        f"⏰ Напоминание в {intern['schedule_time']}\n\n"
+        f"⏰ Напоминание в {intern['schedule_time']}\n"
+        f"🗓 Старт марафона: *{start_date.strftime('%d.%m.%Y')}*\n\n"
         f"Всё верно?",
         parse_mode="Markdown",
         reply_markup=kb_confirm()
@@ -979,35 +1099,45 @@ async def on_schedule(message: Message, state: FSMContext):
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
     await update_intern(callback.message.chat.id, onboarding_completed=True)
     intern = await get_intern(callback.message.chat.id)
-    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+    marathon_day = get_marathon_day(intern)
+    start_date = intern.get('marathon_start_date')
 
     await callback.answer("Сохранено!")
 
-    # Приветственное сообщение с описанием бота
+    # Определяем, когда старт
+    if start_date:
+        today = datetime.now().date()
+        if isinstance(start_date, datetime):
+            start_date = start_date.date()
+        if start_date > today:
+            start_msg = f"🗓 Марафон начнётся *{start_date.strftime('%d.%m.%Y')}*"
+            can_start_now = False
+        else:
+            start_msg = f"🗓 *День {marathon_day} из {MARATHON_DAYS}*"
+            can_start_now = True
+    else:
+        start_msg = "🗓 Дата старта не задана"
+        can_start_now = False
+
+    # Приветственное сообщение для марафона
     await callback.message.edit_text(
-        f"🎉 *Добро пожаловать, {intern['name']}!*\n\n"
-        f"➡️ *Что это за бот?*\n\n"
-        f"Я — твой помощник от [Мастерской инженеров-менеджеров](https://system-school.ru/).\n\n"
-        f"Помогу перейти от *случайного саморазвития* "
-        f"к *систематическому обучению*.\n\n"
-        f"Моя цель — развить у тебя:\n"
-        f"• *Системное мировоззрение* — видеть целое и связи\n"
-        f"• *Системную грамотность* — владеть инструментами мышления\n"
-        f"• *Агентность* — способность действовать и менять реальность\n\n"
+        f"🎉 *Добро пожаловать в марафон, {intern['name']}!*\n\n"
+        f"➡️ *Что это за марафон?*\n\n"
+        f"*14 дней* от случайного ученика к систематическому.\n\n"
+        f"Цель — перейти в роль *Практикующего ученика* "
+        f"с устойчивыми практиками саморазвития.\n\n"
         f"➡️ *Как устроено обучение?*\n\n"
-        f"📚 *28 тем* в 4 разделах — от проблем к решениям\n"
-        f"⏱ *{intern['study_duration']} минут* — на изучение темы\n"
-        f"❓ *Вопрос* — для закрепления материала\n"
-        f"📈 *{DAILY_TOPICS_LIMIT} темы в день* — тренируем систематичность\n\n"
-        f"➡️ *Сложность вопросов*\n\n"
-        f"Сейчас: {bloom['emoji']} *{bloom['short_name']} «{bloom['name']}»*\n\n"
-        f"Сложность растёт автоматически по мере прогресса.\n"
-        f"Можно изменить вручную: /update → Уровень сложности\n\n"
+        f"📅 *{MARATHON_DAYS} дней* — по 2 темы каждый день:\n"
+        f"   📚 *Теория* — материал + вопрос\n"
+        f"   ✏️ *Практика* — задание + рабочий продукт\n\n"
+        f"⏱ *{intern['study_duration']} минут* — на каждую тему\n"
+        f"📈 *Макс {MAX_TOPICS_PER_DAY} темы в день* — можно нагнать 1 день\n\n"
         f"➡️ *Напоминания*\n\n"
         f"⏰ Буду напоминать в *{intern['schedule_time']}* каждый день.\n\n"
-        f"Готов начать?",
+        f"{start_msg}\n\n"
+        f"{'Готов начать?' if can_start_now else 'Жду тебя в день старта!'}",
         parse_mode="Markdown",
-        reply_markup=kb_learn()
+        reply_markup=kb_learn() if can_start_now else None
     )
     await state.clear()
 
@@ -1048,30 +1178,45 @@ async def cmd_progress(message: Message):
 
     done = len(intern['completed_topics'])
     total = get_total_topics()
-    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
-    sections = get_sections_progress(intern['completed_topics'])
+    marathon_day = get_marathon_day(intern)
+    days_progress = get_days_progress(intern['completed_topics'], marathon_day)
 
-    # Формируем прогресс по разделам
-    sections_text = ""
-    section_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
-    for i, sec in enumerate(sections):
-        emoji = section_emojis[i] if i < len(section_emojis) else "📍"
-        pct = int((sec['completed'] / sec['total']) * 100) if sec['total'] > 0 else 0
+    # Формируем прогресс по дням (показываем первые 7 или 14 в зависимости от текущего дня)
+    days_text = ""
+    for d in days_progress:
+        day_num = d['day']
+        if day_num > marathon_day + 1:
+            break  # Не показываем далёкие дни
+
+        if d['status'] == 'completed':
+            emoji = "✅"
+        elif d['status'] == 'in_progress':
+            emoji = "🔄"
+        elif d['status'] == 'available':
+            emoji = "📍"
+        else:
+            emoji = "🔒"
+
+        days_text += f"{emoji} День {day_num}: {d['completed']}/{d['total']}\n"
+
+    # Неделя 1 / Неделя 2
+    weeks = get_sections_progress(intern['completed_topics'])
+    weeks_text = ""
+    for i, week in enumerate(weeks):
+        pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
         bar = '█' * (pct // 10) + '░' * (10 - pct // 10)
-        status = " ✅" if sec['completed'] == sec['total'] else ""
-        # Сокращаем название раздела если длинное
-        name = sec['name'][:25] + "..." if len(sec['name']) > 28 else sec['name']
-        sections_text += f"{emoji} {name}\n    {bar} {sec['completed']}/{sec['total']}{status}\n"
+        status = " ✅" if week['completed'] == week['total'] else ""
+        weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} Неделя {i + 1}: {bar} {week['completed']}/{week['total']}{status}\n"
 
     await message.answer(
         f"📊 *Прогресс: {intern['name']}*\n\n"
-        f"*Общий прогресс*\n"
+        f"🗓 *День {marathon_day} из {MARATHON_DAYS}*\n"
         f"✅ {done} из {total} тем\n"
         f"{progress_bar(done, total)}\n\n"
-        f"*По разделам*\n"
-        f"{sections_text}\n"
-        f"*Уровень вопросов*\n"
-        f"{bloom['short_name']} ({intern['topics_at_current_bloom']}/{BLOOM_AUTO_UPGRADE_AFTER} до повышения)\n\n"
+        f"*По неделям*\n"
+        f"{weeks_text}\n"
+        f"*По дням*\n"
+        f"{days_text}\n"
         f"/learn — продолжить обучение",
         parse_mode="Markdown"
     )
@@ -1537,10 +1682,9 @@ async def on_bonus_answer(message: Message, state: FSMContext):
 
 @router.callback_query(LearningStates.waiting_for_answer, F.data == "skip_topic")
 async def on_skip_topic(callback: CallbackQuery, state: FSMContext):
-    """Пропуск темы без ответа"""
+    """Пропуск теоретической темы без ответа"""
     intern = await get_intern(callback.message.chat.id)
 
-    # Переходим к следующей теме без добавления в completed_topics
     next_index = intern['current_topic_index'] + 1
     await update_intern(callback.message.chat.id, current_topic_index=next_index)
 
@@ -1557,85 +1701,206 @@ async def on_skip_topic(callback: CallbackQuery, state: FSMContext):
     )
     await state.clear()
 
+
+@router.message(LearningStates.waiting_for_work_product)
+async def on_work_product(message: Message, state: FSMContext):
+    """Обработка отправки рабочего продукта"""
+    intern = await get_intern(message.chat.id)
+
+    if len(message.text.strip()) < 3:
+        await message.answer("Напиши хотя бы название рабочего продукта (например: «Список в заметках»)")
+        return
+
+    # Сохраняем ответ (рабочий продукт)
+    await save_answer(message.chat.id, intern['current_topic_index'], f"[РП] {message.text.strip()}")
+
+    # Обновляем прогресс
+    completed = intern['completed_topics'] + [intern['current_topic_index']]
+
+    # Обновляем счётчик тем за сегодня
+    today = datetime.now().date()
+    topics_today = get_topics_today(intern) + 1
+
+    await update_intern(
+        message.chat.id,
+        completed_topics=completed,
+        current_topic_index=intern['current_topic_index'] + 1,
+        topics_today=topics_today,
+        last_topic_date=today
+    )
+
+    done = len(completed)
+    total = get_total_topics()
+    marathon_day = get_marathon_day(intern)
+
+    # Проверяем, завершён ли день
+    day_topics = get_topics_for_day(marathon_day)
+    day_completed = sum(1 for i, _ in enumerate(TOPICS) if TOPICS[i]['day'] == marathon_day and i in completed)
+
+    if day_completed >= len(day_topics):
+        # День полностью завершён
+        await message.answer(
+            f"🎉 *День {marathon_day} завершён!*\n\n"
+            f"✅ Теория пройдена\n"
+            f"✅ Практика выполнена\n"
+            f"📝 РП: {message.text.strip()}\n\n"
+            f"{progress_bar(done, total)}\n\n"
+            f"Отличная работа! Возвращайся завтра за новыми темами.\n\n"
+            f"/progress — посмотреть прогресс",
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer(
+            f"✅ *Практика засчитана!*\n\n"
+            f"📝 РП: {message.text.strip()}\n\n"
+            f"{progress_bar(done, total)}\n\n"
+            f"/learn — следующая тема",
+            parse_mode="Markdown"
+        )
+
+    await state.clear()
+
+
+@router.callback_query(LearningStates.waiting_for_work_product, F.data == "skip_practice")
+async def on_skip_practice(callback: CallbackQuery, state: FSMContext):
+    """Пропуск практической темы"""
+    intern = await get_intern(callback.message.chat.id)
+
+    next_index = intern['current_topic_index'] + 1
+    await update_intern(callback.message.chat.id, current_topic_index=next_index)
+
+    topic = get_topic(intern['current_topic_index'])
+    topic_title = topic['title'] if topic else "практика"
+
+    await callback.answer("Практика пропущена")
+    await callback.message.edit_text(
+        f"⏭ *Практика пропущена:* {topic_title}\n\n"
+        f"_Пропущенные практики не засчитываются в прогресс._\n\n"
+        f"/learn — следующая тема\n"
+        f"/progress — посмотреть прогресс",
+        parse_mode="Markdown"
+    )
+    await state.clear()
+
 # --- Отправка темы ---
 
 async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
     intern = await get_intern(chat_id)
+    marathon_day = get_marathon_day(intern)
+
+    # Проверяем, начался ли марафон
+    if marathon_day == 0:
+        start_date = intern.get('marathon_start_date')
+        if start_date:
+            await bot.send_message(
+                chat_id,
+                f"🗓 Марафон ещё не начался.\n\n"
+                f"Старт: *{start_date.strftime('%d.%m.%Y')}*\n\n"
+                f"Жду тебя в день старта!",
+                parse_mode="Markdown"
+            )
+        else:
+            await bot.send_message(
+                chat_id,
+                "🗓 Дата старта марафона не задана.\n\n"
+                "Используй /update чтобы задать дату.",
+                parse_mode="Markdown"
+            )
+        return
 
     # Проверяем дневной лимит
     topics_today = get_topics_today(intern)
-    if topics_today >= DAILY_TOPICS_LIMIT:
+    if topics_today >= MAX_TOPICS_PER_DAY:
         await bot.send_message(
             chat_id,
-            f"🎯 *Сегодня ты уже прошёл {topics_today} темы — это отлично!*\n\n"
-            f"Лимит: *{DAILY_TOPICS_LIMIT} темы в день*\n\n"
-            f"*Почему так?*\n\n"
-            f"Мы тренируем *систематичность* — это ключевой навык.\n\n"
-            f"Намного важнее учиться *понемногу каждый день*, "
-            f"чем много за раз, а потом ничего.\n\n"
+            f"🎯 *Сегодня ты уже прошёл {topics_today} темы — это максимум!*\n\n"
+            f"Лимит: *{MAX_TOPICS_PER_DAY} темы в день* (можно нагнать 1 день)\n\n"
             f"Регулярность > Интенсивность\n\n"
             f"Возвращайся завтра! Или в *{intern['schedule_time']}* я сам напомню.",
             parse_mode="Markdown"
         )
         return
 
-    # Получаем следующую тему с учётом порядка
+    # Получаем следующую тему
     topic_index = get_next_topic_index(intern)
     topic = get_topic(topic_index) if topic_index is not None else None
 
-    # Обновляем current_topic_index на выбранную тему
     if topic_index is not None and topic_index != intern['current_topic_index']:
         await update_intern(chat_id, current_topic_index=topic_index)
 
     if not topic:
-        # Проверяем: это реальное завершение или ошибка загрузки тем?
         total_topics = get_total_topics()
         completed_count = len(intern['completed_topics'])
 
         if total_topics == 0:
-            # Ошибка: темы не загружены
             logger.error(f"TOPICS is empty! Cannot send topic to {chat_id}")
             await bot.send_message(
                 chat_id,
                 "⚠️ *Технические неполадки*\n\n"
-                "Структура обучения временно недоступна. "
-                "Попробуй позже или напиши в поддержку.",
+                "Структура обучения временно недоступна.",
                 parse_mode="Markdown"
             )
             return
 
-        if completed_count < total_topics:
-            # Странная ситуация: темы есть, но topic не найден
-            logger.warning(f"No topic found for {chat_id}, but only {completed_count}/{total_topics} completed")
+        # Проверяем, все ли темы пройдены или ждём следующий день
+        available = get_available_topics(intern)
+        if not available and completed_count < total_topics:
+            # Темы за сегодня закончились, ждём следующий день
             await bot.send_message(
                 chat_id,
-                "⚠️ Что-то пошло не так. Попробуй /learn ещё раз.",
+                f"✅ *День {marathon_day} завершён!*\n\n"
+                f"Пройдено тем: {completed_count}/{total_topics}\n\n"
+                f"Следующие темы откроются завтра.\n"
+                f"Возвращайся в *{intern['schedule_time']}*!",
                 parse_mode="Markdown"
             )
             return
 
-        # Реальное завершение всех тем
+        if completed_count >= total_topics:
+            # Марафон завершён
+            await bot.send_message(
+                chat_id,
+                "🎉 *Поздравляю! Марафон пройден!*\n\n"
+                f"Ты прошёл все *{MARATHON_DAYS} дней* и *{total_topics} тем*.\n\n"
+                "Теперь ты — *Практикующий ученик* с базовыми практиками:\n"
+                "• Слоты саморазвития\n"
+                "• Трекер практик\n"
+                "• Мимолётные заметки\n"
+                "• Рабочие продукты\n\n"
+                "Хочешь продолжить развитие?\n"
+                "Заходи в [Мастерскую инженеров-менеджеров](https://system-school.ru/)!",
+                parse_mode="Markdown"
+            )
+            return
+
         await bot.send_message(
             chat_id,
-            "🎉 *Поздравляю! Все темы пройдены!*\n\n"
-            "Вы изучили все темы и встали на путь формирования системного мировоззрения.\n\n"
-            "Хочешь продолжить развитие?\n"
-            "Заходи в [Мастерскую инженеров-менеджеров](https://system-school.ru/) "
-            "— там тебя ждут продвинутые программы.",
+            "⚠️ Что-то пошло не так. Попробуй /learn ещё раз.",
             parse_mode="Markdown"
         )
         return
 
+    # Отправляем тему в зависимости от типа
+    topic_type = topic.get('type', 'theory')
+
+    if topic_type == 'theory':
+        await send_theory_topic(chat_id, topic, intern, state, bot)
+    else:
+        await send_practice_topic(chat_id, topic, intern, state, bot)
+
+
+async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
+    """Отправка теоретической темы"""
+    marathon_day = get_marathon_day(intern)
+    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+
     await bot.send_message(chat_id, "⏳ Генерирую персональный материал...")
 
-    # Генерируем контент с контекстом из MCP
     content = await claude.generate_content(topic, intern, mcp_client=mcp)
     question = await claude.generate_question(topic, intern)
 
-    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
-
     header = (
-        f"📚 *{topic['section']}* → {topic['subsection']}\n\n"
+        f"📚 *День {marathon_day} — Теория*\n"
         f"*{topic['title']}*\n"
         f"⏱ {intern['study_duration']} минут\n\n"
     )
@@ -1661,6 +1926,52 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
 
     await state.set_state(LearningStates.waiting_for_answer)
 
+
+async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
+    """Отправка практической темы"""
+    marathon_day = get_marathon_day(intern)
+
+    # Генерируем краткое введение
+    intro = await claude.generate_practice_intro(topic, intern)
+
+    task = topic.get('task', '')
+    work_product = topic.get('work_product', '')
+    examples = topic.get('work_product_examples', [])
+
+    examples_text = ""
+    if examples:
+        examples_text = "\n*Примеры РП:*\n" + "\n".join([f"• {ex}" for ex in examples])
+
+    header = (
+        f"✏️ *День {marathon_day} — Практика*\n"
+        f"*{topic['title']}*\n\n"
+    )
+
+    content = f"{intro}\n\n" if intro else ""
+    content += f"📋 *Задание:*\n{task}\n\n"
+    content += f"🎯 *Рабочий продукт:* {work_product}"
+    content += examples_text
+
+    full = header + content
+    if len(full) > 4000:
+        await bot.send_message(chat_id, header, parse_mode="Markdown")
+        await bot.send_message(chat_id, content, parse_mode="Markdown")
+    else:
+        await bot.send_message(chat_id, full, parse_mode="Markdown")
+
+    # Запрос рабочего продукта
+    await bot.send_message(
+        chat_id,
+        "📝 *Когда выполнишь задание:*\n\n"
+        "Напиши название своего рабочего продукта.\n\n"
+        f"_Например: «{examples[0] if examples else work_product}»_\n\n"
+        "_Проверки нет — просто напиши что сделал, и практика засчитается._",
+        parse_mode="Markdown",
+        reply_markup=kb_submit_work_product()
+    )
+
+    await state.set_state(LearningStates.waiting_for_work_product)
+
 # ============= ПЛАНИРОВЩИК =============
 
 scheduler = AsyncIOScheduler()
@@ -1669,98 +1980,161 @@ scheduler = AsyncIOScheduler()
 _dispatcher: Optional[Dispatcher] = None
 
 async def send_scheduled_topic(chat_id: int, bot: Bot):
-    """Отправка темы по расписанию (генерация контента сразу)"""
+    """Отправка темы по расписанию"""
     intern = await get_intern(chat_id)
+    marathon_day = get_marathon_day(intern)
+
+    # Проверяем, начался ли марафон
+    if marathon_day == 0:
+        return  # Марафон ещё не начался
 
     # Проверяем дневной лимит
     topics_today = get_topics_today(intern)
-    if topics_today >= DAILY_TOPICS_LIMIT:
-        await bot.send_message(
-            chat_id,
-            f"Сегодня ты уже прошёл {topics_today} темы — лимит на сегодня.\n"
-            f"Возвращайся завтра!",
-            parse_mode="Markdown"
-        )
-        return
+    if topics_today >= MAX_TOPICS_PER_DAY:
+        return  # Лимит достигнут
 
     # Получаем следующую тему
     topic_index = get_next_topic_index(intern)
     topic = get_topic(topic_index) if topic_index is not None else None
 
-    if topic_index is not None and topic_index != intern['current_topic_index']:
-        await update_intern(chat_id, current_topic_index=topic_index)
-
     if not topic:
-        total_topics = get_total_topics()
-        completed_count = len(intern['completed_topics'])
-
-        if completed_count >= total_topics and total_topics > 0:
+        # Проверяем, все ли темы пройдены
+        total = get_total_topics()
+        completed = len(intern['completed_topics'])
+        if completed >= total:
             await bot.send_message(
                 chat_id,
-                "🎉 *Все темы пройдены!*\n\n"
+                "🎉 *Марафон завершён!*\n\n"
                 "Заходи в [Мастерскую](https://system-school.ru/) для продвинутых программ.",
                 parse_mode="Markdown"
             )
         return
 
-    await bot.send_message(chat_id, "⏳ Генерирую персональный материал...")
+    if topic_index is not None and topic_index != intern['current_topic_index']:
+        await update_intern(chat_id, current_topic_index=topic_index)
 
-    # Генерируем контент
-    content = await claude.generate_content(topic, intern, mcp_client=mcp)
-    question = await claude.generate_question(topic, intern)
+    # Планируем напоминания (+1ч и +3ч)
+    await schedule_reminders(chat_id, intern)
 
-    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
+    # Отправляем тему
+    topic_type = topic.get('type', 'theory')
 
-    header = (
-        f"📚 *{topic['section']}* → {topic['subsection']}\n\n"
-        f"*{topic['title']}*\n"
-        f"⏱ {intern['study_duration']} минут\n\n"
-    )
-
-    full = header + content
-    if len(full) > 4000:
-        await bot.send_message(chat_id, header, parse_mode="Markdown")
-        for i in range(0, len(content), 4000):
-            await bot.send_message(chat_id, content[i:i+4000])
-    else:
-        await bot.send_message(chat_id, full, parse_mode="Markdown")
-
-    # Вопрос отдельным сообщением
-    await bot.send_message(
-        chat_id,
-        f"💭 *Вопрос для размышления* ({bloom['short_name']})\n\n"
-        f"{question}\n\n"
-        f"_Напишите ответ в сообщении. Он не проверяется автоматически — "
-        f"после получения любого ответа тема считается пройденной._",
-        parse_mode="Markdown",
-        reply_markup=kb_skip_topic()
-    )
-
-    # Устанавливаем состояние ожидания ответа через глобальный dispatcher
     if _dispatcher:
         state = FSMContext(
             storage=_dispatcher.storage,
             key=StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
         )
-        await state.set_state(LearningStates.waiting_for_answer)
+
+        if topic_type == 'theory':
+            await send_theory_topic(chat_id, topic, intern, state, bot)
+        else:
+            await send_practice_topic(chat_id, topic, intern, state, bot)
+
+
+async def schedule_reminders(chat_id: int, intern: dict):
+    """Планирует напоминания для пользователя"""
+    now = datetime.now()
+
+    # Добавляем записи о напоминаниях в БД
+    async with db_pool.acquire() as conn:
+        # Удаляем старые неотправленные напоминания
+        await conn.execute(
+            'DELETE FROM reminders WHERE chat_id = $1 AND sent = FALSE',
+            chat_id
+        )
+
+        # Планируем напоминания +1ч и +3ч
+        for hours in [1, 3]:
+            reminder_time = now + timedelta(hours=hours)
+            await conn.execute(
+                '''INSERT INTO reminders (chat_id, reminder_type, scheduled_for)
+                   VALUES ($1, $2, $3)''',
+                chat_id, f'+{hours}h', reminder_time
+            )
+
+
+async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
+    """Отправляет напоминание"""
+    intern = await get_intern(chat_id)
+    topics_today = get_topics_today(intern)
+
+    # Если уже начал изучение сегодня — не напоминаем
+    if topics_today > 0:
+        return
+
+    marathon_day = get_marathon_day(intern)
+    if marathon_day == 0:
+        return
+
+    if reminder_type == '+1h':
+        await bot.send_message(
+            chat_id,
+            f"⏰ *Напоминание*\n\n"
+            f"День {marathon_day} марафона ждёт тебя!\n\n"
+            f"Всего 2 темы на сегодня: теория и практика.\n\n"
+            f"/learn — начать",
+            parse_mode="Markdown"
+        )
+    elif reminder_type == '+3h':
+        await bot.send_message(
+            chat_id,
+            f"🔔 *Последнее напоминание*\n\n"
+            f"День {marathon_day} ещё не начат.\n\n"
+            f"Помни: *регулярность > интенсивность*.\n"
+            f"Даже 15 минут сегодня — это прогресс.\n\n"
+            f"/learn — начать",
+            parse_mode="Markdown"
+        )
+
+
+async def check_reminders():
+    """Проверяет и отправляет запланированные напоминания"""
+    now = datetime.now()
+
+    async with db_pool.acquire() as conn:
+        # Получаем напоминания, которые пора отправить
+        rows = await conn.fetch(
+            '''SELECT id, chat_id, reminder_type FROM reminders
+               WHERE sent = FALSE AND scheduled_for <= $1''',
+            now
+        )
+
+        if not rows:
+            return
+
+        bot = Bot(token=BOT_TOKEN)
+
+        for row in rows:
+            try:
+                await send_reminder(row['chat_id'], row['reminder_type'], bot)
+                await conn.execute(
+                    'UPDATE reminders SET sent = TRUE WHERE id = $1',
+                    row['id']
+                )
+                logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
+            except Exception as e:
+                logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
+
+        await bot.session.close()
+
 
 async def scheduled_check():
-    """Проверка расписания каждую минуту — генерация контента за 5 минут до времени"""
+    """Проверка расписания каждую минуту"""
     now = datetime.now()
     chat_ids = await get_all_scheduled_interns(now.hour, now.minute)
 
-    if not chat_ids:
-        return
+    if chat_ids:
+        bot = Bot(token=BOT_TOKEN)
+        for chat_id in chat_ids:
+            try:
+                await send_scheduled_topic(chat_id, bot)
+                logger.info(f"Sent scheduled topic to {chat_id}")
+            except Exception as e:
+                logger.error(f"Failed to send scheduled topic to {chat_id}: {e}")
+        await bot.session.close()
 
-    bot = Bot(token=BOT_TOKEN)
-    for chat_id in chat_ids:
-        try:
-            await send_scheduled_topic(chat_id, bot)
-            logger.info(f"Sent scheduled topic to {chat_id}")
-        except Exception as e:
-            logger.error(f"Failed to send scheduled topic to {chat_id}: {e}")
-
-    await bot.session.close()
+    # Проверяем напоминания
+    await check_reminders()
 
 # ============= ЗАПУСК =============
 
