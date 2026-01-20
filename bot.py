@@ -286,6 +286,24 @@ async def init_db():
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topic_order TEXT DEFAULT \'default\'')
         # Марафон: дата старта
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_start_date DATE DEFAULT NULL')
+
+        # Режимы работы (Марафон/Лента)
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT \'marathon\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_status TEXT DEFAULT \'not_started\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_paused_at DATE DEFAULT NULL')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_status TEXT DEFAULT \'not_started\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_started_at DATE DEFAULT NULL')
+
+        # Систематичность
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_total INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_streak INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS longest_streak INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_active_date DATE DEFAULT NULL')
+
+        # Сложность (новое название для bloom)
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS complexity_level INTEGER DEFAULT 1')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_complexity INTEGER DEFAULT 0')
+
         # Таблица для напоминаний
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS reminders (
