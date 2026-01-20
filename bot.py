@@ -2611,13 +2611,13 @@ async def main():
     _dispatcher = dp
 
     # Установка команд бота (Menu-кнопка)
-    # /learn вверху - самая частая команда, /start внизу - редко нужна
+    # /learn вверху - самая частая команда
     await bot.set_my_commands([
         BotCommand(command="learn", description="Получить новую тему"),
-        BotCommand(command="mode", description="Выбор режима (Марафон/Лента)"),
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="update", description="Обновить профиль"),
+        BotCommand(command="mode", description="Выбор режима (Марафон/Лента)"),
         BotCommand(command="start", description="Перезапустить онбординг"),
         BotCommand(command="help", description="Справка")
     ])

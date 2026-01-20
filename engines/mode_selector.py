@@ -174,7 +174,8 @@ async def select_feed(callback: CallbackQuery):
 
         await callback.answer()
     except Exception as e:
-        logger.error(f"Ошибка в select_feed: {e}")
+        import traceback
+        logger.error(f"Ошибка в select_feed: {e}\n{traceback.format_exc()}")
         await callback.answer("Произошла ошибка. Попробуйте ещё раз.", show_alert=True)
 
 
