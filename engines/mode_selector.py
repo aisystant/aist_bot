@@ -45,7 +45,7 @@ async def cmd_mode(message: Message):
         "━━━━━━━━━━━━━━━━━━\n\n"
         "📚 *Марафон* — 14-дневный курс\n"
         f"{marathon_info}\n"
-        "_Структурированное введение в системное мышление_\n\n"
+        "_Каждый день изучаете две темы, адаптированные под вас_\n\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "🌊 *Лента* — бесконечный режим\n"
         f"{feed_info}\n"
@@ -175,16 +175,22 @@ def get_marathon_status_text(intern: dict) -> str:
     """Возвращает текст статуса марафона"""
     status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
     completed = intern.get('completed_topics', [])
-    day = intern.get('current_day', 0)
+    topic_index = intern.get('current_topic_index', 0)
 
-    if status == MarathonStatus.NOT_STARTED:
-        return "⚪ Не начат"
-    elif status == MarathonStatus.ACTIVE:
+    # Вычисляем день (каждый день = 2 темы)
+    day = (topic_index // 2) + 1 if topic_index > 0 else 0
+
+    # Для legacy пользователей: если есть прогресс, но статус not_started — считаем активным
+    has_progress = len(completed) > 0 or topic_index > 0
+
+    if status == MarathonStatus.COMPLETED or (has_progress and day > 14):
+        return "✅ Завершён"
+    elif status == MarathonStatus.ACTIVE or (status == MarathonStatus.NOT_STARTED and has_progress):
         return f"🟢 Активен (день {day}/14, пройдено {len(completed)} тем)"
     elif status == MarathonStatus.PAUSED:
         return f"⏸️ На паузе (день {day}/14)"
-    elif status == MarathonStatus.COMPLETED:
-        return "✅ Завершён"
+    elif status == MarathonStatus.NOT_STARTED:
+        return "⚪ Не начат"
     return "⚪ Статус неизвестен"
 
 
