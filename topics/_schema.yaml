@@ -1,0 +1,120 @@
+# Схема метаданных темы для AIST Pilot Bot
+# Этот файл описывает структуру YAML-файлов тем
+
+# Каждая тема имеет:
+# - Базовую информацию (id, title, type)
+# - Ключи поиска для MCP (search_keys)
+# - Матрицу сложности: Время (5/15/25 мин) × Блум (1/2/3)
+
+schema:
+  # Базовая информация
+  id: "string"           # Уникальный ID темы (из knowledge_structure.yaml)
+  title: "string"        # Название темы
+  type: "theory|practice" # Тип: теория или практика
+
+  # Ключи для семантического поиска в MCP
+  search_keys:
+    guides_mcp:          # Запросы для MCP-Guides (руководства)
+      - "точный запрос 1"
+      - "точный запрос 2"
+    knowledge_mcp:       # Запросы для MCP-Knowledge (свежие посты)
+      - "точный запрос 1"
+      - "точный запрос 2"
+
+  # Матрица сложности для теории
+  # Структура: time_levels.[5|15|25].bloom_[1|2|3]
+  time_levels:
+    5:   # 5 минут - минимальный уровень
+      bloom_1:
+        focus: "string"           # Фокус контента
+        questions_count: 1        # 1 простой вопрос
+        question_type: "difference" # Тип: в чём разница
+        question_templates:
+          - "В чём разница между X и Y?"
+      bloom_2:
+        focus: "string"
+        questions_count: 1
+        question_type: "open"     # Тип: открытый вопрос
+        question_templates:
+          - "Как вы понимаете X?"
+      bloom_3:
+        focus: "string"
+        questions_count: 1
+        question_type: "application" # Тип: применение/анализ
+        question_templates:
+          - "Приведите пример X из вашей жизни"
+
+    15:  # 15 минут - средний уровень
+      bloom_1:
+        focus: "string"
+        questions_count: 2        # 2 простых вопроса
+        question_type: "difference"
+        question_templates:
+          - "В чём разница между X и Y?"
+          - "Чем отличается A от B?"
+      bloom_2:
+        focus: "string"
+        questions_count: 2
+        question_type: "open"
+        question_templates:
+          - "Как вы понимаете X?"
+          - "Почему важно Y?"
+      bloom_3:
+        focus: "string"
+        questions_count: 2
+        question_type: "application"
+        question_templates:
+          - "Приведите пример X из вашей жизни"
+          - "Как бы вы применили Y на работе?"
+
+    25:  # 25 минут - глубокий уровень
+      bloom_1:
+        focus: "string"
+        questions_count: 3        # 1 простой + 2 сложных
+        question_type: "difference"
+        simple_questions: 1
+        complex_questions: 2
+        question_templates:
+          - "В чём разница между X и Y?"
+          - "Сравните три подхода: A, B, C"
+          - "Какие критерии отличают X от Y и Z?"
+      bloom_2:
+        focus: "string"
+        questions_count: 3
+        question_type: "open"
+        simple_questions: 1
+        complex_questions: 2
+        min_answer_sentences: 2   # Если < 2 предложений → рекомендовать снизить сложность
+        question_templates:
+          - "Как вы понимаете X?"
+          - "Объясните связь между A и B"
+          - "Почему X приводит к Y?"
+      bloom_3:
+        focus: "string"
+        questions_count: 3
+        question_type: "application"
+        simple_questions: 1
+        complex_questions: 2
+        min_answer_sentences: 3   # Если < 3 предложений → рекомендовать снизить сложность
+        question_templates:
+          - "Приведите пример X из вашей жизни"
+          - "Проанализируйте ситуацию Y"
+          - "Как бы вы объяснили коллеге, почему Z важно?"
+
+# Правила для вопросов по уровням Блума:
+#
+# BLOOM 1 (Знание) - "В чём разница?"
+# - Вопросы на различение понятий
+# - Сравнение терминов и определений
+# - Фокус на понимание отличий
+#
+# BLOOM 2 (Понимание) - Открытые вопросы
+# - Вопросы на объяснение своими словами
+# - Связи между понятиями
+# - Если ответ на 25 мин < 2 предложений → рекомендовать снизить сложность
+#
+# BLOOM 3 (Применение) - Анализ и примеры
+# - Привести пример из личной жизни
+# - Привести пример из рабочей практики
+# - Анализ реальных ситуаций
+# - Если ответ на 25 мин < 3 предложений → рекомендовать снизить сложность
