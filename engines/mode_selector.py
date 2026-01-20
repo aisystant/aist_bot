@@ -146,6 +146,9 @@ async def select_feed(callback: CallbackQuery):
         # Для legacy: проверяем реальный прогресс марафона
         has_marathon_progress = len(intern.get('completed_topics', [])) > 0 or intern.get('current_topic_index', 0) > 0
 
+        # Получаем настройки пользователя
+        settings_text = get_user_settings_text(intern)
+
         # Если был активный марафон - ставим на паузу
         if (marathon_status == MarathonStatus.ACTIVE or
             (marathon_status == MarathonStatus.NOT_STARTED and has_marathon_progress)):
@@ -156,6 +159,7 @@ async def select_feed(callback: CallbackQuery):
             )
             await callback.message.edit_text(
                 "✅ *Режим Лента активирован!*\n\n"
+                f"*Ваши настройки:*\n{settings_text}\n\n"
                 "Используйте /feed для получения тем на неделю.\n\n"
                 "Марафон поставлен на паузу. "
                 "Вы сможете вернуться к нему через /mode.",
@@ -168,6 +172,7 @@ async def select_feed(callback: CallbackQuery):
             )
             await callback.message.edit_text(
                 "✅ *Режим Лента активирован!*\n\n"
+                f"*Ваши настройки:*\n{settings_text}\n\n"
                 "Используйте /feed для получения тем на неделю.",
                 parse_mode="Markdown"
             )
@@ -224,3 +229,28 @@ def get_feed_status_text(intern: dict) -> str:
     elif status == FeedStatus.PAUSED:
         return f"⏸️ На паузе (активных дней: {active_days})"
     return "⚪ Статус неизвестен"
+
+
+def get_complexity_name(level: int) -> str:
+    """Возвращает название уровня сложности"""
+    names = {
+        1: "Начальный",
+        2: "Базовый",
+        3: "Средний",
+        4: "Продвинутый",
+        5: "Экспертный",
+    }
+    return names.get(level, f"Уровень {level}")
+
+
+def get_user_settings_text(intern: dict) -> str:
+    """Формирует текст с настройками пользователя для Ленты"""
+    schedule_time = intern.get('schedule_time', '09:00')
+    study_duration = intern.get('study_duration', 15)
+    complexity = intern.get('complexity_level') or intern.get('bloom_level', 1)
+
+    return (
+        f"⏰ Время: {schedule_time}\n"
+        f"📖 На чтение: {study_duration} мин\n"
+        f"📊 Сложность: {get_complexity_name(complexity)}"
+    )
