@@ -2587,14 +2587,17 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
 
-    # Подключаем роутеры режимов (Лента, выбор режима)
+    # Подключаем роутеры режимов ПЕРЕД основным роутером
+    # (чтобы catch-all handler в router не перехватывал их callback'и)
     try:
         from engines.integration import setup_routers
         setup_routers(dp)
     except ImportError as e:
         logger.warning(f"⚠️ Не удалось загрузить engines: {e}. Режимы Лента и выбор режима недоступны.")
+
+    # Основной роутер подключаем последним
+    dp.include_router(router)
 
     # Сохраняем dispatcher для доступа к FSM storage из планировщика
     _dispatcher = dp
