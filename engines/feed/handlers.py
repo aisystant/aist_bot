@@ -16,6 +16,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import get_logger
 from .engine import FeedEngine
+from db.queries.users import get_intern
+from engines.shared import handle_question
 
 logger = get_logger(__name__)
 
@@ -253,6 +255,57 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
         import traceback
         logger.error(f"Ошибка в show_today_session: {e}\n{traceback.format_exc()}")
         await message.answer("Произошла ошибка при загрузке сессии. Попробуйте позже.")
+
+
+@feed_router.message(FeedStates.reading_content)
+async def handle_feed_question(message: Message, state: FSMContext):
+    """Обрабатывает вопрос пользователя во время чтения контента"""
+    try:
+        chat_id = message.chat.id
+        question = message.text.strip()
+
+        if len(question) < 3:
+            return
+
+        logger.info(f"Feed: вопрос от {chat_id}: {question[:50]}...")
+
+        # Получаем контекст из state
+        data = await state.get_data()
+        session_id = data.get('session_id')
+
+        # Получаем текущую тему
+        engine = FeedEngine(chat_id)
+        week = await engine.get_current_week()
+        current_topic = None
+        if week:
+            topics = week.get('accepted_topics', [])
+            current_day = week.get('current_day', 1)
+            if topics and current_day <= len(topics):
+                current_topic = topics[current_day - 1]
+
+        # Получаем профиль пользователя
+        intern = await get_intern(chat_id)
+
+        # Обрабатываем вопрос
+        await message.answer("💭 Думаю над ответом...")
+
+        answer, sources = await handle_question(
+            question=question,
+            intern=intern,
+            context_topic=current_topic
+        )
+
+        # Формируем ответ
+        response = answer
+        if sources:
+            response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
+
+        await message.answer(response, parse_mode="Markdown")
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Ошибка в handle_feed_question: {e}\n{traceback.format_exc()}")
+        await message.answer("Не удалось обработать вопрос. Попробуйте позже.")
 
 
 @feed_router.callback_query(F.data == "feed_fixation")
