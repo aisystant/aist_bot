@@ -447,14 +447,12 @@ class ClaudeClient:
             except Exception as e:
                 logger.error(f"{mcp_client.name} search error: {e}")
 
-        # Получаем контекст из MCP базы знаний (приоритет свежим постам)
+        # Получаем контекст из MCP базы знаний (knowledge MCP использует инструмент 'search')
         knowledge_context = ""
         if knowledge_client:
             try:
-                # Сортируем по дате создания (сначала новые)
-                search_results = await knowledge_client.semantic_search(
-                    search_query, lang="ru", limit=3, sort_by="created_at:desc"
-                )
+                # Knowledge MCP использует инструмент 'search' (не semantic_search)
+                search_results = await knowledge_client.search(search_query, limit=3)
                 if search_results:
                     context_parts = []
                     for item in search_results[:3]:
@@ -471,7 +469,7 @@ class ClaudeClient:
                             context_parts.append(item[:1500])
                     if context_parts:
                         knowledge_context = "\n\n".join(context_parts)
-                        logger.info(f"{knowledge_client.name}: найдено {len(context_parts)} фрагментов (свежие посты)")
+                        logger.info(f"{knowledge_client.name}: найдено {len(context_parts)} фрагментов")
             except Exception as e:
                 logger.error(f"{knowledge_client.name} search error: {e}")
 
@@ -669,7 +667,7 @@ class MCPClient:
         return ""
 
     async def semantic_search(self, query: str, lang: str = "ru", limit: int = 5, sort_by: str = None) -> List[dict]:
-        """Семантический поиск по руководствам
+        """Семантический поиск по руководствам (guides MCP)
 
         Args:
             query: поисковый запрос
@@ -695,6 +693,30 @@ class MCPClient:
                         if sort_by and "desc" in sort_by and isinstance(data, list):
                             data.sort(key=lambda x: x.get('created_at', x.get('date', '')), reverse=True)
                         return data
+                    except json.JSONDecodeError:
+                        # Если не JSON, возвращаем как текст
+                        return [{"text": item.get("text", "")}]
+        return []
+
+    async def search(self, query: str, limit: int = 5) -> List[dict]:
+        """Поиск по базе знаний (knowledge MCP)
+
+        Args:
+            query: поисковый запрос
+            limit: максимальное количество результатов
+        """
+        args = {
+            "query": query,
+            "limit": limit
+        }
+
+        result = await self._call("search", args)
+        if result and "content" in result:
+            for item in result.get("content", []):
+                if item.get("type") == "text":
+                    try:
+                        data = json.loads(item.get("text", "[]"))
+                        return data if isinstance(data, list) else [data]
                     except json.JSONDecodeError:
                         # Если не JSON, возвращаем как текст
                         return [{"text": item.get("text", "")}]
@@ -2257,6 +2279,45 @@ async def scheduled_check():
 
     # Проверяем напоминания
     await check_reminders()
+
+# ============= FALLBACK HANDLERS =============
+
+@router.callback_query()
+async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработка неизвестных callback-запросов (истёкшие кнопки и т.д.)"""
+    logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
+    await callback.answer(
+        "Кнопка устарела. Используй /learn для продолжения.",
+        show_alert=True
+    )
+
+@router.message()
+async def on_unknown_message(message: Message, state: FSMContext):
+    """Обработка сообщений вне FSM-состояний"""
+    current_state = await state.get_state()
+
+    # Если пользователь в каком-то состоянии — логируем для отладки
+    if current_state:
+        logger.warning(f"Unhandled message in state {current_state} from user {message.chat.id}: {message.text[:50] if message.text else '[no text]'}")
+        return
+
+    # Пользователь не в FSM-состоянии — подсказываем команды
+    intern = await get_intern(message.chat.id)
+
+    if not intern:
+        # Новый пользователь
+        await message.answer(
+            "Привет! Для начала используй /start"
+        )
+    else:
+        # Зарегистрированный пользователь
+        await message.answer(
+            "Используй команды:\n"
+            "/learn — получить тему\n"
+            "/progress — мой прогресс\n"
+            "/profile — мой профиль\n"
+            "/help — справка"
+        )
 
 # ============= ЗАПУСК =============
 
