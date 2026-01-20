@@ -346,7 +346,68 @@ def get_topics_today(intern: dict) -> int:
     # Иначе — новый день, счётчик обнуляется
     return 0
 
-def get_personalization_prompt(intern: dict) -> str:
+# Шаблоны форматов примеров для ротации
+EXAMPLE_TEMPLATES = [
+    ("аналогия", "Используй аналогию — перенеси структуру или принцип из одной области в другую"),
+    ("мини-кейс", "Используй мини-кейс — опиши ситуацию → выбор → последствия"),
+    ("контрпример", "Используй контрпример — покажи как НЕ работает, чтобы подчеркнуть как работает правильно"),
+    ("сравнение", "Используй сравнение двух подходов — правильный vs неправильный"),
+    ("ошибка-мастерство", "Покажи типичную ошибку новичка и приём мастера"),
+    ("наблюдение", "Предложи наблюдательный эксперимент — что можно заметить в повседневной жизни"),
+]
+
+# Источники примеров для ротации
+EXAMPLE_SOURCES = ["работа", "близкая профессиональная сфера", "интерес/хобби", "далёкая сфера для контраста"]
+
+
+def get_example_rules(intern: dict, marathon_day: int) -> str:
+    """Генерирует правила для примеров с ротацией по дню марафона"""
+    interests = intern.get('interests', [])
+    occupation = intern.get('occupation', '') or 'работа'
+
+    # Выбираем интерес по дню (циклически)
+    if interests:
+        interest_idx = (marathon_day - 1) % len(interests)
+        today_interest = interests[interest_idx]
+        other_interests = [i for idx, i in enumerate(interests) if idx != interest_idx]
+    else:
+        today_interest = None
+        other_interests = []
+
+    # Выбираем шаблон формата по дню
+    template_idx = (marathon_day - 1) % len(EXAMPLE_TEMPLATES)
+    template_name, template_instruction = EXAMPLE_TEMPLATES[template_idx]
+
+    # Ротация порядка источников по дню
+    shift = (marathon_day - 1) % len(EXAMPLE_SOURCES)
+    rotated_sources = EXAMPLE_SOURCES[shift:] + EXAMPLE_SOURCES[:shift]
+
+    # Формируем правила
+    sources_text = "\n".join([f"  {i+1}. {src}" for i, src in enumerate(rotated_sources)])
+
+    interest_text = f'"{today_interest}"' if today_interest else "не указан"
+    other_interests_text = f" (другие интересы для разнообразия: {', '.join(other_interests)})" if other_interests else ""
+
+    return f"""
+ПРАВИЛА ДЛЯ ПРИМЕРОВ (День {marathon_day}):
+
+Формат примеров сегодня: **{template_name}**
+{template_instruction}
+
+Порядок источников для примеров (от первого к последнему):
+{sources_text}
+
+Детали источников:
+- Работа/профессия: "{occupation}"
+- Интерес дня: {interest_text}{other_interests_text}
+- Близкая сфера: смежная с работой "{occupation}" область
+- Далёкая сфера: что-то неожиданное для контраста (спорт, искусство, природа, история)
+
+ВАЖНО: Используй интерес дня ({interest_text}), а НЕ всегда первый из списка!
+"""
+
+
+def get_personalization_prompt(intern: dict, marathon_day: int = 1) -> str:
     """Генерирует промпт для персонализации на основе упрощённого профиля"""
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {"words": 1500})
 
@@ -354,6 +415,8 @@ def get_personalization_prompt(intern: dict) -> str:
     occupation = intern.get('occupation', '') or 'не указано'
     motivation = intern.get('motivation', '') or 'не указано'
     goals = intern.get('goals', '') or 'не указаны'
+
+    example_rules = get_example_rules(intern, marathon_day)
 
     return f"""
 ПРОФИЛЬ СТАЖЕРА:
@@ -369,13 +432,7 @@ def get_personalization_prompt(intern: dict) -> str:
 2. Добавляй мотивационный блок, опираясь на ценности стажера: "{motivation}"
 3. Объём текста должен быть рассчитан на {intern['study_duration']} минут чтения (~{duration.get('words', 1500)} слов)
 4. Пиши простым языком, избегай академического стиля
-
-ПРАВИЛА ДЛЯ ПРИМЕРОВ:
-- Первый пример — из рабочей сферы стажера ("{occupation}")
-- Второй пример — из близкой профессиональной сферы
-- Третий пример (если нужен) — из интересов/хобби ({interests}), НЕ БОЛЕЕ ОДНОГО примера из интересов
-- Четвёртый пример (если нужен) — из абсолютно далёкой сферы для контраста
-"""
+{example_rules}"""
 
 # ============= CLAUDE API =============
 
@@ -412,7 +469,7 @@ class ClaudeClient:
                 logger.error(f"Claude API exception: {e}")
                 return None
 
-    async def generate_content(self, topic: dict, intern: dict, mcp_client=None) -> str:
+    async def generate_content(self, topic: dict, intern: dict, marathon_day: int = 1, mcp_client=None) -> str:
         """Генерирует контент для теоретической темы марафона"""
         duration = STUDY_DURATIONS.get(str(intern['study_duration']), {"words": 1500})
         words = duration.get('words', 1500)
@@ -444,7 +501,7 @@ class ClaudeClient:
         content_prompt = topic.get('content_prompt', '')
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
-{get_personalization_prompt(intern)}
+{get_personalization_prompt(intern, marathon_day)}
 
 Создай текст на {intern['study_duration']} минут чтения (~{words} слов). Без заголовков, только абзацы.
 Текст должен быть вовлекающим, с примерами из жизни читателя.
@@ -472,10 +529,10 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
 
-    async def generate_practice_intro(self, topic: dict, intern: dict) -> str:
+    async def generate_practice_intro(self, topic: dict, intern: dict, marathon_day: int = 1) -> str:
         """Генерирует вводный текст для практического задания"""
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
-{get_personalization_prompt(intern)}
+{get_personalization_prompt(intern, marathon_day)}
 
 Напиши краткое (3-5 предложений) введение к практическому заданию.
 Объясни, зачем это задание и как оно связано с темой дня."""
@@ -494,25 +551,43 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or ""
 
-    async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
-        """Генерирует вопрос по теме с учётом уровня Блума"""
+    async def generate_question(self, topic: dict, intern: dict, marathon_day: int = 1, bloom_level: int = None) -> str:
+        """Генерирует вопрос по теме с учётом уровня Блума и ротации контекстов"""
         level = bloom_level or intern.get('bloom_level', 1)
         bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
         occupation = intern.get('occupation', '') or 'работа'
+        interests = intern.get('interests', [])
+
+        # Выбираем контекст для вопроса по дню (ротация)
+        question_contexts = [
+            f'профессиональной деятельности ("{occupation}")',
+            f'интереса/хобби' + (f' ("{interests[(marathon_day - 1) % len(interests)]}")' if interests else ''),
+            'повседневной жизни',
+            'отношений с другими людьми',
+            'личного развития и обучения',
+            'принятия решений',
+        ]
+        context_idx = (marathon_day - 1) % len(question_contexts)
+        question_context = question_contexts[context_idx]
 
         system_prompt = f"""Создай один вопрос для проверки понимания темы.
-{get_personalization_prompt(intern)}
+{get_personalization_prompt(intern, marathon_day)}
 
 УРОВЕНЬ СЛОЖНОСТИ ВОПРОСА: {bloom['name']} ({bloom['desc']})
 {bloom['prompt']}
 
-ВАЖНО: Вопрос должен быть кратким — не более 2 абзацев.
-Вопрос должен требовать развёрнутого ответа и быть связан с занятием стажера: "{occupation}"."""
+КОНТЕКСТ ДЛЯ ВОПРОСА (День {marathon_day}):
+Вопрос должен быть связан с областью: {question_context}
+
+ВАЖНО:
+- Вопрос должен быть кратким — не более 2 абзацев.
+- Вопрос должен требовать развёрнутого ответа.
+- Используй указанный контекст ({question_context}), а НЕ всегда работу."""
 
         user_prompt = f"""Тема: {topic.get('title')}
 Понятие: {topic.get('main_concept')}
 
-Создай вопрос уровня "{bloom['name']}" для этой темы."""
+Создай вопрос уровня "{bloom['name']}" для этой темы, связав с контекстом: {question_context}."""
 
         result = await self.generate(system_prompt, user_prompt)
         return result or bloom['question_type'].format(concept=topic.get('main_concept', 'эту тему'))
@@ -1638,8 +1713,9 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("⏳ Генерирую вопрос посложнее...")
 
     # Генерируем вопрос следующего уровня
+    marathon_day = get_marathon_day(intern)
     next_level = min(intern['bloom_level'] + 1, 3)
-    question = await claude.generate_question(topic, intern, bloom_level=next_level)
+    question = await claude.generate_question(topic, intern, marathon_day=marathon_day, bloom_level=next_level)
 
     bloom = BLOOM_LEVELS.get(next_level, BLOOM_LEVELS[1])
 
@@ -1910,8 +1986,8 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
 
     await bot.send_message(chat_id, "⏳ Генерирую персональный материал...")
 
-    content = await claude.generate_content(topic, intern, mcp_client=mcp)
-    question = await claude.generate_question(topic, intern)
+    content = await claude.generate_content(topic, intern, marathon_day=marathon_day, mcp_client=mcp)
+    question = await claude.generate_question(topic, intern, marathon_day=marathon_day)
 
     header = (
         f"📚 *День {marathon_day} — Теория*\n"
@@ -1946,7 +2022,7 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
     marathon_day = get_marathon_day(intern)
 
     # Генерируем краткое введение
-    intro = await claude.generate_practice_intro(topic, intern)
+    intro = await claude.generate_practice_intro(topic, intern, marathon_day=marathon_day)
 
     task = topic.get('task', '')
     work_product = topic.get('work_product', '')
