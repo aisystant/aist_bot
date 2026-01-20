@@ -716,9 +716,10 @@ claude = ClaudeClient()
 class MCPClient:
     """Универсальный клиент для работы с MCP серверами Aisystant"""
 
-    def __init__(self, url: str, name: str = "MCP"):
+    def __init__(self, url: str, name: str = "MCP", search_tool: str = "semantic_search"):
         self.base_url = url
         self.name = name
+        self.search_tool = search_tool  # "semantic_search" для guides, "search" для knowledge
         self._request_id = 0
 
     def _next_id(self) -> int:
@@ -809,23 +810,25 @@ class MCPClient:
         return ""
 
     async def semantic_search(self, query: str, lang: str = "ru", limit: int = 5, sort_by: str = None) -> List[dict]:
-        """Семантический поиск по руководствам (guides MCP)
+        """Семантический поиск по руководствам или базе знаний
 
         Args:
             query: поисковый запрос
-            lang: язык (ru/en)
+            lang: язык (ru/en) — только для MCP-Guides
             limit: максимальное количество результатов
             sort_by: сортировка (например, "created_at:desc" для свежих постов)
         """
         args = {
             "query": query,
-            "lang": lang,
             "limit": limit
         }
+        # Параметр lang только для semantic_search (MCP-Guides)
+        if self.search_tool == "semantic_search":
+            args["lang"] = lang
         if sort_by:
             args["sort"] = sort_by
 
-        result = await self._call("semantic_search", args)
+        result = await self._call(self.search_tool, args)
         if result and "content" in result:
             for item in result.get("content", []):
                 if item.get("type") == "text":
@@ -866,7 +869,7 @@ class MCPClient:
 
 # Создаём клиенты для двух MCP серверов
 mcp_guides = MCPClient(MCP_URL, "MCP-Guides")
-mcp_knowledge = MCPClient(KNOWLEDGE_MCP_URL, "MCP-Knowledge")
+mcp_knowledge = MCPClient(KNOWLEDGE_MCP_URL, "MCP-Knowledge", search_tool="search")
 
 # Для обратной совместимости
 mcp = mcp_guides
