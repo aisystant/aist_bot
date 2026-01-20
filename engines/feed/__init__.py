@@ -5,7 +5,18 @@
 
 Содержит:
 - engine.py: FeedEngine - основная логика
-- handlers.py: обработчики событий ленты
+- handlers.py: обработчики Telegram + FSM
 - planner.py: планирование недельных тем
-- session.py: генерация ежедневных сессий
 """
+
+from .engine import FeedEngine
+from .handlers import feed_router, FeedStates
+from .planner import suggest_weekly_topics, generate_topic_content
+
+__all__ = [
+    'FeedEngine',
+    'feed_router',
+    'FeedStates',
+    'suggest_weekly_topics',
+    'generate_topic_content',
+]

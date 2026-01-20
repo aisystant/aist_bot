@@ -1,0 +1,202 @@
+"""
+UI для выбора режима работы бота.
+
+Позволяет переключаться между:
+- Марафон: 14-дневный структурированный курс
+- Лента: бесконечное изучение по выбранным темам
+"""
+
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+
+from config import get_logger, Mode, MarathonStatus, FeedStatus
+from db.queries.users import get_intern, update_intern
+
+logger = get_logger(__name__)
+
+# Создаём роутер для выбора режима
+mode_router = Router(name="mode_selector")
+
+
+@mode_router.message(Command("mode"))
+async def cmd_mode(message: Message):
+    """Команда /mode - выбор режима работы"""
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+
+    if not intern:
+        await message.answer(
+            "Сначала пройдите регистрацию: /start"
+        )
+        return
+
+    current_mode = intern.get('mode', Mode.MARATHON)
+    marathon_status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
+    feed_status = intern.get('feed_status', FeedStatus.NOT_STARTED)
+
+    # Определяем текущий статус
+    marathon_info = get_marathon_status_text(intern)
+    feed_info = get_feed_status_text(intern)
+
+    text = (
+        "🎯 *Выберите режим обучения*\n\n"
+        f"*Текущий режим:* {get_mode_name(current_mode)}\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "📚 *Марафон* — 14-дневный курс\n"
+        f"{marathon_info}\n"
+        "_Структурированное введение в системное мышление_\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🌊 *Лента* — бесконечный режим\n"
+        f"{feed_info}\n"
+        "_ИИ предлагает темы, вы выбираете что изучать_\n"
+    )
+
+    # Кнопки выбора режима
+    buttons = [
+        [InlineKeyboardButton(
+            text="📚 Марафон" + (" ✓" if current_mode == Mode.MARATHON else ""),
+            callback_data="mode_marathon"
+        )],
+        [InlineKeyboardButton(
+            text="🌊 Лента" + (" ✓" if current_mode == Mode.FEED else ""),
+            callback_data="mode_feed"
+        )],
+    ]
+
+    # Если оба режима активны, показываем статус "Оба"
+    if current_mode == Mode.BOTH:
+        buttons.append([InlineKeyboardButton(
+            text="📚🌊 Оба режима ✓",
+            callback_data="mode_both"
+        )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+@mode_router.callback_query(F.data == "mode_marathon")
+async def select_marathon(callback: CallbackQuery):
+    """Выбор режима Марафон"""
+    chat_id = callback.message.chat.id
+    intern = await get_intern(chat_id)
+
+    marathon_status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
+
+    # Если марафон был на паузе - возобновляем
+    if marathon_status == MarathonStatus.PAUSED:
+        await update_intern(chat_id, {
+            'mode': Mode.MARATHON,
+            'marathon_status': MarathonStatus.ACTIVE,
+        })
+        await callback.message.edit_text(
+            "✅ *Режим Марафон возобновлён!*\n\n"
+            "Используйте /learn для продолжения обучения.",
+            parse_mode="Markdown"
+        )
+    elif marathon_status == MarathonStatus.COMPLETED:
+        await callback.message.edit_text(
+            "🎉 *Марафон завершён!*\n\n"
+            "Вы уже прошли 14-дневный курс.\n"
+            "Рекомендуем перейти в режим Лента: /feed",
+            parse_mode="Markdown"
+        )
+    elif marathon_status == MarathonStatus.NOT_STARTED:
+        await update_intern(chat_id, {
+            'mode': Mode.MARATHON,
+            'marathon_status': MarathonStatus.ACTIVE,
+        })
+        await callback.message.edit_text(
+            "✅ *Режим Марафон активирован!*\n\n"
+            "Используйте /learn для начала обучения.",
+            parse_mode="Markdown"
+        )
+    else:
+        # Уже активен
+        await update_intern(chat_id, {'mode': Mode.MARATHON})
+        await callback.message.edit_text(
+            "✅ *Режим Марафон*\n\n"
+            "Используйте /learn для продолжения обучения.",
+            parse_mode="Markdown"
+        )
+
+    await callback.answer()
+
+
+@mode_router.callback_query(F.data == "mode_feed")
+async def select_feed(callback: CallbackQuery):
+    """Выбор режима Лента"""
+    chat_id = callback.message.chat.id
+    intern = await get_intern(chat_id)
+
+    current_mode = intern.get('mode', Mode.MARATHON)
+    marathon_status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
+
+    # Если был активный марафон - ставим на паузу
+    if current_mode == Mode.MARATHON and marathon_status == MarathonStatus.ACTIVE:
+        await update_intern(chat_id, {
+            'mode': Mode.FEED,
+            'marathon_status': MarathonStatus.PAUSED,
+            'feed_status': FeedStatus.ACTIVE,
+        })
+        await callback.message.edit_text(
+            "✅ *Режим Лента активирован!*\n\n"
+            "⏸️ Марафон поставлен на паузу. "
+            "Вы сможете вернуться к нему через /mode.\n\n"
+            "Используйте /feed для получения тем на неделю.",
+            parse_mode="Markdown"
+        )
+    else:
+        await update_intern(chat_id, {
+            'mode': Mode.FEED,
+            'feed_status': FeedStatus.ACTIVE,
+        })
+        await callback.message.edit_text(
+            "✅ *Режим Лента активирован!*\n\n"
+            "Используйте /feed для получения тем на неделю.",
+            parse_mode="Markdown"
+        )
+
+    await callback.answer()
+
+
+def get_mode_name(mode: str) -> str:
+    """Возвращает название режима"""
+    names = {
+        Mode.MARATHON: "📚 Марафон",
+        Mode.FEED: "🌊 Лента",
+        Mode.BOTH: "📚🌊 Оба режима",
+    }
+    return names.get(mode, "Не выбран")
+
+
+def get_marathon_status_text(intern: dict) -> str:
+    """Возвращает текст статуса марафона"""
+    status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
+    completed = intern.get('completed_topics', [])
+    day = intern.get('current_day', 0)
+
+    if status == MarathonStatus.NOT_STARTED:
+        return "⚪ Не начат"
+    elif status == MarathonStatus.ACTIVE:
+        return f"🟢 Активен (день {day}/14, пройдено {len(completed)} тем)"
+    elif status == MarathonStatus.PAUSED:
+        return f"⏸️ На паузе (день {day}/14)"
+    elif status == MarathonStatus.COMPLETED:
+        return "✅ Завершён"
+    return "⚪ Статус неизвестен"
+
+
+def get_feed_status_text(intern: dict) -> str:
+    """Возвращает текст статуса ленты"""
+    status = intern.get('feed_status', FeedStatus.NOT_STARTED)
+    active_days = intern.get('active_days_total', 0)
+
+    if status == FeedStatus.NOT_STARTED:
+        return "⚪ Не начата"
+    elif status == FeedStatus.ACTIVE:
+        return f"🟢 Активна (активных дней: {active_days})"
+    elif status == FeedStatus.PAUSED:
+        return f"⏸️ На паузе (активных дней: {active_days})"
+    return "⚪ Статус неизвестен"

@@ -2570,6 +2570,10 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
 
+    # Подключаем роутеры режимов (Лента, выбор режима)
+    from engines.integration import setup_routers
+    setup_routers(dp)
+
     # Сохраняем dispatcher для доступа к FSM storage из планировщика
     _dispatcher = dp
 
@@ -2577,6 +2581,8 @@ async def main():
     await bot.set_my_commands([
         BotCommand(command="start", description="Начать обучение"),
         BotCommand(command="learn", description="Получить новую тему"),
+        BotCommand(command="mode", description="Выбор режима (Марафон/Лента)"),
+        BotCommand(command="feed", description="Режим Лента"),
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="update", description="Обновить профиль"),
