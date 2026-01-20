@@ -2540,7 +2540,16 @@ async def scheduled_check():
 
 # ============= FALLBACK HANDLERS =============
 
-@router.callback_query()
+# Фильтр для исключения callback'ов, обрабатываемых другими роутерами
+def is_main_router_callback(callback: CallbackQuery) -> bool:
+    """Проверяет, что callback НЕ принадлежит engines/ роутерам"""
+    if not callback.data:
+        return True
+    # Исключаем callback'и, которые обрабатываются mode_router и feed_router
+    excluded_prefixes = ('mode_', 'feed_')
+    return not callback.data.startswith(excluded_prefixes)
+
+@router.callback_query(is_main_router_callback)
 async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
     """Обработка неизвестных callback-запросов (истёкшие кнопки и т.д.)"""
     logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
