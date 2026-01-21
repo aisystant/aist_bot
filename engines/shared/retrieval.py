@@ -403,13 +403,15 @@ class EnhancedRetrieval:
 
     async def search(self, query: str,
                      keywords: List[str] = None,
-                     context_topic: Optional[str] = None) -> Tuple[str, List[str]]:
+                     context_topic: Optional[str] = None,
+                     dynamic_context: "DynamicContext" = None) -> Tuple[str, List[str]]:
         """Выполняет улучшенный поиск по MCP
 
         Args:
             query: поисковый запрос
             keywords: ключевые слова (если уже извлечены)
             context_topic: контекст текущей темы
+            dynamic_context: динамический контекст (прогресс, история, метаданные)
 
         Returns:
             Tuple[context, sources] - контекст для LLM и список источников
@@ -419,7 +421,17 @@ class EnhancedRetrieval:
         # 1. Формируем базовый запрос с контекстом
         base_query = f"{context_topic} {query}" if context_topic else query
 
-        # 2. Расширяем запросы
+        # 2. Добавляем boost_concepts из динамического контекста
+        boost_terms = []
+        if dynamic_context:
+            boost_terms = dynamic_context.get_search_boost_terms()
+            if boost_terms:
+                # Добавляем ключевые концепции к запросу
+                boost_query = ' '.join(boost_terms[:3])
+                base_query = f"{base_query} {boost_query}"
+                logger.info(f"EnhancedRetrieval: boost terms: {boost_terms[:3]}")
+
+        # 3. Расширяем запросы
         expanded_queries = self.expander.expand(base_query, max_expansions=2)
 
         # 3. Выполняем поиск по всем запросам
@@ -576,16 +588,25 @@ def get_retrieval() -> EnhancedRetrieval:
 
 async def enhanced_search(query: str,
                          keywords: List[str] = None,
-                         context_topic: Optional[str] = None) -> Tuple[str, List[str]]:
+                         context_topic: Optional[str] = None,
+                         dynamic_context: "DynamicContext" = None) -> Tuple[str, List[str]]:
     """Удобная функция для поиска
 
     Args:
         query: поисковый запрос
         keywords: ключевые слова
         context_topic: контекст темы
+        dynamic_context: динамический контекст (опционально)
 
     Returns:
         Tuple[context, sources]
     """
     retrieval = get_retrieval()
-    return await retrieval.search(query, keywords, context_topic)
+    return await retrieval.search(query, keywords, context_topic, dynamic_context)
+
+
+# Type hint import (в конце файла для избежания циклических импортов)
+try:
+    from .context import DynamicContext
+except ImportError:
+    DynamicContext = None

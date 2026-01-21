@@ -4,16 +4,26 @@
 Работает в любом режиме (Марафон/Лента).
 Использует улучшенный Knowledge Retrieval (MCP) для поиска информации
 и Claude для генерации ответа.
+
+Поддерживает динамический контекст:
+- Прогресс пользователя (день марафона, пройденные темы)
+- История диалога (предыдущие вопросы в сессии)
+- Метаданные темы (related_concepts, pain_point, key_insight)
 """
 
 import json
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 from config import get_logger
 from core.intent import get_question_keywords
 from clients import claude, mcp_guides, mcp_knowledge
-from db.queries.qa import save_qa
+from db.queries.qa import save_qa, get_qa_history
 from .retrieval import enhanced_search, get_retrieval
+from .context import (
+    build_dynamic_context,
+    get_context_builder,
+    DynamicContext,
+)
 
 logger = get_logger(__name__)
 
@@ -22,6 +32,8 @@ async def handle_question(
     question: str,
     intern: dict,
     context_topic: Optional[str] = None,
+    topic_id: Optional[str] = None,
+    knowledge_structure: dict = None,
     use_enhanced_retrieval: bool = True,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос пользователя и генерирует ответ
@@ -29,7 +41,9 @@ async def handle_question(
     Args:
         question: текст вопроса
         intern: профиль пользователя
-        context_topic: текущая тема (для контекста)
+        context_topic: текущая тема (для контекста) - название темы
+        topic_id: ID темы (для загрузки метаданных)
+        knowledge_structure: структура знаний (для метаданных темы)
         use_enhanced_retrieval: использовать улучшенный retrieval (по умолчанию True)
 
     Returns:
@@ -49,13 +63,29 @@ async def handle_question(
     if context_topic:
         logger.info(f"QuestionHandler: контекст темы: '{context_topic}'")
 
+    # Строим динамический контекст
+    dynamic_context = None
+    if use_enhanced_retrieval:
+        try:
+            dynamic_context = await build_dynamic_context(
+                intern=intern,
+                topic_id=topic_id,
+                qa_history_loader=get_qa_history,
+                knowledge_structure=knowledge_structure
+            )
+            logger.info(f"QuestionHandler: динамический контекст построен, "
+                       f"boost_concepts={len(dynamic_context.boost_concepts)}")
+        except Exception as e:
+            logger.warning(f"QuestionHandler: ошибка построения контекста: {e}")
+
     # Ищем информацию через MCP (улучшенный или базовый retrieval)
     if use_enhanced_retrieval:
         logger.info("QuestionHandler: используем EnhancedRetrieval")
         mcp_context, sources = await enhanced_search(
             query=search_query,
             keywords=keywords,
-            context_topic=context_topic
+            context_topic=context_topic,
+            dynamic_context=dynamic_context
         )
     else:
         # Fallback на старый метод
@@ -64,8 +94,10 @@ async def handle_question(
         logger.info(f"QuestionHandler: итоговый поисковый запрос: '{search_query}'")
         mcp_context, sources = await search_mcp_context(search_query)
 
-    # Генерируем ответ через Claude
-    answer = await generate_answer(question, intern, mcp_context, context_topic)
+    # Генерируем ответ через Claude с динамическим контекстом
+    answer = await generate_answer(
+        question, intern, mcp_context, context_topic, dynamic_context
+    )
 
     # Сохраняем в историю
     if chat_id:
@@ -197,7 +229,8 @@ async def generate_answer(
     question: str,
     intern: dict,
     mcp_context: str,
-    context_topic: Optional[str] = None
+    context_topic: Optional[str] = None,
+    dynamic_context: DynamicContext = None
 ) -> str:
     """Генерирует ответ на вопрос через Claude
 
@@ -206,6 +239,7 @@ async def generate_answer(
         intern: профиль пользователя
         mcp_context: контекст из MCP
         context_topic: текущая тема для контекста
+        dynamic_context: динамический контекст (прогресс, история, метаданные)
 
     Returns:
         Текст ответа
@@ -231,6 +265,21 @@ async def generate_answer(
     if occupation:
         occupation_info = f"\nПрофессия/занятие пользователя: {occupation}"
 
+    # Добавляем дополнения из динамического контекста
+    dynamic_sections = ""
+    if dynamic_context:
+        builder = get_context_builder()
+        additions = builder.get_prompt_additions(dynamic_context)
+
+        if additions.get('progress_summary'):
+            dynamic_sections += f"\n{additions['progress_summary']}"
+
+        if additions.get('topic_context'):
+            dynamic_sections += f"\n\n{additions['topic_context']}"
+
+        if additions.get('conversation_history'):
+            dynamic_sections += f"\n\n{additions['conversation_history']}"
+
     mcp_section = ""
     if mcp_context:
         mcp_section = f"""
@@ -251,7 +300,7 @@ async def generate_answer(
    - Приводи источники только если они ТОЧНО релевантны вопросу"""
 
     system_prompt = f"""Ты — дружелюбный наставник по системному мышлению и личному развитию.
-Отвечаешь на вопросы пользователя {name}.{occupation_info}{context_info}
+Отвечаешь на вопросы пользователя {name}.{occupation_info}{context_info}{dynamic_sections}
 
 {lang_instruction}
 

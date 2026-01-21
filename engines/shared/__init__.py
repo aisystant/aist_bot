@@ -9,6 +9,10 @@
   - Relevance Scoring (оценка релевантности)
   - Semantic Deduplication (умная дедупликация)
   - Fallback Strategy (стратегия при пустых результатах)
+- context.py: динамический контекст для улучшения поиска и генерации:
+  - UserProgressContext: прогресс пользователя
+  - ConversationMemory: история диалога
+  - TopicMetadataContext: метаданные темы
 """
 
 from .question_handler import (
@@ -32,6 +36,19 @@ from .retrieval import (
     SYNONYMS,
 )
 
+from .context import (
+    DynamicContext,
+    DynamicContextBuilder,
+    UserProgress,
+    UserProgressContext,
+    ConversationMemory,
+    ConversationItem,
+    TopicMetadata,
+    TopicMetadataContext,
+    build_dynamic_context,
+    get_context_builder,
+)
+
 __all__ = [
     # Question Handler
     'handle_question',
@@ -50,4 +67,15 @@ __all__ = [
     'get_retrieval',
     'TERM_RELATIONS',
     'SYNONYMS',
+    # Dynamic Context
+    'DynamicContext',
+    'DynamicContextBuilder',
+    'UserProgress',
+    'UserProgressContext',
+    'ConversationMemory',
+    'ConversationItem',
+    'TopicMetadata',
+    'TopicMetadataContext',
+    'build_dynamic_context',
+    'get_context_builder',
 ]
