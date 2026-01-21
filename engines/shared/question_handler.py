@@ -2,7 +2,8 @@
 Обработчик вопросов пользователя.
 
 Работает в любом режиме (Марафон/Лента).
-Использует MCP для поиска информации и Claude для генерации ответа.
+Использует улучшенный Knowledge Retrieval (MCP) для поиска информации
+и Claude для генерации ответа.
 """
 
 import json
@@ -12,6 +13,7 @@ from config import get_logger
 from core.intent import get_question_keywords
 from clients import claude, mcp_guides, mcp_knowledge
 from db.queries.qa import save_qa
+from .retrieval import enhanced_search, get_retrieval
 
 logger = get_logger(__name__)
 
@@ -20,6 +22,7 @@ async def handle_question(
     question: str,
     intern: dict,
     context_topic: Optional[str] = None,
+    use_enhanced_retrieval: bool = True,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос пользователя и генерирует ответ
 
@@ -27,6 +30,7 @@ async def handle_question(
         question: текст вопроса
         intern: профиль пользователя
         context_topic: текущая тема (для контекста)
+        use_enhanced_retrieval: использовать улучшенный retrieval (по умолчанию True)
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
@@ -43,13 +47,22 @@ async def handle_question(
     logger.info(f"QuestionHandler: извлечённые ключевые слова: {keywords}")
 
     if context_topic:
-        search_query = f"{context_topic} {search_query}"
-        logger.info(f"QuestionHandler: добавлен контекст темы: '{context_topic}'")
+        logger.info(f"QuestionHandler: контекст темы: '{context_topic}'")
 
-    logger.info(f"QuestionHandler: итоговый поисковый запрос: '{search_query}'")
-
-    # Ищем информацию через MCP
-    mcp_context, sources = await search_mcp_context(search_query)
+    # Ищем информацию через MCP (улучшенный или базовый retrieval)
+    if use_enhanced_retrieval:
+        logger.info("QuestionHandler: используем EnhancedRetrieval")
+        mcp_context, sources = await enhanced_search(
+            query=search_query,
+            keywords=keywords,
+            context_topic=context_topic
+        )
+    else:
+        # Fallback на старый метод
+        if context_topic:
+            search_query = f"{context_topic} {search_query}"
+        logger.info(f"QuestionHandler: итоговый поисковый запрос: '{search_query}'")
+        mcp_context, sources = await search_mcp_context(search_query)
 
     # Генерируем ответ через Claude
     answer = await generate_answer(question, intern, mcp_context, context_topic)
@@ -72,7 +85,10 @@ async def handle_question(
 
 
 async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
-    """Ищет релевантную информацию через MCP серверы
+    """Ищет релевантную информацию через MCP серверы (DEPRECATED)
+
+    DEPRECATED: Используйте enhanced_search() из retrieval.py для улучшенного поиска
+    с query expansion, relevance scoring и семантической дедупликацией.
 
     Args:
         query: поисковый запрос
