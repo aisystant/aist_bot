@@ -472,23 +472,25 @@ async def update_intern(chat_id: int, **kwargs):
 
 async def save_answer(chat_id: int, topic_index: int, answer: str):
     """Сохранить ответ стажера"""
+    # Определяем тип ответа
+    if answer.startswith('[РП]'):
+        answer_type = 'work_product'
+    elif answer.startswith('[BONUS]'):
+        answer_type = 'bonus_answer'
+    else:
+        answer_type = 'theory_answer'
+
     async with db_pool.acquire() as conn:
         await conn.execute(
-            'INSERT INTO answers (chat_id, topic_index, answer) VALUES ($1, $2, $3)',
-            chat_id, topic_index, answer
+            '''INSERT INTO answers (chat_id, topic_index, answer, answer_type, mode)
+               VALUES ($1, $2, $3, $4, $5)''',
+            chat_id, topic_index, answer, answer_type, 'marathon'
         )
 
     # Записываем активность
     try:
         from db.queries.activity import record_active_day
-        # Определяем тип активности по ответу
-        if answer.startswith('[РП]'):
-            activity_type = 'work_product'
-        elif answer.startswith('[BONUS]'):
-            activity_type = 'bonus_answer'
-        else:
-            activity_type = 'theory_answer'
-        await record_active_day(chat_id, activity_type, mode='marathon')
+        await record_active_day(chat_id, answer_type, mode='marathon')
     except Exception as e:
         logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
 
