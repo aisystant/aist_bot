@@ -48,9 +48,12 @@ def test_planner_fallback():
     try:
         from engines.feed.planner import get_fallback_topics
         topics = get_fallback_topics()
-        assert len(topics) == 4
+        assert len(topics) == 5
         assert all('title' in t for t in topics)
-        assert all('description' in t for t in topics)
+        assert all('why' in t for t in topics)
+        # Проверяем что название не длиннее 5 слов
+        for t in topics:
+            assert len(t['title'].split()) <= 5, f"Название слишком длинное: {t['title']}"
         print(f"✅ Fallback темы: {[t['title'] for t in topics]}")
     except ImportError:
         # aiogram не установлен - тестируем напрямую
@@ -67,7 +70,7 @@ def test_config_constants():
     assert Mode.MARATHON == "marathon"
     assert Mode.FEED == "feed"
     assert len(COMPLEXITY_LEVELS) == 3
-    assert FEED_TOPICS_TO_SUGGEST == 4
+    assert FEED_TOPICS_TO_SUGGEST == 5
     print("✅ Константы конфигурации корректны")
 
 
@@ -81,6 +84,37 @@ def test_topic_request_detection():
     print("✅ Запрос темы распознаётся корректно")
 
 
+def test_topic_selection_parsing():
+    """Тест парсинга выбора тем"""
+    try:
+        from engines.feed.handlers import parse_topic_selection
+
+        # Простые номера
+        indices, custom = parse_topic_selection("1, 3", 5)
+        assert indices == {0, 2}, f"Ожидалось {{0, 2}}, получено {indices}"
+        assert custom == []
+        print("✅ Простые номера: 1, 3 → корректно")
+
+        # Номер и кастомная тема
+        indices, custom = parse_topic_selection("2 и ещё хочу про собранность", 5)
+        assert 1 in indices, f"Тема 2 не распознана: {indices}"
+        assert "Собранность" in custom, f"Кастомная тема не распознана: {custom}"
+        print("✅ Номер + кастомная тема → корректно")
+
+        # Только кастомная тема
+        indices, custom = parse_topic_selection("хочу про внимание", 5)
+        assert "Внимание" in custom, f"Кастомная тема не распознана: {custom}"
+        print("✅ Только кастомная тема → корректно")
+
+        # Несколько тем
+        indices, custom = parse_topic_selection("1, 3, 5", 5)
+        assert indices == {0, 2, 4}, f"Ожидалось {{0, 2, 4}}, получено {indices}"
+        print("✅ Несколько номеров: 1, 3, 5 → корректно")
+
+    except ImportError:
+        print("⏭️ Парсинг выбора тем: пропущен (нет aiogram)")
+
+
 if __name__ == "__main__":
     print("\n🧪 Запуск тестов логики режима Лента\n")
     print("=" * 50)
@@ -91,6 +125,7 @@ if __name__ == "__main__":
         test_question_keywords()
         test_topic_request_detection()
         test_planner_fallback()
+        test_topic_selection_parsing()
 
         print("=" * 50)
         print("\n✅ Все тесты пройдены!\n")

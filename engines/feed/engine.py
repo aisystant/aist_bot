@@ -274,6 +274,42 @@ class FeedEngine:
 
         return True, "Фиксация сохранена! До завтра."
 
+    async def update_tomorrow_topic(self, day_number: int, new_topic: str) -> bool:
+        """Обновляет тему для указанного дня недели
+
+        Args:
+            day_number: номер дня (1-indexed)
+            new_topic: новая тема
+
+        Returns:
+            True если успешно
+        """
+        try:
+            week = await self.get_current_week()
+            if not week:
+                return False
+
+            topics = list(week.get('accepted_topics', []))
+            if day_number < 1 or day_number > len(topics):
+                # Добавляем тему если выходит за пределы
+                while len(topics) < day_number:
+                    topics.append('')
+                topics[day_number - 1] = new_topic
+            else:
+                topics[day_number - 1] = new_topic
+
+            await update_feed_week(week['id'], {'accepted_topics': topics})
+
+            # Очищаем кеш
+            self._current_week = None
+
+            logger.info(f"Тема на день {day_number} обновлена: {new_topic}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Ошибка update_tomorrow_topic: {e}")
+            return False
+
     # ==================== ЗАВЕРШЕНИЕ НЕДЕЛИ ====================
 
     async def _complete_week(self):
