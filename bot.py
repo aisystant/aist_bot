@@ -478,6 +478,20 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
             chat_id, topic_index, answer
         )
 
+    # Записываем активность
+    try:
+        from db.queries.activity import record_active_day
+        # Определяем тип активности по ответу
+        if answer.startswith('[РП]'):
+            activity_type = 'work_product'
+        elif answer.startswith('[BONUS]'):
+            activity_type = 'bonus_answer'
+        else:
+            activity_type = 'theory_answer'
+        await record_active_day(chat_id, activity_type, mode='marathon')
+    except Exception as e:
+        logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
+
 async def get_all_scheduled_interns(hour: int, minute: int) -> list:
     """Получить всех стажеров с заданным временем обучения"""
     time_str = f"{hour:02d}:{minute:02d}"
