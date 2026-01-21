@@ -1228,8 +1228,14 @@ def kb_confirm() -> InlineKeyboardMarkup:
 
 def kb_learn() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="▶️ Начать изучение", callback_data="learn")],
-        [InlineKeyboardButton(text="⏭ Позже", callback_data="later")]
+        [InlineKeyboardButton(text="▶️ Начать сейчас", callback_data="learn")],
+        [InlineKeyboardButton(text="⏰ Начать в установленное время", callback_data="later")]
+    ])
+
+def kb_learn_later() -> InlineKeyboardMarkup:
+    """Клавиатура для случая когда старт в будущем"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏰ Жду в установленное время", callback_data="later")]
     ])
 
 def kb_update_profile() -> InlineKeyboardMarkup:
@@ -1471,25 +1477,22 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         start_msg = "🗓 Дата старта не задана"
         can_start_now = False
 
-    # Приветственное сообщение для марафона
+    # Приветственное сообщение для марафона (English + Russian)
     await callback.message.edit_text(
+        f"🎉 *Welcome to the Marathon, {intern['name']}!*\n\n"
+        f"14 days from casual learner to systematic practitioner.\n"
+        f"📅 {MARATHON_DAYS} days — 2 topics per day (theory + practice)\n"
+        f"⏱ {intern['study_duration']} minutes per topic\n"
+        f"⏰ Daily reminders at {intern['schedule_time']}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
         f"🎉 *Добро пожаловать в марафон, {intern['name']}!*\n\n"
-        f"➡️ *Что это за марафон?*\n\n"
-        f"*14 дней* от случайного ученика к систематическому.\n\n"
-        f"Цель — перейти в роль *Практикующего ученика* "
-        f"с устойчивыми практиками саморазвития.\n\n"
-        f"➡️ *Как устроено обучение?*\n\n"
-        f"📅 *{MARATHON_DAYS} дней* — по 2 темы каждый день:\n"
-        f"   📚 *Теория* — материал + вопрос\n"
-        f"   ✏️ *Практика* — задание + рабочий продукт\n\n"
-        f"⏱ *{intern['study_duration']} минут* — на каждую тему\n"
-        f"📈 *Макс {MAX_TOPICS_PER_DAY} темы в день* — можно нагнать 1 день\n\n"
-        f"➡️ *Напоминания*\n\n"
-        f"⏰ Буду напоминать в *{intern['schedule_time']}* каждый день.\n\n"
-        f"{start_msg}\n\n"
-        f"{'Готовы начать?' if can_start_now else 'Жду вас в день старта!'}",
+        f"14 дней от случайного ученика к систематическому.\n"
+        f"📅 {MARATHON_DAYS} дней — по 2 темы в день (теория + практика)\n"
+        f"⏱ {intern['study_duration']} минут на каждую тему\n"
+        f"⏰ Напоминания каждый день в {intern['schedule_time']}\n\n"
+        f"{start_msg}",
         parse_mode="Markdown",
-        reply_markup=kb_learn() if can_start_now else None
+        reply_markup=kb_learn() if can_start_now else kb_learn_later()
     )
     await state.clear()
 
