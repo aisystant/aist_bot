@@ -1,0 +1,109 @@
+# Español
+meta:
+  code: es
+  name: Español
+  flag: "🇪🇸"
+
+# Bienvenida
+welcome:
+  greeting: "👋 ¡Hola! Soy tu guía de IA para el autodesarrollo sistémico (AI System Track)."
+  intro: "Te haré algunas preguntas para personalizar el contenido (~2 min)."
+  ask_name: "¿Cómo te llamas?"
+  returning: "👋 ¡Bienvenido/a de nuevo, {name}!"
+
+# Incorporación
+onboarding:
+  nice_to_meet: "¡Encantado/a de conocerte, {name}!"
+  ask_occupation: "¿A qué te dedicas?"
+  ask_occupation_hint: "_Por ejemplo: desarrollador de software, estudiante de economía, marketing en startup_"
+  ask_interests: "Cuéntame sobre tus intereses y pasatiempos."
+  ask_interests_hint: "_Por ejemplo: tecnología, espacio, cocina, deportes, música, viajes_"
+  ask_interests_why: "_Esto me ayudará a darte ejemplos relevantes._"
+  ask_values: "¿Qué es lo más importante para ti en la vida?"
+  ask_values_hint: "_Por ejemplo: familia, salud, crecimiento profesional, realización creativa_"
+  ask_goals: "¿Qué te gustaría cambiar en el futuro cercano?"
+  ask_goals_hint: "_Por ejemplo: ser más productivo, mantener el enfoque, encontrar tiempo para crecer_"
+  ask_duration: "¿Cuántos minutos al día puedes dedicar al desarrollo?"
+  ask_time: "¿A qué hora te gustaría recibir los materiales?"
+  ask_time_hint: "_Selecciona la hora en zona horaria de Moscú_"
+  ask_start_date: "¿Cuándo empezamos?"
+  profile_summary: "📋 *Tu Perfil*"
+  confirm_profile: "¿Todo correcto? ¿Listo/a para comenzar?"
+
+# Botones
+buttons:
+  start_now: "▶️ Empezar ahora"
+  start_scheduled: "⏰ Empezar a la hora programada"
+  next: "Siguiente →"
+  back: "← Atrás"
+  yes: "✅ Sí"
+  no: "❌ No"
+  cancel: "Cancelar"
+  confirm: "Confirmar"
+  edit: "✏️ Editar"
+  settings: "⚙️ Configuración"
+  change_language: "🌐 Idioma"
+
+# Duración
+duration:
+  minutes_5: "5 minutos — express"
+  minutes_15: "15 minutos — estándar"
+  minutes_25: "25 minutos — profundo"
+
+# Modos
+modes:
+  marathon: "🏃 Maratón"
+  marathon_desc: "Programa estructurado de 14 días"
+  feed: "📰 Feed"
+  feed_desc: "Aprendizaje flexible por intereses"
+  select: "Selecciona el modo de aprendizaje:"
+
+# Progreso
+progress:
+  day: "Día {n}"
+  completed: "✅ Completado"
+  in_progress: "🔄 En progreso"
+  not_started: "⏳ No iniciado"
+  topics_done: "Temas completados: {n}"
+
+# Comandos
+commands:
+  learn: "/learn — continuar aprendiendo"
+  progress: "/progress — estadísticas"
+  profile: "/profile — tu perfil"
+  update: "/update — cambiar configuración"
+  help: "/help — ayuda"
+
+# Configuración
+settings:
+  title: "⚙️ Configuración"
+  language:
+    title: "🌐 Selecciona el idioma de la interfaz"
+    changed: "✅ Idioma cambiado a español"
+  what_to_change: "¿Qué te gustaría cambiar?"
+  updated: "✅ Configuración actualizada"
+
+# Generación de contenido
+content:
+  generating_theory: "⏳ Generando contenido personalizado..."
+  generating_practice: "⏳ Preparando ejercicio práctico..."
+  theory_ready: "📚 *Teoría*"
+  practice_ready: "🔧 *Práctica*"
+
+# Errores
+errors:
+  too_short: "Por favor escribe más (mínimo {n} caracteres)"
+  try_again: "Inténtalo de nuevo"
+  something_wrong: "Algo salió mal. Inténtalo más tarde."
+
+# Maratón
+marathon:
+  welcome: "🎯 ¡Bienvenido/a al maratón, {name}!"
+  day_material: "📚 Material del día {n}"
+  completed: "🎉 ¡Felicidades! ¡Has completado el maratón!"
+
+# Feed
+feed:
+  welcome: "📰 ¡Bienvenido/a al modo Feed!"
+  select_topics: "Selecciona los temas para esta semana:"
+  session_ready: "¡Tu sesión está lista!"
