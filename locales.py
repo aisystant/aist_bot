@@ -131,6 +131,11 @@ TRANSLATIONS = {
 
         # Ошибки
         'errors.try_again': 'Попробуй ещё раз',
+
+        # Загрузка
+        'loading.generating_topics': '⏳ Генерирую темы...',
+        'loading.generating_content': '⏳ Готовлю материал...',
+        'loading.processing': '⏳ Обрабатываю...',
     },
 
     'en': {
@@ -254,6 +259,11 @@ TRANSLATIONS = {
 
         # Errors
         'errors.try_again': 'Try again',
+
+        # Loading
+        'loading.generating_topics': '⏳ Generating topics...',
+        'loading.generating_content': '⏳ Preparing content...',
+        'loading.processing': '⏳ Processing...',
     },
 
     'es': {
@@ -377,6 +387,11 @@ TRANSLATIONS = {
 
         # Errores
         'errors.try_again': 'Inténtalo de nuevo',
+
+        # Cargando
+        'loading.generating_topics': '⏳ Generando temas...',
+        'loading.generating_content': '⏳ Preparando contenido...',
+        'loading.processing': '⏳ Procesando...',
     }
 }
 

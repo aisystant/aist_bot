@@ -18,6 +18,7 @@ from config import get_logger
 from .engine import FeedEngine
 from db.queries.users import get_intern
 from engines.shared import handle_question
+from locales import t
 
 logger = get_logger(__name__)
 
@@ -40,6 +41,11 @@ async def cmd_feed(message: Message, state: FSMContext):
     try:
         chat_id = message.chat.id
         logger.info(f"cmd_feed вызван для {chat_id}")
+
+        # Получаем язык пользователя
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') if intern else 'ru'
+
         engine = FeedEngine(chat_id)
 
         # Получаем статус
@@ -48,15 +54,22 @@ async def cmd_feed(message: Message, state: FSMContext):
         logger.info(f"Статус Ленты для {chat_id}: {status}")
 
         if not status['has_week'] or status['week_status'] == 'completed':
+            # Показываем индикатор загрузки
+            loading_msg = await message.answer(t('loading.generating_topics', lang))
+
             # Нужно предложить новые темы
             logger.info(f"Запускаем feed для {chat_id}")
             success, msg = await engine.start_feed()
             if not success:
+                await loading_msg.delete()
                 await message.answer(msg)
                 return
 
             logger.info(f"Генерируем темы для {chat_id}")
             topics, msg = await engine.suggest_topics()
+
+            # Удаляем индикатор загрузки
+            await loading_msg.delete()
             if not topics:
                 await message.answer(msg)
                 return

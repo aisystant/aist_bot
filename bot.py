@@ -2796,18 +2796,42 @@ async def main():
     # Сохраняем dispatcher для доступа к FSM storage из планировщика
     _dispatcher = dp
 
-    # Установка команд бота (Menu-кнопка)
-    # /learn вверху - самая частая команда
+    # Установка команд бота для разных языков
+    # Русский (по умолчанию)
     await bot.set_my_commands([
         BotCommand(command="learn", description="Получить новую тему"),
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="update", description="Обновить профиль"),
-        BotCommand(command="mode", description="Выбор режима (Марафон/Лента)"),
-        BotCommand(command="language", description="Сменить язык"),
+        BotCommand(command="mode", description="Выбор режима"),
+        BotCommand(command="language", description="Change language"),
         BotCommand(command="start", description="Перезапустить онбординг"),
         BotCommand(command="help", description="Справка")
     ])
+
+    # Английский
+    await bot.set_my_commands([
+        BotCommand(command="learn", description="Get a new topic"),
+        BotCommand(command="progress", description="My progress"),
+        BotCommand(command="profile", description="My profile"),
+        BotCommand(command="update", description="Update profile"),
+        BotCommand(command="mode", description="Select mode"),
+        BotCommand(command="language", description="Change language"),
+        BotCommand(command="start", description="Restart onboarding"),
+        BotCommand(command="help", description="Help")
+    ], language_code="en")
+
+    # Испанский
+    await bot.set_my_commands([
+        BotCommand(command="learn", description="Obtener tema"),
+        BotCommand(command="progress", description="Mi progreso"),
+        BotCommand(command="profile", description="Mi perfil"),
+        BotCommand(command="update", description="Actualizar perfil"),
+        BotCommand(command="mode", description="Seleccionar modo"),
+        BotCommand(command="language", description="Change language"),
+        BotCommand(command="start", description="Reiniciar"),
+        BotCommand(command="help", description="Ayuda")
+    ], language_code="es")
 
     # Запуск планировщика
     scheduler.add_job(scheduled_check, 'cron', minute='*')
