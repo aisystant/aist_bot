@@ -853,7 +853,7 @@ class ClaudeClient:
 Выдай ТОЛЬКО сам вопрос — 1-3 предложения максимум.
 
 КОНТЕКСТ ВОПРОСА (День {marathon_day}): {question_context}
-Уровень сложности: {bloom['name']} — {bloom['desc']}
+Уровень сложности: {bloom['short_name']} — {bloom['desc']}
 {question_type_hint}
 {templates_hint}
 
@@ -1283,7 +1283,7 @@ def kb_bloom_level(lang: str = 'ru') -> InlineKeyboardMarkup:
     emojis = {1: '🔵', 2: '🟡', 3: '🔴'}
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"{emojis[k]} {t(f'bloom.level_{k}_short', lang)} «{t(f'bloom.level_{k}', lang)}»",
+            text=f"{emojis[k]} {t(f'bloom.level_{k}_short', lang)} — {t(f'bloom.level_{k}_desc', lang)}",
             callback_data=f"bloom_{k}"
         )]
         for k in [1, 2, 3]
@@ -1805,7 +1805,7 @@ async def cmd_profile(message: Message):
         f"💫 *{t('profile.what_important', lang)}:* {motivation_short or t('profile.not_specified', lang)}\n"
         f"🎯 *{t('profile.what_change', lang)}:* {goals_short}\n\n"
         f"{t(f'duration.minutes_{study_duration}', lang)}\n"
-        f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)} «{t(f'bloom.level_{bloom_level}', lang)}»\n"
+        f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
         f"⏰ {t('profile.reminder_at', lang)} {intern['schedule_time']}\n"
         f"🌐 {get_language_name(lang)}\n\n"
         f"🆔 `{message.chat.id}`\n\n"
@@ -1991,8 +1991,9 @@ async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
     emojis = {1: '🔵', 2: '🟡', 3: '🔴'}
     await callback.answer()
     await callback.message.edit_text(
-        f"🎚 *{t('update.current_difficulty', lang)}:* {emojis.get(level, '🔵')} {t(f'bloom.level_{level}_short', lang)} «{t(f'bloom.level_{level}', lang)}»\n"
+        f"🎚 *{t('update.current_difficulty', lang)}:* {emojis.get(level, '🔵')} {t(f'bloom.level_{level}_short', lang)}\n"
         f"_{t(f'bloom.level_{level}_desc', lang)}_\n\n"
+        f"📊 *{t('update.difficulty_scale', lang)}:* 1 — {t('update.easiest', lang)}, 3 — {t('update.hardest', lang)}\n\n"
         f"{t('update.select_difficulty', lang)}",
         parse_mode="Markdown",
         reply_markup=kb_bloom_level(lang)
@@ -2008,7 +2009,7 @@ async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
     lang = intern.get('language', 'ru') if intern else 'ru'
     await callback.answer(f"{t(f'bloom.level_{level}_short', lang)}")
     await callback.message.edit_text(
-        f"✅ {t('update.difficulty_changed', lang)}: *{t(f'bloom.level_{level}_short', lang)} «{t(f'bloom.level_{level}', lang)}»*!\n\n"
+        f"✅ {t('update.difficulty_changed', lang)}: *{t(f'bloom.level_{level}_short', lang)}*!\n\n"
         f"{t(f'bloom.level_{level}_desc', lang)}\n\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.update', lang)}",
@@ -2263,7 +2264,7 @@ async def on_answer(message: Message, state: FSMContext):
     # Сообщение о повышении уровня
     upgrade_msg = ""
     if level_upgraded:
-        upgrade_msg = f"\n\n🎉 *{t('marathon.level_up', lang)}* *{t(f'bloom.level_{bloom_level}_short', lang)} «{t(f'bloom.level_{bloom_level}', lang)}»*!"
+        upgrade_msg = f"\n\n🎉 *{t('marathon.level_up', lang)}* *{t(f'bloom.level_{bloom_level}_short', lang)}*!"
 
     # Получаем информацию о следующей доступной теме
     updated_intern = {

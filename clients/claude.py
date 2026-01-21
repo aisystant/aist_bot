@@ -338,7 +338,7 @@ class ClaudeClient:
 
 Выдай ТОЛЬКО сам вопрос — 1-3 предложения максимум.
 Вопрос должен быть связан с профессией: "{occupation}".
-Уровень сложности: {bloom['name']} — {bloom['desc']}
+Уровень сложности: {bloom['short_name']} — {bloom['desc']}
 {question_type_hint}
 {templates_hint}
 
