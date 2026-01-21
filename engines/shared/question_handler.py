@@ -14,7 +14,7 @@
 import json
 from typing import Optional, List, Tuple, Dict, Callable, Awaitable
 
-from config import get_logger
+from config import get_logger, ONTOLOGY_RULES
 from core.intent import get_question_keywords
 from clients import claude, mcp_guides, mcp_knowledge
 from db.queries.qa import save_qa, get_qa_history
@@ -348,6 +348,8 @@ async def generate_answer(
 4. Если контекста недостаточно - честно скажи об этом
 5. Если вопрос не по теме системного мышления - вежливо перенаправь
 {sources_instruction}
+
+{ONTOLOGY_RULES}
 {mcp_section}"""
 
     user_prompt = f"Вопрос: {question}"
@@ -387,7 +389,10 @@ async def answer_with_context(
     system_prompt = f"""Ты — дружелюбный наставник по системному мышлению.
 Отвечаешь на вопрос пользователя {name}.{occupation_info}
 
-Отвечай кратко и по существу.{context_section}"""
+Отвечай кратко и по существу.
+
+{ONTOLOGY_RULES}
+{context_section}"""
 
     user_prompt = f"Вопрос: {question}"
 

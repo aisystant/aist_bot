@@ -850,7 +850,9 @@ class ClaudeClient:
 КОНТЕКСТ ВОПРОСА (День {marathon_day}): {question_context}
 Уровень сложности: {bloom['name']} — {bloom['desc']}
 {question_type_hint}
-{templates_hint}"""
+{templates_hint}
+
+{ONTOLOGY_RULES}"""
 
         user_prompt = f"""Тема: {topic.get('title')}
 Понятие: {topic.get('main_concept')}

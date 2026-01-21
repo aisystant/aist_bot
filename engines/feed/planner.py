@@ -8,7 +8,7 @@
 from typing import List, Dict, Optional
 import json
 
-from config import get_logger, FEED_TOPICS_TO_SUGGEST, ONTOLOGY_RULES_TOPICS
+from config import get_logger, FEED_TOPICS_TO_SUGGEST, ONTOLOGY_RULES, ONTOLOGY_RULES_TOPICS
 from clients import claude, mcp_guides, mcp_knowledge
 
 logger = get_logger(__name__)
@@ -447,6 +447,8 @@ async def generate_topic_content(
 - Используй примеры из сферы "{occupation}" если возможно
 - Не используй заголовки и markdown
 - Заверши текст вопросом для размышления
+
+{ONTOLOGY_RULES}
 
 Верни JSON:
 {{
