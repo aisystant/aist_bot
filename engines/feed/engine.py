@@ -170,10 +170,21 @@ class FeedEngine:
         topics = week.get('accepted_topics', [])
         current_day = week.get('current_day', 1)
 
+        logger.info(f"get_today_session: week_id={week['id']}, current_day={current_day}, topics_count={len(topics)}")
+
+        # Защита от некорректного current_day
+        if current_day < 1:
+            logger.warning(f"current_day < 1: {current_day}, resetting to 1")
+            current_day = 1
+            await update_feed_week(week['id'], {'current_day': 1})
+
         if current_day > len(topics):
             # Все темы пройдены
             await self._complete_week()
             return None, "Поздравляем! Все темы недели пройдены."
+
+        if not topics:
+            return None, "Нет выбранных тем. Используйте /feed для выбора."
 
         # Выбираем тему дня
         topic_title = topics[current_day - 1] if topics else "Системное мышление"

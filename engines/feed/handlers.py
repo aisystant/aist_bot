@@ -65,10 +65,17 @@ async def cmd_feed(message: Message, state: FSMContext):
             await show_topic_selection(message, topics, state)
 
         elif status['week_status'] == 'planning':
-            # Повторно показываем выбор тем
+            # Показываем уже предложенные темы (не создаём новую неделю!)
             logger.info(f"Показываем выбор тем (planning) для {chat_id}")
-            topics, msg = await engine.suggest_topics()
-            await show_topic_selection(message, topics, state)
+            week = await engine.get_current_week()
+            if week and week.get('suggested_topics'):
+                # Преобразуем названия тем в формат для отображения
+                topics = [{'title': t, 'description': '', 'why': ''} for t in week['suggested_topics']]
+                await show_topic_selection(message, topics, state)
+            else:
+                # Если тем нет, генерируем новые
+                topics, msg = await engine.suggest_topics()
+                await show_topic_selection(message, topics, state)
 
         else:
             # Есть активная неделя - показываем сессию
