@@ -47,15 +47,16 @@ async def show_feed_menu(message: Message, engine: FeedEngine, state: FSMContext
             return
 
         topics = week.get('accepted_topics', [])
-        current_day = week.get('current_day', 1)
 
         # Формируем текст меню
         text = f"📚 *{t('feed.menu_title', lang)}*\n\n"
-        text += f"{t('feed.week_progress', lang, current=current_day, total=len(topics))}\n"
 
-        # Показываем текущую тему
-        if current_day <= len(topics):
-            text += f"\n📖 Сегодня: *{topics[current_day - 1]}*"
+        if topics:
+            text += "*Ваши темы:*\n"
+            for i, topic in enumerate(topics, 1):
+                text += f"{i}. {topic}\n"
+        else:
+            text += "_Темы не выбраны_\n"
 
         # Кнопки
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -478,7 +479,7 @@ async def feed_get_digest(callback: CallbackQuery, state: FSMContext):
 
 @feed_router.callback_query(F.data == "feed_topics_menu")
 async def feed_topics_menu(callback: CallbackQuery, state: FSMContext):
-    """Показывает меню тем с возможностью редактирования всех будущих тем"""
+    """Показывает меню тем с возможностью редактирования"""
     chat_id = callback.message.chat.id
     lang = await get_user_lang(chat_id)
 
@@ -491,29 +492,22 @@ async def feed_topics_menu(callback: CallbackQuery, state: FSMContext):
             return
 
         topics = week.get('accepted_topics', [])
-        current_day = week.get('current_day', 1)
-
-        # Только актуальные темы: сегодня и далее
-        remaining_topics = topics[current_day - 1:] if current_day <= len(topics) else []
-        remaining_count = len(remaining_topics)
 
         # Формируем текст
         text = f"📋 *{t('feed.topics_menu_title', lang)}*\n\n"
 
-        if remaining_topics:
-            text += f"*Темы на ближайшие {remaining_count} дней:*\n"
-            for i, topic in enumerate(remaining_topics, 1):
-                day_num = current_day + i - 1
-                mark = "📖" if i == 1 else "⏳"
-                text += f"{mark} День {day_num}: *{topic}*\n"
+        if topics:
+            text += "*Ваши темы:*\n"
+            for i, topic in enumerate(topics, 1):
+                text += f"{i}. {topic}\n"
         else:
-            text += "_Все темы пройдены!_\n"
+            text += "_Темы не выбраны_\n"
 
         text += "\n—\n"
-        text += "*Изменить темы:*\n"
-        text += "Введите новые темы текстом:\n"
-        text += "_• Через запятую: Тема 1, Тема 2, Тема 3_\n"
-        text += "_• Или каждую с новой строки_\n"
+        text += "*Изменить темы (до 3):*\n"
+        text += "Введите через запятую или с новой строки\n\n"
+        text += "_Размер дайджеста фиксирован — чем больше тем, тем меньше глубины на каждую. "
+        text += "Одна тема раскрывается глубже с каждым днём._"
 
         # Кнопки
         buttons = [
@@ -531,7 +525,6 @@ async def feed_topics_menu(callback: CallbackQuery, state: FSMContext):
 
         # Устанавливаем состояние для приёма новых тем
         await state.set_state(FeedStates.editing_topic)
-        await state.update_data(current_day=current_day, remaining_count=remaining_count)
 
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         await callback.answer()
@@ -572,7 +565,7 @@ async def feed_reset_topics(callback: CallbackQuery, state: FSMContext):
 
 @feed_router.message(FeedStates.editing_topic, F.text.func(lambda t: not t.startswith('/')))
 async def handle_topic_edit(message: Message, state: FSMContext):
-    """Обрабатывает ввод новых тем (список через запятую или с новой строки)"""
+    """Обрабатывает ввод новых тем (список через запятую или с новой строки, максимум 3)"""
     try:
         chat_id = message.chat.id
         lang = await get_user_lang(chat_id)
@@ -582,13 +575,8 @@ async def handle_topic_edit(message: Message, state: FSMContext):
             await message.answer("Введите названия тем (минимум 3 символа).")
             return
 
-        # Получаем данные из state
-        data = await state.get_data()
-        current_day = data.get('current_day', 1)
-
         # Парсим темы: разделители — запятая или новая строка
         import re
-        # Разбиваем по запятой или новой строке
         raw_topics = re.split(r'[,\n]+', text)
 
         # Очищаем и фильтруем
@@ -604,36 +592,20 @@ async def handle_topic_edit(message: Message, state: FSMContext):
             await message.answer("Не удалось распознать темы. Попробуйте ещё раз.")
             return
 
-        # Получаем текущую неделю и обновляем темы
+        # Ограничение: максимум 3 темы
+        if len(new_topics) > 3:
+            new_topics = new_topics[:3]
+            await message.answer("_Оставлены первые 3 темы_", parse_mode="Markdown")
+
+        # Обновляем темы
         engine = FeedEngine(chat_id)
-        week = await engine.get_current_week()
-
-        if not week:
-            await message.answer(t('errors.try_again', lang))
-            await state.clear()
-            return
-
-        old_topics = week.get('accepted_topics', [])
-
-        # Сохраняем пройденные темы + новые
-        completed_topics = old_topics[:current_day - 1] if current_day > 1 else []
-        updated_topics = completed_topics + new_topics
-
-        # Обновляем все темы начиная с текущего дня
-        success = True
-        for i, topic in enumerate(new_topics):
-            day_num = current_day + i
-            result = await engine.update_tomorrow_topic(day_num, topic)
-            if not result:
-                success = False
+        success = await engine.set_topics(new_topics)
 
         if success:
             # Показываем подтверждение
             confirm_text = f"✅ *Темы обновлены!*\n\n"
             for i, topic in enumerate(new_topics, 1):
-                day_num = current_day + i - 1
-                mark = "📖" if i == 1 else "⏳"
-                confirm_text += f"{mark} День {day_num}: *{topic}*\n"
+                confirm_text += f"{i}. {topic}\n"
 
             await message.answer(confirm_text, parse_mode="Markdown")
         else:
@@ -790,7 +762,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
 
 @feed_router.callback_query(F.data == "feed_whats_next")
 async def show_whats_next(callback: CallbackQuery, state: FSMContext):
-    """Показывает предстоящие темы недели"""
+    """Показывает текущие темы"""
     chat_id = callback.message.chat.id
     lang = await get_user_lang(chat_id)
 
@@ -803,21 +775,17 @@ async def show_whats_next(callback: CallbackQuery, state: FSMContext):
             return
 
         topics = week.get('accepted_topics', [])
-        current_day = week.get('current_day', 1)
-
-        # Только актуальные темы: сегодня и далее
-        remaining_topics = topics[current_day - 1:] if current_day <= len(topics) else []
 
         # Формируем список тем
         text = f"📋 *{t('feed.topics_menu_title', lang)}*\n\n"
 
-        if remaining_topics:
-            for i, topic in enumerate(remaining_topics, 1):
-                day_num = current_day + i - 1
-                mark = "📖" if i == 1 else "⏳"
-                text += f"{mark} День {day_num}: *{topic}*\n"
+        if topics:
+            text += "*Ваши темы:*\n"
+            for i, topic in enumerate(topics, 1):
+                text += f"{i}. {topic}\n"
+            text += "\n_С каждым днём темы раскрываются глубже._"
         else:
-            text += "_Все темы пройдены!_"
+            text += "_Темы не выбраны_"
 
         # Кнопка для редактирования тем
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

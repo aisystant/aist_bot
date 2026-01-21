@@ -162,12 +162,12 @@ async def select_feed(callback: CallbackQuery):
         text += f"*Ваши настройки:*\n{settings_text}\n"
 
         if has_active_week:
-            # Есть активная неделя — показываем прогресс
+            # Есть активная неделя — показываем темы
             topics = status.get('topics', [])
-            current_day = status.get('current_day', 1)
-            text += f"\n{t('feed.week_progress', lang, current=current_day, total=len(topics))}"
-            if current_day <= len(topics):
-                text += f"\n📖 Сегодня: *{topics[current_day - 1]}*"
+            if topics:
+                text += "\n*Ваши темы:*\n"
+                for i, topic in enumerate(topics, 1):
+                    text += f"{i}. {topic}\n"
 
         # Если был активный марафон - ставим на паузу
         if (marathon_status == MarathonStatus.ACTIVE or

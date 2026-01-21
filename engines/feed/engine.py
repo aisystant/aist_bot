@@ -321,6 +321,35 @@ class FeedEngine:
             logger.error(f"Ошибка update_tomorrow_topic: {e}")
             return False
 
+    async def set_topics(self, topics: List[str]) -> bool:
+        """Устанавливает список тем (заменяет все текущие)
+
+        Args:
+            topics: список тем (максимум 3)
+
+        Returns:
+            True если успешно
+        """
+        try:
+            week = await self.get_current_week()
+            if not week:
+                return False
+
+            # Ограничиваем до 3 тем
+            topics = topics[:3]
+
+            await update_feed_week(week['id'], {'accepted_topics': topics})
+
+            # Очищаем кеш
+            self._current_week = None
+
+            logger.info(f"Темы обновлены: {topics}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Ошибка set_topics: {e}")
+            return False
+
     # ==================== ЗАВЕРШЕНИЕ НЕДЕЛИ ====================
 
     async def _complete_week(self):
