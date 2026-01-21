@@ -677,9 +677,15 @@ async def feed_back_to_menu(callback: CallbackQuery, state: FSMContext):
 
 
 async def show_today_session(message: Message, engine: FeedEngine, state: FSMContext):
-    """Показывает сегодняшнюю сессию"""
+    """Показывает сегодняшний дайджест.
+
+    Новая модель:
+    - Заголовок "Дайджест" без номера дня
+    - Список тем в подзаголовке
+    - Уровень глубины показывается как "(углубление X)"
+    """
     try:
-        logger.info("show_today_session: получаем сессию")
+        logger.info("show_today_session: получаем дайджест")
 
         # Показываем индикатор "печатает..." пока генерируем контент
         await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -694,12 +700,25 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
             await message.answer(f"✅ {intro_msg}")
             return
 
-        # Показываем контент сессии
+        # Получаем контент сессии
         content = session.get('content', {})
-        topic = session.get('topic_title', 'Тема дня')
-        day = session.get('day_number', 1)
+        topics_list = content.get('topics_list', [])
+        depth_level = content.get('depth_level', session.get('day_number', 1))
 
-        text = f"📖 *День {day}: {topic}*\n\n"
+        # Формируем заголовок
+        if topics_list:
+            topics_str = ", ".join(topics_list)
+            text = f"📖 *Дайджест: {topics_str}*\n"
+        else:
+            # Fallback для старых сессий
+            topic = session.get('topic_title', 'Темы дня')
+            text = f"📖 *Дайджест: {topic}*\n"
+
+        # Показываем уровень глубины
+        if depth_level > 1:
+            text += f"_Углубление {depth_level}_\n"
+
+        text += "\n"
 
         if content.get('intro'):
             text += f"_{content['intro']}_\n\n"
@@ -736,17 +755,21 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
         else:
             await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
-        logger.info("show_today_session: сессия показана")
+        logger.info("show_today_session: дайджест показан")
 
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в show_today_session: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка при загрузке сессии. Попробуйте позже.")
+        await message.answer("Произошла ошибка при загрузке дайджеста. Попробуйте позже.")
 
 
 @feed_router.message(FeedStates.reading_content, F.text.func(lambda t: not t.startswith('/')))
 async def handle_feed_question(message: Message, state: FSMContext):
-    """Обрабатывает вопрос пользователя во время чтения контента"""
+    """Обрабатывает вопрос пользователя во время чтения дайджеста.
+
+    Новая модель:
+    - Контекстом являются ВСЕ выбранные темы (не одна)
+    """
     try:
         chat_id = message.chat.id
         question = message.text.strip()
@@ -756,19 +779,15 @@ async def handle_feed_question(message: Message, state: FSMContext):
 
         logger.info(f"Feed: вопрос от {chat_id}: {question[:50]}...")
 
-        # Получаем контекст из state
-        data = await state.get_data()
-        session_id = data.get('session_id')
-
-        # Получаем текущую тему
+        # Получаем все темы как контекст
         engine = FeedEngine(chat_id)
         week = await engine.get_current_week()
-        current_topic = None
+        context_topics = None
         if week:
             topics = week.get('accepted_topics', [])
-            current_day = week.get('current_day', 1)
-            if topics and current_day <= len(topics):
-                current_topic = topics[current_day - 1]
+            if topics:
+                # Все темы объединяем как контекст
+                context_topics = ", ".join(topics)
 
         # Получаем профиль пользователя
         intern = await get_intern(chat_id)
@@ -779,7 +798,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
         answer, sources = await handle_question(
             question=question,
             intern=intern,
-            context_topic=current_topic
+            context_topic=context_topics
         )
 
         # Формируем ответ
@@ -1029,7 +1048,12 @@ async def handle_tomorrow_selection(message: Message, state: FSMContext):
 
 @feed_router.message(Command("feed_status"))
 async def cmd_feed_status(message: Message):
-    """Показывает статус Ленты"""
+    """Показывает статус Ленты.
+
+    Новая модель:
+    - current_day = глубина погружения (не номер темы)
+    - Все темы в каждом дайджесте
+    """
     try:
         chat_id = message.chat.id
         logger.info(f"cmd_feed_status вызван для {chat_id}")
@@ -1049,14 +1073,15 @@ async def cmd_feed_status(message: Message):
         text = "📚 *Режим Лента*\n\n"
 
         if status['has_week']:
-            text += f"📅 Статус недели: {status['week_status']}\n"
-            text += f"📖 День: {status['current_day']} / {len(status['topics'])}\n"
+            text += f"📅 Статус: {status['week_status']}\n"
+            depth = status['current_day']
+            text += f"📖 Уровень глубины: {depth}\n"
 
             if status['topics']:
-                text += "\n*Темы недели:*\n"
+                text += f"\n*Ваши темы ({len(status['topics'])}):*\n"
                 for i, topic in enumerate(status['topics'], 1):
-                    mark = "✅" if i < status['current_day'] else "📖" if i == status['current_day'] else "⏳"
-                    text += f"{mark} {topic}\n"
+                    text += f"• {topic}\n"
+                text += "\n_С каждым дайджестом темы раскрываются глубже._\n"
 
         text += f"\n📊 *Статистика:*\n"
         text += f"• Всего активных дней: {status['active_days']}\n"

@@ -33,7 +33,7 @@ from db.queries.feed import (
 )
 from db.queries.activity import record_active_day, get_activity_stats
 
-from .planner import suggest_weekly_topics, generate_topic_content
+from .planner import suggest_weekly_topics, generate_multi_topic_digest
 
 logger = get_logger(__name__)
 
@@ -145,7 +145,13 @@ class FeedEngine:
     # ==================== ЕЖЕДНЕВНЫЕ СЕССИИ ====================
 
     async def get_today_session(self) -> Tuple[Optional[Dict], str]:
-        """Получает или создаёт сессию на сегодня
+        """Получает или создаёт дайджест на сегодня.
+
+        Новая модель:
+        - Дайджест включает ВСЕ выбранные темы (1-3)
+        - current_day = depth_level (уровень глубины погружения)
+        - Длительность из профиля, делится на все темы
+        - Чем больше тем, тем меньше глубины на каждую
 
         Returns:
             (session_data, message)
@@ -171,53 +177,48 @@ class FeedEngine:
         # Проверяем, есть ли незавершённая сессия за предыдущие дни
         previous_incomplete = await self._get_incomplete_session(week['id'])
         if previous_incomplete:
-            # Возвращаем незавершённую сессию — нужно сначала её завершить
             return previous_incomplete, "У вас есть незавершённый дайджест. Напишите фиксацию, чтобы продолжить."
 
-        # Создаём новую сессию
+        # Получаем данные для генерации
         intern = await self.get_intern()
         topics = week.get('accepted_topics', [])
-        current_day = week.get('current_day', 1)
+        depth_level = week.get('current_day', 1)  # current_day = уровень глубины
 
-        logger.info(f"get_today_session: week_id={week['id']}, current_day={current_day}, topics_count={len(topics)}")
+        logger.info(f"get_today_session: week_id={week['id']}, depth_level={depth_level}, topics={topics}")
 
-        # Защита от некорректного current_day
-        if current_day < 1:
-            logger.warning(f"current_day < 1: {current_day}, resetting to 1")
-            current_day = 1
+        # Защита от некорректного depth_level
+        if depth_level < 1:
+            logger.warning(f"depth_level < 1: {depth_level}, resetting to 1")
+            depth_level = 1
             await update_feed_week(week['id'], {'current_day': 1})
-
-        if current_day > len(topics):
-            # Все темы пройдены
-            await self._complete_week()
-            return None, "Поздравляем! Все темы недели пройдены."
 
         if not topics:
             return None, "Нет выбранных тем. Используйте /feed для выбора."
 
-        # Выбираем тему дня
-        topic_title = topics[current_day - 1] if topics else "Системное мышление"
+        # Длительность из профиля (или дефолт)
+        duration = intern.get('feed_duration', FEED_SESSION_DURATION_MAX)
+        if not duration or duration < FEED_SESSION_DURATION_MIN:
+            duration = (FEED_SESSION_DURATION_MIN + FEED_SESSION_DURATION_MAX) // 2
 
-        topic = {
-            'title': topic_title,
-            'description': '',
-            'keywords': topic_title.split()[:3],
-        }
+        # Генерируем мульти-тематический дайджест
+        content = await generate_multi_topic_digest(
+            topics=topics,
+            intern=intern,
+            duration=duration,
+            depth_level=depth_level,
+        )
 
-        # Генерируем контент
-        duration = (FEED_SESSION_DURATION_MIN + FEED_SESSION_DURATION_MAX) // 2
-        content = await generate_topic_content(topic, intern, duration)
-
-        # Создаём сессию
+        # Создаём сессию (topic_title = все темы через запятую)
+        topics_title = ", ".join(topics)
         session = await create_feed_session(
             week_id=week['id'],
-            day_number=current_day,
-            topic_title=topic_title,
+            day_number=depth_level,
+            topic_title=topics_title,
             content=content,
             session_date=today,
         )
 
-        return session, content.get('intro', 'Начинаем сессию!')
+        return session, content.get('intro', 'Начинаем дайджест!')
 
     async def get_session_content(self, session_id: int) -> Optional[Dict]:
         """Получает контент сессии по ID"""
@@ -234,6 +235,11 @@ class FeedEngine:
 
     async def submit_fixation(self, text: str) -> Tuple[bool, str]:
         """Принимает фиксацию (закрытие дня текстом)
+
+        Новая модель:
+        - После фиксации увеличивается depth_level (глубина)
+        - Неделя не завершается автоматически
+        - Те же темы раскрываются глубже с каждым днём
 
         Args:
             text: текст фиксации от пользователя
@@ -269,17 +275,12 @@ class FeedEngine:
             reference_id=session['id'],
         )
 
-        # Увеличиваем день недели
-        new_day = week.get('current_day', 1) + 1
-        await update_feed_week(week['id'], {'current_day': new_day})
+        # Увеличиваем уровень глубины (depth_level = current_day)
+        new_depth = week.get('current_day', 1) + 1
+        await update_feed_week(week['id'], {'current_day': new_depth})
 
         # Очищаем кеш
         self._current_week = None
-
-        # Проверяем, завершена ли неделя
-        if new_day > len(week.get('accepted_topics', [])):
-            await self._complete_week()
-            return True, "Отлично! Неделя завершена. Используйте /feed для новых тем."
 
         return True, "Фиксация сохранена! До завтра."
 

@@ -206,12 +206,170 @@ def get_fallback_topics() -> List[Dict]:
     ]
 
 
+async def generate_multi_topic_digest(
+    topics: List[str],
+    intern: dict,
+    duration: int = 10,
+    depth_level: int = 1
+) -> Dict:
+    """Генерирует дайджест по всем темам.
+
+    Новая модель:
+    - Дайджест включает ВСЕ выбранные темы (1-3)
+    - Длительность делится между темами
+    - Чем больше тем, тем меньше глубины на каждую
+    - depth_level влияет на глубину раскрытия
+
+    Args:
+        topics: список названий тем (1-3 штуки)
+        intern: профиль пользователя
+        duration: общая длительность дайджеста в минутах
+        depth_level: уровень глубины (1 = базовый, 2+ = глубже)
+
+    Returns:
+        {
+            "intro": "вводный текст",
+            "main_content": "основной контент по всем темам",
+            "topics_list": ["тема1", "тема2"],
+            "reflection_prompt": "вопрос для рефлексии",
+            "depth_level": 1
+        }
+    """
+    name = intern.get('name', 'пользователь')
+    occupation = intern.get('occupation', '')
+
+    topics_count = len(topics)
+    if topics_count == 0:
+        return {
+            "intro": "Темы не выбраны",
+            "main_content": "Используйте меню тем для выбора.",
+            "topics_list": [],
+            "reflection_prompt": "",
+            "depth_level": depth_level,
+        }
+
+    # Расчёт времени на каждую тему
+    time_per_topic = duration // topics_count
+    words_per_topic = time_per_topic * 100  # ~100 слов в минуту чтения
+
+    # Получаем контекст из MCP для всех тем
+    mcp_context = ""
+    for topic in topics:
+        try:
+            # Ищем в руководствах
+            guides_results = await mcp_guides.semantic_search(topic, limit=1)
+            if guides_results:
+                for item in guides_results:
+                    if isinstance(item, dict):
+                        text = item.get('text', item.get('content', ''))[:500]
+                        if text:
+                            mcp_context += f"\n[{topic}]: {text}"
+
+            # Ищем в базе знаний
+            knowledge_results = await mcp_knowledge.search(topic, limit=1)
+            if knowledge_results:
+                for item in knowledge_results:
+                    if isinstance(item, dict):
+                        text = item.get('text', item.get('content', ''))[:500]
+                        if text:
+                            mcp_context += f"\n[{topic}]: {text}"
+        except Exception as e:
+            logger.error(f"MCP search error for '{topic}': {e}")
+
+    # Описание уровня глубины
+    depth_descriptions = {
+        1: "базовое введение в тему, основные понятия",
+        2: "практические примеры и применение",
+        3: "связи между темами, нюансы",
+        4: "глубокий анализ, неочевидные аспекты",
+        5: "экспертный уровень, сложные случаи",
+    }
+    depth_desc = depth_descriptions.get(
+        min(depth_level, 5),
+        f"экспертный уровень (глубина {depth_level})"
+    )
+
+    topics_str = ", ".join(topics)
+
+    system_prompt = f"""Ты — персональный наставник по системному мышлению.
+Создай дайджест, объединяющий несколько тем для {name}.
+
+ПРОФИЛЬ:
+- Занятие: {occupation or 'не указано'}
+
+ТЕМЫ ДАЙДЖЕСТА ({topics_count} шт.):
+{chr(10).join(f'- {t}' for t in topics)}
+
+УРОВЕНЬ ГЛУБИНЫ: {depth_level} — {depth_desc}
+(С каждым днём одни и те же темы раскрываются глубже)
+
+ФОРМАТ:
+1. Краткое введение (1-2 предложения) — зацепи внимание, объедини темы
+2. По каждой теме ~{words_per_topic} слов — раскрой на текущем уровне глубины
+3. Покажи связи между темами если они есть
+4. Один общий вопрос для рефлексии в конце
+
+{f"КОНТЕКСТ ИЗ МАТЕРИАЛОВ:{chr(10)}{mcp_context[:3000]}" if mcp_context else ""}
+
+ВАЖНО:
+- Пиши просто и вовлекающе
+- Используй примеры из сферы "{occupation}" если возможно
+- НЕ используй заголовки, подзаголовки и markdown-разметку
+- Переходи от темы к теме плавно, без явного деления
+- Заверши текст вопросом для размышления
+
+Верни JSON:
+{{
+    "intro": "краткое введение (1-2 предложения)",
+    "main_content": "основной текст по всем темам",
+    "reflection_prompt": "один вопрос для рефлексии"
+}}"""
+
+    user_prompt = f"Темы: {topics_str}\nУровень глубины: {depth_level}"
+
+    response = await claude.generate(system_prompt, user_prompt)
+
+    if not response:
+        return {
+            "intro": f"Сегодняшний дайджест: {topics_str}",
+            "main_content": "Контент не удалось сгенерировать. Попробуйте позже.",
+            "topics_list": topics,
+            "reflection_prompt": "Какие мысли вызвали эти темы?",
+            "depth_level": depth_level,
+        }
+
+    # Парсим JSON
+    try:
+        start = response.find('{')
+        end = response.rfind('}') + 1
+        if start >= 0 and end > start:
+            content = json.loads(response[start:end])
+            return {
+                "intro": content.get('intro', ''),
+                "main_content": content.get('main_content', ''),
+                "topics_list": topics,
+                "reflection_prompt": content.get('reflection_prompt', ''),
+                "depth_level": depth_level,
+            }
+    except Exception as e:
+        logger.error(f"Multi-topic content parse error: {e}")
+
+    # Fallback: используем весь ответ как контент
+    return {
+        "intro": f"Дайджест: {topics_str}",
+        "main_content": response,
+        "topics_list": topics,
+        "reflection_prompt": "Что вы вынесли из этого материала?",
+        "depth_level": depth_level,
+    }
+
+
 async def generate_topic_content(
     topic: Dict,
     intern: dict,
     session_duration: int = 7
 ) -> Dict:
-    """Генерирует контент для темы сессии
+    """Генерирует контент для одной темы (legacy, для обратной совместимости)
 
     Args:
         topic: тема с title, description, keywords
