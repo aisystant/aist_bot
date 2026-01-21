@@ -38,10 +38,15 @@ async def handle_question(
     keywords = get_question_keywords(question)
     search_query = ' '.join(keywords) if keywords else question[:100]
 
+    logger.info(f"QuestionHandler: chat_id={chat_id}, mode={mode}")
+    logger.info(f"QuestionHandler: исходный вопрос: '{question}'")
+    logger.info(f"QuestionHandler: извлечённые ключевые слова: {keywords}")
+
     if context_topic:
         search_query = f"{context_topic} {search_query}"
+        logger.info(f"QuestionHandler: добавлен контекст темы: '{context_topic}'")
 
-    logger.info(f"QuestionHandler: обработка вопроса для chat_id={chat_id}, query='{search_query}'")
+    logger.info(f"QuestionHandler: итоговый поисковый запрос: '{search_query}'")
 
     # Ищем информацию через MCP
     mcp_context, sources = await search_mcp_context(search_query)
@@ -81,8 +86,20 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
 
     # Поиск в руководствах (MCP-Guides)
     try:
+        logger.info(f"MCP-Guides: отправляю запрос '{query}'")
         guides_results = await mcp_guides.semantic_search(query, lang="ru", limit=3)
+        logger.info(f"MCP-Guides: получено {len(guides_results) if guides_results else 0} результатов")
+
         if guides_results:
+            # Логируем первый результат для отладки
+            first_item = guides_results[0]
+            if isinstance(first_item, dict):
+                logger.debug(f"MCP-Guides первый результат (ключи): {list(first_item.keys())}")
+                preview = extract_text(first_item)[:200]
+                logger.debug(f"MCP-Guides первый результат (превью): {preview}...")
+            else:
+                logger.debug(f"MCP-Guides первый результат (тип): {type(first_item)}")
+
             for item in guides_results:
                 text = extract_text(item)
                 if text and text[:100] not in seen_texts:
@@ -93,14 +110,27 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
                         source = item.get('source', item.get('guide', ''))
                         if source and source not in sources:
                             sources.append(f"Руководство: {source}")
-            logger.info(f"MCP-Guides: найдено {len(guides_results)} результатов")
+        else:
+            logger.warning(f"MCP-Guides: пустой результат для запроса '{query}'")
     except Exception as e:
-        logger.error(f"MCP-Guides search error: {e}")
+        logger.error(f"MCP-Guides search error: {e}", exc_info=True)
 
     # Поиск в базе знаний (MCP-Knowledge)
     try:
+        logger.info(f"MCP-Knowledge: отправляю запрос '{query}'")
         knowledge_results = await mcp_knowledge.search(query, limit=3)
+        logger.info(f"MCP-Knowledge: получено {len(knowledge_results) if knowledge_results else 0} результатов")
+
         if knowledge_results:
+            # Логируем первый результат для отладки
+            first_item = knowledge_results[0]
+            if isinstance(first_item, dict):
+                logger.debug(f"MCP-Knowledge первый результат (ключи): {list(first_item.keys())}")
+                preview = extract_text(first_item)[:200]
+                logger.debug(f"MCP-Knowledge первый результат (превью): {preview}...")
+            else:
+                logger.debug(f"MCP-Knowledge первый результат (тип): {type(first_item)}")
+
             for item in knowledge_results:
                 text = extract_text(item)
                 if text and text[:100] not in seen_texts:
@@ -114,15 +144,19 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
                         if source and source not in sources:
                             sources.append(f"База знаний: {source}")
                     context_parts.append(text[:1500])
-            logger.info(f"MCP-Knowledge: найдено {len(knowledge_results)} результатов")
+        else:
+            logger.warning(f"MCP-Knowledge: пустой результат для запроса '{query}'")
     except Exception as e:
-        logger.error(f"MCP-Knowledge search error: {e}")
+        logger.error(f"MCP-Knowledge search error: {e}", exc_info=True)
 
     # Объединяем контекст
     if context_parts:
         context = "\n\n---\n\n".join(context_parts[:5])
+        logger.info(f"MCP итого: {len(context_parts)} фрагментов, {len(context)} символов контекста")
+        logger.info(f"MCP источники: {sources}")
     else:
         context = ""
+        logger.warning(f"MCP итого: контекст пустой — оба MCP не вернули результатов")
 
     return context, sources
 

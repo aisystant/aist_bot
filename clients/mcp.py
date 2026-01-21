@@ -57,6 +57,8 @@ class MCPClient:
             "id": self._next_id()
         }
 
+        logger.debug(f"{self.name}: вызов {tool_name} с аргументами {arguments}")
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -68,19 +70,27 @@ class MCPClient:
                     if resp.status == 200:
                         data = await resp.json()
                         if "result" in data:
-                            return data["result"]
+                            result = data["result"]
+                            # Логируем структуру ответа для отладки
+                            if result and "content" in result:
+                                content_items = result.get("content", [])
+                                logger.debug(f"{self.name}: ответ содержит {len(content_items)} content items")
+                            return result
                         if "error" in data:
-                            logger.error(f"{self.name} error: {data['error']}")
+                            logger.error(f"{self.name} JSON-RPC error: {data['error']}")
                             return None
+                        # Нет ни result, ни error
+                        logger.warning(f"{self.name}: неожиданный ответ (нет result/error): {list(data.keys())}")
+                        return None
                     else:
                         error = await resp.text()
-                        logger.error(f"{self.name} HTTP error {resp.status}: {error}")
+                        logger.error(f"{self.name} HTTP error {resp.status}: {error[:500]}")
                         return None
         except asyncio.TimeoutError:
-            logger.error(f"{self.name} request timeout")
+            logger.error(f"{self.name} request timeout (30s)")
             return None
         except Exception as e:
-            logger.error(f"{self.name} exception: {e}")
+            logger.error(f"{self.name} exception: {e}", exc_info=True)
             return None
 
     async def get_guides_list(self, lang: str = "ru", category: str = None) -> List[dict]:
@@ -209,12 +219,18 @@ class MCPClient:
         if result and "content" in result:
             for item in result.get("content", []):
                 if item.get("type") == "text":
+                    raw_text = item.get("text", "[]")
+                    logger.debug(f"{self.name} search: raw response length={len(raw_text)}")
                     try:
-                        data = json.loads(item.get("text", "[]"))
+                        data = json.loads(raw_text)
+                        parsed_count = len(data) if isinstance(data, list) else 1
+                        logger.debug(f"{self.name} search: parsed {parsed_count} items")
                         return data if isinstance(data, list) else [data]
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"{self.name} search: JSON parse error: {e}, returning as text")
                         # Если не JSON, возвращаем как текст
-                        return [{"text": item.get("text", "")}]
+                        return [{"text": raw_text}]
+        logger.debug(f"{self.name} search: no content in result")
         return []
 
 
