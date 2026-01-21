@@ -20,6 +20,8 @@ from .question_handler import (
     search_mcp_context,  # deprecated, use enhanced_search
     generate_answer,
     answer_with_context,
+    ProcessingStage,
+    ProgressCallback,
 )
 
 from .retrieval import (
@@ -55,6 +57,8 @@ __all__ = [
     'search_mcp_context',
     'generate_answer',
     'answer_with_context',
+    'ProcessingStage',
+    'ProgressCallback',
     # Enhanced Retrieval
     'EnhancedRetrieval',
     'QueryExpander',

@@ -37,7 +37,7 @@ import asyncpg
 
 from locales import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from core.intent import detect_intent, IntentType
-from engines.shared import handle_question
+from engines.shared import handle_question, ProcessingStage
 
 # ============= КОНФИГУРАЦИЯ =============
 
@@ -2815,22 +2815,48 @@ async def on_unknown_message(message: Message, state: FSMContext):
 
     if intent.type == IntentType.QUESTION:
         # Пользователь задаёт вопрос — отвечаем через Claude + MCP
-        await message.answer(t('loading.processing', lang))
+        # Отправляем начальное сообщение о прогрессе
+        progress_msg = await message.answer(t('loading.progress.analyzing', lang))
+
+        # Создаём callback для обновления прогресса
+        async def update_progress(stage: str, percent: int):
+            """Обновляет сообщение о прогрессе"""
+            stage_texts = {
+                ProcessingStage.ANALYZING: t('loading.progress.analyzing', lang),
+                ProcessingStage.SEARCHING: t('loading.progress.searching', lang),
+                ProcessingStage.GENERATING: t('loading.progress.generating', lang),
+                ProcessingStage.DONE: t('loading.progress.done', lang),
+            }
+            new_text = stage_texts.get(stage, t('loading.processing', lang))
+            try:
+                await progress_msg.edit_text(new_text)
+            except Exception:
+                pass  # Игнорируем ошибки редактирования (например, текст не изменился)
 
         try:
             answer, sources = await handle_question(
                 question=text,
                 intern=intern,
-                context_topic=None
+                context_topic=None,
+                progress_callback=update_progress
             )
 
             response = answer
             if sources:
                 response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
 
+            # Удаляем сообщение о прогрессе и отправляем ответ
+            try:
+                await progress_msg.delete()
+            except Exception:
+                pass
             await message.answer(response, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Ошибка при обработке вопроса: {e}")
+            try:
+                await progress_msg.delete()
+            except Exception:
+                pass
             await message.answer(t('errors.try_again', lang))
 
     elif intent.type == IntentType.TOPIC_REQUEST:

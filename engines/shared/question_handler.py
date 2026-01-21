@@ -12,7 +12,7 @@
 """
 
 import json
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Callable, Awaitable
 
 from config import get_logger
 from core.intent import get_question_keywords
@@ -28,6 +28,20 @@ from .context import (
 logger = get_logger(__name__)
 
 
+# Типы для progress callback
+ProgressCallback = Callable[[str, int], Awaitable[None]]
+"""Callback для отображения прогресса: (stage_name, percent) -> None"""
+
+
+# Этапы обработки
+class ProcessingStage:
+    """Константы этапов обработки для progress callback"""
+    ANALYZING = "analyzing"        # Анализ вопроса
+    SEARCHING = "searching"        # Поиск в базе знаний
+    GENERATING = "generating"      # Генерация ответа
+    DONE = "done"                  # Завершено
+
+
 async def handle_question(
     question: str,
     intern: dict,
@@ -35,6 +49,7 @@ async def handle_question(
     topic_id: Optional[str] = None,
     knowledge_structure: dict = None,
     use_enhanced_retrieval: bool = True,
+    progress_callback: ProgressCallback = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос пользователя и генерирует ответ
 
@@ -45,12 +60,24 @@ async def handle_question(
         topic_id: ID темы (для загрузки метаданных)
         knowledge_structure: структура знаний (для метаданных темы)
         use_enhanced_retrieval: использовать улучшенный retrieval (по умолчанию True)
+        progress_callback: callback для отображения прогресса (stage, percent)
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
     """
     chat_id = intern.get('chat_id')
     mode = intern.get('mode', 'marathon')
+
+    # Helper для вызова progress callback
+    async def report_progress(stage: str, percent: int):
+        if progress_callback:
+            try:
+                await progress_callback(stage, percent)
+            except Exception as e:
+                logger.debug(f"Progress callback error: {e}")
+
+    # === ЭТАП 1: Анализ вопроса (0-20%) ===
+    await report_progress(ProcessingStage.ANALYZING, 10)
 
     # Извлекаем ключевые слова для поиска
     keywords = get_question_keywords(question)
@@ -78,6 +105,11 @@ async def handle_question(
         except Exception as e:
             logger.warning(f"QuestionHandler: ошибка построения контекста: {e}")
 
+    await report_progress(ProcessingStage.ANALYZING, 20)
+
+    # === ЭТАП 2: Поиск в базе знаний (20-60%) ===
+    await report_progress(ProcessingStage.SEARCHING, 30)
+
     # Ищем информацию через MCP (улучшенный или базовый retrieval)
     if use_enhanced_retrieval:
         logger.info("QuestionHandler: используем EnhancedRetrieval")
@@ -94,10 +126,15 @@ async def handle_question(
         logger.info(f"QuestionHandler: итоговый поисковый запрос: '{search_query}'")
         mcp_context, sources = await search_mcp_context(search_query)
 
-    # Генерируем ответ через Claude с динамическим контекстом
+    await report_progress(ProcessingStage.SEARCHING, 60)
+
+    # === ЭТАП 3: Генерация ответа (60-95%) ===
+    await report_progress(ProcessingStage.GENERATING, 70)
     answer = await generate_answer(
         question, intern, mcp_context, context_topic, dynamic_context
     )
+
+    await report_progress(ProcessingStage.DONE, 100)
 
     # Сохраняем в историю
     if chat_id:

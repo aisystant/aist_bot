@@ -136,6 +136,11 @@ TRANSLATIONS = {
         'loading.generating_topics': '⏳ Генерирую темы...',
         'loading.generating_content': '⏳ Готовлю материал...',
         'loading.processing': '⏳ Обрабатываю...',
+        # Прогресс обработки вопроса
+        'loading.progress.analyzing': '🔍 Анализирую вопрос...',
+        'loading.progress.searching': '📚 Ищу в базе знаний...',
+        'loading.progress.generating': '✨ Генерирую ответ...',
+        'loading.progress.done': '✅ Готово!',
 
         # Лента (Feed)
         'feed.suggested_topics': 'Предлагаемые темы',
@@ -284,6 +289,11 @@ TRANSLATIONS = {
         'loading.generating_topics': '⏳ Generating topics...',
         'loading.generating_content': '⏳ Preparing content...',
         'loading.processing': '⏳ Processing...',
+        # Question processing progress
+        'loading.progress.analyzing': '🔍 Analyzing question...',
+        'loading.progress.searching': '📚 Searching knowledge base...',
+        'loading.progress.generating': '✨ Generating answer...',
+        'loading.progress.done': '✅ Done!',
 
         # Feed
         'feed.suggested_topics': 'Suggested Topics',
@@ -432,6 +442,11 @@ TRANSLATIONS = {
         'loading.generating_topics': '⏳ Generando temas...',
         'loading.generating_content': '⏳ Preparando contenido...',
         'loading.processing': '⏳ Procesando...',
+        # Progreso de procesamiento de pregunta
+        'loading.progress.analyzing': '🔍 Analizando pregunta...',
+        'loading.progress.searching': '📚 Buscando en base de conocimientos...',
+        'loading.progress.generating': '✨ Generando respuesta...',
+        'loading.progress.done': '✅ ¡Listo!',
 
         # Feed
         'feed.suggested_topics': 'Temas Sugeridos',
