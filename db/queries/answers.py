@@ -250,19 +250,37 @@ async def get_total_stats(chat_id: int) -> dict:
     user = await get_intern(chat_id)
     today = moscow_today()
 
-    created_at = user.get('created_at')
-    if created_at:
-        if hasattr(created_at, 'date'):
-            start_date = created_at.date()
-        else:
-            start_date = created_at
-        days_since_start = (today - start_date).days + 1
-    else:
-        start_date = today
-        days_since_start = 1
-
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Определяем дату регистрации
+        created_at = user.get('created_at')
+        if created_at:
+            if hasattr(created_at, 'date'):
+                start_date = created_at.date()
+            else:
+                start_date = created_at
+        else:
+            # Fallback: берём первую дату активности или первый ответ
+            first_activity = await conn.fetchval('''
+                SELECT MIN(activity_date) FROM activity_log WHERE chat_id = $1
+            ''', chat_id)
+            if first_activity:
+                start_date = first_activity
+            else:
+                first_answer = await conn.fetchval('''
+                    SELECT MIN(created_at)::date FROM answers WHERE chat_id = $1
+                ''', chat_id)
+                start_date = first_answer if first_answer else today
+
+        days_since_start = (today - start_date).days + 1
+
+        # Всего активных дней (из activity_log)
+        total_active_days = await conn.fetchval('''
+            SELECT COUNT(DISTINCT activity_date)
+            FROM activity_log
+            WHERE chat_id = $1
+        ''', chat_id)
+
         # Всего рабочих продуктов
         work_products = await conn.fetchval('''
             SELECT COUNT(*)
@@ -291,7 +309,7 @@ async def get_total_stats(chat_id: int) -> dict:
     return {
         'registered_at': start_date,
         'days_since_start': days_since_start,
-        'total_active_days': user.get('active_days_total', 0),
+        'total_active_days': total_active_days or 0,
         'total_work_products': work_products or 0,
         'total_digests': digests or 0,
         'total_fixations': fixations or 0
