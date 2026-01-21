@@ -15,11 +15,20 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import get_logger
+from locales import t
 from .engine import FeedEngine
 from db.queries.users import get_intern
 from engines.shared import handle_question
 
 logger = get_logger(__name__)
+
+
+async def get_user_lang(chat_id: int) -> str:
+    """Получает язык пользователя из профиля"""
+    intern = await get_intern(chat_id)
+    if intern:
+        return intern.get('language', 'ru') or 'ru'
+    return 'ru'
 
 # Создаём роутер для Ленты
 feed_router = Router(name="feed")
@@ -93,19 +102,22 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
     """Показывает интерфейс выбора тем"""
     try:
         logger.info(f"show_topic_selection: получено {len(topics)} тем")
+        chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
+
         # Сохраняем темы в state
         await state.update_data(suggested_topics=topics, selected_indices=set())
         await state.set_state(FeedStates.choosing_topics)
 
-        text = "📚 *Предлагаемые темы*\n\n"
+        text = f"📚 *{t('feed.suggested_topics', lang)}*\n\n"
 
         for i, topic in enumerate(topics):
             text += f"*{i+1}. {topic['title']}*\n"
             text += f"   _{topic.get('why', '')}_\n\n"
 
         text += "—\n"
-        text += "Выберите кнопками или напишите текстом:\n"
-        text += "_Например: «1, 3» или «тема 2 и ещё хочу про собранность»_"
+        text += f"{t('feed.select_hint', lang)}\n"
+        text += f"_{t('feed.select_example', lang)}_"
 
         # Создаём кнопки
         buttons = []
@@ -118,7 +130,7 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
             ])
 
         buttons.append([
-            InlineKeyboardButton(text="✅ Подтвердить выбор", callback_data="feed_confirm")
+            InlineKeyboardButton(text=f"✅ {t('buttons.yes', lang)}", callback_data="feed_confirm")
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -128,7 +140,7 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в show_topic_selection: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка при отображении тем. Попробуйте позже.")
+        await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
 
 
 @feed_router.callback_query(F.data.startswith("feed_topic_"))
@@ -224,6 +236,8 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
         text = message.text.strip()
         data = await state.get_data()
         topics = data.get('suggested_topics', [])
+        chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
 
         if not topics:
             await message.answer("Сначала используйте /feed для получения тем.")
@@ -234,9 +248,8 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
 
         if not selected_indices and not custom_topics:
             await message.answer(
-                "Не удалось распознать выбор.\n"
-                "Напишите номера тем (1-5) или добавьте свои:\n"
-                "_Например: «1, 3» или «тема 2 и ещё хочу про собранность»_",
+                f"{t('feed.select_hint', lang)}\n"
+                f"_{t('feed.select_example', lang)}_",
                 parse_mode="Markdown"
             )
             return
@@ -246,7 +259,6 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
         selected_titles.extend(custom_topics)
 
         # Принимаем темы
-        chat_id = message.chat.id
         engine = FeedEngine(chat_id)
         success, msg = await engine.accept_topics(selected_titles)
 
@@ -254,28 +266,33 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
             await message.answer(msg)
             return
 
-        # Очищаем state
+        # Очищаем state выбора тем
         await state.clear()
 
-        # Показываем подтверждение
-        confirm_text = f"✅ {msg}\n\n"
-        confirm_text += "Выбранные темы:\n"
+        # Показываем подтверждение с кнопками
+        confirm_text = f"✅ {t('feed.topics_selected', lang)}\n\n"
+        confirm_text += f"{t('feed.selected_topics', lang)}\n"
         for i, title in enumerate(selected_titles, 1):
             mark = "📌" if title in custom_topics else "✓"
             confirm_text += f"{mark} {title}\n"
 
         if custom_topics:
-            confirm_text += "\n_📌 — ваши темы_"
+            confirm_text += f"\n_📌 — {t('feed.your_topics', lang)}_"
 
-        await message.answer(confirm_text, parse_mode="Markdown")
+        confirm_text += f"\n\n{t('feed.what_next', lang)}"
 
-        # Показываем первую сессию
-        await show_today_session(message, engine, state)
+        # Кнопки "Начать сейчас" / "По расписанию"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('buttons.start_now', lang), callback_data="feed_start_now")],
+            [InlineKeyboardButton(text=t('buttons.start_scheduled', lang), callback_data="feed_start_scheduled")]
+        ])
+
+        await message.answer(confirm_text, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в handle_topic_text_selection: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка при обработке выбора. Попробуйте снова.")
+        await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
 
 
 @feed_router.callback_query(F.data == "feed_confirm")
@@ -284,16 +301,17 @@ async def confirm_topics(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     topics = data.get('suggested_topics', [])
     selected = data.get('selected_indices', set())
+    chat_id = callback.message.chat.id
+    lang = await get_user_lang(chat_id)
 
     if not selected:
-        await callback.answer("Выберите хотя бы одну тему!", show_alert=True)
+        await callback.answer(t('feed.select_hint', lang), show_alert=True)
         return
 
     # Получаем названия выбранных тем
     selected_titles = [topics[i]['title'] for i in sorted(selected)]
 
     # Принимаем темы
-    chat_id = callback.message.chat.id
     engine = FeedEngine(chat_id)
     success, msg = await engine.accept_topics(selected_titles)
 
@@ -301,17 +319,52 @@ async def confirm_topics(callback: CallbackQuery, state: FSMContext):
         await callback.answer(msg, show_alert=True)
         return
 
-    # Очищаем state и показываем сегодняшнюю сессию
+    # Очищаем state выбора тем
     await state.clear()
 
-    await callback.message.edit_text(
-        f"✅ {msg}\n\n"
-        f"Выбрано тем: {len(selected_titles)}\n"
-        + "\n".join([f"• {t}" for t in selected_titles])
-    )
+    # Показываем подтверждение с кнопками
+    confirm_text = f"✅ {t('feed.topics_selected', lang)}\n\n"
+    confirm_text += f"{t('feed.selected_topics', lang)}\n"
+    confirm_text += "\n".join([f"✓ {title}" for title in selected_titles])
+    confirm_text += f"\n\n{t('feed.what_next', lang)}"
 
-    # Показываем первую сессию
+    # Кнопки "Начать сейчас" / "По расписанию"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('buttons.start_now', lang), callback_data="feed_start_now")],
+        [InlineKeyboardButton(text=t('buttons.start_scheduled', lang), callback_data="feed_start_scheduled")]
+    ])
+
+    await callback.message.edit_text(confirm_text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@feed_router.callback_query(F.data == "feed_start_now")
+async def feed_start_now(callback: CallbackQuery, state: FSMContext):
+    """Начать сейчас — показать генерацию и контент"""
+    chat_id = callback.message.chat.id
+    lang = await get_user_lang(chat_id)
+
+    # Показываем сообщение о генерации
+    await callback.message.edit_text(t('loading.generating_content', lang))
+    await callback.answer()
+
+    # Генерируем и показываем контент
+    engine = FeedEngine(chat_id)
     await show_today_session(callback.message, engine, state)
+
+
+@feed_router.callback_query(F.data == "feed_start_scheduled")
+async def feed_start_scheduled(callback: CallbackQuery, state: FSMContext):
+    """По расписанию — просто подтвердить"""
+    chat_id = callback.message.chat.id
+    lang = await get_user_lang(chat_id)
+
+    await callback.message.edit_text(
+        f"✅ {t('feed.topics_selected', lang)}\n\n"
+        f"_{t('help.schedule_note', lang)}_",
+        parse_mode="Markdown"
+    )
+    await callback.answer(t('feed.topic_saved', lang))
 
 
 async def show_today_session(message: Message, engine: FeedEngine, state: FSMContext):
@@ -481,6 +534,9 @@ async def show_tomorrow_topics(message: Message, engine: FeedEngine, state: FSMC
     from .planner import suggest_weekly_topics
 
     try:
+        chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
+
         week = await engine.get_current_week()
         if not week or week.get('status') == 'completed':
             await state.clear()
@@ -514,21 +570,20 @@ async def show_tomorrow_topics(message: Message, engine: FeedEngine, state: FSMC
         await state.set_state(FeedStates.choosing_tomorrow)
 
         # Формируем сообщение
-        text = f"\n📅 *На завтра запланировано:*\n"
+        text = f"\n📅 *{t('feed.tomorrow_planned', lang)}*\n"
         text += f"➡️ {tomorrow_topic}\n\n"
-        text += "*Альтернативные темы:*\n"
+        text += f"*{t('feed.alternative_topics', lang)}*\n"
 
         for i, topic in enumerate(suggested[:5], 1):
             text += f"{i}. {topic['title']}\n"
             text += f"   _{topic.get('why', '')}_\n"
 
         text += "\n—\n"
-        text += "Оставить как есть — просто нажмите ✅\n"
-        text += "Изменить — напишите номер или свою тему"
+        text += t('feed.keep_or_change', lang)
 
         # Кнопки
         buttons = [
-            [InlineKeyboardButton(text="✅ Оставить как есть", callback_data="feed_keep_tomorrow")]
+            [InlineKeyboardButton(text=f"✅ {t('buttons.keep_topic', lang)}", callback_data="feed_keep_tomorrow")]
         ]
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -543,8 +598,11 @@ async def show_tomorrow_topics(message: Message, engine: FeedEngine, state: FSMC
 @feed_router.callback_query(F.data == "feed_keep_tomorrow")
 async def keep_tomorrow_topic(callback: CallbackQuery, state: FSMContext):
     """Оставляет текущую тему на завтра"""
+    chat_id = callback.message.chat.id
+    lang = await get_user_lang(chat_id)
+
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.answer("👍 Тема на завтра сохранена!")
+    await callback.answer(f"👍 {t('feed.topic_saved', lang)}")
     await state.clear()
 
 
@@ -560,6 +618,7 @@ async def handle_tomorrow_selection(message: Message, state: FSMContext):
         tomorrow_day = data.get('tomorrow_day', 1)
 
         chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
         engine = FeedEngine(chat_id)
 
         new_topic = None
@@ -579,7 +638,7 @@ async def handle_tomorrow_selection(message: Message, state: FSMContext):
 
         if not new_topic:
             await message.answer(
-                "Напишите номер темы (1-5) или свою тему.",
+                t('feed.select_hint', lang),
                 parse_mode="Markdown"
             )
             return
@@ -589,18 +648,18 @@ async def handle_tomorrow_selection(message: Message, state: FSMContext):
 
         if success:
             await message.answer(
-                f"✅ Тема на завтра изменена:\n➡️ *{new_topic}*",
+                f"✅ {t('feed.topic_changed', lang)}\n➡️ *{new_topic}*",
                 parse_mode="Markdown"
             )
         else:
-            await message.answer("Не удалось изменить тему. Попробуйте позже.")
+            await message.answer(t('errors.try_again', lang))
 
         await state.clear()
 
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в handle_tomorrow_selection: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
         await state.clear()
 
 
