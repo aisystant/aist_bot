@@ -64,6 +64,17 @@ TRANSLATIONS = {
         'buttons.start_scheduled': 'По расписанию',
         'buttons.change_language': 'Сменить язык',
 
+        # Кнопки профиля
+        'buttons.name': 'Имя',
+        'buttons.occupation': 'Занятие',
+        'buttons.interests': 'Интересы',
+        'buttons.values': 'Ценности',
+        'buttons.goals': 'Цели',
+        'buttons.duration': 'Время',
+        'buttons.schedule': 'Расписание',
+        'buttons.settings': 'Настройки',
+        'buttons.bot_mode': 'Режим бота',
+
         # Настройки
         'settings.title': 'Настройки',
         'settings.what_to_change': 'Что хочешь обновить?',
@@ -152,6 +163,17 @@ TRANSLATIONS = {
         'buttons.start_scheduled': 'Scheduled',
         'buttons.change_language': 'Change language',
 
+        # Profile buttons
+        'buttons.name': 'Name',
+        'buttons.occupation': 'Occupation',
+        'buttons.interests': 'Interests',
+        'buttons.values': 'Values',
+        'buttons.goals': 'Goals',
+        'buttons.duration': 'Duration',
+        'buttons.schedule': 'Schedule',
+        'buttons.settings': 'Settings',
+        'buttons.bot_mode': 'Bot mode',
+
         # Settings
         'settings.title': 'Settings',
         'settings.what_to_change': 'What would you like to update?',
@@ -239,6 +261,17 @@ TRANSLATIONS = {
         'buttons.start_now': 'Empezar ahora',
         'buttons.start_scheduled': 'Programado',
         'buttons.change_language': 'Cambiar idioma',
+
+        # Botones de perfil
+        'buttons.name': 'Nombre',
+        'buttons.occupation': 'Ocupación',
+        'buttons.interests': 'Intereses',
+        'buttons.values': 'Valores',
+        'buttons.goals': 'Metas',
+        'buttons.duration': 'Duración',
+        'buttons.schedule': 'Horario',
+        'buttons.settings': 'Ajustes',
+        'buttons.bot_mode': 'Modo bot',
 
         # Ajustes
         'settings.title': 'Ajustes',

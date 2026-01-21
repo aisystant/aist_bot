@@ -1241,17 +1241,16 @@ def kb_learn(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 " + t('onboarding.ask_name', lang)[:10], callback_data="upd_name"),
-         InlineKeyboardButton(text="💼 " + t('onboarding.ask_occupation', lang)[:10], callback_data="upd_occupation")],
-        [InlineKeyboardButton(text="🎨 " + t('onboarding.ask_interests', lang)[:15], callback_data="upd_interests")],
-        [InlineKeyboardButton(text="💫 " + t('onboarding.ask_values', lang)[:20], callback_data="upd_motivation")],
-        [InlineKeyboardButton(text="🎯 " + t('onboarding.ask_goals', lang)[:20], callback_data="upd_goals")],
-        [InlineKeyboardButton(text="⏱ " + t('onboarding.ask_duration', lang)[:12], callback_data="upd_duration"),
-         InlineKeyboardButton(text="⏰ " + t('onboarding.ask_time', lang)[:10], callback_data="upd_schedule")],
-        [InlineKeyboardButton(text="🎚 " + t('settings.title', lang)[:10], callback_data="upd_bloom")],
-        [InlineKeyboardButton(text="🎯 " + t('modes.select', lang)[:15], callback_data="upd_mode")],
-        [InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language")],
-        [InlineKeyboardButton(text=t('buttons.cancel', lang), callback_data="upd_cancel")]
+        [InlineKeyboardButton(text="👤 " + t('buttons.name', lang), callback_data="upd_name"),
+         InlineKeyboardButton(text="💼 " + t('buttons.occupation', lang), callback_data="upd_occupation")],
+        [InlineKeyboardButton(text="🎨 " + t('buttons.interests', lang), callback_data="upd_interests"),
+         InlineKeyboardButton(text="🎯 " + t('buttons.goals', lang), callback_data="upd_goals")],
+        [InlineKeyboardButton(text="⏱ " + t('buttons.duration', lang), callback_data="upd_duration"),
+         InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule")],
+        [InlineKeyboardButton(text="🎚 " + t('buttons.settings', lang), callback_data="upd_bloom"),
+         InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")],
+        [InlineKeyboardButton(text="🌐 Language (en, es, ru)", callback_data="upd_language")],
+        [InlineKeyboardButton(text="❌ " + t('buttons.cancel', lang), callback_data="upd_cancel")]
     ])
 
 def kb_bloom_level() -> InlineKeyboardMarkup:
