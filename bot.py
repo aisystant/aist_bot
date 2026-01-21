@@ -2277,14 +2277,21 @@ async def on_answer(message: Message, state: FSMContext):
     }
     next_available = get_available_topics(updated_intern)
     next_topic_hint = ""
+    next_command = t('marathon.next_command', lang)
     if next_available:
         next_topic = next_available[0][1]  # (index, topic) -> topic
-        next_topic_hint = f"\n\n📚 *{t('marathon.next_topic', lang)}:* {next_topic['title']}"
+        # Определяем тип следующей темы
+        if next_topic.get('type') == 'practice':
+            next_topic_hint = f"\n\n📝 *{t('marathon.next_task', lang)}:* {next_topic['title']}"
+            next_command = t('marathon.continue_to_task', lang)
+        else:
+            next_topic_hint = f"\n\n📚 *{t('marathon.next_lesson', lang)}:* {next_topic['title']}"
+            next_command = t('marathon.continue_to_lesson', lang)
 
     # Если уровень ниже максимального — предлагаем дополнительный вопрос
     if intern['bloom_level'] < 3:
         # Сохраняем индекс темы в state для бонусного вопроса
-        await state.update_data(topic_index=intern['current_topic_index'])
+        await state.update_data(topic_index=intern['current_topic_index'], next_command=next_command)
 
         await message.answer(
             f"✅ *{t('marathon.topic_completed', lang)}*\n\n"
@@ -2300,7 +2307,7 @@ async def on_answer(message: Message, state: FSMContext):
             f"✅ *{t('marathon.topic_completed', lang)}*\n\n"
             f"{progress_bar(done, total)}\n"
             f"{t(f'bloom.level_{bloom_level}_short', lang)}{upgrade_msg}{next_topic_hint}\n\n"
-            f"{t('marathon.next_command', lang)}",
+            f"{next_command}",
             parse_mode="Markdown"
         )
         await state.clear()
@@ -2342,9 +2349,11 @@ async def on_bonus_no(callback: CallbackQuery, state: FSMContext):
     """Пользователь отказался от дополнительного вопроса"""
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
+    data = await state.get_data()
+    next_command = data.get('next_command', t('marathon.next_command', lang))
     await callback.answer(t('marathon.ok', lang))
     await callback.message.edit_text(
-        callback.message.text + f"\n\n{t('marathon.next_command', lang)}",
+        callback.message.text + f"\n\n{next_command}",
         parse_mode="Markdown"
     )
     await state.clear()
@@ -2369,14 +2378,21 @@ async def on_bonus_answer(message: Message, state: FSMContext):
     # Получаем информацию о следующей доступной теме
     next_available = get_available_topics(intern)
     next_topic_hint = ""
+    next_command = data.get('next_command', t('marathon.next_command', lang))
     if next_available:
         next_topic = next_available[0][1]  # (index, topic) -> topic
-        next_topic_hint = f"\n\n📚 *{t('marathon.next_topic', lang)}:* {next_topic['title']}"
+        # Определяем тип следующей темы
+        if next_topic.get('type') == 'practice':
+            next_topic_hint = f"\n\n📝 *{t('marathon.next_task', lang)}:* {next_topic['title']}"
+            next_command = t('marathon.continue_to_task', lang)
+        else:
+            next_topic_hint = f"\n\n📚 *{t('marathon.next_lesson', lang)}:* {next_topic['title']}"
+            next_command = t('marathon.continue_to_lesson', lang)
 
     await message.answer(
         f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
         f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{bloom_level}_short', lang)}* {t('marathon.and_higher', lang)}{next_topic_hint}\n\n"
-        f"{t('marathon.next_command', lang)}",
+        f"{next_command}",
         parse_mode="Markdown"
     )
     await state.clear()
