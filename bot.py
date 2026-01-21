@@ -1,6 +1,6 @@
 """
-AIST Pilot Bot — Telegram-бот для систематического обучения
-GitHub: https://github.com/aisystant/aist_pilot_bot
+AI System Track (@aist_track_bot) — Telegram-бот для системного развития
+GitHub: https://github.com/aisystant/aist_track_bot
 
 Миссия: Помочь стажёрам трансформироваться из людей с «непродуктивными убеждениями»
 и случайных учеников в систематических учеников, которые собраны и удерживают
@@ -34,6 +34,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
 import asyncpg
+
+from locales import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 
 # ============= КОНФИГУРАЦИЯ =============
 
@@ -91,9 +93,7 @@ EXPERIENCE_LEVELS = {
 
 STUDY_DURATIONS = {
     "5": {"emoji": "⚡", "name": "5 минут", "words": 500, "desc": "Быстрый обзор"},
-    "10": {"emoji": "🕐", "name": "10 минут", "words": 1000, "desc": "Краткое изучение"},
     "15": {"emoji": "🕑", "name": "15 минут", "words": 1500, "desc": "Стандартное изучение"},
-    "20": {"emoji": "🕒", "name": "20 минут", "words": 2000, "desc": "Углублённое изучение"},
     "25": {"emoji": "🕓", "name": "25 минут", "words": 2500, "desc": "Полное погружение"}
 }
 
@@ -132,11 +132,8 @@ BLOOM_LEVELS = {
 BLOOM_AUTO_UPGRADE_AFTER = 7  # после 7 тем уровень повышается
 
 # Лимит тем в день (для развития систематичности)
-# PRODUCTION VALUES (восстановить после тестирования):
-# DAILY_TOPICS_LIMIT = 2
-# MAX_TOPICS_PER_DAY = 4
-DAILY_TOPICS_LIMIT = 999  # ВРЕМЕННО: для тестирования
-MAX_TOPICS_PER_DAY = 999  # ВРЕМЕННО: для тестирования
+DAILY_TOPICS_LIMIT = 2
+MAX_TOPICS_PER_DAY = 4  # макс тем в день (нагнать 1 день)
 MARATHON_DAYS = 14  # длительность марафона
 
 # ============= ЗАГРУЗКА МЕТАДАННЫХ ТЕМ =============
@@ -291,6 +288,27 @@ async def init_db():
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topic_order TEXT DEFAULT \'default\'')
         # Марафон: дата старта
         await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_start_date DATE DEFAULT NULL')
+
+        # Режимы работы (Марафон/Лента)
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT \'marathon\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_status TEXT DEFAULT \'not_started\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_paused_at DATE DEFAULT NULL')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_status TEXT DEFAULT \'not_started\'')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_started_at DATE DEFAULT NULL')
+
+        # Систематичность
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_total INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_streak INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS longest_streak INTEGER DEFAULT 0')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_active_date DATE DEFAULT NULL')
+
+        # Сложность (новое название для bloom)
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS complexity_level INTEGER DEFAULT 1')
+        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_complexity INTEGER DEFAULT 0')
+
+        # Язык интерфейса
+        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS language VARCHAR(5) DEFAULT 'ru'")
+
         # Таблица для напоминаний
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS reminders (
@@ -312,7 +330,53 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )
         ''')
-    
+
+        # Лента: недельные планы
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS feed_weeks (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT,
+                week_number INTEGER,
+                week_start DATE,
+                suggested_topics TEXT DEFAULT '[]',
+                accepted_topics TEXT DEFAULT '[]',
+                current_day INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'planning',
+                ended_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # Лента: сессии
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS feed_sessions (
+                id SERIAL PRIMARY KEY,
+                week_id INTEGER,
+                day_number INTEGER,
+                topic_title TEXT,
+                content TEXT DEFAULT '{}',
+                session_date DATE,
+                status TEXT DEFAULT 'active',
+                fixation_text TEXT,
+                completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # Лог активности
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT,
+                activity_date DATE,
+                activity_type TEXT,
+                mode TEXT DEFAULT 'marathon',
+                reference_id INTEGER,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(chat_id, activity_date, activity_type)
+            )
+        ''')
+
     logger.info("✅ База данных инициализирована")
 
 async def get_intern(chat_id: int) -> dict:
@@ -347,7 +411,8 @@ async def get_intern(chat_id: int) -> dict:
                 'last_topic_date': row['last_topic_date'],
                 'topic_order': row['topic_order'] if 'topic_order' in row.keys() else 'default',
                 'marathon_start_date': row['marathon_start_date'] if 'marathon_start_date' in row.keys() else None,
-                'onboarding_completed': row['onboarding_completed']
+                'onboarding_completed': row['onboarding_completed'],
+                'language': row['language'] if 'language' in row.keys() else 'ru'
             }
         else:
             # Создаём нового пользователя
@@ -379,7 +444,8 @@ async def get_intern(chat_id: int) -> dict:
                 'last_topic_date': None,
                 'topic_order': 'default',
                 'marathon_start_date': None,
-                'onboarding_completed': False
+                'onboarding_completed': False,
+                'language': 'ru'
             }
 
 async def update_intern(chat_id: int, **kwargs):
@@ -1016,18 +1082,17 @@ def get_total_topics() -> int:
 
 def get_marathon_day(intern: dict) -> int:
     """Получить текущий день марафона для участника"""
-    # ВРЕМЕННО: для тестирования возвращаем максимальный день
-    # PRODUCTION CODE (восстановить после тестирования):
-    # start_date = intern.get('marathon_start_date')
-    # if not start_date:
-    #     return 0
-    # today = moscow_today()
-    # if isinstance(start_date, datetime):
-    #     start_date = start_date.date()
-    # days_passed = (today - start_date).days
-    # return min(days_passed + 1, MARATHON_DAYS)  # День 1-14
+    start_date = intern.get('marathon_start_date')
+    if not start_date:
+        # Если дата старта не установлена, вычисляем по прогрессу
+        topic_index = intern.get('current_topic_index', 0)
+        return (topic_index // 2) + 1 if topic_index > 0 else 1
 
-    return MARATHON_DAYS  # ВРЕМЕННО: все дни открыты для тестирования
+    today = moscow_today()
+    if isinstance(start_date, datetime):
+        start_date = start_date.date()
+    days_passed = (today - start_date).days
+    return min(days_passed + 1, MARATHON_DAYS)  # День 1-14
 
 def get_topics_for_day(day: int) -> List[dict]:
     """Получить темы для конкретного дня марафона"""
@@ -1154,38 +1219,39 @@ def kb_learning_style() -> InlineKeyboardMarkup:
         for k, v in LEARNING_STYLES.items()
     ])
 
-def kb_study_duration() -> InlineKeyboardMarkup:
+def kb_study_duration(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{v['emoji']} {v['name']}", callback_data=f"duration_{k}")]
-        for k, v in STUDY_DURATIONS.items()
+        [InlineKeyboardButton(text=t(f'duration.minutes_{k}', lang), callback_data=f"duration_{k}")]
+        for k in [5, 15, 25]
     ])
 
-def kb_confirm() -> InlineKeyboardMarkup:
+def kb_confirm(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Всё верно", callback_data="confirm"),
-            InlineKeyboardButton(text="🔄 Заново", callback_data="restart")
+            InlineKeyboardButton(text=t('buttons.yes', lang), callback_data="confirm"),
+            InlineKeyboardButton(text="🔄", callback_data="restart")
         ]
     ])
 
-def kb_learn() -> InlineKeyboardMarkup:
+def kb_learn(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="▶️ Начать изучение", callback_data="learn")],
-        [InlineKeyboardButton(text="⏭ Позже", callback_data="later")]
+        [InlineKeyboardButton(text=t('buttons.start_now', lang), callback_data="learn")],
+        [InlineKeyboardButton(text=t('buttons.start_scheduled', lang), callback_data="later")]
     ])
 
-def kb_update_profile() -> InlineKeyboardMarkup:
+def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Имя", callback_data="upd_name"),
-         InlineKeyboardButton(text="💼 Занятие", callback_data="upd_occupation")],
-        [InlineKeyboardButton(text="🎨 Интересы", callback_data="upd_interests")],
-        [InlineKeyboardButton(text="💫 Что важно в жизни", callback_data="upd_motivation")],
-        [InlineKeyboardButton(text="🎯 Что хочу изменить", callback_data="upd_goals")],
-        [InlineKeyboardButton(text="⏱ Время на тему", callback_data="upd_duration"),
-         InlineKeyboardButton(text="⏰ Расписание", callback_data="upd_schedule")],
-        [InlineKeyboardButton(text="🎚 Уровень сложности", callback_data="upd_bloom")],
-        [InlineKeyboardButton(text="🗓 Дата старта", callback_data="upd_marathon_start")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="upd_cancel")]
+        [InlineKeyboardButton(text="👤 " + t('onboarding.ask_name', lang)[:10], callback_data="upd_name"),
+         InlineKeyboardButton(text="💼 " + t('onboarding.ask_occupation', lang)[:10], callback_data="upd_occupation")],
+        [InlineKeyboardButton(text="🎨 " + t('onboarding.ask_interests', lang)[:15], callback_data="upd_interests")],
+        [InlineKeyboardButton(text="💫 " + t('onboarding.ask_values', lang)[:20], callback_data="upd_motivation")],
+        [InlineKeyboardButton(text="🎯 " + t('onboarding.ask_goals', lang)[:20], callback_data="upd_goals")],
+        [InlineKeyboardButton(text="⏱ " + t('onboarding.ask_duration', lang)[:12], callback_data="upd_duration"),
+         InlineKeyboardButton(text="⏰ " + t('onboarding.ask_time', lang)[:10], callback_data="upd_schedule")],
+        [InlineKeyboardButton(text="🎚 " + t('settings.title', lang)[:10], callback_data="upd_bloom")],
+        [InlineKeyboardButton(text="🎯 " + t('modes.select', lang)[:15], callback_data="upd_mode")],
+        [InlineKeyboardButton(text=t('buttons.change_language', lang), callback_data="upd_language")],
+        [InlineKeyboardButton(text=t('buttons.cancel', lang), callback_data="upd_cancel")]
     ])
 
 def kb_bloom_level() -> InlineKeyboardMarkup:
@@ -1211,16 +1277,24 @@ def kb_skip_topic() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="⏭ Пропустить тему", callback_data="skip_topic")]
     ])
 
-def kb_marathon_start() -> InlineKeyboardMarkup:
+def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура для выбора даты старта марафона"""
     today = moscow_today()
     tomorrow = today + timedelta(days=1)
     day_after = today + timedelta(days=2)
 
+    # Названия дней на разных языках
+    day_names = {
+        'ru': ('Сегодня', 'Завтра', 'Послезавтра'),
+        'en': ('Today', 'Tomorrow', 'Day after'),
+        'es': ('Hoy', 'Mañana', 'Pasado mañana')
+    }
+    names = day_names.get(lang, day_names['en'])
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Сегодня", callback_data="start_today")],
-        [InlineKeyboardButton(text=f"📅 Завтра ({tomorrow.strftime('%d.%m')})", callback_data="start_tomorrow")],
-        [InlineKeyboardButton(text=f"📅 Послезавтра ({day_after.strftime('%d.%m')})", callback_data="start_day_after")]
+        [InlineKeyboardButton(text=f"🚀 {names[0]}", callback_data="start_today")],
+        [InlineKeyboardButton(text=f"📅 {names[1]} ({tomorrow.strftime('%d.%m')})", callback_data="start_tomorrow")],
+        [InlineKeyboardButton(text=f"📅 {names[2]} ({day_after.strftime('%d.%m')})", callback_data="start_day_after")]
     ])
 
 def kb_submit_work_product() -> InlineKeyboardMarkup:
@@ -1228,6 +1302,13 @@ def kb_submit_work_product() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⏭ Пропустить практику", callback_data="skip_practice")]
     ])
+
+def kb_language_select() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора языка интерфейса"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=get_language_name(lang), callback_data=f"lang_{lang}")]
+        for lang in SUPPORTED_LANGUAGES
+    ] + [[InlineKeyboardButton(text="❌", callback_data="upd_cancel")]])
 
 def progress_bar(completed: int, total: int) -> str:
     pct = int((completed / total) * 100) if total > 0 else 0
@@ -1242,99 +1323,137 @@ router = Router()
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
-    
+
     if intern['onboarding_completed']:
+        lang = intern.get('language', 'ru')
         await message.answer(
-            f"👋 С возвращением, {intern['name']}!\n\n"
-            f"/learn — продолжить обучение\n"
-            f"/progress — статистика\n"
-            f"/profile — ваш профиль"
+            t('welcome.returning', lang, name=intern['name']) + "\n\n" +
+            t('commands.learn', lang) + "\n" +
+            t('commands.progress', lang) + "\n" +
+            t('commands.profile', lang)
         )
         return
 
-    await message.answer(
-        "👋 Здравствуйте! Я персональный помощник для системного развития.\n\n"
-        "Задам несколько вопросов, чтобы адаптировать материал под вас (~2 мин).\n\n"
-        "Как вас зовут?"
-    )
+    # Определяем язык интерфейса пользователя
+    lang = detect_language(message.from_user.language_code)
+
+    if lang in SUPPORTED_LANGUAGES:
+        welcome_text = (
+            t('welcome.greeting', lang) + "\n" +
+            t('welcome.intro', lang) + "\n\n" +
+            t('welcome.ask_name', lang)
+        )
+    else:
+        # Для неизвестных языков — двуязычное (EN + RU)
+        welcome_text = (
+            t('welcome.greeting', 'en') + "\n" +
+            t('welcome.intro', 'en') + "\n" +
+            t('welcome.ask_name', 'en') + "\n\n" +
+            "━━━━━━━━━━━━━━━━━━\n\n" +
+            t('welcome.greeting', 'ru') + "\n" +
+            t('welcome.intro', 'ru') + "\n" +
+            t('welcome.ask_name', 'ru')
+        )
+        lang = 'ru'  # По умолчанию русский
+
+    # Сохраняем определённый язык для дальнейшего использования
+    await state.update_data(lang=lang)
+
+    await message.answer(welcome_text)
     await state.set_state(OnboardingStates.waiting_for_name)
+
+
+async def get_lang(state: FSMContext, intern: dict = None) -> str:
+    """Получить язык из state или из профиля пользователя"""
+    data = await state.get_data()
+    if 'lang' in data:
+        return data['lang']
+    if intern and 'language' in intern:
+        return intern['language']
+    return 'ru'
+
 
 @router.message(OnboardingStates.waiting_for_name)
 async def on_name(message: Message, state: FSMContext):
-    await update_intern(message.chat.id, name=message.text.strip())
+    lang = await get_lang(state)
+    name = message.text.strip()
+    await update_intern(message.chat.id, name=name, language=lang)
     await message.answer(
-        f"Приятно познакомиться, {message.text.strip()}!\n\n"
-        "Чем вы занимаетесь?\n\n"
-        "_Например: разработчик в IT-компании, студент экономфака, маркетолог в стартапе_",
+        t('onboarding.nice_to_meet', lang, name=name) + "\n\n" +
+        t('onboarding.ask_occupation', lang) + "\n\n" +
+        t('onboarding.ask_occupation_hint', lang),
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_occupation)
 
 @router.message(OnboardingStates.waiting_for_occupation)
 async def on_occupation(message: Message, state: FSMContext):
+    lang = await get_lang(state)
     await update_intern(message.chat.id, occupation=message.text.strip())
     await message.answer(
-        "Расскажите о своих интересах и хобби.\n\n"
-        "_Например: технологии, космос, кулинария, спорт, музыка, путешествия_\n\n"
-        "_Это поможет приводить близкие вам примеры._",
+        t('onboarding.ask_interests', lang) + "\n\n" +
+        t('onboarding.ask_interests_hint', lang) + "\n\n" +
+        t('onboarding.ask_interests_why', lang),
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_interests)
 
 @router.message(OnboardingStates.waiting_for_interests)
 async def on_interests(message: Message, state: FSMContext):
+    lang = await get_lang(state)
     interests = [i.strip() for i in message.text.replace(',', ';').split(';') if i.strip()]
     await update_intern(message.chat.id, interests=interests)
     await message.answer(
-        "*Что для вас по-настоящему важно в жизни?*\n\n"
-        "_Это поможет мне добавлять мотивационные блоки, которые вас зацепят._",
+        f"*{t('onboarding.ask_values', lang)}*\n\n" +
+        t('onboarding.ask_values_hint', lang),
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_motivation)
 
 @router.message(OnboardingStates.waiting_for_motivation)
 async def on_motivation(message: Message, state: FSMContext):
+    lang = await get_lang(state)
     await update_intern(message.chat.id, motivation=message.text.strip())
     await message.answer(
-        "*Что хотите изменить* в своей жизни или работе?\n\n"
-        "_Это определит, как я буду персонализировать материалы под вас._",
+        f"*{t('onboarding.ask_goals', lang)}*\n\n" +
+        t('onboarding.ask_goals_hint', lang),
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_goals)
 
 @router.message(OnboardingStates.waiting_for_goals)
 async def on_goals(message: Message, state: FSMContext):
+    lang = await get_lang(state)
     await update_intern(message.chat.id, goals=message.text.strip())
     await message.answer(
-        "Сколько минут готовы уделять изучению одной темы?\n\n"
-        "_Совет: лучше начать с малого и постепенно увеличивать. "
-        "5-10 минут каждый день эффективнее, чем 25 минут раз в неделю._",
+        t('onboarding.ask_duration', lang) + "\n\n",
         parse_mode="Markdown",
-        reply_markup=kb_study_duration()
+        reply_markup=kb_study_duration(lang)
     )
     await state.set_state(OnboardingStates.waiting_for_study_duration)
 
 @router.callback_query(OnboardingStates.waiting_for_study_duration, F.data.startswith("duration_"))
 async def on_duration(callback: CallbackQuery, state: FSMContext):
+    lang = await get_lang(state)
     duration = int(callback.data.replace("duration_", ""))
     await update_intern(callback.message.chat.id, study_duration=duration)
     await callback.answer()
     await callback.message.edit_text(
-        "Во сколько напоминать о новой теме?\n\n"
-        "_Напишите время в формате ЧЧ:ММ (например: 09:00)_\n"
-        "_Часовой пояс: UTC+3 (Москва)_",
+        t('onboarding.ask_time', lang) + "\n\n" +
+        t('onboarding.ask_time_hint', lang),
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_schedule)
 
 @router.message(OnboardingStates.waiting_for_schedule)
 async def on_schedule(message: Message, state: FSMContext):
+    lang = await get_lang(state)
     try:
         h, m = map(int, message.text.strip().split(":"))
         if not (0 <= h <= 23 and 0 <= m <= 59):
             raise ValueError
     except:
-        await message.answer("Формат: ЧЧ:ММ (например 09:00)")
+        await message.answer(t('errors.try_again', lang) + " (ЧЧ:ММ)")
         return
 
     # Нормализуем формат времени (с ведущими нулями)
@@ -1342,13 +1461,10 @@ async def on_schedule(message: Message, state: FSMContext):
     await update_intern(message.chat.id, schedule_time=normalized_time)
 
     await message.answer(
-        "🗓 *Когда начнём марафон?*\n\n"
-        "Марафон длится *14 дней*. Каждый день — 2 темы:\n"
-        "• *Теория* — материал + вопрос для размышления\n"
-        "• *Практика* — задание + рабочий продукт\n\n"
-        "Выберите дату старта:",
+        f"🗓 *{t('onboarding.ask_start_date', lang)}*\n\n" +
+        t('modes.marathon_desc', lang),
         parse_mode="Markdown",
-        reply_markup=kb_marathon_start()
+        reply_markup=kb_marathon_start(lang)
     )
     await state.set_state(OnboardingStates.waiting_for_start_date)
 
@@ -1413,25 +1529,22 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         start_msg = "🗓 Дата старта не задана"
         can_start_now = False
 
-    # Приветственное сообщение для марафона
+    # Приветственное сообщение для марафона (English + Russian)
     await callback.message.edit_text(
+        f"🎉 *Welcome to the Marathon, {intern['name']}!*\n\n"
+        f"14 days from casual learner to systematic practitioner.\n"
+        f"📅 {MARATHON_DAYS} days — 2 topics per day (theory + practice)\n"
+        f"⏱ {intern['study_duration']} minutes per topic\n"
+        f"⏰ Daily reminders at {intern['schedule_time']}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
         f"🎉 *Добро пожаловать в марафон, {intern['name']}!*\n\n"
-        f"➡️ *Что это за марафон?*\n\n"
-        f"*14 дней* от случайного ученика к систематическому.\n\n"
-        f"Цель — перейти в роль *Практикующего ученика* "
-        f"с устойчивыми практиками саморазвития.\n\n"
-        f"➡️ *Как устроено обучение?*\n\n"
-        f"📅 *{MARATHON_DAYS} дней* — по 2 темы каждый день:\n"
-        f"   📚 *Теория* — материал + вопрос\n"
-        f"   ✏️ *Практика* — задание + рабочий продукт\n\n"
-        f"⏱ *{intern['study_duration']} минут* — на каждую тему\n"
-        f"📈 *Макс {MAX_TOPICS_PER_DAY} темы в день* — можно нагнать 1 день\n\n"
-        f"➡️ *Напоминания*\n\n"
-        f"⏰ Буду напоминать в *{intern['schedule_time']}* каждый день.\n\n"
-        f"{start_msg}\n\n"
-        f"{'Готовы начать?' if can_start_now else 'Жду вас в день старта!'}",
+        f"14 дней от случайного ученика к систематическому.\n"
+        f"📅 {MARATHON_DAYS} дней — по 2 темы в день (теория + практика)\n"
+        f"⏱ {intern['study_duration']} минут на каждую тему\n"
+        f"⏰ Напоминания каждый день в {intern['schedule_time']}\n\n"
+        f"{start_msg}",
         parse_mode="Markdown",
-        reply_markup=kb_learn() if can_start_now else None
+        reply_markup=kb_learn()
     )
     await state.clear()
 
@@ -1546,13 +1659,12 @@ async def cmd_profile(message: Message):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     await message.answer(
-        "📖 *Доступные команды:*\n\n"
-        "/start — начать или перезапустить онбординг\n"
+        "📖 *Основные команды:*\n\n"
         "/learn — получить новую тему для изучения\n"
+        "/mode — выбор режима (Марафон/Лента)\n"
         "/progress — посмотреть свой прогресс\n"
         "/profile — посмотреть свой профиль\n"
-        "/update — обновить профиль\n"
-        "/help — показать эту справку\n\n"
+        "/update — обновить профиль\n\n"
         "*Как работает обучение:*\n"
         "1. Я отправляю персонализированный материал\n"
         "2. Вы изучаете его (5-25 мин)\n"
@@ -1569,8 +1681,10 @@ async def cmd_help(message: Message):
 @router.message(Command("update"))
 async def cmd_update(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru')
+
     if not intern['onboarding_completed']:
-        await message.answer("Сначала пройдите онбординг: /start")
+        await message.answer(t('errors.try_again', lang) + " /start")
         return
 
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
@@ -1583,27 +1697,28 @@ async def cmd_update(message: Message, state: FSMContext):
             start_date = start_date.date()
         marathon_start_str = start_date.strftime('%d.%m.%Y')
     else:
-        marathon_start_str = "не задана"
+        marathon_start_str = "—"
 
     marathon_day = get_marathon_day(intern)
 
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else 'не указаны'
-    motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or 'не указано'
-    goals_short = intern['goals'][:80] + '...' if len(intern['goals']) > 80 else intern['goals'] or 'не указано'
+    interests_str = ', '.join(intern['interests']) if intern['interests'] else '—'
+    motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or '—'
+    goals_short = intern['goals'][:80] + '...' if len(intern['goals']) > 80 else intern['goals'] or '—'
 
     await message.answer(
         f"👤 *{intern['name']}*\n"
-        f"💼 {intern.get('occupation', '') or 'не указано'}\n"
+        f"💼 {intern.get('occupation', '') or '—'}\n"
         f"🎨 {interests_str}\n\n"
-        f"💫 *Важно:* {motivation_short}\n"
-        f"🎯 *Изменить:* {goals_short}\n\n"
-        f"{duration.get('emoji', '')} {duration.get('name', '')} на тему\n"
-        f"{bloom['emoji']} Уровень: {bloom['short_name']}\n"
-        f"🗓 Старт марафона: {marathon_start_str} (день {marathon_day})\n"
-        f"⏰ Напоминание в {intern['schedule_time']}\n\n"
-        f"*Что хотите обновить?*",
+        f"💫 {motivation_short}\n"
+        f"🎯 {goals_short}\n\n"
+        f"{duration.get('emoji', '')} {duration.get('name', '')}\n"
+        f"{bloom['emoji']} {bloom['short_name']}\n"
+        f"🗓 {marathon_start_str} ({t('progress.day', lang, n=marathon_day)})\n"
+        f"⏰ {intern['schedule_time']}\n"
+        f"🌐 {get_language_name(lang)}\n\n"
+        f"*{t('settings.what_to_change', lang)}*",
         parse_mode="Markdown",
-        reply_markup=kb_update_profile()
+        reply_markup=kb_update_profile(lang)
     )
     await state.set_state(UpdateStates.choosing_field)
 
@@ -1721,6 +1836,25 @@ async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
     )
     await state.clear()
 
+@router.callback_query(UpdateStates.choosing_field, F.data == "upd_mode")
+async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
+    """Переход к выбору режима (Марафон/Лента)"""
+    await state.clear()
+    await callback.answer()
+
+    # Импортируем функцию выбора режима
+    try:
+        from engines.mode_selector import cmd_mode
+        # Создаём фейковое сообщение для вызова команды
+        await cmd_mode(callback.message)
+    except ImportError:
+        await callback.message.edit_text(
+            "🎯 *Выбор режима*\n\n"
+            "Используйте команду /mode для выбора режима работы.",
+            parse_mode="Markdown"
+        )
+
+
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_marathon_start")
 async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
@@ -1773,8 +1907,37 @@ async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_cancel")
 async def on_upd_cancel(callback: CallbackQuery, state: FSMContext):
-    await callback.answer("Отменено")
-    await callback.message.edit_text("Хорошо! Можете продолжить обучение: /learn")
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
+    await callback.answer(t('buttons.cancel', lang))
+    await callback.message.edit_text(t('commands.learn', lang))
+    await state.clear()
+
+@router.callback_query(UpdateStates.choosing_field, F.data == "upd_language")
+async def on_upd_language(callback: CallbackQuery, state: FSMContext):
+    """Показать меню выбора языка"""
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
+    await callback.answer()
+    await callback.message.edit_text(
+        t('settings.language.title', lang),
+        reply_markup=kb_language_select()
+    )
+
+@router.callback_query(UpdateStates.choosing_field, F.data.startswith("lang_"))
+async def on_select_language(callback: CallbackQuery, state: FSMContext):
+    """Обработать выбор языка"""
+    new_lang = callback.data.replace("lang_", "")
+    if new_lang not in SUPPORTED_LANGUAGES:
+        new_lang = 'ru'
+
+    await update_intern(callback.message.chat.id, language=new_lang)
+    await callback.answer(t('settings.language.changed', new_lang))
+    await callback.message.edit_text(
+        t('settings.language.changed', new_lang) + "\n\n" +
+        t('commands.learn', new_lang) + "\n" +
+        t('commands.update', new_lang)
+    )
     await state.clear()
 
 @router.message(UpdateStates.updating_motivation)
@@ -2252,6 +2415,8 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
     marathon_day = get_marathon_day(intern)
     bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
 
+    # Показываем, что бот работает
+    await bot.send_chat_action(chat_id=chat_id, action="typing")
     await bot.send_message(chat_id, "⏳ Генерирую персональный материал...")
 
     content = await claude.generate_content(topic, intern, marathon_day=marathon_day, mcp_client=mcp_guides, knowledge_client=mcp_knowledge)
@@ -2288,6 +2453,10 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
 async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
     """Отправка практической темы"""
     marathon_day = get_marathon_day(intern)
+
+    # Показываем, что бот работает
+    await bot.send_chat_action(chat_id=chat_id, action="typing")
+    await bot.send_message(chat_id, "⏳ Готовлю практическое задание...")
 
     # Генерируем краткое введение
     intro = await claude.generate_practice_intro(topic, intern, marathon_day=marathon_day)
@@ -2526,7 +2695,16 @@ async def scheduled_check():
 
 # ============= FALLBACK HANDLERS =============
 
-@router.callback_query()
+# Фильтр для исключения callback'ов, обрабатываемых другими роутерами
+def is_main_router_callback(callback: CallbackQuery) -> bool:
+    """Проверяет, что callback НЕ принадлежит engines/ роутерам"""
+    if not callback.data:
+        return True
+    # Исключаем callback'и, которые обрабатываются mode_router и feed_router
+    excluded_prefixes = ('mode_', 'feed_')
+    return not callback.data.startswith(excluded_prefixes)
+
+@router.callback_query(is_main_router_callback)
 async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
     """Обработка неизвестных callback-запросов (истёкшие кнопки и т.д.)"""
     logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
@@ -2573,18 +2751,30 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
+
+    # Подключаем роутеры режимов ПЕРЕД основным роутером
+    # (чтобы catch-all handler в router не перехватывал их callback'и)
+    try:
+        from engines.integration import setup_routers
+        setup_routers(dp)
+    except ImportError as e:
+        logger.warning(f"⚠️ Не удалось загрузить engines: {e}. Режимы Лента и выбор режима недоступны.")
+
+    # Основной роутер подключаем последним
     dp.include_router(router)
 
     # Сохраняем dispatcher для доступа к FSM storage из планировщика
     _dispatcher = dp
 
     # Установка команд бота (Menu-кнопка)
+    # /learn вверху - самая частая команда
     await bot.set_my_commands([
-        BotCommand(command="start", description="Начать обучение"),
         BotCommand(command="learn", description="Получить новую тему"),
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="update", description="Обновить профиль"),
+        BotCommand(command="mode", description="Выбор режима (Марафон/Лента)"),
+        BotCommand(command="start", description="Перезапустить онбординг"),
         BotCommand(command="help", description="Справка")
     ])
 
