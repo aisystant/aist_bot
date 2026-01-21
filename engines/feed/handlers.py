@@ -245,6 +245,10 @@ def parse_topic_selection(text: str, topics_count: int) -> tuple[set, list]:
 @feed_router.message(FeedStates.choosing_topics)
 async def handle_topic_text_selection(message: Message, state: FSMContext):
     """Обрабатывает текстовый выбор тем"""
+    # Пропускаем команды — пусть обрабатываются своими хендлерами
+    if message.text and message.text.startswith('/'):
+        return
+
     try:
         text = message.text.strip()
         data = await state.get_data()
@@ -448,6 +452,10 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
 @feed_router.message(FeedStates.reading_content)
 async def handle_feed_question(message: Message, state: FSMContext):
     """Обрабатывает вопрос пользователя во время чтения контента"""
+    # Пропускаем команды — пусть обрабатываются своими хендлерами
+    if message.text and message.text.startswith('/'):
+        return
+
     try:
         chat_id = message.chat.id
         question = message.text.strip()
@@ -555,6 +563,10 @@ async def start_fixation(callback: CallbackQuery, state: FSMContext):
 @feed_router.message(FeedStates.waiting_fixation)
 async def receive_fixation(message: Message, state: FSMContext):
     """Принимает фиксацию пользователя"""
+    # Пропускаем команды — пусть обрабатываются своими хендлерами
+    if message.text and message.text.startswith('/'):
+        return
+
     text = message.text.strip()
 
     if len(text) < 10:
@@ -667,6 +679,10 @@ async def keep_tomorrow_topic(callback: CallbackQuery, state: FSMContext):
 @feed_router.message(FeedStates.choosing_tomorrow)
 async def handle_tomorrow_selection(message: Message, state: FSMContext):
     """Обрабатывает выбор/изменение темы на завтра"""
+    # Пропускаем команды — пусть обрабатываются своими хендлерами
+    if message.text and message.text.startswith('/'):
+        return
+
     import re
 
     try:
