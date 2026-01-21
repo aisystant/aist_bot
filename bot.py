@@ -1337,7 +1337,9 @@ def kb_language_select() -> InlineKeyboardMarkup:
 
 def progress_bar(completed: int, total: int) -> str:
     pct = int((completed / total) * 100) if total > 0 else 0
-    return f"{'█' * (pct // 10)}{'░' * (10 - pct // 10)} {pct}%"
+    # Показываем хотя бы 1 заполненный кубик, если есть прогресс
+    filled = max(1, pct // 10) if pct > 0 else 0
+    return f"{'█' * filled}{'░' * (10 - filled)} {pct}%"
 
 # ============= РОУТЕР =============
 
@@ -1745,14 +1747,16 @@ async def show_full_progress(callback: CallbackQuery):
         total = get_total_topics()
         marathon_day = get_marathon_day(intern)
         pct = int((done / total) * 100) if total > 0 else 0
-        bar = '█' * (pct // 5) + '░' * (20 - pct // 5)
+        filled = max(1, pct // 5) if pct > 0 else 0
+        bar = '█' * filled + '░' * (20 - filled)
 
         # Прогресс по неделям
         weeks = get_sections_progress(intern.get('completed_topics', []))
         weeks_text = ""
         for i, week in enumerate(weeks):
             w_pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-            w_bar = '█' * (w_pct // 10) + '░' * (10 - w_pct // 10)
+            w_filled = max(1, w_pct // 10) if w_pct > 0 else 0
+            w_bar = '█' * w_filled + '░' * (10 - w_filled)
             weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} {w_bar} {week['completed']}/{week['total']}\n"
 
         # Лента
@@ -2670,7 +2674,8 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
             weeks_text = ""
             for i, week in enumerate(weeks):
                 pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-                bar = '█' * (pct // 10) + '░' * (10 - pct // 10)
+                filled = max(1, pct // 10) if pct > 0 else 0
+                bar = '█' * filled + '░' * (10 - filled)
                 weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} Неделя {i + 1}: {bar} {week['completed']}/{week['total']} ✅\n"
 
             await bot.send_message(
@@ -2827,7 +2832,8 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             weeks_text = ""
             for i, week in enumerate(weeks):
                 pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-                bar = '█' * (pct // 10) + '░' * (10 - pct // 10)
+                filled = max(1, pct // 10) if pct > 0 else 0
+                bar = '█' * filled + '░' * (10 - filled)
                 weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} Неделя {i + 1}: {bar} {week['completed']}/{week['total']} ✅\n"
 
             await bot.send_message(
