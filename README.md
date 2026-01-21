@@ -1,4 +1,4 @@
-# AIST Pilot Bot — 14-дневный марафон систематического обучения
+# AI System Track (@aist_track_bot) — 14-дневный марафон систематического обучения
 
 **Миссия**: Помочь участникам трансформироваться из случайных учеников в систематических учеников, которые собраны и удерживают внимание на своём развитии.
 
@@ -10,7 +10,7 @@ Telegram-бот для проведения 14-дневного марафона
 
 ### Быстрый старт
 
-1. Найдите бота в Telegram: [@aist_pilot_bot](https://t.me/aist_pilot_bot)
+1. Найдите бота в Telegram: [@aist_track_bot](https://t.me/aist_track_bot)
 2. Напишите `/start`
 3. Пройдите онбординг (2 минуты)
 4. Выберите дату начала марафона
@@ -219,8 +219,8 @@ Telegram-бот для проведения 14-дневного марафона
 
 ```bash
 # Клонировать
-git clone https://github.com/aisystant/aist_pilot_bot
-cd aist_pilot_bot
+git clone https://github.com/aisystant/aist_track_bot
+cd aist_track_bot
 
 # Виртуальное окружение
 python -m venv venv
@@ -287,7 +287,7 @@ python bot.py
 ### Структура проекта
 
 ```
-aist_pilot_bot/
+aist_track_bot/
 ├── bot.py                    # Основной код бота
 ├── knowledge_structure.yaml  # Структура 28 тем марафона
 ├── requirements.txt          # Python зависимости
