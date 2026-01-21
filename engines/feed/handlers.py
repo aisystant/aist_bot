@@ -426,6 +426,40 @@ async def feed_start_scheduled(callback: CallbackQuery, state: FSMContext):
 
 # ==================== МЕНЮ ЛЕНТЫ ====================
 
+@feed_router.callback_query(F.data == "feed_start_topics")
+async def feed_start_topics(callback: CallbackQuery, state: FSMContext):
+    """Начинает выбор тем на неделю (из сообщения активации режима)"""
+    chat_id = callback.message.chat.id
+    lang = await get_user_lang(chat_id)
+
+    await callback.answer()
+
+    # Показываем индикатор загрузки
+    await callback.message.edit_text(t('loading.generating_topics', lang))
+
+    # Генерируем темы
+    engine = FeedEngine(chat_id)
+    success, msg = await engine.start_feed()
+
+    if not success:
+        await callback.message.edit_text(msg)
+        return
+
+    topics, msg = await engine.suggest_topics()
+
+    if not topics:
+        await callback.message.edit_text(msg)
+        return
+
+    # Показываем выбор тем (используем answer вместо edit, т.к. формат меняется)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    await show_topic_selection(callback.message, topics, state)
+
+
 @feed_router.callback_query(F.data == "feed_get_digest")
 async def feed_get_digest(callback: CallbackQuery, state: FSMContext):
     """Получить дайджест - показывает текущую сессию или создаёт новую"""
@@ -475,10 +509,10 @@ async def feed_topics_menu(callback: CallbackQuery, state: FSMContext):
 
         text += f"\n_{t('feed.topics_edit_hint', lang)}_"
 
-        # Кнопки для редактирования каждой темы (только предстоящие)
+        # Кнопки для редактирования только будущих тем
         buttons = []
         for i, topic in enumerate(topics, 1):
-            if i >= current_day:  # Можно редактировать текущую и будущие
+            if i > current_day:  # Можно редактировать только будущие дни
                 short_title = topic[:25] + "..." if len(topic) > 25 else topic
                 buttons.append([
                     InlineKeyboardButton(

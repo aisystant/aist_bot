@@ -167,6 +167,7 @@ TRANSLATIONS = {
         'buttons.topics_menu': 'Темы недели',
         'buttons.edit_topic': '✏️',
         'buttons.back_to_menu': '« Назад',
+        'buttons.select_topics': 'Выбрать темы на неделю',
     },
 
     'en': {
@@ -326,6 +327,7 @@ TRANSLATIONS = {
         'buttons.topics_menu': 'Week topics',
         'buttons.edit_topic': '✏️',
         'buttons.back_to_menu': '« Back',
+        'buttons.select_topics': 'Select week topics',
     },
 
     'es': {
@@ -485,6 +487,7 @@ TRANSLATIONS = {
         'buttons.topics_menu': 'Temas de la semana',
         'buttons.edit_topic': '✏️',
         'buttons.back_to_menu': '« Volver',
+        'buttons.select_topics': 'Seleccionar temas de la semana',
     }
 }
 

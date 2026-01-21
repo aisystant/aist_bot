@@ -12,6 +12,7 @@ from aiogram.filters import Command
 
 from config import get_logger, Mode, MarathonStatus, FeedStatus
 from db.queries.users import get_intern, update_intern
+from locales import t
 
 logger = get_logger(__name__)
 
@@ -142,12 +143,31 @@ async def select_feed(callback: CallbackQuery):
 
         current_mode = intern.get('mode', Mode.MARATHON)
         marathon_status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
+        lang = intern.get('language', 'ru') or 'ru'
 
         # Для legacy: проверяем реальный прогресс марафона
         has_marathon_progress = len(intern.get('completed_topics', [])) > 0 or intern.get('current_topic_index', 0) > 0
 
         # Получаем настройки пользователя
         settings_text = get_user_settings_text(intern)
+
+        # Проверяем, есть ли активная неделя
+        from .feed.engine import FeedEngine
+        engine = FeedEngine(chat_id)
+        status = await engine.get_status()
+        has_active_week = status.get('has_week') and status.get('week_status') == 'active'
+
+        # Формируем текст сообщения
+        text = "✅ *Режим Лента активирован!*\n\n"
+        text += f"*Ваши настройки:*\n{settings_text}\n"
+
+        if has_active_week:
+            # Есть активная неделя — показываем прогресс
+            topics = status.get('topics', [])
+            current_day = status.get('current_day', 1)
+            text += f"\n{t('feed.week_progress', lang, current=current_day, total=len(topics))}"
+            if current_day <= len(topics):
+                text += f"\n📖 Сегодня: *{topics[current_day - 1]}*"
 
         # Если был активный марафон - ставим на паузу
         if (marathon_status == MarathonStatus.ACTIVE or
@@ -157,27 +177,37 @@ async def select_feed(callback: CallbackQuery):
                 marathon_status=MarathonStatus.PAUSED,
                 feed_status=FeedStatus.ACTIVE,
             )
-            await callback.message.edit_text(
-                "✅ *Режим Лента активирован!*\n\n"
-                f"*Ваши настройки:*\n{settings_text}\n\n"
-                "Используйте /feed для получения тем на неделю.\n\n"
-                "Марафон поставлен на паузу. "
-                "Вы сможете вернуться к нему через /mode.",
-                parse_mode="Markdown"
-            )
+            text += "\n\n_Марафон на паузе. Вернуться: /mode_"
         else:
             await update_intern(chat_id,
                 mode=Mode.FEED,
                 feed_status=FeedStatus.ACTIVE,
             )
-            await callback.message.edit_text(
-                "✅ *Режим Лента активирован!*\n\n"
-                f"*Ваши настройки:*\n{settings_text}\n\n"
-                "Используйте /feed для получения тем на неделю.",
-                parse_mode="Markdown"
-            )
 
+        # Кнопки в зависимости от наличия активной недели
+        if has_active_week:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"📖 {t('buttons.get_digest', lang)}",
+                    callback_data="feed_get_digest"
+                )],
+                [InlineKeyboardButton(
+                    text=f"📋 {t('buttons.topics_menu', lang)}",
+                    callback_data="feed_topics_menu"
+                )]
+            ])
+        else:
+            # Нет активной недели — кнопка для выбора тем
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"📚 {t('buttons.select_topics', lang)}",
+                    callback_data="feed_start_topics"
+                )]
+            ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         await callback.answer()
+
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в select_feed: {e}\n{traceback.format_exc()}")
