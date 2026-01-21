@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем все файлы проекта
 COPY bot.py .
+COPY locales.py .
 COPY knowledge_structure.yaml .
 COPY config/ ./config/
 COPY db/ ./db/
