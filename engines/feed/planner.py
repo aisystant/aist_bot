@@ -8,7 +8,7 @@
 from typing import List, Dict, Optional
 import json
 
-from config import get_logger, FEED_TOPICS_TO_SUGGEST
+from config import get_logger, FEED_TOPICS_TO_SUGGEST, ONTOLOGY_RULES_TOPICS
 from clients import claude, mcp_guides, mcp_knowledge
 
 logger = get_logger(__name__)
@@ -54,6 +54,8 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
 2. Учитывай профессию и интересы — темы должны быть релевантны
 3. Каждая тема для 5-12 минут изучения
 4. Разнообразь темы — не повторяй похожие концепции
+
+{ONTOLOGY_RULES_TOPICS}
 
 ФОРМАТ НАЗВАНИЯ ТЕМЫ:
 - Максимум 5 слов

@@ -61,6 +61,10 @@ from .settings import (
 
     # Категории РП
     WORK_PRODUCT_CATEGORIES,
+
+    # Онтологические правила
+    ONTOLOGY_RULES,
+    ONTOLOGY_RULES_TOPICS,
 )
 
 __all__ = [
@@ -98,4 +102,6 @@ __all__ = [
     'TOPIC_REQUEST_PATTERNS',
     'COMMAND_WORDS',
     'WORK_PRODUCT_CATEGORIES',
+    'ONTOLOGY_RULES',
+    'ONTOLOGY_RULES_TOPICS',
 ]
