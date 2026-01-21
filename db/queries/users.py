@@ -71,6 +71,7 @@ def _row_to_dict(row) -> dict:
         'desires': safe_get('desires', ''),
         'goals': safe_get('goals', ''),
         'schedule_time': safe_get('schedule_time', '09:00'),
+        'schedule_time_2': safe_get('schedule_time_2', None),
         'topic_order': safe_get('topic_order', 'default'),
         
         # Режимы
@@ -105,6 +106,7 @@ def _row_to_dict(row) -> dict:
         
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
+        'language': safe_get('language', 'ru'),
     }
 
 
@@ -126,6 +128,7 @@ def _get_default_intern(chat_id: int) -> dict:
         'desires': '',
         'goals': '',
         'schedule_time': '09:00',
+        'schedule_time_2': None,
         'topic_order': 'default',
         
         'mode': 'marathon',
@@ -153,6 +156,7 @@ def _get_default_intern(chat_id: int) -> dict:
         'last_active_date': None,
         
         'onboarding_completed': False,
+        'language': 'ru',
     }
 
 

@@ -131,6 +131,7 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
     # Настройки
     schedule_time = intern.get('schedule_time', '09:00')
     schedule_time_2 = intern.get('schedule_time_2')
+    study_duration = intern.get('study_duration', 15)
     bloom_level = intern.get('bloom_level', 1)
     complexity_names = {1: "Начальный", 2: "Базовый", 3: "Продвинутый"}
     complexity_text = complexity_names.get(bloom_level, f"Уровень {bloom_level}")
@@ -153,6 +154,7 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
     text += f"День {marathon_day} из 14 | {completed}/28 тем\n\n"
     text += "*Ваши настройки:*\n"
     text += f"⏰ Время: {schedule_time}\n"
+    text += f"📖 На чтение: {study_duration} мин\n"
     text += f"📊 Сложность: {complexity_text}\n"
 
     if schedule_time_2:
@@ -361,33 +363,39 @@ async def marathon_date_day_after(callback: CallbackQuery):
 @mode_router.callback_query(F.data == "marathon_reset_confirm")
 async def marathon_reset_confirm(callback: CallbackQuery):
     """Подтверждение сброса марафона"""
-    chat_id = callback.message.chat.id
-    intern = await get_intern(chat_id)
+    try:
+        chat_id = callback.message.chat.id
+        intern = await get_intern(chat_id)
 
-    completed = len(intern.get('completed_topics', []))
+        completed = len(intern.get('completed_topics', []))
 
-    # Считаем РП
-    from db.queries.answers import get_answers_count_by_type
-    counts = await get_answers_count_by_type(chat_id)
-    work_products = counts.get('work_product', 0)
+        # Считаем РП
+        from db.queries.answers import get_answers_count_by_type
+        counts = await get_answers_count_by_type(chat_id)
+        work_products = counts.get('work_product', 0)
 
-    text = "⚠️ *Сбросить марафон?*\n\n"
-    text += "Будет удалено:\n"
-    text += f"• {completed} пройденных тем\n"
-    text += f"• {work_products} рабочих продуктов\n"
-    text += "• Прогресс по дням\n\n"
-    text += "_Статистика Ленты сохранится._"
+        text = "⚠️ *Сбросить марафон?*\n\n"
+        text += "Будет удалено:\n"
+        text += f"• {completed} пройденных тем\n"
+        text += f"• {work_products} рабочих продуктов\n"
+        text += "• Прогресс по дням\n\n"
+        text += "_Статистика Ленты сохранится._"
 
-    buttons = [
-        [
-            InlineKeyboardButton(text="🔄 Да, сбросить", callback_data="marathon_reset_do"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="marathon_settings_back")
+        buttons = [
+            [
+                InlineKeyboardButton(text="🔄 Да, сбросить", callback_data="marathon_reset_do"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="marathon_settings_back")
+            ]
         ]
-    ]
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-    await callback.answer()
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await callback.answer()
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Ошибка в marathon_reset_confirm: {e}\n{traceback.format_exc()}")
+        await callback.answer("Произошла ошибка", show_alert=True)
 
 
 @mode_router.callback_query(F.data == "marathon_reset_do")
@@ -427,13 +435,13 @@ async def marathon_settings_back(callback: CallbackQuery):
 
 
 @mode_router.callback_query(F.data == "marathon_go_update")
-async def marathon_go_update(callback: CallbackQuery):
+async def marathon_go_update(callback: CallbackQuery, state: FSMContext):
     """Переход к обновлению профиля"""
-    # Вызываем /update
     from bot import cmd_update
-    await callback.message.delete()
-    await cmd_update(callback.message)
     await callback.answer()
+    await callback.message.delete()
+    # Создаём фейковое сообщение для cmd_update
+    await cmd_update(callback.message, state)
 
 
 @mode_router.callback_query(F.data == "marathon_reminders_input")
@@ -800,12 +808,12 @@ async def select_feed(callback: CallbackQuery):
 # ==================== КНОПКИ ЛЕНТЫ ====================
 
 @mode_router.callback_query(F.data == "feed_go_update")
-async def feed_go_update(callback: CallbackQuery):
+async def feed_go_update(callback: CallbackQuery, state: FSMContext):
     """Переход к обновлению профиля из Ленты"""
     from bot import cmd_update
-    await callback.message.delete()
-    await cmd_update(callback.message)
     await callback.answer()
+    await callback.message.delete()
+    await cmd_update(callback.message, state)
 
 
 @mode_router.callback_query(F.data == "feed_reminders_input")
