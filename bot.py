@@ -1613,17 +1613,24 @@ async def cmd_progress(message: Message):
     from db.queries.activity import get_activity_stats
 
     intern = await get_intern(message.chat.id)
-    if not intern['onboarding_completed']:
+    if not intern or not intern.get('onboarding_completed'):
         await message.answer("Сначала /start")
         return
 
     chat_id = message.chat.id
 
-    # Получаем статистику
-    activity_stats = await get_activity_stats(chat_id)
-    marathon_stats = await get_weekly_marathon_stats(chat_id)
-    feed_stats = await get_weekly_feed_stats(chat_id)
-    wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
+    try:
+        # Получаем статистику
+        activity_stats = await get_activity_stats(chat_id)
+        marathon_stats = await get_weekly_marathon_stats(chat_id)
+        feed_stats = await get_weekly_feed_stats(chat_id)
+        wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
+    except Exception as e:
+        logger.error(f"Ошибка получения статистики для {chat_id}: {e}")
+        activity_stats = {'days_active_this_week': 0}
+        marathon_stats = {'work_products': 0}
+        feed_stats = {'digests': 0, 'fixations': 0}
+        wp_by_day = {}
 
     # Общие данные
     days_active_week = activity_stats.get('days_active_this_week', 0)
@@ -1664,11 +1671,15 @@ async def cmd_progress(message: Message):
         days_text += f"   {emoji} День {day_num}: {status_text}{wp_text}\n"
 
     # Лента - получаем темы
-    from engines.feed.engine import FeedEngine
-    feed_engine = FeedEngine(chat_id)
-    feed_status = await feed_engine.get_status()
-    feed_topics = feed_status.get('topics', [])
-    feed_topics_text = ", ".join(feed_topics) if feed_topics else "не выбраны"
+    try:
+        from engines.feed.engine import FeedEngine
+        feed_engine = FeedEngine(chat_id)
+        feed_status = await feed_engine.get_status()
+        feed_topics = feed_status.get('topics', [])
+        feed_topics_text = ", ".join(feed_topics) if feed_topics else "не выбраны"
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса ленты для {chat_id}: {e}")
+        feed_topics_text = "не удалось загрузить"
 
     # Общие РП за неделю
     total_wp_week = marathon_stats.get('work_products', 0)
