@@ -75,12 +75,13 @@ class ClaudeClient:
                 logger.error(f"Claude API exception: {e}")
                 return None
 
-    async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None) -> str:
+    async def generate_content(self, topic: dict, intern: dict, marathon_day: int = 1, mcp_client=None, knowledge_client=None) -> str:
         """Генерирует контент для теоретической темы марафона
 
         Args:
             topic: тема для генерации
             intern: профиль стажера
+            marathon_day: день марафона для ротации примеров (по умолчанию 1)
             mcp_client: клиент MCP для руководств (guides)
             knowledge_client: клиент MCP для базы знаний (knowledge) - приоритет свежим постам
 
@@ -190,7 +191,7 @@ class ClaudeClient:
         }.get(lang, "Пиши на русском языке.")
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
-{get_personalization_prompt(intern)}
+{get_personalization_prompt(intern, marathon_day)}
 
 {lang_instruction}
 
@@ -228,12 +229,13 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
 
-    async def generate_practice_intro(self, topic: dict, intern: dict) -> str:
+    async def generate_practice_intro(self, topic: dict, intern: dict, marathon_day: int = 1) -> str:
         """Генерирует вводный текст для практического задания
 
         Args:
             topic: тема с практическим заданием
             intern: профиль стажера
+            marathon_day: день марафона для персонализации (по умолчанию 1)
 
         Returns:
             Вводный текст или пустая строка при ошибке
@@ -247,7 +249,7 @@ class ClaudeClient:
         }.get(lang, "Пиши на русском языке.")
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
-{get_personalization_prompt(intern)}
+{get_personalization_prompt(intern, marathon_day)}
 
 {lang_instruction}
 
@@ -270,18 +272,20 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or ""
 
-    async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
-        """Генерирует вопрос по теме с учётом уровня сложности и метаданных темы
+    async def generate_question(self, topic: dict, intern: dict, marathon_day: int = 1, bloom_level: int = None) -> str:
+        """Генерирует вопрос по теме с учётом уровня сложности, ротации контекстов и метаданных темы
 
         Использует шаблоны вопросов из метаданных темы (topics/*.yaml) если доступны.
         Учитывает:
         - Сложность 1 (Различения): вопросы "в чём разница"
         - Сложность 2 (Понимание): открытые вопросы
         - Сложность 3 (Применение): анализ, примеры из жизни/работы
+        - Ротация контекстов вопросов по дню марафона
 
         Args:
             topic: тема для вопроса
             intern: профиль стажера
+            marathon_day: день марафона для ротации контекстов (по умолчанию 1)
             bloom_level: уровень сложности (1, 2 или 3)
 
         Returns:
@@ -292,6 +296,19 @@ class ClaudeClient:
         bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
         occupation = intern.get('occupation', '') or 'работа'
         study_duration = intern.get('study_duration', 15)
+        interests = intern.get('interests', [])
+
+        # Выбираем контекст для вопроса по дню (ротация)
+        question_contexts = [
+            f'профессии ("{occupation}")',
+            f'интереса/хобби' + (f' ("{interests[(marathon_day - 1) % len(interests)]}")' if interests else ''),
+            'повседневной жизни',
+            'отношений с людьми',
+            'личного развития',
+            'принятия решений',
+        ]
+        context_idx = (marathon_day - 1) % len(question_contexts)
+        question_context = question_contexts[context_idx]
 
         # Пробуем загрузить метаданные темы
         topic_id = topic.get('id', '')
@@ -337,7 +354,8 @@ class ClaudeClient:
 - Писать что-либо после вопроса
 
 Выдай ТОЛЬКО сам вопрос — 1-3 предложения максимум.
-Вопрос должен быть связан с профессией: "{occupation}".
+
+КОНТЕКСТ ВОПРОСА (День {marathon_day}): {question_context}
 Уровень сложности: {bloom['short_name']} — {bloom['desc']}
 {question_type_hint}
 {templates_hint}
@@ -346,6 +364,7 @@ class ClaudeClient:
 
         user_prompt = f"""Тема: {topic.get('title')}
 Понятие: {topic.get('main_concept')}
+Контекст: {question_context}
 
 Выдай ТОЛЬКО вопрос (1-3 предложения), без введения и пояснений."""
 

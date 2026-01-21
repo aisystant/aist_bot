@@ -14,6 +14,9 @@ from .helpers import (
     get_search_keys,
     get_bloom_questions,
     get_personalization_prompt,
+    get_example_rules,
+    EXAMPLE_TEMPLATES,
+    EXAMPLE_SOURCES,
 )
 
 from .intent import (
@@ -33,6 +36,9 @@ __all__ = [
     'get_search_keys',
     'get_bloom_questions',
     'get_personalization_prompt',
+    'get_example_rules',
+    'EXAMPLE_TEMPLATES',
+    'EXAMPLE_SOURCES',
     # intent
     'IntentType',
     'Intent',
