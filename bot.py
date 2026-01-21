@@ -1711,77 +1711,108 @@ async def cmd_progress(message: Message):
 @router.callback_query(F.data == "progress_full")
 async def show_full_progress(callback: CallbackQuery):
     """Полный отчёт с начала использования бота"""
-    from db.queries.answers import get_total_stats, get_work_products_by_day
+    await callback.answer()  # Сразу отвечаем, чтобы убрать "крутилку" с кнопки
 
-    chat_id = callback.message.chat.id
-    intern = await get_intern(chat_id)
+    try:
+        from db.queries.answers import get_total_stats
 
-    # Получаем полную статистику
-    total_stats = await get_total_stats(chat_id)
+        chat_id = callback.message.chat.id
+        intern = await get_intern(chat_id)
 
-    # Дата регистрации
-    reg_date = total_stats.get('registered_at')
-    if reg_date:
-        date_str = reg_date.strftime('%d.%m.%Y')
-    else:
-        date_str = "—"
+        if not intern:
+            await callback.message.edit_text("Профиль не найден. Используйте /start")
+            return
 
-    days_since = total_stats.get('days_since_start', 1)
-    total_active = total_stats.get('total_active_days', 0)
+        # Получаем полную статистику
+        try:
+            total_stats = await get_total_stats(chat_id)
+        except Exception as e:
+            logger.error(f"Ошибка получения total_stats: {e}")
+            total_stats = {}
 
-    # Марафон
-    done = len(intern['completed_topics'])
-    total = get_total_topics()
-    marathon_day = get_marathon_day(intern)
-    pct = int((done / total) * 100) if total > 0 else 0
-    bar = '█' * (pct // 5) + '░' * (20 - pct // 5)
+        # Дата регистрации
+        reg_date = total_stats.get('registered_at')
+        if reg_date:
+            date_str = reg_date.strftime('%d.%m.%Y')
+        else:
+            date_str = "—"
 
-    # Прогресс по неделям
-    weeks = get_sections_progress(intern['completed_topics'])
-    weeks_text = ""
-    for i, week in enumerate(weeks):
-        w_pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-        w_bar = '█' * (w_pct // 10) + '░' * (10 - w_pct // 10)
-        weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} {w_bar} {week['completed']}/{week['total']}\n"
+        days_since = total_stats.get('days_since_start', 1)
+        total_active = total_stats.get('total_active_days', 0)
 
-    # Лента
-    from engines.feed.engine import FeedEngine
-    feed_engine = FeedEngine(chat_id)
-    feed_status = await feed_engine.get_status()
-    feed_topics = feed_status.get('topics', [])
-    feed_topics_text = ", ".join(feed_topics) if feed_topics else "не выбраны"
+        # Марафон
+        done = len(intern.get('completed_topics', []))
+        total = get_total_topics()
+        marathon_day = get_marathon_day(intern)
+        pct = int((done / total) * 100) if total > 0 else 0
+        bar = '█' * (pct // 5) + '░' * (20 - pct // 5)
 
-    text = f"📊 *Полный отчёт с {date_str}: {intern['name']}*\n\n"
-    text += f"Активных дней: {total_active} из {days_since}\n\n"
+        # Прогресс по неделям
+        weeks = get_sections_progress(intern.get('completed_topics', []))
+        weeks_text = ""
+        for i, week in enumerate(weeks):
+            w_pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
+            w_bar = '█' * (w_pct // 10) + '░' * (10 - w_pct // 10)
+            weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} {w_bar} {week['completed']}/{week['total']}\n"
 
-    # Марафон
-    text += f"🏃 *Марафон*\n"
-    text += f"День {marathon_day} из {MARATHON_DAYS} | {done}/{total} тем\n"
-    text += f"{bar}\n"
-    text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n\n"
-    text += f"{weeks_text}\n"
+        # Лента
+        try:
+            from engines.feed.engine import FeedEngine
+            feed_engine = FeedEngine(chat_id)
+            feed_status = await feed_engine.get_status()
+            feed_topics = feed_status.get('topics', [])
+            feed_topics_text = ", ".join(feed_topics) if feed_topics else "не выбраны"
+        except Exception as e:
+            logger.error(f"Ошибка получения feed_status: {e}")
+            feed_topics_text = "—"
 
-    # Лента
-    text += f"📚 *Лента*\n"
-    text += f"Дайджестов: {total_stats.get('total_digests', 0)}. Фиксаций: {total_stats.get('total_fixations', 0)}\n"
-    text += f"Темы: {feed_topics_text}"
+        name = intern.get('name', 'Пользователь')
+        text = f"📊 *Полный отчёт с {date_str}: {name}*\n\n"
+        text += f"Активных дней: {total_active} из {days_since}\n\n"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="« Назад", callback_data="progress_back")]
-    ])
+        # Марафон
+        text += f"🏃 *Марафон*\n"
+        text += f"День {marathon_day} из {MARATHON_DAYS} | {done}/{total} тем\n"
+        text += f"{bar}\n"
+        text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n\n"
+        text += f"{weeks_text}\n"
 
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-    await callback.answer()
+        # Лента
+        text += f"📚 *Лента*\n"
+        text += f"Дайджестов: {total_stats.get('total_digests', 0)}. Фиксаций: {total_stats.get('total_fixations', 0)}\n"
+        text += f"Темы: {feed_topics_text}"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="progress_back")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_full_progress: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.message.edit_text(
+            "Не удалось загрузить полный отчёт. Попробуйте позже.\n\n/progress — вернуться"
+        )
 
 
 @router.callback_query(F.data == "progress_back")
 async def progress_back(callback: CallbackQuery):
     """Возврат к короткому отчёту"""
-    # Создаём фейковое сообщение для вызова cmd_progress
-    await callback.message.delete()
-    # Отправляем новое сообщение как если бы была команда /progress
-    await cmd_progress(callback.message)
     await callback.answer()
+
+    try:
+        # Удаляем текущее сообщение и отправляем подсказку
+        await callback.message.delete()
+        await callback.message.answer(
+            "Для обновлённого отчёта используйте /progress"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в progress_back: {e}")
+        await callback.message.edit_text(
+            "/progress — посмотреть прогресс"
+        )
 
 
 @router.callback_query(F.data == "go_update")
