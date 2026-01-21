@@ -1342,7 +1342,7 @@ def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
 def kb_submit_work_product() -> InlineKeyboardMarkup:
     """Клавиатура для практического задания"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏭ Пропустить практику", callback_data="skip_practice")]
+        [InlineKeyboardButton(text="⏭ Пропустить задание", callback_data="skip_practice")]
     ])
 
 def kb_language_select() -> InlineKeyboardMarkup:
@@ -1581,7 +1581,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         f"━━━━━━━━━━━━━━━━━━\n\n"
         f"🎉 *Добро пожаловать в марафон, {intern['name']}!*\n\n"
         f"14 дней от случайного ученика к систематическому.\n"
-        f"📅 {MARATHON_DAYS} дней — по 2 темы в день (теория + практика)\n"
+        f"📅 {MARATHON_DAYS} дней — по 2 темы в день (урок + задание)\n"
         f"⏱ {intern['study_duration']} минут на каждую тему\n"
         f"⏰ Напоминания каждый день в {intern['schedule_time']}\n\n"
         f"{start_msg}",
@@ -2352,12 +2352,12 @@ async def on_skip_practice(callback: CallbackQuery, state: FSMContext):
     await update_intern(callback.message.chat.id, current_topic_index=next_index)
 
     topic = get_topic(intern['current_topic_index'])
-    topic_title = topic['title'] if topic else "практика"
+    topic_title = topic['title'] if topic else "задание"
 
-    await callback.answer("Практика пропущена")
+    await callback.answer("Задание пропущено")
     await callback.message.edit_text(
-        f"⏭ *Практика пропущена:* {topic_title}\n\n"
-        f"_Пропущенные практики не засчитываются в прогресс._\n\n"
+        f"⏭ *Задание пропущено:* {topic_title}\n\n"
+        f"_Пропущенные задания не засчитываются в прогресс._\n\n"
         f"/learn — следующая тема\n"
         f"/progress — посмотреть прогресс",
         parse_mode="Markdown"
@@ -2565,7 +2565,7 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
         "📝 *Когда выполните задание:*\n\n"
         "Напишите название своего рабочего продукта.\n\n"
         f"_Например: «{examples[0] if examples else work_product}»_\n\n"
-        "_Проверки нет — просто напишите, что сделали, и практика засчитается._",
+        "_Проверки нет — просто напишите, что сделали, и задание засчитается._",
         parse_mode="Markdown",
         reply_markup=kb_submit_work_product()
     )
@@ -2692,7 +2692,7 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
             chat_id,
             f"⏰ *Напоминание*\n\n"
             f"День {marathon_day} марафона ждёт вас!\n\n"
-            f"Всего 2 темы на сегодня: теория и практика.\n\n"
+            f"Всего 2 темы на сегодня: урок и задание.\n\n"
             f"/learn — начать",
             parse_mode="Markdown"
         )

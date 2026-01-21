@@ -162,8 +162,8 @@ class FeedEngine:
 
         if existing:
             if existing['status'] == 'completed':
-                return existing, "Сегодняшняя сессия уже завершена. До завтра!"
-            return existing, "Продолжаем сессию..."
+                return existing, "Сегодняшний дайджест уже завершён. До завтра!"
+            return existing, "Продолжаем дайджест..."
 
         # Создаём новую сессию
         intern = await self.get_intern()
@@ -240,10 +240,10 @@ class FeedEngine:
         session = await get_feed_session(week['id'], today)
 
         if not session:
-            return False, "Сначала начните сессию на сегодня."
+            return False, "Сначала начните дайджест на сегодня."
 
         if session['status'] == 'completed':
-            return False, "Сегодняшняя сессия уже завершена."
+            return False, "Сегодняшний дайджест уже завершён."
 
         # Сохраняем фиксацию
         await update_feed_session(session['id'], {
