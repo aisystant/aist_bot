@@ -1247,7 +1247,7 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="🎯 " + t('buttons.goals', lang), callback_data="upd_goals")],
         [InlineKeyboardButton(text="⏱ " + t('buttons.duration', lang), callback_data="upd_duration"),
          InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule")],
-        [InlineKeyboardButton(text="🎚 " + t('buttons.settings', lang), callback_data="upd_bloom"),
+        [InlineKeyboardButton(text="🎚 " + t('buttons.difficulty', lang), callback_data="upd_bloom"),
          InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")],
         [InlineKeyboardButton(text="🌐 Language (en, es, ru)", callback_data="upd_language")],
         [InlineKeyboardButton(text="❌ " + t('buttons.cancel', lang), callback_data="upd_cancel")]
@@ -1744,10 +1744,11 @@ async def cmd_update(message: Message, state: FSMContext):
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_name")
 async def on_upd_name(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     await callback.answer()
     await callback.message.edit_text(
-        f"👤 *Ваше имя:* {intern['name']}\n\n"
-        "Как вас зовут?",
+        f"👤 *{t('update.your_name', lang)}:* {intern['name']}\n\n"
+        f"{t('update.whats_your_name', lang)}",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_name)
@@ -1755,10 +1756,11 @@ async def on_upd_name(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_occupation")
 async def on_upd_occupation(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     await callback.answer()
     await callback.message.edit_text(
-        f"💼 *Ваше занятие:* {intern.get('occupation', '') or 'не указано'}\n\n"
-        "Чем вы занимаетесь?",
+        f"💼 *{t('update.your_occupation', lang)}:* {intern.get('occupation', '') or t('profile.not_specified', lang)}\n\n"
+        f"{t('update.whats_your_occupation', lang)}",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_occupation)
@@ -1766,12 +1768,12 @@ async def on_upd_occupation(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_interests")
 async def on_upd_interests(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else 'не указаны'
+    lang = intern.get('language', 'ru')
+    interests_str = ', '.join(intern['interests']) if intern['interests'] else t('profile.not_specified', lang)
     await callback.answer()
     await callback.message.edit_text(
-        f"🎨 *Ваши интересы:* {interests_str}\n\n"
-        "_Например: технологии, космос, кулинария, спорт, музыка, путешествия_\n\n"
-        "Расскажите о своих интересах и хобби:",
+        f"🎨 *{t('update.your_interests', lang)}:* {interests_str}\n\n"
+        f"{t('update.what_interests', lang)}",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_interests)
@@ -1790,10 +1792,11 @@ async def on_upd_motivation(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_goals")
 async def on_upd_goals(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     await callback.answer()
     await callback.message.edit_text(
-        f"🎯 *Что хотите изменить:*\n{intern['goals'] or 'не указано'}\n\n"
-        "Что хотите изменить в своей жизни или работе?",
+        f"🎯 *{t('update.your_goals', lang)}:*\n{intern['goals'] or t('profile.not_specified', lang)}\n\n"
+        f"{t('update.what_goals', lang)}",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_goals)
@@ -1801,25 +1804,25 @@ async def on_upd_goals(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_duration")
 async def on_upd_duration(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
     await callback.answer()
     await callback.message.edit_text(
-        f"⏱ *Текущее время:* {duration.get('emoji', '')} {duration.get('name', '')}\n\n"
-        "Сколько минут готовы уделять изучению одной темы?",
+        f"⏱ *{t('update.current_time', lang)}:* {duration.get('emoji', '')} {duration.get('name', '')}\n\n"
+        f"{t('update.how_many_minutes', lang)}",
         parse_mode="Markdown",
-        reply_markup=kb_study_duration()
+        reply_markup=kb_study_duration(lang)
     )
     await state.set_state(UpdateStates.updating_duration)
 
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_schedule")
 async def on_upd_schedule(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     await callback.answer()
     await callback.message.edit_text(
-        f"⏰ *Текущее время напоминания:* {intern['schedule_time']}\n\n"
-        "Во сколько напоминать о новой теме?\n"
-        "_Напишите время в формате ЧЧ:ММ (например: 09:00)_\n"
-        "_Часовой пояс: UTC+3 (Москва)_",
+        f"⏰ *{t('update.current_schedule', lang)}:* {intern['schedule_time']}\n\n"
+        f"{t('update.when_remind', lang)}",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_schedule)
@@ -1827,13 +1830,13 @@ async def on_upd_schedule(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(UpdateStates.choosing_field, F.data == "upd_bloom")
 async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
     await callback.answer()
     await callback.message.edit_text(
-        f"🎚 *Текущий уровень сложности:* {bloom['emoji']} {bloom['short_name']} «{bloom['name']}»\n"
+        f"🎚 *{t('update.current_difficulty', lang)}:* {bloom['emoji']} {bloom['short_name']} «{bloom['name']}»\n"
         f"_{bloom['desc']}_\n\n"
-        f"Пройдено тем на этом уровне: {intern['topics_at_current_bloom']}/{BLOOM_AUTO_UPGRADE_AFTER}\n\n"
-        "Выберите новый уровень сложности вопросов:",
+        f"{t('update.select_difficulty', lang)}",
         parse_mode="Markdown",
         reply_markup=kb_bloom_level()
     )
@@ -1983,69 +1986,77 @@ async def on_save_goals(message: Message, state: FSMContext):
 
 @router.message(UpdateStates.updating_name)
 async def on_save_name(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru')
     await update_intern(message.chat.id, name=message.text.strip())
     await message.answer(
-        f"✅ Имя изменено на *{message.text.strip()}*!\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то",
+        f"✅ {t('update.name_changed', lang)}: *{message.text.strip()}*\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.update', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
 
 @router.message(UpdateStates.updating_occupation)
 async def on_save_occupation(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru')
     await update_intern(message.chat.id, occupation=message.text.strip())
     await message.answer(
-        "✅ Занятие обновлено!\n\n"
-        "Теперь примеры будут из вашей области.\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то"
+        f"✅ {t('update.occupation_changed', lang)}!\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.update', lang)}"
     )
     await state.clear()
 
 @router.message(UpdateStates.updating_interests)
 async def on_save_interests(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru')
     interests = [i.strip() for i in message.text.replace(',', ';').split(';') if i.strip()]
     await update_intern(message.chat.id, interests=interests)
     await message.answer(
-        "✅ Интересы обновлены!\n\n"
-        "Теперь примеры будут ближе к вашим хобби.\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то"
+        f"✅ {t('update.interests_changed', lang)}!\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.update', lang)}"
     )
     await state.clear()
 
 @router.callback_query(UpdateStates.updating_duration, F.data.startswith("duration_"))
 async def on_save_duration(callback: CallbackQuery, state: FSMContext):
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
     duration = int(callback.data.replace("duration_", ""))
     await update_intern(callback.message.chat.id, study_duration=duration)
     duration_info = STUDY_DURATIONS.get(str(duration), {})
-    await callback.answer("Сохранено!")
+    await callback.answer(t('update.saved', lang))
     await callback.message.edit_text(
-        f"✅ Время на тему изменено: {duration_info.get('emoji', '')} *{duration_info.get('name', '')}*\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то",
+        f"✅ {t('update.duration_changed', lang)}: {duration_info.get('emoji', '')} *{duration_info.get('name', '')}*\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.update', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
 
 @router.message(UpdateStates.updating_schedule)
 async def on_save_schedule(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru')
     try:
         h, m = map(int, message.text.strip().split(":"))
         if not (0 <= h <= 23 and 0 <= m <= 59):
             raise ValueError
     except:
-        await message.answer("Формат: ЧЧ:ММ (например 09:00)")
+        await message.answer(t('errors.try_again', lang) + " (HH:MM)")
         return
 
     # Нормализуем формат времени (с ведущими нулями)
     normalized_time = f"{h:02d}:{m:02d}"
     await update_intern(message.chat.id, schedule_time=normalized_time)
     await message.answer(
-        f"✅ Время напоминания изменено на *{normalized_time}*!\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то",
+        f"✅ {t('update.schedule_changed', lang)}: *{normalized_time}*\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.update', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()

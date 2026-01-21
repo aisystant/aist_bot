@@ -72,7 +72,7 @@ TRANSLATIONS = {
         'buttons.goals': 'Цели',
         'buttons.duration': 'Время',
         'buttons.schedule': 'Расписание',
-        'buttons.settings': 'Настройки',
+        'buttons.difficulty': 'Сложность',
         'buttons.bot_mode': 'Режим бота',
 
         # Настройки
@@ -94,6 +94,30 @@ TRANSLATIONS = {
         'profile.reminder_at': 'Напоминание в',
         'profile.not_specified': 'не указано',
         'profile.first_start': 'Сначала /start',
+
+        # Обновление профиля
+        'update.your_name': 'Ваше имя',
+        'update.whats_your_name': 'Как вас зовут?',
+        'update.your_occupation': 'Ваше занятие',
+        'update.whats_your_occupation': 'Чем вы занимаетесь?',
+        'update.your_interests': 'Ваши интересы',
+        'update.what_interests': 'Какие у вас интересы?',
+        'update.your_goals': 'Ваши цели',
+        'update.what_goals': 'Что хотите изменить в жизни?',
+        'update.current_time': 'Текущее время',
+        'update.how_many_minutes': 'Сколько минут готовы уделять изучению одной темы?',
+        'update.current_schedule': 'Текущее расписание',
+        'update.when_remind': 'Во сколько напоминать о новой теме? (ЧЧ:ММ)',
+        'update.current_difficulty': 'Текущий уровень сложности',
+        'update.select_difficulty': 'Выберите уровень сложности:',
+        'update.saved': 'Сохранено!',
+        'update.name_changed': 'Имя изменено',
+        'update.occupation_changed': 'Занятие изменено',
+        'update.interests_changed': 'Интересы обновлены',
+        'update.goals_changed': 'Цели обновлены',
+        'update.duration_changed': 'Время на тему изменено',
+        'update.schedule_changed': 'Расписание изменено',
+        'update.difficulty_changed': 'Сложность изменена',
 
         # Справка
         'help.title': 'Основные команды',
@@ -171,7 +195,7 @@ TRANSLATIONS = {
         'buttons.goals': 'Goals',
         'buttons.duration': 'Duration',
         'buttons.schedule': 'Schedule',
-        'buttons.settings': 'Settings',
+        'buttons.difficulty': 'Difficulty',
         'buttons.bot_mode': 'Bot mode',
 
         # Settings
@@ -193,6 +217,30 @@ TRANSLATIONS = {
         'profile.reminder_at': 'Reminder at',
         'profile.not_specified': 'not specified',
         'profile.first_start': 'First run /start',
+
+        # Update profile
+        'update.your_name': 'Your name',
+        'update.whats_your_name': "What's your name?",
+        'update.your_occupation': 'Your occupation',
+        'update.whats_your_occupation': 'What do you do?',
+        'update.your_interests': 'Your interests',
+        'update.what_interests': 'What are your interests?',
+        'update.your_goals': 'Your goals',
+        'update.what_goals': 'What do you want to change in your life?',
+        'update.current_time': 'Current duration',
+        'update.how_many_minutes': 'How many minutes per topic?',
+        'update.current_schedule': 'Current schedule',
+        'update.when_remind': 'When should I remind you? (HH:MM)',
+        'update.current_difficulty': 'Current difficulty level',
+        'update.select_difficulty': 'Select difficulty level:',
+        'update.saved': 'Saved!',
+        'update.name_changed': 'Name changed',
+        'update.occupation_changed': 'Occupation changed',
+        'update.interests_changed': 'Interests updated',
+        'update.goals_changed': 'Goals updated',
+        'update.duration_changed': 'Duration changed',
+        'update.schedule_changed': 'Schedule changed',
+        'update.difficulty_changed': 'Difficulty changed',
 
         # Help
         'help.title': 'Main commands',
@@ -270,7 +318,7 @@ TRANSLATIONS = {
         'buttons.goals': 'Metas',
         'buttons.duration': 'Duración',
         'buttons.schedule': 'Horario',
-        'buttons.settings': 'Ajustes',
+        'buttons.difficulty': 'Dificultad',
         'buttons.bot_mode': 'Modo bot',
 
         # Ajustes
@@ -292,6 +340,30 @@ TRANSLATIONS = {
         'profile.reminder_at': 'Recordatorio a las',
         'profile.not_specified': 'no especificado',
         'profile.first_start': 'Primero /start',
+
+        # Actualización de perfil
+        'update.your_name': 'Tu nombre',
+        'update.whats_your_name': '¿Cómo te llamas?',
+        'update.your_occupation': 'Tu ocupación',
+        'update.whats_your_occupation': '¿A qué te dedicas?',
+        'update.your_interests': 'Tus intereses',
+        'update.what_interests': '¿Cuáles son tus intereses?',
+        'update.your_goals': 'Tus metas',
+        'update.what_goals': '¿Qué quieres cambiar en tu vida?',
+        'update.current_time': 'Duración actual',
+        'update.how_many_minutes': '¿Cuántos minutos por tema?',
+        'update.current_schedule': 'Horario actual',
+        'update.when_remind': '¿Cuándo recordarte? (HH:MM)',
+        'update.current_difficulty': 'Nivel de dificultad actual',
+        'update.select_difficulty': 'Selecciona nivel de dificultad:',
+        'update.saved': '¡Guardado!',
+        'update.name_changed': 'Nombre cambiado',
+        'update.occupation_changed': 'Ocupación cambiada',
+        'update.interests_changed': 'Intereses actualizados',
+        'update.goals_changed': 'Metas actualizadas',
+        'update.duration_changed': 'Duración cambiada',
+        'update.schedule_changed': 'Horario cambiado',
+        'update.difficulty_changed': 'Dificultad cambiada',
 
         # Ayuda
         'help.title': 'Comandos principales',
