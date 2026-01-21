@@ -2319,30 +2319,40 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     topic_index = data.get('topic_index', 0)
+    next_command = data.get('next_command')
 
     intern = await get_intern(callback.message.chat.id)
     topic = get_topic(topic_index)
+    lang = intern.get('language', 'ru') if intern else 'ru'
 
     if not topic:
-        await callback.message.edit_text("Не удалось найти тему. /learn для продолжения")
+        await callback.message.edit_text(f"Не удалось найти тему.\n\n{next_command or t('marathon.next_command', lang)}")
         await state.clear()
         return
 
-    lang = intern.get('language', 'ru')
     await callback.message.edit_text(f"⏳ {t('marathon.generating_harder', lang)}")
 
-    # Генерируем вопрос следующего уровня
-    marathon_day = get_marathon_day(intern)
-    next_level = min(intern['bloom_level'] + 1, 3)
-    question = await claude.generate_question(topic, intern, marathon_day=marathon_day, bloom_level=next_level)
+    try:
+        # Генерируем вопрос следующего уровня
+        marathon_day = get_marathon_day(intern)
+        next_level = min(intern['bloom_level'] + 1, 3)
+        question = await claude.generate_question(topic, intern, marathon_day=marathon_day, bloom_level=next_level)
 
-    await callback.message.answer(
-        f"🚀 *{t('marathon.bonus_question', lang)}* ({t(f'bloom.level_{next_level}_short', lang)})\n\n"
-        f"{question}\n\n"
-        f"{t('marathon.write_answer', lang)}",
-        parse_mode="Markdown"
-    )
-    await state.set_state(LearningStates.waiting_for_bonus_answer)
+        await callback.message.answer(
+            f"🚀 *{t('marathon.bonus_question', lang)}* ({t(f'bloom.level_{next_level}_short', lang)})\n\n"
+            f"{question}\n\n"
+            f"{t('marathon.write_answer', lang)}",
+            parse_mode="Markdown"
+        )
+        await state.set_state(LearningStates.waiting_for_bonus_answer)
+    except Exception as e:
+        logger.error(f"Ошибка генерации бонусного вопроса: {e}")
+        # Если не удалось сгенерировать вопрос — предлагаем продолжить
+        await callback.message.answer(
+            f"Не удалось сгенерировать бонусный вопрос. Попробуйте позже.\n\n"
+            f"{next_command or t('marathon.next_command', lang)}"
+        )
+        await state.clear()
 
 @router.callback_query(F.data == "bonus_no")
 async def on_bonus_no(callback: CallbackQuery, state: FSMContext):
@@ -2368,34 +2378,42 @@ async def on_bonus_answer(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
     data = await state.get_data()
     topic_index = data.get('topic_index', 0)
+    lang = intern.get('language', 'ru') if intern else 'ru'
 
-    # Сохраняем ответ на бонусный вопрос
-    await save_answer(message.chat.id, topic_index, f"[BONUS] {message.text.strip()}")
+    try:
+        # Сохраняем ответ на бонусный вопрос
+        await save_answer(message.chat.id, topic_index, f"[BONUS] {message.text.strip()}")
 
-    lang = intern.get('language', 'ru')
-    bloom_level = intern['bloom_level']
+        bloom_level = intern['bloom_level'] if intern else 1
 
-    # Получаем информацию о следующей доступной теме
-    next_available = get_available_topics(intern)
-    next_topic_hint = ""
-    next_command = data.get('next_command', t('marathon.next_command', lang))
-    if next_available:
-        next_topic = next_available[0][1]  # (index, topic) -> topic
-        # Определяем тип следующей темы
-        if next_topic.get('type') == 'practice':
-            next_topic_hint = f"\n\n📝 *{t('marathon.next_task', lang)}:* {next_topic['title']}"
-            next_command = t('marathon.continue_to_task', lang)
-        else:
-            next_topic_hint = f"\n\n📚 *{t('marathon.next_lesson', lang)}:* {next_topic['title']}"
-            next_command = t('marathon.continue_to_lesson', lang)
+        # Получаем информацию о следующей доступной теме
+        next_available = get_available_topics(intern) if intern else []
+        next_topic_hint = ""
+        next_command = data.get('next_command', t('marathon.next_command', lang))
+        if next_available:
+            next_topic = next_available[0][1]  # (index, topic) -> topic
+            # Определяем тип следующей темы
+            if next_topic.get('type') == 'practice':
+                next_topic_hint = f"\n\n📝 *{t('marathon.next_task', lang)}:* {next_topic['title']}"
+                next_command = t('marathon.continue_to_task', lang)
+            else:
+                next_topic_hint = f"\n\n📚 *{t('marathon.next_lesson', lang)}:* {next_topic['title']}"
+                next_command = t('marathon.continue_to_lesson', lang)
 
-    await message.answer(
-        f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
-        f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{bloom_level}_short', lang)}* {t('marathon.and_higher', lang)}{next_topic_hint}\n\n"
-        f"{next_command}",
-        parse_mode="Markdown"
-    )
-    await state.clear()
+        await message.answer(
+            f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
+            f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{bloom_level}_short', lang)}* {t('marathon.and_higher', lang)}{next_topic_hint}\n\n"
+            f"{next_command}",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка обработки бонусного ответа: {e}")
+        next_command = data.get('next_command', t('marathon.next_command', lang))
+        await message.answer(
+            f"✅ Ответ принят!\n\n{next_command}"
+        )
+    finally:
+        await state.clear()
 
 @router.callback_query(LearningStates.waiting_for_answer, F.data == "skip_topic")
 async def on_skip_topic(callback: CallbackQuery, state: FSMContext):
