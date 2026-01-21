@@ -11,6 +11,7 @@
 
 import re
 import hashlib
+import asyncio
 from typing import Optional, List, Tuple, Dict, Set
 from dataclasses import dataclass, field
 
@@ -438,20 +439,26 @@ class EnhancedRetrieval:
         all_results: List[RetrievalResult] = []
         tried_queries = []
 
-        for search_query in expanded_queries:
-            results = await self._search_both_sources(search_query)
-            all_results.extend(results)
-            tried_queries.append(search_query)
+        # Выполняем поиск по ВСЕМ expanded queries ПАРАЛЛЕЛЬНО
+        search_tasks = [self._search_both_sources(q) for q in expanded_queries]
+        search_results = await asyncio.gather(*search_tasks)
 
-        # 4. Fallback если мало результатов
-        if len(all_results) < 3 and self.config.enable_fallback:
-            logger.info("EnhancedRetrieval: мало результатов, пробуем fallback")
+        for results in search_results:
+            all_results.extend(results)
+        tried_queries.extend(expanded_queries)
+
+        # 4. Fallback только если совсем мало результатов (не 3, а 1)
+        if len(all_results) < 2 and self.config.enable_fallback:
+            logger.info("EnhancedRetrieval: очень мало результатов, пробуем fallback")
             fallback_queries = self.fallback.generate_fallback_queries(
                 base_query, tried_queries
-            )
-            for fb_query in fallback_queries:
-                results = await self._search_both_sources(fb_query)
-                all_results.extend(results)
+            )[:2]  # Максимум 2 fallback запроса
+            if fallback_queries:
+                fallback_results = await asyncio.gather(
+                    *[self._search_both_sources(q) for q in fallback_queries]
+                )
+                for results in fallback_results:
+                    all_results.extend(results)
 
         # 5. Scoring
         all_results = self.scorer.rank_results(all_results, base_query, keywords)
@@ -479,32 +486,46 @@ class EnhancedRetrieval:
         return context, sources
 
     async def _search_both_sources(self, query: str) -> List[RetrievalResult]:
-        """Ищет в обоих MCP источниках"""
+        """Ищет в обоих MCP источниках ПАРАЛЛЕЛЬНО"""
         results = []
 
-        # MCP-Guides
-        try:
-            guides_results = await mcp_guides.semantic_search(
-                query, lang="ru", limit=self.config.guides_limit
-            )
-            for item in (guides_results or []):
-                result = self._parse_result(item, "guides")
-                if result:
-                    results.append(result)
-        except Exception as e:
-            logger.error(f"MCP-Guides error: {e}")
+        async def search_guides():
+            """Поиск в MCP-Guides"""
+            try:
+                return await mcp_guides.semantic_search(
+                    query, lang="ru", limit=self.config.guides_limit
+                )
+            except Exception as e:
+                logger.error(f"MCP-Guides error: {e}")
+                return []
 
-        # MCP-Knowledge
-        try:
-            knowledge_results = await mcp_knowledge.search(
-                query, limit=self.config.knowledge_limit
-            )
-            for item in (knowledge_results or []):
-                result = self._parse_result(item, "knowledge")
-                if result:
-                    results.append(result)
-        except Exception as e:
-            logger.error(f"MCP-Knowledge error: {e}")
+        async def search_knowledge():
+            """Поиск в MCP-Knowledge"""
+            try:
+                return await mcp_knowledge.search(
+                    query, limit=self.config.knowledge_limit
+                )
+            except Exception as e:
+                logger.error(f"MCP-Knowledge error: {e}")
+                return []
+
+        # Выполняем оба запроса ПАРАЛЛЕЛЬНО
+        guides_results, knowledge_results = await asyncio.gather(
+            search_guides(),
+            search_knowledge()
+        )
+
+        # Парсим результаты Guides
+        for item in (guides_results or []):
+            result = self._parse_result(item, "guides")
+            if result:
+                results.append(result)
+
+        # Парсим результаты Knowledge
+        for item in (knowledge_results or []):
+            result = self._parse_result(item, "knowledge")
+            if result:
+                results.append(result)
 
         return results
 
@@ -512,12 +533,37 @@ class EnhancedRetrieval:
         """Парсит результат из MCP в RetrievalResult"""
         if isinstance(item, str):
             text = item
-            source = "Unknown"
+            source = "Материалы Aisystant"  # Дефолтное имя вместо Unknown
             date = None
         elif isinstance(item, dict):
+            # Логируем ключи для отладки (только первый раз)
+            if not hasattr(self, '_logged_keys'):
+                self._logged_keys = set()
+            item_keys = frozenset(item.keys())
+            if item_keys not in self._logged_keys:
+                logger.debug(f"MCP {source_type} item keys: {list(item.keys())}")
+                self._logged_keys.add(item_keys)
+
+            # Извлекаем текст
             text = item.get('text', item.get('content', item.get('snippet', '')))
-            source = item.get('source', item.get('guide', item.get('title', 'Unknown')))
-            date = item.get('created_at', item.get('date'))
+
+            # Извлекаем источник — пробуем разные ключи
+            source = (
+                item.get('source') or
+                item.get('guide') or
+                item.get('guide_title') or
+                item.get('guide_slug') or
+                item.get('section') or
+                item.get('section_title') or
+                item.get('title') or
+                item.get('name') or
+                item.get('url') or
+                # Если ничего не найдено — берём первые слова текста
+                (text[:50].split('.')[0] if text else None) or
+                "Материалы Aisystant"
+            )
+
+            date = item.get('created_at', item.get('date', item.get('published_at')))
         else:
             return None
 
