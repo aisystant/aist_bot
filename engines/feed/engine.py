@@ -111,7 +111,7 @@ class FeedEngine:
         return topics, "Выберите темы для изучения на этой неделе:"
 
     async def accept_topics(self, accepted_titles: List[str]) -> Tuple[bool, str]:
-        """Принимает выбранные пользователем темы
+        """Принимает выбранные пользователем темы (максимум 3)
 
         Args:
             accepted_titles: список названий выбранных тем
@@ -125,6 +125,9 @@ class FeedEngine:
 
         if week['status'] != FeedWeekStatus.PLANNING:
             return False, "Темы на эту неделю уже выбраны."
+
+        # Ограничиваем до 3 тем
+        accepted_titles = accepted_titles[:3]
 
         # Обновляем неделю
         await update_feed_week(week['id'], {

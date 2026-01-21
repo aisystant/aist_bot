@@ -174,6 +174,7 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
             text += f"   _{topic.get('why', '')}_\n\n"
 
         text += "—\n"
+        text += "*Выберите до 3 тем:*\n"
         text += f"{t('feed.select_hint', lang)}\n"
         text += f"_{t('feed.select_example', lang)}_"
 
@@ -203,7 +204,7 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
 
 @feed_router.callback_query(F.data.startswith("feed_topic_"))
 async def toggle_topic(callback: CallbackQuery, state: FSMContext):
-    """Переключает выбор темы"""
+    """Переключает выбор темы (максимум 3)"""
     data = await state.get_data()
     topics = data.get('suggested_topics', [])
     selected = data.get('selected_indices', set())
@@ -215,6 +216,10 @@ async def toggle_topic(callback: CallbackQuery, state: FSMContext):
     if index in selected:
         selected.discard(index)
     else:
+        # Проверяем лимит 3 темы
+        if len(selected) >= 3:
+            await callback.answer("Максимум 3 темы. Снимите выбор с другой темы.", show_alert=True)
+            return
         selected.add(index)
 
     await state.update_data(selected_indices=selected)
@@ -315,6 +320,11 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
         # Собираем выбранные темы
         selected_titles = [topics[i]['title'] for i in sorted(selected_indices)]
         selected_titles.extend(custom_topics)
+
+        # Ограничиваем до 3 тем
+        if len(selected_titles) > 3:
+            selected_titles = selected_titles[:3]
+            await message.answer("_Оставлены первые 3 темы_", parse_mode="Markdown")
 
         # Принимаем темы
         engine = FeedEngine(chat_id)
@@ -872,8 +882,10 @@ async def receive_fixation(message: Message, state: FSMContext):
         )
         await message.answer(stat_text, parse_mode="Markdown")
 
-        # Показываем темы на завтра, если неделя не завершена
-        await show_tomorrow_topics(message, engine, state)
+        await state.clear()
+
+        # Показываем меню Ленты
+        await show_feed_menu(message, engine, state)
     else:
         await message.answer(f"❌ {msg}")
         await state.clear()
