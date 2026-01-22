@@ -69,13 +69,11 @@ class BotTestClient:
         api_hash: str = None,
         session_name: str = "test_session",
         bot_username: str = None,
-        loop: asyncio.AbstractEventLoop = None,
     ):
         self.api_id = api_id or int(os.getenv("TEST_API_ID", "0"))
         self.api_hash = api_hash or os.getenv("TEST_API_HASH", "")
         self.session_name = session_name
         self.bot_username = bot_username or os.getenv("TEST_BOT_USERNAME", "")
-        self.loop = loop
 
         self.client: Optional[TelegramClient] = None
         self.bot_entity = None
@@ -86,7 +84,6 @@ class BotTestClient:
             self.session_name,
             self.api_id,
             self.api_hash,
-            loop=self.loop,  # Передаём event loop для консистентности
         )
         await self.client.start()
 
@@ -127,7 +124,7 @@ class BotTestClient:
             Список BotResponse
         """
         responses = []
-        loop = self.loop or asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
         start_time = loop.time()
 
         while len(responses) < count:
