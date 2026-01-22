@@ -5,7 +5,7 @@
 ## Структура
 
 ```
-tests/scenario_compliance/
+tests/test-repo/
 ├── README.md                 # Этот файл
 ├── requirements.yaml         # ТЗ: маппинг сценариев → код
 ├── scripts/                  # Скрипты проверки
@@ -21,13 +21,13 @@ tests/scenario_compliance/
 
 ```bash
 # Из корня проекта
-python -m tests.scenario_compliance.scripts.checker
+python -m tests.test_repo.scripts.checker
 
 # С подробным выводом
-python -m tests.scenario_compliance.scripts.checker -v
+python -m tests.test_repo.scripts.checker -v
 
 # JSON вывод (для CI/CD)
-python -m tests.scenario_compliance.scripts.checker --json
+python -m tests.test_repo.scripts.checker --json
 ```
 
 ## Цветовая индикация
@@ -109,7 +109,7 @@ on:
 crontab -e
 
 # Добавить строку (06:00 ежедневно)
-0 6 * * * cd /path/to/aist_track_bot && python -m tests.scenario_compliance.scripts.checker
+0 6 * * * cd /path/to/aist_track_bot && python -m tests.test_repo.scripts.checker
 ```
 
 ## Добавление новых проверок
@@ -132,7 +132,7 @@ crontab -e
 4. Запустить проверку для валидации:
 
 ```bash
-python -m tests.scenario_compliance.scripts.checker -v
+python -m tests.test_repo.scripts.checker -v
 ```
 
 ## Интерпретация результатов

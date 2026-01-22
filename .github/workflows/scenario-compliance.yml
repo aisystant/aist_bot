@@ -28,7 +28,7 @@ jobs:
       - name: Run scenario compliance check
         id: check
         run: |
-          python -m tests.scenario_compliance.scripts.checker --json > result.json
+          python -m tests.test_repo.scripts.checker --json > result.json
           cat result.json
 
           # Извлекаем данные для использования в следующих шагах
@@ -43,13 +43,13 @@ jobs:
 
       - name: Generate report file
         run: |
-          python -m tests.scenario_compliance.scripts.checker
+          python -m tests.test_repo.scripts.checker
 
       - name: Upload report as artifact
         uses: actions/upload-artifact@v4
         with:
           name: scenario-compliance-report
-          path: tests/scenario_compliance/reports/*.md
+          path: tests/test-repo/reports/*.md
           retention-days: 90
 
       - name: Commit report to repository
@@ -57,7 +57,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          git add tests/scenario_compliance/reports/*.md
+          git add tests/test-repo/reports/*.md
 
           if git diff --staged --quiet; then
             echo "No changes to commit"

@@ -3,10 +3,10 @@
 Основной скрипт проверки соответствия кода сценариям.
 
 Использование:
-    python -m tests.scenario_compliance.scripts.checker
+    python -m tests.test_repo.scripts.checker
 
     # или напрямую
-    python tests/scenario_compliance/scripts/checker.py
+    python tests/test-repo/scripts/checker.py
 
 Опции:
     --output, -o    Путь для сохранения отчёта (по умолчанию: reports/<дата>-тест-сценариев.md)
@@ -122,7 +122,7 @@ def main():
     if args.project_root:
         project_root = Path(args.project_root)
     else:
-        project_root = scenario_dir.parent.parent  # tests/scenario_compliance -> aist_track_bot
+        project_root = scenario_dir.parent.parent  # tests/test-repo -> aist_track_bot
 
     requirements_path = scenario_dir / 'requirements.yaml'
     reports_dir = scenario_dir / 'reports'
