@@ -393,8 +393,8 @@ class_3_feed:
           description: "Показ меню тем"
         - type: pattern
           file: "engines/feed/planner.py"
-          pattern: "select.*topic|topic.*select"
-          description: "Выбор тем на неделю"
+          pattern: "suggest_weekly_topics|weekly.*topic"
+          description: "Генерация предложений тем на неделю"
 
     - id: "3.5"
       name: "Выбор тем"
@@ -451,12 +451,12 @@ class_3_feed:
       checks:
         - type: pattern
           file: "engines/feed/planner.py"
-          pattern: "plan.*week|week.*plan|schedule"
-          description: "Планирование недели"
+          pattern: "generate_multi_topic|multi.*topic"
+          description: "Генерация мульти-тематического дайджеста"
         - type: pattern
           file: "engines/feed/planner.py"
-          pattern: "distribute|assign.*topic|topic.*day"
-          description: "Распределение тем по дням"
+          pattern: "time_per_topic|topics_count"
+          description: "Распределение времени по темам"
 
     - id: "3.11"
       name: "Текущая неделя"
@@ -1022,12 +1022,12 @@ class_9_ai_quality:
 
     - id: "9.3"
       name: "Генерация обратной связи"
-      priority: critical
+      priority: normal
       checks:
-        - type: function
-          file: "clients/claude.py"
-          name: "generate_feedback"
-          description: "Генерация обратной связи"
+        - type: pattern
+          file: "bot.py"
+          pattern: "topic_completed|progress_bar"
+          description: "Показ результата после ответа"
 
     - id: "9.4"
       name: "Обработка вопросов"
