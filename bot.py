@@ -360,6 +360,10 @@ async def init_db():
             )
         ''')
 
+        # Миграции для таблицы answers
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS answer_type TEXT DEFAULT 'theory_answer'")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'marathon'")
+
         # FSM состояния (персистентное хранилище)
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS fsm_states (
