@@ -29,7 +29,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.storage.base import StorageKey
+from aiogram.fsm.storage.base import BaseStorage, StorageKey, StateType
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
@@ -340,6 +340,16 @@ async def init_db():
             )
         ''')
 
+        # FSM состояния (персистентное хранилище)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS fsm_states (
+                chat_id BIGINT PRIMARY KEY,
+                state TEXT,
+                data TEXT DEFAULT '{}',
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
         # Лента: недельные планы
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS feed_weeks (
@@ -387,6 +397,53 @@ async def init_db():
         ''')
 
     logger.info("✅ База данных инициализирована")
+
+
+class PostgresStorage(BaseStorage):
+    """Персистентное хранилище FSM состояний в PostgreSQL"""
+
+    async def set_state(self, key: StorageKey, state: StateType = None) -> None:
+        """Установить состояние"""
+        state_str = state.state if state else None
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO fsm_states (chat_id, state, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (chat_id) DO UPDATE SET state = $2, updated_at = NOW()
+            ''', key.chat_id, state_str)
+
+    async def get_state(self, key: StorageKey) -> Optional[str]:
+        """Получить состояние"""
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
+            )
+            return row['state'] if row else None
+
+    async def set_data(self, key: StorageKey, data: dict) -> None:
+        """Установить данные состояния"""
+        data_str = json.dumps(data, ensure_ascii=False)
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO fsm_states (chat_id, data, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (chat_id) DO UPDATE SET data = $2, updated_at = NOW()
+            ''', key.chat_id, data_str)
+
+    async def get_data(self, key: StorageKey) -> dict:
+        """Получить данные состояния"""
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT data FROM fsm_states WHERE chat_id = $1', key.chat_id
+            )
+            if row and row['data']:
+                return json.loads(row['data'])
+            return {}
+
+    async def close(self) -> None:
+        """Закрыть соединение (не требуется, используем общий пул)"""
+        pass
+
 
 async def get_intern(chat_id: int) -> dict:
     """Получить профиль стажера из БД"""
@@ -1233,6 +1290,31 @@ def get_next_topic_index(intern: dict) -> Optional[int]:
 
     # Возвращаем первую доступную тему (они уже отсортированы по дню и типу)
     return available[0][0]
+
+
+def get_practice_for_day(intern: dict, day: int) -> Optional[tuple]:
+    """Получить незавершённую практику для указанного дня
+
+    Returns:
+        (index, topic) если есть незавершённая практика, иначе None
+    """
+    completed = set(intern.get('completed_topics', []))
+
+    for i, topic in enumerate(TOPICS):
+        if topic['day'] == day and topic.get('type') == 'practice':
+            if i not in completed:
+                return (i, topic)
+    return None
+
+
+def has_pending_practice(intern: dict) -> Optional[tuple]:
+    """Проверить, есть ли незавершённая практика для текущего дня
+
+    Returns:
+        (index, topic) если есть, иначе None
+    """
+    marathon_day = get_marathon_day(intern)
+    return get_practice_for_day(intern, marathon_day)
 
 # ============= КЛАВИАТУРЫ =============
 
@@ -2284,8 +2366,9 @@ async def on_save_schedule(message: Message, state: FSMContext):
     await state.clear()
 
 @router.message(LearningStates.waiting_for_answer)
-async def on_answer(message: Message, state: FSMContext):
-    intern = await get_intern(message.chat.id)
+async def on_answer(message: Message, state: FSMContext, bot: Bot):
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
 
     if len(message.text.strip()) < 20:
         await message.answer("Напишите подробнее (хотя бы 2-3 предложения)")
@@ -2365,14 +2448,32 @@ async def on_answer(message: Message, state: FSMContext):
         )
         # Не очищаем state — ждём выбора
     else:
-        await message.answer(
-            f"✅ *{t('marathon.topic_completed', lang)}*\n\n"
-            f"{progress_bar(done, total)}\n"
-            f"{t(f'bloom.level_{bloom_level}_short', lang)}{upgrade_msg}{next_topic_hint}\n\n"
-            f"{next_command}",
-            parse_mode="Markdown"
-        )
-        await state.clear()
+        # Уровень максимальный, бонус не предлагаем — сразу к заданию
+        practice = has_pending_practice(updated_intern)
+
+        if practice:
+            practice_index, practice_topic = practice
+            await message.answer(
+                f"✅ *{t('marathon.topic_completed', lang)}*\n\n"
+                f"{progress_bar(done, total)}\n"
+                f"{t(f'bloom.level_{bloom_level}_short', lang)}{upgrade_msg}\n\n"
+                f"⏳ {t('marathon.loading_practice', lang)}",
+                parse_mode="Markdown"
+            )
+            # Обновляем current_topic_index
+            await update_intern(chat_id, current_topic_index=practice_index)
+            # Отправляем задание
+            await send_practice_topic(chat_id, practice_topic, updated_intern, state, bot)
+        else:
+            # День завершён
+            await message.answer(
+                f"✅ *{t('marathon.topic_completed', lang)}*\n\n"
+                f"{progress_bar(done, total)}\n"
+                f"{t(f'bloom.level_{bloom_level}_short', lang)}{upgrade_msg}\n\n"
+                f"✅ {t('marathon.day_complete', lang)}",
+                parse_mode="Markdown"
+            )
+            await state.clear()
 
 @router.callback_query(F.data == "bonus_yes")
 async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
@@ -2434,22 +2535,39 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
 @router.callback_query(F.data == "bonus_no")
-async def on_bonus_no(callback: CallbackQuery, state: FSMContext):
-    """Пользователь отказался от дополнительного вопроса"""
-    intern = await get_intern(callback.message.chat.id)
+async def on_bonus_no(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    """Пользователь отказался от дополнительного вопроса → переход к заданию"""
+    chat_id = callback.message.chat.id
+    intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
     data = await state.get_data()
     next_command = data.get('next_command', t('marathon.next_command', lang))
     await callback.answer(t('marathon.ok', lang))
-    await callback.message.edit_text(
-        callback.message.text + f"\n\n{next_command}",
-        parse_mode="Markdown"
-    )
-    await state.clear()
+
+    # Проверяем, есть ли практика для этого дня
+    practice = has_pending_practice(intern)
+
+    if practice:
+        practice_index, practice_topic = practice
+        await callback.message.edit_text(
+            callback.message.text + f"\n\n⏳ {t('marathon.loading_practice', lang)}",
+            parse_mode="Markdown"
+        )
+        # Обновляем current_topic_index
+        await update_intern(chat_id, current_topic_index=practice_index)
+        # Отправляем задание
+        await send_practice_topic(chat_id, practice_topic, intern, state, bot)
+    else:
+        # День завершён (нет практики или уже выполнена)
+        await callback.message.edit_text(
+            callback.message.text + f"\n\n✅ {t('marathon.day_complete', lang)}",
+            parse_mode="Markdown"
+        )
+        await state.clear()
 
 @router.message(LearningStates.waiting_for_bonus_answer)
-async def on_bonus_answer(message: Message, state: FSMContext):
-    """Обработка ответа на бонусный вопрос"""
+async def on_bonus_answer(message: Message, state: FSMContext, bot: Bot):
+    """Обработка ответа на бонусный вопрос → переход к заданию"""
     chat_id = message.chat.id
     current_state = await state.get_state()
     logger.info(f"[BONUS] on_bonus_answer вызван для chat_id={chat_id}, state={current_state}")
@@ -2466,37 +2584,37 @@ async def on_bonus_answer(message: Message, state: FSMContext):
 
     try:
         # Сохраняем ответ на бонусный вопрос
-        await save_answer(message.chat.id, topic_index, f"[BONUS] {message.text.strip()}")
+        await save_answer(chat_id, topic_index, f"[BONUS] {message.text.strip()}")
 
         bloom_level = intern['bloom_level'] if intern else 1
 
-        # Получаем информацию о следующей доступной теме
-        next_available = get_available_topics(intern) if intern else []
-        next_topic_hint = ""
-        next_command = data.get('next_command', t('marathon.next_command', lang))
-        if next_available:
-            next_topic = next_available[0][1]  # (index, topic) -> topic
-            # Определяем тип следующей темы
-            if next_topic.get('type') == 'practice':
-                next_topic_hint = f"\n\n📝 *{t('marathon.next_task', lang)}:* {next_topic['title']}"
-                next_command = t('marathon.continue_to_task', lang)
-            else:
-                next_topic_hint = f"\n\n📚 *{t('marathon.next_lesson', lang)}:* {next_topic['title']}"
-                next_command = t('marathon.continue_to_lesson', lang)
+        # Проверяем, есть ли практика для этого дня
+        practice = has_pending_practice(intern)
 
-        await message.answer(
-            f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
-            f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{bloom_level}_short', lang)}* {t('marathon.and_higher', lang)}{next_topic_hint}\n\n"
-            f"{next_command}",
-            parse_mode="Markdown"
-        )
+        if practice:
+            practice_index, practice_topic = practice
+            await message.answer(
+                f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
+                f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{bloom_level}_short', lang)}* {t('marathon.and_higher', lang)}\n\n"
+                f"⏳ {t('marathon.loading_practice', lang)}",
+                parse_mode="Markdown"
+            )
+            # Обновляем current_topic_index
+            await update_intern(chat_id, current_topic_index=practice_index)
+            # Отправляем задание
+            await send_practice_topic(chat_id, practice_topic, intern, state, bot)
+        else:
+            # День завершён
+            await message.answer(
+                f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
+                f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{bloom_level}_short', lang)}* {t('marathon.and_higher', lang)}\n\n"
+                f"✅ {t('marathon.day_complete', lang)}",
+                parse_mode="Markdown"
+            )
+            await state.clear()
     except Exception as e:
         logger.error(f"Ошибка обработки бонусного ответа: {e}")
-        next_command = data.get('next_command', t('marathon.next_command', lang))
-        await message.answer(
-            f"✅ Ответ принят!\n\n{next_command}"
-        )
-    finally:
+        await message.answer(f"✅ Ответ принят!\n\n{t('marathon.next_command', lang)}")
         await state.clear()
 
 @router.callback_query(LearningStates.waiting_for_answer, F.data == "skip_topic")
@@ -3050,9 +3168,58 @@ async def on_unknown_message(message: Message, state: FSMContext):
         )
         return
 
+    lang = intern.get('language', 'ru') or 'ru'
+
+    # Проверяем, есть ли незавершённая практика дня (восстановление после потери state)
+    # Если пользователь в режиме марафона и у него есть незавершённое задание
+    if intern.get('mode') == 'marathon' and intern.get('onboarding_completed'):
+        practice = has_pending_practice(intern)
+        if practice:
+            practice_index, practice_topic = practice
+            # Проверяем, что это не команда и не короткое сообщение
+            if text and not text.startswith('/') and len(text.strip()) >= 3:
+                # Проверяем, прошла ли теория этого дня
+                marathon_day = get_marathon_day(intern)
+                day_topics = [(i, t) for i, t in enumerate(TOPICS) if t['day'] == marathon_day]
+                theory_done = any(
+                    i in intern['completed_topics']
+                    for i, t in day_topics if t.get('type') == 'theory'
+                )
+
+                if theory_done:
+                    # Теория пройдена, практика ждёт ответа — принимаем как рабочий продукт
+                    logger.info(f"[Fallback] Accepting message as work product for user {chat_id}, practice {practice_index}")
+
+                    # Сохраняем ответ (рабочий продукт)
+                    await save_answer(chat_id, practice_index, f"[РП][fallback] {text.strip()}")
+
+                    # Обновляем прогресс
+                    completed = intern['completed_topics'] + [practice_index]
+                    today = moscow_today()
+                    topics_today = get_topics_today(intern) + 1
+
+                    await update_intern(
+                        chat_id,
+                        completed_topics=completed,
+                        current_topic_index=practice_index + 1,
+                        topics_today=topics_today,
+                        last_topic_date=today
+                    )
+
+                    done = len(completed)
+                    total = get_total_topics()
+
+                    await message.answer(
+                        f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
+                        f"📝 РП: {text.strip()[:100]}{'...' if len(text.strip()) > 100 else ''}\n\n"
+                        f"{progress_bar(done, total)}\n\n"
+                        f"✅ {t('marathon.day_complete', lang)}",
+                        parse_mode="Markdown"
+                    )
+                    return
+
     # Определяем намерение пользователя
     intent = detect_intent(text, context={'mode': intern.get('mode')})
-    lang = intern.get('language', 'ru') or 'ru'
 
     if intent.type == IntentType.QUESTION:
         # Пользователь задаёт вопрос — отвечаем через Claude + MCP
@@ -3124,7 +3291,7 @@ async def main():
     await init_db()
 
     bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
+    dp = Dispatcher(storage=PostgresStorage())
 
     # Подключаем роутеры режимов ПЕРЕД основным роутером
     # (чтобы catch-all handler в router не перехватывал их callback'и)
