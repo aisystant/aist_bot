@@ -2412,14 +2412,43 @@ async def on_save_schedule(message: Message, state: FSMContext):
 @router.message(LearningStates.waiting_for_answer)
 async def on_answer(message: Message, state: FSMContext, bot: Bot):
     chat_id = message.chat.id
+    text = message.text or ''
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
 
-    if len(message.text.strip()) < 20:
+    # Проверяем, это вопрос к ИИ (начинается с ?)
+    if text.strip().startswith('?'):
+        question_text = text.strip()[1:].strip()
+        if question_text:
+            # Обрабатываем как вопрос, оставаясь в текущем состоянии
+            progress_msg = await message.answer(t('loading.progress.analyzing', lang))
+            try:
+                answer, sources = await handle_question(
+                    question=question_text,
+                    intern=intern,
+                    context_topic=get_topic(intern['current_topic_index']),
+                    progress_callback=None
+                )
+                response = answer
+                if sources:
+                    response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
+                await progress_msg.delete()
+                await message.answer(
+                    response + f"\n\n💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при обработке вопроса: {e}")
+                await progress_msg.delete()
+                await message.answer(t('errors.try_again', lang))
+            return  # Остаёмся в состоянии waiting_for_answer
+
+    if len(text.strip()) < 20:
         await message.answer("Напишите подробнее (хотя бы 2-3 предложения)")
         return
 
     # Сохраняем ответ
-    await save_answer(message.chat.id, intern['current_topic_index'], message.text.strip())
+    await save_answer(message.chat.id, intern['current_topic_index'], text.strip())
 
     # Обновляем прогресс и счётчик тем на текущем уровне Блума
     completed = intern['completed_topics'] + [intern['current_topic_index']]
@@ -2613,22 +2642,54 @@ async def on_bonus_no(callback: CallbackQuery, state: FSMContext, bot: Bot):
 async def on_bonus_answer(message: Message, state: FSMContext, bot: Bot):
     """Обработка ответа на бонусный вопрос → переход к заданию"""
     chat_id = message.chat.id
+    text = message.text or ''
     current_state = await state.get_state()
     logger.info(f"[BONUS] on_bonus_answer вызван для chat_id={chat_id}, state={current_state}")
 
-    if len(message.text.strip()) < 20:
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
+
+    # Проверяем, это вопрос к ИИ (начинается с ?)
+    if text.strip().startswith('?'):
+        question_text = text.strip()[1:].strip()
+        if question_text:
+            data = await state.get_data()
+            topic_index = data.get('topic_index', 0)
+            # Обрабатываем как вопрос, оставаясь в текущем состоянии
+            progress_msg = await message.answer(t('loading.progress.analyzing', lang))
+            try:
+                answer, sources = await handle_question(
+                    question=question_text,
+                    intern=intern,
+                    context_topic=get_topic(topic_index),
+                    progress_callback=None
+                )
+                response = answer
+                if sources:
+                    response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
+                await progress_msg.delete()
+                await message.answer(
+                    response + f"\n\n💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при обработке вопроса: {e}")
+                await progress_msg.delete()
+                await message.answer(t('errors.try_again', lang))
+            return  # Остаёмся в состоянии waiting_for_bonus_answer
+
+    if len(text.strip()) < 20:
         await message.answer("Напишите подробнее (хотя бы 2-3 предложения)")
         return
 
-    intern = await get_intern(chat_id)
+    # intern и lang уже получены выше
     data = await state.get_data()
     topic_index = data.get('topic_index', 0)
-    lang = intern.get('language', 'ru') if intern else 'ru'
     logger.info(f"[BONUS] Processing answer: topic_index={topic_index}, data_keys={list(data.keys())}")
 
     try:
         # Сохраняем ответ на бонусный вопрос
-        await save_answer(chat_id, topic_index, f"[BONUS] {message.text.strip()}")
+        await save_answer(chat_id, topic_index, f"[BONUS] {text.strip()}")
 
         bloom_level = intern['bloom_level'] if intern else 1
 
@@ -2686,14 +2747,43 @@ async def on_skip_topic(callback: CallbackQuery, state: FSMContext):
 @router.message(LearningStates.waiting_for_work_product)
 async def on_work_product(message: Message, state: FSMContext):
     """Обработка отправки рабочего продукта"""
+    text = message.text or ''
     intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
 
-    if len(message.text.strip()) < 3:
+    # Проверяем, это вопрос к ИИ (начинается с ?)
+    if text.strip().startswith('?'):
+        question_text = text.strip()[1:].strip()
+        if question_text:
+            # Обрабатываем как вопрос, оставаясь в текущем состоянии
+            progress_msg = await message.answer(t('loading.progress.analyzing', lang))
+            try:
+                answer, sources = await handle_question(
+                    question=question_text,
+                    intern=intern,
+                    context_topic=get_topic(intern['current_topic_index']),
+                    progress_callback=None
+                )
+                response = answer
+                if sources:
+                    response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
+                await progress_msg.delete()
+                await message.answer(
+                    response + f"\n\n💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при обработке вопроса: {e}")
+                await progress_msg.delete()
+                await message.answer(t('errors.try_again', lang))
+            return  # Остаёмся в состоянии waiting_for_work_product
+
+    if len(text.strip()) < 3:
         await message.answer("Напишите хотя бы название рабочего продукта (например: «Список в заметках»)")
         return
 
     # Сохраняем ответ (рабочий продукт)
-    await save_answer(message.chat.id, intern['current_topic_index'], f"[РП] {message.text.strip()}")
+    await save_answer(message.chat.id, intern['current_topic_index'], f"[РП] {text.strip()}")
 
     # Обновляем прогресс
     completed = intern['completed_topics'] + [intern['current_topic_index']]
@@ -2724,7 +2814,7 @@ async def on_work_product(message: Message, state: FSMContext):
             f"🎉 *День {marathon_day} завершён!*\n\n"
             f"✅ Теория пройдена\n"
             f"✅ Практика выполнена\n"
-            f"📝 РП: {message.text.strip()}\n\n"
+            f"📝 РП: {text.strip()}\n\n"
             f"{progress_bar(done, total)}\n\n"
             f"Отличная работа! Возвращайтесь завтра за новыми темами.\n\n"
             f"/progress — посмотреть прогресс",
@@ -2733,7 +2823,7 @@ async def on_work_product(message: Message, state: FSMContext):
     else:
         await message.answer(
             f"✅ *Практика засчитана!*\n\n"
-            f"📝 РП: {message.text.strip()}\n\n"
+            f"📝 РП: {text.strip()}\n\n"
             f"{progress_bar(done, total)}\n\n"
             f"/learn — следующая тема",
             parse_mode="Markdown"
