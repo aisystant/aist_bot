@@ -227,6 +227,10 @@ TRANSLATIONS = {
         'marathon.write_wp_name': 'Напишите название своего рабочего продукта.',
         'marathon.example': 'Например',
         'marathon.no_check_hint': 'Проверки нет — просто напишите, что сделали, и практика засчитается.',
+        'marathon.waiting_for': 'Ожидаю',
+        'marathon.work_product_name': 'название рабочего продукта (≥3 символов)',
+        'marathon.answer_expected': 'ваш ответ на вопрос (≥20 символов)',
+        'marathon.question_hint': 'Чтобы задать вопрос к ИИ, начните сообщение с ?',
 
         # Лента (Feed)
         'feed.suggested_topics': 'Предлагаемые темы',
@@ -479,6 +483,10 @@ TRANSLATIONS = {
         'marathon.write_wp_name': 'Write the name of your work product.',
         'marathon.example': 'For example',
         'marathon.no_check_hint': 'No grading — just write what you did, and the practice will be marked complete.',
+        'marathon.waiting_for': 'Waiting for',
+        'marathon.work_product_name': 'work product name (≥3 chars)',
+        'marathon.answer_expected': 'your answer to the question (≥20 chars)',
+        'marathon.question_hint': 'To ask a question to AI, start your message with ?',
 
         # Feed
         'feed.suggested_topics': 'Suggested Topics',
@@ -731,6 +739,10 @@ TRANSLATIONS = {
         'marathon.write_wp_name': 'Escribe el nombre de tu producto de trabajo.',
         'marathon.example': 'Por ejemplo',
         'marathon.no_check_hint': 'Sin calificación — solo escribe lo que hiciste, y la práctica se marcará como completada.',
+        'marathon.waiting_for': 'Esperando',
+        'marathon.work_product_name': 'nombre del producto de trabajo (≥3 caracteres)',
+        'marathon.answer_expected': 'tu respuesta a la pregunta (≥20 caracteres)',
+        'marathon.question_hint': 'Para hacer una pregunta a la IA, comienza tu mensaje con ?',
 
         # Feed
         'feed.suggested_topics': 'Temas Sugeridos',
