@@ -180,13 +180,13 @@ def main():
     normal_coverage = (normal_passed / normal_total * 100) if normal_total else 100
 
     # Логика цветов:
-    # 🟢 Зелёный: critical ≥90% И normal ≥80% И общее ≥90%
-    # 🟡 Жёлтый: critical ≥80% И общее ≥70%
-    # 🔴 Красный: иначе
+    # 🟢 Зелёный: основные = 100% И вспомогательные = 100%
+    # 🟡 Жёлтый: основные = 100% И общее ≥ 60%
+    # 🔴 Красный: основные < 100% ИЛИ общее < 50%
     def get_status(cov: float, crit_cov: float, norm_cov: float) -> str:
-        if crit_cov >= 90 and norm_cov >= 80 and cov >= thresholds['green']:
+        if crit_cov == 100 and norm_cov == 100:
             return 'green'
-        if crit_cov >= 80 and cov >= thresholds['yellow']:
+        if crit_cov == 100 and cov >= 60:
             return 'yellow'
         return 'red'
 
