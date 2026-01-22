@@ -19,11 +19,11 @@ from typing import Optional, List
 
 import yaml
 
-from aiogram import Bot, Dispatcher, Router, F
+from aiogram import Bot, Dispatcher, Router, F, BaseMiddleware
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
-    BotCommand
+    BotCommand, TelegramObject
 )
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -242,6 +242,26 @@ class UpdateStates(StatesGroup):
     updating_bloom_level = State()
     updating_marathon_start = State()
 
+
+# ============= MIDDLEWARE ДЛЯ ОТЛАДКИ =============
+
+class LoggingMiddleware(BaseMiddleware):
+    """Middleware для логирования всех входящих сообщений"""
+
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        from aiogram.fsm.context import FSMContext
+
+        if isinstance(event, Message):
+            state: FSMContext = data.get('state')
+            current_state = await state.get_state() if state else None
+            logger.info(f"[MIDDLEWARE] Получено сообщение: chat_id={event.chat.id}, "
+                       f"user_id={event.from_user.id if event.from_user else None}, "
+                       f"text={event.text[:50] if event.text else '[no text]'}, "
+                       f"state={current_state}")
+
+        return await handler(event, data)
+
+
 # ============= БАЗА ДАННЫХ =============
 
 db_pool: Optional[asyncpg.Pool] = None
@@ -404,8 +424,14 @@ class PostgresStorage(BaseStorage):
 
     async def set_state(self, key: StorageKey, state: StateType = None) -> None:
         """Установить состояние"""
-        state_str = state.state if state else None
-        logger.info(f"[FSM] set_state: chat_id={key.chat_id}, state={state_str}")
+        # StateType = Optional[Union[str, State]] - может быть строкой или State объектом
+        if state is None:
+            state_str = None
+        elif isinstance(state, str):
+            state_str = state
+        else:
+            state_str = state.state
+        logger.info(f"[FSM] set_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={state_str}")
         async with db_pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO fsm_states (chat_id, state, updated_at)
@@ -420,7 +446,7 @@ class PostgresStorage(BaseStorage):
                 'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
             )
             result = row['state'] if row else None
-            logger.info(f"[FSM] get_state: chat_id={key.chat_id}, state={result}")
+            logger.info(f"[FSM] get_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={result}")
             return result
 
     async def set_data(self, key: StorageKey, data: dict) -> None:
@@ -3304,7 +3330,8 @@ async def scheduled_check():
     if chat_ids:
         logger.info(f"[Scheduler] {time_str} MSK — найдено {len(chat_ids)} пользователей для отправки")
         bot = Bot(token=BOT_TOKEN)
-        await bot.get_me()  # Инициализируем bot.id для FSMContext
+        me = await bot.get_me()  # Инициализируем bot.id для FSMContext
+        logger.info(f"[Scheduler] Bot ID: {bot.id}, username: {me.username}")
         for chat_id in chat_ids:
             try:
                 await send_scheduled_topic(chat_id, bot)
@@ -3347,19 +3374,27 @@ async def on_unknown_message(message: Message, state: FSMContext):
     # Если пользователь в каком-то состоянии — пробуем обработать вручную
     if current_state:
         logger.warning(f"[UNKNOWN] Message in state {current_state} reached fallback. Attempting manual routing for chat_id={chat_id}")
+        logger.info(f"[UNKNOWN] Expected states: answer={LearningStates.waiting_for_answer.state}, work={LearningStates.waiting_for_work_product.state}, bonus={LearningStates.waiting_for_bonus_answer.state}")
 
-        # Маршрутизируем на существующие хэндлеры
-        if current_state == LearningStates.waiting_for_answer.state:
-            logger.info(f"[UNKNOWN] Routing to on_answer for chat_id={chat_id}")
-            await on_answer(message, state, message.bot)
-            return
-        elif current_state == LearningStates.waiting_for_work_product.state:
-            logger.info(f"[UNKNOWN] Routing to on_work_product for chat_id={chat_id}")
-            await on_work_product(message, state)
-            return
-        elif current_state == LearningStates.waiting_for_bonus_answer.state:
-            logger.info(f"[UNKNOWN] Routing to on_bonus_answer for chat_id={chat_id}")
-            await on_bonus_answer(message, state, message.bot)
+        try:
+            # Маршрутизируем на существующие хэндлеры
+            if current_state == LearningStates.waiting_for_answer.state:
+                logger.info(f"[UNKNOWN] Routing to on_answer for chat_id={chat_id}")
+                await on_answer(message, state, message.bot)
+                return
+            elif current_state == LearningStates.waiting_for_work_product.state:
+                logger.info(f"[UNKNOWN] Routing to on_work_product for chat_id={chat_id}")
+                await on_work_product(message, state)
+                return
+            elif current_state == LearningStates.waiting_for_bonus_answer.state:
+                logger.info(f"[UNKNOWN] Routing to on_bonus_answer for chat_id={chat_id}")
+                await on_bonus_answer(message, state, message.bot)
+                return
+        except Exception as e:
+            logger.error(f"[UNKNOWN] Error routing to handler: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            await message.answer("Произошла ошибка. Попробуйте /learn")
             return
 
         # Для других состояний — показываем подсказку
@@ -3369,12 +3404,19 @@ async def on_unknown_message(message: Message, state: FSMContext):
         elif 'UpdateStates' in current_state:
             await message.answer("Пожалуйста, завершите обновление профиля или используйте /update для начала заново")
             return
+        elif 'FeedStates' in current_state:
+            await message.answer("Пожалуйста, завершите действие в Ленте или используйте /feed")
+            return
+        elif 'MarathonSettingsStates' in current_state:
+            await message.answer("Введите время в формате ЧЧ:ММ или нажмите Назад")
+            return
 
         # Неизвестное состояние — показываем команды
         logger.warning(f"[UNKNOWN] Unknown state {current_state} for chat_id={chat_id}")
         intern = await get_intern(chat_id)
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(
+            f"Состояние: {current_state}\n\n"
             f"{t('commands.learn', lang)}\n"
             f"{t('commands.progress', lang)}\n"
             f"{t('commands.help', lang)}"
@@ -3600,6 +3642,9 @@ async def main():
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=PostgresStorage())
+
+    # Регистрируем middleware для логирования
+    dp.message.middleware(LoggingMiddleware())
 
     # Подключаем роутеры режимов ПЕРЕД основным роутером
     # (чтобы catch-all handler в router не перехватывал их callback'и)
