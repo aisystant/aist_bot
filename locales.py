@@ -71,6 +71,7 @@ TRANSLATIONS = {
         'buttons.start_today': '🚀 Начать сегодня',
         'buttons.start_tomorrow': '📅 Завтра',
         'buttons.start_day_after': '📅 Послезавтра',
+        'buttons.continue_learning': 'Продолжить обучение',
 
         # Кнопки профиля
         'buttons.name': 'Имя',
@@ -327,6 +328,7 @@ TRANSLATIONS = {
         'buttons.start_today': '🚀 Start today',
         'buttons.start_tomorrow': '📅 Tomorrow',
         'buttons.start_day_after': '📅 Day after',
+        'buttons.continue_learning': 'Continue learning',
 
         # Profile buttons
         'buttons.name': 'Name',
@@ -583,6 +585,7 @@ TRANSLATIONS = {
         'buttons.start_today': '🚀 Empezar hoy',
         'buttons.start_tomorrow': '📅 Mañana',
         'buttons.start_day_after': '📅 Pasado mañana',
+        'buttons.continue_learning': 'Continuar aprendiendo',
 
         # Botones de perfil
         'buttons.name': 'Nombre',

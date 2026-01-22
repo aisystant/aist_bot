@@ -164,7 +164,9 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
         text += "\n_Лента на паузе. Вернуться: /mode_"
 
     # Кнопки
+    lang = intern.get('language', 'ru') or 'ru'
     buttons = [
+        [InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="marathon_learn")],
         [InlineKeyboardButton(text="📝 Обновить данные", callback_data="marathon_go_update")],
         [InlineKeyboardButton(text="⏰ Напоминания", callback_data="marathon_reminders_input")],
         [InlineKeyboardButton(text="🔄 Сбросить марафон", callback_data="marathon_reset_confirm")],
@@ -243,13 +245,30 @@ async def show_feed_activated(message, intern: dict, marathon_paused: bool = Fal
 
 @mode_router.callback_query(F.data == "marathon_continue")
 async def marathon_continue(callback: CallbackQuery):
-    """Продолжить марафон"""
+    """Продолжить марафон (legacy)"""
     await callback.message.edit_text(
         "✅ *Режим Марафон*\n\n"
         "Используйте /learn для продолжения обучения.",
         parse_mode="Markdown"
     )
     await callback.answer()
+
+
+@mode_router.callback_query(F.data == "marathon_learn")
+async def marathon_learn(callback: CallbackQuery, state: FSMContext):
+    """Продолжить обучение — вызывает функционал /learn"""
+    from bot import send_topic
+
+    await callback.answer()
+
+    # Удаляем текущее сообщение, чтобы не было путаницы
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # Вызываем send_topic напрямую
+    await send_topic(callback.message.chat.id, state, callback.bot)
 
 
 @mode_router.callback_query(F.data == "marathon_back_to_mode")
