@@ -405,6 +405,7 @@ class PostgresStorage(BaseStorage):
     async def set_state(self, key: StorageKey, state: StateType = None) -> None:
         """Установить состояние"""
         state_str = state.state if state else None
+        logger.info(f"[FSM] set_state: chat_id={key.chat_id}, state={state_str}")
         async with db_pool.acquire() as conn:
             await conn.execute('''
                 INSERT INTO fsm_states (chat_id, state, updated_at)
@@ -418,7 +419,9 @@ class PostgresStorage(BaseStorage):
             row = await conn.fetchrow(
                 'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
             )
-            return row['state'] if row else None
+            result = row['state'] if row else None
+            logger.info(f"[FSM] get_state: chat_id={key.chat_id}, state={result}")
+            return result
 
     async def set_data(self, key: StorageKey, data: dict) -> None:
         """Установить данные состояния"""
@@ -3345,7 +3348,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
     if current_state:
         logger.warning(f"[UNKNOWN] Message in state {current_state} reached fallback. Attempting manual routing for chat_id={chat_id}")
 
-        # Попробуем обработать состояния обучения вручную
+        # Маршрутизируем на существующие хэндлеры
         if current_state == LearningStates.waiting_for_answer.state:
             logger.info(f"[UNKNOWN] Routing to on_answer for chat_id={chat_id}")
             await on_answer(message, state, message.bot)
@@ -3359,8 +3362,23 @@ async def on_unknown_message(message: Message, state: FSMContext):
             await on_bonus_answer(message, state, message.bot)
             return
 
-        # Неизвестное состояние — просто игнорируем
-        logger.warning(f"[UNKNOWN] Unknown state {current_state} for chat_id={chat_id}, ignoring message")
+        # Для других состояний — показываем подсказку
+        if 'OnboardingStates' in current_state:
+            await message.answer("Пожалуйста, завершите регистрацию или используйте /start для начала заново")
+            return
+        elif 'UpdateStates' in current_state:
+            await message.answer("Пожалуйста, завершите обновление профиля или используйте /update для начала заново")
+            return
+
+        # Неизвестное состояние — показываем команды
+        logger.warning(f"[UNKNOWN] Unknown state {current_state} for chat_id={chat_id}")
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(
+            f"{t('commands.learn', lang)}\n"
+            f"{t('commands.progress', lang)}\n"
+            f"{t('commands.help', lang)}"
+        )
         return
 
     # Пользователь не в FSM-состоянии
