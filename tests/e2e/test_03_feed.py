@@ -12,12 +12,12 @@ import pytest
 import asyncio
 
 from .client import BotTestClient
+from .conftest import run_async
 
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_1_get_digest(bot_client: BotTestClient):
+def test_3_1_get_digest(bot_client: BotTestClient):
     """
     Сценарий 3.1: Получение дайджеста
 
@@ -33,17 +33,17 @@ async def test_3_1_get_digest(bot_client: BotTestClient):
     - Показано меню тем
     """
     # Переключаемся в режим Ленты
-    responses = await bot_client.command_and_wait('/mode', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/mode', timeout=10))
 
     for r in responses:
         if r.has_button('Лента') or r.has_button('Feed'):
-            clicked = await bot_client.click_button(r, 'Лента')
+            clicked = run_async(bot_client.click_button(r, 'Лента'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Feed')
+                clicked = run_async(bot_client.click_button(r, 'Feed'))
 
             if clicked:
-                await asyncio.sleep(1)
-                next_responses = await bot_client.wait_response(timeout=15)
+                run_async(asyncio.sleep(1))
+                next_responses = run_async(bot_client.wait_response(timeout=15))
                 if next_responses:
                     all_text = ' '.join([resp.text for resp in next_responses]).lower()
                     # Должно быть предложение выбрать темы или подтверждение режима
@@ -59,8 +59,7 @@ async def test_3_1_get_digest(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_2_digest_question(bot_client: BotTestClient):
+def test_3_2_digest_question(bot_client: BotTestClient):
     """
     Сценарий 3.2: Вопрос дайджеста
 
@@ -72,7 +71,7 @@ async def test_3_2_digest_question(bot_client: BotTestClient):
     - Темы сохранены
     - Бот подтверждает выбор
     """
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         # Ищем кнопки с темами
@@ -82,11 +81,11 @@ async def test_3_2_digest_question(bot_client: BotTestClient):
                     # Пробуем нажать на первую тему
                     btn_text = btn.get('text', '')
                     if btn_text and not btn_text.startswith('/'):
-                        clicked = await bot_client.click_button(r, btn_text)
+                        clicked = run_async(bot_client.click_button(r, btn_text))
                         if clicked:
-                            await asyncio.sleep(1)
+                            run_async(asyncio.sleep(1))
                             # Проверяем подтверждение
-                            confirm_responses = await bot_client.wait_response(timeout=10)
+                            confirm_responses = run_async(bot_client.wait_response(timeout=10))
                             if confirm_responses:
                                 assert len(confirm_responses) >= 1
                             return
@@ -95,8 +94,7 @@ async def test_3_2_digest_question(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_3_fixation(bot_client: BotTestClient):
+def test_3_3_fixation(bot_client: BotTestClient):
     """
     Сценарий 3.3: Фиксация
 
@@ -109,7 +107,7 @@ async def test_3_3_fixation(bot_client: BotTestClient):
     """
     # Этот тест проверяет ограничение на количество тем
     # Требуется быть в меню выбора тем
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_text('максим') or r.has_text('limit') or r.has_text('3 тем'):
@@ -119,8 +117,7 @@ async def test_3_3_fixation(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_4_topics_menu(bot_client: BotTestClient):
+def test_3_4_topics_menu(bot_client: BotTestClient):
     """
     Сценарий 3.4: Меню тем
 
@@ -135,7 +132,7 @@ async def test_3_4_topics_menu(bot_client: BotTestClient):
     - Бот отправляет дайджест
     - Дайджест по одной из выбранных тем
     """
-    responses = await bot_client.command_and_wait('/learn', timeout=30)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=30))
 
     assert len(responses) >= 1, "Бот не ответил на /learn"
 
@@ -154,8 +151,7 @@ async def test_3_4_topics_menu(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_5_select_topics(bot_client: BotTestClient):
+def test_3_5_select_topics(bot_client: BotTestClient):
     """
     Сценарий 3.5: Выбор тем
 
@@ -169,24 +165,24 @@ async def test_3_5_select_topics(bot_client: BotTestClient):
     - Вопрос помогает осмыслить материал
     - Фиксация принята
     """
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_button('Далее') or r.has_button('Next'):
-            clicked = await bot_client.click_button(r, 'Далее')
+            clicked = run_async(bot_client.click_button(r, 'Далее'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Next')
+                clicked = run_async(bot_client.click_button(r, 'Next'))
 
             if clicked:
-                await asyncio.sleep(1)
-                question_responses = await bot_client.wait_response(timeout=15)
+                run_async(asyncio.sleep(1))
+                question_responses = run_async(bot_client.wait_response(timeout=15))
                 if question_responses:
                     # Отправляем фиксацию
                     fixation = "Я понял, что важно применять системный подход в работе. Это помогает видеть картину целиком."
-                    fixation_responses = await bot_client.send_and_wait(
+                    fixation_responses = run_async(bot_client.send_and_wait(
                         fixation,
                         timeout=30
-                    )
+                    ))
                     if fixation_responses:
                         # Фиксация должна быть принята
                         assert len(fixation_responses) >= 1
@@ -195,8 +191,7 @@ async def test_3_5_select_topics(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_6_start_week(bot_client: BotTestClient):
+def test_3_6_start_week(bot_client: BotTestClient):
     """
     Сценарий 3.6: Начало недели
 
@@ -207,7 +202,7 @@ async def test_3_6_start_week(bot_client: BotTestClient):
     Ожидаемый результат:
     - Дайджесты становятся глубже
     """
-    responses = await bot_client.command_and_wait('/learn', timeout=30)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=30))
 
     if responses:
         # Проверяем наличие материала
@@ -217,8 +212,7 @@ async def test_3_6_start_week(bot_client: BotTestClient):
 
 
 @pytest.mark.feed
-@pytest.mark.asyncio
-async def test_3_7_week_stats(bot_client: BotTestClient):
+def test_3_7_week_stats(bot_client: BotTestClient):
     """
     Сценарий 3.7: Статистика недели
 
@@ -229,7 +223,7 @@ async def test_3_7_week_stats(bot_client: BotTestClient):
     - Бот сообщает о завершении недели
     - Предлагает выбрать темы на новую неделю
     """
-    responses = await bot_client.command_and_wait('/progress', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/progress', timeout=10))
 
     if responses:
         response = responses[0]
@@ -245,8 +239,7 @@ async def test_3_7_week_stats(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_8_today_digest(bot_client: BotTestClient):
+def test_3_8_today_digest(bot_client: BotTestClient):
     """
     Сценарий 3.8: Дайджест на сегодня
 
@@ -258,25 +251,24 @@ async def test_3_8_today_digest(bot_client: BotTestClient):
     - Темы обновлены
     - Оставшиеся дайджесты перепланированы
     """
-    responses = await bot_client.command_and_wait('/update', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/update', timeout=10))
 
     for r in responses:
         if r.has_button('Темы') or r.has_button('Topics'):
-            clicked = await bot_client.click_button(r, 'Темы')
+            clicked = run_async(bot_client.click_button(r, 'Темы'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Topics')
+                clicked = run_async(bot_client.click_button(r, 'Topics'))
 
             if clicked:
-                await asyncio.sleep(1)
-                topics_responses = await bot_client.wait_response(timeout=10)
+                run_async(asyncio.sleep(1))
+                topics_responses = run_async(bot_client.wait_response(timeout=10))
                 # Должно быть меню тем
                 assert len(topics_responses) >= 1
             break
 
 
 @pytest.mark.feed
-@pytest.mark.asyncio
-async def test_3_9_fallback_topic(bot_client: BotTestClient):
+def test_3_9_fallback_topic(bot_client: BotTestClient):
     """
     Сценарий 3.9: Fallback темы
 
@@ -288,8 +280,8 @@ async def test_3_9_fallback_topic(bot_client: BotTestClient):
     - Указывает, когда следующий дайджест
     """
     # Отправляем /learn несколько раз
-    await bot_client.command_and_wait('/learn', timeout=30)
-    responses = await bot_client.command_and_wait('/learn', timeout=15)
+    run_async(bot_client.command_and_wait('/learn', timeout=30))
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=15))
 
     if responses:
         all_text = ' '.join([r.text for r in responses]).lower()
@@ -301,8 +293,7 @@ async def test_3_9_fallback_topic(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_10_week_planning(bot_client: BotTestClient):
+def test_3_10_week_planning(bot_client: BotTestClient):
     """
     Сценарий 3.10: Планирование недели
 
@@ -314,7 +305,7 @@ async def test_3_10_week_planning(bot_client: BotTestClient):
     - Или принимает с мягким напоминанием
     """
     # Отправляем минимальную фиксацию
-    responses = await bot_client.send_and_wait('.', timeout=15)
+    responses = run_async(bot_client.send_and_wait('.', timeout=15))
 
     if responses:
         response = responses[0]
@@ -323,8 +314,7 @@ async def test_3_10_week_planning(bot_client: BotTestClient):
 
 
 @pytest.mark.feed
-@pytest.mark.asyncio
-async def test_3_11_current_week(bot_client: BotTestClient):
+def test_3_11_current_week(bot_client: BotTestClient):
     """
     Сценарий 3.11: Текущая неделя
 
@@ -354,7 +344,7 @@ async def test_3_11_current_week(bot_client: BotTestClient):
     Это главный урок, который я вынес из изученного материала.
     """
 
-    responses = await bot_client.send_and_wait(long_fixation, timeout=30)
+    responses = run_async(bot_client.send_and_wait(long_fixation, timeout=30))
 
     if responses:
         # Фиксация должна быть принята
@@ -366,8 +356,7 @@ async def test_3_11_current_week(bot_client: BotTestClient):
 
 @pytest.mark.feed
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_3_12_create_digest(bot_client: BotTestClient):
+def test_3_12_create_digest(bot_client: BotTestClient):
     """
     Сценарий 3.12: Создание дайджеста (переход из Марафона)
 
@@ -380,17 +369,17 @@ async def test_3_12_create_digest(bot_client: BotTestClient):
     - Сохранён предыдущий прогресс по Ленте
     """
     # Переключаемся в режим Ленты
-    responses = await bot_client.command_and_wait('/mode', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/mode', timeout=10))
 
     for r in responses:
         if r.has_button('Лента') or r.has_button('Feed'):
-            await bot_client.click_button(r, 'Лента')
+            run_async(bot_client.click_button(r, 'Лента'))
             break
 
-    await asyncio.sleep(1)
+    run_async(asyncio.sleep(1))
 
     # Проверяем /learn
-    learn_responses = await bot_client.command_and_wait('/learn', timeout=30)
+    learn_responses = run_async(bot_client.command_and_wait('/learn', timeout=30))
 
     assert len(learn_responses) >= 1, "Бот не ответил на /learn после переключения"
 
@@ -401,8 +390,7 @@ async def test_3_12_create_digest(bot_client: BotTestClient):
 
 
 @pytest.mark.feed
-@pytest.mark.asyncio
-async def test_3_13_user_question_feed(bot_client: BotTestClient):
+def test_3_13_user_question_feed(bot_client: BotTestClient):
     """
     Сценарий 3.13: Вопрос пользователя (Лента)
 
@@ -416,7 +404,7 @@ async def test_3_13_user_question_feed(bot_client: BotTestClient):
     - Бот предлагает сначала выбрать темы
     - /learn не падает с ошибкой
     """
-    responses = await bot_client.command_and_wait('/learn', timeout=15)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=15))
 
     assert len(responses) >= 1, "Бот не ответил на /learn"
 
@@ -427,8 +415,7 @@ async def test_3_13_user_question_feed(bot_client: BotTestClient):
 
 
 @pytest.mark.feed
-@pytest.mark.asyncio
-async def test_3_14_session_duration(bot_client: BotTestClient):
+def test_3_14_session_duration(bot_client: BotTestClient):
     """
     Сценарий 3.14: Продолжительность сессии
 
@@ -439,7 +426,7 @@ async def test_3_14_session_duration(bot_client: BotTestClient):
     - Видны пройденные дайджесты
     - Указаны темы и даты
     """
-    responses = await bot_client.command_and_wait('/progress', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/progress', timeout=10))
 
     assert len(responses) >= 1, "Бот не ответил на /progress"
 
