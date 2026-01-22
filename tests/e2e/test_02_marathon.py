@@ -12,12 +12,12 @@ import pytest
 import asyncio
 
 from .client import BotTestClient
+from .conftest import run_async
 
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_1_first_lesson(bot_client: BotTestClient):
+def test_2_1_first_lesson(bot_client: BotTestClient):
     """
     Сценарий 2.1: Получение первого урока
 
@@ -33,7 +33,7 @@ async def test_2_1_first_lesson(bot_client: BotTestClient):
     - Материал содержит текст по теме
     - Есть кнопка "Далее" или "Готово"
     """
-    responses = await bot_client.command_and_wait('/learn', timeout=30)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=30))
 
     assert len(responses) >= 1, "Бот не ответил на /learn"
 
@@ -54,8 +54,7 @@ async def test_2_1_first_lesson(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_2_lesson_question(bot_client: BotTestClient):
+def test_2_2_lesson_question(bot_client: BotTestClient):
     """
     Сценарий 2.2: Переход к вопросу урока
 
@@ -67,17 +66,17 @@ async def test_2_2_lesson_question(bot_client: BotTestClient):
     - Бот отправляет вопрос урока
     - Вопрос соответствует уровню сложности
     """
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_button('Далее') or r.has_button('Next'):
-            clicked = await bot_client.click_button(r, 'Далее')
+            clicked = run_async(bot_client.click_button(r, 'Далее'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Next')
+                clicked = run_async(bot_client.click_button(r, 'Next'))
 
             if clicked:
-                await asyncio.sleep(1)
-                next_responses = await bot_client.wait_response(timeout=15)
+                run_async(asyncio.sleep(1))
+                next_responses = run_async(bot_client.wait_response(timeout=15))
                 if next_responses:
                     # Должен быть вопрос или следующий материал
                     assert any(
@@ -93,8 +92,7 @@ async def test_2_2_lesson_question(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_3_answer_lesson_question(bot_client: BotTestClient):
+def test_2_3_answer_lesson_question(bot_client: BotTestClient):
     """
     Сценарий 2.3: Ответ на вопрос урока
 
@@ -109,7 +107,7 @@ async def test_2_3_answer_lesson_question(bot_client: BotTestClient):
     # Отправляем ответ
     test_answer = "Системное мышление - это способ анализа сложных систем, учитывающий взаимосвязи между компонентами."
 
-    responses = await bot_client.send_and_wait(test_answer, timeout=30)
+    responses = run_async(bot_client.send_and_wait(test_answer, timeout=30))
 
     if responses:
         # Проверяем реакцию бота
@@ -129,8 +127,7 @@ async def test_2_3_answer_lesson_question(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_4_get_feedback(bot_client: BotTestClient):
+def test_2_4_get_feedback(bot_client: BotTestClient):
     """
     Сценарий 2.4: Получение обратной связи
 
@@ -141,7 +138,7 @@ async def test_2_4_get_feedback(bot_client: BotTestClient):
     - Бот отправляет материал задания
     - Описан рабочий продукт (РП)
     """
-    responses = await bot_client.command_and_wait('/learn', timeout=30)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=30))
 
     if responses:
         response = responses[0]
@@ -159,8 +156,7 @@ async def test_2_4_get_feedback(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_5_task_transition(bot_client: BotTestClient):
+def test_2_5_task_transition(bot_client: BotTestClient):
     """
     Сценарий 2.5: Переход к заданию
 
@@ -174,7 +170,7 @@ async def test_2_5_task_transition(bot_client: BotTestClient):
     """
     task_answer = "Я выполнил задание: создал схему системы с описанием компонентов и их взаимосвязей."
 
-    responses = await bot_client.send_and_wait(task_answer, timeout=30)
+    responses = run_async(bot_client.send_and_wait(task_answer, timeout=30))
 
     # Бот должен принять ответ
     if responses:
@@ -186,8 +182,7 @@ async def test_2_5_task_transition(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_6_answer_task(bot_client: BotTestClient):
+def test_2_6_answer_task(bot_client: BotTestClient):
     """
     Сценарий 2.6: Ответ на задание
 
@@ -199,7 +194,7 @@ async def test_2_6_answer_task(bot_client: BotTestClient):
     - Бот предлагает бонусный вопрос (опционально)
     - Есть возможность продолжить
     """
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     # Проверяем текущее состояние
     if responses:
@@ -213,8 +208,7 @@ async def test_2_6_answer_task(bot_client: BotTestClient):
 
 
 @pytest.mark.marathon
-@pytest.mark.asyncio
-async def test_2_7_bonus_question(bot_client: BotTestClient):
+def test_2_7_bonus_question(bot_client: BotTestClient):
     """
     Сценарий 2.7: Бонусный вопрос
 
@@ -226,30 +220,29 @@ async def test_2_7_bonus_question(bot_client: BotTestClient):
     - Бот проверяет ответ
     - Оценка соответствует сложности
     """
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_button('Бонус') or r.has_button('Bonus'):
-            clicked = await bot_client.click_button(r, 'Бонус')
+            clicked = run_async(bot_client.click_button(r, 'Бонус'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Bonus')
+                clicked = run_async(bot_client.click_button(r, 'Bonus'))
 
             if clicked:
-                await asyncio.sleep(1)
-                bonus_responses = await bot_client.wait_response(timeout=15)
+                run_async(asyncio.sleep(1))
+                bonus_responses = run_async(bot_client.wait_response(timeout=15))
                 if bonus_responses and bonus_responses[0].has_text('?'):
                     # Отвечаем на бонусный вопрос
-                    await bot_client.send_and_wait(
+                    run_async(bot_client.send_and_wait(
                         "Это мой ответ на бонусный вопрос.",
                         timeout=30
-                    )
+                    ))
             break
 
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_8_complete_day(bot_client: BotTestClient):
+def test_2_8_complete_day(bot_client: BotTestClient):
     """
     Сценарий 2.8: Завершение дня
 
@@ -260,17 +253,17 @@ async def test_2_8_complete_day(bot_client: BotTestClient):
     - Переход к следующему материалу
     - Или сообщение о завершении дня
     """
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_button('Пропустить') or r.has_button('Skip'):
-            clicked = await bot_client.click_button(r, 'Пропустить')
+            clicked = run_async(bot_client.click_button(r, 'Пропустить'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Skip')
+                clicked = run_async(bot_client.click_button(r, 'Skip'))
 
             if clicked:
-                await asyncio.sleep(1)
-                next_responses = await bot_client.wait_response(timeout=10)
+                run_async(asyncio.sleep(1))
+                next_responses = run_async(bot_client.wait_response(timeout=10))
                 # Должен быть переход или завершение
                 if next_responses:
                     assert len(next_responses) >= 1
@@ -278,8 +271,7 @@ async def test_2_8_complete_day(bot_client: BotTestClient):
 
 
 @pytest.mark.marathon
-@pytest.mark.asyncio
-async def test_2_9_request_hint(bot_client: BotTestClient):
+def test_2_9_request_hint(bot_client: BotTestClient):
     """
     Сценарий 2.9: Запрос подсказки
 
@@ -290,7 +282,7 @@ async def test_2_9_request_hint(bot_client: BotTestClient):
     - Бот даёт подсказку
     - Подсказка помогает, но не выдаёт ответ
     """
-    responses = await bot_client.send_and_wait("не знаю, помоги", timeout=20)
+    responses = run_async(bot_client.send_and_wait("не знаю, помоги", timeout=20))
 
     if responses:
         all_text = ' '.join([r.text for r in responses]).lower()
@@ -299,8 +291,7 @@ async def test_2_9_request_hint(bot_client: BotTestClient):
 
 
 @pytest.mark.marathon
-@pytest.mark.asyncio
-async def test_2_10_progress_command(bot_client: BotTestClient):
+def test_2_10_progress_command(bot_client: BotTestClient):
     """
     Сценарий 2.10: Просмотр прогресса
 
@@ -311,7 +302,7 @@ async def test_2_10_progress_command(bot_client: BotTestClient):
     - Показан текущий день Марафона
     - Видно количество пройденных уроков/заданий
     """
-    responses = await bot_client.command_and_wait('/progress', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/progress', timeout=10))
 
     assert len(responses) >= 1, "Бот не ответил на /progress"
 
@@ -329,8 +320,7 @@ async def test_2_10_progress_command(bot_client: BotTestClient):
 
 
 @pytest.mark.marathon
-@pytest.mark.asyncio
-async def test_2_11_marathon_completion(bot_client: BotTestClient):
+def test_2_11_marathon_completion(bot_client: BotTestClient):
     """
     Сценарий 2.11: Завершение Марафона (14 дней)
 
@@ -338,7 +328,7 @@ async def test_2_11_marathon_completion(bot_client: BotTestClient):
     Требует прохождения всей программы.
     """
     # Это длительный тест, проверяем базовое поведение
-    responses = await bot_client.command_and_wait('/learn', timeout=15)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=15))
 
     if responses:
         for r in responses:
@@ -352,8 +342,7 @@ async def test_2_11_marathon_completion(bot_client: BotTestClient):
 
 
 @pytest.mark.marathon
-@pytest.mark.asyncio
-async def test_2_12_no_more_lessons_today(bot_client: BotTestClient):
+def test_2_12_no_more_lessons_today(bot_client: BotTestClient):
     """
     Сценарий 2.12: Уроки на сегодня закончились
 
@@ -366,7 +355,7 @@ async def test_2_12_no_more_lessons_today(bot_client: BotTestClient):
     - Указывает, когда будет следующий
     """
     # Проверяем реакцию на /learn
-    responses = await bot_client.command_and_wait('/learn', timeout=15)
+    responses = run_async(bot_client.command_and_wait('/learn', timeout=15))
 
     if responses:
         for r in responses:
@@ -381,8 +370,7 @@ async def test_2_12_no_more_lessons_today(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_13_user_question(bot_client: BotTestClient):
+def test_2_13_user_question(bot_client: BotTestClient):
     """
     Сценарий 2.13: Вопрос пользователя
 
@@ -393,10 +381,10 @@ async def test_2_13_user_question(bot_client: BotTestClient):
     - Бот распознаёт вопрос
     - Даёт содержательный ответ
     """
-    responses = await bot_client.send_and_wait(
+    responses = run_async(bot_client.send_and_wait(
         "Что такое системное мышление?",
         timeout=30
-    )
+    ))
 
     if responses:
         response = responses[0]
@@ -408,8 +396,7 @@ async def test_2_13_user_question(bot_client: BotTestClient):
 
 
 @pytest.mark.marathon
-@pytest.mark.asyncio
-async def test_2_14_reset_marathon_cancel(bot_client: BotTestClient):
+def test_2_14_reset_marathon_cancel(bot_client: BotTestClient):
     """
     Сценарий 2.14: Отмена сброса марафона
 
@@ -422,17 +409,17 @@ async def test_2_14_reset_marathon_cancel(bot_client: BotTestClient):
     - Прогресс сохранён
     """
     # Отправляем /mode для доступа к настройкам
-    responses = await bot_client.command_and_wait('/mode', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/mode', timeout=10))
 
     for r in responses:
         if r.has_button('Сброс') or r.has_button('Reset'):
-            clicked = await bot_client.click_button(r, 'Сброс')
+            clicked = run_async(bot_client.click_button(r, 'Сброс'))
             if clicked:
-                await asyncio.sleep(1)
-                confirm_responses = await bot_client.wait_response(timeout=5)
+                run_async(asyncio.sleep(1))
+                confirm_responses = run_async(bot_client.wait_response(timeout=5))
                 for cr in confirm_responses:
                     if cr.has_button('Отмена') or cr.has_button('Cancel'):
-                        await bot_client.click_button(cr, 'Отмена')
+                        run_async(bot_client.click_button(cr, 'Отмена'))
                         # Сброс должен быть отменён
                         break
             break
@@ -440,8 +427,7 @@ async def test_2_14_reset_marathon_cancel(bot_client: BotTestClient):
 
 @pytest.mark.marathon
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_2_15_change_complexity(bot_client: BotTestClient):
+def test_2_15_change_complexity(bot_client: BotTestClient):
     """
     Сценарий 2.15: Изменение сложности
 
@@ -453,19 +439,19 @@ async def test_2_15_change_complexity(bot_client: BotTestClient):
     - Новая сложность применена
     - Вопросы соответствуют новому уровню
     """
-    responses = await bot_client.command_and_wait('/update', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/update', timeout=10))
 
     assert len(responses) >= 1, "Бот не ответил на /update"
 
     for r in responses:
         if r.has_button('Сложность') or r.has_button('Complexity'):
-            clicked = await bot_client.click_button(r, 'Сложность')
+            clicked = run_async(bot_client.click_button(r, 'Сложность'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Complexity')
+                clicked = run_async(bot_client.click_button(r, 'Complexity'))
 
             if clicked:
-                await asyncio.sleep(1)
-                complexity_responses = await bot_client.wait_response(timeout=10)
+                run_async(asyncio.sleep(1))
+                complexity_responses = run_async(bot_client.wait_response(timeout=10))
                 # Должны быть варианты сложности
                 if complexity_responses:
                     for cr in complexity_responses:

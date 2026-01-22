@@ -9,15 +9,14 @@ E2E тесты онбординга (Класс 1: Регистрация и о�
 """
 
 import pytest
-import asyncio
 
 from .client import BotTestClient
+from .conftest import run_async
 
 
 @pytest.mark.onboarding
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_1_1_first_start(fresh_client: BotTestClient, assertions):
+def test_1_1_first_start(fresh_client: BotTestClient, assertions):
     """
     Сценарий 1.1: Первый запуск бота
 
@@ -26,7 +25,7 @@ async def test_1_1_first_start(fresh_client: BotTestClient, assertions):
     2. Проверить приветствие
     3. Проверить кнопки выбора языка
     """
-    responses = await fresh_client.command_and_wait('/start', timeout=15)
+    responses = run_async(fresh_client.command_and_wait('/start', timeout=15))
 
     # Должен быть хотя бы один ответ
     assert len(responses) >= 1, "Бот не ответил на /start"
@@ -45,8 +44,7 @@ async def test_1_1_first_start(fresh_client: BotTestClient, assertions):
 
 @pytest.mark.onboarding
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_1_2_language_selection(fresh_client: BotTestClient, assertions):
+def test_1_2_language_selection(fresh_client: BotTestClient, assertions):
     """
     Сценарий 1.2: Выбор языка при регистрации
 
@@ -55,8 +53,10 @@ async def test_1_2_language_selection(fresh_client: BotTestClient, assertions):
     2. Нажать кнопку "Русский"
     3. Проверить переход к следующему шагу
     """
+    import asyncio
+
     # Отправляем /start
-    responses = await fresh_client.command_and_wait('/start', timeout=15)
+    responses = run_async(fresh_client.command_and_wait('/start', timeout=15))
     assert len(responses) >= 1
 
     # Ищем ответ с кнопками языка
@@ -68,14 +68,14 @@ async def test_1_2_language_selection(fresh_client: BotTestClient, assertions):
 
     if lang_response:
         # Нажимаем кнопку русского языка
-        clicked = await fresh_client.click_button(lang_response, 'Русский')
+        clicked = run_async(fresh_client.click_button(lang_response, 'Русский'))
         if not clicked:
-            clicked = await fresh_client.click_button(lang_response, '🇷🇺')
+            clicked = run_async(fresh_client.click_button(lang_response, '🇷🇺'))
 
         if clicked:
-            await asyncio.sleep(1)
+            run_async(asyncio.sleep(1))
             # Ждём следующее сообщение (запрос имени)
-            next_responses = await fresh_client.wait_response(timeout=10)
+            next_responses = run_async(fresh_client.wait_response(timeout=10))
             if next_responses:
                 assert (
                     next_responses[0].has_text('имя') or
@@ -86,8 +86,7 @@ async def test_1_2_language_selection(fresh_client: BotTestClient, assertions):
 
 @pytest.mark.onboarding
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_1_3_name_input(bot_client: BotTestClient, test_user_data):
+def test_1_3_name_input(bot_client: BotTestClient, test_user_data):
     """
     Сценарий 1.3: Ввод имени
 
@@ -97,10 +96,10 @@ async def test_1_3_name_input(bot_client: BotTestClient, test_user_data):
     2. Проверить переход к следующему шагу (занятие)
     """
     # Отправляем имя
-    responses = await bot_client.send_and_wait(
+    responses = run_async(bot_client.send_and_wait(
         test_user_data['name'],
         timeout=10
-    )
+    ))
 
     if responses:
         # Проверяем, что бот запрашивает следующую информацию
@@ -116,8 +115,7 @@ async def test_1_3_name_input(bot_client: BotTestClient, test_user_data):
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_4_occupation_input(bot_client: BotTestClient, test_user_data):
+def test_1_4_occupation_input(bot_client: BotTestClient, test_user_data):
     """
     Сценарий 1.4: Ввод занятия
 
@@ -125,10 +123,10 @@ async def test_1_4_occupation_input(bot_client: BotTestClient, test_user_data):
     1. Отправить занятие
     2. Проверить переход к интересам
     """
-    responses = await bot_client.send_and_wait(
+    responses = run_async(bot_client.send_and_wait(
         test_user_data['occupation'],
         timeout=10
-    )
+    ))
 
     if responses:
         response = responses[0]
@@ -142,8 +140,7 @@ async def test_1_4_occupation_input(bot_client: BotTestClient, test_user_data):
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_5_interests_input(bot_client: BotTestClient, test_user_data):
+def test_1_5_interests_input(bot_client: BotTestClient, test_user_data):
     """
     Сценарий 1.5: Ввод интересов
 
@@ -151,10 +148,10 @@ async def test_1_5_interests_input(bot_client: BotTestClient, test_user_data):
     1. Отправить интересы
     2. Проверить переход к следующему шагу
     """
-    responses = await bot_client.send_and_wait(
+    responses = run_async(bot_client.send_and_wait(
         test_user_data['interests'],
         timeout=10
-    )
+    ))
 
     if responses:
         response = responses[0]
@@ -170,8 +167,7 @@ async def test_1_5_interests_input(bot_client: BotTestClient, test_user_data):
 
 @pytest.mark.onboarding
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_1_6_marathon_mode_selection(bot_client: BotTestClient):
+def test_1_6_marathon_mode_selection(bot_client: BotTestClient):
     """
     Сценарий 1.6: Выбор режима Марафон
 
@@ -180,18 +176,20 @@ async def test_1_6_marathon_mode_selection(bot_client: BotTestClient):
     2. Нажать кнопку "Марафон"
     3. Проверить активацию режима
     """
+    import asyncio
+
     # Получаем текущие сообщения
-    responses = await bot_client.wait_response(timeout=5)
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_button('Марафон') or r.has_button('Marathon'):
-            clicked = await bot_client.click_button(r, 'Марафон')
+            clicked = run_async(bot_client.click_button(r, 'Марафон'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Marathon')
+                clicked = run_async(bot_client.click_button(r, 'Marathon'))
 
             if clicked:
-                await asyncio.sleep(1)
-                next_responses = await bot_client.wait_response(timeout=10)
+                run_async(asyncio.sleep(1))
+                next_responses = run_async(bot_client.wait_response(timeout=10))
                 if next_responses:
                     # Проверяем подтверждение режима
                     assert any(
@@ -205,8 +203,7 @@ async def test_1_6_marathon_mode_selection(bot_client: BotTestClient):
 
 @pytest.mark.onboarding
 @pytest.mark.critical
-@pytest.mark.asyncio
-async def test_1_7_feed_mode_selection(bot_client: BotTestClient):
+def test_1_7_feed_mode_selection(bot_client: BotTestClient):
     """
     Сценарий 1.7: Выбор режима Лента
 
@@ -215,17 +212,19 @@ async def test_1_7_feed_mode_selection(bot_client: BotTestClient):
     2. Нажать кнопку "Лента"
     3. Проверить активацию режима
     """
-    responses = await bot_client.wait_response(timeout=5)
+    import asyncio
+
+    responses = run_async(bot_client.wait_response(timeout=5))
 
     for r in responses:
         if r.has_button('Лента') or r.has_button('Feed'):
-            clicked = await bot_client.click_button(r, 'Лента')
+            clicked = run_async(bot_client.click_button(r, 'Лента'))
             if not clicked:
-                clicked = await bot_client.click_button(r, 'Feed')
+                clicked = run_async(bot_client.click_button(r, 'Feed'))
 
             if clicked:
-                await asyncio.sleep(1)
-                next_responses = await bot_client.wait_response(timeout=10)
+                run_async(asyncio.sleep(1))
+                next_responses = run_async(bot_client.wait_response(timeout=10))
                 if next_responses:
                     # Проверяем подтверждение режима
                     assert any(
@@ -239,8 +238,7 @@ async def test_1_7_feed_mode_selection(bot_client: BotTestClient):
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_8_repeat_start(bot_client: BotTestClient):
+def test_1_8_repeat_start(bot_client: BotTestClient):
     """
     Сценарий 1.8: Повторный /start
 
@@ -249,7 +247,7 @@ async def test_1_8_repeat_start(bot_client: BotTestClient):
     1. Отправить /start
     2. Проверить, что бот помнит пользователя
     """
-    responses = await bot_client.command_and_wait('/start', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/start', timeout=10))
 
     if responses:
         response = responses[0]
@@ -266,8 +264,7 @@ async def test_1_8_repeat_start(bot_client: BotTestClient):
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_9_empty_name(fresh_client: BotTestClient):
+def test_1_9_empty_name(fresh_client: BotTestClient):
     """
     Сценарий 1.9: Ввод пустого имени
 
@@ -277,18 +274,17 @@ async def test_1_9_empty_name(fresh_client: BotTestClient):
     3. Проверить, что бот просит ввести имя снова
     """
     # Отправляем /start чтобы начать онбординг
-    await fresh_client.command_and_wait('/start', timeout=15)
+    run_async(fresh_client.command_and_wait('/start', timeout=15))
 
     # Пытаемся отправить пустое имя
-    responses = await fresh_client.send_and_wait('   ', timeout=10)
+    responses = run_async(fresh_client.send_and_wait('   ', timeout=10))
 
     # Бот должен либо попросить ввести снова, либо проигнорировать
     # (зависит от реализации)
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_10_long_name(bot_client: BotTestClient):
+def test_1_10_long_name(bot_client: BotTestClient):
     """
     Сценарий 1.10: Ввод очень длинного имени
 
@@ -297,15 +293,14 @@ async def test_1_10_long_name(bot_client: BotTestClient):
     2. Проверить, что бот обрезает или просит короче
     """
     long_name = "А" * 150
-    responses = await bot_client.send_and_wait(long_name, timeout=10)
+    responses = run_async(bot_client.send_and_wait(long_name, timeout=10))
 
     # Бот должен принять (обрезав) или попросить короче
     # Главное - не должно быть ошибки
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_11_interrupt_onboarding(fresh_client: BotTestClient):
+def test_1_11_interrupt_onboarding(fresh_client: BotTestClient):
     """
     Сценарий 1.11: Прерывание онбординга
 
@@ -315,14 +310,16 @@ async def test_1_11_interrupt_onboarding(fresh_client: BotTestClient):
     3. Отправить /start снова
     4. Проверить, что состояние сохранено или сброшено
     """
+    import asyncio
+
     # Начинаем онбординг
-    await fresh_client.command_and_wait('/start', timeout=15)
+    run_async(fresh_client.command_and_wait('/start', timeout=15))
 
     # Ждём немного
-    await asyncio.sleep(2)
+    run_async(asyncio.sleep(2))
 
     # Снова отправляем /start
-    responses = await fresh_client.command_and_wait('/start', timeout=10)
+    responses = run_async(fresh_client.command_and_wait('/start', timeout=10))
 
     # Бот должен либо продолжить с того же места,
     # либо начать сначала - главное не падать
@@ -330,15 +327,14 @@ async def test_1_11_interrupt_onboarding(fresh_client: BotTestClient):
 
 
 @pytest.mark.onboarding
-@pytest.mark.asyncio
-async def test_1_12_start_during_onboarding(bot_client: BotTestClient):
+def test_1_12_start_during_onboarding(bot_client: BotTestClient):
     """
     Сценарий 1.12: /start во время онбординга
 
     Проверяет, что /start не ломает текущий процесс
     """
     # Отправляем /start во время любого состояния
-    responses = await bot_client.command_and_wait('/start', timeout=10)
+    responses = run_async(bot_client.command_and_wait('/start', timeout=10))
 
     # Главное - бот должен ответить без ошибок
     assert len(responses) >= 1, "Бот не ответил на /start"
