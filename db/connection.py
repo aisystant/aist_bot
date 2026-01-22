@@ -19,8 +19,12 @@ async def get_pool() -> asyncpg.Pool:
     """Получить пул соединений (создать если не существует)"""
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL)
-        logger.info("✅ Пул соединений создан")
+        try:
+            _pool = await asyncpg.create_pool(DATABASE_URL)
+            logger.info("✅ Пул соединений создан")
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания пула соединений: {e}")
+            raise
     return _pool
 
 
@@ -35,8 +39,12 @@ async def close_pool():
 
 async def acquire():
     """Получить соединение из пула (для использования в async with)"""
-    pool = await get_pool()
-    return pool.acquire()
+    try:
+        pool = await get_pool()
+        return pool.acquire()
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения соединения из пула: {e}")
+        raise
 
 
 # Для обратной совместимости
