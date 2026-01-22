@@ -104,10 +104,11 @@ aist_track_bot/
 │   └── settings.py           # Настройки, константы
 ├── docs/
 │   ├── ontology.md           # ТЕРМИНОЛОГИЯ (источник истины)
-│   ├── 01-основные/          # Основные сценарии (Марафон, Лента)
-│   ├── 02-вспомогательные/   # Вспомогательные (онбординг, режимы и др.)
-│   ├── 03-микро/             # Микро-сценарии (прогресс, профиль и др.)
-│   └── 04-технические/       # Технические (генерация, интент и др.)
+│   └── scenarios/            # Сценарии работы бота
+│       ├── 01-основные/      # Основные сценарии (Марафон, Лента)
+│       ├── 02-вспомогательные/  # Вспомогательные (онбординг, режимы и др.)
+│       ├── 03-микро/         # Микро-сценарии (прогресс, профиль и др.)
+│       └── 04-технические/   # Технические (генерация, интент и др.)
 ├── knowledge_structure.yaml  # Структура тем Марафона
 ├── locales.py                # Переводы интерфейса
 └── CLAUDE.md                 # Этот файл
@@ -165,21 +166,21 @@ aist_track_bot/
 
 | Номер | Путь | Что затрагивает |
 |-------|------|-----------------|
-| 01.01 | `01-основные/scenario-01-01-marathon.md` | `/learn`, ответы на уроки/задания, прогресс Марафона |
-| 01.02 | `01-основные/scenario-01-02-feed.md` | `/feed`, выбор тем, дайджесты, фиксации |
-| 02.01 | `02-вспомогательные/scenario-02-01-onboarding.md` | `/start`, регистрация, FSM онбординга |
-| 02.02 | `02-вспомогательные/scenario-02-02-mode-switch.md` | `/mode`, переключение режимов |
-| 02.03 | `02-вспомогательные/scenario-02-03-profile-update.md` | `/update`, редактирование профиля |
-| 02.04 | `02-вспомогательные/scenario-02-04-consultation.md` | Вопросы пользователя, MCP, qa_history |
-| 02.05 | `02-вспомогательные/scenario-02-05-reminders.md` | Напоминания, scheduler, таблица reminders |
-| 03.01 | `03-микро/scenario-03-01-progress.md` | `/progress`, статистика |
-| 03.02 | `03-микро/scenario-03-02-profile.md` | `/profile`, отображение профиля |
-| 03.03 | `03-микро/scenario-03-03-language.md` | `/language`, смена языка |
-| 03.04 | `03-микро/scenario-03-04-bonus.md` | Бонусные вопросы |
-| 03.05 | `03-микро/scenario-03-05-skip.md` | `/skip`, пропуск тем |
-| 04.01 | `04-технические/scenario-04-01-content-generation.md` | Генерация контента, Claude API, MCP |
-| 04.02 | `04-технические/scenario-04-02-intent-detection.md` | Определение интента |
-| 04.03 | `04-технические/scenario-04-03-activity-tracking.md` | activity_log, streaks |
+| 01.01 | `docs/scenarios/01-основные/scenario-01-01-marathon.md` | `/learn`, ответы на уроки/задания, прогресс Марафона |
+| 01.02 | `docs/scenarios/01-основные/scenario-01-02-feed.md` | `/feed`, выбор тем, дайджесты, фиксации |
+| 02.01 | `docs/scenarios/02-вспомогательные/scenario-02-01-onboarding.md` | `/start`, регистрация, FSM онбординга |
+| 02.02 | `docs/scenarios/02-вспомогательные/scenario-02-02-mode-switch.md` | `/mode`, переключение режимов |
+| 02.03 | `docs/scenarios/02-вспомогательные/scenario-02-03-profile-update.md` | `/update`, редактирование профиля |
+| 02.04 | `docs/scenarios/02-вспомогательные/scenario-02-04-consultation.md` | Вопросы пользователя, MCP, qa_history |
+| 02.05 | `docs/scenarios/02-вспомогательные/scenario-02-05-reminders.md` | Напоминания, scheduler, таблица reminders |
+| 03.01 | `docs/scenarios/03-микро/scenario-03-01-progress.md` | `/progress`, статистика |
+| 03.02 | `docs/scenarios/03-микро/scenario-03-02-profile.md` | `/profile`, отображение профиля |
+| 03.03 | `docs/scenarios/03-микро/scenario-03-03-language.md` | `/language`, смена языка |
+| 03.04 | `docs/scenarios/03-микро/scenario-03-04-bonus.md` | Бонусные вопросы |
+| 03.05 | `docs/scenarios/03-микро/scenario-03-05-skip.md` | `/skip`, пропуск тем |
+| 04.01 | `docs/scenarios/04-технические/scenario-04-01-content-generation.md` | Генерация контента, Claude API, MCP |
+| 04.02 | `docs/scenarios/04-технические/scenario-04-02-intent-detection.md` | Определение интента |
+| 04.03 | `docs/scenarios/04-технические/scenario-04-03-activity-tracking.md` | activity_log, streaks |
 
 ### Что обновлять в сценарии
 
