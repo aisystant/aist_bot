@@ -6,27 +6,29 @@ Pytest fixtures для E2E тестирования AIST Track Bot.
 - TEST_API_HASH: Telegram API Hash
 - TEST_BOT_USERNAME: Username бота для тестирования (например @aist_track_bot)
 - TEST_SESSION: Имя файла сессии (по умолчанию 'e2e_test_session')
-- TEST_DB_URL: URL тестовой БД (опционально, для очистки между тестами)
 
 Первый запуск:
-1. Установить зависимости: pip install telethon nest_asyncio
+1. Установить зависимости: pip install telethon nest_asyncio pytest-asyncio
 2. Создать .env.test с переменными
 3. Запустить: pytest tests/e2e/ -v
 4. При первом запуске ввести номер телефона и код подтверждения
 """
 
 import os
-import asyncio
-from typing import AsyncGenerator
+import sys
 
-import pytest
-
-# nest_asyncio решает проблему с event loop в Telethon + pytest
+# КРИТИЧНО: nest_asyncio должен быть применён ДО любого импорта asyncio
+# Это решает проблему "event loop must not change after connection"
 try:
     import nest_asyncio
     nest_asyncio.apply()
 except ImportError:
-    pass  # Продолжаем без nest_asyncio, но могут быть проблемы
+    print("ERROR: nest_asyncio не установлен!")
+    print("Установите: pip install nest_asyncio")
+    sys.exit(1)
+
+import asyncio
+import pytest
 
 from .client import BotTestClient, BotTest
 
@@ -47,14 +49,56 @@ def _load_test_env():
 _load_test_env()
 
 
-# Глобальный клиент для всех тестов
+# Глобальные переменные для singleton клиента
 _bot_client: BotTestClient = None
 _client_started = False
+_session_loop: asyncio.AbstractEventLoop = None
+
+
+def pytest_configure(config):
+    """Регистрация маркеров и ранняя инициализация"""
+    # Применяем nest_asyncio ещё раз на всякий случай
+    try:
+        import nest_asyncio
+        nest_asyncio.apply()
+    except ImportError:
+        pass
+
+    config.addinivalue_line("markers", "onboarding: тесты онбординга (1.x)")
+    config.addinivalue_line("markers", "marathon: тесты Марафона (2.x)")
+    config.addinivalue_line("markers", "feed: тесты Ленты (3.x)")
+    config.addinivalue_line("markers", "modes: тесты переключения режимов (4.x)")
+    config.addinivalue_line("markers", "settings: тесты настроек (5.x)")
+    config.addinivalue_line("markers", "language: тесты языка (6.x)")
+    config.addinivalue_line("markers", "commands: тесты команд (7.x)")
+    config.addinivalue_line("markers", "edge_cases: граничные случаи (8.x)")
+    config.addinivalue_line("markers", "slow: медленные тесты (требуют генерации AI)")
+    config.addinivalue_line("markers", "critical: критические сценарии")
+
+
+def get_session_loop() -> asyncio.AbstractEventLoop:
+    """Получает или создаёт единый event loop для сессии"""
+    global _session_loop
+    if _session_loop is None:
+        try:
+            _session_loop = asyncio.get_event_loop()
+        except RuntimeError:
+            _session_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_session_loop)
+    return _session_loop
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Единый event loop для всей сессии тестов"""
+    loop = get_session_loop()
+    yield loop
+    # Не закрываем - nest_asyncio может использовать
 
 
 def get_or_create_client() -> BotTestClient:
     """Получает или создаёт глобальный клиент"""
-    global _bot_client, _client_started
+    global _bot_client
 
     if _bot_client is None:
         _bot_client = BotTestClient(
@@ -66,61 +110,40 @@ def get_or_create_client() -> BotTestClient:
     return _bot_client
 
 
-async def ensure_client_started() -> BotTestClient:
-    """Убеждается, что клиент запущен"""
+def start_client_sync():
+    """Синхронно запускает клиент в session loop"""
     global _client_started
+
+    if _client_started:
+        return
 
     client = get_or_create_client()
 
-    if not _client_started:
-        # Проверяем конфигурацию
-        if not client.api_id or not client.api_hash:
-            pytest.skip("TEST_API_ID и TEST_API_HASH не настроены")
+    # Проверяем конфигурацию
+    if not client.api_id or not client.api_hash:
+        pytest.skip("TEST_API_ID и TEST_API_HASH не настроены")
 
-        if not client.bot_username:
-            pytest.skip("TEST_BOT_USERNAME не настроен")
+    if not client.bot_username:
+        pytest.skip("TEST_BOT_USERNAME не настроен")
 
-        await client.start()
-        _client_started = True
-
-    return client
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Создаёт единый event loop для всей сессии"""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-
-    asyncio.set_event_loop(loop)
-    yield loop
-    # Не закрываем loop, так как nest_asyncio может его использовать
+    loop = get_session_loop()
+    loop.run_until_complete(client.start())
+    _client_started = True
 
 
 @pytest.fixture(scope="session")
 def bot_client(event_loop) -> BotTestClient:
     """
     Фикстура клиента бота на всю сессию тестов.
-    Синхронная обёртка, клиент стартует при первом использовании.
+    Клиент запускается синхронно в session loop.
     """
+    start_client_sync()
     return get_or_create_client()
-
-
-@pytest.fixture(autouse=True)
-async def ensure_connected(bot_client):
-    """Автоматически убеждается, что клиент подключен перед каждым тестом"""
-    await ensure_client_started()
-    yield
 
 
 @pytest.fixture
 async def fresh_client(bot_client: BotTestClient) -> BotTestClient:
-    """
-    Фикстура для чистого теста - очищает чат перед каждым тестом.
-    """
-    await ensure_client_started()
+    """Фикстура для чистого теста - очищает чат"""
     await bot_client.clear_chat()
     await asyncio.sleep(0.5)
     return bot_client
@@ -135,39 +158,19 @@ def test_user_data():
         'interests': 'Автоматизация, Python, AI',
         'motivation': 'Хочу научиться системному мышлению',
         'goals': 'Стать лучшим специалистом',
-        'study_duration': '15',  # минут
+        'study_duration': '15',
     }
 
 
-# Cleanup при завершении сессии
 def pytest_sessionfinish(session, exitstatus):
     """Очистка при завершении сессии тестов"""
-    global _bot_client, _client_started
+    global _bot_client, _client_started, _session_loop
 
-    if _bot_client and _client_started:
+    if _bot_client and _client_started and _session_loop:
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(_bot_client.stop())
-            else:
-                loop.run_until_complete(_bot_client.stop())
+            _session_loop.run_until_complete(_bot_client.stop())
         except Exception:
             pass
-
-
-# Маркеры для категоризации тестов
-def pytest_configure(config):
-    """Регистрация маркеров"""
-    config.addinivalue_line("markers", "onboarding: тесты онбординга (1.x)")
-    config.addinivalue_line("markers", "marathon: тесты Марафона (2.x)")
-    config.addinivalue_line("markers", "feed: тесты Ленты (3.x)")
-    config.addinivalue_line("markers", "modes: тесты переключения режимов (4.x)")
-    config.addinivalue_line("markers", "settings: тесты настроек (5.x)")
-    config.addinivalue_line("markers", "language: тесты языка (6.x)")
-    config.addinivalue_line("markers", "commands: тесты команд (7.x)")
-    config.addinivalue_line("markers", "edge_cases: граничные случаи (8.x)")
-    config.addinivalue_line("markers", "slow: медленные тесты (требуют генерации AI)")
-    config.addinivalue_line("markers", "critical: критические сценарии")
 
 
 # Хелперы для тестов
