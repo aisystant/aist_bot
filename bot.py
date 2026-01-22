@@ -3055,6 +3055,7 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
 async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
     """Отправка теоретической темы"""
     marathon_day = get_marathon_day(intern)
+    topic_day = topic.get('day', marathon_day)
     lang = intern.get('language', 'ru')
     bloom_level = intern['bloom_level']
 
@@ -3065,8 +3066,9 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
     content = await claude.generate_content(topic, intern, marathon_day=marathon_day, mcp_client=mcp_guides, knowledge_client=mcp_knowledge)
     question = await claude.generate_question(topic, intern, marathon_day=marathon_day)
 
+    # Используем день из темы, а не текущий день марафона
     header = (
-        f"📚 *{t('marathon.day_theory', lang, day=marathon_day)}*\n"
+        f"📚 *{t('marathon.day_theory', lang, day=topic_day)}*\n"
         f"*{topic['title']}*\n"
         f"⏱ {t('marathon.minutes', lang, minutes=intern['study_duration'])}\n\n"
     )
@@ -3099,6 +3101,7 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
 async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
     """Отправка практической темы"""
     marathon_day = get_marathon_day(intern)
+    topic_day = topic.get('day', marathon_day)
     lang = intern.get('language', 'ru')
 
     # Показываем, что бот работает
@@ -3116,8 +3119,9 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
     if examples:
         examples_text = f"\n*{t('marathon.wp_examples', lang)}:*\n" + "\n".join([f"• {ex}" for ex in examples])
 
+    # Используем день из темы, а не текущий день марафона
     header = (
-        f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n"
+        f"✏️ *{t('marathon.day_practice', lang, day=topic_day)}*\n"
         f"*{topic['title']}*\n\n"
     )
 
