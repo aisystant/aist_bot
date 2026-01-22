@@ -1956,7 +1956,7 @@ async def show_full_progress(callback: CallbackQuery):
 
         name = intern.get('name', 'Пользователь')
         text = f"📊 *Полный отчёт с {date_str}: {name}*\n\n"
-        text += f"Активных дней: {total_active} из {marathon_day}\n\n"
+        text += f"Активных дней (Марафон+Лента): {total_active} из {days_since}\n\n"
 
         # Марафон
         text += f"🏃 *Марафон*\n"
