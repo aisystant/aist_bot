@@ -1844,7 +1844,17 @@ async def cmd_progress(message: Message):
     text += f"Темы: {feed_topics_text}"
 
     # Кнопки
+    from config import Mode
+    current_mode = intern.get('mode', Mode.MARATHON)
+
+    # Кнопка продолжения зависит от режима
+    if current_mode == Mode.FEED:
+        continue_btn = InlineKeyboardButton(text="📖 Получить дайджест", callback_data="feed_get_digest")
+    else:
+        continue_btn = InlineKeyboardButton(text="📚 Продолжить обучение", callback_data="learn")
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [continue_btn],
         [
             InlineKeyboardButton(text="📊 Полный отчёт", callback_data="progress_full"),
             InlineKeyboardButton(text="⚙️ Настройки", callback_data="go_update")
@@ -1896,7 +1906,7 @@ async def show_full_progress(callback: CallbackQuery):
 
         # Прогресс по неделям
         weeks = get_sections_progress(intern.get('completed_topics', []))
-        weeks_text = ""
+        weeks_text = "*Недели:*\n"
         for i, week in enumerate(weeks):
             w_pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
             w_filled = max(1, w_pct // 10) if w_pct > 0 else 0
@@ -1916,7 +1926,7 @@ async def show_full_progress(callback: CallbackQuery):
 
         name = intern.get('name', 'Пользователь')
         text = f"📊 *Полный отчёт с {date_str}: {name}*\n\n"
-        text += f"Активных дней: {total_active} из {days_since}\n\n"
+        text += f"Активных дней: {total_active} из {marathon_day}\n\n"
 
         # Марафон
         text += f"🏃 *Марафон*\n"
@@ -1928,9 +1938,24 @@ async def show_full_progress(callback: CallbackQuery):
         # Лента
         text += f"📚 *Лента*\n"
         text += f"Дайджестов: {total_stats.get('total_digests', 0)}. Фиксаций: {total_stats.get('total_fixations', 0)}\n"
-        text += f"Темы: {feed_topics_text}"
+        text += f"Темы: {feed_topics_text}\n\n"
+
+        # Подсказка о пропущенных днях
+        missed_days = marathon_day - total_active
+        if missed_days > 0 and done < total:
+            text += f"⚠️ _Пропущено дней: {missed_days}. Продолжите обучение, чтобы наверстать!_"
+
+        # Кнопки
+        from config import Mode
+        current_mode = intern.get('mode', Mode.MARATHON)
+
+        if current_mode == Mode.FEED:
+            continue_btn = InlineKeyboardButton(text="📖 Получить дайджест", callback_data="feed_get_digest")
+        else:
+            continue_btn = InlineKeyboardButton(text="📚 Продолжить обучение", callback_data="learn")
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [continue_btn],
             [InlineKeyboardButton(text="« Назад", callback_data="progress_back")]
         ])
 
@@ -1971,6 +1996,14 @@ async def go_to_update(callback: CallbackQuery):
     await callback.message.delete()
     await callback.message.answer("/update — настройки профиля")
 
+
+@router.callback_query(F.data == "go_progress")
+async def go_to_progress(callback: CallbackQuery):
+    """Переход к прогрессу"""
+    await callback.answer()
+    await cmd_progress(callback.message)
+
+
 @router.message(Command("profile"))
 async def cmd_profile(message: Message):
     intern = await get_intern(message.chat.id)
@@ -2010,12 +2043,20 @@ async def cmd_help(message: Message):
 
     await message.answer(
         f"📖 *{t('help.title', lang)}:*\n\n"
+        f"*{t('help.modes_title', lang)}:*\n"
+        f"📚 *{t('help.marathon', lang)}* — {t('help.marathon_desc', lang)}\n"
+        f"🌊 *{t('help.feed', lang)}* — {t('help.feed_desc', lang)}\n\n"
+        f"*{t('help.commands_title', lang)}:*\n"
         f"{t('commands.learn', lang)}\n"
+        f"/feed — {t('help.feed_cmd', lang)}\n"
         f"/mode — {t('menu.mode', lang)}\n"
         f"{t('commands.progress', lang)}\n"
         f"{t('commands.profile', lang)}\n"
         f"{t('commands.update', lang)}\n"
         f"{t('commands.language', lang)}\n\n"
+        f"*{t('help.questions_title', lang)}:*\n"
+        f"{t('help.questions_hint', lang)}\n"
+        f"_{t('help.questions_example', lang)}_\n\n"
         f"*{t('help.how_it_works', lang)}:*\n"
         f"{t('help.step1', lang)}\n"
         f"{t('help.step2', lang)}\n"
@@ -2407,6 +2448,8 @@ async def on_save_schedule(message: Message, state: FSMContext):
 async def on_answer(message: Message, state: FSMContext, bot: Bot):
     chat_id = message.chat.id
     text = message.text or ''
+    current_state = await state.get_state()
+    logger.info(f"[on_answer] ВЫЗВАН для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
@@ -2435,6 +2478,9 @@ async def on_answer(message: Message, state: FSMContext, bot: Bot):
                 logger.error(f"Ошибка при обработке вопроса: {e}")
                 await progress_msg.delete()
                 await message.answer(t('errors.try_again', lang))
+            # Проверяем, что состояние сохранилось
+            final_state = await state.get_state()
+            logger.info(f"[on_answer] После обработки вопроса, state={final_state} для chat_id={chat_id}")
             return  # Остаёмся в состоянии waiting_for_answer
 
     if len(text.strip()) < 20:
@@ -2742,7 +2788,10 @@ async def on_skip_topic(callback: CallbackQuery, state: FSMContext):
 async def on_work_product(message: Message, state: FSMContext):
     """Обработка отправки рабочего продукта"""
     text = message.text or ''
-    intern = await get_intern(message.chat.id)
+    chat_id = message.chat.id
+    current_state = await state.get_state()
+    logger.info(f"[on_work_product] ВЫЗВАН для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
+    intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
     # Проверяем, это вопрос к ИИ (начинается с ?)
@@ -2804,22 +2853,28 @@ async def on_work_product(message: Message, state: FSMContext):
 
     if day_completed >= len(day_topics):
         # День полностью завершён
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Посмотреть прогресс", callback_data="go_progress")]
+        ])
         await message.answer(
             f"🎉 *День {marathon_day} завершён!*\n\n"
             f"✅ Теория пройдена\n"
             f"✅ Практика выполнена\n"
             f"📝 РП: {text.strip()}\n\n"
             f"{progress_bar(done, total)}\n\n"
-            f"Отличная работа! Возвращайтесь завтра за новыми темами.\n\n"
-            f"/progress — посмотреть прогресс",
+            f"Отличная работа! Возвращайтесь завтра за новыми темами.",
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
     else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📚 Следующая тема", callback_data="learn")]
+        ])
         await message.answer(
             f"✅ *Практика засчитана!*\n\n"
             f"📝 РП: {text.strip()}\n\n"
-            f"{progress_bar(done, total)}\n\n"
-            f"/learn — следующая тема",
+            f"{progress_bar(done, total)}",
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
 
@@ -2994,6 +3049,10 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
     else:
         await bot.send_message(chat_id, full, parse_mode="Markdown")
 
+    # ВАЖНО: Устанавливаем состояние ДО отправки сообщения
+    # чтобы избежать гонки, когда пользователь отвечает быстрее, чем сохраняется состояние
+    await state.set_state(LearningStates.waiting_for_answer)
+
     # Вопрос отдельным сообщением с подсказкой о состоянии
     await bot.send_message(
         chat_id,
@@ -3005,8 +3064,6 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
         parse_mode="Markdown",
         reply_markup=kb_skip_topic(lang)
     )
-
-    await state.set_state(LearningStates.waiting_for_answer)
 
 
 async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
@@ -3046,6 +3103,10 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
     else:
         await bot.send_message(chat_id, full, parse_mode="Markdown")
 
+    # ВАЖНО: Устанавливаем состояние ДО отправки сообщения
+    # чтобы избежать гонки, когда пользователь отвечает быстрее, чем сохраняется состояние
+    await state.set_state(LearningStates.waiting_for_work_product)
+
     # Запрос рабочего продукта с подсказкой о состоянии
     await bot.send_message(
         chat_id,
@@ -3058,8 +3119,6 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
         parse_mode="Markdown",
         reply_markup=kb_submit_work_product(lang)
     )
-
-    await state.set_state(LearningStates.waiting_for_work_product)
 
 # ============= ПЛАНИРОВЩИК =============
 
@@ -3245,6 +3304,7 @@ async def scheduled_check():
     if chat_ids:
         logger.info(f"[Scheduler] {time_str} MSK — найдено {len(chat_ids)} пользователей для отправки")
         bot = Bot(token=BOT_TOKEN)
+        await bot.get_me()  # Инициализируем bot.id для FSMContext
         for chat_id in chat_ids:
             try:
                 await send_scheduled_topic(chat_id, bot)
@@ -3284,183 +3344,41 @@ async def on_unknown_message(message: Message, state: FSMContext):
     chat_id = message.chat.id
     logger.info(f"[UNKNOWN] on_unknown_message вызван для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
 
-    # Если пользователь в каком-то состоянии — пытаемся обработать
+    # Если пользователь в каком-то состоянии — пробуем обработать вручную
     if current_state:
-        logger.warning(f"Unhandled message in state {current_state} from user {chat_id}: {text[:50] if text else '[no text]'}")
+        logger.warning(f"[UNKNOWN] Message in state {current_state} reached fallback. Attempting manual routing for chat_id={chat_id}")
 
-        intern = await get_intern(chat_id)
-        if not intern:
-            await message.answer("Профиль не найден. Используйте /start")
+        # Маршрутизируем на существующие хэндлеры
+        if current_state == LearningStates.waiting_for_answer.state:
+            logger.info(f"[UNKNOWN] Routing to on_answer for chat_id={chat_id}")
+            await on_answer(message, state, message.bot)
             return
-
-        lang = intern.get('language', 'ru') or 'ru'
-
-        # Проверяем, это вопрос к ИИ (начинается с ?)
-        if text.strip().startswith('?'):
-            question_text = text.strip()[1:].strip()
-            if question_text:
-                progress_msg = await message.answer(t('loading.progress.analyzing', lang))
-                try:
-                    answer, sources = await handle_question(
-                        question=question_text,
-                        intern=intern,
-                        context_topic=get_topic(intern.get('current_topic_index', 0)),
-                        progress_callback=None
-                    )
-                    response = answer
-                    if sources:
-                        response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
-                    await progress_msg.delete()
-
-                    # Напоминаем что ждём от пользователя
-                    if 'waiting_for_answer' in current_state:
-                        response += f"\n\n💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}"
-                    elif 'waiting_for_work_product' in current_state:
-                        response += f"\n\n💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}"
-                    elif 'waiting_for_bonus_answer' in current_state:
-                        response += f"\n\n💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}"
-
-                    await message.answer(response, parse_mode="Markdown")
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке вопроса: {e}")
-                    await progress_msg.delete()
-                    await message.answer(t('errors.try_again', lang))
-                return
-
-        # Обработка ответов на урок когда хэндлер on_answer не сработал
-        if 'waiting_for_answer' in current_state or 'waiting_for_bonus_answer' in current_state:
-            if text and not text.startswith('/') and len(text.strip()) >= 20:
-                # Принимаем как ответ на теорию
-                topic_index = intern.get('current_topic_index', 0)
-                is_bonus = 'bonus' in current_state
-
-                logger.info(f"[Fallback-State] Accepting answer in state {current_state} for user {chat_id}")
-
-                # Сохраняем ответ
-                prefix = "[BONUS][fallback-state]" if is_bonus else "[fallback-state]"
-                await save_answer(chat_id, topic_index, f"{prefix} {text.strip()}")
-
-                # Обновляем прогресс
-                completed = intern['completed_topics'] + [topic_index]
-                topics_at_bloom = intern['topics_at_current_bloom'] + 1
-                bloom_level = intern['bloom_level']
-
-                level_upgraded = False
-                if topics_at_bloom >= BLOOM_AUTO_UPGRADE_AFTER and bloom_level < 3:
-                    bloom_level += 1
-                    topics_at_bloom = 0
-                    level_upgraded = True
-
-                today = moscow_today()
-                topics_today = get_topics_today(intern) + 1
-
-                await update_intern(
-                    chat_id,
-                    completed_topics=completed,
-                    current_topic_index=topic_index + 1,
-                    bloom_level=bloom_level,
-                    topics_at_current_bloom=topics_at_bloom,
-                    topics_today=topics_today,
-                    last_topic_date=today
-                )
-
-                # Очищаем FSM состояние
-                await state.clear()
-
-                done = len(completed)
-                total = get_total_topics()
-
-                upgrade_msg = ""
-                if level_upgraded:
-                    upgrade_msg = f"\n\n🎉 *{t('marathon.level_up', lang)}* *{t(f'bloom.level_{bloom_level}_short', lang)}*!"
-
-                # Проверяем практику
-                updated_intern = {**intern, 'completed_topics': completed}
-                practice = has_pending_practice(updated_intern)
-
-                if practice and not is_bonus:
-                    practice_index, practice_topic = practice
-                    await message.answer(
-                        f"✅ *{t('marathon.topic_completed', lang)}*{upgrade_msg}\n\n"
-                        f"{progress_bar(done, total)}\n\n"
-                        f"⏳ {t('marathon.loading_practice', lang)}",
-                        parse_mode="Markdown"
-                    )
-                    await update_intern(chat_id, current_topic_index=practice_index)
-                    await state.set_state(LearningStates.waiting_for_work_product)
-                    await message.answer(
-                        f"📝 *{t('marathon.task', lang)}:* {practice_topic['title']}\n\n"
-                        f"_{practice_topic.get('description', '')}_ \n\n"
-                        f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}\n"
-                        f"_{t('marathon.question_hint', lang)}_",
-                        parse_mode="Markdown",
-                        reply_markup=kb_submit_work_product(lang)
-                    )
-                else:
-                    await message.answer(
-                        f"✅ *{t('marathon.topic_completed', lang)}*{upgrade_msg}\n\n"
-                        f"{progress_bar(done, total)}\n\n"
-                        f"✅ {t('marathon.day_complete', lang)}",
-                        parse_mode="Markdown"
-                    )
-                return
-            else:
-                # Слишком короткий ответ
-                await message.answer("Напишите подробнее (хотя бы 2-3 предложения)")
-                return
-
-        # Обработка рабочего продукта когда хэндлер on_work_product не сработал
-        if 'waiting_for_work_product' in current_state:
-            if text and not text.startswith('/') and len(text.strip()) >= 3:
-                topic_index = intern.get('current_topic_index', 0)
-
-                logger.info(f"[Fallback-State] Accepting work product in state {current_state} for user {chat_id}")
-
-                # Сохраняем рабочий продукт
-                await save_answer(chat_id, topic_index, f"[РП][fallback-state] {text.strip()}")
-
-                # Обновляем прогресс
-                completed = intern['completed_topics'] + [topic_index]
-                today = moscow_today()
-                topics_today = get_topics_today(intern) + 1
-
-                await update_intern(
-                    chat_id,
-                    completed_topics=completed,
-                    current_topic_index=topic_index + 1,
-                    topics_today=topics_today,
-                    last_topic_date=today
-                )
-
-                # Очищаем FSM состояние
-                await state.clear()
-
-                done = len(completed)
-                total = get_total_topics()
-
-                await message.answer(
-                    f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
-                    f"📝 РП: {text.strip()[:100]}{'...' if len(text.strip()) > 100 else ''}\n\n"
-                    f"{progress_bar(done, total)}\n\n"
-                    f"✅ {t('marathon.day_complete', lang)}",
-                    parse_mode="Markdown"
-                )
-                return
-            else:
-                await message.answer("Напишите хотя бы название рабочего продукта (например: «Список в заметках»)")
-                return
+        elif current_state == LearningStates.waiting_for_work_product.state:
+            logger.info(f"[UNKNOWN] Routing to on_work_product for chat_id={chat_id}")
+            await on_work_product(message, state)
+            return
+        elif current_state == LearningStates.waiting_for_bonus_answer.state:
+            logger.info(f"[UNKNOWN] Routing to on_bonus_answer for chat_id={chat_id}")
+            await on_bonus_answer(message, state, message.bot)
+            return
 
         # Для других состояний — показываем подсказку
         if 'OnboardingStates' in current_state:
             await message.answer("Пожалуйста, завершите регистрацию или используйте /start для начала заново")
+            return
         elif 'UpdateStates' in current_state:
             await message.answer("Пожалуйста, завершите обновление профиля или используйте /update для начала заново")
-        else:
-            await message.answer(
-                f"{t('commands.learn', lang)}\n"
-                f"{t('commands.progress', lang)}\n"
-                f"{t('commands.help', lang)}"
-            )
+            return
+
+        # Неизвестное состояние — показываем команды
+        logger.warning(f"[UNKNOWN] Unknown state {current_state} for chat_id={chat_id}")
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(
+            f"{t('commands.learn', lang)}\n"
+            f"{t('commands.progress', lang)}\n"
+            f"{t('commands.help', lang)}"
+        )
         return
 
     # Пользователь не в FSM-состоянии

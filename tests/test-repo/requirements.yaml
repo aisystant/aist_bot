@@ -1,6 +1,6 @@
 # ТЗ для проверки соответствия кода сценариям
 # ============================================
-# Этот файл определяет маппинг между сценариями из docs/testing-scenarios.md
+# Этот файл определяет маппинг между сценариями из tests/test-manual/testing-scenarios.md
 # и элементами кода, которые их реализуют.
 #
 # Структура:
@@ -14,7 +14,7 @@
 #       - pattern: regex паттерн (опционально)
 
 version: "1.0"
-generated_from: "docs/testing-scenarios.md"
+generated_from: "tests/test-manual/testing-scenarios.md"
 
 # Веса для расчёта покрытия
 weights:

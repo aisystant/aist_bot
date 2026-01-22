@@ -71,6 +71,7 @@ TRANSLATIONS = {
         'buttons.start_today': '🚀 Начать сегодня',
         'buttons.start_tomorrow': '📅 Завтра',
         'buttons.start_day_after': '📅 Послезавтра',
+        'buttons.continue_learning': 'Продолжить обучение',
 
         # Кнопки профиля
         'buttons.name': 'Имя',
@@ -170,7 +171,17 @@ TRANSLATIONS = {
         'update.difficulty_changed': 'Сложность изменена',
 
         # Справка
-        'help.title': 'Основные команды',
+        'help.title': 'Справка',
+        'help.modes_title': 'Режимы обучения',
+        'help.marathon': 'Марафон',
+        'help.marathon_desc': '14-дневная программа (урок + задание)',
+        'help.feed': 'Лента',
+        'help.feed_desc': 'гибкое изучение по темам',
+        'help.commands_title': 'Команды',
+        'help.feed_cmd': 'получить дайджест (Лента)',
+        'help.questions_title': 'Вопросы к ИИ',
+        'help.questions_hint': 'Начните сообщение с ? чтобы задать вопрос',
+        'help.questions_example': 'Пример: ?Что такое собранность?',
         'help.how_it_works': 'Как работает обучение',
         'help.step1': '1. Я отправляю персонализированный материал',
         'help.step2': '2. Вы изучаете его (5-25 мин)',
@@ -327,6 +338,7 @@ TRANSLATIONS = {
         'buttons.start_today': '🚀 Start today',
         'buttons.start_tomorrow': '📅 Tomorrow',
         'buttons.start_day_after': '📅 Day after',
+        'buttons.continue_learning': 'Continue learning',
 
         # Profile buttons
         'buttons.name': 'Name',
@@ -426,7 +438,17 @@ TRANSLATIONS = {
         'update.difficulty_changed': 'Difficulty changed',
 
         # Help
-        'help.title': 'Main commands',
+        'help.title': 'Help',
+        'help.modes_title': 'Learning modes',
+        'help.marathon': 'Marathon',
+        'help.marathon_desc': '14-day program (lesson + task)',
+        'help.feed': 'Feed',
+        'help.feed_desc': 'flexible topic-based learning',
+        'help.commands_title': 'Commands',
+        'help.feed_cmd': 'get digest (Feed)',
+        'help.questions_title': 'AI Questions',
+        'help.questions_hint': 'Start your message with ? to ask a question',
+        'help.questions_example': 'Example: ?What is self-discipline?',
         'help.how_it_works': 'How learning works',
         'help.step1': '1. I send personalized material',
         'help.step2': '2. You study it (5-25 min)',
@@ -583,6 +605,7 @@ TRANSLATIONS = {
         'buttons.start_today': '🚀 Empezar hoy',
         'buttons.start_tomorrow': '📅 Mañana',
         'buttons.start_day_after': '📅 Pasado mañana',
+        'buttons.continue_learning': 'Continuar aprendiendo',
 
         # Botones de perfil
         'buttons.name': 'Nombre',
@@ -682,7 +705,17 @@ TRANSLATIONS = {
         'update.difficulty_changed': 'Dificultad cambiada',
 
         # Ayuda
-        'help.title': 'Comandos principales',
+        'help.title': 'Ayuda',
+        'help.modes_title': 'Modos de aprendizaje',
+        'help.marathon': 'Maratón',
+        'help.marathon_desc': 'programa de 14 días (lección + tarea)',
+        'help.feed': 'Feed',
+        'help.feed_desc': 'aprendizaje flexible por temas',
+        'help.commands_title': 'Comandos',
+        'help.feed_cmd': 'obtener resumen (Feed)',
+        'help.questions_title': 'Preguntas a la IA',
+        'help.questions_hint': 'Comienza tu mensaje con ? para hacer una pregunta',
+        'help.questions_example': 'Ejemplo: ?¿Qué es la autodisciplina?',
         'help.how_it_works': 'Cómo funciona el aprendizaje',
         'help.step1': '1. Envío material personalizado',
         'help.step2': '2. Lo estudias (5-25 min)',
