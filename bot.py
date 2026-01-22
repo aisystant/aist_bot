@@ -3297,6 +3297,7 @@ async def scheduled_check():
     if chat_ids:
         logger.info(f"[Scheduler] {time_str} MSK — найдено {len(chat_ids)} пользователей для отправки")
         bot = Bot(token=BOT_TOKEN)
+        await bot.get_me()  # Инициализируем bot.id для FSMContext
         for chat_id in chat_ids:
             try:
                 await send_scheduled_topic(chat_id, bot)
