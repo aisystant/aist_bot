@@ -9,7 +9,7 @@ Pytest fixtures для E2E тестирования AIST Track Bot.
 - TEST_DB_URL: URL тестовой БД (опционально, для очистки между тестами)
 
 Первый запуск:
-1. Установить telethon: pip install telethon
+1. Установить зависимости: pip install telethon nest_asyncio
 2. Создать .env.test с переменными
 3. Запустить: pytest tests/e2e/ -v
 4. При первом запуске ввести номер телефона и код подтверждения
@@ -20,7 +20,13 @@ import asyncio
 from typing import AsyncGenerator
 
 import pytest
-import pytest_asyncio
+
+# nest_asyncio решает проблему с event loop в Telethon + pytest
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except ImportError:
+    pass  # Продолжаем без nest_asyncio, но могут быть проблемы
 
 from .client import BotTestClient, BotTest
 
@@ -41,68 +47,82 @@ def _load_test_env():
 _load_test_env()
 
 
-# Конфигурация pytest-asyncio для использования одного event loop на всю сессию
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    """Возвращает политику event loop"""
-    return asyncio.DefaultEventLoopPolicy()
+# Глобальный клиент для всех тестов
+_bot_client: BotTestClient = None
+_client_started = False
+
+
+def get_or_create_client() -> BotTestClient:
+    """Получает или создаёт глобальный клиент"""
+    global _bot_client, _client_started
+
+    if _bot_client is None:
+        _bot_client = BotTestClient(
+            api_id=int(os.getenv("TEST_API_ID", "0")),
+            api_hash=os.getenv("TEST_API_HASH", ""),
+            session_name=os.getenv("TEST_SESSION", "e2e_test_session"),
+            bot_username=os.getenv("TEST_BOT_USERNAME", ""),
+        )
+    return _bot_client
+
+
+async def ensure_client_started() -> BotTestClient:
+    """Убеждается, что клиент запущен"""
+    global _client_started
+
+    client = get_or_create_client()
+
+    if not _client_started:
+        # Проверяем конфигурацию
+        if not client.api_id or not client.api_hash:
+            pytest.skip("TEST_API_ID и TEST_API_HASH не настроены")
+
+        if not client.bot_username:
+            pytest.skip("TEST_BOT_USERNAME не настроен")
+
+        await client.start()
+        _client_started = True
+
+    return client
 
 
 @pytest.fixture(scope="session")
-def event_loop(event_loop_policy):
-    """Создаёт единый event loop для всей сессии тестов.
+def event_loop():
+    """Создаёт единый event loop для всей сессии"""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
 
-    Это критически важно для Telethon, который требует один и тот же
-    event loop на протяжении всего соединения.
-    """
-    loop = event_loop_policy.new_event_loop()
     asyncio.set_event_loop(loop)
     yield loop
-    loop.close()
+    # Не закрываем loop, так как nest_asyncio может его использовать
 
 
-@pytest_asyncio.fixture(scope="session", loop_scope="session")
-async def bot_client(event_loop) -> AsyncGenerator[BotTestClient, None]:
+@pytest.fixture(scope="session")
+def bot_client(event_loop) -> BotTestClient:
     """
     Фикстура клиента бота на всю сессию тестов.
-
-    Использование:
-        async def test_something(bot_client):
-            responses = await bot_client.command_and_wait('/start')
-            assert responses[0].has_text('Привет')
+    Синхронная обёртка, клиент стартует при первом использовании.
     """
-    client = BotTestClient(
-        api_id=int(os.getenv("TEST_API_ID", "0")),
-        api_hash=os.getenv("TEST_API_HASH", ""),
-        session_name=os.getenv("TEST_SESSION", "e2e_test_session"),
-        bot_username=os.getenv("TEST_BOT_USERNAME", ""),
-        loop=event_loop,  # Передаём event loop явно
-    )
-
-    # Проверяем конфигурацию
-    if not client.api_id or not client.api_hash:
-        pytest.skip("TEST_API_ID и TEST_API_HASH не настроены")
-
-    if not client.bot_username:
-        pytest.skip("TEST_BOT_USERNAME не настроен")
-
-    await client.start()
-    yield client
-    await client.stop()
+    return get_or_create_client()
 
 
-@pytest_asyncio.fixture(loop_scope="session")
+@pytest.fixture(autouse=True)
+async def ensure_connected(bot_client):
+    """Автоматически убеждается, что клиент подключен перед каждым тестом"""
+    await ensure_client_started()
+    yield
+
+
+@pytest.fixture
 async def fresh_client(bot_client: BotTestClient) -> BotTestClient:
     """
     Фикстура для чистого теста - очищает чат перед каждым тестом.
-
-    Использование:
-        async def test_clean_start(fresh_client):
-            # Чат очищен, можно тестировать с нуля
-            responses = await fresh_client.command_and_wait('/start')
     """
+    await ensure_client_started()
     await bot_client.clear_chat()
-    await asyncio.sleep(0.5)  # Пауза после очистки
+    await asyncio.sleep(0.5)
     return bot_client
 
 
@@ -117,6 +137,22 @@ def test_user_data():
         'goals': 'Стать лучшим специалистом',
         'study_duration': '15',  # минут
     }
+
+
+# Cleanup при завершении сессии
+def pytest_sessionfinish(session, exitstatus):
+    """Очистка при завершении сессии тестов"""
+    global _bot_client, _client_started
+
+    if _bot_client and _client_started:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(_bot_client.stop())
+            else:
+                loop.run_until_complete(_bot_client.stop())
+        except Exception:
+            pass
 
 
 # Маркеры для категоризации тестов
