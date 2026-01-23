@@ -1527,13 +1527,28 @@ async def cmd_start(message: Message, state: FSMContext):
 
     if intern['onboarding_completed']:
         lang = intern.get('language', 'ru')
+
+        # Определяем текущий режим
+        current_mode = intern.get('mode', Mode.MARATHON)
+        mode_emoji = "🏃" if current_mode == Mode.MARATHON else "📚"
+        mode_name = t('help.marathon', lang) if current_mode == Mode.MARATHON else t('help.feed', lang)
+
+        # Прогресс активности
+        from db.queries.activity import get_activity_stats
+        stats = await get_activity_stats(message.chat.id)
+        total_active = stats.get('total', 0)
+        marathon_day = get_marathon_day(intern)
+
         await message.answer(
-            t('welcome.returning', lang, name=intern['name']) + "\n\n" +
+            t('welcome.returning', lang, name=intern['name']) + "\n" +
+            f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
+            f"📊 {t('welcome.activity_progress', lang)}: {total_active} из {marathon_day}\n\n" +
             t('commands.learn', lang) + "\n" +
             t('commands.progress', lang) + "\n" +
             t('commands.profile', lang) + "\n" +
             t('commands.update', lang) + "\n" +
-            t('commands.mode', lang)
+            t('commands.mode', lang),
+            parse_mode="Markdown"
         )
         return
 
@@ -1930,13 +1945,10 @@ async def show_full_progress(callback: CallbackQuery):
         done = len(intern.get('completed_topics', []))
         total = get_total_topics()
         marathon_day = get_marathon_day(intern)
-        pct = int((done / total) * 100) if total > 0 else 0
-        filled = max(1, pct // 5) if pct > 0 else 0
-        bar = '█' * filled + '░' * (20 - filled)
 
-        # Прогресс по неделям
+        # Прогресс по неделям (без заголовка "Недели")
         weeks = get_sections_progress(intern.get('completed_topics', []))
-        weeks_text = "*Недели:*\n"
+        weeks_text = ""
         for i, week in enumerate(weeks):
             w_pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
             w_filled = max(1, w_pct // 10) if w_pct > 0 else 0
@@ -1956,24 +1968,27 @@ async def show_full_progress(callback: CallbackQuery):
 
         name = intern.get('name', 'Пользователь')
         text = f"📊 *Полный отчёт с {date_str}: {name}*\n\n"
-        text += f"Активных дней (Марафон+Лента): {total_active} из {days_since}\n\n"
+        text += f"📈 *Активных дней (Марафон+Лента):* {total_active} из {days_since}\n\n"
 
         # Марафон
         text += f"🏃 *Марафон*\n"
-        text += f"День {marathon_day} из {MARATHON_DAYS} | {done}/{total} тем\n"
-        text += f"{bar}\n"
-        text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n\n"
-        text += f"{weeks_text}\n"
+        text += f"День {marathon_day} из {MARATHON_DAYS}\n"
+        text += f"{weeks_text}"
+        text += f"Пройдено {done} из {total} тем\n"
+        text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n"
+
+        # Отставание
+        missed_days = marathon_day - total_active
+        if missed_days > 0:
+            text += f"Отставание: {missed_days} дней\n"
+        else:
+            text += f"Отставание: 0 дней\n"
 
         # Лента
-        text += f"📚 *Лента*\n"
-        text += f"Дайджестов: {total_stats.get('total_digests', 0)}. Фиксаций: {total_stats.get('total_fixations', 0)}\n"
-        text += f"Темы: {feed_topics_text}\n\n"
-
-        # Подсказка о пропущенных днях
-        missed_days = marathon_day - total_active
-        if missed_days > 0 and done < total:
-            text += f"⚠️ _Пропущено дней: {missed_days}. Продолжите обучение, чтобы наверстать!_"
+        text += f"\n📚 *Лента*\n"
+        text += f"Дайджестов: {total_stats.get('total_digests', 0)}\n"
+        text += f"Фиксаций: {total_stats.get('total_fixations', 0)}\n"
+        text += f"Темы: {feed_topics_text}"
 
         # Кнопки
         from config import Mode
@@ -2072,27 +2087,26 @@ async def cmd_help(message: Message):
     lang = intern.get('language', 'ru') if intern else 'ru'
 
     await message.answer(
-        f"📖 *{t('help.title', lang)}:*\n\n"
+        f"📖 *{t('help.title', lang)}*\n\n"
         f"*{t('help.modes_title', lang)}:*\n"
-        f"📚 *{t('help.marathon', lang)}* — {t('help.marathon_desc', lang)}\n"
-        f"🌊 *{t('help.feed', lang)}* — {t('help.feed_desc', lang)}\n\n"
+        f"🏃 *{t('help.marathon', lang)}* — {t('help.marathon_desc', lang)}\n\n"
+        f"📚 *{t('help.feed', lang)}* — {t('help.feed_desc', lang)}\n\n"
+        f"💬 {t('help.ai_questions', lang)}\n"
+        f"_{t('help.ai_questions_example', lang)}_\n\n"
         f"*{t('help.commands_title', lang)}:*\n"
         f"{t('commands.learn', lang)}\n"
         f"/feed — {t('help.feed_cmd', lang)}\n"
         f"/mode — {t('menu.mode', lang)}\n"
         f"{t('commands.progress', lang)}\n"
         f"{t('commands.profile', lang)}\n"
-        f"{t('commands.update', lang)}\n"
-        f"{t('commands.language', lang)}\n\n"
-        f"*{t('help.questions_title', lang)}:*\n"
-        f"{t('help.questions_hint', lang)}\n"
-        f"_{t('help.questions_example', lang)}_\n\n"
+        f"{t('commands.update', lang)}\n\n"
         f"*{t('help.how_it_works', lang)}:*\n"
         f"{t('help.step1', lang)}\n"
         f"{t('help.step2', lang)}\n"
         f"{t('help.step3', lang)}\n"
-        f"{t('help.step4', lang)}\n\n"
-        f"{t('help.schedule_note', lang)}\n\n"
+        f"{t('help.step4', lang)}\n"
+        f"{t('help.step5', lang)}\n\n"
+        f"_{t('help.schedule_note', lang)}_\n\n"
         "🔗 [Мастерская инженеров-менеджеров](https://system-school.ru/)\n\n"
         f"💬 {t('help.feedback', lang)}: @tserentserenov",
         parse_mode="Markdown"

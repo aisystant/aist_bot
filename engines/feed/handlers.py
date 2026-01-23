@@ -162,8 +162,8 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
         chat_id = message.chat.id
         lang = await get_user_lang(chat_id)
 
-        # Сохраняем темы в state
-        await state.update_data(suggested_topics=topics, selected_indices=set())
+        # Сохраняем темы в state (используем list вместо set для JSON-сериализации)
+        await state.update_data(suggested_topics=topics, selected_indices=[])
         await state.set_state(FeedStates.choosing_topics)
 
         text = f"📚 *{t('feed.suggested_topics', lang)}*\n\n"
@@ -206,20 +206,20 @@ async def toggle_topic(callback: CallbackQuery, state: FSMContext):
     """Переключает выбор темы (максимум 3)"""
     data = await state.get_data()
     topics = data.get('suggested_topics', [])
-    selected = data.get('selected_indices', set())
+    selected = list(data.get('selected_indices', []))  # Конвертируем в list для надёжности
 
     # Получаем индекс темы
     index = int(callback.data.replace("feed_topic_", ""))
 
     # Переключаем выбор
     if index in selected:
-        selected.discard(index)
+        selected.remove(index)
     else:
         # Проверяем лимит 3 темы
         if len(selected) >= 3:
             await callback.answer("Максимум 3 темы. Снимите выбор с другой темы.", show_alert=True)
             return
-        selected.add(index)
+        selected.append(index)
 
     await state.update_data(selected_indices=selected)
 
@@ -367,7 +367,7 @@ async def confirm_topics(callback: CallbackQuery, state: FSMContext):
     """Подтверждает выбор тем"""
     data = await state.get_data()
     topics = data.get('suggested_topics', [])
-    selected = data.get('selected_indices', set())
+    selected = list(data.get('selected_indices', []))  # Конвертируем в list для надёжности
     chat_id = callback.message.chat.id
     lang = await get_user_lang(chat_id)
 
