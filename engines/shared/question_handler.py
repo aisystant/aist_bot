@@ -383,11 +383,20 @@ async def answer_with_context(
     name = intern.get('name', 'пользователь')
     occupation = intern.get('occupation', '')
 
+    # Определяем язык пользователя
+    lang = intern.get('language', 'ru')
+    lang_instruction = {
+        'ru': "Отвечай на русском языке.",
+        'en': "Answer in English.",
+        'es': "Responde en español."
+    }.get(lang, "Отвечай на русском языке.")
+
     occupation_info = f"\nПрофессия: {occupation}" if occupation else ""
     context_section = f"\n\nКОНТЕКСТ:\n{additional_context}" if additional_context else ""
 
     system_prompt = f"""Ты — дружелюбный наставник по системному мышлению.
 Отвечаешь на вопрос пользователя {name}.{occupation_info}
+{lang_instruction}
 
 Отвечай кратко и по существу.
 

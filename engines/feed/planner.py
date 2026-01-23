@@ -293,8 +293,17 @@ async def generate_multi_topic_digest(
 
     topics_str = ", ".join(topics)
 
+    # Определяем язык пользователя
+    lang = intern.get('language', 'ru')
+    lang_instruction = {
+        'ru': "Пиши на русском языке.",
+        'en': "Write in English.",
+        'es': "Escribe en español."
+    }.get(lang, "Пиши на русском языке.")
+
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 Создай дайджест, объединяющий несколько тем для {name}.
+{lang_instruction}
 
 ПРОФИЛЬ:
 - Занятие: {occupation or 'не указано'}
