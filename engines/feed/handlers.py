@@ -19,7 +19,6 @@ from locales import t
 from .engine import FeedEngine
 from db.queries.users import get_intern
 from engines.shared import handle_question
-from locales import t
 
 logger = get_logger(__name__)
 
@@ -138,7 +137,7 @@ async def cmd_feed(message: Message, state: FSMContext):
             week = await engine.get_current_week()
             if week and week.get('suggested_topics'):
                 # Преобразуем названия тем в формат для отображения
-                topics = [{'title': t, 'description': '', 'why': ''} for t in week['suggested_topics']]
+                topics = [{'title': topic_name, 'description': '', 'why': ''} for topic_name in week['suggested_topics']]
                 await show_topic_selection(message, topics, state)
             else:
                 # Если тем нет, генерируем новые
