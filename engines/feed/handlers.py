@@ -201,6 +201,50 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
         await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
 
 
+async def show_topic_selection_direct(bot, chat_id: int, topics: list, state: FSMContext, lang: str = 'ru'):
+    """Показывает интерфейс выбора тем напрямую через бота (без Message объекта)"""
+    try:
+        logger.info(f"show_topic_selection_direct: получено {len(topics)} тем для {chat_id}")
+
+        # Сохраняем темы в state (используем list вместо set для JSON-сериализации)
+        await state.update_data(suggested_topics=topics, selected_indices=[])
+        await state.set_state(FeedStates.choosing_topics)
+
+        text = f"📚 *{t('feed.suggested_topics', lang)}*\n\n"
+
+        for i, topic in enumerate(topics):
+            text += f"*{i+1}. {topic['title']}*\n"
+            text += f"   _{topic.get('why', '')}_\n\n"
+
+        text += "—\n"
+        text += "*Выберите до 3 тем:*\n"
+        text += f"{t('feed.select_hint', lang)}\n"
+        text += f"_{t('feed.select_example', lang)}_"
+
+        # Создаём кнопки
+        buttons = []
+        for i, topic in enumerate(topics):
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"☐ {topic['title'][:30]}",
+                    callback_data=f"feed_topic_{i}"
+                )
+            ])
+
+        buttons.append([
+            InlineKeyboardButton(text=f"✅ {t('buttons.yes', lang)}", callback_data="feed_confirm")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+        logger.info("show_topic_selection_direct: сообщение отправлено")
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Ошибка в show_topic_selection_direct: {e}\n{traceback.format_exc()}")
+        await bot.send_message(chat_id, t('errors.try_again', lang))
+
+
 @feed_router.callback_query(F.data.startswith("feed_topic_"))
 async def toggle_topic(callback: CallbackQuery, state: FSMContext):
     """Переключает выбор темы (максимум 3)"""
@@ -445,7 +489,7 @@ async def feed_start_topics(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     # Показываем индикатор загрузки
-    await callback.message.edit_text(t('loading.generating_topics', lang))
+    loading_msg = await callback.message.edit_text(t('loading.generating_topics', lang))
 
     # Генерируем темы
     engine = FeedEngine(chat_id)
@@ -461,13 +505,14 @@ async def feed_start_topics(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(msg)
         return
 
-    # Показываем выбор тем (используем answer вместо edit, т.к. формат меняется)
+    # Удаляем сообщение загрузки и показываем выбор тем
     try:
         await callback.message.delete()
     except Exception:
         pass
 
-    await show_topic_selection(callback.message, topics, state)
+    # Отправляем новое сообщение напрямую через бота
+    await show_topic_selection_direct(callback.bot, chat_id, topics, state, lang)
 
 
 @feed_router.callback_query(F.data == "feed_get_digest")
