@@ -155,6 +155,16 @@ async def cmd_feed(message: Message, state: FSMContext):
         await message.answer("Произошла ошибка при загрузке Ленты. Попробуйте позже.")
 
 
+def escape_markdown(text: str) -> str:
+    """Экранирует специальные символы Markdown"""
+    if not text:
+        return ''
+    # Экранируем символы, которые могут сломать Markdown
+    for char in ['_', '*', '[', ']', '`']:
+        text = text.replace(char, '\\' + char)
+    return text
+
+
 async def show_topic_selection(message: Message, topics: list, state: FSMContext):
     """Показывает интерфейс выбора тем"""
     try:
@@ -169,8 +179,10 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
         text = f"📚 *{t('feed.suggested_topics', lang)}*\n\n"
 
         for i, topic in enumerate(topics):
-            text += f"*{i+1}. {topic['title']}*\n"
-            text += f"   _{topic.get('why', '')}_\n\n"
+            title = escape_markdown(topic.get('title', ''))
+            why = escape_markdown(topic.get('why', ''))
+            text += f"*{i+1}. {title}*\n"
+            text += f"   _{why}_\n\n"
 
         text += "—\n"
         text += "*Выберите до 3 тем:*\n"
