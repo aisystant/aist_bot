@@ -261,27 +261,28 @@ async def marathon_learn(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-    # Сохраняем chat_id и bot ДО удаления сообщения
     chat_id = callback.message.chat.id
     bot = callback.bot
 
-    # Удаляем текущее сообщение, чтобы не было путаницы
+    # Убираем кнопки (как в рабочем cb_learn)
     try:
-        await callback.message.delete()
+        await callback.message.edit_reply_markup()
     except Exception:
         pass
 
-    # Вызываем send_topic с обработкой ошибок
-    # Передаём state=None чтобы избежать проблем с FSMContext storage
+    # Вызываем send_topic
     try:
         await send_topic(chat_id, None, bot)
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         logger.error(f"Ошибка в marathon_learn для {chat_id}: {e}\n{error_trace}")
+        # Показываем traceback для отладки
+        trace_lines = error_trace.strip().split('\n')
+        short_trace = '\n'.join(trace_lines[-8:])
         await bot.send_message(
             chat_id,
-            f"⚠️ Произошла ошибка. Попробуйте /learn\n\n`{str(e)[:200]}`",
+            f"⚠️ Ошибка:\n```\n{short_trace[:800]}\n```",
             parse_mode="Markdown"
         )
 
