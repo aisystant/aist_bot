@@ -13,6 +13,14 @@ Flow:
   * bonus предлагается только на уровнях 2 и 3 (bloom_level >= 2)
 """
 
+from .day import MarathonDayState
+from .question import MarathonQuestionState
 from .bonus import MarathonBonusState
+from .task import MarathonTaskState
 
-__all__ = ['MarathonBonusState']
+__all__ = [
+    'MarathonDayState',
+    'MarathonQuestionState',
+    'MarathonBonusState',
+    'MarathonTaskState',
+]
