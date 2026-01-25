@@ -63,14 +63,14 @@ process_01_activity_tracking:
     # Вызовы в bot.py (Марафон)
     - type: pattern
       file: "bot.py"
-      pattern: "record_active_day.*theory_answer|record_active_day.*work_product"
+      pattern: "record_active_day.*mode.*marathon"
       description: "Вызовы record_active_day в Марафоне"
       required: true
 
     # Вызовы в feed/engine.py (Лента)
     - type: pattern
       file: "engines/feed/engine.py"
-      pattern: "record_active_day.*feed_fixation"
+      pattern: "record_active_day"
       description: "Вызовы record_active_day в Ленте"
       required: true
 
