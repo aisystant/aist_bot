@@ -26,6 +26,13 @@ def validate_env():
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL не установлен!")
 
+# ============= FEATURE FLAGS =============
+
+# State Machine: включает новую архитектуру
+# Когда True — используется StateMachine вместо старых хэндлеров
+# По умолчанию False для обратной совместимости
+USE_STATE_MACHINE = os.getenv("USE_STATE_MACHINE", "false").lower() == "true"
+
 # ============= ЛОГИРОВАНИЕ =============
 
 logging.basicConfig(

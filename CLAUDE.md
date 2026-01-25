@@ -305,3 +305,46 @@ aist_bot/
 - [ ] `tests/test-repo/requirements-scenarios.yaml` актуален
 - [ ] `tests/test-repo/requirements-processes.yaml` актуален
 - [ ] `tests/test-repo/requirements-data.yaml` актуален
+
+---
+
+## Работа с двумя ветками (main + new-architecture)
+
+### ОБЯЗАТЕЛЬНОЕ ПРАВИЛО СИНХРОНИЗАЦИИ
+
+При работе с кодом существуют две ветки:
+
+| Ветка | Назначение | Что содержит |
+|-------|------------|--------------|
+| `main` | Production | Стабильный рабочий код |
+| `new-architecture` | State Machine | Новая архитектура (в разработке) |
+
+### Когда вносятся изменения в main
+
+**После КАЖДОГО изменения в main, Claude ОБЯЗАН:**
+
+1. Спросить пользователя: *"Это изменение нужно синхронизировать с веткой new-architecture?"*
+2. Если да — выполнить синхронизацию:
+
+```bash
+git checkout new-architecture
+git fetch origin main
+git rebase origin/main
+# Разрешить конфликты если есть
+git push -f origin new-architecture
+```
+
+### Когда работаем в new-architecture
+
+- Периодически (минимум раз в неделю) делать `rebase` на main
+- Не мержить new-architecture в main до полной готовности
+- Все новые модули изолированы за feature flags
+
+### Критерии готовности new-architecture к мержу в main
+
+- [ ] Все стейты реализованы и протестированы
+- [ ] Feature flag `use_state_machine: true` работает корректно
+- [ ] Smoke test проходит: `python -c "from bot import dp, bot"`
+- [ ] Нет автоимпортов нового кода в существующих `__init__.py`
+- [ ] Пройдены E2E тесты в Telegram
+

@@ -1,25 +1,18 @@
 """
-StateMachine — движок переходов между стейтами.
+State Machine — центральный диспетчер состояний бота.
 
-Управляет:
-- Регистрацией стейтов
-- Обработкой входящих сообщений
-- Выполнением переходов между стейтами
-- Глобальными командами (?, /note, /mode)
+Загружает переходы из config/transitions.yaml и управляет
+переходами между стейтами.
 
 Использование:
     from core.machine import StateMachine
-    from core.storage import StateStorage
 
-    storage = StateStorage(user_repo)
-    machine = StateMachine("config/transitions.yaml", storage)
+    machine = StateMachine()
+    machine.load_transitions("config/transitions.yaml")
+    machine.register_all(states)
 
-    # Регистрируем стейты
-    machine.register(StartState(...))
-    machine.register(MarathonDayState(...))
-
-    # Обрабатываем сообщение
-    await machine.handle_message(user, message)
+    # Обработка сообщения
+    await machine.handle(user, message)
 """
 
 import logging
@@ -27,330 +20,238 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from aiogram.types import Message
 
 from states.base import BaseState
 
 logger = logging.getLogger(__name__)
 
 
-class InvalidTransition(Exception):
-    """Недопустимый переход между стейтами."""
-    pass
-
-
-class StateNotFound(Exception):
-    """Стейт не найден в реестре."""
-    pass
-
-
 class StateMachine:
     """
-    Движок State Machine.
+    Центральный диспетчер состояний.
 
-    Управляет переходами между стейтами на основе таблицы переходов.
-    Таблица переходов загружается из YAML файла.
+    Отвечает за:
+    - Регистрацию стейтов
+    - Загрузку переходов из YAML
+    - Определение текущего стейта пользователя
+    - Обработку событий и переходы
     """
 
-    def __init__(self, transitions_path: str, storage):
+    def __init__(self):
+        self._states: dict[str, BaseState] = {}
+        self._transitions: dict[str, dict] = {}
+        self._global_events: dict[str, dict] = {}
+        self._default_state: str = "common.start"
+
+    def load_transitions(self, path: str | Path) -> None:
         """
+        Загружает таблицу переходов из YAML.
+
         Args:
-            transitions_path: Путь к transitions.yaml
-            storage: StateStorage для работы с БД
+            path: Путь к файлу transitions.yaml
         """
-        self.storage = storage
-        self.states: dict[str, BaseState] = {}
-        self.transitions: dict = {}
-        self.global_events: dict = {}
-
-        self._load_transitions(transitions_path)
-
-    def _load_transitions(self, path: str) -> None:
-        """Загружает таблицу переходов из YAML файла."""
         path = Path(path)
         if not path.exists():
-            logger.warning(f"Transitions file not found: {path}. Using empty config.")
+            logger.warning(f"Файл переходов не найден: {path}")
             return
 
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-        except yaml.YAMLError as e:
-            logger.error(f"Invalid YAML in transitions file: {e}")
-            return
+        with open(path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
 
-        self.transitions = config.get("states", {})
-        self.global_events = config.get("global_events", {})
-        logger.info(f"Loaded {len(self.transitions)} state transitions")
+        self._transitions = data.get('states', {})
+        self._global_events = data.get('global_events', {})
+
+        logger.info(f"Загружено {len(self._transitions)} стейтов, "
+                    f"{len(self._global_events)} глобальных событий")
 
     def register(self, state: BaseState) -> None:
         """
-        Регистрирует стейт в машине.
+        Регистрирует один стейт.
 
         Args:
             state: Экземпляр стейта
         """
-        if state.name in self.states:
-            logger.warning(f"State {state.name} already registered, overwriting")
-        self.states[state.name] = state
-        logger.debug(f"Registered state: {state.name}")
+        self._states[state.name] = state
+        logger.debug(f"Зарегистрирован стейт: {state.name}")
 
     def register_all(self, states: list[BaseState]) -> None:
-        """Регистрирует список стейтов."""
+        """
+        Регистрирует список стейтов.
+
+        Args:
+            states: Список экземпляров стейтов
+        """
         for state in states:
             self.register(state)
+        logger.info(f"Зарегистрировано стейтов: {len(states)}")
 
-    async def get_user_state(self, user) -> BaseState:
+    def get_state(self, name: str) -> Optional[BaseState]:
         """
-        Возвращает текущий стейт пользователя.
+        Получить стейт по имени.
 
         Args:
-            user: Объект пользователя
+            name: Имя стейта (например, "common.start")
 
         Returns:
-            Экземпляр текущего стейта
-
-        Raises:
-            StateNotFound: Если стейт не найден в реестре
+            Экземпляр стейта или None
         """
-        state_name = getattr(user, 'current_state', None) or "common.start"
+        return self._states.get(name)
 
-        if state_name not in self.states:
-            logger.error(f"Unknown state: {state_name}. Falling back to common.start")
-            state_name = "common.start"
-            if state_name not in self.states:
-                raise StateNotFound(f"Default state common.start not registered")
-
-        return self.states[state_name]
-
-    async def handle_message(self, user, message: Message) -> None:
+    def get_user_state(self, user) -> str:
         """
-        Главный метод — обрабатывает входящее сообщение.
-
-        1. Проверяет глобальные события
-        2. Передаёт сообщение текущему стейту
-        3. Выполняет переход если нужно
+        Определить текущий стейт пользователя.
 
         Args:
-            user: Объект пользователя
-            message: Сообщение от Telegram
-        """
-        # Проверяем глобальные события (?, /note, /mode)
-        global_event = self._check_global_events(user, message)
-        if global_event:
-            logger.info(f"Global event triggered: {global_event}")
-            await self._handle_global_event(user, global_event, message)
-            return
-
-        # Получаем текущий стейт
-        state = await self.get_user_state(user)
-        logger.debug(f"Handling message in state: {state.name}")
-
-        # Обрабатываем сообщение
-        event = await state.handle(user, message)
-
-        # Если стейт вернул событие — выполняем переход
-        if event:
-            logger.info(f"State {state.name} returned event: {event}")
-            await self.transition(user, event, message)
-
-    def _check_global_events(self, user, message: Message) -> Optional[str]:
-        """
-        Проверяет, не является ли сообщение глобальной командой.
-
-        Args:
-            user: Объект пользователя
-            message: Сообщение от Telegram
+            user: Объект пользователя из БД
 
         Returns:
-            Имя глобального события или None
+            Имя текущего стейта
         """
-        text = (message.text or "").strip()
-        current_state = getattr(user, 'current_state', None) or "common.start"
+        # Получаем из БД или используем дефолтный
+        if isinstance(user, dict):
+            state_name = user.get('current_state')
+        else:
+            state_name = getattr(user, 'current_state', None)
 
-        # Получаем разрешённые глобальные события для текущего стейта
-        state_config = self.transitions.get(current_state, {})
-        allowed = state_config.get("allow_global", [])
+        return state_name or self._default_state
 
-        for event_name, config in self.global_events.items():
-            trigger = config.get("trigger", "")
+    def get_next_state(self, current_state: str, event: str) -> Optional[str]:
+        """
+        Определить следующий стейт по событию.
+
+        Args:
+            current_state: Текущий стейт
+            event: Событие (возвращаемое из handle)
+
+        Returns:
+            Имя следующего стейта или None если переход не определён
+        """
+        state_config = self._transitions.get(current_state, {})
+        events = state_config.get('events', {})
+
+        next_state = events.get(event)
+
+        # Специальные значения
+        if next_state == '_same':
+            return current_state
+        if next_state == '_previous':
+            # TODO: Реализовать историю стейтов
+            return current_state
+
+        return next_state
+
+    def check_global_event(self, message_text: str, current_state: str) -> Optional[str]:
+        """
+        Проверить, не является ли сообщение глобальным событием.
+
+        Args:
+            message_text: Текст сообщения
+            current_state: Текущий стейт
+
+        Returns:
+            Имя целевого стейта или None
+        """
+        # Получаем allow_global для текущего стейта
+        state_config = self._transitions.get(current_state, {})
+        allowed = state_config.get('allow_global', [])
+
+        for event_name, event_config in self._global_events.items():
+            if event_name not in allowed:
+                continue
+
+            trigger = event_config.get('trigger', '')
+            target = event_config.get('target')
 
             # Проверяем триггер
-            matches = False
-            if trigger.startswith("/"):
-                # Команда — точное совпадение начала
-                matches = text.lower().startswith(trigger.lower())
-            else:
-                # Другие триггеры (например, "?")
-                matches = text.startswith(trigger)
-
-            if matches and event_name in allowed:
-                return event_name
+            if message_text.startswith(trigger):
+                logger.info(f"Глобальное событие: {event_name} -> {target}")
+                return target
 
         return None
 
-    async def _handle_global_event(self, user, event_name: str, message: Message) -> None:
+    async def handle(self, user, message) -> None:
         """
-        Обрабатывает глобальное событие.
+        Основной метод обработки сообщения.
+
+        1. Определяет текущий стейт пользователя
+        2. Проверяет глобальные события
+        3. Вызывает handle() текущего стейта
+        4. Выполняет переход если нужно
 
         Args:
             user: Объект пользователя
-            event_name: Имя глобального события
-            message: Исходное сообщение
+            message: Telegram Message
         """
-        config = self.global_events.get(event_name, {})
-        target_state = config.get("target")
+        current_state_name = self.get_user_state(user)
+        current_state = self.get_state(current_state_name)
 
-        if not target_state:
-            logger.warning(f"No target state for global event: {event_name}")
+        if not current_state:
+            logger.error(f"Стейт не найден: {current_state_name}")
+            current_state = self.get_state(self._default_state)
+            if not current_state:
+                logger.error("Даже дефолтный стейт не найден!")
+                return
+
+        # Проверяем глобальные события
+        message_text = message.text or ''
+        global_target = self.check_global_event(message_text, current_state_name)
+
+        if global_target:
+            await self._transition(user, current_state, global_target)
             return
 
-        # Сохраняем контекст (например, текст вопроса после "?")
-        trigger = config.get("trigger", "")
-        context = {}
-        if trigger and message.text:
-            # Извлекаем текст после триггера
-            remaining = message.text[len(trigger):].strip()
-            if remaining:
-                context["initial_text"] = remaining
-                if event_name == "consultant":
-                    context["question"] = remaining
+        # Обрабатываем в текущем стейте
+        try:
+            event = await current_state.handle(user, message)
+        except Exception as e:
+            logger.error(f"Ошибка в стейте {current_state_name}: {e}")
+            event = "error"
 
-        await self.transition(user, event_name, message, force_target=target_state, context=context)
+        # Если есть событие — переходим
+        if event:
+            next_state_name = self.get_next_state(current_state_name, event)
+            if next_state_name and next_state_name != current_state_name:
+                await self._transition(user, current_state, next_state_name)
 
-    async def transition(
-        self,
-        user,
-        event: str,
-        message: Message = None,
-        force_target: str = None,
-        context: dict = None
-    ) -> None:
+    async def _transition(self, user, from_state: BaseState, to_state_name: str, context: dict = None) -> None:
         """
-        Выполняет переход между стейтами.
+        Выполнить переход между стейтами.
 
         Args:
             user: Объект пользователя
-            event: Событие, вызвавшее переход
-            message: Исходное сообщение (для контекста)
-            force_target: Принудительный целевой стейт (для глобальных событий)
+            from_state: Текущий стейт
+            to_state_name: Имя нового стейта
             context: Дополнительный контекст
         """
-        current_state_name = getattr(user, 'current_state', None) or "common.start"
-
-        # Определяем следующий стейт
-        if force_target:
-            next_state_name = force_target
-        else:
-            next_state_name = self._get_next_state(current_state_name, event)
-
-        if not next_state_name:
-            logger.warning(
-                f"No transition for event '{event}' from state '{current_state_name}'"
-            )
+        to_state = self.get_state(to_state_name)
+        if not to_state:
+            logger.error(f"Целевой стейт не найден: {to_state_name}")
             return
 
-        # Специальные переходы
-        if next_state_name == "_previous":
-            next_state_name = getattr(user, 'previous_state', None) or "common.mode_select"
-        elif next_state_name == "_same":
-            logger.debug(f"Staying in state: {current_state_name}")
-            return  # Остаёмся в текущем стейте
+        logger.info(f"Переход: {from_state.name} -> {to_state_name}")
 
-        # Получаем объекты стейтов
-        current_state = self.states.get(current_state_name)
-        next_state = self.states.get(next_state_name)
-
-        if not next_state:
-            logger.error(f"Target state not found: {next_state_name}")
-            return
-
-        # Выполняем выход из текущего стейта
-        exit_context = {}
-        if current_state:
-            exit_context = await current_state.exit(user) or {}
+        # Выход из текущего стейта
+        exit_context = await from_state.exit(user)
 
         # Объединяем контексты
-        combined_context = {**exit_context, **(context or {})}
+        full_context = {**(context or {}), **exit_context}
 
-        # Сохраняем предыдущий стейт
-        user.previous_state = current_state_name
-        user.current_state = next_state_name
+        # TODO: Сохранить новый стейт в БД
+        # await self.db.update_user_state(user, to_state_name)
 
-        # Сохраняем в БД
-        await self.storage.save_state(user)
+        # Вход в новый стейт
+        await to_state.enter(user, full_context)
 
-        logger.info(f"Transition: {current_state_name} -> {next_state_name} (event: {event})")
-
-        # Выполняем вход в новый стейт
-        await next_state.enter(user, combined_context)
-
-    def _get_next_state(self, current: str, event: str) -> Optional[str]:
+    async def start(self, user, context: dict = None) -> None:
         """
-        Определяет следующий стейт по таблице переходов.
-
-        Args:
-            current: Имя текущего стейта
-            event: Событие
-
-        Returns:
-            Имя следующего стейта или None
-        """
-        # Сначала проверяем глобальные события
-        if event in self.global_events:
-            return self.global_events[event].get("target")
-
-        # Затем проверяем переходы текущего стейта
-        state_config = self.transitions.get(current, {})
-        events = state_config.get("events", {})
-        return events.get(event)
-
-    async def force_state(self, user, state_name: str, context: dict = None) -> None:
-        """
-        Принудительно переводит пользователя в указанный стейт.
-
-        Используется для административных целей и восстановления.
+        Запустить машину для нового пользователя.
 
         Args:
             user: Объект пользователя
-            state_name: Имя целевого стейта
-            context: Контекст для передачи стейту
+            context: Начальный контекст
         """
-        if state_name not in self.states:
-            raise StateNotFound(f"State not found: {state_name}")
-
-        # Сохраняем предыдущий стейт
-        user.previous_state = getattr(user, 'current_state', None)
-        user.current_state = state_name
-
-        await self.storage.save_state(user)
-
-        # Входим в новый стейт
-        await self.states[state_name].enter(user, context or {})
-
-    def get_state_info(self, state_name: str) -> dict:
-        """
-        Возвращает информацию о стейте.
-
-        Args:
-            state_name: Имя стейта
-
-        Returns:
-            Словарь с информацией о стейте
-        """
-        state = self.states.get(state_name)
-        if not state:
-            return {}
-
-        config = self.transitions.get(state_name, {})
-        return {
-            "name": state.name,
-            "display_name": state.display_name,
-            "allow_global": state.allow_global,
-            "events": list(config.get("events", {}).keys()),
-            "description": config.get("description", ""),
-        }
-
-    def list_states(self) -> list[str]:
-        """Возвращает список зарегистрированных стейтов."""
-        return list(self.states.keys())
+        start_state = self.get_state(self._default_state)
+        if start_state:
+            await start_state.enter(user, context)
+        else:
+            logger.error(f"Стартовый стейт не найден: {self._default_state}")

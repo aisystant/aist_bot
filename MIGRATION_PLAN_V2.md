@@ -1096,95 +1096,7 @@ class KnowledgeRouter:
 
 ---
 
-# Часть 4. Feature Flags и автоматический Fallback
-
-## 4.1. Как работает защита от поломки бота
-
-**Три уровня защиты:**
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  УРОВЕНЬ 1: Feature Flag (ручной)                              │
-│  USE_STATE_MACHINE=false → старый код, =true → новый код       │
-│  Используется: при деплое, для A/B тестирования                │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  УРОВЕНЬ 2: Circuit Breaker (автоматический)                   │
-│  Если новый код падает N раз подряд → автопереключение на      │
-│  старый код + алерт разработчику                               │
-│  Используется: в production для защиты пользователей           │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  УРОВЕНЬ 3: Graceful Degradation (per-user)                    │
-│  Если у конкретного пользователя ошибка → только его           │
-│  переключаем на старый код, остальные продолжают на новом      │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## 4.2. Circuit Breaker в коде
-
-```python
-# bot.py — автоматический fallback
-class CircuitBreaker:
-    def __init__(self, failure_threshold=3, reset_timeout=300):
-        self.failures = 0
-        self.failure_threshold = failure_threshold
-        self.reset_timeout = reset_timeout
-        self.last_failure = None
-        self.is_open = False
-
-    def record_failure(self):
-        self.failures += 1
-        self.last_failure = time.time()
-        if self.failures >= self.failure_threshold:
-            self.is_open = True
-            logger.error("Circuit breaker OPEN: switching to old code")
-            # Отправить алерт в Telegram/Slack
-
-    def record_success(self):
-        self.failures = 0
-        self.is_open = False
-
-    def should_use_fallback(self):
-        if not self.is_open:
-            return False
-        # Автоматически пробуем снова через reset_timeout
-        if time.time() - self.last_failure > self.reset_timeout:
-            self.is_open = False
-            self.failures = 0
-            return False
-        return True
-
-circuit_breaker = CircuitBreaker()
-
-@dp.message()
-async def handle_all(message: Message, user):
-    if flags.is_enabled("migration.use_state_machine") and not circuit_breaker.should_use_fallback():
-        try:
-            await machine.handle_message(user, message)
-            circuit_breaker.record_success()
-        except Exception as e:
-            logger.exception(f"State machine error: {e}")
-            circuit_breaker.record_failure()
-            # Fallback на старый код для ЭТОГО сообщения
-            await old_handler(message, user)
-    else:
-        await old_handler(message, user)
-```
-
-## 4.3. Что видит пользователь при ошибке
-
-| Ситуация | Что происходит | Видит пользователь |
-|----------|----------------|-------------------|
-| Ошибка в новом коде (1-2 раза) | Fallback на старый код для этого сообщения | Ничего, бот работает |
-| Ошибка 3+ раза подряд | Circuit breaker открывается, все идут на старый код | Ничего, бот работает |
-| Через 5 минут | Circuit breaker пробует снова новый код | Ничего, бот работает |
-
-**Вывод:** Пользователь НИКОГДА не видит ошибку. В худшем случае — работает старая версия.
-
-## 4.4. Feature Flags конфигурация
+# Часть 4. Feature Flags
 
 ```yaml
 # config/features.yaml
@@ -1532,16 +1444,6 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 **Цель:** Создать скелет State Machine без изменения работающего кода.
 
 **Задачи:**
-
-0. **Обновить документацию:**
-   - Добавить в `docs/ontology.md` раздел "10. State Machine терминология":
-     - **Стейт** — состояние пользователя в системе
-     - **Переход** — смена стейта по событию
-     - **Событие** — результат обработки сообщения
-     - **Мастерская** — программа со строгой структурой
-     - **Консультант** — гибкое взаимодействие по запросу
-     - **Утилита** — атомарное действие
-   - Обновить раздел 7 "Соответствие терминов и кода" новыми сущностями
 
 1. Создать структуру папок:
 ```bash

@@ -1388,6 +1388,28 @@ def get_sections_progress(completed_topics: list) -> list:
 
     return [weeks['week-1'], weeks['week-2']]
 
+
+def get_lessons_tasks_progress(completed_topics: list) -> dict:
+    """Получить прогресс по Урокам и Заданиям отдельно"""
+    result = {
+        'lessons': {'total': 0, 'completed': 0},
+        'tasks': {'total': 0, 'completed': 0}
+    }
+
+    for i, topic in enumerate(TOPICS):
+        topic_type = topic.get('type', 'theory')
+        if topic_type == 'theory':
+            result['lessons']['total'] += 1
+            if i in completed_topics:
+                result['lessons']['completed'] += 1
+        else:  # practice
+            result['tasks']['total'] += 1
+            if i in completed_topics:
+                result['tasks']['completed'] += 1
+
+    return result
+
+
 def get_days_progress(completed_topics: list, marathon_day: int) -> list:
     """Получить прогресс по дням марафона"""
     days = []
@@ -1926,10 +1948,7 @@ async def cb_later(callback: CallbackQuery):
 @router.message(Command("progress"))
 async def cmd_progress(message: Message):
     """Короткий отчёт прогресса за текущую неделю"""
-    from db.queries.answers import (
-        get_weekly_marathon_stats, get_weekly_feed_stats,
-        get_work_products_by_day
-    )
+    from db.queries.answers import get_weekly_marathon_stats, get_weekly_feed_stats
     from db.queries.activity import get_activity_stats
 
     intern = await get_intern(message.chat.id)
@@ -1944,51 +1963,21 @@ async def cmd_progress(message: Message):
         activity_stats = await get_activity_stats(chat_id)
         marathon_stats = await get_weekly_marathon_stats(chat_id)
         feed_stats = await get_weekly_feed_stats(chat_id)
-        wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
     except Exception as e:
         logger.error(f"Ошибка получения статистики для {chat_id}: {e}")
         activity_stats = {'days_active_this_week': 0}
         marathon_stats = {'work_products': 0}
         feed_stats = {'digests': 0, 'fixations': 0}
-        wp_by_day = {}
 
     # Общие данные
     days_active_week = activity_stats.get('days_active_this_week', 0)
 
     # Марафон
     done = len(intern['completed_topics'])
-    total = get_total_topics()
     marathon_day = get_marathon_day(intern)
-    days_progress = get_days_progress(intern['completed_topics'], marathon_day)
 
-    # Формируем прогресс по дням (в обратном порядке, от текущего к первому)
-    days_to_show = []
-    for d in days_progress:
-        day_num = d['day']
-        if day_num > marathon_day + 1:
-            break
-        days_to_show.append(d)
-
-    days_text = ""
-    for d in reversed(days_to_show):  # Обратный порядок
-        day_num = d['day']
-        wp_count = wp_by_day.get(day_num, 0)
-
-        if d['status'] == 'completed':
-            emoji = "✅"
-            wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
-        elif d['status'] == 'in_progress':
-            emoji = "🔄"
-            wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
-        elif d['status'] == 'available':
-            emoji = "📍"
-            wp_text = ""
-        else:
-            emoji = "🔒"
-            wp_text = ""
-
-        status_text = f"{d['completed']}/{d['total']}" if d['status'] != 'locked' else "—/2"
-        days_text += f"   {emoji} День {day_num}: {status_text}{wp_text}\n"
+    # Общие РП за неделю
+    total_wp_week = marathon_stats.get('work_products', 0)
 
     # Лента - получаем темы
     try:
@@ -2005,12 +1994,12 @@ async def cmd_progress(message: Message):
     total_wp_week = marathon_stats.get('work_products', 0)
 
     text = f"📊 *Прогресс: {intern['name']}*\n\n"
-    text += f"Активных дней за неделю (Марафон+Лента): {days_active_week}\n\n"
+    text += f"📈 Активных дней за неделю (Марафон+Лента): {days_active_week}\n\n"
 
     # Марафон
-    text += f"🏃 *Марафон* (день {marathon_day}/{MARATHON_DAYS})\n"
+    text += f"🏃 *Марафон*\n"
+    text += f"День {marathon_day}/{MARATHON_DAYS}\n"
     text += f"Пройдено тем: {done}. Рабочих продуктов: {total_wp_week}\n\n"
-    text += f"📋 По дням:\n{days_text}\n"
 
     # Лента
     text += f"📚 *Лента*\n"
@@ -2044,7 +2033,7 @@ async def show_full_progress(callback: CallbackQuery):
     await callback.answer()  # Сразу отвечаем, чтобы убрать "крутилку" с кнопки
 
     try:
-        from db.queries.answers import get_total_stats
+        from db.queries.answers import get_total_stats, get_work_products_by_day
 
         chat_id = callback.message.chat.id
         intern = await get_intern(chat_id)
@@ -2071,18 +2060,42 @@ async def show_full_progress(callback: CallbackQuery):
         total_active = total_stats.get('total_active_days', 0)
 
         # Марафон
-        done = len(intern.get('completed_topics', []))
-        total = get_total_topics()
         marathon_day = get_marathon_day(intern)
 
-        # Прогресс по неделям (без заголовка "Недели")
-        weeks = get_sections_progress(intern.get('completed_topics', []))
-        weeks_text = ""
-        for i, week in enumerate(weeks):
-            w_pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-            w_filled = max(1, w_pct // 10) if w_pct > 0 else 0
-            w_bar = '█' * w_filled + '░' * (10 - w_filled)
-            weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} {w_bar} {week['completed']}/{week['total']}\n"
+        # Прогресс по Урокам и Заданиям
+        progress = get_lessons_tasks_progress(intern.get('completed_topics', []))
+
+        # Прогресс по дням
+        try:
+            wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
+        except Exception as e:
+            logger.error(f"Ошибка получения wp_by_day: {e}")
+            wp_by_day = {}
+
+        days_progress = get_days_progress(intern.get('completed_topics', []), marathon_day)
+
+        # Формируем текст по дням
+        days_text = ""
+        for d in days_progress:
+            day_num = d['day']
+            if day_num > marathon_day:
+                break
+            wp_count = wp_by_day.get(day_num, 0)
+
+            if d['status'] == 'completed':
+                emoji = "✅"
+                wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
+            elif d['status'] == 'in_progress':
+                emoji = "🔄"
+                wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
+            elif d['status'] == 'available':
+                emoji = "📍"
+                wp_text = ""
+            else:
+                continue  # Пропускаем заблокированные дни
+
+            status_text = f"{d['completed']}/{d['total']}"
+            days_text += f"   {emoji} День {day_num}: {status_text}{wp_text}\n"
 
         # Лента
         try:
@@ -2102,14 +2115,21 @@ async def show_full_progress(callback: CallbackQuery):
         # Марафон
         text += f"🏃 *Марафон*\n"
         text += f"День {marathon_day} из {MARATHON_DAYS}\n"
-        text += f"{weeks_text}"
-        text += f"Пройдено {done} из {total} тем\n"
+        text += f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+        text += f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
         text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n"
 
-        # Отставание
-        missed_days = marathon_day - total_active
-        if missed_days > 0:
-            text += f"Отставание: {missed_days} дней\n"
+        # По дням
+        if days_text:
+            text += f"\n📋 *По дням:*\n{days_text}"
+
+        # Отставание (сколько дней контента пропущено)
+        # Считаем количество полностью завершённых дней марафона
+        days_progress = get_days_progress(intern.get('completed_topics', []), marathon_day)
+        completed_days = sum(1 for d in days_progress if d['status'] == 'completed')
+        lag = marathon_day - completed_days
+        if lag > 0:
+            text += f"Отставание: {lag} дней\n"
         else:
             text += f"Отставание: 0 дней\n"
 
@@ -3077,7 +3097,7 @@ async def on_skip_practice(callback: CallbackQuery, state: FSMContext):
 
 # --- Отправка темы ---
 
-async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
+async def send_topic(chat_id: int, state: Optional[FSMContext], bot: Bot):
     intern = await get_intern(chat_id)
     marathon_day = get_marathon_day(intern)
 
@@ -3160,20 +3180,15 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
 
         if completed_count >= total_topics:
             # Марафон пройден — короткое сообщение (пользователь сам запросил /learn)
-            weeks = get_sections_progress(intern['completed_topics'])
-            weeks_text = ""
-            for i, week in enumerate(weeks):
-                pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-                filled = max(1, pct // 10) if pct > 0 else 0
-                bar = '█' * filled + '░' * (10 - filled)
-                weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} Неделя {i + 1}: {bar} {week['completed']}/{week['total']} ✅\n"
+            progress = get_lessons_tasks_progress(intern['completed_topics'])
 
             await bot.send_message(
                 chat_id,
                 "🎉 *Поздравляем! Марафон пройден!*\n\n"
                 f"Вы прошли все *{MARATHON_DAYS} дней* и *{total_topics} тем*.\n\n"
                 f"📊 *Ваша статистика:*\n"
-                f"{weeks_text}\n"
+                f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+                f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
                 "Заходите в [Мастерскую](https://system-school.ru/) для продвинутых программ.",
                 parse_mode="Markdown"
             )
@@ -3195,7 +3210,7 @@ async def send_topic(chat_id: int, state: FSMContext, bot: Bot):
         await send_practice_topic(chat_id, topic, intern, state, bot)
 
 
-async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
+async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Optional[FSMContext], bot: Bot):
     """Отправка теоретической темы"""
     marathon_day = get_marathon_day(intern)
     topic_day = topic.get('day', marathon_day)
@@ -3226,7 +3241,8 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
 
     # ВАЖНО: Устанавливаем состояние ДО отправки сообщения
     # чтобы избежать гонки, когда пользователь отвечает быстрее, чем сохраняется состояние
-    await state.set_state(LearningStates.waiting_for_answer)
+    if state:
+        await state.set_state(LearningStates.waiting_for_answer)
 
     # Вопрос отдельным сообщением с подсказкой о состоянии
     await bot.send_message(
@@ -3241,7 +3257,7 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: FSMC
     )
 
 
-async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FSMContext, bot: Bot):
+async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Optional[FSMContext], bot: Bot):
     """Отправка практической темы"""
     marathon_day = get_marathon_day(intern)
     topic_day = topic.get('day', marathon_day)
@@ -3282,7 +3298,8 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: FS
 
     # ВАЖНО: Устанавливаем состояние ДО отправки сообщения
     # чтобы избежать гонки, когда пользователь отвечает быстрее, чем сохраняется состояние
-    await state.set_state(LearningStates.waiting_for_work_product)
+    if state:
+        await state.set_state(LearningStates.waiting_for_work_product)
 
     # Запрос рабочего продукта с подсказкой о состоянии
     await bot.send_message(
@@ -3330,20 +3347,15 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         completed_count = len(intern['completed_topics'])
         if completed_count >= total:
             # Марафон пройден — полное сообщение (автоматическая отправка по расписанию)
-            weeks = get_sections_progress(intern['completed_topics'])
-            weeks_text = ""
-            for i, week in enumerate(weeks):
-                pct = int((week['completed'] / week['total']) * 100) if week['total'] > 0 else 0
-                filled = max(1, pct // 10) if pct > 0 else 0
-                bar = '█' * filled + '░' * (10 - filled)
-                weeks_text += f"{'1️⃣' if i == 0 else '2️⃣'} Неделя {i + 1}: {bar} {week['completed']}/{week['total']} ✅\n"
+            progress = get_lessons_tasks_progress(intern['completed_topics'])
 
             await bot.send_message(
                 chat_id,
                 "🎉 *Поздравляем! Марафон пройден!*\n\n"
                 f"Вы прошли все *{MARATHON_DAYS} дней* и *{total} тем*.\n\n"
                 f"📊 *Ваша статистика:*\n"
-                f"{weeks_text}\n"
+                f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+                f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
                 "Теперь вы — *Практикующий ученик* с базовыми практиками:\n"
                 "• Слоты саморазвития\n"
                 "• Трекер практик\n"

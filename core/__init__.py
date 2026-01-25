@@ -4,11 +4,12 @@
 Содержит:
 - helpers.py: вспомогательные функции для генерации контента
 - intent.py: распознавание намерений пользователя
-- machine.py: StateMachine — движок переходов между стейтами
-- storage.py: StateStorage — хранение состояния пользователей
+- machine.py: State Machine диспетчер
 - router.py: маршрутизация по режимам (Марафон/Лента) - TODO
 - scheduler.py: настройка APScheduler - TODO
 """
+
+from .machine import StateMachine
 
 from .helpers import (
     load_topic_metadata,
@@ -28,12 +29,9 @@ from .intent import (
     get_question_keywords,
 )
 
-# StateMachine и StateStorage не импортируются автоматически,
-# так как они зависят от модуля states, который загружается отдельно.
-# Используйте: from core.machine import StateMachine
-#              from core.storage import StateStorage
-
 __all__ = [
+    # machine
+    'StateMachine',
     # helpers
     'load_topic_metadata',
     'get_search_keys',
