@@ -10,6 +10,7 @@ from typing import Optional
 from aiogram.types import Message
 
 from states.base import BaseState
+from locales import t
 
 
 class ErrorState(BaseState):
@@ -23,37 +24,46 @@ class ErrorState(BaseState):
     display_name = {"ru": "Ошибка", "en": "Error"}
     allow_global = []
 
+    # Тексты кнопок
+    RETRY_BUTTONS = ["🔄 Повторить", "🔄 Retry", "🔄 Reintentar"]
+    BACK_BUTTONS = ["◀️ Назад", "◀️ Back", "◀️ Atrás"]
+
+    def _get_lang(self, user) -> str:
+        """Получить язык пользователя."""
+        if isinstance(user, dict):
+            return user.get('language', 'ru')
+        return getattr(user, 'language', 'ru') or 'ru'
+
     async def enter(self, user, context: dict = None) -> None:
         """Показываем сообщение об ошибке."""
+        lang = self._get_lang(user)
+
         # Получаем детали ошибки из контекста
         error_message = (context or {}).get("error_message")
 
         if error_message:
-            await self.send(user, f"{self.t('common.error', user)}\n\n{error_message}")
+            await self.send(user, f"❌ Произошла ошибка:\n\n{error_message}")
         else:
-            await self.send(user, self.t("states.error.message", user))
+            await self.send(user, t('error.generic', lang))
 
         # Показываем кнопки
-        buttons = [
-            [self.t("states.error.retry_button", user)],
-            [self.t("common.back", user)]
-        ]
+        retry_btn = "🔄 Повторить" if lang == "ru" else "🔄 Retry"
+        back_btn = "◀️ Назад" if lang == "ru" else "◀️ Back"
+
+        buttons = [[retry_btn], [back_btn]]
         await self.send_with_keyboard(
             user,
-            self.t("common.help", user),
+            t('error.choose_action', lang),
             buttons
         )
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Обрабатываем выбор пользователя."""
-        text = (message.text or "").strip()
+        text = (message.text or "").strip().lower()
 
-        retry_text = self.t("states.error.retry_button", user)
-        back_text = self.t("common.back", user)
-
-        if text == retry_text:
+        if "повторить" in text or "retry" in text or text in [b.lower() for b in self.RETRY_BUTTONS]:
             return "retry"
-        elif text == back_text:
+        elif "назад" in text or "back" in text or text in [b.lower() for b in self.BACK_BUTTONS]:
             return "continue"
 
         # Любой другой текст — продолжаем
