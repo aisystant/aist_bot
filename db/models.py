@@ -42,6 +42,9 @@ async def create_tables(pool: asyncpg.Pool):
                 -- Режимы (NEW)
                 mode TEXT DEFAULT 'marathon',
                 current_context TEXT DEFAULT '{}',
+
+                -- State Machine (текущее состояние)
+                current_state TEXT DEFAULT NULL,
                 
                 -- Марафон
                 marathon_status TEXT DEFAULT 'not_started',
@@ -94,6 +97,9 @@ async def create_tables(pool: asyncpg.Pool):
             # Новые поля для режимов
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT \'marathon\'',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_context TEXT DEFAULT \'{}\'',
+
+            # State Machine
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_state TEXT DEFAULT NULL',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_status TEXT DEFAULT \'not_started\'',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_paused_at DATE DEFAULT NULL',
             

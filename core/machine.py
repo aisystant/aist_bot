@@ -236,8 +236,14 @@ class StateMachine:
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
 
-        # TODO: Сохранить новый стейт в БД
-        # await self.db.update_user_state(user, to_state_name)
+        # Сохраняем новый стейт в БД
+        try:
+            from db.queries import update_user_state
+            chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
+            if chat_id:
+                await update_user_state(chat_id, to_state_name)
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить стейт в БД: {e}")
 
         # Вход в новый стейт
         await to_state.enter(user, full_context)
@@ -252,6 +258,15 @@ class StateMachine:
         """
         start_state = self.get_state(self._default_state)
         if start_state:
+            # Сохраняем начальный стейт в БД
+            try:
+                from db.queries import update_user_state
+                chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
+                if chat_id:
+                    await update_user_state(chat_id, self._default_state)
+            except Exception as e:
+                logger.warning(f"Не удалось сохранить начальный стейт: {e}")
+
             await start_state.enter(user, context)
         else:
             logger.error(f"Стартовый стейт не найден: {self._default_state}")

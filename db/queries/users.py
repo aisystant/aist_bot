@@ -77,6 +77,9 @@ def _row_to_dict(row) -> dict:
         # Режимы
         'mode': safe_get('mode', 'marathon'),
         'current_context': safe_json('current_context', {}),
+
+        # State Machine
+        'current_state': safe_get('current_state', None),
         
         # Марафон
         'marathon_status': safe_get('marathon_status', 'not_started'),
@@ -133,7 +136,10 @@ def _get_default_intern(chat_id: int) -> dict:
         
         'mode': 'marathon',
         'current_context': {},
-        
+
+        # State Machine
+        'current_state': None,
+
         'marathon_status': 'not_started',
         'marathon_start_date': None,
         'marathon_paused_at': None,
@@ -187,6 +193,23 @@ async def update_intern(chat_id: int, **kwargs):
                 f'UPDATE interns SET {key} = $1, updated_at = NOW() WHERE chat_id = $2',
                 value, chat_id
             )
+
+
+async def update_user_state(chat_id: int, state_name: str) -> None:
+    """
+    Обновить текущее состояние пользователя (для State Machine).
+
+    Args:
+        chat_id: ID чата пользователя
+        state_name: Имя нового состояния (например, "common.start")
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE interns SET current_state = $1, updated_at = NOW() WHERE chat_id = $2',
+            state_name, chat_id
+        )
+    logger.debug(f"[SM] User {chat_id} state updated to: {state_name}")
 
 
 async def get_all_scheduled_interns(hour: int, minute: int) -> List[int]:

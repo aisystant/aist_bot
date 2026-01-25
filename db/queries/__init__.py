@@ -12,6 +12,7 @@
 from .users import (
     get_intern,
     update_intern,
+    update_user_state,
     get_all_scheduled_interns,
     get_topics_today,
     moscow_now,
@@ -51,6 +52,7 @@ __all__ = [
     # users
     'get_intern',
     'update_intern',
+    'update_user_state',
     'get_all_scheduled_interns',
     'get_topics_today',
     'moscow_now',

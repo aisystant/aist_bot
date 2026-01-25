@@ -39,6 +39,9 @@ from locales import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from core.intent import detect_intent, IntentType
 from engines.shared import handle_question, ProcessingStage
 
+# Feature flags
+from config import USE_STATE_MACHINE
+
 # ============= КОНФИГУРАЦИЯ =============
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -3321,6 +3324,9 @@ scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
 # Глобальный dispatcher для доступа к FSM storage
 _dispatcher: Optional[Dispatcher] = None
 
+# State Machine (инициализируется в main() если USE_STATE_MACHINE=true)
+state_machine = None
+
 async def send_scheduled_topic(chat_id: int, bot: Bot):
     """Отправка темы по расписанию"""
     intern = await get_intern(chat_id)
@@ -3531,9 +3537,31 @@ async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
 @router.message()
 async def on_unknown_message(message: Message, state: FSMContext):
     """Обработка сообщений вне FSM-состояний"""
-    current_state = await state.get_state()
-    text = message.text or ''
     chat_id = message.chat.id
+    text = message.text or ''
+
+    # === STATE MACHINE ROUTING ===
+    # Если StateMachine включён — направляем туда
+    if state_machine is not None:
+        logger.info(f"[SM] Routing message to StateMachine: chat_id={chat_id}, text={text[:50] if text else '[no text]'}")
+        try:
+            intern = await get_intern(chat_id)
+            if intern:
+                await state_machine.handle(intern, message)
+                return
+            else:
+                # Новый пользователь — запускаем онбординг через SM
+                await state_machine.start({'telegram_id': chat_id}, context={'message': message})
+                return
+        except Exception as e:
+            logger.error(f"[SM] Error in StateMachine: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback к старой логике
+            logger.info(f"[SM] Falling back to legacy routing")
+
+    # === LEGACY ROUTING (старая логика) ===
+    current_state = await state.get_state()
     logger.info(f"[UNKNOWN] on_unknown_message вызван для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
 
     # Если пользователь в каком-то состоянии — пробуем обработать вручную
@@ -3802,10 +3830,38 @@ async def on_unknown_message(message: Message, state: FSMContext):
 # ============= ЗАПУСК =============
 
 async def main():
-    global _dispatcher
+    global _dispatcher, state_machine
 
     # Инициализация БД
     await init_db()
+
+    # Инициализация State Machine (если включён флаг)
+    state_machine = None
+    if USE_STATE_MACHINE:
+        try:
+            from core.machine import StateMachine
+            from config import BASE_DIR
+
+            state_machine = StateMachine()
+            state_machine.load_transitions(BASE_DIR / "config" / "transitions.yaml")
+
+            # Регистрируем стейты
+            from states.common.start import StartState
+            from states.common.error import ErrorState
+            from states.common.mode_select import ModeSelectState
+
+            # TODO: Передать реальные зависимости (bot, db, llm, i18n)
+            # Пока создаём без них — они будут инжектиться позже
+            state_machine.register_all([
+                StartState(bot=None, db=None, llm=None, i18n=None),
+                ErrorState(bot=None, db=None, llm=None, i18n=None),
+                ModeSelectState(bot=None, db=None, llm=None, i18n=None),
+            ])
+
+            logger.info(f"✅ StateMachine инициализирован ({len(state_machine._states)} стейтов)")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации StateMachine: {e}")
+            state_machine = None
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=PostgresStorage())
