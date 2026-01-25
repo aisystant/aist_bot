@@ -275,10 +275,12 @@ async def marathon_learn(callback: CallbackQuery, state: FSMContext):
     try:
         await send_topic(chat_id, state, bot)
     except Exception as e:
-        logger.error(f"Ошибка в marathon_learn для {chat_id}: {e}")
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"Ошибка в marathon_learn для {chat_id}: {e}\n{error_trace}")
         await bot.send_message(
             chat_id,
-            "⚠️ Произошла ошибка. Попробуйте /learn",
+            f"⚠️ Произошла ошибка. Попробуйте /learn\n\n`{str(e)[:200]}`",
             parse_mode="Markdown"
         )
 
