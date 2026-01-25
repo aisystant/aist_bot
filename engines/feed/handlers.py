@@ -815,8 +815,12 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в show_today_session: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка при загрузке дайджеста. Попробуйте позже.")
+        error_trace = traceback.format_exc()
+        logger.error(f"Ошибка в show_today_session: {e}\n{error_trace}")
+        # Показываем ошибку для отладки
+        trace_lines = error_trace.strip().split('\n')
+        short_trace = '\n'.join(trace_lines[-6:])
+        await message.answer(f"Ошибка загрузки дайджеста:\n```\n{short_trace[:500]}\n```", parse_mode="Markdown")
 
 
 @feed_router.message(FeedStates.reading_content, F.text.func(lambda t: not t.startswith('/')))
