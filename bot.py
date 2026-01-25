@@ -2123,10 +2123,13 @@ async def show_full_progress(callback: CallbackQuery):
         if days_text:
             text += f"\n📋 *По дням:*\n{days_text}"
 
-        # Отставание
-        missed_days = marathon_day - total_active
-        if missed_days > 0:
-            text += f"Отставание: {missed_days} дней\n"
+        # Отставание (сколько дней контента пропущено)
+        # Считаем количество полностью завершённых дней марафона
+        days_progress = get_days_progress(intern.get('completed_topics', []), marathon_day)
+        completed_days = sum(1 for d in days_progress if d['status'] == 'completed')
+        lag = marathon_day - completed_days
+        if lag > 0:
+            text += f"Отставание: {lag} дней\n"
         else:
             text += f"Отставание: 0 дней\n"
 
