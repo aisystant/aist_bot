@@ -1,4 +1,4 @@
-name: Documentation Compliance Check
+name: Scenario Compliance Check
 
 on:
   schedule:
@@ -6,22 +6,10 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
     # Ручной запуск из интерфейса GitHub
-    inputs:
-      check_type:
-        description: 'Тип проверки'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - scenarios
-          - processes
-          - data
-          - states
 
 jobs:
-  check-compliance:
-    name: Check Code vs Documentation
+  check-scenarios:
+    name: Check Code vs Scenarios
     runs-on: ubuntu-latest
 
     steps:
@@ -37,36 +25,34 @@ jobs:
         run: |
           pip install pyyaml
 
-      - name: Run compliance checks
+      - name: Run scenario compliance check
         id: check
         run: |
-          CHECK_TYPE="${{ github.event.inputs.check_type || 'all' }}"
-
-          python -m tests.test_repo.scripts.checker --type $CHECK_TYPE --json > result.json
+          python -m tests.test_repo.scripts.checker --json > result.json
           cat result.json
 
           # Извлекаем данные для использования в следующих шагах
           COVERAGE=$(jq -r '.coverage' result.json)
           STATUS=$(jq -r '.status' result.json)
+          REPORT_PATH=$(jq -r '.report_path' result.json)
 
           echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
           echo "status=$STATUS" >> $GITHUB_OUTPUT
-          echo "check_type=$CHECK_TYPE" >> $GITHUB_OUTPUT
+          echo "report_path=$REPORT_PATH" >> $GITHUB_OUTPUT
         continue-on-error: true
 
-      - name: Generate report files
+      - name: Generate report file
         run: |
-          CHECK_TYPE="${{ github.event.inputs.check_type || 'all' }}"
-          python -m tests.test_repo.scripts.checker --type $CHECK_TYPE
+          python -m tests.test_repo.scripts.checker
 
-      - name: Upload reports as artifacts
+      - name: Upload report as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: compliance-reports
+          name: scenario-compliance-report
           path: tests/test-repo/reports/*.md
           retention-days: 90
 
-      - name: Commit reports to repository
+      - name: Commit report to repository
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -77,8 +63,7 @@ jobs:
             echo "No changes to commit"
           else
             DATE=$(date +%Y-%m-%d)
-            CHECK_TYPE="${{ steps.check.outputs.check_type }}"
-            git commit -m "chore: add compliance report for $DATE ($CHECK_TYPE)"
+            git commit -m "chore: add scenario compliance report for $DATE"
             git push
           fi
         env:
@@ -88,36 +73,28 @@ jobs:
         run: |
           COVERAGE=${{ steps.check.outputs.coverage }}
           STATUS=${{ steps.check.outputs.status }}
-          CHECK_TYPE=${{ steps.check.outputs.check_type }}
 
           if [ "$STATUS" = "green" ]; then
             EMOJI="🟢"
-            MESSAGE="Код хорошо соответствует документации"
+            MESSAGE="Код хорошо соответствует сценариям"
           elif [ "$STATUS" = "yellow" ]; then
             EMOJI="🟡"
-            MESSAGE="Требует внимания: некоторые проверки не пройдены"
+            MESSAGE="Требует внимания: некоторые вспомогательные сценарии не покрыты"
           else
             EMOJI="🔴"
-            MESSAGE="Критично: основные проверки не пройдены"
+            MESSAGE="Критично: основные сценарии под угрозой"
           fi
 
-          echo "## $EMOJI Проверка соответствия документации" >> $GITHUB_STEP_SUMMARY
+          echo "## $EMOJI Проверка соответствия сценариям" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Тип проверки:** $CHECK_TYPE" >> $GITHUB_STEP_SUMMARY
           echo "**Покрытие:** ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "$MESSAGE" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Проверяемые категории:" >> $GITHUB_STEP_SUMMARY
-          echo "- **scenarios** — соответствие сценариям" >> $GITHUB_STEP_SUMMARY
-          echo "- **processes** — соответствие процессам" >> $GITHUB_STEP_SUMMARY
-          echo "- **data** — соответствие данным" >> $GITHUB_STEP_SUMMARY
-          echo "- **states** — соответствие State Machine" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Подробный отчёт доступен в артефактах." >> $GITHUB_STEP_SUMMARY
 
       - name: Fail if coverage is critical
         if: steps.check.outputs.status == 'red'
         run: |
-          echo "❌ Покрытие критически низкое: ${{ steps.check.outputs.coverage }}%"
+          echo "❌ Покрытие сценариев критически низкое: ${{ steps.check.outputs.coverage }}%"
           exit 1

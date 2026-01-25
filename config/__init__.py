@@ -3,10 +3,8 @@
 
 Содержит:
 - settings.py: все константы, токены, настройки
-- features.py: feature flags для управления функциональностью
 """
 
-from .features import flags, FeatureFlags
 from .settings import (
     # Токены
     BOT_TOKEN,
@@ -70,10 +68,6 @@ from .settings import (
 )
 
 __all__ = [
-    # Feature flags
-    'flags',
-    'FeatureFlags',
-    # Токены
     'BOT_TOKEN',
     'ANTHROPIC_API_KEY',
     'DATABASE_URL',
