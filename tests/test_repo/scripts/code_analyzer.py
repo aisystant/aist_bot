@@ -376,7 +376,8 @@ class CodeAnalyzer:
             )
 
         try:
-            match = re.search(pattern, content, re.IGNORECASE | re.MULTILINE)
+            # re.DOTALL позволяет . матчить переносы строк для многострочных паттернов
+            match = re.search(pattern, content, re.IGNORECASE | re.MULTILINE | re.DOTALL)
             if match:
                 line_no = content[:match.start()].count('\n') + 1
                 matched_text = match.group(0)[:50]
@@ -463,6 +464,10 @@ class CodeAnalyzer:
             class_file = check.get('class_file', file)
             events = check.get('events', [])
             return self.check_transition(state, class_file, events, description)
+
+        elif check_type == 'table':
+            # Для проверки CREATE TABLE используем pattern
+            return self.check_pattern(file, pattern, description)
 
         else:
             return CheckResult(
