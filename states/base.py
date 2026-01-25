@@ -2,10 +2,10 @@
 Базовый класс для всех стейтов State Machine.
 
 Каждый стейт — это отдельный файл в соответствующей папке:
-- states/common/ — общие стейты
-- states/workshops/ — стейты мастерских
-- states/consultants/ — стейты консультантов
-- states/utilities/ — стейты утилит
+- states/common/ — общие стейты (start, mode_select, error, consultation)
+- states/workshops/ — стейты мастерских (marathon, exocortex, ...)
+- states/feed/ — стейты Ленты (topics, digest)
+- states/utilities/ — стейты утилит (notes, export)
 
 Пример создания нового стейта:
 
