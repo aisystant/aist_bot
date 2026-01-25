@@ -10,7 +10,7 @@
 Flow:
   day → question → [bonus*] → task → day (следующий)
 
-  * bonus предлагается только если bloom_level < 3
+  * bonus предлагается только на уровнях 2 и 3 (bloom_level >= 2)
 """
 
 from .bonus import MarathonBonusState
