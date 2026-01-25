@@ -2,7 +2,7 @@
 Стейт: Выбор режима работы.
 
 Вход: после онбординга или по команде /mode
-Выход: workshop.marathon.lesson, consultant.feed_topics и т.д.
+Выход: workshop.marathon.lesson, feed.topics и т.д.
 """
 
 from typing import Optional
@@ -24,7 +24,7 @@ class ModeSelectState(BaseState):
 
     name = "common.mode_select"
     display_name = {"ru": "Выбор режима", "en": "Mode Select"}
-    allow_global = ["consultant", "notes"]
+    allow_global = ["consultation", "notes"]
 
     # Тексты кнопок (для сравнения)
     MARATHON_BUTTONS = ["📚 Марафон", "📚 Marathon", "📚 Maratón"]

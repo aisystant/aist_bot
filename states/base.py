@@ -44,7 +44,7 @@ class BaseState(ABC):
 
     # Уникальный идентификатор стейта
     # Формат: "category.name" или "category.subcategory.name"
-    # Примеры: "common.start", "workshop.marathon.question", "consultant.main"
+    # Примеры: "common.start", "workshop.marathon.lesson", "common.consultation"
     name: str = "base"
 
     # Человекочитаемое название для логов и отладки
@@ -52,7 +52,7 @@ class BaseState(ABC):
 
     # Глобальные команды, доступные в этом стейте
     # Эти команды вызывают переход независимо от логики стейта
-    # Примеры: ["consultant", "notes"]
+    # Примеры: ["consultation", "notes"]
     allow_global: list[str] = []
 
     def __init__(self, bot: Bot, db, llm, i18n):
