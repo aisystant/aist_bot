@@ -25,45 +25,55 @@
 Сообщение → Загрузка состояния → Обработка → Событие → Переход → Сохранение
 ```
 
-## 1.2. Три бизнес-категории
+## 1.2. Четыре бизнес-категории
 
 Стейты группируются по типу взаимодействия:
 
-| Категория | Описание | Характер стейтов |
-|-----------|----------|------------------|
-| **Мастерские** (workshops) | Программы со строгой структурой, пользователь идёт по шагам | Цепочки стейтов с прогрессом |
-| **Консультанты** (consultants) | Гибкое взаимодействие по запросу | Обычно один стейт, возврат в предыдущий |
-| **Утилиты** (utilities) | Одно действие — один результат | Атомарные стейты |
+| Категория | Описание | Namespace | Характер стейтов |
+|-----------|----------|-----------|------------------|
+| **Общие** (common) | Общие процессы | `common.*` | Онбординг, выбор режима, консультация |
+| **Мастерские** (workshops) | Программы со строгой структурой | `workshop.*` | Цепочки стейтов с прогрессом |
+| **Лента** (feed) | Гибкое обучение по дайджестам | `feed.*` | Выбор тем → дайджест → фиксация |
+| **Утилиты** (utilities) | Одно действие — один результат | `utility.*` | Атомарные стейты |
+
+> **Важно:** Стейты называются по **процессам** (consultation), а не по агентам (consultant).
 
 ## 1.3. Мастерские
 
 | Мастерская | Что изготавливается | Стейты |
 |------------|---------------------|--------|
-| **Марафон** | Мастерство ученика за 14 дней | day → question → task → (repeat) |
+| **Марафон** | Мастерство ученика за 14 дней | lesson → question → bonus → task → (repeat) |
 | **Экзокортекс** | Настроенный личный экзокортекс | audit → tools → setup → practice |
 | **FPFkids** | Система обучения ребёнка | goals → topics → plan → session |
 | **Задачник** | Навык через практику | topic_select → problem → solution → review |
 
-## 1.4. Консультанты
+## 1.4. Глобальные процессы
 
-| Консультант | Как работает | Стейт |
-|-------------|--------------|-------|
-| **Общий (?)** | Ответ на любой вопрос | `consultant.main` |
-| **Лента** | Push-контент по темам | `feed.topics`, `feed.digest` |
-| **Тест ступени** | Диагностика по запросу | `assessment.test`, `assessment.result` |
+| Процесс | Триггер | Стейт | Возврат |
+|---------|---------|-------|---------|
+| **Консультация** | `?` | `common.consultation` | `_previous` |
+| **Заметки** | `/note` | `utility.notes` | `_previous` |
+| **Экспорт** | `/export` | `utility.export` | `_previous` |
 
-## 1.5. Утилиты
+## 1.5. Лента (Feed)
+
+| Стейт | Назначение |
+|-------|------------|
+| `feed.topics` | Выбор тем на неделю |
+| `feed.digest` | Показ дайджеста, ожидание фиксации |
+
+## 1.6. Утилиты
 
 | Утилита | Действие | Стейт |
 |---------|----------|-------|
 | **Заметочник** | Сохранить мысль | `utility.notes` |
 | **Экспорт** | Выгрузить в Obsidian | `utility.export` |
 
-## 1.6. Критическое правило: Единый консультант
+## 1.7. Критическое правило: Единая консультация
 
-**Консультант один.** Нет отдельных консультантов по экзокортексу, детям, задачам.
+**Консультация одна.** Нет отдельных консультаций по экзокортексу, детям, задачам.
 
-Пользователь задаёт вопрос общему консультанту (`?`). Консультант определяет тему и ищет сначала в базе знаний соответствующей мастерской, потом в общей базе.
+Пользователь задаёт вопрос через `?`. Процесс консультации определяет тему и ищет сначала в базе знаний соответствующей мастерской, потом в общей базе.
 
 ```python
 TOPIC_MAPPING = {
@@ -94,14 +104,16 @@ aist_bot/
 │   │   ├── __init__.py
 │   │   ├── start.py                    # Начало / онбординг
 │   │   ├── error.py                    # Обработка ошибок
-│   │   └── mode_select.py              # Выбор режима
+│   │   ├── mode_select.py              # Выбор режима
+│   │   └── consultation.py             # Консультация (глобальный процесс)
 │   │
 │   ├── workshops/                      # Стейты мастерских
 │   │   ├── __init__.py
 │   │   ├── marathon/
 │   │   │   ├── __init__.py
-│   │   │   ├── day.py                  # Показ урока
+│   │   │   ├── lesson.py               # Показ урока
 │   │   │   ├── question.py             # Вопрос на понимание
+│   │   │   ├── bonus.py                # Бонусный вопрос
 │   │   │   └── task.py                 # Задание
 │   │   ├── exocortex/
 │   │   │   ├── __init__.py
@@ -119,13 +131,10 @@ aist_bot/
 │   │       ├── problem.py
 │   │       └── solution.py
 │   │
-│   ├── consultants/                    # Стейты консультантов
+│   ├── feed/                           # Стейты Ленты
 │   │   ├── __init__.py
-│   │   ├── main.py                     # Общий консультант (?)
-│   │   ├── feed_topics.py              # Выбор тем ленты
-│   │   ├── feed_digest.py              # Показ дайджеста
-│   │   ├── assessment_test.py          # Прохождение теста
-│   │   └── assessment_result.py        # Результат теста
+│   │   ├── topics.py                   # Выбор тем на неделю
+│   │   └── digest.py                   # Показ дайджеста
 │   │
 │   └── utilities/                      # Стейты утилит
 │       ├── __init__.py
@@ -162,11 +171,8 @@ aist_bot/
 │   │   └── practice/
 │   │       └── problem_bank/
 │   │
-│   ├── consultants/
-│   │   ├── feed/
-│   │   │   └── topics.yaml
-│   │   └── assessment/
-│   │       └── entry_test.yaml
+│   ├── feed/                           # Контент Ленты
+│   │   └── topics.yaml
 │   │
 │   └── knowledge/                      # Базы знаний мастерских
 │       ├── marathon.md
@@ -254,15 +260,15 @@ class BaseState(ABC):
     
     # Уникальный идентификатор стейта
     # Формат: "category.name" или "category.subcategory.name"
-    # Примеры: "common.start", "workshop.marathon.question", "consultant.main"
+    # Примеры: "common.start", "workshop.marathon.lesson", "common.consultation"
     name: str = "base"
-    
+
     # Человекочитаемое название для логов и отладки
     display_name: dict[str, str] = {"ru": "Базовый стейт", "en": "Base State"}
-    
+
     # Глобальные команды, доступные в этом стейте
     # Эти команды вызывают переход независимо от логики стейта
-    allow_global: list[str] = []  # ["consultant", "notes"]
+    allow_global: list[str] = []  # ["consultation", "notes"]
     
     def __init__(self, bot, db, llm, i18n):
         """
@@ -374,13 +380,13 @@ states:
   common.mode_select:
     description: "Выбор режима работы"
     events:
-      marathon: workshop.marathon.day
-      feed: consultant.feed_topics
+      marathon: workshop.marathon.lesson
+      feed: feed.topics
       exocortex: workshop.exocortex.audit
       fpfkids: workshop.fpfkids.goals
       practice: workshop.practice.topic_select
       settings: common.settings
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
 
   common.settings:
     description: "Настройки пользователя"
@@ -391,31 +397,40 @@ states:
   # ==========================================
   # МАСТЕРСКАЯ: МАРАФОН
   # ==========================================
-  
-  workshop.marathon.day:
+
+  workshop.marathon.lesson:
     description: "Показ урока текущего дня"
     events:
       lesson_shown: workshop.marathon.question
       already_completed: workshop.marathon.task
       marathon_complete: common.mode_select
-    allow_global: [consultant, notes]
-  
+    allow_global: [consultation, notes]
+
   workshop.marathon.question:
     description: "Вопрос на понимание урока"
     events:
-      correct: workshop.marathon.task
-      incorrect: _same                  # Повторяем вопрос
+      correct: workshop.marathon.bonus   # Уровни 2-3 → бонусный вопрос
+      correct_level_1: workshop.marathon.task  # Уровень 1 → сразу задание
+      incorrect: _same                   # Повторяем вопрос
       skip: workshop.marathon.task
-      hint: _same                       # Показываем подсказку
-    allow_global: [consultant, notes]
-  
+      hint: _same                        # Показываем подсказку
+    allow_global: [consultation, notes]
+
+  workshop.marathon.bonus:
+    description: "Бонусный вопрос повышенной сложности"
+    events:
+      yes: _same                         # Отвечаем на бонусный вопрос
+      answered: workshop.marathon.task   # Ответ принят → задание
+      no: workshop.marathon.task         # Отказ → сразу к заданию
+    allow_global: [consultation, notes]
+
   workshop.marathon.task:
     description: "Практическое задание"
     events:
-      submitted: workshop.marathon.day  # Следующий день
+      submitted: workshop.marathon.lesson  # Следующий урок
       feedback_requested: _same
-      day_complete: workshop.marathon.day
-    allow_global: [consultant, notes]
+      day_complete: workshop.marathon.lesson
+    allow_global: [consultation, notes]
   
   # ==========================================
   # МАСТЕРСКАЯ: ЭКЗОКОРТЕКС
@@ -426,14 +441,14 @@ states:
     events:
       audit_complete: workshop.exocortex.tools
       skip: workshop.exocortex.tools
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.exocortex.tools:
     description: "Выбор инструментов"
     events:
       tools_selected: workshop.exocortex.setup
       back: workshop.exocortex.audit
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.exocortex.setup:
     description: "Настройка выбранных инструментов"
@@ -441,14 +456,14 @@ states:
       step_complete: _same              # Следующий шаг настройки
       setup_complete: workshop.exocortex.practice
       back: workshop.exocortex.tools
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.exocortex.practice:
     description: "Практика использования экзокортекса"
     events:
       practice_complete: common.mode_select
       continue: _same
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   # ==========================================
   # МАСТЕРСКАЯ: FPFKIDS
@@ -459,21 +474,21 @@ states:
     events:
       goals_set: workshop.fpfkids.topics
       skip: workshop.fpfkids.topics
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.fpfkids.topics:
     description: "Выбор тем для изучения"
     events:
       topics_selected: workshop.fpfkids.plan
       back: workshop.fpfkids.goals
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.fpfkids.plan:
     description: "Составление плана занятий"
     events:
       plan_ready: workshop.fpfkids.session
       back: workshop.fpfkids.topics
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.fpfkids.session:
     description: "Проведение занятия"
@@ -481,7 +496,7 @@ states:
       session_complete: workshop.fpfkids.session  # Следующее занятие
       program_complete: common.mode_select
       pause: common.mode_select
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   # ==========================================
   # МАСТЕРСКАЯ: ЗАДАЧНИК
@@ -492,14 +507,14 @@ states:
     events:
       topic_selected: workshop.practice.problem
       random: workshop.practice.problem  # Случайная задача
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.practice.problem:
     description: "Показ задачи"
     events:
       problem_shown: workshop.practice.solution
       skip: workshop.practice.problem    # Следующая задача
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   workshop.practice.solution:
     description: "Проверка решения"
@@ -508,47 +523,38 @@ states:
       incorrect: _same                    # Повторная попытка
       show_answer: workshop.practice.problem
       done: common.mode_select
-    allow_global: [consultant, notes]
+    allow_global: [consultation, notes]
   
   # ==========================================
-  # КОНСУЛЬТАНТЫ
+  # ГЛОБАЛЬНЫЕ ПРОЦЕССЫ
   # ==========================================
-  
-  consultant.main:
-    description: "Общий консультант (?)"
+
+  common.consultation:
+    description: "Консультация (ответ на вопрос пользователя)"
     events:
       answered: _previous               # Возврат в предыдущий стейт
       followup: _same                   # Уточняющий вопрос
       done: _previous
-  
-  consultant.feed_topics:
-    description: "Выбор тем для ленты"
+
+  # ==========================================
+  # ЛЕНТА (feed.*)
+  # ==========================================
+
+  feed.topics:
+    description: "Выбор тем для Ленты"
     events:
-      topics_selected: consultant.feed_digest
+      topics_selected: feed.digest
       skip: common.mode_select
-    allow_global: [consultant, notes]
-  
-  consultant.feed_digest:
+    allow_global: [consultation, notes]
+
+  feed.digest:
     description: "Показ дайджеста"
     events:
       digest_shown: _same               # Ждём фиксацию
       fixation_saved: _same             # Следующий дайджест
-      change_topics: consultant.feed_topics
+      change_topics: feed.topics
       done: common.mode_select
-    allow_global: [consultant, notes]
-  
-  consultant.assessment_test:
-    description: "Прохождение теста ступени"
-    events:
-      answer_given: _same               # Следующий вопрос
-      test_complete: consultant.assessment_result
-    allow_global: [notes]               # Консультант недоступен во время теста
-  
-  consultant.assessment_result:
-    description: "Результат теста"
-    events:
-      continue: common.mode_select
-      retake: consultant.assessment_test
+    allow_global: [consultation, notes]
   
   # ==========================================
   # УТИЛИТЫ
@@ -575,10 +581,10 @@ states:
 # если он указан в allow_global
 
 global_events:
-  consultant:
+  consultation:
     trigger: "?"                        # Сообщение начинается с ?
-    target: consultant.main
-  
+    target: common.consultation
+
   notes:
     trigger: "/note"                    # Команда /note
     target: utility.notes
@@ -854,17 +860,17 @@ from states.base import BaseState
 class MarathonQuestionState(BaseState):
     """
     Стейт: Вопрос на понимание урока марафона.
-    
-    Входит после показа урока (workshop.marathon.day).
-    Выходит в задание (workshop.marathon.task) после правильного ответа.
+
+    Входит после показа урока (workshop.marathon.lesson).
+    Выходит в бонус или задание после правильного ответа.
     """
-    
+
     name = "workshop.marathon.question"
     display_name = {
         "ru": "Вопрос марафона",
         "en": "Marathon Question"
     }
-    allow_global = ["consultant", "notes"]
+    allow_global = ["consultation", "notes"]
     
     async def enter(self, user, context: dict = None):
         """Показываем вопрос"""
@@ -942,10 +948,10 @@ class MarathonQuestionState(BaseState):
         return True
 ```
 
-## 3.7. Пример стейта: Консультант
+## 3.7. Пример стейта: Консультация
 
 ```python
-# states/consultants/main.py
+# states/common/consultation.py
 from typing import Optional
 from aiogram.types import Message
 
@@ -953,55 +959,55 @@ from states.base import BaseState
 from core.knowledge.router import KnowledgeRouter
 
 
-class MainConsultantState(BaseState):
+class ConsultationState(BaseState):
     """
-    Стейт: Общий консультант.
-    
+    Стейт: Консультация (глобальный процесс).
+
     Вход: из любого стейта по команде "?"
     Выход: возврат в предыдущий стейт
     """
-    
-    name = "consultant.main"
+
+    name = "common.consultation"
     display_name = {
-        "ru": "Консультант",
-        "en": "Consultant"
+        "ru": "Консультация",
+        "en": "Consultation"
     }
-    allow_global = []  # Из консультанта нельзя вызвать консультанта
-    
+    allow_global = []  # Из консультации нельзя вызвать консультацию
+
     def __init__(self, *args, knowledge_router: KnowledgeRouter, **kwargs):
         super().__init__(*args, **kwargs)
         self.knowledge_router = knowledge_router
-    
+
     async def enter(self, user, context: dict = None):
         """Показываем приглашение"""
         # Если пришли с вопросом (? текст) — сразу отвечаем
         initial_question = context.get("question") if context else None
-        
+
         if initial_question:
             await self._answer_question(user, initial_question)
         else:
-            await self.send(user, self.t("consultant.prompt", user))
-    
+            await self.send(user, self.t("consultation.prompt", user))
+
     async def handle(self, user, message: Message) -> Optional[str]:
         """Обрабатываем вопрос"""
         text = message.text or ""
-        
+
         # Команда выхода
         if text.lower() in ["выход", "exit", "done", "/done"]:
-            await self.send(user, self.t("consultant.goodbye", user))
+            await self.send(user, self.t("consultation.goodbye", user))
             return "done"
-        
+
         # Отвечаем на вопрос
         await self._answer_question(user, text)
-        
+
         # Спрашиваем, есть ли ещё вопросы
-        await self.send(user, self.t("consultant.followup_prompt", user))
+        await self.send(user, self.t("consultation.followup_prompt", user))
         return "followup"  # Остаёмся в стейте
-    
+
     async def _answer_question(self, user, question: str):
         """Отвечает на вопрос с использованием баз знаний"""
         # Показываем "думаю..."
-        await self.send(user, self.t("consultant.thinking", user))
+        await self.send(user, self.t("consultation.thinking", user))
         
         # Получаем контекст из баз знаний
         context = await self.knowledge_router.get_context(question)
@@ -1123,14 +1129,14 @@ workshops:
     enabled: false
     visible: false
 
-# Активные консультанты
-consultants:
-  main:
+# Глобальные процессы
+global_processes:
+  consultation:
     enabled: true
-  feed:
-    enabled: true
-  assessment:
-    enabled: false
+
+# Лента
+feed:
+  enabled: true
 
 # Активные утилиты
 utilities:
@@ -1207,7 +1213,7 @@ marathon:
   max_attempts: "Давайте перейдём к заданию. Вы сможете вернуться к этому позже."
   skipped: "Хорошо, переходим к заданию."
 
-consultant:
+consultation:
   prompt: "Задайте ваш вопрос:"
   thinking: "🤔 Думаю..."
   followup_prompt: "Есть ещё вопросы? Напишите «выход» чтобы вернуться."
@@ -1388,44 +1394,46 @@ from core.machine import StateMachine
 from states.common.start import StartState
 from states.common.error import ErrorState
 from states.common.mode_select import ModeSelectState
+from states.common.consultation import ConsultationState
 
-from states.workshops.marathon.day import MarathonDayState
+from states.workshops.marathon.lesson import MarathonLessonState
 from states.workshops.marathon.question import MarathonQuestionState
+from states.workshops.marathon.bonus import MarathonBonusState
 from states.workshops.marathon.task import MarathonTaskState
 
-from states.consultants.main import MainConsultantState
-from states.consultants.feed_topics import FeedTopicsState
-from states.consultants.feed_digest import FeedDigestState
+from states.feed.topics import FeedTopicsState
+from states.feed.digest import FeedDigestState
 
 from states.utilities.notes import NotesState
 
 
 def register_all_states(machine: StateMachine, bot, db, llm, i18n):
     """Регистрирует все стейты в машине"""
-    
+
     # Общие аргументы для всех стейтов
     args = (bot, db, llm, i18n)
-    
+
     states = [
         # Common
         StartState(*args),
         ErrorState(*args),
         ModeSelectState(*args),
-        
+        ConsultationState(*args),
+
         # Marathon
-        MarathonDayState(*args),
+        MarathonLessonState(*args),
         MarathonQuestionState(*args),
+        MarathonBonusState(*args),
         MarathonTaskState(*args),
-        
-        # Consultants
-        MainConsultantState(*args),
+
+        # Feed
         FeedTopicsState(*args),
         FeedDigestState(*args),
-        
+
         # Utilities
         NotesState(*args),
     ]
-    
+
     machine.register_all(states)
 ```
 
@@ -1447,9 +1455,9 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 
 1. Создать структуру папок:
 ```bash
-mkdir -p states/common states/workshops/marathon states/consultants states/utilities
+mkdir -p states/common states/workshops/marathon states/feed states/utilities
 mkdir -p core/knowledge
-mkdir -p content/workshops/marathon content/consultants content/knowledge
+mkdir -p content/workshops/marathon content/feed content/knowledge
 mkdir -p i18n/ru i18n/en i18n/es
 mkdir -p config
 ```
@@ -1485,8 +1493,9 @@ mkdir -p config
 **Задачи:**
 
 1. Создать стейты:
-   - `states/workshops/marathon/day.py`
+   - `states/workshops/marathon/lesson.py`
    - `states/workshops/marathon/question.py`
+   - `states/workshops/marathon/bonus.py`
    - `states/workshops/marathon/task.py`
 
 2. Перенести контент в `content/workshops/marathon/`
@@ -1498,26 +1507,26 @@ mkdir -p config
 5. Добавить локализацию в `i18n/ru/states.yaml`
 
 **Проверка:**
-- Пользователь может пройти полный цикл: day → question → task → day
+- Пользователь может пройти полный цикл: lesson → question → bonus → task → lesson
 
 ---
 
-## Неделя 3: Консультант и глобальные команды
+## Неделя 3: Консультация и глобальные команды
 
-**Цель:** Реализовать консультанта и систему глобальных переходов.
+**Цель:** Реализовать процесс консультации и систему глобальных переходов.
 
 **Задачи:**
 
 1. Создать `core/knowledge/loader.py` и `core/knowledge/router.py`
 
-2. Создать `states/consultants/main.py`
+2. Создать `states/common/consultation.py`
 
 3. Настроить глобальные события в `transitions.yaml`
 
-4. Проверить переход `?` → consultant → _previous
+4. Проверить переход `?` → common.consultation → _previous
 
 **Проверка:**
-- Из любого стейта можно вызвать консультанта через `?`
+- Из любого стейта можно вызвать консультацию через `?`
 - После ответа возвращаемся в предыдущий стейт
 
 ---
@@ -1529,12 +1538,12 @@ mkdir -p config
 **Задачи:**
 
 1. Создать стейты:
-   - `states/consultants/feed_topics.py`
-   - `states/consultants/feed_digest.py`
+   - `states/feed/topics.py`
+   - `states/feed/digest.py`
 
-2. Перенести контент тем
+2. Перенести контент тем в `content/feed/`
 
-3. Настроить переходы
+3. Настроить переходы в `transitions.yaml`
 
 **Проверка:**
 - Пользователь может выбрать темы и получить дайджест
@@ -1587,10 +1596,10 @@ mkdir -p config
 **Задачи:**
 
 1. Создать стейты:
-   - `states/consultants/assessment_test.py`
-   - `states/consultants/assessment_result.py`
+   - `states/assessment/test.py`
+   - `states/assessment/result.py`
 
-2. Создать `content/consultants/assessment/entry_test.yaml`
+2. Создать `content/assessment/entry_test.yaml`
 
 3. Добавить команду `/test`
 
@@ -1729,8 +1738,9 @@ async def transition(self, user, event: str, message: Message = None):
 # Резюме
 
 1. **Архитектура:** State Machine — один файл = один стейт
-2. **Категории:** Мастерские, Консультанты, Утилиты (бизнес-логика)
+2. **Категории:** Общие (common), Мастерские (workshop), Лента (feed), Утилиты (utility)
 3. **Таблица переходов:** `config/transitions.yaml` — вся логика в одном месте
-4. **Консультант един:** Маршрутизирует вопросы к базам знаний мастерских
-5. **Миграция:** Feature flags, Strangler Fig, ~8-9 недель
-6. **Будущее:** Готовность к ЦД и Ory через абстракцию StateStorage
+4. **Консультация едина:** Глобальный процесс `common.consultation` маршрутизирует вопросы к базам знаний
+5. **Именование:** Стейты называются по **процессам** (consultation), а не по агентам (consultant)
+6. **Миграция:** Feature flags, Strangler Fig, ~8-9 недель
+7. **Будущее:** Готовность к ЦД и Ory через абстракцию StateStorage
