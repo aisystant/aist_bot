@@ -13,7 +13,7 @@
 ## Структура
 
 ```
-tests/test-repo/
+tests/test_repo/
 ├── README.md                      # Этот файл
 ├── requirements-scenarios.yaml    # ТЗ: сценарии → код
 ├── requirements-processes.yaml    # ТЗ: процессы → код

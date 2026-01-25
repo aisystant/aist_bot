@@ -302,9 +302,9 @@ aist_bot/
 - [ ] Код + документация в одном коммите
 
 ### Автоматические проверки
-- [ ] `tests/test-repo/requirements-scenarios.yaml` актуален
-- [ ] `tests/test-repo/requirements-processes.yaml` актуален
-- [ ] `tests/test-repo/requirements-data.yaml` актуален
+- [ ] `tests/test_repo/requirements-scenarios.yaml` актуален
+- [ ] `tests/test_repo/requirements-processes.yaml` актуален
+- [ ] `tests/test_repo/requirements-data.yaml` актуален
 
 ---
 

@@ -49,7 +49,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scenario-compliance-report
-          path: tests/test-repo/reports/*.md
+          path: tests/test_repo/reports/*.md
           retention-days: 90
 
       - name: Commit report to repository
@@ -57,7 +57,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          git add tests/test-repo/reports/*.md
+          git add tests/test_repo/reports/*.md
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
