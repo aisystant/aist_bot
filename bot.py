@@ -2033,7 +2033,7 @@ async def show_full_progress(callback: CallbackQuery):
     await callback.answer()  # Сразу отвечаем, чтобы убрать "крутилку" с кнопки
 
     try:
-        from db.queries.answers import get_total_stats
+        from db.queries.answers import get_total_stats, get_work_products_by_day
 
         chat_id = callback.message.chat.id
         intern = await get_intern(chat_id)
@@ -2065,6 +2065,38 @@ async def show_full_progress(callback: CallbackQuery):
         # Прогресс по Урокам и Заданиям
         progress = get_lessons_tasks_progress(intern.get('completed_topics', []))
 
+        # Прогресс по дням
+        try:
+            wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
+        except Exception as e:
+            logger.error(f"Ошибка получения wp_by_day: {e}")
+            wp_by_day = {}
+
+        days_progress = get_days_progress(intern.get('completed_topics', []), marathon_day)
+
+        # Формируем текст по дням
+        days_text = ""
+        for d in days_progress:
+            day_num = d['day']
+            if day_num > marathon_day:
+                break
+            wp_count = wp_by_day.get(day_num, 0)
+
+            if d['status'] == 'completed':
+                emoji = "✅"
+                wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
+            elif d['status'] == 'in_progress':
+                emoji = "🔄"
+                wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
+            elif d['status'] == 'available':
+                emoji = "📍"
+                wp_text = ""
+            else:
+                continue  # Пропускаем заблокированные дни
+
+            status_text = f"{d['completed']}/{d['total']}"
+            days_text += f"   {emoji} День {day_num}: {status_text}{wp_text}\n"
+
         # Лента
         try:
             from engines.feed.engine import FeedEngine
@@ -2086,6 +2118,10 @@ async def show_full_progress(callback: CallbackQuery):
         text += f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
         text += f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
         text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n"
+
+        # По дням
+        if days_text:
+            text += f"\n📋 *По дням:*\n{days_text}"
 
         # Отставание
         missed_days = marathon_day - total_active

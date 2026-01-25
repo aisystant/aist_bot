@@ -272,8 +272,9 @@ async def marathon_learn(callback: CallbackQuery, state: FSMContext):
         pass
 
     # Вызываем send_topic с обработкой ошибок
+    # Передаём state=None чтобы избежать проблем с FSMContext storage
     try:
-        await send_topic(chat_id, state, bot)
+        await send_topic(chat_id, None, bot)
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
