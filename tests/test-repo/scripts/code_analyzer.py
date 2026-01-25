@@ -270,98 +270,6 @@ class CodeAnalyzer:
             details=f"Найдены: {found_keys}" + (f", отсутствуют: {missing_keys}" if missing_keys else "")
         )
 
-    def check_class(self, file: str, name: str, description: str) -> CheckResult:
-        """Проверяет наличие класса по имени (AST-based)."""
-        tree = self._get_ast(file)
-        if tree is None:
-            return CheckResult(
-                passed=False,
-                check_type="class",
-                file=file,
-                name=name,
-                description=description,
-                details=f"Файл {file} не найден или не парсится"
-            )
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                if node.name == name:
-                    return CheckResult(
-                        passed=True,
-                        check_type="class",
-                        file=file,
-                        name=name,
-                        description=description,
-                        details=f"Найден класс {name} в строке {node.lineno}"
-                    )
-
-        return CheckResult(
-            passed=False,
-            check_type="class",
-            file=file,
-            name=name,
-            description=description,
-            details=f"Класс {name} не найден"
-        )
-
-    def check_file(self, file: str, description: str) -> CheckResult:
-        """Проверяет наличие файла."""
-        file_path = self.project_root / file
-        if file_path.exists():
-            return CheckResult(
-                passed=True,
-                check_type="file",
-                file=file,
-                name=file,
-                description=description,
-                details=f"Файл {file} существует"
-            )
-        return CheckResult(
-            passed=False,
-            check_type="file",
-            file=file,
-            name=file,
-            description=description,
-            details=f"Файл {file} не найден"
-        )
-
-    def check_transition(self, state: str, class_file: str, events: list[str], description: str = "") -> CheckResult:
-        """Проверяет соответствие стейта в transitions.yaml и в коде."""
-        # Проверяем наличие файла класса
-        file_path = self.project_root / class_file
-        if not file_path.exists():
-            return CheckResult(
-                passed=False,
-                check_type="transition",
-                file=class_file,
-                name=state,
-                description=description or f"Переход {state}",
-                details=f"Файл {class_file} не найден"
-            )
-
-        # Проверяем наличие стейта в transitions.yaml
-        transitions_path = self.project_root / "config/transitions.yaml"
-        if transitions_path.exists():
-            content = transitions_path.read_text(encoding='utf-8')
-            if state not in content:
-                return CheckResult(
-                    passed=False,
-                    check_type="transition",
-                    file=class_file,
-                    name=state,
-                    description=description or f"Переход {state}",
-                    details=f"Стейт {state} не найден в transitions.yaml"
-                )
-
-        return CheckResult(
-            passed=True,
-            check_type="transition",
-            file=class_file,
-            name=state,
-            description=description or f"Переход {state}",
-            details=f"Стейт {state} соответствует коду в {class_file}"
-        )
-
     def check_pattern(self, file: str, pattern: str, description: str) -> CheckResult:
         """Проверяет наличие паттерна в коде."""
         content = self._read_file(file)
@@ -416,18 +324,6 @@ class CodeAnalyzer:
         description = check.get('description', '')
         keys = check.get('keys', [])
 
-        # Пропускаем проверки с required: false
-        required = check.get('required', True)
-        if not required:
-            return CheckResult(
-                passed=True,
-                check_type=check_type,
-                file=file,
-                name=name or pattern or file,
-                description=description,
-                details="Проверка пропущена (required: false)"
-            )
-
         if check_type == 'function':
             if pattern and pattern != name:
                 return self.check_pattern(file, pattern, description)
@@ -451,18 +347,6 @@ class CodeAnalyzer:
 
         elif check_type == 'pattern':
             return self.check_pattern(file, pattern, description)
-
-        elif check_type == 'class':
-            return self.check_class(file, name, description)
-
-        elif check_type == 'file':
-            return self.check_file(file, description)
-
-        elif check_type == 'transition':
-            state = check.get('state', '')
-            class_file = check.get('class_file', file)
-            events = check.get('events', [])
-            return self.check_transition(state, class_file, events, description)
 
         else:
             return CheckResult(
