@@ -2,7 +2,7 @@
 Стейт: Выбор режима работы.
 
 Вход: после онбординга или по команде /mode
-Выход: workshop.marathon.day, consultant.feed_topics и т.д.
+Выход: workshop.marathon.lesson, consultant.feed_topics и т.д.
 """
 
 from typing import Optional

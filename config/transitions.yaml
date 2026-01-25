@@ -36,7 +36,7 @@ states:
   common.mode_select:
     description: "Выбор режима работы"
     events:
-      marathon: workshop.marathon.day
+      marathon: workshop.marathon.lesson
       feed: consultant.feed_topics
       exocortex: workshop.exocortex.audit
       fpfkids: workshop.fpfkids.goals
@@ -54,7 +54,7 @@ states:
   # МАСТЕРСКАЯ: МАРАФОН
   # ==========================================
 
-  workshop.marathon.day:
+  workshop.marathon.lesson:
     description: "Показ урока текущего дня"
     events:
       lesson_shown: workshop.marathon.question
@@ -83,9 +83,9 @@ states:
   workshop.marathon.task:
     description: "Практическое задание"
     events:
-      submitted: workshop.marathon.day  # Следующий день
+      submitted: workshop.marathon.lesson  # Следующий день
       feedback_requested: _same
-      day_complete: workshop.marathon.day
+      day_complete: workshop.marathon.lesson
     allow_global: [consultant, notes]
 
   # ==========================================
