@@ -353,6 +353,26 @@ buttons:
     en: "Regenerate topics"
     max_length: 25
 
+  confirm_selection:
+    ru: "✅ Подтвердить выбор"
+    en: "✅ Confirm selection"
+    max_length: 25
+
+  update_profile:
+    ru: "📝 Обновить данные"
+    en: "📝 Update profile"
+    max_length: 25
+
+  reminders:
+    ru: "⏰ Напоминания"
+    en: "⏰ Reminders"
+    max_length: 20
+
+  reset_marathon:
+    ru: "🔄 Сбросить марафон"
+    en: "🔄 Reset marathon"
+    max_length: 25
+
 # -----------------------------------------------------------------------------
 # Уровни опыта
 # -----------------------------------------------------------------------------
@@ -522,6 +542,51 @@ progress:
     ru: "День {day} из {total}"
     en: "Day {day} of {total}"
 
+  # Расширенные ключи для /progress
+  title:
+    ru: "📊 *Прогресс: {name}*"
+    en: "📊 *Progress: {name}*"
+
+  active_days:
+    ru: "📈 Активных дней:"
+    en: "📈 Active days:"
+
+  current_streak:
+    ru: "🏃 Текущая серия:"
+    en: "🏃 Current streak:"
+
+  days:
+    ru: "дней"
+    en: "days"
+
+  marathon_header:
+    ru: "🏃 *Марафон*"
+    en: "🏃 *Marathon*"
+
+  day_of_total:
+    ru: "День {day}/{total}"
+    en: "Day {day}/{total}"
+
+  topics_completed:
+    ru: "Пройдено тем:"
+    en: "Topics completed:"
+
+  feed_header:
+    ru: "📚 *Лента*"
+    en: "📚 *Feed*"
+
+  digests:
+    ru: "Дайджестов:"
+    en: "Digests:"
+
+  fixations:
+    ru: "Фиксаций:"
+    en: "Fixations:"
+
+  topics_label:
+    ru: "Темы:"
+    en: "Topics:"
+
 # -----------------------------------------------------------------------------
 # Режимы
 # -----------------------------------------------------------------------------
@@ -533,6 +598,166 @@ modes:
   marathon_desc:
     ru: "14-дневный марафон"
     en: "14-day marathon"
+
+  # Расширенные ключи для /mode
+  select_mode_title:
+    ru: "🎯 *Выберите режим обучения*"
+    en: "🎯 *Select learning mode*"
+
+  current_mode_label:
+    ru: "*Текущий режим:*"
+    en: "*Current mode:*"
+
+  marathon_full_desc:
+    ru: "📚 *Марафон* — 14-дневный курс"
+    en: "📚 *Marathon* — 14-day course"
+
+  marathon_daily:
+    ru: "_Каждый день изучаете две темы: теория + практика_"
+    en: "_Each day you study two topics: theory + practice_"
+
+  feed_full_desc:
+    ru: "🌊 *Лента* — бесконечный режим"
+    en: "🌊 *Feed* — endless mode"
+
+  feed_daily:
+    ru: "_ИИ предлагает темы, вы выбираете что изучать_"
+    en: "_AI suggests topics, you choose what to study_"
+
+  marathon_button:
+    ru: "📚 Марафон"
+    en: "📚 Marathon"
+    max_length: 20
+
+  feed_button:
+    ru: "🌊 Лента"
+    en: "🌊 Feed"
+    max_length: 20
+
+  both_modes:
+    ru: "📚🌊 Оба режима ✓"
+    en: "📚🌊 Both modes ✓"
+
+  marathon_activated:
+    ru: "✅ *Режим Марафон активирован!*"
+    en: "✅ *Marathon mode activated!*"
+
+  feed_activated:
+    ru: "✅ *Режим Лента активирован!*"
+    en: "✅ *Feed mode activated!*"
+
+  day_progress:
+    ru: "День {day} из 14 | {completed}/28 тем"
+    en: "Day {day} of 14 | {completed}/28 topics"
+
+  your_settings:
+    ru: "*Ваши настройки:*"
+    en: "*Your settings:*"
+
+  time_label:
+    ru: "⏰ Время:"
+    en: "⏰ Time:"
+
+  duration_label:
+    ru: "📖 На чтение:"
+    en: "📖 Reading time:"
+
+  complexity_label:
+    ru: "📊 Сложность:"
+    en: "📊 Complexity:"
+
+  extra_reminder:
+    ru: "⏰ Доп.напоминание:"
+    en: "⏰ Extra reminder:"
+
+  feed_paused:
+    ru: "_Лента на паузе. Вернуться: /mode_"
+    en: "_Feed is paused. Return: /mode_"
+
+  marathon_paused:
+    ru: "_Марафон на паузе. Вернуться: /mode_"
+    en: "_Marathon is paused. Return: /mode_"
+
+  # Статусы режимов
+  marathon_name:
+    ru: "📚 Марафон"
+    en: "📚 Marathon"
+
+  feed_name:
+    ru: "🌊 Лента"
+    en: "🌊 Feed"
+
+  both_name:
+    ru: "📚🌊 Оба режима"
+    en: "📚🌊 Both modes"
+
+  not_selected:
+    ru: "Не выбран"
+    en: "Not selected"
+
+  # Статусы марафона
+  marathon_completed:
+    ru: "✅ Завершён"
+    en: "✅ Completed"
+
+  marathon_active:
+    ru: "🟢 Активен (день {day}/14, пройдено {completed} тем)"
+    en: "🟢 Active (day {day}/14, {completed} topics completed)"
+
+  marathon_on_pause:
+    ru: "⏸️ На паузе (день {day}/14)"
+    en: "⏸️ Paused (day {day}/14)"
+
+  marathon_not_started:
+    ru: "⚪ Не начат"
+    en: "⚪ Not started"
+
+  status_unknown:
+    ru: "⚪ Статус неизвестен"
+    en: "⚪ Status unknown"
+
+  # Статусы ленты
+  feed_not_started:
+    ru: "⚪ Не начата"
+    en: "⚪ Not started"
+
+  feed_active:
+    ru: "🟢 Активна (активных дней: {days})"
+    en: "🟢 Active (active days: {days})"
+
+  feed_on_pause:
+    ru: "⏸️ На паузе (активных дней: {days})"
+    en: "⏸️ Paused (active days: {days})"
+
+  # Уровни сложности
+  complexity_1:
+    ru: "Начальный"
+    en: "Beginner"
+
+  complexity_2:
+    ru: "Базовый"
+    en: "Basic"
+
+  complexity_3:
+    ru: "Средний"
+    en: "Intermediate"
+
+  complexity_4:
+    ru: "Продвинутый"
+    en: "Advanced"
+
+  complexity_5:
+    ru: "Экспертный"
+    en: "Expert"
+
+  complexity_level:
+    ru: "Уровень {level}"
+    en: "Level {level}"
+
+  # Единицы времени
+  min_suffix:
+    ru: "мин"
+    en: "min"
 
 # -----------------------------------------------------------------------------
 # Профиль
@@ -557,6 +782,14 @@ profile:
   first_start:
     ru: "Сначала /start"
     en: "First run /start"
+
+  not_found:
+    ru: "Профиль не найден. Используйте /start"
+    en: "Profile not found. Use /start"
+
+  topics_load_error:
+    ru: "не удалось загрузить"
+    en: "failed to load"
 
 # -----------------------------------------------------------------------------
 # Обновление профиля
@@ -1062,6 +1295,163 @@ feed:
   ask_details:
     ru: "Хотите узнать подробнее? Задайте вопрос!"
     en: "Want to learn more? Ask a question!"
+
+  # Расширенные ключи для режима Лента
+  use_command:
+    ru: "Используйте /feed для запуска режима Лента."
+    en: "Use /feed to start Feed mode."
+
+  your_topics_label:
+    ru: "*Ваши темы:*"
+    en: "*Your topics:*"
+
+  no_topics:
+    ru: "_Темы не выбраны_"
+    en: "_No topics selected_"
+
+  load_error:
+    ru: "Произошла ошибка при загрузке Ленты. Попробуйте позже."
+    en: "An error occurred while loading Feed. Please try again later."
+
+  select_up_to_3:
+    ru: "*Выберите до 3 тем:*"
+    en: "*Select up to 3 topics:*"
+
+  max_3_topics:
+    ru: "Максимум 3 темы. Снимите выбор с другой темы."
+    en: "Maximum 3 topics. Deselect another topic first."
+
+  use_feed_first:
+    ru: "Сначала используйте /feed для получения тем."
+    en: "First use /feed to get topics."
+
+  limited_to_3:
+    ru: "_Оставлены первые 3 темы_"
+    en: "_Limited to first 3 topics_"
+
+  change_topics:
+    ru: "*Изменить темы (до 3):*"
+    en: "*Change topics (up to 3):*"
+
+  enter_format:
+    ru: "Введите через запятую или с новой строки"
+    en: "Enter comma-separated or on new lines"
+
+  depth_explanation:
+    ru: "_Размер дайджеста фиксирован — чем больше тем, тем меньше глубины на каждую. Одна тема раскрывается глубже с каждым днём._"
+    en: "_Digest size is fixed — the more topics, the less depth for each. One topic is explored deeper each day._"
+
+  enter_topics:
+    ru: "Введите темы."
+    en: "Enter topics."
+
+  topics_not_recognized:
+    ru: "Не удалось распознать темы. Введите названия тем или номера из списка."
+    en: "Couldn't recognize topics. Enter topic names or numbers from the list."
+
+  topics_updated:
+    ru: "✅ *Темы обновлены!*"
+    en: "✅ *Topics updated!*"
+
+  digest_header:
+    ru: "📖 *Дайджест: {topics}*"
+    en: "📖 *Digest: {topics}*"
+
+  topics_of_day:
+    ru: "Темы дня"
+    en: "Topics of the day"
+
+  deepening_level:
+    ru: "_Углубление {level}_"
+    en: "_Deepening {level}_"
+
+  content_unavailable:
+    ru: "Контент недоступен."
+    en: "Content unavailable."
+
+  digest_load_error:
+    ru: "Ошибка загрузки дайджеста"
+    en: "Error loading digest"
+
+  topics_deepen:
+    ru: "_С каждым днём темы раскрываются глубже._"
+    en: "_Topics are explored deeper each day._"
+
+  fixation_title:
+    ru: "✍️ *Фиксация дня*"
+    en: "✍️ *Daily Fixation*"
+
+  fixation_instruction:
+    ru: "Напишите краткую фиксацию: что вы поняли, какие мысли возникли, как это связано с вашей жизнью."
+    en: "Write a brief fixation: what you understood, what thoughts arose, how it relates to your life."
+
+  fixation_hint:
+    ru: "_Достаточно 2-3 предложения._"
+    en: "_2-3 sentences is enough._"
+
+  fixation_too_short:
+    ru: "Напишите хотя бы пару предложений для фиксации."
+    en: "Please write at least a couple of sentences for the fixation."
+
+  stats_header:
+    ru: "📊 *Статистика*"
+    en: "📊 *Statistics*"
+
+  not_active:
+    ru: "📚 *Режим Лента*\n\nЛента не активна. Используйте /feed для запуска."
+    en: "📚 *Feed Mode*\n\nFeed is not active. Use /feed to start."
+
+  mode_header:
+    ru: "📚 *Режим Лента*"
+    en: "📚 *Feed Mode*"
+
+  status_label:
+    ru: "📅 Статус:"
+    en: "📅 Status:"
+
+  depth_label:
+    ru: "📖 Уровень глубины:"
+    en: "📖 Depth level:"
+
+  topics_count_label:
+    ru: "*Ваши темы ({count}):*"
+    en: "*Your topics ({count}):*"
+
+  deepen_with_digests:
+    ru: "_С каждым дайджестом темы раскрываются глубже._"
+    en: "_Topics are explored deeper with each digest._"
+
+  total_active_days:
+    ru: "Всего активных дней:"
+    en: "Total active days:"
+
+  current_streak_label:
+    ru: "Текущая серия:"
+    en: "Current streak:"
+
+  status_load_error:
+    ru: "Произошла ошибка при загрузке статуса. Попробуйте позже."
+    en: "An error occurred while loading status. Please try again later."
+
+# -----------------------------------------------------------------------------
+# Общие сообщения
+# -----------------------------------------------------------------------------
+shared:
+  thinking:
+    ru: "💭 Думаю над ответом..."
+    en: "💭 Thinking about the answer..."
+
+  sources_label:
+    ru: "📚 _Источники:_"
+    en: "📚 _Sources:_"
+
+  question_error:
+    ru: "Не удалось обработать вопрос. Попробуйте позже."
+    en: "Couldn't process the question. Please try again later."
+
+  answer_failed:
+    ru: "К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
+    en: "Sorry {name}, couldn't get an answer. Try rephrasing your question or ask later."
 
 # -----------------------------------------------------------------------------
 # Консультация

@@ -35,40 +35,39 @@ async def cmd_mode(message: Message):
     intern = await get_intern(chat_id)
 
     if not intern:
-        await message.answer(
-            "Сначала пройдите регистрацию: /start"
-        )
+        await message.answer(t('profile.not_found', 'ru'))
         return
 
+    lang = intern.get('language', 'ru') or 'ru'
     current_mode = intern.get('mode', Mode.MARATHON)
     marathon_status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
     feed_status = intern.get('feed_status', FeedStatus.NOT_STARTED)
 
     # Определяем текущий статус
-    marathon_info = get_marathon_status_text(intern)
-    feed_info = get_feed_status_text(intern)
+    marathon_info = get_marathon_status_text(intern, lang)
+    feed_info = get_feed_status_text(intern, lang)
 
     text = (
-        "🎯 *Выберите режим обучения*\n\n"
-        f"*Текущий режим:* {get_mode_name(current_mode)}\n\n"
+        f"{t('modes.select_mode_title', lang)}\n\n"
+        f"{t('modes.current_mode_label', lang)} {get_mode_name(current_mode, lang)}\n\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "📚 *Марафон* — 14-дневный курс\n"
+        f"{t('modes.marathon_full_desc', lang)}\n"
         f"{marathon_info}\n"
-        "_Каждый день изучаете две темы: теория + практика_\n\n"
+        f"{t('modes.marathon_daily', lang)}\n\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "🌊 *Лента* — бесконечный режим\n"
+        f"{t('modes.feed_full_desc', lang)}\n"
         f"{feed_info}\n"
-        "_ИИ предлагает темы, вы выбираете что изучать_\n"
+        f"{t('modes.feed_daily', lang)}\n"
     )
 
     # Кнопки выбора режима
     buttons = [
         [InlineKeyboardButton(
-            text="📚 Марафон" + (" ✓" if current_mode == Mode.MARATHON else ""),
+            text=t('modes.marathon_button', lang) + (" ✓" if current_mode == Mode.MARATHON else ""),
             callback_data="mode_marathon"
         )],
         [InlineKeyboardButton(
-            text="🌊 Лента" + (" ✓" if current_mode == Mode.FEED else ""),
+            text=t('modes.feed_button', lang) + (" ✓" if current_mode == Mode.FEED else ""),
             callback_data="mode_feed"
         )],
     ]
@@ -76,7 +75,7 @@ async def cmd_mode(message: Message):
     # Если оба режима активны, показываем статус "Оба"
     if current_mode == Mode.BOTH:
         buttons.append([InlineKeyboardButton(
-            text="📚🌊 Оба режима ✓",
+            text=t('modes.both_modes', lang),
             callback_data="mode_both"
         )])
 
@@ -128,13 +127,14 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
     """Показывает сообщение об активации Марафона в стиле Ленты"""
     from db.queries.users import moscow_today
 
+    lang = intern.get('language', 'ru') or 'ru'
+
     # Настройки
     schedule_time = intern.get('schedule_time', '09:00')
     schedule_time_2 = intern.get('schedule_time_2')
     study_duration = intern.get('study_duration', 15)
     bloom_level = intern.get('bloom_level', 1)
-    complexity_names = {1: "Начальный", 2: "Базовый", 3: "Продвинутый"}
-    complexity_text = complexity_names.get(bloom_level, f"Уровень {bloom_level}")
+    complexity_text = get_complexity_name(bloom_level, lang)
 
     # Прогресс
     completed = len(intern.get('completed_topics', []))
@@ -150,26 +150,25 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
         marathon_day = 1
 
     # Формируем текст
-    text = "✅ *Режим Марафон активирован!*\n\n"
-    text += f"День {marathon_day} из 14 | {completed}/28 тем\n\n"
-    text += "*Ваши настройки:*\n"
-    text += f"⏰ Время: {schedule_time}\n"
-    text += f"📖 На чтение: {study_duration} мин\n"
-    text += f"📊 Сложность: {complexity_text}\n"
+    text = f"{t('modes.marathon_activated', lang)}\n\n"
+    text += f"{t('modes.day_progress', lang, day=marathon_day, completed=completed)}\n\n"
+    text += f"{t('modes.your_settings', lang)}\n"
+    text += f"{t('modes.time_label', lang)} {schedule_time}\n"
+    text += f"{t('modes.duration_label', lang)} {study_duration} {t('modes.min_suffix', lang)}\n"
+    text += f"{t('modes.complexity_label', lang)} {complexity_text}\n"
 
     if schedule_time_2:
-        text += f"⏰ Доп.напоминание: {schedule_time_2}\n"
+        text += f"{t('modes.extra_reminder', lang)} {schedule_time_2}\n"
 
     if feed_paused:
-        text += "\n_Лента на паузе. Вернуться: /mode_"
+        text += f"\n{t('modes.feed_paused', lang)}"
 
     # Кнопки
-    lang = intern.get('language', 'ru') or 'ru'
     buttons = [
         [InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="learn")],
-        [InlineKeyboardButton(text="📝 Обновить данные", callback_data="marathon_go_update")],
-        [InlineKeyboardButton(text="⏰ Напоминания", callback_data="marathon_reminders_input")],
-        [InlineKeyboardButton(text="🔄 Сбросить марафон", callback_data="marathon_reset_confirm")],
+        [InlineKeyboardButton(text=t('buttons.update_profile', lang), callback_data="marathon_go_update")],
+        [InlineKeyboardButton(text=t('buttons.reminders', lang), callback_data="marathon_reminders_input")],
+        [InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="marathon_reset_confirm")],
     ]
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -192,7 +191,7 @@ async def show_feed_activated(message, intern: dict, marathon_paused: bool = Fal
     lang = intern.get('language', 'ru') or 'ru'
 
     # Получаем настройки
-    settings_text = get_user_settings_text(intern)
+    settings_text = get_user_settings_text(intern, lang)
 
     # Проверяем, есть ли активная неделя
     from .feed.engine import FeedEngine
@@ -201,18 +200,18 @@ async def show_feed_activated(message, intern: dict, marathon_paused: bool = Fal
     has_active_week = status.get('has_week') and status.get('week_status') == 'active'
 
     # Формируем текст
-    text = "✅ *Режим Лента активирован!*\n\n"
-    text += f"*Ваши настройки:*\n{settings_text}\n"
+    text = f"{t('modes.feed_activated', lang)}\n\n"
+    text += f"{t('modes.your_settings', lang)}\n{settings_text}\n"
 
     if has_active_week:
         topics = status.get('topics', [])
         if topics:
-            text += "\n*Ваши темы:*\n"
+            text += f"\n{t('feed.your_topics_label', lang)}\n"
             for i, topic in enumerate(topics, 1):
                 text += f"{i}. {topic}\n"
 
     if marathon_paused:
-        text += "\n_Марафон на паузе. Вернуться: /mode_"
+        text += f"\n{t('modes.marathon_paused', lang)}"
 
     # Кнопки
     buttons = []
@@ -232,8 +231,8 @@ async def show_feed_activated(message, intern: dict, marathon_paused: bool = Fal
             callback_data="feed_start_topics"
         )])
 
-    buttons.append([InlineKeyboardButton(text="📝 Обновить данные", callback_data="feed_go_update")])
-    buttons.append([InlineKeyboardButton(text="⏰ Напоминания", callback_data="feed_reminders_input")])
+    buttons.append([InlineKeyboardButton(text=t('buttons.update_profile', lang), callback_data="feed_go_update")])
+    buttons.append([InlineKeyboardButton(text=t('buttons.reminders', lang), callback_data="feed_reminders_input")])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -772,7 +771,7 @@ async def select_feed(callback: CallbackQuery):
         has_marathon_progress = len(intern.get('completed_topics', [])) > 0 or intern.get('current_topic_index', 0) > 0
 
         # Получаем настройки пользователя
-        settings_text = get_user_settings_text(intern)
+        settings_text = get_user_settings_text(intern, lang)
 
         # Проверяем, есть ли активная неделя
         from .feed.engine import FeedEngine
@@ -781,14 +780,14 @@ async def select_feed(callback: CallbackQuery):
         has_active_week = status.get('has_week') and status.get('week_status') == 'active'
 
         # Формируем текст сообщения
-        text = "✅ *Режим Лента активирован!*\n\n"
-        text += f"*Ваши настройки:*\n{settings_text}\n"
+        text = f"{t('modes.feed_activated', lang)}\n\n"
+        text += f"{t('modes.your_settings', lang)}\n{settings_text}\n"
 
         if has_active_week:
             # Есть активная неделя — показываем темы
             topics = status.get('topics', [])
             if topics:
-                text += "\n*Ваши темы:*\n"
+                text += f"\n{t('feed.your_topics_label', lang)}\n"
                 for i, topic in enumerate(topics, 1):
                     text += f"{i}. {topic}\n"
 
@@ -800,7 +799,7 @@ async def select_feed(callback: CallbackQuery):
                 marathon_status=MarathonStatus.PAUSED,
                 feed_status=FeedStatus.ACTIVE,
             )
-            text += "\n\n_Марафон на паузе. Вернуться: /mode_"
+            text += f"\n\n{t('modes.marathon_paused', lang)}"
         else:
             await update_intern(chat_id,
                 mode=Mode.FEED,
@@ -827,8 +826,8 @@ async def select_feed(callback: CallbackQuery):
             )])
 
         # Общие кнопки настроек
-        buttons.append([InlineKeyboardButton(text="📝 Обновить данные", callback_data="feed_go_update")])
-        buttons.append([InlineKeyboardButton(text="⏰ Напоминания", callback_data="feed_reminders_input")])
+        buttons.append([InlineKeyboardButton(text=t('buttons.update_profile', lang), callback_data="feed_go_update")])
+        buttons.append([InlineKeyboardButton(text=t('buttons.reminders', lang), callback_data="feed_reminders_input")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -838,7 +837,7 @@ async def select_feed(callback: CallbackQuery):
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в select_feed: {e}\n{traceback.format_exc()}")
-        await callback.answer("Произошла ошибка. Попробуйте ещё раз.", show_alert=True)
+        await callback.answer(t('errors.try_again', 'ru'), show_alert=True)
 
 
 # ==================== КНОПКИ ЛЕНТЫ ====================
@@ -932,17 +931,18 @@ async def feed_cancel_input(callback: CallbackQuery, state: FSMContext):
     await select_feed(callback)
 
 
-def get_mode_name(mode: str) -> str:
+def get_mode_name(mode: str, lang: str = 'ru') -> str:
     """Возвращает название режима"""
-    names = {
-        Mode.MARATHON: "📚 Марафон",
-        Mode.FEED: "🌊 Лента",
-        Mode.BOTH: "📚🌊 Оба режима",
+    mode_keys = {
+        Mode.MARATHON: 'modes.marathon_name',
+        Mode.FEED: 'modes.feed_name',
+        Mode.BOTH: 'modes.both_name',
     }
-    return names.get(mode, "Не выбран")
+    key = mode_keys.get(mode)
+    return t(key, lang) if key else t('modes.not_selected', lang)
 
 
-def get_marathon_status_text(intern: dict) -> str:
+def get_marathon_status_text(intern: dict, lang: str = 'ru') -> str:
     """Возвращает текст статуса марафона"""
     status = intern.get('marathon_status', MarathonStatus.NOT_STARTED)
     completed = intern.get('completed_topics', [])
@@ -955,54 +955,53 @@ def get_marathon_status_text(intern: dict) -> str:
     has_progress = len(completed) > 0 or topic_index > 0
 
     if status == MarathonStatus.COMPLETED or (has_progress and day > 14):
-        return "✅ Завершён"
+        return t('modes.marathon_completed', lang)
     elif status == MarathonStatus.ACTIVE or (status == MarathonStatus.NOT_STARTED and has_progress):
-        return f"🟢 Активен (день {day}/14, пройдено {len(completed)} тем)"
+        return t('modes.marathon_active', lang, day=day, completed=len(completed))
     elif status == MarathonStatus.PAUSED:
-        return f"⏸️ На паузе (день {day}/14)"
+        return t('modes.marathon_on_pause', lang, day=day)
     elif status == MarathonStatus.NOT_STARTED:
-        return "⚪ Не начат"
-    return "⚪ Статус неизвестен"
+        return t('modes.marathon_not_started', lang)
+    return t('modes.status_unknown', lang)
 
 
-def get_feed_status_text(intern: dict) -> str:
+def get_feed_status_text(intern: dict, lang: str = 'ru') -> str:
     """Возвращает текст статуса ленты"""
     status = intern.get('feed_status', FeedStatus.NOT_STARTED)
     active_days = intern.get('active_days_total', 0)
 
     if status == FeedStatus.NOT_STARTED:
-        return "⚪ Не начата"
+        return t('modes.feed_not_started', lang)
     elif status == FeedStatus.ACTIVE:
-        return f"🟢 Активна (активных дней: {active_days})"
+        return t('modes.feed_active', lang, days=active_days)
     elif status == FeedStatus.PAUSED:
-        return f"⏸️ На паузе (активных дней: {active_days})"
-    return "⚪ Статус неизвестен"
+        return t('modes.feed_on_pause', lang, days=active_days)
+    return t('modes.status_unknown', lang)
 
 
-def get_complexity_name(level: int) -> str:
+def get_complexity_name(level: int, lang: str = 'ru') -> str:
     """Возвращает название уровня сложности"""
-    names = {
-        1: "Начальный",
-        2: "Базовый",
-        3: "Средний",
-        4: "Продвинутый",
-        5: "Экспертный",
-    }
-    return names.get(level, f"Уровень {level}")
+    key = f'modes.complexity_{level}'
+    # Пробуем получить перевод для конкретного уровня
+    result = t(key, lang)
+    if result == key or not result:
+        # Если ключ не найден, используем общий формат
+        return t('modes.complexity_level', lang, level=level)
+    return result
 
 
-def get_user_settings_text(intern: dict) -> str:
+def get_user_settings_text(intern: dict, lang: str = 'ru') -> str:
     """Формирует текст с настройками пользователя"""
     schedule_time = intern.get('schedule_time', '09:00')
     schedule_time_2 = intern.get('schedule_time_2')
     study_duration = intern.get('study_duration', 15)
     complexity = intern.get('complexity_level') or intern.get('bloom_level', 1)
 
-    text = f"⏰ Время: {schedule_time}\n"
-    text += f"📖 На чтение: {study_duration} мин\n"
-    text += f"📊 Сложность: {get_complexity_name(complexity)}"
+    text = f"{t('modes.time_label', lang)} {schedule_time}\n"
+    text += f"{t('modes.duration_label', lang)} {study_duration} {t('modes.min_suffix', lang)}\n"
+    text += f"{t('modes.complexity_label', lang)} {get_complexity_name(complexity, lang)}"
 
     if schedule_time_2:
-        text += f"\n⏰ Доп.напоминание: {schedule_time_2}"
+        text += f"\n{t('modes.extra_reminder', lang)} {schedule_time_2}"
 
     return text
