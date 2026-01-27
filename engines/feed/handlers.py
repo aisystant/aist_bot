@@ -15,7 +15,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import get_logger
-from locales import t
+from i18n import t
 from .engine import FeedEngine
 from db.queries.users import get_intern
 from engines.shared import handle_question

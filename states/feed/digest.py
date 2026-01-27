@@ -12,7 +12,7 @@ from typing import Optional
 from aiogram.types import Message
 
 from states.base import BaseState
-from locales import t
+from i18n import t
 from db.queries import update_intern, moscow_today
 
 

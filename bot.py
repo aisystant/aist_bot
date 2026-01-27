@@ -35,7 +35,7 @@ from apscheduler.triggers.cron import CronTrigger
 import aiohttp
 import asyncpg
 
-from locales import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
+from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from core.intent import detect_intent, IntentType
 from engines.shared import handle_question, ProcessingStage
 

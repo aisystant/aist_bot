@@ -15,7 +15,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import get_logger, Mode, MarathonStatus, FeedStatus
 from db.queries.users import get_intern, update_intern
-from locales import t
+from i18n import t
 
 
 class MarathonSettingsStates(StatesGroup):
@@ -434,7 +434,7 @@ async def marathon_settings_back(callback: CallbackQuery):
 async def marathon_go_update(callback: CallbackQuery, state: FSMContext):
     """Переход к обновлению профиля"""
     from bot import kb_update_profile, get_marathon_day, STUDY_DURATIONS, BLOOM_LEVELS, UpdateStates
-    from locales import get_language_name
+    from i18n import get_language_name
 
     await callback.answer()
 
@@ -847,7 +847,7 @@ async def select_feed(callback: CallbackQuery):
 async def feed_go_update(callback: CallbackQuery, state: FSMContext):
     """Переход к обновлению профиля из Ленты"""
     from bot import kb_update_profile, get_marathon_day, STUDY_DURATIONS, BLOOM_LEVELS, UpdateStates
-    from locales import get_language_name
+    from i18n import get_language_name
 
     await callback.answer()
 

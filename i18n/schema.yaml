@@ -1,0 +1,1088 @@
+# =============================================================================
+# AIST Bot - Схема локализации
+# =============================================================================
+#
+# Этот файл содержит ВСЕ ключи локализации с переводами на русский и английский.
+# Русский — источник истины для смысла.
+# Английский — база для переводчиков на другие языки.
+#
+# Структура ключа:
+#   key_name:
+#     ru: "Русский текст"
+#     en: "English text"
+#     description: "Контекст для переводчика (опционально)"
+#     max_length: 20  # Для кнопок (опционально)
+#
+# Плейсхолдеры: {name}, {day}, {count} и т.п. — ОБЯЗАТЕЛЬНО сохранять при переводе
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Приветствие
+# -----------------------------------------------------------------------------
+welcome:
+  greeting:
+    ru: "Привет!"
+    en: "Hello!"
+    description: "Первое сообщение при входе в бота"
+
+  intro:
+    ru: "Я помогу тебе стать систематическим учеником."
+    en: "I'll help you become a systematic learner."
+
+  ask_name:
+    ru: "Как тебя зовут?"
+    en: "What's your name?"
+
+  returning:
+    ru: "С возвращением, {name}!"
+    en: "Welcome back, {name}!"
+
+  current_mode:
+    ru: "Режим"
+    en: "Mode"
+
+  activity_progress:
+    ru: "Активность"
+    en: "Activity"
+
+# -----------------------------------------------------------------------------
+# Команды (описания для /help)
+# -----------------------------------------------------------------------------
+commands:
+  learn:
+    ru: "/learn — получить тему"
+    en: "/learn — get a topic"
+
+  progress:
+    ru: "/progress — мой прогресс"
+    en: "/progress — my progress"
+
+  profile:
+    ru: "/profile — мой профиль"
+    en: "/profile — my profile"
+
+  update:
+    ru: "/update — обновить настройки"
+    en: "/update — update settings"
+
+  mode:
+    ru: "/mode — выбрать режим"
+    en: "/mode — select mode"
+
+  language:
+    ru: "/language — сменить язык"
+    en: "/language — change language"
+
+  help:
+    ru: "/help — справка"
+    en: "/help — help"
+
+# -----------------------------------------------------------------------------
+# Меню (короткие описания для кнопок Telegram)
+# -----------------------------------------------------------------------------
+menu:
+  learn:
+    ru: "Получить новую тему"
+    en: "Get a new topic"
+
+  progress:
+    ru: "Мой прогресс"
+    en: "My progress"
+
+  profile:
+    ru: "Мой профиль"
+    en: "My profile"
+
+  update:
+    ru: "Обновить профиль"
+    en: "Update profile"
+
+  mode:
+    ru: "Выбор режима"
+    en: "Select mode"
+
+  language:
+    ru: "Сменить язык"
+    en: "Change language"
+
+  start:
+    ru: "Перезапустить онбординг"
+    en: "Restart onboarding"
+
+  help:
+    ru: "Справка"
+    en: "Help"
+
+# -----------------------------------------------------------------------------
+# Онбординг
+# -----------------------------------------------------------------------------
+onboarding:
+  nice_to_meet:
+    ru: "Приятно познакомиться, {name}!"
+    en: "Nice to meet you, {name}!"
+
+  ask_name:
+    ru: "Как тебя зовут?"
+    en: "What's your name?"
+
+  ask_occupation:
+    ru: "Чем ты занимаешься?"
+    en: "What do you do?"
+
+  ask_occupation_hint:
+    ru: "_Например: разработчик, маркетолог, студент_"
+    en: "_For example: developer, marketer, student_"
+
+  ask_interests:
+    ru: "Какие у тебя интересы и хобби?"
+    en: "What are your interests and hobbies?"
+
+  ask_interests_hint:
+    ru: "_Через запятую: гольф, чтение, путешествия_"
+    en: "_Comma-separated: golf, reading, travel_"
+
+  ask_interests_why:
+    ru: "_Это поможет приводить близкие тебе примеры._"
+    en: "_This helps me give relevant examples._"
+
+  ask_values:
+    ru: "Что для тебя по-настоящему важно в жизни?"
+    en: "What's truly important to you in life?"
+
+  ask_values_hint:
+    ru: "_Это поможет добавлять мотивационные блоки._"
+    en: "_This helps add motivational blocks._"
+
+  ask_goals:
+    ru: "Что ты хочешь изменить в своей жизни?"
+    en: "What do you want to change in your life?"
+
+  ask_goals_hint:
+    ru: "_Это поможет связать материал с твоими целями._"
+    en: "_This helps connect material with your goals._"
+
+  ask_duration:
+    ru: "Сколько минут готов уделять одной теме?"
+    en: "How many minutes per topic?"
+
+  ask_time:
+    ru: "Во сколько напоминать о новой теме?"
+    en: "When should I remind you about new topics?"
+
+  ask_time_hint:
+    ru: "_Формат: ЧЧ:ММ (например 09:00). Часовой пояс: Москва (UTC+3)_"
+    en: "_Format: HH:MM (e.g. 09:00). Timezone: Moscow (UTC+3)_"
+
+  ask_start_date:
+    ru: "Когда начнём марафон?"
+    en: "When shall we start the marathon?"
+
+# -----------------------------------------------------------------------------
+# Длительность
+# -----------------------------------------------------------------------------
+duration:
+  minutes_5:
+    ru: "⚡ 5 минут"
+    en: "⚡ 5 minutes"
+    max_length: 20
+
+  minutes_15:
+    ru: "🕑 15 минут"
+    en: "🕑 15 minutes"
+    max_length: 20
+
+  minutes_25:
+    ru: "🕓 25 минут"
+    en: "🕓 25 minutes"
+    max_length: 20
+
+# -----------------------------------------------------------------------------
+# Кнопки (общие)
+# -----------------------------------------------------------------------------
+buttons:
+  "yes":
+    ru: "Да"
+    en: "Yes"
+    max_length: 20
+
+  cancel:
+    ru: "Отмена"
+    en: "Cancel"
+    max_length: 20
+
+  start_now:
+    ru: "Начать сейчас"
+    en: "Start now"
+    max_length: 20
+
+  start_scheduled:
+    ru: "По расписанию"
+    en: "Scheduled"
+    max_length: 20
+
+  change_language:
+    ru: "Сменить язык"
+    en: "Change language"
+    max_length: 20
+
+  bonus_yes:
+    ru: "🚀 Да, давай сложнее!"
+    en: "🚀 Yes, let's go harder!"
+    max_length: 30
+
+  bonus_no:
+    ru: "✅ Достаточно"
+    en: "✅ Enough"
+    max_length: 20
+
+  skip_topic:
+    ru: "⏭ Пропустить тему"
+    en: "⏭ Skip topic"
+    max_length: 25
+
+  skip_practice:
+    ru: "⏭ Пропустить практику"
+    en: "⏭ Skip practice"
+    max_length: 25
+
+  start_today:
+    ru: "🚀 Начать сегодня"
+    en: "🚀 Start today"
+    max_length: 25
+
+  start_tomorrow:
+    ru: "📅 Завтра"
+    en: "📅 Tomorrow"
+    max_length: 20
+
+  start_day_after:
+    ru: "📅 Послезавтра"
+    en: "📅 Day after"
+    max_length: 20
+
+  continue_learning:
+    ru: "Продолжить обучение"
+    en: "Continue learning"
+    max_length: 25
+
+  # Кнопки профиля
+  name:
+    ru: "Имя"
+    en: "Name"
+    max_length: 20
+
+  occupation:
+    ru: "Занятие"
+    en: "Occupation"
+    max_length: 20
+
+  interests:
+    ru: "Интересы"
+    en: "Interests"
+    max_length: 20
+
+  values:
+    ru: "Ценности"
+    en: "Values"
+    max_length: 20
+
+  goals:
+    ru: "Цели"
+    en: "Goals"
+    max_length: 20
+
+  duration:
+    ru: "Время"
+    en: "Duration"
+    max_length: 20
+
+  schedule:
+    ru: "Расписание"
+    en: "Schedule"
+    max_length: 20
+
+  difficulty:
+    ru: "Сложность"
+    en: "Difficulty"
+    max_length: 20
+
+  bot_mode:
+    ru: "Режим бота"
+    en: "Bot mode"
+    max_length: 20
+
+  # Кнопки Ленты
+  keep_topic:
+    ru: "Оставить как есть"
+    en: "Keep as is"
+    max_length: 25
+
+  write_fixation:
+    ru: "Написать фиксацию"
+    en: "Write fixation"
+    max_length: 25
+
+  get_digest:
+    ru: "Получить дайджест"
+    en: "Get digest"
+    max_length: 25
+
+  topics_menu:
+    ru: "Темы недели"
+    en: "Week topics"
+    max_length: 20
+
+  edit_topic:
+    ru: "✏️"
+    en: "✏️"
+    max_length: 5
+
+  back_to_menu:
+    ru: "« Назад"
+    en: "« Back"
+    max_length: 15
+
+  select_topics:
+    ru: "Выбрать темы на неделю"
+    en: "Select week topics"
+    max_length: 30
+
+  reset_topics:
+    ru: "Сгенерировать заново"
+    en: "Regenerate topics"
+    max_length: 25
+
+# -----------------------------------------------------------------------------
+# Уровни опыта
+# -----------------------------------------------------------------------------
+experience:
+  student:
+    ru: "Студент"
+    en: "Student"
+
+  student_desc:
+    ru: "Учусь или недавно закончил"
+    en: "Studying or recently graduated"
+
+  junior:
+    ru: "Junior"
+    en: "Junior"
+
+  junior_desc:
+    ru: "0-2 года опыта"
+    en: "0-2 years of experience"
+
+  middle:
+    ru: "Middle"
+    en: "Middle"
+
+  middle_desc:
+    ru: "2-5 лет опыта"
+    en: "2-5 years of experience"
+
+  senior:
+    ru: "Senior"
+    en: "Senior"
+
+  senior_desc:
+    ru: "5+ лет опыта"
+    en: "5+ years of experience"
+
+  switching:
+    ru: "Меняю сферу"
+    en: "Career switch"
+
+  switching_desc:
+    ru: "Перехожу из другой области"
+    en: "Transitioning from another field"
+
+# -----------------------------------------------------------------------------
+# Уровни сложности материала
+# -----------------------------------------------------------------------------
+difficulty:
+  easy:
+    ru: "Начальный"
+    en: "Beginner"
+
+  easy_desc:
+    ru: "С нуля, простым языком"
+    en: "From scratch, simple language"
+
+  medium:
+    ru: "Средний"
+    en: "Intermediate"
+
+  medium_desc:
+    ru: "Есть базовые знания"
+    en: "Have basic knowledge"
+
+  hard:
+    ru: "Продвинутый"
+    en: "Advanced"
+
+  hard_desc:
+    ru: "Глубокое погружение"
+    en: "Deep dive"
+
+# -----------------------------------------------------------------------------
+# Стили обучения
+# -----------------------------------------------------------------------------
+learning_style:
+  theoretical:
+    ru: "Теоретик"
+    en: "Theorist"
+
+  theoretical_desc:
+    ru: "Сначала теория, потом практика"
+    en: "Theory first, then practice"
+
+  practical:
+    ru: "Практик"
+    en: "Practitioner"
+
+  practical_desc:
+    ru: "Учусь на примерах и задачах"
+    en: "Learn by examples and tasks"
+
+  mixed:
+    ru: "Смешанный"
+    en: "Mixed"
+
+  mixed_desc:
+    ru: "Баланс теории и практики"
+    en: "Balance of theory and practice"
+
+# -----------------------------------------------------------------------------
+# Уровни сложности вопросов (Блум)
+# -----------------------------------------------------------------------------
+bloom:
+  level_1:
+    ru: "Знание"
+    en: "Knowledge"
+
+  level_1_short:
+    ru: "Сложность-1"
+    en: "Level 1"
+
+  level_1_desc:
+    ru: "Различение и запоминание понятий"
+    en: "Distinguishing and memorizing concepts"
+
+  level_2:
+    ru: "Понимание"
+    en: "Comprehension"
+
+  level_2_short:
+    ru: "Сложность-2"
+    en: "Level 2"
+
+  level_2_desc:
+    ru: "Открытые вопросы на понимание"
+    en: "Open questions for understanding"
+
+  level_3:
+    ru: "Применение"
+    en: "Application"
+
+  level_3_short:
+    ru: "Сложность-3"
+    en: "Level 3"
+
+  level_3_desc:
+    ru: "Анализ и примеры из практики"
+    en: "Analysis and practical examples"
+
+# -----------------------------------------------------------------------------
+# Настройки
+# -----------------------------------------------------------------------------
+settings:
+  title:
+    ru: "Настройки"
+    en: "Settings"
+
+  what_to_change:
+    ru: "Что хочешь обновить?"
+    en: "What would you like to update?"
+
+  language:
+    title:
+      ru: "Выбери язык:"
+      en: "Choose language:"
+
+    changed:
+      ru: "Язык изменён на русский!"
+      en: "Language changed to English!"
+
+# -----------------------------------------------------------------------------
+# Прогресс
+# -----------------------------------------------------------------------------
+progress:
+  day:
+    ru: "День {day} из {total}"
+    en: "Day {day} of {total}"
+
+# -----------------------------------------------------------------------------
+# Режимы
+# -----------------------------------------------------------------------------
+modes:
+  select:
+    ru: "Выбери режим"
+    en: "Select mode"
+
+  marathon_desc:
+    ru: "14-дневный марафон"
+    en: "14-day marathon"
+
+# -----------------------------------------------------------------------------
+# Профиль
+# -----------------------------------------------------------------------------
+profile:
+  what_important:
+    ru: "Что важно"
+    en: "What matters"
+
+  what_change:
+    ru: "Что изменить"
+    en: "What to change"
+
+  reminder_at:
+    ru: "Напоминание в"
+    en: "Reminder at"
+
+  not_specified:
+    ru: "не указано"
+    en: "not specified"
+
+  first_start:
+    ru: "Сначала /start"
+    en: "First run /start"
+
+# -----------------------------------------------------------------------------
+# Обновление профиля
+# -----------------------------------------------------------------------------
+update:
+  your_name:
+    ru: "Ваше имя"
+    en: "Your name"
+
+  whats_your_name:
+    ru: "Как вас зовут?"
+    en: "What's your name?"
+
+  your_occupation:
+    ru: "Ваше занятие"
+    en: "Your occupation"
+
+  whats_your_occupation:
+    ru: "Чем вы занимаетесь?"
+    en: "What do you do?"
+
+  your_interests:
+    ru: "Ваши интересы"
+    en: "Your interests"
+
+  what_interests:
+    ru: "Какие у вас интересы?"
+    en: "What are your interests?"
+
+  your_goals:
+    ru: "Ваши цели"
+    en: "Your goals"
+
+  what_goals:
+    ru: "Что хотите изменить в жизни?"
+    en: "What do you want to change in your life?"
+
+  current_time:
+    ru: "Текущее время"
+    en: "Current duration"
+
+  how_many_minutes:
+    ru: "Сколько минут готовы уделять изучению одной темы?"
+    en: "How many minutes per topic?"
+
+  current_schedule:
+    ru: "Текущее расписание"
+    en: "Current schedule"
+
+  when_remind:
+    ru: "Во сколько напоминать о новой теме? (ЧЧ:ММ)"
+    en: "When should I remind you? (HH:MM)"
+
+  current_difficulty:
+    ru: "Текущий уровень сложности"
+    en: "Current difficulty level"
+
+  select_difficulty:
+    ru: "Нажмите кнопку с уровнем сложности:"
+    en: "Press a button to select difficulty level:"
+
+  difficulty_scale:
+    ru: "Шкала сложности"
+    en: "Difficulty scale"
+
+  easiest:
+    ru: "самый лёгкий"
+    en: "easiest"
+
+  hardest:
+    ru: "самый сложный"
+    en: "hardest"
+
+  saved:
+    ru: "Сохранено!"
+    en: "Saved!"
+
+  name_changed:
+    ru: "Имя изменено"
+    en: "Name changed"
+
+  occupation_changed:
+    ru: "Занятие изменено"
+    en: "Occupation changed"
+
+  interests_changed:
+    ru: "Интересы обновлены"
+    en: "Interests updated"
+
+  goals_changed:
+    ru: "Цели обновлены"
+    en: "Goals updated"
+
+  duration_changed:
+    ru: "Время на тему изменено"
+    en: "Duration changed"
+
+  schedule_changed:
+    ru: "Расписание изменено"
+    en: "Schedule changed"
+
+  difficulty_changed:
+    ru: "Сложность изменена"
+    en: "Difficulty changed"
+
+# -----------------------------------------------------------------------------
+# Справка
+# -----------------------------------------------------------------------------
+help:
+  title:
+    ru: "Справка"
+    en: "Help"
+
+  modes_title:
+    ru: "Режимы обучения"
+    en: "Learning modes"
+
+  marathon:
+    ru: "Марафон"
+    en: "Marathon"
+
+  marathon_desc:
+    ru: "14-дневная структурированная программа. Каждый день — урок (теория + вопрос) и задание с рабочим продуктом. Темы идут последовательно."
+    en: "14-day structured program. Each day — a lesson (theory + question) and a task with deliverable. Topics go sequentially."
+
+  feed:
+    ru: "Лента"
+    en: "Feed"
+
+  feed_desc:
+    ru: "Гибкий режим для тех, кто хочет изучать темы в своём темпе без ограничений по дедлайнам. Вы выбираете до 3 тем и получаете ежедневные дайджесты. После каждого дайджеста — фиксация (ваш личный вывод)."
+    en: "Flexible mode for those who want to study topics at their own pace without deadline restrictions. You choose up to 3 topics and receive daily digests. After each digest — a fixation (your personal takeaway)."
+
+  ai_questions:
+    ru: "В обоих режимах работает функция вопроса к ИИ. Начните сообщение с ? чтобы задать вопрос."
+    en: "In both modes, you can ask questions to AI. Start your message with ? to ask."
+
+  ai_questions_example:
+    ru: "Пример: ?Что такое собранность?"
+    en: "Example: ?What is self-discipline?"
+
+  commands_title:
+    ru: "Основные команды"
+    en: "Main commands"
+
+  feed_cmd:
+    ru: "получить дайджест (Лента)"
+    en: "get digest (Feed)"
+
+  how_it_works:
+    ru: "Как использовать бот"
+    en: "How to use the bot"
+
+  step1:
+    ru: "1. Вы заранее устанавливаете режим, время получения контента и т.п."
+    en: "1. You set up mode, content delivery time, etc."
+
+  step2:
+    ru: "2. Я отправляю персонализированный материал"
+    en: "2. I send personalized material"
+
+  step3:
+    ru: "3. Вы изучаете его (5-25 мин)"
+    en: "3. You study it (5-25 min)"
+
+  step4:
+    ru: "4. Отвечаете на вопрос или пишете фиксацию"
+    en: "4. Answer a question or write a fixation"
+
+  step5:
+    ru: "5. День засчитывается в прогресс"
+    en: "5. Day counts toward progress"
+
+  schedule_note:
+    ru: "Рекомендуется установить время получения контента — так вы не будете ждать слишком долго. Или запросите его командой, но подождите примерно 1 минуту. Бот в это время формирует динамический контекст для обращения к ИИ, используя ваши данные и обращаясь к хранилищам данных МИМ."
+    en: "It's recommended to set content delivery time — so you don't wait too long. Or request it via command, but wait about 1 minute. The bot creates dynamic context for AI, using your data and MIM knowledge bases."
+
+  feedback:
+    ru: "Замечания и предложения"
+    en: "Feedback and suggestions"
+
+# -----------------------------------------------------------------------------
+# Ошибки
+# -----------------------------------------------------------------------------
+errors:
+  try_again:
+    ru: "Попробуй ещё раз"
+    en: "Try again"
+
+# -----------------------------------------------------------------------------
+# FSM fallback-сообщения
+# -----------------------------------------------------------------------------
+fsm:
+  unrecognized_onboarding:
+    ru: "Я не распознал ваш ответ. Пожалуйста, завершите регистрацию или используйте /start для начала заново"
+    en: "I didn't recognize your response. Please complete registration or use /start to begin again"
+
+  unrecognized_update:
+    ru: "Я не распознал ваш ответ. Пожалуйста, завершите обновление профиля или используйте /update для начала заново"
+    en: "I didn't recognize your response. Please complete profile update or use /update to start over"
+
+  unrecognized_feed:
+    ru: "Я не распознал ваш ответ. Пожалуйста, завершите действие в Ленте или используйте /feed"
+    en: "I didn't recognize your response. Please complete the Feed action or use /feed"
+
+  enter_time_format:
+    ru: "Введите время в формате ЧЧ:ММ или нажмите Назад"
+    en: "Enter time in HH:MM format or press Back"
+
+  new_user_start:
+    ru: "Здравствуйте! Для начала используйте /start"
+    en: "Hello! To get started, use /start"
+
+  error_try_learn:
+    ru: "Произошла ошибка. Попробуйте /learn"
+    en: "An error occurred. Try /learn"
+
+  button_expired:
+    ru: "Кнопка устарела. Используйте /learn для продолжения."
+    en: "Button expired. Use /learn to continue."
+
+# -----------------------------------------------------------------------------
+# Загрузка
+# -----------------------------------------------------------------------------
+loading:
+  generating_topics:
+    ru: "⏳ Генерирую темы..."
+    en: "⏳ Generating topics..."
+
+  generating_content:
+    ru: "⏳ Готовлю материал..."
+    en: "⏳ Preparing content..."
+
+  processing:
+    ru: "⏳ Обрабатываю..."
+    en: "⏳ Processing..."
+
+  progress:
+    analyzing:
+      ru: "🔍 Анализирую вопрос..."
+      en: "🔍 Analyzing question..."
+
+    searching:
+      ru: "📚 Ищу в базе знаний..."
+      en: "📚 Searching knowledge base..."
+
+    generating:
+      ru: "✨ Генерирую ответ..."
+      en: "✨ Generating answer..."
+
+    done:
+      ru: "✅ Готово!"
+      en: "✅ Done!"
+
+# -----------------------------------------------------------------------------
+# Марафон
+# -----------------------------------------------------------------------------
+marathon:
+  topic_completed:
+    ru: "Тема засчитана!"
+    en: "Topic completed!"
+
+  level_up:
+    ru: "Поздравляем! Вы перешли на"
+    en: "Congratulations! You advanced to"
+
+  next_topic:
+    ru: "Следующая тема"
+    en: "Next topic"
+
+  next_task:
+    ru: "Дальше — Задание"
+    en: "Next — Task"
+
+  next_lesson:
+    ru: "Дальше — Урок"
+    en: "Next — Lesson"
+
+  want_harder:
+    ru: "Хотите дополнительный вопрос посложнее?"
+    en: "Want a harder bonus question?"
+
+  next_command:
+    ru: "/learn — следующая тема"
+    en: "/learn — next topic"
+
+  continue_to_task:
+    ru: "/learn — перейти к заданию"
+    en: "/learn — continue to task"
+
+  continue_to_lesson:
+    ru: "/learn — перейти к уроку"
+    en: "/learn — continue to lesson"
+
+  generating_harder:
+    ru: "Генерирую вопрос посложнее..."
+    en: "Generating a harder question..."
+
+  bonus_question:
+    ru: "Бонусный вопрос"
+    en: "Bonus question"
+
+  write_answer:
+    ru: "Напишите ответ 👇"
+    en: "Write your answer 👇"
+
+  ok:
+    ru: "Хорошо!"
+    en: "OK!"
+
+  bonus_completed:
+    ru: "Отлично! Бонусный вопрос засчитан!"
+    en: "Great! Bonus question completed!"
+
+  training_skills:
+    ru: "Вы тренируете навыки"
+    en: "You are training skills"
+
+  and_higher:
+    ru: "и выше."
+    en: "and above."
+
+  loading_practice:
+    ru: "Переходим к заданию..."
+    en: "Moving to the practice task..."
+
+  day_complete:
+    ru: "День завершён! Возвращайтесь завтра."
+    en: "Day complete! See you tomorrow."
+
+  practice_accepted:
+    ru: "Практика засчитана!"
+    en: "Practice completed!"
+
+  generating_material:
+    ru: "Генерирую персональный материал..."
+    en: "Generating personalized material..."
+
+  day_theory:
+    ru: "День {day} — Теория"
+    en: "Day {day} — Theory"
+
+  minutes:
+    ru: "{minutes} минут"
+    en: "{minutes} minutes"
+
+  reflection_question:
+    ru: "Вопрос для размышления"
+    en: "Reflection question"
+
+  answer_hint:
+    ru: "Напишите ответ в сообщении. Он не проверяется — после получения любого ответа тема считается пройденной."
+    en: "Write your answer in a message. It is not graded — the topic is marked complete after any answer."
+
+  preparing_practice:
+    ru: "Готовлю практическое задание..."
+    en: "Preparing practice task..."
+
+  day_practice:
+    ru: "День {day} — Практика"
+    en: "Day {day} — Practice"
+
+  task:
+    ru: "Задание"
+    en: "Task"
+
+  work_product:
+    ru: "Рабочий продукт"
+    en: "Work product"
+
+  submit_hint:
+    ru: "Напишите, что сделали. Минимум — пару предложений о рабочем продукте."
+    en: "Write what you did. Minimum — a couple of sentences about your work product."
+
+  wp_examples:
+    ru: "Примеры РП"
+    en: "Work product examples"
+
+  when_complete:
+    ru: "Когда выполните задание"
+    en: "When you complete the task"
+
+  write_wp_name:
+    ru: "Напишите название своего рабочего продукта."
+    en: "Write the name of your work product."
+
+  example:
+    ru: "Например"
+    en: "For example"
+
+  no_check_hint:
+    ru: "Проверки нет — просто напишите, что сделали, и практика засчитается."
+    en: "No grading — just write what you did, and the practice will be marked complete."
+
+  waiting_for:
+    ru: "Ожидаю"
+    en: "Waiting for"
+
+  work_product_name:
+    ru: "название рабочего продукта (≥3 символов)"
+    en: "work product name (≥3 chars)"
+
+  answer_expected:
+    ru: "ваш ответ на вопрос (≥20 символов)"
+    en: "your answer to the question (≥20 chars)"
+
+  question_hint:
+    ru: "Чтобы задать вопрос к ИИ, начните сообщение с ?"
+    en: "To ask a question to AI, start your message with ?"
+
+# -----------------------------------------------------------------------------
+# Лента (Feed)
+# -----------------------------------------------------------------------------
+feed:
+  suggested_topics:
+    ru: "Предлагаемые темы"
+    en: "Suggested Topics"
+
+  select_hint:
+    ru: "Выберите кнопками или напишите текстом:"
+    en: "Select with buttons or type:"
+
+  select_example:
+    ru: "Например: «1, 3» или «тема 2 и ещё хочу про собранность»"
+    en: "Example: \"1, 3\" or \"topic 2 and also want mindfulness\""
+
+  topics_selected:
+    ru: "Темы выбраны!"
+    en: "Topics selected!"
+
+  topics_count:
+    ru: "Выбрано {count} тем."
+    en: "{count} topics selected."
+
+  selected_topics:
+    ru: "Выбранные темы:"
+    en: "Selected topics:"
+
+  your_topics:
+    ru: "ваши темы"
+    en: "your topics"
+
+  what_next:
+    ru: "Когда хочешь начать?"
+    en: "When do you want to start?"
+
+  tomorrow_planned:
+    ru: "На завтра запланировано:"
+    en: "Planned for tomorrow:"
+
+  alternative_topics:
+    ru: "Альтернативные темы:"
+    en: "Alternative topics:"
+
+  keep_or_change:
+    ru: "Оставить как есть — просто нажмите ✅\nИзменить — напишите номер или свою тему"
+    en: "Keep as is — just press ✅\nChange — type a number or your own topic"
+
+  topic_saved:
+    ru: "Тема на завтра сохранена!"
+    en: "Tomorrow's topic saved!"
+
+  topic_changed:
+    ru: "Тема на завтра изменена:"
+    en: "Tomorrow's topic changed:"
+
+  whats_next:
+    ru: "Что дальше?"
+    en: "What's next?"
+
+  upcoming_topics:
+    ru: "Предстоящие темы:"
+    en: "Upcoming topics:"
+
+  week_progress:
+    ru: "Прогресс недели: {current} из {total}"
+    en: "Week progress: {current} of {total}"
+
+  menu_title:
+    ru: "Режим Лента"
+    en: "Feed Mode"
+
+  topics_menu_title:
+    ru: "Темы недели"
+    en: "Week Topics"
+
+  topics_edit_hint:
+    ru: "Нажмите ✏️, чтобы изменить тему"
+    en: "Press ✏️ to change a topic"
+
+  no_digest_today:
+    ru: "На сегодня дайджест уже прочитан. Приходите завтра!"
+    en: "Today's digest is already read. Come back tomorrow!"
+
+  enter_new_topic:
+    ru: "Введите новую тему для дня {day}:"
+    en: "Enter new topic for day {day}:"
+
+  topic_updated:
+    ru: "Тема для дня {day} обновлена:"
+    en: "Topic for day {day} updated:"
+
+  ask_details:
+    ru: "Хотите узнать подробнее? Задайте вопрос!"
+    en: "Want to learn more? Ask a question!"
+
+# -----------------------------------------------------------------------------
+# Консультация
+# -----------------------------------------------------------------------------
+consultation:
+  thinking:
+    ru: "Думаю..."
+    en: "Thinking..."
+
+  no_question:
+    ru: "Пожалуйста, задайте вопрос после знака \"?\""
+    en: "Please ask a question after the \"?\" sign"
+
+  error:
+    ru: "Произошла ошибка при обработке вопроса. Попробуйте ещё раз."
+    en: "An error occurred while processing your question. Please try again."
+
+  sources:
+    ru: "Источники"
+    en: "Sources"
+
+  returning:
+    ru: "↩️ Возвращаюсь к предыдущему занятию."
+    en: "↩️ Returning to previous activity."
