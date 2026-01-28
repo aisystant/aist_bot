@@ -588,12 +588,13 @@ async def marathon_set_reminders(callback: CallbackQuery):
     """Меню настройки напоминаний"""
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru'
 
     schedule_time = intern.get('schedule_time', '09:00')
     schedule_time_2 = intern.get('schedule_time_2')
 
-    text = "⏰ *Напоминания*\n\n"
-    text += f"Сейчас: {schedule_time}"
+    text = f"⏰ *{t('modes.reminders_title', lang)}*\n\n"
+    text += f"{t('modes.current_time', lang)}: {schedule_time}"
     if schedule_time_2:
         text += f", {schedule_time_2}"
     text += "\n"
@@ -602,24 +603,24 @@ async def marathon_set_reminders(callback: CallbackQuery):
 
     # Изменить первое время
     buttons.append([InlineKeyboardButton(
-        text=f"🕐 Изменить время ({schedule_time})",
+        text=f"🕐 {t('modes.change_time', lang)} ({schedule_time})",
         callback_data="marathon_reminder_1"
     )])
 
     # Второе напоминание
     if schedule_time_2:
         buttons.append([InlineKeyboardButton(
-            text=f"🕐 Второе: {schedule_time_2} ❌",
+            text=f"🕐 {t('modes.second', lang)}: {schedule_time_2} ❌",
             callback_data="marathon_reminder_2_remove"
         )])
     else:
         buttons.append([InlineKeyboardButton(
-            text="➕ Добавить второе",
+            text=f"➕ {t('modes.add_second', lang)}",
             callback_data="marathon_reminder_2_add"
         )])
 
     buttons.append([InlineKeyboardButton(
-        text="« Назад",
+        text=t('buttons.back', lang),
         callback_data="marathon_settings_back"
     )])
 
@@ -653,6 +654,9 @@ async def marathon_reminder_2_remove(callback: CallbackQuery):
 
 async def show_time_picker(callback: CallbackQuery, target: str):
     """Показать выбор времени"""
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
+
     times = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00",
              "12:00", "18:00", "19:00", "20:00", "21:00", "22:00"]
 
@@ -670,13 +674,13 @@ async def show_time_picker(callback: CallbackQuery, target: str):
         buttons.append(row)
 
     buttons.append([InlineKeyboardButton(
-        text="« Назад",
+        text=t('buttons.back', lang),
         callback_data="marathon_set_reminders"
     )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await callback.message.edit_text(
-        "⏰ Выберите время:",
+        f"⏰ {t('modes.select_time', lang)}:",
         reply_markup=keyboard
     )
     await callback.answer()
@@ -695,10 +699,10 @@ async def marathon_time_selected(callback: CallbackQuery):
     else:
         await update_intern(callback.message.chat.id, schedule_time_2=time)
 
-    await callback.answer(f"Время установлено: {time}")
-
     # Возвращаемся к настройкам марафона
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
+    await callback.answer(t('modes.time_set', lang, time=time))
     await show_marathon_settings(callback.message, intern, edit=True)
 
 
@@ -709,15 +713,16 @@ async def marathon_set_difficulty(callback: CallbackQuery):
     """Меню настройки сложности"""
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru'
 
     bloom_level = intern.get('bloom_level', 1)
 
-    text = "🎯 *Сложность вопросов*\n\n"
+    text = f"🎯 *{t('modes.complexity_title', lang)}*\n\n"
 
     levels = [
-        (1, "Базовый", "понимание основ"),
-        (2, "Средний", "применение на практике"),
-        (3, "Продвинутый", "анализ и синтез"),
+        (1, t('modes.level_basic', lang), t('modes.level_basic_desc', lang)),
+        (2, t('modes.level_medium', lang), t('modes.level_medium_desc', lang)),
+        (3, t('modes.level_advanced', lang), t('modes.level_advanced_desc', lang)),
     ]
 
     current_name = ""
@@ -727,13 +732,13 @@ async def marathon_set_difficulty(callback: CallbackQuery):
         if lvl == bloom_level:
             current_name = name
 
-    text += f"\nСейчас: *{current_name}*"
+    text += f"\n{t('modes.current', lang)}: *{current_name}*"
 
     buttons = [
-        [InlineKeyboardButton(text="1️⃣ Базовый", callback_data="marathon_diff_1")],
-        [InlineKeyboardButton(text="2️⃣ Средний", callback_data="marathon_diff_2")],
-        [InlineKeyboardButton(text="3️⃣ Продвинутый", callback_data="marathon_diff_3")],
-        [InlineKeyboardButton(text="« Назад", callback_data="marathon_settings_back")]
+        [InlineKeyboardButton(text=f"1️⃣ {t('modes.level_basic', lang)}", callback_data="marathon_diff_1")],
+        [InlineKeyboardButton(text=f"2️⃣ {t('modes.level_medium', lang)}", callback_data="marathon_diff_2")],
+        [InlineKeyboardButton(text=f"3️⃣ {t('modes.level_advanced', lang)}", callback_data="marathon_diff_3")],
+        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="marathon_settings_back")]
     ]
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -748,11 +753,11 @@ async def marathon_difficulty_selected(callback: CallbackQuery):
 
     await update_intern(callback.message.chat.id, bloom_level=level)
 
-    names = {1: "Базовый", 2: "Средний", 3: "Продвинутый"}
-    await callback.answer(f"Сложность: {names.get(level)}")
-
     # Возвращаемся к настройкам марафона
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
+    names = {1: t('modes.level_basic', lang), 2: t('modes.level_medium', lang), 3: t('modes.level_advanced', lang)}
+    await callback.answer(t('modes.complexity_set', lang, level=names.get(level)))
     await show_marathon_settings(callback.message, intern, edit=True)
 
 
