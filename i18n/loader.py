@@ -144,7 +144,7 @@ class I18n:
 
         Args:
             key: ключ перевода (например 'welcome.greeting')
-            lang: код языка ('ru', 'en', 'es')
+            lang: код языка ('ru', 'en', 'es', 'fr')
             **kwargs: параметры для форматирования (например name='Иван')
 
         Returns:

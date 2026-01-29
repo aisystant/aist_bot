@@ -186,8 +186,9 @@ class ClaudeClient:
         lang_instruction = {
             'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
             'en': "IMPORTANT: Write EVERYTHING in English.",
-            'es': "IMPORTANTE: Escribe TODO en español."
-        }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+            'es': "IMPORTANTE: Escribe TODO en español.",
+            'fr': "IMPORTANT: Écris TOUT en français."
+        }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
 {get_personalization_prompt(intern)}
@@ -243,8 +244,9 @@ class ClaudeClient:
         lang_instruction = {
             'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
             'en': "IMPORTANT: Write EVERYTHING in English.",
-            'es': "IMPORTANTE: Escribe TODO en español."
-        }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+            'es': "IMPORTANTE: Escribe TODO en español.",
+            'fr': "IMPORTANT: Écris TOUT en français."
+        }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {get_personalization_prompt(intern)}
@@ -323,8 +325,9 @@ class ClaudeClient:
         lang_instruction = {
             'ru': "ВАЖНО: Задай вопрос на русском языке.",
             'en': "IMPORTANT: Ask the question in English.",
-            'es': "IMPORTANTE: Haz la pregunta en español."
-        }.get(lang, "ВАЖНО: Задай вопрос на русском языке.")
+            'es': "IMPORTANTE: Haz la pregunta en español.",
+            'fr': "IMPORTANT: Pose la question en français."
+        }.get(lang, "IMPORTANT: Ask the question in English.")
 
         system_prompt = f"""Ты генерируешь ТОЛЬКО ОДИН КОРОТКИЙ ВОПРОС. Ничего больше.
 

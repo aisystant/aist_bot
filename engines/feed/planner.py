@@ -44,14 +44,16 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
     lang_instruction = {
         'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
         'en': "IMPORTANT: Write EVERYTHING in English.",
-        'es': "IMPORTANTE: Escribe TODO en español."
-    }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+        'es': "IMPORTANTE: Escribe TODO en español.",
+        'fr': "IMPORTANT: Écris TOUT en français."
+    }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
     lang_reminder = {
         'ru': "НАПОМИНАНИЕ: Весь текст (title, why) должен быть на РУССКОМ языке!",
         'en': "REMINDER: All text (title, why) must be in ENGLISH!",
-        'es': "RECORDATORIO: ¡Todo el texto (title, why) debe estar en ESPAÑOL!"
-    }.get(lang, "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!")
+        'es': "RECORDATORIO: ¡Todo el texto (title, why) debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Tout le texte (title, why) doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: All text (title, why) must be in ENGLISH!")
 
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {lang_instruction}
@@ -271,8 +273,35 @@ def get_fallback_topics(lang: str = 'ru') -> List[Dict]:
                 "keywords": ["roles", "funciones", "ejecutores"],
             },
         ],
+        'fr': [
+            {
+                "title": "Trois états d'attention",
+                "why": "Aide à se concentrer sur l'essentiel et à moins se distraire.",
+                "keywords": ["attention", "conscience", "concentration"],
+            },
+            {
+                "title": "Produit de travail",
+                "why": "Apprend à transformer les actions en résultats concrets.",
+                "keywords": ["produit", "résultat", "artefact"],
+            },
+            {
+                "title": "Mèmes et croyances",
+                "why": "Aide à identifier les croyances limitantes dans la pensée.",
+                "keywords": ["croyances", "mèmes", "transformation"],
+            },
+            {
+                "title": "Ingénierie de soi",
+                "why": "Fournit des méthodes pour changer consciemment ses habitudes.",
+                "keywords": ["développement personnel", "méthodes", "habitudes"],
+            },
+            {
+                "title": "Rôles et exécutants",
+                "why": "Aide à séparer les fonctions des personnes spécifiques.",
+                "keywords": ["rôles", "fonctions", "exécutants"],
+            },
+        ],
     }
-    return fallback_topics.get(lang, fallback_topics['ru'])
+    return fallback_topics.get(lang, fallback_topics['en'])
 
 
 async def generate_multi_topic_digest(
@@ -365,14 +394,16 @@ async def generate_multi_topic_digest(
     lang_instruction = {
         'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
         'en': "IMPORTANT: Write EVERYTHING in English.",
-        'es': "IMPORTANTE: Escribe TODO en español."
-    }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+        'es': "IMPORTANTE: Escribe TODO en español.",
+        'fr': "IMPORTANT: Écris TOUT en français."
+    }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
     lang_reminder = {
         'ru': "НАПОМИНАНИЕ: Весь текст (intro, main_content, reflection_prompt) должен быть на РУССКОМ языке!",
         'en': "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!",
-        'es': "RECORDATORIO: ¡Todo el texto (intro, main_content, reflection_prompt) debe estar en ESPAÑOL!"
-    }.get(lang, "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!")
+        'es': "RECORDATORIO: ¡Todo el texto (intro, main_content, reflection_prompt) debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Tout le texte (intro, main_content, reflection_prompt) doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!")
 
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 Создай дайджест, объединяющий несколько тем для {name}.
@@ -512,14 +543,16 @@ async def generate_topic_content(
     lang_instruction = {
         'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
         'en': "IMPORTANT: Write EVERYTHING in English.",
-        'es': "IMPORTANTE: Escribe TODO en español."
-    }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+        'es': "IMPORTANTE: Escribe TODO en español.",
+        'fr': "IMPORTANT: Écris TOUT en français."
+    }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
     lang_reminder = {
         'ru': "НАПОМИНАНИЕ: Весь текст (intro, main_content, reflection_prompt) должен быть на РУССКОМ языке!",
         'en': "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!",
-        'es': "RECORDATORIO: ¡Todo el texto (intro, main_content, reflection_prompt) debe estar en ESPAÑOL!"
-    }.get(lang, "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!")
+        'es': "RECORDATORIO: ¡Todo el texto (intro, main_content, reflection_prompt) debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Tout le texte (intro, main_content, reflection_prompt) doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!")
 
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {lang_instruction}

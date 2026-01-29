@@ -840,14 +840,16 @@ class ClaudeClient:
         lang_instruction = {
             'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
             'en': "IMPORTANT: Write EVERYTHING in English.",
-            'es': "IMPORTANTE: Escribe TODO en español."
-        }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+            'es': "IMPORTANTE: Escribe TODO en español.",
+            'fr': "IMPORTANT: Écris TOUT en français."
+        }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
         lang_reminder = {
             'ru': "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!",
             'en': "REMINDER: All text must be in ENGLISH!",
-            'es': "RECORDATORIO: ¡Todo el texto debe estar en ESPAÑOL!"
-        }.get(lang, "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!")
+            'es': "RECORDATORIO: ¡Todo el texto debe estar en ESPAÑOL!",
+            'fr': "RAPPEL: Tout le texte doit être en FRANÇAIS!"
+        }.get(lang, "REMINDER: All text must be in ENGLISH!")
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
 {get_personalization_prompt(intern, marathon_day)}
@@ -937,14 +939,16 @@ class ClaudeClient:
         lang_instruction = {
             'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
             'en': "IMPORTANT: Write EVERYTHING in English.",
-            'es': "IMPORTANTE: Escribe TODO en español."
-        }.get(lang, "ВАЖНО: Пиши ВСЁ на русском языке.")
+            'es': "IMPORTANTE: Escribe TODO en español.",
+            'fr': "IMPORTANT: Écris TOUT en français."
+        }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
         lang_reminder = {
             'ru': "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!",
             'en': "REMINDER: All text must be in ENGLISH!",
-            'es': "RECORDATORIO: ¡Todo el texto debe estar en ESPAÑOL!"
-        }.get(lang, "НАПОМИНАНИЕ: Весь текст должен быть на РУССКОМ языке!")
+            'es': "RECORDATORIO: ¡Todo el texto debe estar en ESPAÑOL!",
+            'fr': "RAPPEL: Tout le texte doit être en FRANÇAIS!"
+        }.get(lang, "REMINDER: All text must be in ENGLISH!")
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {get_personalization_prompt(intern, marathon_day)}
@@ -1053,14 +1057,16 @@ Escribe una breve introducción que motive a completar la tarea."""
         lang_instruction = {
             'ru': "ВАЖНО: Пиши вопрос на русском языке.",
             'en': "IMPORTANT: Write the question in English.",
-            'es': "IMPORTANTE: Escribe la pregunta en español."
-        }.get(lang, "ВАЖНО: Пиши вопрос на русском языке.")
+            'es': "IMPORTANTE: Escribe la pregunta en español.",
+            'fr': "IMPORTANT: Écris la question en français."
+        }.get(lang, "IMPORTANT: Write the question in English.")
 
         lang_reminder = {
             'ru': "НАПОМИНАНИЕ: Вопрос должен быть на РУССКОМ языке!",
             'en': "REMINDER: The question must be in ENGLISH!",
-            'es': "RECORDATORIO: ¡La pregunta debe estar en ESPAÑOL!"
-        }.get(lang, "НАПОМИНАНИЕ: Вопрос должен быть на РУССКОМ языке!")
+            'es': "RECORDATORIO: ¡La pregunta debe estar en ESPAÑOL!",
+            'fr': "RAPPEL: La question doit être en FRANÇAIS!"
+        }.get(lang, "REMINDER: The question must be in ENGLISH!")
 
         system_prompt = f"""Ты генерируешь ТОЛЬКО ОДИН КОРОТКИЙ ВОПРОС. Ничего больше.
 {lang_instruction}
