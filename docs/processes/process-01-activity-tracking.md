@@ -233,7 +233,7 @@ INSERT INTO activity_log
 | `db/queries/activity.py` | 14-72 | record_active_day |
 | `db/queries/activity.py` | 75-104 | get_activity_stats |
 | `db/models.py` | 244-264 | Таблица activity_log |
-| `bot.py` | 493 | Вызов при ответе |
+| `bot.py` | 485-507 | save_answer() — вызывает record_active_day |
 | `engines/feed/engine.py` | 271-276 | Вызов при фиксации |
 
 ---
@@ -242,4 +242,5 @@ INSERT INTO activity_log
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-01-29 | Обновлены номера строк после рефакторинга bot.py |
 | 2026-01-22 | Создание документа |
