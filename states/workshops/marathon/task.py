@@ -22,7 +22,7 @@ class MarathonTaskState(BaseState):
     """
 
     name = "workshop.marathon.task"
-    display_name = {"ru": "Задание", "en": "Task"}
+    display_name = {"ru": "Задание", "en": "Task", "es": "Tarea", "fr": "Tâche"}
     allow_global = ["consultation", "notes"]
 
     def _get_lang(self, user) -> str:

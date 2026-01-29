@@ -23,13 +23,13 @@ class ModeSelectState(BaseState):
     """
 
     name = "common.mode_select"
-    display_name = {"ru": "Выбор режима", "en": "Mode Select"}
+    display_name = {"ru": "Выбор режима", "en": "Mode Select", "es": "Selección de modo", "fr": "Sélection du mode"}
     allow_global = ["consultation", "notes"]
 
     # Тексты кнопок (для сравнения)
-    MARATHON_BUTTONS = ["📚 Марафон", "📚 Marathon", "📚 Maratón"]
-    FEED_BUTTONS = ["📖 Лента", "📖 Feed", "📖 Feed"]
-    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes"]
+    MARATHON_BUTTONS = ["📚 Марафон", "📚 Marathon", "📚 Maratón", "📚 Marathon"]
+    FEED_BUTTONS = ["📖 Лента", "📖 Feed", "📖 Feed", "📖 Fil"]
+    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""

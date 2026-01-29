@@ -13,7 +13,7 @@
 
     class MyState(BaseState):
         name = "category.my_state"
-        display_name = {"ru": "Мой стейт", "en": "My State"}
+        display_name = {"ru": "Мой стейт", "en": "My State", "es": "Mi estado", "fr": "Mon état"}
 
         async def enter(self, user, context=None):
             await self.send(user, self.t("my_state.welcome", user))

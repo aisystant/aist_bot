@@ -44,6 +44,12 @@ class TestTranslationCompleteness:
         missing = i18n.get_missing_keys('es')
         assert len(missing) == 0, f"Missing ES keys: {missing}"
 
+    def test_french_completeness(self):
+        """Французский — 100% переводов"""
+        i18n = get_i18n()
+        missing = i18n.get_missing_keys('fr')
+        assert len(missing) == 0, f"Missing FR keys: {missing}"
+
 
 class TestPlaceholders:
     """Проверка плейсхолдеров {name}, {day} и т.д."""
@@ -85,6 +91,26 @@ class TestPlaceholders:
 
             if ru_placeholders != es_placeholders:
                 errors.append(f"{key}: expected {ru_placeholders}, got {es_placeholders}")
+
+        assert not errors, f"Placeholder mismatches:\n" + "\n".join(errors[:10])
+
+    def test_placeholders_preserved_in_french(self):
+        """Плейсхолдеры сохранены в французском переводе"""
+        i18n = get_i18n()
+        ru_trans = i18n.translations.get('ru', {})
+        fr_trans = i18n.translations.get('fr', {})
+
+        errors = []
+        for key, ru_text in ru_trans.items():
+            fr_text = fr_trans.get(key, '')
+            if not fr_text:
+                continue
+
+            ru_placeholders = set(re.findall(r'\{(\w+)\}', ru_text))
+            fr_placeholders = set(re.findall(r'\{(\w+)\}', fr_text))
+
+            if ru_placeholders != fr_placeholders:
+                errors.append(f"{key}: expected {ru_placeholders}, got {fr_placeholders}")
 
         assert not errors, f"Placeholder mismatches:\n" + "\n".join(errors[:10])
 
@@ -144,6 +170,12 @@ class TestCriticalKeys:
         result = t(key, 'es')
         assert result != key, f"Key {key} not found in Spanish"
 
+    @pytest.mark.parametrize("key", CRITICAL_KEYS)
+    def test_critical_key_exists_in_french(self, key):
+        """Критический ключ существует в французском"""
+        result = t(key, 'fr')
+        assert result != key, f"Key {key} not found in French"
+
 
 class TestTranslationFunction:
     """Проверка функции t()"""
@@ -153,6 +185,7 @@ class TestTranslationFunction:
         assert t('welcome.greeting', 'ru') == 'Привет!'
         assert t('welcome.greeting', 'en') == 'Hello!'
         assert t('welcome.greeting', 'es') == '¡Hola!'
+        assert t('welcome.greeting', 'fr') == 'Bonjour !'
 
     def test_placeholder_formatting(self):
         """Плейсхолдеры форматируются"""
@@ -185,6 +218,7 @@ class TestLanguageDetection:
         assert detect_language('ru') == 'ru'
         assert detect_language('en') == 'en'
         assert detect_language('es') == 'es'
+        assert detect_language('fr') == 'fr'
 
     def test_detect_similar_languages(self):
         """Похожие языки маппятся корректно"""
@@ -228,6 +262,7 @@ class TestI18nClass:
         assert 'ru' in stats
         assert 'en' in stats
         assert 'es' in stats
+        assert 'fr' in stats
 
         for lang, s in stats.items():
             assert 'translated' in s

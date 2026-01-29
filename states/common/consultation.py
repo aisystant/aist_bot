@@ -25,7 +25,7 @@ class ConsultationState(BaseState):
     """
 
     name = "common.consultation"
-    display_name = {"ru": "Консультация", "en": "Consultation"}
+    display_name = {"ru": "Консультация", "en": "Consultation", "es": "Consulta", "fr": "Consultation"}
     # Консультация не имеет allow_global — это сам глобальный стейт
 
     def _get_lang(self, user) -> str:

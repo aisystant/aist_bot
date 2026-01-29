@@ -217,7 +217,7 @@ def t(key: str, lang: str = 'ru', **kwargs) -> str:
 
     Args:
         key: ключ перевода (например 'welcome.greeting')
-        lang: код языка ('ru', 'en', 'es')
+        lang: код языка ('ru', 'en', 'es', 'fr')
         **kwargs: параметры для форматирования
 
     Returns:

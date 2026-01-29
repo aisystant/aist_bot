@@ -24,7 +24,7 @@ class FeedDigestState(BaseState):
     """
 
     name = "feed.digest"
-    display_name = {"ru": "Дайджест", "en": "Digest"}
+    display_name = {"ru": "Дайджест", "en": "Digest", "es": "Resumen", "fr": "Résumé"}
     allow_global = ["consultation", "notes"]
 
     def _get_lang(self, user) -> str:

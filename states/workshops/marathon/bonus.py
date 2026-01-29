@@ -27,12 +27,12 @@ class MarathonBonusState(BaseState):
     """
 
     name = "workshop.marathon.bonus"
-    display_name = {"ru": "Бонусный вопрос", "en": "Bonus Question"}
+    display_name = {"ru": "Бонусный вопрос", "en": "Bonus Question", "es": "Pregunta extra", "fr": "Question bonus"}
     allow_global = ["consultation", "notes"]
 
     # Тексты кнопок
-    YES_BUTTONS = ["🚀 Да, давай сложнее!", "🚀 Yes, harder!", "🚀 Sí, más difícil"]
-    NO_BUTTONS = ["✅ Достаточно", "✅ Enough", "✅ Suficiente"]
+    YES_BUTTONS = ["🚀 Да, давай сложнее!", "🚀 Yes, harder!", "🚀 Sí, más difícil", "🚀 Oui, plus difficile!"]
+    NO_BUTTONS = ["✅ Достаточно", "✅ Enough", "✅ Suficiente", "✅ Suffisant"]
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""

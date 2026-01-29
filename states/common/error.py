@@ -21,12 +21,12 @@ class ErrorState(BaseState):
     """
 
     name = "common.error"
-    display_name = {"ru": "Ошибка", "en": "Error"}
+    display_name = {"ru": "Ошибка", "en": "Error", "es": "Error", "fr": "Erreur"}
     allow_global = []
 
     # Тексты кнопок
-    RETRY_BUTTONS = ["🔄 Повторить", "🔄 Retry", "🔄 Reintentar"]
-    BACK_BUTTONS = ["◀️ Назад", "◀️ Back", "◀️ Atrás"]
+    RETRY_BUTTONS = ["🔄 Повторить", "🔄 Retry", "🔄 Reintentar", "🔄 Réessayer"]
+    BACK_BUTTONS = ["◀️ Назад", "◀️ Back", "◀️ Atrás", "◀️ Retour"]
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
