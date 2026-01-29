@@ -10,6 +10,7 @@ ClaudeClient - асинхронный клиент для генерации к�
 """
 
 from typing import Optional
+import asyncio
 
 import aiohttp
 
@@ -110,14 +111,27 @@ class ClaudeClient:
             guides_search_keys = [default_query]
             knowledge_search_keys = [default_query]
 
-        # Получаем контекст из MCP руководств (используем все ключи поиска)
+        # Получаем контекст из MCP параллельно (guides + knowledge одновременно)
         guides_context = ""
-        if mcp_client:
+        knowledge_context = ""
+
+        async def fetch_guides():
+            """Получаем контекст из guides MCP"""
+            if not mcp_client:
+                return ""
             try:
+                # Запускаем все поисковые запросы параллельно
+                tasks = [
+                    mcp_client.semantic_search(q, lang="ru", limit=2)
+                    for q in guides_search_keys[:3]
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
                 context_parts = []
-                seen_texts = set()  # Для дедупликации
-                for search_query in guides_search_keys[:3]:  # Максимум 3 запроса
-                    search_results = await mcp_client.semantic_search(search_query, lang="ru", limit=2)
+                seen_texts = set()
+                for search_results in results:
+                    if isinstance(search_results, Exception):
+                        continue
                     if search_results:
                         for item in search_results:
                             if isinstance(item, dict):
@@ -130,22 +144,29 @@ class ClaudeClient:
                                 seen_texts.add(text[:100])
                                 context_parts.append(text[:1500])
                 if context_parts:
-                    guides_context = "\n\n".join(context_parts[:5])  # Максимум 5 фрагментов
                     logger.info(f"{mcp_client.name}: найдено {len(context_parts)} фрагментов контекста")
+                    return "\n\n".join(context_parts[:5])
             except Exception as e:
                 logger.error(f"{mcp_client.name} search error: {e}")
+            return ""
 
-        # Получаем контекст из MCP базы знаний (knowledge MCP использует инструмент 'search')
-        knowledge_context = ""
-        if knowledge_client:
+        async def fetch_knowledge():
+            """Получаем контекст из knowledge MCP"""
+            if not knowledge_client:
+                return ""
             try:
+                # Запускаем все поисковые запросы параллельно
+                tasks = [
+                    knowledge_client.semantic_search(q, lang="ru", limit=2, sort_by="created_at:desc")
+                    for q in knowledge_search_keys[:3]
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
                 context_parts = []
                 seen_texts = set()
-                for search_query in knowledge_search_keys[:3]:  # Максимум 3 запроса
-                    # Сортируем по дате создания (сначала новые)
-                    search_results = await knowledge_client.semantic_search(
-                        search_query, lang="ru", limit=2, sort_by="created_at:desc"
-                    )
+                for search_results in results:
+                    if isinstance(search_results, Exception):
+                        continue
                     if search_results:
                         for item in search_results:
                             if isinstance(item, dict):
@@ -161,10 +182,17 @@ class ClaudeClient:
                                 seen_texts.add(text[:100])
                                 context_parts.append(text[:1500])
                 if context_parts:
-                    knowledge_context = "\n\n".join(context_parts[:5])  # Максимум 5 фрагментов
                     logger.info(f"{knowledge_client.name}: найдено {len(context_parts)} фрагментов (свежие посты)")
+                    return "\n\n".join(context_parts[:5])
             except Exception as e:
                 logger.error(f"{knowledge_client.name} search error: {e}")
+            return ""
+
+        # Запускаем оба MCP-запроса параллельно
+        guides_context, knowledge_context = await asyncio.gather(
+            fetch_guides(),
+            fetch_knowledge()
+        )
 
         # Объединяем контексты (knowledge имеет приоритет, поэтому идёт первым)
         mcp_context = ""
