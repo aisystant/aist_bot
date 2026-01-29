@@ -35,17 +35,23 @@ def load_knowledge_structure() -> Tuple[List[dict], dict]:
         with open(KNOWLEDGE_STRUCTURE_PATH, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
 
-        topics = []
         meta = data.get('meta', {})
 
-        # Собираем темы из секций
-        for section in data.get('sections', []):
-            for day_data in section.get('days', []):
-                day_num = day_data.get('day', 1)
-                for topic in day_data.get('topics', []):
-                    topic['day'] = day_num
-                    topic['section'] = section.get('id', 'unknown')
-                    topics.append(topic)
+        # Темы находятся в отдельном ключе 'topics', а не внутри sections
+        # Каждая тема уже содержит поле 'day'
+        topics = data.get('topics', [])
+
+        # Добавляем section_id к каждой теме на основе дня
+        sections = data.get('sections', [])
+        day_to_section = {}
+        for section in sections:
+            section_id = section.get('id', 'unknown')
+            for day in section.get('days', []):
+                day_to_section[day] = section_id
+
+        for topic in topics:
+            day = topic.get('day', 1)
+            topic['section'] = day_to_section.get(day, 'unknown')
 
         _TOPICS = topics
         _MARATHON_META = meta

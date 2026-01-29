@@ -144,7 +144,11 @@ class BaseState(ABC):
         Returns:
             Отправленное сообщение
         """
-        telegram_id = getattr(user, 'telegram_id', user.get('telegram_id') if isinstance(user, dict) else None)
+        telegram_id = (
+            getattr(user, 'telegram_id', None) or
+            getattr(user, 'chat_id', None) or
+            (user.get('telegram_id') or user.get('chat_id') if isinstance(user, dict) else None)
+        )
         return await self.bot.send_message(telegram_id, text, **kwargs)
 
     async def send_with_keyboard(
