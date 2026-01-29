@@ -834,6 +834,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
     """
     try:
         chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
         question = message.text.strip()
 
         if len(question) < 3:
