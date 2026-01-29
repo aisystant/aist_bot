@@ -2060,6 +2060,83 @@ feed:
     ru: "Произошла ошибка при загрузке статуса. Попробуйте позже."
     en: "An error occurred while loading status. Please try again later."
 
+  # Engine messages (used in engines/feed/engine.py)
+  profile_not_found:
+    ru: "Профиль не найден. Пройдите /start для регистрации."
+    en: "Profile not found. Use /start to register."
+
+  already_active:
+    ru: "Лента уже активна! Используйте /feed для продолжения."
+    en: "Feed is already active! Use /feed to continue."
+
+  activated:
+    ru: "Режим Лента активирован! Сейчас предложу темы на неделю."
+    en: "Feed mode activated! Let me suggest topics for the week."
+
+  topics_generation_failed:
+    ru: "Не удалось сгенерировать темы. Попробуйте позже."
+    en: "Failed to generate topics. Try again later."
+
+  select_topics_prompt:
+    ru: "Выберите темы для изучения на этой неделе:"
+    en: "Select topics to study this week:"
+
+  start_feed_first:
+    ru: "Сначала запустите /feed для получения предложений."
+    en: "First run /feed to get topic suggestions."
+
+  topics_already_selected:
+    ru: "Темы на эту неделю уже выбраны."
+    en: "Topics for this week are already selected."
+
+  topics_accepted:
+    ru: "Отлично! Выбрано {count} тем. Начинаем!"
+    en: "Great! {count} topics selected. Let's begin!"
+
+  no_active_week:
+    ru: "Нет активной недели. Используйте /feed для старта."
+    en: "No active week. Use /feed to start."
+
+  select_topics_first:
+    ru: "Сначала выберите темы на неделю."
+    en: "First select topics for the week."
+
+  week_completed:
+    ru: "Неделя завершена. Используйте /feed для новой."
+    en: "Week completed. Use /feed for a new one."
+
+  digest_completed_today:
+    ru: "Сегодняшний дайджест уже завершён. До завтра!"
+    en: "Today's digest is already completed. See you tomorrow!"
+
+  continuing_digest:
+    ru: "Продолжаем дайджест..."
+    en: "Continuing digest..."
+
+  incomplete_digest:
+    ru: "У вас есть незавершённый дайджест. Напишите фиксацию, чтобы продолжить."
+    en: "You have an incomplete digest. Write a fixation to continue."
+
+  no_topics_selected:
+    ru: "Нет выбранных тем. Используйте /feed для выбора."
+    en: "No topics selected. Use /feed to select."
+
+  no_active_week_short:
+    ru: "Нет активной недели."
+    en: "No active week."
+
+  start_digest_first:
+    ru: "Сначала начните дайджест на сегодня."
+    en: "First start today's digest."
+
+  digest_already_completed:
+    ru: "Сегодняшний дайджест уже завершён."
+    en: "Today's digest is already completed."
+
+  fixation_saved:
+    ru: "Фиксация сохранена! До завтра."
+    en: "Fixation saved! See you tomorrow."
+
 # -----------------------------------------------------------------------------
 # Общие сообщения
 # -----------------------------------------------------------------------------
