@@ -206,36 +206,116 @@ class ClaudeClient:
         # Используем content_prompt из структуры знаний, если есть
         content_prompt = topic.get('content_prompt', '')
 
+        # Определяем язык ответа и локализуем промпт
+        lang = intern.get('language', 'ru')
+
+        # Локализованные инструкции для разных языков
+        LANG_PROMPTS = {
+            'ru': {
+                'lang_instruction': "ВАЖНО: Пиши ВСЁ на русском языке.",
+                'create_text': f"Создай текст на {intern['study_duration']} минут чтения (~{words} слов). Без заголовков, только абзацы.",
+                'engaging': "Текст должен быть вовлекающим, с примерами из жизни читателя.",
+                'forbidden_header': "СТРОГО ЗАПРЕЩЕНО:",
+                'forbidden_questions': "- Добавлять вопросы в любом месте текста",
+                'forbidden_headers': "- Использовать заголовки типа \"Вопрос:\", \"Вопрос для размышления:\" и т.п.",
+                'forbidden_end': "- Заканчивать текст вопросом",
+                'question_later': "Вопрос будет задан отдельно после текста.",
+                'topic': "Тема",
+                'main_concept': "Основное понятие",
+                'related_concepts': "Связанные понятия",
+                'pain_point': "Боль читателя",
+                'key_insight': "Ключевой инсайт",
+                'source': "Источник",
+                'content_instruction': "ИНСТРУКЦИЯ ПО КОНТЕНТУ",
+                'context_from': "КОНТЕКСТ ИЗ МАТЕРИАЛОВ AISYSTANT",
+                'start_with': "Начни с признания боли читателя, затем раскрой тему и подведи к ключевому инсайту.",
+                'use_context': "Опирайся на контекст, но адаптируй под профиль стажера. Актуальные посты важнее."
+            },
+            'en': {
+                'lang_instruction': "IMPORTANT: Write EVERYTHING in English.",
+                'create_text': f"Create a text for {intern['study_duration']} minutes of reading (~{words} words). No headings, only paragraphs.",
+                'engaging': "The text should be engaging, with examples from the reader's life.",
+                'forbidden_header': "STRICTLY FORBIDDEN:",
+                'forbidden_questions': "- Adding questions anywhere in the text",
+                'forbidden_headers': "- Using headers like \"Question:\", \"Question for reflection:\" etc.",
+                'forbidden_end': "- Ending the text with a question",
+                'question_later': "A question will be asked separately after the text.",
+                'topic': "Topic",
+                'main_concept': "Main concept",
+                'related_concepts': "Related concepts",
+                'pain_point': "Reader's pain",
+                'key_insight': "Key insight",
+                'source': "Source",
+                'content_instruction': "CONTENT INSTRUCTION",
+                'context_from': "CONTEXT FROM AISYSTANT MATERIALS",
+                'start_with': "Start by acknowledging the reader's pain, then develop the topic and lead to the key insight.",
+                'use_context': "Use the context, but adapt it to the student's profile. Recent posts are more important."
+            },
+            'es': {
+                'lang_instruction': "IMPORTANTE: Escribe TODO en español.",
+                'create_text': f"Crea un texto para {intern['study_duration']} minutos de lectura (~{words} palabras). Sin títulos, solo párrafos.",
+                'engaging': "El texto debe ser atractivo, con ejemplos de la vida del lector.",
+                'forbidden_header': "ESTRICTAMENTE PROHIBIDO:",
+                'forbidden_questions': "- Agregar preguntas en cualquier parte del texto",
+                'forbidden_headers': "- Usar encabezados como \"Pregunta:\", \"Pregunta para reflexionar:\" etc.",
+                'forbidden_end': "- Terminar el texto con una pregunta",
+                'question_later': "Se hará una pregunta por separado después del texto.",
+                'topic': "Tema",
+                'main_concept': "Concepto principal",
+                'related_concepts': "Conceptos relacionados",
+                'pain_point': "Dolor del lector",
+                'key_insight': "Idea clave",
+                'source': "Fuente",
+                'content_instruction': "INSTRUCCIÓN DE CONTENIDO",
+                'context_from': "CONTEXTO DE MATERIALES AISYSTANT",
+                'start_with': "Comienza reconociendo el dolor del lector, luego desarrolla el tema y lleva a la idea clave.",
+                'use_context': "Usa el contexto, pero adáptalo al perfil del estudiante. Las publicaciones recientes son más importantes."
+            },
+            'fr': {
+                'lang_instruction': "IMPORTANT: Écris TOUT en français.",
+                'create_text': f"Crée un texte pour {intern['study_duration']} minutes de lecture (~{words} mots). Sans titres, seulement des paragraphes.",
+                'engaging': "Le texte doit être engageant, avec des exemples de la vie du lecteur.",
+                'forbidden_header': "STRICTEMENT INTERDIT:",
+                'forbidden_questions': "- Ajouter des questions n'importe où dans le texte",
+                'forbidden_headers': "- Utiliser des en-têtes comme \"Question:\", \"Question de réflexion:\" etc.",
+                'forbidden_end': "- Terminer le texte par une question",
+                'question_later': "Une question sera posée séparément après le texte.",
+                'topic': "Sujet",
+                'main_concept': "Concept principal",
+                'related_concepts': "Concepts liés",
+                'pain_point': "Douleur du lecteur",
+                'key_insight': "Idée clé",
+                'source': "Source",
+                'content_instruction': "INSTRUCTION DE CONTENU",
+                'context_from': "CONTEXTE DES MATÉRIAUX AISYSTANT",
+                'start_with': "Commence par reconnaître la douleur du lecteur, puis développe le sujet et mène à l'idée clé.",
+                'use_context': "Utilise le contexte, mais adapte-le au profil de l'étudiant. Les publications récentes sont plus importantes."
+            }
+        }
+
+        lp = LANG_PROMPTS.get(lang, LANG_PROMPTS['en'])
+
         # Определяем тип контекста для промпта
         has_both = knowledge_context and guides_context
         context_instruction = ""
         if has_both:
-            context_instruction = "Используй предоставленный контекст: актуальные посты имеют приоритет, руководства дополняют."
+            context_instruction = lp['use_context']
         elif mcp_context:
-            context_instruction = "Используй предоставленный контекст из материалов Aisystant как основу."
-
-        # Определяем язык ответа
-        lang = intern.get('language', 'ru')
-        lang_instruction = {
-            'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
-            'en': "IMPORTANT: Write EVERYTHING in English.",
-            'es': "IMPORTANTE: Escribe TODO en español.",
-            'fr': "IMPORTANT: Écris TOUT en français."
-        }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
+            context_instruction = lp['use_context']
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
 {get_personalization_prompt(intern)}
 
-{lang_instruction}
+{lp['lang_instruction']}
 
-Создай текст на {intern['study_duration']} минут чтения (~{words} слов). Без заголовков, только абзацы.
-Текст должен быть вовлекающим, с примерами из жизни читателя.
+{lp['create_text']}
+{lp['engaging']}
 
-СТРОГО ЗАПРЕЩЕНО:
-- Добавлять вопросы в любом месте текста
-- Использовать заголовки типа "Вопрос:", "Вопрос для размышления:", "Вопрос для проверки:" и т.п.
-- Заканчивать текст вопросом
-Вопрос будет задан отдельно после текста.
+{lp['forbidden_header']}
+{lp['forbidden_questions']}
+{lp['forbidden_headers']}
+{lp['forbidden_end']}
+{lp['question_later']}
 {context_instruction}
 
 {ONTOLOGY_RULES}"""
@@ -244,23 +324,32 @@ class ClaudeClient:
         key_insight = topic.get('key_insight', '')
         source = topic.get('source', '')
 
-        user_prompt = f"""Тема: {topic.get('title')}
-Основное понятие: {topic.get('main_concept')}
-Связанные понятия: {', '.join(topic.get('related_concepts', []))}
+        user_prompt = f"""{lp['topic']}: {topic.get('title')}
+{lp['main_concept']}: {topic.get('main_concept')}
+{lp['related_concepts']}: {', '.join(topic.get('related_concepts', []))}
 
-{"Боль читателя: " + pain_point if pain_point else ""}
-{"Ключевой инсайт: " + key_insight if key_insight else ""}
-{"Источник: " + source if source else ""}
+{f"{lp['pain_point']}: {pain_point}" if pain_point else ""}
+{f"{lp['key_insight']}: {key_insight}" if key_insight else ""}
+{f"{lp['source']}: {source}" if source else ""}
 
-{f"ИНСТРУКЦИЯ ПО КОНТЕНТУ:{chr(10)}{content_prompt}" if content_prompt else ""}
+{f"{lp['content_instruction']}:{chr(10)}{content_prompt}" if content_prompt else ""}
 
-{f"КОНТЕКСТ ИЗ МАТЕРИАЛОВ AISYSTANT:{chr(10)}{mcp_context}" if mcp_context else ""}
+{f"{lp['context_from']}:{chr(10)}{mcp_context}" if mcp_context else ""}
 
-Начни с признания боли читателя, затем раскрой тему и подведи к ключевому инсайту.
-{"Опирайся на контекст, но адаптируй под профиль стажера. Актуальные посты важнее." if mcp_context else ""}"""
+{lp['start_with']}
+{lp['use_context'] if mcp_context else ""}"""""
 
         result = await self.generate(system_prompt, user_prompt)
-        return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
+        if result:
+            return result
+        # Локализованное сообщение об ошибке
+        error_messages = {
+            'ru': "Не удалось сгенерировать контент. Попробуйте /learn ещё раз.",
+            'en': "Failed to generate content. Please try /learn again.",
+            'es': "No se pudo generar el contenido. Por favor, intente /learn de nuevo.",
+            'fr': "Échec de la génération du contenu. Veuillez réessayer /learn."
+        }
+        return error_messages.get(lang, error_messages['en'])
 
     async def generate_practice_intro(self, topic: dict, intern: dict) -> dict:
         """Генерирует полное описание практического задания на языке пользователя
