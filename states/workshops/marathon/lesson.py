@@ -5,6 +5,7 @@
 Выход: workshop.marathon.question (после показа урока)
 """
 
+import asyncio
 from typing import Optional
 
 from aiogram.types import Message
@@ -17,6 +18,9 @@ from clients import claude, mcp_guides, mcp_knowledge
 from config import get_logger
 
 logger = get_logger(__name__)
+
+# Таймаут на генерацию контента (секунды)
+CONTENT_GENERATION_TIMEOUT = 90
 
 
 class MarathonLessonState(BaseState):
@@ -148,14 +152,27 @@ class MarathonLessonState(BaseState):
             intern = self._user_to_intern_dict(user)
             topic_day = topic.get('day', marathon_day)
 
-            # Генерируем контент через Claude API
+            # Генерируем контент через Claude API с таймаутом
             logger.info(f"Generating content for topic {topic_index}, day {topic_day}, user {chat_id}")
-            content = await claude.generate_content(
-                topic=topic,
-                intern=intern,
-                mcp_client=mcp_guides,
-                knowledge_client=mcp_knowledge
-            )
+            try:
+                content = await asyncio.wait_for(
+                    claude.generate_content(
+                        topic=topic,
+                        intern=intern,
+                        mcp_client=mcp_guides,
+                        knowledge_client=mcp_knowledge
+                    ),
+                    timeout=CONTENT_GENERATION_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Content generation timeout ({CONTENT_GENERATION_TIMEOUT}s) for user {chat_id}")
+                await self.send(
+                    user,
+                    f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
+                    f"_{t('errors.try_again_later', lang)}_",
+                    parse_mode="Markdown"
+                )
+                return
 
             # Формируем заголовок
             topic_title = get_topic_title(topic, lang)
