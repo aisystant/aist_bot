@@ -47,6 +47,7 @@ topics:
     title: "Четыре состояния: от застревания к развитию"
     title_en: "Four States: From Stagnation to Growth"
     title_es: "Cuatro estados: del estancamiento al desarrollo"
+    title_fr: "Quatre états : de la stagnation au développement"
     main_concept: "диагностика состояния"
     related_concepts:
       - "хаос"
@@ -89,6 +90,7 @@ topics:
     title: "Моё текущее состояние"
     title_en: "My Current State"
     title_es: "Mi estado actual"
+    title_fr: "Mon état actuel"
     main_concept: "самодиагностика"
     task: |
       Напиши текст "Моё текущее состояние":
@@ -113,6 +115,7 @@ topics:
     title: "Ловушка «жизни полегче»"
     title_en: "The 'Easy Life' Trap"
     title_es: "La trampa de la 'vida fácil'"
+    title_fr: "Le piège de la 'vie facile'"
     main_concept: "ложное облегчение"
     related_concepts:
       - "ясность"
@@ -152,6 +155,7 @@ topics:
     title: "Первый слот саморазвития"
     title_en: "First Self-Development Slot"
     title_es: "Primer espacio de autodesarrollo"
+    title_fr: "Premier créneau d'auto-développement"
     main_concept: "слот саморазвития"
     task: |
       Первое действие после диагностики (связь с Днём 1):
@@ -180,6 +184,7 @@ topics:
     title: "Вечерняя ловушка и поставка впечатлений"
     title_en: "The Evening Trap and Managing Impressions"
     title_es: "La trampa nocturna y la gestión de impresiones"
+    title_fr: "Le piège du soir et la gestion des impressions"
     main_concept: "вечерняя ловушка"
     related_concepts:
       - "поставка впечатлений"
@@ -215,6 +220,7 @@ topics:
     title: "Трекер слотов + новое впечатление"
     title_en: "Slot Tracker + New Impression"
     title_es: "Rastreador de espacios + nueva impresión"
+    title_fr: "Tracker de créneaux + nouvelle impression"
     main_concept: "трекер с впечатлениями"
     task: |
       Трекер — не просто учёт времени, а комплексный инструмент:
@@ -245,6 +251,7 @@ topics:
     title: "Информационный шум и потеря фокуса"
     title_en: "Information Noise and Loss of Focus"
     title_es: "Ruido informativo y pérdida de enfoque"
+    title_fr: "Bruit informationnel et perte de concentration"
     main_concept: "рассеянное внимание"
     related_concepts:
       - "флюгер"
@@ -279,6 +286,7 @@ topics:
     title: "Мимолётные заметки"
     title_en: "Fleeting Notes"
     title_es: "Notas fugaces"
+    title_fr: "Notes éphémères"
     main_concept: "фиксация мыслей"
     task: |
       Начни практику мимолётных заметок (экзокортекс):
@@ -310,6 +318,7 @@ topics:
     title: "Цикл «перегрузка — выгорание — откат»"
     title_en: "The Overload — Burnout — Relapse Cycle"
     title_es: "El ciclo de sobrecarga — agotamiento — recaída"
+    title_fr: "Le cycle surcharge — épuisement — rechute"
     main_concept: "выгорание"
     related_concepts:
       - "героический режим"
@@ -353,6 +362,7 @@ topics:
     title: "Стоп-моменты"
     title_en: "Stop Moments"
     title_es: "Momentos de parada"
+    title_fr: "Moments d'arrêt"
     main_concept: "осознание отвлечений"
     task: |
       Стоп-момент — момент, когда внимание уходит или энергия падает.
@@ -382,6 +392,7 @@ topics:
     title: "Почему советы не работают"
     title_en: "Why Advice Doesn't Work"
     title_es: "Por qué los consejos no funcionan"
+    title_fr: "Pourquoi les conseils ne fonctionnent pas"
     main_concept: "поверхностные решения"
     related_concepts:
       - "лайфхаки"
@@ -427,6 +438,7 @@ topics:
     title: "Гипотеза на неделю"
     title_en: "Weekly Hypothesis"
     title_es: "Hipótesis semanal"
+    title_fr: "Hypothèse hebdomadaire"
     main_concept: "эксперимент"
     task: |
       Сформулируй гипотезу на основе СВОИХ данных за неделю:
@@ -458,6 +470,7 @@ topics:
     title: "Что такое личный прогресс"
     title_en: "What is Personal Progress"
     title_es: "Qué es el progreso personal"
+    title_fr: "Qu'est-ce que le progrès personnel"
     main_concept: "личный прогресс"
     related_concepts:
       - "факты vs ощущения"
@@ -502,6 +515,7 @@ topics:
     title: "Итоги недели + Похвала себе"
     title_en: "Weekly Results + Self-Praise"
     title_es: "Resultados de la semana + Elogio propio"
+    title_fr: "Résultats de la semaine + Auto-félicitation"
     main_concept: "итоги недели"
     task: |
       Подведи итоги первой недели по фактам + похвали себя:
@@ -545,6 +559,7 @@ topics:
     title: "Непродуктивные мемы о саморазвитии"
     title_en: "Unproductive Memes About Self-Development"
     title_es: "Memes improductivos sobre el autodesarrollo"
+    title_fr: "Mèmes improductifs sur le développement personnel"
     main_concept: "непродуктивные мемы"
     related_concepts:
       - "мем и ген"
@@ -591,6 +606,7 @@ topics:
     title: "Рабочий продукт из слота"
     title_en: "Work Product From Slot"
     title_es: "Producto de trabajo del espacio"
+    title_fr: "Produit de travail du créneau"
     main_concept: "рабочий продукт"
     task: |
       Сегодня твой слот должен оставить рабочий продукт (РП):
@@ -628,6 +644,7 @@ topics:
     title: "Героизм vs систематичность"
     title_en: "Heroism vs Consistency"
     title_es: "Heroísmo vs sistematicidad"
+    title_fr: "Héroïsme vs régularité"
     main_concept: "систематичность vs героизм"
     related_concepts:
       - "отстал — догоню"
@@ -674,6 +691,7 @@ topics:
     title: "ИИ как усиление"
     title_en: "AI as Amplification"
     title_es: "IA como amplificación"
+    title_fr: "L'IA comme amplificateur"
     main_concept: "ИИ как усилитель"
     task: |
       Используй ИИ для создания рабочего продукта:
@@ -712,6 +730,7 @@ topics:
     title: "Почему одной мотивации недостаточно"
     title_en: "Why Motivation Alone Isn't Enough"
     title_es: "Por qué la motivación sola no es suficiente"
+    title_fr: "Pourquoi la motivation seule ne suffit pas"
     main_concept: "набор практик vs мотивация"
     related_concepts:
       - "триггер → действие → награда"
@@ -754,6 +773,7 @@ topics:
     title: "Моё минимальное время"
     title_en: "My Minimum Time"
     title_es: "Mi tiempo mínimo"
+    title_fr: "Mon temps minimum"
     main_concept: "минимальное время"
     task: |
       Определи своё минимальное стабильное время и систему:
@@ -789,6 +809,7 @@ topics:
     title: "Обучение как инженерия себя"
     title_en: "Learning as Self-Engineering"
     title_es: "El aprendizaje como ingeniería de uno mismo"
+    title_fr: "L'apprentissage comme ingénierie de soi"
     main_concept: "инженерия себя"
     related_concepts:
       - "всё есть инженерия"
@@ -830,6 +851,7 @@ topics:
     title: "Мой персональный чек-лист стоп-момента"
     title_en: "My Personal Stop-Moment Checklist"
     title_es: "Mi lista de verificación personal de momentos de parada"
+    title_fr: "Ma checklist personnelle de moments d'arrêt"
     main_concept: "персональный чек-лист"
     task: |
       Создай персональный чек-лист стоп-момента — инженерный инструмент:
@@ -867,6 +889,7 @@ topics:
     title: "Собранность и экзокортекс"
     title_en: "Focus and Exocortex"
     title_es: "Concentración y exocórtex"
+    title_fr: "Concentration et exocortex"
     main_concept: "экзокортекс"
     related_concepts:
       - "собранность"
@@ -917,6 +940,7 @@ topics:
     title: "Мои продуктивные мемы"
     title_en: "My Productive Memes"
     title_es: "Mis memes productivos"
+    title_fr: "Mes mèmes productifs"
     main_concept: "продуктивные мемы"
     task: |
       Итог марафона — собери свои продуктивные мемы.
@@ -958,6 +982,7 @@ topics:
     title: "Агентность: от реактивного к проактивному"
     title_en: "Agency: From Reactive to Proactive"
     title_es: "Agencia: de reactivo a proactivo"
+    title_fr: "Agentivité : du réactif au proactif"
     main_concept: "агентность"
     related_concepts:
       - "реактивный vs проактивный"
@@ -1002,6 +1027,7 @@ topics:
     title: "Мои методы и инструменты агента"
     title_en: "My Agent Methods and Tools"
     title_es: "Mis métodos e instrumentos de agente"
+    title_fr: "Mes méthodes et outils d'agent"
     main_concept: "карта практик агента"
     task: |
       Нарисуй схему своих методов и инструментов — интеграция всего марафона.
@@ -1049,6 +1075,7 @@ topics:
     title: "Время созидателей"
     title_en: "The Age of Creators"
     title_es: "La era de los creadores"
+    title_fr: "L'ère des créateurs"
     main_concept: "время созидателей"
     related_concepts:
       - "ИИ как уравнитель"
@@ -1093,6 +1120,7 @@ topics:
     title: "План на месяц после марафона"
     title_en: "Monthly Plan After Marathon"
     title_es: "Plan mensual después del maratón"
+    title_fr: "Plan mensuel après le marathon"
     main_concept: "план созидателя"
     task: |
       Создай план на первый месяц после марафона.
