@@ -30,6 +30,7 @@ async def create_tables(pool: asyncpg.Pool):
                 goals TEXT DEFAULT '',
                 
                 -- Предпочтения
+                language TEXT DEFAULT 'ru',
                 experience_level TEXT DEFAULT '',
                 difficulty_preference TEXT DEFAULT '',
                 learning_style TEXT DEFAULT '',
@@ -112,6 +113,9 @@ async def create_tables(pool: asyncpg.Pool):
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_streak INTEGER DEFAULT 0',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS longest_streak INTEGER DEFAULT 0',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_active_date DATE DEFAULT NULL',
+
+            # Язык пользователя
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS language TEXT DEFAULT \'ru\'',
         ]
         
         for migration in migrations:

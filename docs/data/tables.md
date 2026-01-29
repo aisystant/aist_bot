@@ -25,6 +25,7 @@
 
 | Поле | Тип | Default | Описание |
 |------|-----|---------|----------|
+| `language` | TEXT | `'ru'` | Язык интерфейса и контента (ru/en/es/fr) |
 | `experience_level` | TEXT | `''` | Уровень опыта |
 | `difficulty_preference` | TEXT | `''` | Предпочитаемая сложность |
 | `learning_style` | TEXT | `''` | Стиль обучения |
