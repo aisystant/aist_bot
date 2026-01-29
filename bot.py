@@ -1967,10 +1967,12 @@ async def cmd_progress(message: Message):
 
     intern = await get_intern(message.chat.id)
     if not intern or not intern.get('onboarding_completed'):
-        await message.answer("Сначала /start")
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('progress.first_start', lang))
         return
 
     chat_id = message.chat.id
+    lang = intern.get('language', 'ru') or 'ru'
 
     try:
         # Получаем статистику
@@ -1999,26 +2001,26 @@ async def cmd_progress(message: Message):
         feed_engine = FeedEngine(chat_id)
         feed_status = await feed_engine.get_status()
         feed_topics = feed_status.get('topics', [])
-        feed_topics_text = ", ".join(feed_topics) if feed_topics else "не выбраны"
+        feed_topics_text = ", ".join(feed_topics) if feed_topics else t('progress.topics_not_selected', lang)
     except Exception as e:
         logger.error(f"Ошибка получения статуса ленты для {chat_id}: {e}")
-        feed_topics_text = "не удалось загрузить"
+        feed_topics_text = t('progress.topics_not_selected', lang)
 
     # Общие РП за неделю
     total_wp_week = marathon_stats.get('work_products', 0)
 
-    text = f"📊 *Прогресс: {intern['name']}*\n\n"
-    text += f"📈 Активных дней за неделю (Марафон+Лента): {days_active_week}\n\n"
+    text = f"📊 *{t('progress.title', lang)}: {intern['name']}*\n\n"
+    text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n\n"
 
     # Марафон
-    text += f"🏃 *Марафон*\n"
-    text += f"День {marathon_day}/{MARATHON_DAYS}\n"
-    text += f"Пройдено тем: {done}. Рабочих продуктов: {total_wp_week}\n\n"
+    text += f"🏃 *{t('progress.marathon_title', lang)}*\n"
+    text += f"{t('progress.day_of_total', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
+    text += f"{t('progress.topics_done', lang)}: {done}. {t('progress.work_products', lang)}: {total_wp_week}\n\n"
 
     # Лента
-    text += f"📚 *Лента*\n"
-    text += f"Дайджестов: {feed_stats.get('digests', 0)}. Фиксаций: {feed_stats.get('fixations', 0)}\n"
-    text += f"Темы: {feed_topics_text}"
+    text += f"📚 *{t('progress.feed_title', lang)}*\n"
+    text += f"{t('progress.digests', lang)}: {feed_stats.get('digests', 0)}. {t('progress.fixations', lang)}: {feed_stats.get('fixations', 0)}\n"
+    text += f"{t('progress.topics', lang)}: {feed_topics_text}"
 
     # Кнопки
     from config import Mode
@@ -2026,15 +2028,15 @@ async def cmd_progress(message: Message):
 
     # Кнопка продолжения зависит от режима
     if current_mode == Mode.FEED:
-        continue_btn = InlineKeyboardButton(text="📖 Получить дайджест", callback_data="feed_get_digest")
+        continue_btn = InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")
     else:
-        continue_btn = InlineKeyboardButton(text="📚 Продолжить обучение", callback_data="learn")
+        continue_btn = InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="learn")
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [continue_btn],
         [
-            InlineKeyboardButton(text="📊 Полный отчёт", callback_data="progress_full"),
-            InlineKeyboardButton(text="⚙️ Настройки", callback_data="go_update")
+            InlineKeyboardButton(text=f"📊 {t('progress.full_report', lang)}", callback_data="progress_full"),
+            InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="go_update")
         ]
     ])
 
