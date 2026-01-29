@@ -28,6 +28,12 @@ from core.helpers import (
     get_search_keys,
     get_bloom_questions,
 )
+from i18n.prompts import (
+    get_content_prompts,
+    get_practice_prompts,
+    get_question_prompts,
+    get_feedback_prompts,
+)
 
 logger = get_logger(__name__)
 
@@ -206,94 +212,10 @@ class ClaudeClient:
         # Используем content_prompt из структуры знаний, если есть
         content_prompt = topic.get('content_prompt', '')
 
-        # Определяем язык ответа и локализуем промпт
+        # Получаем локализованные промпты из единого модуля
         lang = intern.get('language', 'ru')
-
-        # Локализованные инструкции для разных языков
-        LANG_PROMPTS = {
-            'ru': {
-                'lang_instruction': "ВАЖНО: Пиши ВСЁ на русском языке.",
-                'create_text': f"Создай текст на {intern['study_duration']} минут чтения (~{words} слов). Без заголовков, только абзацы.",
-                'engaging': "Текст должен быть вовлекающим, с примерами из жизни читателя.",
-                'forbidden_header': "СТРОГО ЗАПРЕЩЕНО:",
-                'forbidden_questions': "- Добавлять вопросы в любом месте текста",
-                'forbidden_headers': "- Использовать заголовки типа \"Вопрос:\", \"Вопрос для размышления:\" и т.п.",
-                'forbidden_end': "- Заканчивать текст вопросом",
-                'question_later': "Вопрос будет задан отдельно после текста.",
-                'topic': "Тема",
-                'main_concept': "Основное понятие",
-                'related_concepts': "Связанные понятия",
-                'pain_point': "Боль читателя",
-                'key_insight': "Ключевой инсайт",
-                'source': "Источник",
-                'content_instruction': "ИНСТРУКЦИЯ ПО КОНТЕНТУ",
-                'context_from': "КОНТЕКСТ ИЗ МАТЕРИАЛОВ AISYSTANT",
-                'start_with': "Начни с признания боли читателя, затем раскрой тему и подведи к ключевому инсайту.",
-                'use_context': "Опирайся на контекст, но адаптируй под профиль стажера. Актуальные посты важнее."
-            },
-            'en': {
-                'lang_instruction': "IMPORTANT: Write EVERYTHING in English.",
-                'create_text': f"Create a text for {intern['study_duration']} minutes of reading (~{words} words). No headings, only paragraphs.",
-                'engaging': "The text should be engaging, with examples from the reader's life.",
-                'forbidden_header': "STRICTLY FORBIDDEN:",
-                'forbidden_questions': "- Adding questions anywhere in the text",
-                'forbidden_headers': "- Using headers like \"Question:\", \"Question for reflection:\" etc.",
-                'forbidden_end': "- Ending the text with a question",
-                'question_later': "A question will be asked separately after the text.",
-                'topic': "Topic",
-                'main_concept': "Main concept",
-                'related_concepts': "Related concepts",
-                'pain_point': "Reader's pain",
-                'key_insight': "Key insight",
-                'source': "Source",
-                'content_instruction': "CONTENT INSTRUCTION",
-                'context_from': "CONTEXT FROM AISYSTANT MATERIALS",
-                'start_with': "Start by acknowledging the reader's pain, then develop the topic and lead to the key insight.",
-                'use_context': "Use the context, but adapt it to the student's profile. Recent posts are more important."
-            },
-            'es': {
-                'lang_instruction': "IMPORTANTE: Escribe TODO en español.",
-                'create_text': f"Crea un texto para {intern['study_duration']} minutos de lectura (~{words} palabras). Sin títulos, solo párrafos.",
-                'engaging': "El texto debe ser atractivo, con ejemplos de la vida del lector.",
-                'forbidden_header': "ESTRICTAMENTE PROHIBIDO:",
-                'forbidden_questions': "- Agregar preguntas en cualquier parte del texto",
-                'forbidden_headers': "- Usar encabezados como \"Pregunta:\", \"Pregunta para reflexionar:\" etc.",
-                'forbidden_end': "- Terminar el texto con una pregunta",
-                'question_later': "Se hará una pregunta por separado después del texto.",
-                'topic': "Tema",
-                'main_concept': "Concepto principal",
-                'related_concepts': "Conceptos relacionados",
-                'pain_point': "Dolor del lector",
-                'key_insight': "Idea clave",
-                'source': "Fuente",
-                'content_instruction': "INSTRUCCIÓN DE CONTENIDO",
-                'context_from': "CONTEXTO DE MATERIALES AISYSTANT",
-                'start_with': "Comienza reconociendo el dolor del lector, luego desarrolla el tema y lleva a la idea clave.",
-                'use_context': "Usa el contexto, pero adáptalo al perfil del estudiante. Las publicaciones recientes son más importantes."
-            },
-            'fr': {
-                'lang_instruction': "IMPORTANT: Écris TOUT en français.",
-                'create_text': f"Crée un texte pour {intern['study_duration']} minutes de lecture (~{words} mots). Sans titres, seulement des paragraphes.",
-                'engaging': "Le texte doit être engageant, avec des exemples de la vie du lecteur.",
-                'forbidden_header': "STRICTEMENT INTERDIT:",
-                'forbidden_questions': "- Ajouter des questions n'importe où dans le texte",
-                'forbidden_headers': "- Utiliser des en-têtes comme \"Question:\", \"Question de réflexion:\" etc.",
-                'forbidden_end': "- Terminer le texte par une question",
-                'question_later': "Une question sera posée séparément après le texte.",
-                'topic': "Sujet",
-                'main_concept': "Concept principal",
-                'related_concepts': "Concepts liés",
-                'pain_point': "Douleur du lecteur",
-                'key_insight': "Idée clé",
-                'source': "Source",
-                'content_instruction': "INSTRUCTION DE CONTENU",
-                'context_from': "CONTEXTE DES MATÉRIAUX AISYSTANT",
-                'start_with': "Commence par reconnaître la douleur du lecteur, puis développe le sujet et mène à l'idée clé.",
-                'use_context': "Utilise le contexte, mais adapte-le au profil de l'étudiant. Les publications récentes sont plus importantes."
-            }
-        }
-
-        lp = LANG_PROMPTS.get(lang, LANG_PROMPTS['en'])
+        study_duration = intern.get('study_duration', 15)
+        lp = get_content_prompts(lang, study_duration, words)
 
         # Определяем тип контекста для промпта
         has_both = knowledge_context and guides_context
@@ -342,14 +264,8 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         if result:
             return result
-        # Локализованное сообщение об ошибке
-        error_messages = {
-            'ru': "Не удалось сгенерировать контент. Попробуйте /learn ещё раз.",
-            'en': "Failed to generate content. Please try /learn again.",
-            'es': "No se pudo generar el contenido. Por favor, intente /learn de nuevo.",
-            'fr': "Échec de la génération du contenu. Veuillez réessayer /learn."
-        }
-        return error_messages.get(lang, error_messages['en'])
+        # Локализованное сообщение об ошибке из единого модуля
+        return lp.get('error_generation', "Failed to generate content.")
 
     async def generate_practice_intro(self, topic: dict, intern: dict) -> dict:
         """Генерирует полное описание практического задания на языке пользователя
@@ -361,14 +277,9 @@ class ClaudeClient:
         Returns:
             Dict с ключами: intro, task, work_product, examples (все на языке пользователя)
         """
-        # Определяем язык ответа
+        # Получаем локализованные промпты из единого модуля
         lang = intern.get('language', 'ru')
-        lang_instruction = {
-            'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
-            'en': "IMPORTANT: Write EVERYTHING in English.",
-            'es': "IMPORTANTE: Escribe TODO en español.",
-            'fr': "IMPORTANT: Écris TOUT en français."
-        }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
+        lp = get_practice_prompts(lang)
 
         task_ru = topic.get('task', '')
         work_product_ru = topic.get('work_product', '')
@@ -378,29 +289,31 @@ class ClaudeClient:
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {get_personalization_prompt(intern)}
 
-{lang_instruction}
+{lp['lang_instruction']}
 
-Твоя задача — подготовить полное описание практического задания.
-Ты ДОЛЖЕН перевести/адаптировать ВСЕ части на целевой язык.
+{lp['intro_instruction']}
+{lp['task_instruction']}
+{lp['wp_instruction']}
+{lp['examples_instruction']}
 
 Выдай ответ СТРОГО в формате:
-INTRO: (2-4 предложения, зачем это задание)
+INTRO: (2-4 предложения)
 TASK: (переведённое задание)
-WORK_PRODUCT: (переведённый рабочий продукт)
-EXAMPLES: (переведённые примеры, каждый с новой строки начиная с •)
+WORK_PRODUCT: (рабочий продукт)
+EXAMPLES: (примеры, каждый с новой строки начиная с •)
 
 {ONTOLOGY_RULES}"""
 
-        user_prompt = f"""Тема: {topic.get('title')}
-Понятие: {topic.get('main_concept')}
+        user_prompt = f"""{lp['task_header']}: {topic.get('title')}
+Concept: {topic.get('main_concept')}
 
-ИСХОДНЫЕ ДАННЫЕ (переведи на целевой язык):
-Задание: {task_ru}
-Рабочий продукт: {work_product_ru}
-Примеры РП:
+SOURCE DATA:
+Task: {task_ru}
+Work product: {work_product_ru}
+Examples:
 {wp_examples_text}
 
-Переведи и адаптируй всё на целевой язык."""
+Translate and adapt everything to the target language."""
 
         result = await self.generate(system_prompt, user_prompt)
 
@@ -495,50 +408,40 @@ EXAMPLES: (переведённые примеры, каждый с новой �
             question_templates = question_config.get('question_templates', [])
             logger.info(f"Загружены шаблоны вопросов для {topic_id}: bloom_{level}, {study_duration}мин, {len(question_templates)} шаблонов")
 
+        # Получаем локализованные промпты из единого модуля
+        lang = intern.get('language', 'ru')
+        qp = get_question_prompts(lang)
+
         # Определяем тип вопроса по уровню сложности
-        question_type_hints = {
-            1: "Задай вопрос на РАЗЛИЧЕНИЕ понятий (\"В чём разница между...\", \"Чем отличается...\").",
-            2: "Задай ОТКРЫТЫЙ вопрос на понимание (\"Почему...\", \"Как вы понимаете...\", \"Объясните связь...\").",
-            3: "Задай вопрос на ПРИМЕНЕНИЕ и АНАЛИЗ (\"Приведите пример из жизни\", \"Проанализируйте ситуацию\", \"Как бы вы объяснили коллеге...\")."
-        }
-        question_type_hint = question_type_hints.get(level, question_type_hints[1])
+        question_type_hint = qp.get(f'question_type_{level}', qp['question_type_1'])
 
         # Формируем подсказки по шаблонам
         templates_hint = ""
         if question_templates:
-            templates_hint = f"\nПРИМЕРЫ ВОПРОСОВ (используй как образец стиля):\n- " + "\n- ".join(question_templates[:3])
-
-        # Определяем язык ответа
-        lang = intern.get('language', 'ru')
-        lang_instruction = {
-            'ru': "ВАЖНО: Задай вопрос на русском языке.",
-            'en': "IMPORTANT: Ask the question in English.",
-            'es': "IMPORTANTE: Haz la pregunta en español.",
-            'fr': "IMPORTANT: Pose la question en français."
-        }.get(lang, "IMPORTANT: Ask the question in English.")
+            templates_hint = f"\n{qp['examples_hint']}\n- " + "\n- ".join(question_templates[:3])
 
         system_prompt = f"""Ты генерируешь ТОЛЬКО ОДИН КОРОТКИЙ ВОПРОС. Ничего больше.
 
-{lang_instruction}
+{qp['lang_instruction']}
 
-СТРОГО ЗАПРЕЩЕНО:
-- Писать введение, объяснения, контекст или любой текст перед вопросом
-- Писать заголовки типа "Вопрос:", "Вопрос для размышления:" и т.п.
-- Писать примеры, истории, мотивацию
-- Писать что-либо после вопроса
+{qp['forbidden_header']}
+{qp['forbidden_intro']}
+{qp['forbidden_headers']}
+{qp['forbidden_examples']}
+{qp['forbidden_after']}
 
-Выдай ТОЛЬКО сам вопрос — 1-3 предложения максимум.
-Вопрос должен быть связан с профессией: "{occupation}".
-Уровень сложности: {bloom['short_name']} — {bloom['desc']}
+{qp['only_question']}
+{qp['related_to_occupation']} "{occupation}".
+{qp['complexity_level']} {bloom['short_name']} — {bloom['desc']}
 {question_type_hint}
 {templates_hint}
 
 {ONTOLOGY_RULES}"""
 
-        user_prompt = f"""Тема: {topic.get('title')}
-Понятие: {topic.get('main_concept')}
+        user_prompt = f"""{qp['topic']}: {topic.get('title')}
+{qp['concept']}: {topic.get('main_concept')}
 
-Выдай ТОЛЬКО вопрос (1-3 предложения), без введения и пояснений."""
+{qp['output_only_question']}"""
 
         result = await self.generate(system_prompt, user_prompt)
         return result or bloom['question_type'].format(concept=topic.get('main_concept', 'эту тему'))
