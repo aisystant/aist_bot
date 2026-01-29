@@ -2009,7 +2009,7 @@ async def cmd_progress(message: Message):
     # Общие РП за неделю
     total_wp_week = marathon_stats.get('work_products', 0)
 
-    text = f"📊 *{t('progress.title', lang)}: {intern['name']}*\n\n"
+    text = f"{t('progress.title', lang, name=intern['name'])}\n\n"
     text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n\n"
 
     # Марафон
