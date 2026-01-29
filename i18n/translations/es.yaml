@@ -135,7 +135,7 @@ settings:
 
 progress:
   day: "Día {day} de {total}"
-  title: "📊 *Progreso: {name}*"
+  title: "Progreso"
   active_days: "📈 Días activos:"
   current_streak: "🏃 Racha actual:"
   days: "días"
@@ -143,9 +143,19 @@ progress:
   day_of_total: "Día {day}/{total}"
   topics_completed: "Temas completados:"
   feed_header: "📚 *Cinta*"
-  digests: "Resúmenes:"
-  fixations: "Fijaciones:"
+  digests: "Resúmenes"
+  fixations: "Fijaciones"
   topics_label: "Temas:"
+  # Дополнительные ключи
+  active_days_week: "Días activos esta semana (Maratón+Cinta)"
+  marathon_title: "Maratón"
+  feed_title: "Cinta"
+  topics_done: "Temas completados"
+  work_products: "Productos de trabajo"
+  topics_not_selected: "no seleccionados"
+  full_report: "Informe completo"
+  topics: "Temas"
+  first_start: "Primero /start"
 
 modes:
   select: "Seleccionar modo"
@@ -377,6 +387,7 @@ feed:
   status_load_error: "Ocurrió un error al cargar el estado. Inténtalo más tarde."
 
 shared:
+  of: "de"
   thinking: "💭 Pensando en la respuesta..."
   sources_label: "📚 _Fuentes:_"
   question_error: "No se pudo procesar la pregunta. Inténtalo más tarde."

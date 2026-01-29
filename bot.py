@@ -1707,7 +1707,7 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer(
             t('welcome.returning', lang, name=intern['name']) + "\n" +
             f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
-            f"📊 {t('welcome.activity_progress', lang)}: {total_active} из {marathon_day}\n\n" +
+            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}\n\n" +
             t('commands.learn', lang) + "\n" +
             t('commands.progress', lang) + "\n" +
             t('commands.profile', lang) + "\n" +
