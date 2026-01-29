@@ -35,6 +35,8 @@ menu:
   help: "Aide"
 
 onboarding:
+  welcome: "Bonjour ! Je vais t'aider à devenir un apprenant systématique."
+  welcome_back: "Content de te revoir, {name} !"
   nice_to_meet: "Enchanté, {name} !"
   ask_name: "Comment t'appelles-tu ?"
   ask_occupation: "Quelle est ton activité ?"
@@ -94,6 +96,7 @@ buttons:
   reminders: "⏰ Rappels"
   reset_marathon: "🔄 Recommencer le marathon"
   back: "« Retour"
+  settings: "Paramètres"
 
 experience:
   student: "Étudiant"
@@ -450,6 +453,9 @@ marathon:
   daily_limit_info: "Limite : *{max} sujets par jour* (tu peux rattraper 1 jour)"
   daily_limit_motto: "Régularité > Intensité"
   daily_limit_return: "Reviens demain ! Ou je te rappellerai à *{time}*."
+  completed: "🎉 Félicitations ! Marathon terminé ! Utilise /feed pour le mode Fil."
+  daily_limit: "Limite de sujets atteinte pour aujourd'hui. Reviens demain !"
+  question_processed: "✅ Réponse acceptée !"
 
 feed:
   suggested_topics: "Sujets suggérés"
@@ -517,6 +523,45 @@ feed:
   topics_deepen_each_digest: "_Les sujets sont explorés plus en profondeur avec chaque résumé._"
   your_topics_count: "*Tes sujets ({count}) :*"
   depth_level: "Niveau de profondeur"
+  choose_topics: "Choisis les sujets à étudier"
+  choose_hint: "Sélectionne jusqu'à 3 sujets avec les boutons ou écris les tiens"
+  changing_topics: "Passage à la sélection des sujets..."
+  generating_digest: "Génération du résumé..."
+  generating_topics: "Génération des sujets..."
+  depth_basic: "Basique"
+  depth_practical: "Pratique"
+  depth_integration: "Intégration"
+  depth_deep: "Approfondi"
+  depth_reached: "Niveau de profondeur atteint"
+  digest_title: "Résumé"
+  fixation: "fixation (≥20 caractères)"
+  stats: "Statistiques"
+  topic_selection: "sélection de sujets (numéros ou noms)"
+  topic_selection_skipped: "Sélection de sujets ignorée. Utilise /feed pour réessayer."
+  invalid_selection: "Sélection non reconnue. Entre les numéros ou noms de sujets."
+  exit: "Sortie du mode Fil. Utilise /mode pour sélectionner le mode."
+  next_digest: "Prochain résumé demain"
+  reflection_question: "Question de réflexion"
+  waiting_for: "En attente de"
+  activated: "Mode Fil activé ! Je vais maintenant te suggérer des sujets pour la semaine."
+  already_active: "Le Fil est déjà actif ! Utilise /feed pour continuer."
+  continuing_digest: "Continuation du résumé..."
+  digest_already_completed: "Le résumé d'aujourd'hui est déjà terminé."
+  digest_completed_today: "Le résumé d'aujourd'hui est déjà terminé. À demain !"
+  fixation_saved: "Fixation enregistrée ! À demain."
+  incomplete_digest: "Tu as un résumé non terminé. Écris une fixation pour continuer."
+  no_active_week: "Pas de semaine active. Utilise /feed pour commencer."
+  no_active_week_short: "Pas de semaine active."
+  no_topics_selected: "Pas de sujets sélectionnés. Utilise /feed pour sélectionner."
+  profile_not_found: "Profil non trouvé. Utilise /start pour t'inscrire."
+  select_topics_first: "D'abord, sélectionne les sujets de la semaine."
+  select_topics_prompt: "Sélectionne les sujets à étudier cette semaine :"
+  start_digest_first: "D'abord, commence le résumé d'aujourd'hui."
+  start_feed_first: "D'abord, lance /feed pour obtenir des suggestions de sujets."
+  topics_accepted: "Super ! {count} sujets sélectionnés. Commençons !"
+  topics_already_selected: "Les sujets de cette semaine sont déjà sélectionnés."
+  topics_generation_failed: "Impossible de générer les sujets. Réessaie plus tard."
+  week_completed: "Semaine terminée. Utilise /feed pour une nouvelle."
 
 shared:
   of: "sur"
@@ -531,3 +576,13 @@ consultation:
   error: "Une erreur s'est produite lors du traitement de ta question. Réessaie."
   sources: "Sources"
   returning: "↩️ Retour à l'activité précédente."
+
+error:
+  generic: "Une erreur s'est produite. Réessaie ou utilise /help"
+  choose_action: "Choisis une action dans le menu ou utilise les commandes"
+
+mode:
+  select_mode: "Sélectionne le mode d'apprentissage"
+
+my_state:
+  welcome: "Bienvenue !"
