@@ -3181,7 +3181,7 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     await bot.send_message(chat_id, f"⏳ {t('marathon.preparing_practice', lang)}")
 
     # Генерируем краткое введение
-    intro = await claude.generate_practice_intro(topic, intern, marathon_day=marathon_day)
+    intro = await claude.generate_practice_intro(topic, intern)
 
     task = topic.get('task', '')
     work_product = topic.get('work_product', '')
