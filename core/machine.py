@@ -289,3 +289,45 @@ class StateMachine:
             await start_state.enter(user, context)
         else:
             logger.error(f"Стартовый стейт не найден: {self._default_state}")
+
+    async def go_to(self, user, state_name: str, context: dict = None) -> None:
+        """
+        Перейти в указанный стейт (публичный метод для внешних вызовов).
+
+        Используется для программного перехода, например, из команды /learn.
+
+        Args:
+            user: Объект пользователя
+            state_name: Имя целевого стейта
+            context: Дополнительный контекст
+        """
+        to_state = self.get_state(state_name)
+        if not to_state:
+            logger.error(f"Целевой стейт не найден: {state_name}")
+            return
+
+        # Получаем текущий стейт (для корректного exit)
+        current_state_name = self.get_user_state(user)
+        current_state = self.get_state(current_state_name)
+
+        chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
+        logger.info(f"[SM] go_to: {current_state_name} -> {state_name} for chat_id={chat_id}")
+
+        # Выход из текущего стейта (если есть)
+        exit_context = {}
+        if current_state:
+            exit_context = await current_state.exit(user)
+
+        # Объединяем контексты
+        full_context = {**(context or {}), **exit_context}
+
+        # Сохраняем новый стейт в БД
+        try:
+            from db.queries import update_user_state
+            if chat_id:
+                await update_user_state(chat_id, state_name)
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить стейт в БД: {e}")
+
+        # Вход в новый стейт
+        await to_state.enter(user, full_context)

@@ -1688,12 +1688,38 @@ async def cmd_learn(message: Message, state: FSMContext):
         lang = intern.get('language', 'ru') or 'ru'
         await message.answer(t('profile.first_start', lang))
         return
+
+    # State Machine routing
+    if state_machine is not None:
+        logger.info(f"[SM] /learn command routed to StateMachine for chat_id={message.chat.id}")
+        try:
+            await state_machine.go_to(intern, "workshop.marathon.lesson")
+            return
+        except Exception as e:
+            logger.error(f"[SM] Error routing /learn to StateMachine: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback to legacy
+
     await send_topic(message.chat.id, state, message.bot)
 
 @router.callback_query(F.data == "learn")
 async def cb_learn(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_reply_markup()
+
+    # State Machine routing
+    if state_machine is not None:
+        logger.info(f"[SM] learn callback routed to StateMachine for chat_id={callback.message.chat.id}")
+        try:
+            intern = await get_intern(callback.message.chat.id)
+            if intern:
+                await state_machine.go_to(intern, "workshop.marathon.lesson")
+                return
+        except Exception as e:
+            logger.error(f"[SM] Error routing learn callback to StateMachine: {e}")
+            # Fallback to legacy
+
     await send_topic(callback.message.chat.id, state, callback.bot)
 
 @router.callback_query(F.data == "later")
