@@ -42,6 +42,10 @@ from engines.shared import handle_question, ProcessingStage
 # Feature flags
 from config import USE_STATE_MACHINE
 
+# Импорты из модульных компонентов (вместо дублирующегося кода)
+from clients.mcp import mcp_guides, mcp_knowledge, mcp
+from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
+
 # ============= КОНФИГУРАЦИЯ =============
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -481,88 +485,6 @@ class PostgresStorage(BaseStorage):
         pass
 
 
-async def get_intern(chat_id: int) -> dict:
-    """Получить профиль стажера из БД"""
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            'SELECT * FROM interns WHERE chat_id = $1', chat_id
-        )
-        
-        if row:
-            return {
-                'chat_id': row['chat_id'],
-                'name': row['name'],
-                'occupation': row['occupation'] if 'occupation' in row.keys() else '',
-                'role': row['role'],
-                'domain': row['domain'],
-                'interests': json.loads(row['interests']),
-                'motivation': row['motivation'] if 'motivation' in row.keys() else '',
-                'experience_level': row['experience_level'],
-                'difficulty_preference': row['difficulty_preference'],
-                'learning_style': row['learning_style'],
-                'study_duration': row['study_duration'],
-                'current_problems': row['current_problems'] or '',
-                'desires': row['desires'] or '',
-                'goals': row['goals'],
-                'schedule_time': row['schedule_time'],
-                'schedule_time_2': row['schedule_time_2'] if 'schedule_time_2' in row.keys() else None,
-                'current_topic_index': row['current_topic_index'],
-                'completed_topics': json.loads(row['completed_topics']),
-                'bloom_level': row['bloom_level'] if row['bloom_level'] else 1,
-                'topics_at_current_bloom': row['topics_at_current_bloom'] if row['topics_at_current_bloom'] else 0,
-                'topics_today': row['topics_today'] if row['topics_today'] else 0,
-                'last_topic_date': row['last_topic_date'],
-                'topic_order': row['topic_order'] if 'topic_order' in row.keys() else 'default',
-                'marathon_start_date': row['marathon_start_date'] if 'marathon_start_date' in row.keys() else None,
-                'onboarding_completed': row['onboarding_completed'],
-                'language': row['language'] if 'language' in row.keys() else 'ru'
-            }
-        else:
-            # Создаём нового пользователя
-            await conn.execute(
-                'INSERT INTO interns (chat_id) VALUES ($1) ON CONFLICT DO NOTHING',
-                chat_id
-            )
-            return {
-                'chat_id': chat_id,
-                'name': '',
-                'occupation': '',
-                'role': '',
-                'domain': '',
-                'interests': [],
-                'motivation': '',
-                'experience_level': '',
-                'difficulty_preference': '',
-                'learning_style': '',
-                'study_duration': 15,
-                'current_problems': '',
-                'desires': '',
-                'goals': '',
-                'schedule_time': '09:00',
-                'schedule_time_2': None,
-                'current_topic_index': 0,
-                'completed_topics': [],
-                'bloom_level': 1,
-                'topics_at_current_bloom': 0,
-                'topics_today': 0,
-                'last_topic_date': None,
-                'topic_order': 'default',
-                'marathon_start_date': None,
-                'onboarding_completed': False,
-                'language': 'ru'
-            }
-
-async def update_intern(chat_id: int, **kwargs):
-    """Обновить данные стажера"""
-    async with db_pool.acquire() as conn:
-        for key, value in kwargs.items():
-            if key in ['interests', 'completed_topics']:
-                value = json.dumps(value)
-            await conn.execute(
-                f'UPDATE interns SET {key} = $1, updated_at = NOW() WHERE chat_id = $2',
-                value, chat_id
-            )
-
 async def save_answer(chat_id: int, topic_index: int, answer: str):
     """Сохранить ответ стажера"""
     # Определяем тип ответа
@@ -586,27 +508,6 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
         await record_active_day(chat_id, answer_type, mode='marathon')
     except Exception as e:
         logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
-
-async def get_all_scheduled_interns(hour: int, minute: int) -> list:
-    """Получить всех стажеров с заданным временем обучения"""
-    time_str = f"{hour:02d}:{minute:02d}"
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            'SELECT chat_id FROM interns WHERE schedule_time = $1 AND onboarding_completed = TRUE',
-            time_str
-        )
-        return [row['chat_id'] for row in rows]
-
-def get_topics_today(intern: dict) -> int:
-    """Получить количество тем, пройденных сегодня"""
-    today = moscow_today()
-    last_date = intern.get('last_topic_date')
-
-    # Если last_topic_date — это дата сегодня, возвращаем topics_today
-    if last_date and last_date == today:
-        return intern.get('topics_today', 0)
-    # Иначе — новый день, счётчик обнуляется
-    return 0
 
 # Шаблоны форматов примеров для ротации
 EXAMPLE_TEMPLATES = [
@@ -1112,169 +1013,6 @@ Genera SOLO la pregunta (1-3 oraciones), sin introducción ni explicaciones."""
         return result or bloom['question_type'].format(concept=topic.get('main_concept', 'эту тему'))
 
 claude = ClaudeClient()
-
-# ============= MCP CLIENT =============
-
-class MCPClient:
-    """Универсальный клиент для работы с MCP серверами Aisystant"""
-
-    def __init__(self, url: str, name: str = "MCP", search_tool: str = "semantic_search"):
-        self.base_url = url
-        self.name = name
-        self.search_tool = search_tool  # "semantic_search" для guides, "search" для knowledge
-        self._request_id = 0
-
-    def _next_id(self) -> int:
-        self._request_id += 1
-        return self._request_id
-
-    async def _call(self, tool_name: str, arguments: dict) -> Optional[dict]:
-        """Вызов инструмента MCP через JSON-RPC"""
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments
-            },
-            "id": self._next_id()
-        }
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.base_url,
-                    headers={"Content-Type": "application/json"},
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if "result" in data:
-                            return data["result"]
-                        if "error" in data:
-                            logger.error(f"{self.name} error: {data['error']}")
-                            return None
-                    else:
-                        error = await resp.text()
-                        logger.error(f"{self.name} HTTP error {resp.status}: {error}")
-                        return None
-        except asyncio.TimeoutError:
-            logger.error(f"{self.name} request timeout")
-            return None
-        except Exception as e:
-            logger.error(f"{self.name} exception: {e}")
-            return None
-
-    async def get_guides_list(self, lang: str = "ru", category: str = None) -> List[dict]:
-        """Получить список всех руководств"""
-        args = {"lang": lang}
-        if category:
-            args["category"] = category
-
-        result = await self._call("get_guides_list", args)
-        if result and "content" in result:
-            # Парсим JSON из content
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        return json.loads(item.get("text", "[]"))
-                    except json.JSONDecodeError:
-                        pass
-        return []
-
-    async def get_guide_sections(self, guide_slug: str, lang: str = "ru") -> List[dict]:
-        """Получить разделы конкретного руководства"""
-        result = await self._call("get_guide_sections", {
-            "guide_slug": guide_slug,
-            "lang": lang
-        })
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        return json.loads(item.get("text", "[]"))
-                    except json.JSONDecodeError:
-                        pass
-        return []
-
-    async def get_section_content(self, guide_slug: str, section_slug: str, lang: str = "ru") -> str:
-        """Получить содержимое раздела"""
-        result = await self._call("get_section_content", {
-            "guide_slug": guide_slug,
-            "section_slug": section_slug,
-            "lang": lang
-        })
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    return item.get("text", "")
-        return ""
-
-    async def semantic_search(self, query: str, lang: str = "ru", limit: int = 5, sort_by: str = None) -> List[dict]:
-        """Семантический поиск по руководствам или базе знаний
-
-        Args:
-            query: поисковый запрос
-            lang: язык (ru/en) — только для MCP-Guides
-            limit: максимальное количество результатов
-            sort_by: сортировка (например, "created_at:desc" для свежих постов)
-        """
-        args = {
-            "query": query,
-            "limit": limit
-        }
-        # Параметр lang только для semantic_search (MCP-Guides)
-        if self.search_tool == "semantic_search":
-            args["lang"] = lang
-        if sort_by:
-            args["sort"] = sort_by
-
-        result = await self._call(self.search_tool, args)
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        data = json.loads(item.get("text", "[]"))
-                        # Если sort_by указан и данные содержат дату, сортируем на клиенте
-                        if sort_by and "desc" in sort_by and isinstance(data, list):
-                            data.sort(key=lambda x: x.get('created_at', x.get('date', '')), reverse=True)
-                        return data
-                    except json.JSONDecodeError:
-                        # Если не JSON, возвращаем как текст
-                        return [{"text": item.get("text", "")}]
-        return []
-
-    async def search(self, query: str, limit: int = 5) -> List[dict]:
-        """Поиск по базе знаний (knowledge MCP)
-
-        Args:
-            query: поисковый запрос
-            limit: максимальное количество результатов
-        """
-        args = {
-            "query": query,
-            "limit": limit
-        }
-
-        result = await self._call("search", args)
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        data = json.loads(item.get("text", "[]"))
-                        return data if isinstance(data, list) else [data]
-                    except json.JSONDecodeError:
-                        # Если не JSON, возвращаем как текст
-                        return [{"text": item.get("text", "")}]
-        return []
-
-# Создаём клиенты для двух MCP серверов
-mcp_guides = MCPClient(MCP_URL, "MCP-Guides")
-mcp_knowledge = MCPClient(KNOWLEDGE_MCP_URL, "MCP-Knowledge", search_tool="search")
-
-# Для обратной совместимости
-mcp = mcp_guides
 
 # ============= СТРУКТУРА ЗНАНИЙ =============
 
