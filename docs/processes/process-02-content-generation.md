@@ -175,7 +175,93 @@ time_levels:
 
 ---
 
-## 3. MCP поиск контекста
+## 3. Генерация практического задания
+
+### Функция generate_practice_intro()
+
+**Входные параметры:**
+- `topic` — структура темы из `knowledge_structure.yaml`
+- `intern` — профиль пользователя (включая `language`)
+
+**Выходные данные (dict):**
+- `intro` — введение к заданию (2-4 предложения)
+- `task` — переведённое задание
+- `work_product` — переведённый рабочий продукт
+- `examples` — переведённые примеры РП
+
+### Процесс генерации
+
+```
+1. Получить исходные данные на русском
+   topic.get('task')
+   topic.get('work_product')
+   topic.get('wp_examples')
+
+2. Определить язык пользователя
+   intern.get('language') → ru/en/es/fr
+
+3. Сформировать промпт с требованием перевода
+   "Переведи и адаптируй всё на целевой язык"
+
+4. Вызвать Claude API
+   → Структурированный ответ в формате:
+   INTRO: ...
+   TASK: ...
+   WORK_PRODUCT: ...
+   EXAMPLES: ...
+
+5. Распарсить ответ в dict
+
+6. Fallback: если парсинг не удался, вернуть оригинал на русском
+```
+
+### Формат промпта
+
+**System:**
+```
+Ты — персональный наставник по системному мышлению.
+{персонализация}
+
+{lang_instruction} ← "Write EVERYTHING in English" и т.д.
+
+Выдай ответ СТРОГО в формате:
+INTRO: ...
+TASK: ...
+WORK_PRODUCT: ...
+EXAMPLES: ...
+```
+
+**User:**
+```
+Тема: {title}
+Понятие: {main_concept}
+
+ИСХОДНЫЕ ДАННЫЕ (переведи на целевой язык):
+Задание: {task_ru}
+Рабочий продукт: {work_product_ru}
+Примеры РП:
+{examples_ru}
+```
+
+### Использование в task.py
+
+```python
+practice_data = await claude.generate_practice_intro(topic, intern)
+
+task_text = practice_data.get('task', '') or topic.get('task')
+work_product = practice_data.get('work_product', '') or topic.get('work_product')
+```
+
+### Ключевые файлы
+
+| Файл | Назначение |
+|------|-----------|
+| `clients/claude.py` | `generate_practice_intro()` |
+| `states/workshops/marathon/task.py` | Использует переведённые данные |
+
+---
+
+## 4. MCP поиск контекста
 
 ### MCP-Guides
 
@@ -204,7 +290,7 @@ await knowledge_client.semantic_search(
 
 ---
 
-## 4. ONTOLOGY_RULES
+## 5. ONTOLOGY_RULES
 
 Правила терминологии в промпте:
 
@@ -220,7 +306,7 @@ await knowledge_client.semantic_search(
 
 ---
 
-## 5. Диаграмма
+## 6. Диаграмма
 
 ```
 Марафон (день N)
@@ -243,16 +329,18 @@ generate_question()
 
 ---
 
-## 6. Ключевые файлы
+## 7. Ключевые файлы
 
-| Файл | Строки | Назначение |
-|------|--------|-----------|
-| `bot.py` | 641+ | generate_content |
-| `bot.py` | 808+ | generate_question |
-| `clients/claude.py` | — | Claude API |
-| `clients/mcp.py` | — | MCP клиенты |
-| `config/settings.py` | — | ONTOLOGY_RULES |
-| `topics/*.yaml` | — | Метаданные тем |
+| Файл | Назначение |
+|------|-----------|
+| `clients/claude.py` | Claude API клиент: generate_content, generate_question, generate_practice_intro |
+| `clients/mcp.py` | MCP клиенты (Guides, Knowledge) |
+| `states/workshops/marathon/lesson.py` | State Machine: генерация урока |
+| `states/workshops/marathon/question.py` | State Machine: генерация вопроса |
+| `states/workshops/marathon/task.py` | State Machine: генерация практики с переводом |
+| `core/knowledge.py` | Работа с темами из knowledge_structure.yaml |
+| `config/settings.py` | ONTOLOGY_RULES |
+| `topics/*.yaml` | Метаданные тем |
 
 ---
 
@@ -260,4 +348,5 @@ generate_question()
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-01-29 | Добавлена секция 3: генерация практики с переводом |
 | 2026-01-22 | Создание документа |
