@@ -1621,7 +1621,7 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule")],
         [InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom"),
          InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")],
-        [InlineKeyboardButton(text="🌐 Language (en, es, ru)", callback_data="upd_language")]
+        [InlineKeyboardButton(text="🌐 Language (en, es, fr, ru)", callback_data="upd_language")]
     ])
 
 def kb_bloom_level(lang: str = 'ru') -> InlineKeyboardMarkup:

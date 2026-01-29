@@ -22,7 +22,7 @@ class MarathonLessonState(BaseState):
     """
 
     name = "workshop.marathon.lesson"
-    display_name = {"ru": "Урок Марафона", "en": "Marathon Lesson"}
+    display_name = {"ru": "Урок Марафона", "en": "Marathon Lesson", "es": "Lección del Maratón", "fr": "Leçon du Marathon"}
     allow_global = ["consultation", "notes"]
 
     def _get_lang(self, user) -> str:

@@ -21,7 +21,7 @@ class FeedTopicsState(BaseState):
     """
 
     name = "feed.topics"
-    display_name = {"ru": "Выбор тем", "en": "Topic Selection"}
+    display_name = {"ru": "Выбор тем", "en": "Topic Selection", "es": "Selección de temas", "fr": "Sélection de sujets"}
     allow_global = ["consultation", "notes"]
 
     def _get_lang(self, user) -> str:
