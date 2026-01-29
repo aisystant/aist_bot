@@ -354,6 +354,9 @@ reminders:
 errors:
   try_again: "Réessaie"
   digest_load_error: "Erreur lors du chargement du résumé"
+  content_generation_failed: "Impossible de générer le contenu."
+  question_generation_failed: "Impossible de générer la question."
+  try_again_later: "Veuillez réessayer plus tard."
 
 fsm:
   unrecognized_onboarding: "Je n'ai pas reconnu ta réponse. S'il te plaît, termine l'inscription ou utilise /start pour recommencer"
@@ -396,6 +399,10 @@ marathon:
   day_complete: "Journée terminée ! Reviens demain."
   practice_accepted: "Pratique terminée !"
   generating_material: "Génération du contenu personnalisé..."
+  generating_question: "Génération de la question..."
+  no_topics_available: "Sujets temporairement indisponibles. Réessayez plus tard."
+  task_default: "Terminez la tâche liée au sujet."
+  work_product_default: "Description du résultat"
   day_theory: "Jour {day} — Théorie"
   minutes: "{minutes} minutes"
   reflection_question: "Question de réflexion"

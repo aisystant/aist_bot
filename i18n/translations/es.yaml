@@ -364,6 +364,9 @@ reminders:
 errors:
   try_again: "Inténtalo de nuevo"
   digest_load_error: "Error al cargar el resumen"
+  content_generation_failed: "No se pudo generar el contenido."
+  question_generation_failed: "No se pudo generar la pregunta."
+  try_again_later: "Por favor, inténtelo de nuevo más tarde."
 
 fsm:
   unrecognized_onboarding: "No reconocí tu respuesta. Por favor, completa el registro o usa /start para comenzar de nuevo"
@@ -406,6 +409,10 @@ marathon:
   day_complete: "¡Día completado! Vuelve mañana."
   practice_accepted: "¡Práctica completada!"
   generating_material: "Generando material personalizado..."
+  generating_question: "Generando pregunta..."
+  no_topics_available: "Temas temporalmente no disponibles. Intente más tarde."
+  task_default: "Complete la tarea relacionada con el tema."
+  work_product_default: "Descripción del resultado"
   day_theory: "Día {day} — Teoría"
   minutes: "{minutes} minutos"
   reflection_question: "Pregunta de reflexión"

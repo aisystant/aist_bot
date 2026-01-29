@@ -12,6 +12,11 @@ from aiogram.types import Message
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer, moscow_today
+from core.knowledge import get_topic, get_topic_title
+from clients import claude
+from config import get_logger
+
+logger = get_logger(__name__)
 
 
 class MarathonTaskState(BaseState):
@@ -60,6 +65,23 @@ class MarathonTaskState(BaseState):
             return user.get('topics_today', 0)
         return getattr(user, 'topics_today', 0)
 
+    def _user_to_intern_dict(self, user) -> dict:
+        """Конвертировать user в dict для совместимости с Claude клиентом."""
+        if isinstance(user, dict):
+            return user
+        return {
+            'chat_id': getattr(user, 'chat_id', None),
+            'language': getattr(user, 'language', 'ru'),
+            'study_duration': getattr(user, 'study_duration', 15),
+            'bloom_level': getattr(user, 'bloom_level', 1),
+            'occupation': getattr(user, 'occupation', ''),
+            'interests': getattr(user, 'interests', ''),
+            'values': getattr(user, 'values', ''),
+            'goals': getattr(user, 'goals', ''),
+            'completed_topics': getattr(user, 'completed_topics', []),
+            'current_topic_index': getattr(user, 'current_topic_index', 0),
+        }
+
     async def enter(self, user, context: dict = None) -> None:
         """
         Показываем практическое задание.
@@ -70,25 +92,73 @@ class MarathonTaskState(BaseState):
         - from_question: пришли из вопроса урока
         """
         lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
         marathon_day = self._get_marathon_day(user)
+        topic_index = self._get_current_topic_index(user)
+
+        # Получаем тему
+        topic = get_topic(topic_index)
+        if not topic:
+            await self.send(user, t('marathon.no_topics_available', lang))
+            return
 
         # Показываем сообщение о загрузке
         await self.send(user, f"⏳ {t('marathon.preparing_practice', lang)}")
 
-        # Генерация задания делегируется LLM клиенту
-        # TODO: Интеграция с claude.generate_practice_intro()
+        try:
+            # Получаем intern dict для Claude
+            intern = self._user_to_intern_dict(user)
 
-        await self.send(
-            user,
-            f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n\n"
-            f"📋 *{t('marathon.task', lang)}:*\n"
-            f"_Задание будет сгенерировано..._\n\n"
-            f"🎯 *{t('marathon.work_product', lang)}:* Рабочий продукт\n\n"
-            f"📝 *{t('marathon.when_complete', lang)}:*\n"
-            f"{t('marathon.write_wp_name', lang)}\n\n"
-            f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
-            parse_mode="Markdown"
-        )
+            # Генерируем введение к заданию через Claude API
+            logger.info(f"Generating practice intro for topic {topic_index}, user {chat_id}")
+            intro = await claude.generate_practice_intro(
+                topic=topic,
+                intern=intern
+            )
+
+            # Получаем задание и рабочий продукт из темы
+            topic_title = get_topic_title(topic, lang)
+            task_text = topic.get('task', t('marathon.task_default', lang))
+            work_product = topic.get('work_product', t('marathon.work_product_default', lang))
+
+            # Формируем сообщение
+            message = (
+                f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n"
+                f"*{topic_title}*\n\n"
+            )
+
+            if intro:
+                message += f"{intro}\n\n"
+
+            message += (
+                f"📋 *{t('marathon.task', lang)}:*\n"
+                f"{task_text}\n\n"
+                f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
+                f"📝 *{t('marathon.when_complete', lang)}:*\n"
+                f"{t('marathon.write_wp_name', lang)}\n\n"
+                f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}"
+            )
+
+            await self.send(user, message, parse_mode="Markdown")
+            logger.info(f"Practice task sent to user {chat_id}")
+
+        except Exception as e:
+            logger.error(f"Error generating practice intro for user {chat_id}: {e}")
+            # Fallback: показываем задание без введения
+            task_text = topic.get('task', t('marathon.task_default', lang))
+            work_product = topic.get('work_product', t('marathon.work_product_default', lang))
+
+            await self.send(
+                user,
+                f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n\n"
+                f"📋 *{t('marathon.task', lang)}:*\n"
+                f"{task_text}\n\n"
+                f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
+                f"📝 *{t('marathon.when_complete', lang)}:*\n"
+                f"{t('marathon.write_wp_name', lang)}\n\n"
+                f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
+                parse_mode="Markdown"
+            )
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """

@@ -4,6 +4,7 @@
 Содержит:
 - helpers.py: вспомогательные функции для генерации контента
 - intent.py: распознавание намерений пользователя
+- knowledge.py: работа со структурой знаний марафона
 - machine.py: State Machine диспетчер
 - router.py: маршрутизация по режимам (Марафон/Лента) - TODO
 - scheduler.py: настройка APScheduler - TODO
@@ -29,6 +30,18 @@ from .intent import (
     get_question_keywords,
 )
 
+from .knowledge import (
+    load_knowledge_structure,
+    get_topic,
+    get_topic_by_index,
+    get_topic_title,
+    get_total_topics,
+    get_topics_for_day,
+    get_marathon_day_from_progress,
+    get_available_topics,
+    get_next_topic_index,
+)
+
 __all__ = [
     # machine
     'StateMachine',
@@ -46,4 +59,14 @@ __all__ = [
     'is_clear_question',
     'question_likelihood',
     'get_question_keywords',
+    # knowledge
+    'load_knowledge_structure',
+    'get_topic',
+    'get_topic_by_index',
+    'get_topic_title',
+    'get_total_topics',
+    'get_topics_for_day',
+    'get_marathon_day_from_progress',
+    'get_available_topics',
+    'get_next_topic_index',
 ]

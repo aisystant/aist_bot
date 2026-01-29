@@ -14,6 +14,11 @@ from aiogram.types import Message
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer
+from core.knowledge import get_topic
+from clients import claude
+from config import get_logger
+
+logger = get_logger(__name__)
 
 
 # Автоповышение уровня после N тем
@@ -67,6 +72,24 @@ class MarathonQuestionState(BaseState):
             return user.get('topics_at_current_complexity', 0) or user.get('topics_at_current_bloom', 0) or 0
         return getattr(user, 'topics_at_current_complexity', 0) or getattr(user, 'topics_at_current_bloom', 0) or 0
 
+    def _user_to_intern_dict(self, user) -> dict:
+        """Конвертировать user в dict для совместимости с Claude клиентом."""
+        if isinstance(user, dict):
+            return user
+        return {
+            'chat_id': getattr(user, 'chat_id', None),
+            'language': getattr(user, 'language', 'ru'),
+            'study_duration': getattr(user, 'study_duration', 15),
+            'bloom_level': getattr(user, 'bloom_level', 1),
+            'complexity_level': getattr(user, 'complexity_level', 1),
+            'occupation': getattr(user, 'occupation', ''),
+            'interests': getattr(user, 'interests', ''),
+            'values': getattr(user, 'values', ''),
+            'goals': getattr(user, 'goals', ''),
+            'completed_topics': getattr(user, 'completed_topics', []),
+            'current_topic_index': getattr(user, 'current_topic_index', 0),
+        }
+
     async def enter(self, user, context: dict = None) -> None:
         """
         Показываем вопрос на понимание урока.
@@ -76,19 +99,49 @@ class MarathonQuestionState(BaseState):
         - marathon_day: день марафона
         """
         lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
         bloom_level = self._get_bloom_level(user)
+        topic_index = self._get_current_topic_index(user)
 
-        # Генерация вопроса делегируется LLM клиенту
-        # TODO: Интеграция с claude.generate_question()
+        # Получаем тему
+        topic = get_topic(topic_index)
+        if not topic:
+            await self.send(user, t('marathon.no_topics_available', lang))
+            return
 
-        await self.send(
-            user,
-            f"💭 *{t('marathon.reflection_question', lang)}* ({t(f'bloom.level_{bloom_level}_short', lang)})\n\n"
-            f"_Вопрос будет сгенерирован..._\n\n"
-            f"_{t('marathon.answer_hint', lang)}_\n\n"
-            f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}",
-            parse_mode="Markdown"
-        )
+        # Показываем сообщение о генерации
+        await self.send(user, f"⏳ {t('marathon.generating_question', lang)}")
+
+        try:
+            # Получаем intern dict для Claude
+            intern = self._user_to_intern_dict(user)
+
+            # Генерируем вопрос через Claude API
+            logger.info(f"Generating question for topic {topic_index}, bloom {bloom_level}, user {chat_id}")
+            question = await claude.generate_question(
+                topic=topic,
+                intern=intern,
+                bloom_level=bloom_level
+            )
+
+            # Формируем сообщение с вопросом
+            header = f"💭 *{t('marathon.reflection_question', lang)}* ({t(f'bloom.level_{bloom_level}_short', lang)})\n\n"
+            footer = (
+                f"\n\n_{t('marathon.answer_hint', lang)}_\n\n"
+                f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}"
+            )
+
+            await self.send(user, header + question + footer, parse_mode="Markdown")
+            logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
+
+        except Exception as e:
+            logger.error(f"Error generating question for user {chat_id}: {e}")
+            await self.send(
+                user,
+                f"⚠️ {t('errors.question_generation_failed', lang)}\n\n"
+                f"_{t('errors.try_again_later', lang)}_",
+                parse_mode="Markdown"
+            )
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """

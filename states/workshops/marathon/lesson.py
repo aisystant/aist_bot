@@ -12,13 +12,19 @@ from aiogram.types import Message
 from states.base import BaseState
 from i18n import t
 from db.queries import get_intern, update_intern
+from core.knowledge import get_topic, get_topic_title, get_total_topics
+from clients import claude, mcp_guides, mcp_knowledge
+from config import get_logger
+
+logger = get_logger(__name__)
 
 
 class MarathonLessonState(BaseState):
     """
     Стейт показа урока Марафона.
 
-    Показывает теоретический материал и переходит к вопросу.
+    Показывает теоретический материал, сгенерированный через Claude API,
+    и переходит к вопросу.
     """
 
     name = "workshop.marathon.lesson"
@@ -57,6 +63,35 @@ class MarathonLessonState(BaseState):
             return user.get('completed_topics', [])
         return getattr(user, 'completed_topics', [])
 
+    def _get_study_duration(self, user) -> int:
+        """Получить длительность обучения."""
+        if isinstance(user, dict):
+            return user.get('study_duration', 15)
+        return getattr(user, 'study_duration', 15)
+
+    def _get_bloom_level(self, user) -> int:
+        """Получить уровень сложности (Блум)."""
+        if isinstance(user, dict):
+            return user.get('bloom_level', 1)
+        return getattr(user, 'bloom_level', 1)
+
+    def _user_to_intern_dict(self, user) -> dict:
+        """Конвертировать user в dict для совместимости с Claude клиентом."""
+        if isinstance(user, dict):
+            return user
+        return {
+            'chat_id': getattr(user, 'chat_id', None),
+            'language': getattr(user, 'language', 'ru'),
+            'study_duration': getattr(user, 'study_duration', 15),
+            'bloom_level': getattr(user, 'bloom_level', 1),
+            'occupation': getattr(user, 'occupation', ''),
+            'interests': getattr(user, 'interests', ''),
+            'values': getattr(user, 'values', ''),
+            'goals': getattr(user, 'goals', ''),
+            'completed_topics': getattr(user, 'completed_topics', []),
+            'current_topic_index': getattr(user, 'current_topic_index', 0),
+        }
+
     async def enter(self, user, context: dict = None) -> None:
         """
         Показываем урок текущего дня.
@@ -65,6 +100,8 @@ class MarathonLessonState(BaseState):
         - Марафон завершён?
         - Есть доступные темы?
         - Лимит тем на сегодня не превышен?
+
+        Генерируем контент через Claude API.
         """
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
@@ -73,8 +110,10 @@ class MarathonLessonState(BaseState):
         marathon_day = self._get_marathon_day(user)
         topic_index = self._get_current_topic_index(user)
 
+        total_topics = get_total_topics()
+
         # Проверка: марафон завершён
-        if len(completed) >= 28:
+        if len(completed) >= total_topics or len(completed) >= 28:
             await self.send(user, t('marathon.completed', lang))
             return  # Событие marathon_complete обработает StateMachine
 
@@ -88,20 +127,66 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.daily_limit', lang))
             return
 
+        # Получаем тему
+        topic = get_topic(topic_index)
+        if not topic:
+            await self.send(user, t('marathon.no_topics_available', lang))
+            return
+
+        # Проверяем тип темы (theory или practice)
+        topic_type = topic.get('type', 'theory')
+        if topic_type != 'theory':
+            # Для практики используем другой стейт
+            await self.send(user, t('marathon.redirecting_to_practice', lang))
+            return
+
         # Показываем сообщение о загрузке
         await self.send(user, f"⏳ {t('marathon.generating_material', lang)}")
 
-        # Генерация контента делегируется LLM клиенту
-        # В текущей реализации используем заглушку
-        # TODO: Интеграция с claude.generate_content()
+        try:
+            # Получаем intern dict для Claude
+            intern = self._user_to_intern_dict(user)
+            topic_day = topic.get('day', marathon_day)
 
-        await self.send(
-            user,
-            f"📚 *{t('marathon.day_theory', lang, day=marathon_day)}*\n\n"
-            f"_Материал урока будет сгенерирован..._\n\n"
-            f"Тема #{topic_index + 1}",
-            parse_mode="Markdown"
-        )
+            # Генерируем контент через Claude API
+            logger.info(f"Generating content for topic {topic_index}, day {topic_day}, user {chat_id}")
+            content = await claude.generate_content(
+                topic=topic,
+                intern=intern,
+                mcp_client=mcp_guides,
+                knowledge_client=mcp_knowledge
+            )
+
+            # Формируем заголовок
+            topic_title = get_topic_title(topic, lang)
+            study_duration = self._get_study_duration(user)
+
+            header = (
+                f"📚 *{t('marathon.day_theory', lang, day=topic_day)}*\n"
+                f"*{topic_title}*\n"
+                f"⏱ {t('marathon.minutes', lang, minutes=study_duration)}\n\n"
+            )
+
+            # Отправляем контент
+            full = header + content
+            if len(full) > 4000:
+                await self.send(user, header, parse_mode="Markdown")
+                # Разбиваем контент на части
+                for i in range(0, len(content), 4000):
+                    await self.send(user, content[i:i+4000])
+            else:
+                await self.send(user, full, parse_mode="Markdown")
+
+            logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
+
+        except Exception as e:
+            logger.error(f"Error generating content for user {chat_id}: {e}")
+            await self.send(
+                user,
+                f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
+                f"_{t('errors.try_again_later', lang)}_",
+                parse_mode="Markdown"
+            )
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """

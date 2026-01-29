@@ -1416,6 +1416,18 @@ errors:
     ru: "Ошибка загрузки дайджеста"
     en: "Digest loading error"
 
+  content_generation_failed:
+    ru: "Не удалось сгенерировать материал."
+    en: "Failed to generate content."
+
+  question_generation_failed:
+    ru: "Не удалось сгенерировать вопрос."
+    en: "Failed to generate question."
+
+  try_again_later:
+    ru: "Попробуйте ещё раз позже."
+    en: "Please try again later."
+
 # -----------------------------------------------------------------------------
 # FSM fallback-сообщения
 # -----------------------------------------------------------------------------
@@ -1568,6 +1580,22 @@ marathon:
   generating_material:
     ru: "Генерирую персональный материал..."
     en: "Generating personalized material..."
+
+  generating_question:
+    ru: "Генерирую вопрос..."
+    en: "Generating question..."
+
+  no_topics_available:
+    ru: "Темы временно недоступны. Попробуйте позже."
+    en: "Topics temporarily unavailable. Please try later."
+
+  task_default:
+    ru: "Выполните задание по пройденной теме."
+    en: "Complete the task related to the topic."
+
+  work_product_default:
+    ru: "Описание результата"
+    en: "Result description"
 
   day_theory:
     ru: "День {day} — Теория"
