@@ -290,14 +290,16 @@ async def generate_answer(
     lang_instruction = {
         'ru': "ВАЖНО: Отвечай на русском языке.",
         'en': "IMPORTANT: Answer in English.",
-        'es': "IMPORTANTE: Responde en español."
-    }.get(lang, "ВАЖНО: Отвечай на русском языке.")
+        'es': "IMPORTANTE: Responde en español.",
+        'fr': "IMPORTANT: Réponds en français."
+    }.get(lang, "IMPORTANT: Answer in English.")
 
     lang_reminder = {
         'ru': "НАПОМИНАНИЕ: Весь ответ должен быть на РУССКОМ языке!",
         'en': "REMINDER: The entire answer must be in ENGLISH!",
-        'es': "RECORDATORIO: ¡Toda la respuesta debe estar en ESPAÑOL!"
-    }.get(lang, "НАПОМИНАНИЕ: Весь ответ должен быть на РУССКОМ языке!")
+        'es': "RECORDATORIO: ¡Toda la respuesta debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Toute la réponse doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: The entire answer must be in ENGLISH!")
 
     # Формируем системный промпт
     context_info = ""
@@ -402,14 +404,16 @@ async def answer_with_context(
     lang_instruction = {
         'ru': "ВАЖНО: Отвечай на русском языке.",
         'en': "IMPORTANT: Answer in English.",
-        'es': "IMPORTANTE: Responde en español."
-    }.get(lang, "ВАЖНО: Отвечай на русском языке.")
+        'es': "IMPORTANTE: Responde en español.",
+        'fr': "IMPORTANT: Réponds en français."
+    }.get(lang, "IMPORTANT: Answer in English.")
 
     lang_reminder = {
         'ru': "НАПОМИНАНИЕ: Весь ответ должен быть на РУССКОМ языке!",
         'en': "REMINDER: The entire answer must be in ENGLISH!",
-        'es': "RECORDATORIO: ¡Toda la respuesta debe estar en ESPAÑOL!"
-    }.get(lang, "НАПОМИНАНИЕ: Весь ответ должен быть на РУССКОМ языке!")
+        'es': "RECORDATORIO: ¡Toda la respuesta debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Toute la réponse doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: The entire answer must be in ENGLISH!")
 
     occupation_info = f"\nПрофессия: {occupation}" if occupation else ""
     context_section = f"\n\nКОНТЕКСТ:\n{additional_context}" if additional_context else ""
