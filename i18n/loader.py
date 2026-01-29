@@ -28,7 +28,7 @@ I18N_DIR = Path(__file__).parent
 BASE_LANGUAGES = ['ru', 'en']
 
 # Поддерживаемые языки
-SUPPORTED_LANGUAGES = ['ru', 'en', 'es']
+SUPPORTED_LANGUAGES = ['ru', 'en', 'es', 'fr']
 
 
 class I18n:
@@ -256,7 +256,8 @@ def get_language_name(lang: str) -> str:
     names = {
         'ru': 'Русский',
         'en': 'English',
-        'es': 'Español'
+        'es': 'Español',
+        'fr': 'Français'
     }
     return names.get(lang, lang)
 
