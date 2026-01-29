@@ -35,6 +35,8 @@ menu:
   help: "Ayuda"
 
 onboarding:
+  welcome: "¡Hola! Te ayudaré a convertirte en un estudiante sistemático."
+  welcome_back: "¡Bienvenido de nuevo, {name}!"
   nice_to_meet: "¡Mucho gusto, {name}!"
   ask_name: "¿Cómo te llamas?"
   ask_occupation: "¿A qué te dedicas?"
@@ -94,6 +96,7 @@ buttons:
   reminders: "⏰ Recordatorios"
   reset_marathon: "🔄 Reiniciar maratón"
   back: "« Atrás"
+  settings: "Ajustes"
 
 experience:
   student: "Estudiante"
@@ -467,6 +470,9 @@ marathon:
   daily_limit_info: "Límite: *{max} temas por día* (puedes recuperar 1 día)"
   daily_limit_motto: "Regularidad > Intensidad"
   daily_limit_return: "¡Vuelve mañana! O te recordaré a las *{time}*."
+  completed: "🎉 ¡Felicidades! ¡Maratón completado! Usa /feed para el modo Cinta."
+  daily_limit: "Se alcanzó el límite de temas de hoy. ¡Vuelve mañana!"
+  question_processed: "✅ ¡Respuesta aceptada!"
 
 feed:
   suggested_topics: "Temas Sugeridos"
@@ -534,6 +540,45 @@ feed:
   topics_deepen_each_digest: "_Los temas se exploran más profundamente con cada resumen._"
   your_topics_count: "*Tus temas ({count}):*"
   depth_level: "Nivel de profundidad"
+  choose_topics: "Elige temas para estudiar"
+  choose_hint: "Selecciona hasta 3 temas con botones o escribe los tuyos"
+  changing_topics: "Pasando a la selección de temas..."
+  generating_digest: "Generando resumen..."
+  generating_topics: "Generando temas..."
+  depth_basic: "Básico"
+  depth_practical: "Práctico"
+  depth_integration: "Integración"
+  depth_deep: "Profundo"
+  depth_reached: "Nivel de profundidad alcanzado"
+  digest_title: "Resumen"
+  fixation: "fijación (≥20 caracteres)"
+  stats: "Estadísticas"
+  topic_selection: "selección de temas (números o nombres)"
+  topic_selection_skipped: "Selección de temas omitida. Usa /feed para reintentar."
+  invalid_selection: "No se reconoció la selección. Ingresa números o nombres de temas."
+  exit: "Saliendo del modo Cinta. Usa /mode para seleccionar modo."
+  next_digest: "Próximo resumen mañana"
+  reflection_question: "Pregunta de reflexión"
+  waiting_for: "Esperando"
+  activated: "¡Modo Cinta activado! Ahora te sugeriré temas para la semana."
+  already_active: "¡La Cinta ya está activa! Usa /feed para continuar."
+  continuing_digest: "Continuando el resumen..."
+  digest_already_completed: "El resumen de hoy ya está completo."
+  digest_completed_today: "El resumen de hoy ya está completo. ¡Hasta mañana!"
+  fixation_saved: "¡Fijación guardada! Hasta mañana."
+  incomplete_digest: "Tienes un resumen sin terminar. Escribe una fijación para continuar."
+  no_active_week: "No hay semana activa. Usa /feed para comenzar."
+  no_active_week_short: "No hay semana activa."
+  no_topics_selected: "No hay temas seleccionados. Usa /feed para seleccionar."
+  profile_not_found: "Perfil no encontrado. Usa /start para registrarte."
+  select_topics_first: "Primero selecciona temas para la semana."
+  select_topics_prompt: "Selecciona temas para estudiar esta semana:"
+  start_digest_first: "Primero inicia el resumen de hoy."
+  start_feed_first: "Primero ejecuta /feed para obtener sugerencias de temas."
+  topics_accepted: "¡Genial! {count} temas seleccionados. ¡Comencemos!"
+  topics_already_selected: "Los temas de esta semana ya están seleccionados."
+  topics_generation_failed: "No se pudieron generar los temas. Inténtalo más tarde."
+  week_completed: "Semana completada. Usa /feed para una nueva."
 
 shared:
   of: "de"
@@ -548,3 +593,13 @@ consultation:
   error: "Se produjo un error al procesar tu pregunta. Inténtalo de nuevo."
   sources: "Fuentes"
   returning: "↩️ Volviendo a la actividad anterior."
+
+error:
+  generic: "Ocurrió un error. Inténtalo de nuevo o usa /help"
+  choose_action: "Elige una acción del menú o usa los comandos"
+
+mode:
+  select_mode: "Selecciona el modo de aprendizaje"
+
+my_state:
+  welcome: "¡Bienvenido!"
