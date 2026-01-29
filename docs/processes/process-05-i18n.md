@@ -112,16 +112,64 @@ SUPPORTED_LANGUAGES = ['ru', 'en', 'es']
    - `bot.py`: функция `kb_languages()`
    - `engines/mode_selector.py`: если есть выбор языка
 
-### 3.2. Чеклист нового языка
+### 3.2. Полный чеклист нового языка (13 мест!)
 
-- [ ] Файл `i18n/translations/<lang>.yaml` создан
-- [ ] Все ключи из `schema.yaml` переведены
-- [ ] Плейсхолдеры сохранены (`{name}`, `{day}`, `{count}`)
-- [ ] `SUPPORTED_LANGUAGES` обновлён
-- [ ] `detect_language()` обновлён (маппинг похожих языков)
-- [ ] `get_language_name()` обновлён
-- [ ] UI выбора языка обновлён
-- [ ] Проверка пройдена: `python -m i18n.checker check --lang <lang>`
+> ⚠️ Пропуск любого пункта приведёт к частичной локализации!
+
+#### Регистрация языка
+- [ ] `i18n/loader.py:31` — добавить в `SUPPORTED_LANGUAGES`
+- [ ] `i18n/loader.py:37` — добавить в `get_language_name()`
+
+#### UI переводы
+- [ ] `i18n/translations/{lang}.yaml` — создать файл со всеми переводами
+
+#### Названия тем Марафона
+- [ ] `knowledge_structure.yaml` — добавить `title_{lang}` для всех **28 тем**
+
+#### Инструкции для генерации контента (11 мест!)
+- [ ] `bot.py` — 3 словаря `lang_instruction` (~840, ~940, ~1060)
+- [ ] `clients/claude.py` — 3 словаря `lang_instruction` (~150, ~250, ~350)
+- [ ] `engines/feed/planner.py` — 3 словаря `lang_instruction` (~45, ~395, ~545)
+- [ ] `engines/shared/question_handler.py` — 2 словаря `lang_instruction` (~290, ~405)
+
+#### Fallback темы Ленты
+- [ ] `engines/feed/planner.py:192-304` — добавить `fallback_topics['{lang}']` (5 тем)
+
+#### UI элементы
+- [ ] `bot.py:1624` — обновить текст кнопки "Language (en, es, fr, ru)"
+
+#### State Machine метаданные
+- [ ] `states/base.py` — display_name (пример)
+- [ ] `states/common/start.py` — display_name
+- [ ] `states/common/error.py` — display_name + RETRY_BUTTONS, BACK_BUTTONS
+- [ ] `states/common/mode_select.py` — display_name + MARATHON_BUTTONS, FEED_BUTTONS, SETTINGS_BUTTONS
+- [ ] `states/common/consultation.py` — display_name
+- [ ] `states/feed/digest.py` — display_name
+- [ ] `states/feed/topics.py` — display_name
+- [ ] `states/workshops/marathon/lesson.py` — display_name
+- [ ] `states/workshops/marathon/question.py` — display_name
+- [ ] `states/workshops/marathon/bonus.py` — display_name + YES_BUTTONS, NO_BUTTONS
+- [ ] `states/workshops/marathon/task.py` — display_name
+
+#### Тесты
+- [ ] `tests/i18n/test_translations.py`:
+  - `test_{lang}_completeness`
+  - `test_placeholders_preserved_in_{lang}`
+  - `test_critical_key_exists_in_{lang}`
+  - Обновить `test_basic_translation`, `test_stats_method`, `test_detect_supported_languages`
+
+#### Документация
+- [ ] `i18n/loader.py:220` — обновить docstring функции `t()`
+- [ ] `docs/data/tables.md` — обновить список языков в поле `language`
+
+### 3.3. Типичные ошибки при добавлении языка
+
+| Симптом | Причина | Решение |
+|---------|---------|---------|
+| UI на новом языке, контент на русском | Пропущен `lang_instruction` | Добавить во все 11 мест |
+| Название темы на русском | Пропущен `title_{lang}` | Добавить в `knowledge_structure.yaml` |
+| Язык не сохраняется | Нет поля в БД | Проверить `language` в `db/models.py` |
+| Тесты падают | Пропущены тесты | Обновить `test_translations.py` |
 
 ---
 
