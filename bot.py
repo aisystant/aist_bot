@@ -345,6 +345,10 @@ async def init_db():
         # Второе напоминание
         await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS schedule_time_2 TEXT DEFAULT NULL")
 
+        # State Machine
+        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_state TEXT DEFAULT NULL")
+        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_context TEXT DEFAULT '{}'")
+
         # Таблица для напоминаний
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS reminders (
