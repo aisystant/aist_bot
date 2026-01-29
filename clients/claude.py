@@ -63,7 +63,12 @@ class ClaudeClient:
             }
 
             try:
-                async with session.post(self.base_url, headers=headers, json=payload) as resp:
+                async with session.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return data["content"][0]["text"]
