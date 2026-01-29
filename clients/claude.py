@@ -234,15 +234,15 @@ class ClaudeClient:
         result = await self.generate(system_prompt, user_prompt)
         return result or "Не удалось сгенерировать контент. Попробуйте /learn ещё раз."
 
-    async def generate_practice_intro(self, topic: dict, intern: dict) -> str:
-        """Генерирует вводный текст для практического задания
+    async def generate_practice_intro(self, topic: dict, intern: dict) -> dict:
+        """Генерирует полное описание практического задания на языке пользователя
 
         Args:
             topic: тема с практическим заданием
             intern: профиль стажера
 
         Returns:
-            Вводный текст или пустая строка при ошибке
+            Dict с ключами: intro, task, work_product, examples (все на языке пользователя)
         """
         # Определяем язык ответа
         lang = intern.get('language', 'ru')
@@ -253,29 +253,95 @@ class ClaudeClient:
             'fr': "IMPORTANT: Écris TOUT en français."
         }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
+        task_ru = topic.get('task', '')
+        work_product_ru = topic.get('work_product', '')
+        wp_examples = topic.get('wp_examples', [])
+        wp_examples_text = "\n".join(f"• {ex}" for ex in wp_examples) if wp_examples else ""
+
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {get_personalization_prompt(intern)}
 
 {lang_instruction}
 
-Напиши краткое (3-5 предложений) введение к практическому заданию.
-Объясни, зачем это задание и как оно связано с темой дня.
+Твоя задача — подготовить полное описание практического задания.
+Ты ДОЛЖЕН перевести/адаптировать ВСЕ части на целевой язык.
+
+Выдай ответ СТРОГО в формате:
+INTRO: (2-4 предложения, зачем это задание)
+TASK: (переведённое задание)
+WORK_PRODUCT: (переведённый рабочий продукт)
+EXAMPLES: (переведённые примеры, каждый с новой строки начиная с •)
 
 {ONTOLOGY_RULES}"""
 
-        task = topic.get('task', '')
-        work_product = topic.get('work_product', '')
+        user_prompt = f"""Тема: {topic.get('title')}
+Понятие: {topic.get('main_concept')}
 
-        user_prompt = f"""Практическое задание: {topic.get('title')}
-Основное понятие: {topic.get('main_concept')}
+ИСХОДНЫЕ ДАННЫЕ (переведи на целевой язык):
+Задание: {task_ru}
+Рабочий продукт: {work_product_ru}
+Примеры РП:
+{wp_examples_text}
 
-Задание: {task}
-Рабочий продукт: {work_product}
-
-Напиши краткое введение, которое мотивирует выполнить задание."""
+Переведи и адаптируй всё на целевой язык."""
 
         result = await self.generate(system_prompt, user_prompt)
-        return result or ""
+
+        if not result:
+            # Fallback: возвращаем оригинал на русском
+            return {
+                'intro': '',
+                'task': task_ru,
+                'work_product': work_product_ru,
+                'examples': wp_examples_text
+            }
+
+        # Парсим ответ
+        parsed = {
+            'intro': '',
+            'task': task_ru,
+            'work_product': work_product_ru,
+            'examples': wp_examples_text
+        }
+
+        try:
+            lines = result.split('\n')
+            current_key = None
+            current_value = []
+
+            for line in lines:
+                if line.startswith('INTRO:'):
+                    if current_key and current_value:
+                        parsed[current_key] = '\n'.join(current_value).strip()
+                    current_key = 'intro'
+                    current_value = [line[6:].strip()]
+                elif line.startswith('TASK:'):
+                    if current_key and current_value:
+                        parsed[current_key] = '\n'.join(current_value).strip()
+                    current_key = 'task'
+                    current_value = [line[5:].strip()]
+                elif line.startswith('WORK_PRODUCT:'):
+                    if current_key and current_value:
+                        parsed[current_key] = '\n'.join(current_value).strip()
+                    current_key = 'work_product'
+                    current_value = [line[13:].strip()]
+                elif line.startswith('EXAMPLES:'):
+                    if current_key and current_value:
+                        parsed[current_key] = '\n'.join(current_value).strip()
+                    current_key = 'examples'
+                    current_value = [line[9:].strip()]
+                elif current_key:
+                    current_value.append(line)
+
+            # Сохраняем последний ключ
+            if current_key and current_value:
+                parsed[current_key] = '\n'.join(current_value).strip()
+
+        except Exception as e:
+            logger.warning(f"Error parsing practice intro response: {e}, using raw result")
+            parsed['intro'] = result
+
+        return parsed
 
     async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
         """Генерирует вопрос по теме с учётом уровня сложности и метаданных темы

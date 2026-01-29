@@ -109,17 +109,19 @@ class MarathonTaskState(BaseState):
             # Получаем intern dict для Claude
             intern = self._user_to_intern_dict(user)
 
-            # Генерируем введение к заданию через Claude API
-            logger.info(f"Generating practice intro for topic {topic_index}, user {chat_id}")
-            intro = await claude.generate_practice_intro(
+            # Генерируем полное описание задания через Claude API (включая перевод)
+            logger.info(f"Generating practice content for topic {topic_index}, user {chat_id}, lang {lang}")
+            practice_data = await claude.generate_practice_intro(
                 topic=topic,
                 intern=intern
             )
 
-            # Получаем задание и рабочий продукт из темы
+            # Получаем переведённые данные из ответа Claude
             topic_title = get_topic_title(topic, lang)
-            task_text = topic.get('task', t('marathon.task_default', lang))
-            work_product = topic.get('work_product', t('marathon.work_product_default', lang))
+            intro = practice_data.get('intro', '')
+            task_text = practice_data.get('task', '') or topic.get('task', t('marathon.task_default', lang))
+            work_product = practice_data.get('work_product', '') or topic.get('work_product', t('marathon.work_product_default', lang))
+            examples = practice_data.get('examples', '')
 
             # Формируем сообщение
             message = (
@@ -130,17 +132,22 @@ class MarathonTaskState(BaseState):
             if intro:
                 message += f"{intro}\n\n"
 
+            message += f"📋 *{t('marathon.task', lang)}:*\n{task_text}\n\n"
+            message += f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n"
+
+            if examples:
+                message += f"{t('marathon.wp_examples', lang)}:\n{examples}\n\n"
+            else:
+                message += "\n"
+
             message += (
-                f"📋 *{t('marathon.task', lang)}:*\n"
-                f"{task_text}\n\n"
-                f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
                 f"📝 *{t('marathon.when_complete', lang)}:*\n"
                 f"{t('marathon.write_wp_name', lang)}\n\n"
                 f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}"
             )
 
             await self.send(user, message, parse_mode="Markdown")
-            logger.info(f"Practice task sent to user {chat_id}")
+            logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
 
         except Exception as e:
             logger.error(f"Error generating practice intro for user {chat_id}: {e}")
