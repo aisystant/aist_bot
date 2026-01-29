@@ -32,6 +32,7 @@ from db.queries.feed import (
     get_feed_session,
 )
 from db.queries.activity import record_active_day, get_activity_stats
+from locales import t
 
 from .planner import suggest_weekly_topics, generate_multi_topic_digest
 
@@ -52,6 +53,11 @@ class FeedEngine:
             self._intern = await get_intern(self.chat_id)
         return self._intern
 
+    async def get_lang(self) -> str:
+        """Получает язык пользователя"""
+        intern = await self.get_intern()
+        return intern.get('language', 'ru') if intern else 'ru'
+
     async def get_current_week(self) -> Optional[dict]:
         """Получает текущую неделю"""
         if not self._current_week:
@@ -66,9 +72,10 @@ class FeedEngine:
         Returns:
             (success, message)
         """
+        lang = await self.get_lang()
         intern = await self.get_intern()
         if not intern:
-            return False, "Профиль не найден. Пройдите /start для регистрации."
+            return False, t('feed.profile_not_found', lang)
 
         # Обновляем режим
         await update_intern(self.chat_id,
@@ -80,9 +87,9 @@ class FeedEngine:
         # Проверяем, есть ли активная неделя
         week = await self.get_current_week()
         if week and week['status'] == FeedWeekStatus.ACTIVE:
-            return True, "Лента уже активна! Используйте /feed для продолжения."
+            return True, t('feed.already_active', lang)
 
-        return True, "Режим Лента активирован! Сейчас предложу темы на неделю."
+        return True, t('feed.activated', lang)
 
     async def suggest_topics(self) -> Tuple[List[Dict], str]:
         """Генерирует и возвращает предложения тем на неделю
@@ -90,25 +97,26 @@ class FeedEngine:
         Returns:
             (topics, message)
         """
+        lang = await self.get_lang()
         intern = await self.get_intern()
 
         # Генерируем темы
         topics = await suggest_weekly_topics(intern)
 
         if not topics:
-            return [], "Не удалось сгенерировать темы. Попробуйте позже."
+            return [], t('feed.topics_generation_failed', lang)
 
         # Создаём неделю в статусе PLANNING
         await create_feed_week(
             chat_id=self.chat_id,
-            suggested_topics=[t['title'] for t in topics],
+            suggested_topics=[topic['title'] for topic in topics],
             accepted_topics=[],
         )
 
         # Очищаем кеш
         self._current_week = None
 
-        return topics, "Выберите темы для изучения на этой неделе:"
+        return topics, t('feed.select_topics_prompt', lang)
 
     async def accept_topics(self, accepted_titles: List[str]) -> Tuple[bool, str]:
         """Принимает выбранные пользователем темы (максимум 3)
@@ -119,12 +127,13 @@ class FeedEngine:
         Returns:
             (success, message)
         """
+        lang = await self.get_lang()
         week = await self.get_current_week()
         if not week:
-            return False, "Сначала запустите /feed для получения предложений."
+            return False, t('feed.start_feed_first', lang)
 
         if week['status'] != FeedWeekStatus.PLANNING:
-            return False, "Темы на эту неделю уже выбраны."
+            return False, t('feed.topics_already_selected', lang)
 
         # Ограничиваем до 3 тем
         accepted_titles = accepted_titles[:3]
@@ -140,7 +149,7 @@ class FeedEngine:
         self._current_week = None
 
         count = len(accepted_titles)
-        return True, f"Отлично! Выбрано {count} тем. Начинаем!"
+        return True, t('feed.topics_accepted', lang, count=count)
 
     # ==================== ЕЖЕДНЕВНЫЕ СЕССИИ ====================
 
@@ -156,14 +165,15 @@ class FeedEngine:
         Returns:
             (session_data, message)
         """
+        lang = await self.get_lang()
         week = await self.get_current_week()
         if not week:
-            return None, "Нет активной недели. Используйте /feed для старта."
+            return None, t('feed.no_active_week', lang)
 
         if week['status'] != FeedWeekStatus.ACTIVE:
             if week['status'] == FeedWeekStatus.PLANNING:
-                return None, "Сначала выберите темы на неделю."
-            return None, "Неделя завершена. Используйте /feed для новой."
+                return None, t('feed.select_topics_first', lang)
+            return None, t('feed.week_completed', lang)
 
         # Проверяем, есть ли сессия на сегодня
         today = date.today()
@@ -171,13 +181,13 @@ class FeedEngine:
 
         if existing:
             if existing['status'] == 'completed':
-                return existing, "Сегодняшний дайджест уже завершён. До завтра!"
-            return existing, "Продолжаем дайджест..."
+                return existing, t('feed.digest_completed_today', lang)
+            return existing, t('feed.continuing_digest', lang)
 
         # Проверяем, есть ли незавершённая сессия за предыдущие дни
         previous_incomplete = await self._get_incomplete_session(week['id'])
         if previous_incomplete:
-            return previous_incomplete, "У вас есть незавершённый дайджест. Напишите фиксацию, чтобы продолжить."
+            return previous_incomplete, t('feed.incomplete_digest', lang)
 
         # Получаем данные для генерации
         intern = await self.get_intern()
@@ -193,7 +203,7 @@ class FeedEngine:
             await update_feed_week(week['id'], {'current_day': 1})
 
         if not topics:
-            return None, "Нет выбранных тем. Используйте /feed для выбора."
+            return None, t('feed.no_topics_selected', lang)
 
         # Длительность из профиля (или дефолт)
         duration = intern.get('feed_duration', FEED_SESSION_DURATION_MAX)
@@ -247,18 +257,19 @@ class FeedEngine:
         Returns:
             (success, message)
         """
+        lang = await self.get_lang()
         week = await self.get_current_week()
         if not week:
-            return False, "Нет активной недели."
+            return False, t('feed.no_active_week_short', lang)
 
         today = date.today()
         session = await get_feed_session(week['id'], today)
 
         if not session:
-            return False, "Сначала начните дайджест на сегодня."
+            return False, t('feed.start_digest_first', lang)
 
         if session['status'] == 'completed':
-            return False, "Сегодняшний дайджест уже завершён."
+            return False, t('feed.digest_already_completed', lang)
 
         # Сохраняем фиксацию
         await update_feed_session(session['id'], {
@@ -282,7 +293,7 @@ class FeedEngine:
         # Очищаем кеш
         self._current_week = None
 
-        return True, "Фиксация сохранена! До завтра."
+        return True, t('feed.fixation_saved', lang)
 
     async def _get_incomplete_session(self, week_id: int) -> Optional[Dict]:
         """Находит незавершённую сессию за предыдущие дни"""

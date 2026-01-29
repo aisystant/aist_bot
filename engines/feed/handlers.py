@@ -42,7 +42,7 @@ async def show_feed_menu(message: Message, engine: FeedEngine, state: FSMContext
 
         week = await engine.get_current_week()
         if not week:
-            await message.answer("Используйте /feed для запуска режима Лента.")
+            await message.answer(t('feed.use_feed_to_start', lang))
             return
 
         topics = week.get('accepted_topics', [])
@@ -152,7 +152,8 @@ async def cmd_feed(message: Message, state: FSMContext):
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в cmd_feed: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка при загрузке Ленты. Попробуйте позже.")
+        err_lang = lang if 'lang' in dir() else 'ru'
+        await message.answer(t('feed.error_loading', err_lang))
 
 
 def escape_markdown(text: str) -> str:
@@ -260,6 +261,7 @@ async def show_topic_selection_direct(bot, chat_id: int, topics: list, state: FS
 @feed_router.callback_query(F.data.startswith("feed_topic_"))
 async def toggle_topic(callback: CallbackQuery, state: FSMContext):
     """Переключает выбор темы (максимум 3)"""
+    lang = await get_user_lang(callback.from_user.id)
     data = await state.get_data()
     topics = data.get('suggested_topics', [])
     selected = list(data.get('selected_indices', []))  # Конвертируем в list для надёжности
@@ -273,7 +275,7 @@ async def toggle_topic(callback: CallbackQuery, state: FSMContext):
     else:
         # Проверяем лимит 3 темы
         if len(selected) >= 3:
-            await callback.answer("Максимум 3 темы. Снимите выбор с другой темы.", show_alert=True)
+            await callback.answer(t('feed.max_topics_hint', lang), show_alert=True)
             return
         selected.append(index)
 
@@ -358,7 +360,7 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
         lang = await get_user_lang(chat_id)
 
         if not topics:
-            await message.answer("Сначала используйте /feed для получения тем.")
+            await message.answer(t('feed.use_feed_for_topics', lang))
             return
 
         # Парсим текст
@@ -570,10 +572,9 @@ async def feed_topics_menu(callback: CallbackQuery, state: FSMContext):
             text += "_Темы не выбраны_\n"
 
         text += "\n—\n"
-        text += "*Изменить темы (до 3):*\n"
-        text += "Введите через запятую или с новой строки\n\n"
-        text += "_Размер дайджеста фиксирован — чем больше тем, тем меньше глубины на каждую. "
-        text += "Одна тема раскрывается глубже с каждым днём._"
+        text += f"*{t('feed.topics_menu_title', lang)}:*\n"
+        text += f"{t('feed.topics_edit_intro', lang)}\n\n"
+        text += f"_{t('feed.one_topic_hint', lang)}_"
 
         # Кнопки
         buttons = [
@@ -644,7 +645,7 @@ async def handle_topic_edit(message: Message, state: FSMContext):
         text = message.text.strip()
 
         if len(text) < 1:
-            await message.answer("Введите темы.")
+            await message.answer(t('feed.enter_topics', lang))
             return
 
         # Получаем текущие темы для ссылок по номерам
@@ -681,7 +682,7 @@ async def handle_topic_edit(message: Message, state: FSMContext):
                     new_topics.append(topic)
 
         if not new_topics:
-            await message.answer("Не удалось распознать темы. Введите названия тем или номера из списка.")
+            await message.answer(t('feed.topics_not_recognized', lang))
             return
 
         # Ограничение: максимум 3 темы
@@ -832,6 +833,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
     """
     try:
         chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
         question = message.text.strip()
 
         if len(question) < 3:
@@ -853,7 +855,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
         intern = await get_intern(chat_id)
 
         # Обрабатываем вопрос
-        await message.answer("💭 Думаю над ответом...")
+        await message.answer(t('loading.processing', lang))
 
         answer, sources = await handle_question(
             question=question,
@@ -871,7 +873,8 @@ async def handle_feed_question(message: Message, state: FSMContext):
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в handle_feed_question: {e}\n{traceback.format_exc()}")
-        await message.answer("Не удалось обработать вопрос. Попробуйте позже.")
+        err_lang = lang if 'lang' in dir() else 'ru'
+        await message.answer(t('feed.question_failed', err_lang))
 
 
 @feed_router.callback_query(F.data == "feed_whats_next")
@@ -921,30 +924,29 @@ async def show_whats_next(callback: CallbackQuery, state: FSMContext):
 @feed_router.callback_query(F.data == "feed_fixation")
 async def start_fixation(callback: CallbackQuery, state: FSMContext):
     """Начинает процесс фиксации"""
+    lang = await get_user_lang(callback.from_user.id)
     await state.set_state(FeedStates.waiting_fixation)
 
     await callback.message.answer(
-        "✍️ *Фиксация дня*\n\n"
-        "Напишите краткую фиксацию: что вы поняли, "
-        "какие мысли возникли, как это связано с вашей жизнью.\n\n"
-        "_Достаточно 2-3 предложения._",
+        f"✍️ *{t('buttons.write_fixation', lang)}*\n\n"
+        f"{t('feed.fixation_prompt', lang)}\n\n"
+        "_2-3 sentences is enough._" if lang != 'ru' else "_Достаточно 2-3 предложения._",
         parse_mode="Markdown"
     )
     await callback.answer()
 
 
-@feed_router.message(FeedStates.waiting_fixation, F.text.func(lambda t: not t.startswith('/')))
+@feed_router.message(FeedStates.waiting_fixation, F.text.func(lambda txt: not txt.startswith('/')))
 async def receive_fixation(message: Message, state: FSMContext):
     """Принимает фиксацию пользователя"""
+    chat_id = message.chat.id
+    lang = await get_user_lang(chat_id)
     text = message.text.strip()
 
     if len(text) < 10:
-        await message.answer(
-            "Напишите хотя бы пару предложений для фиксации.",
-        )
+        await message.answer(t('feed.fixation_too_short', lang))
         return
 
-    chat_id = message.chat.id
     engine = FeedEngine(chat_id)
 
     success, msg = await engine.submit_fixation(text)
@@ -1116,6 +1118,7 @@ async def cmd_feed_status(message: Message):
     """
     try:
         chat_id = message.chat.id
+        lang = await get_user_lang(chat_id)
         logger.info(f"cmd_feed_status вызван для {chat_id}")
         engine = FeedEngine(chat_id)
 
@@ -1124,13 +1127,13 @@ async def cmd_feed_status(message: Message):
 
         if not status['feed_active']:
             await message.answer(
-                "📚 *Режим Лента*\n\n"
-                "Лента не активна. Используйте /feed для запуска.",
+                f"📚 *{t('feed.menu_title', lang)}*\n\n"
+                f"{t('feed.use_feed_to_start', lang)}",
                 parse_mode="Markdown"
             )
             return
 
-        text = "📚 *Режим Лента*\n\n"
+        text = f"📚 *{t('feed.menu_title', lang)}*\n\n"
 
         if status['has_week']:
             text += f"📅 Статус: {status['week_status']}\n"
@@ -1138,10 +1141,10 @@ async def cmd_feed_status(message: Message):
             text += f"📖 Уровень глубины: {depth}\n"
 
             if status['topics']:
-                text += f"\n*Ваши темы ({len(status['topics'])}):*\n"
+                text += f"\n*{t('feed.your_topics', lang)} ({len(status['topics'])}):*\n"
                 for i, topic in enumerate(status['topics'], 1):
                     text += f"• {topic}\n"
-                text += "\n_С каждым дайджестом темы раскрываются глубже._\n"
+                text += f"\n_{t('feed.one_topic_hint', lang)}_\n"
 
         text += f"\n📊 *Статистика:*\n"
         text += f"• Всего активных дней: {status['active_days']}\n"
@@ -1152,4 +1155,5 @@ async def cmd_feed_status(message: Message):
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в cmd_feed_status: {e}\n{traceback.format_exc()}")
-        await message.answer("Произошла ошибка при загрузке статуса. Попробуйте позже.")
+        err_lang = lang if 'lang' in dir() else 'ru'
+        await message.answer(t('feed.error_loading_status', err_lang))
