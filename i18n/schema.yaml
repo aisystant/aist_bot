@@ -30,6 +30,26 @@ welcome:
     ru: "Я помогу тебе стать систематическим учеником."
     en: "I'll help you become a systematic learner."
 
+  marathon_welcome:
+    ru: "Добро пожаловать в марафон, {name}!"
+    en: "Welcome to the Marathon, {name}!"
+
+  marathon_intro:
+    ru: "14 дней от случайного ученика к систематическому."
+    en: "14 days from casual learner to systematic practitioner."
+
+  marathon_days_info:
+    ru: "{days} дней — по 2 темы в день (урок + задание)"
+    en: "{days} days — 2 topics per day (theory + practice)"
+
+  marathon_duration_info:
+    ru: "{minutes} минут на каждую тему"
+    en: "{minutes} minutes per topic"
+
+  marathon_reminders_info:
+    ru: "Напоминания каждый день в {time}"
+    en: "Daily reminders at {time}"
+
   ask_name:
     ru: "Как тебя зовут?"
     en: "What's your name?"
@@ -343,6 +363,11 @@ buttons:
     en: "« Back"
     max_length: 15
 
+  back:
+    ru: "« Назад"
+    en: "« Back"
+    max_length: 15
+
   select_topics:
     ru: "Выбрать темы на неделю"
     en: "Select week topics"
@@ -542,6 +567,10 @@ progress:
     ru: "День {day} из {total}"
     en: "Day {day} of {total}"
 
+  statistics:
+    ru: "Статистика"
+    en: "Statistics"
+
   # Расширенные ключи для /progress
   title:
     ru: "📊 *Прогресс: {name}*"
@@ -586,6 +615,103 @@ progress:
   topics_label:
     ru: "Темы:"
     en: "Topics:"
+
+  # Дополнительные ключи для /progress
+  active_days_week:
+    ru: "Активных дней за неделю (Марафон+Лента)"
+    en: "Active days this week (Marathon+Feed)"
+
+  marathon_title:
+    ru: "Марафон"
+    en: "Marathon"
+
+  feed_title:
+    ru: "Лента"
+    en: "Feed"
+
+  topics_done:
+    ru: "Пройдено тем"
+    en: "Topics completed"
+
+  work_products:
+    ru: "Рабочих продуктов"
+    en: "Work products"
+
+  topics_not_selected:
+    ru: "не выбраны"
+    en: "not selected"
+
+  full_report:
+    ru: "Полный отчёт"
+    en: "Full report"
+
+  topics:
+    ru: "Темы"
+    en: "Topics"
+
+  first_start:
+    ru: "Сначала /start"
+    en: "First run /start"
+
+  full_report_title:
+    ru: "Полный отчёт с {date}: {name}"
+    en: "Full report from {date}: {name}"
+
+  active_days_both:
+    ru: "Активных дней (Марафон+Лента)"
+    en: "Active days (Marathon+Feed)"
+
+  lessons:
+    ru: "Уроков"
+    en: "Lessons"
+
+  tasks:
+    ru: "Заданий"
+    en: "Tasks"
+
+  work_products_count:
+    ru: "Рабочих продуктов"
+    en: "Work products"
+
+  wp_short:
+    ru: "РП"
+    en: "WP"
+
+  by_days:
+    ru: "По дням"
+    en: "By days"
+
+  lag:
+    ru: "Отставание"
+    en: "Behind"
+
+  day_text:
+    ru: "День {day}"
+    en: "Day {day}"
+
+  digests_count:
+    ru: "Дайджестов"
+    en: "Digests"
+
+  fixations_count:
+    ru: "Фиксаций"
+    en: "Fixations"
+
+  topics_colon:
+    ru: "Темы"
+    en: "Topics"
+
+  full_report_error:
+    ru: "Не удалось загрузить полный отчёт. Попробуйте позже."
+    en: "Failed to load full report. Please try again later."
+
+  continue_learning:
+    ru: "Продолжить обучение"
+    en: "Continue learning"
+
+  get_digest:
+    ru: "Получить дайджест"
+    en: "Get digest"
 
 # -----------------------------------------------------------------------------
 # Режимы
@@ -759,6 +885,226 @@ modes:
     ru: "мин"
     en: "min"
 
+  # Дата старта марафона
+  start_date_title:
+    ru: "Дата старта марафона"
+    en: "Marathon start date"
+
+  start_date_current:
+    ru: "Текущая"
+    en: "Current"
+
+  start_date_not_set:
+    ru: "не установлена"
+    en: "not set"
+
+  day_label:
+    ru: "день"
+    en: "day"
+
+  tomorrow:
+    ru: "Завтра"
+    en: "Tomorrow"
+
+  day_after_tomorrow:
+    ru: "Послезавтра"
+    en: "Day after tomorrow"
+
+  start_date_set:
+    ru: "Дата старта: {date}"
+    en: "Start date: {date}"
+
+  # Сброс марафона
+  reset_marathon_title:
+    ru: "Сбросить марафон?"
+    en: "Reset marathon?"
+
+  will_be_reset:
+    ru: "Будет сброшено"
+    en: "Will be reset"
+
+  topics_passed:
+    ru: "пройденных тем"
+    en: "completed topics"
+
+  all_progress:
+    ru: "Весь прогресс по дням"
+    en: "All daily progress"
+
+  feed_stats_kept:
+    ru: "Статистика Ленты сохранится."
+    en: "Feed statistics will be kept."
+
+  yes_reset:
+    ru: "Да, сбросить"
+    en: "Yes, reset"
+
+  cancel:
+    ru: "Отмена"
+    en: "Cancel"
+
+  marathon_reset:
+    ru: "Марафон сброшен!"
+    en: "Marathon reset!"
+
+  new_start_date:
+    ru: "Новая дата старта"
+    en: "New start date"
+
+  use_learn_start:
+    ru: "Используйте /learn для начала обучения."
+    en: "Use /learn to start learning."
+
+  use_learn:
+    ru: "Используйте /learn для продолжения обучения."
+    en: "Use /learn to continue learning."
+
+  marathon_mode:
+    ru: "Режим Марафон"
+    en: "Marathon mode"
+
+  # Напоминания (настройки)
+  reminders_title:
+    ru: "Напоминания"
+    en: "Reminders"
+
+  current_time:
+    ru: "Сейчас"
+    en: "Current"
+
+  enter_time_format:
+    ru: "Введите время в формате ЧЧ:ММ"
+    en: "Enter time in HH:MM format"
+
+  time_example:
+    ru: "Например: `07:30` или `18:00`"
+    en: "Example: `07:30` or `18:00`"
+
+  two_reminders_hint:
+    ru: "Для двух напоминаний введите через запятую:"
+    en: "For two reminders, enter comma-separated:"
+
+  two_reminders_example:
+    ru: "Например: `07:00, 19:00`"
+    en: "Example: `07:00, 19:00`"
+
+  invalid_time_format:
+    ru: "Неверный формат времени."
+    en: "Invalid time format."
+
+  enter_time_example:
+    ru: "Введите в формате ЧЧ:ММ, например: `09:00` или `07:30, 19:00`"
+    en: "Enter in HH:MM format, e.g.: `09:00` or `07:30, 19:00`"
+
+  reminders_set:
+    ru: "Напоминания установлены: {time1}, {time2}"
+    en: "Reminders set: {time1}, {time2}"
+
+  reminder_set:
+    ru: "Напоминание установлено: {time}"
+    en: "Reminder set: {time}"
+
+  second_reminder_removed:
+    ru: "Второе напоминание удалено"
+    en: "Second reminder removed"
+
+  error_occurred:
+    ru: "Произошла ошибка"
+    en: "An error occurred"
+
+  change_time:
+    ru: "Изменить время"
+    en: "Change time"
+
+  second:
+    ru: "Второе"
+    en: "Second"
+
+  add_second:
+    ru: "Добавить второе"
+    en: "Add second"
+
+  select_time:
+    ru: "Выберите время"
+    en: "Select time"
+
+  time_set:
+    ru: "Время установлено: {time}"
+    en: "Time set: {time}"
+
+  # Сложность
+  complexity_title:
+    ru: "Сложность вопросов"
+    en: "Question complexity"
+
+  level_basic:
+    ru: "Базовый"
+    en: "Basic"
+
+  level_basic_desc:
+    ru: "понимание основ"
+    en: "understanding basics"
+
+  level_medium:
+    ru: "Средний"
+    en: "Medium"
+
+  level_medium_desc:
+    ru: "применение на практике"
+    en: "practical application"
+
+  level_advanced:
+    ru: "Продвинутый"
+    en: "Advanced"
+
+  level_advanced_desc:
+    ru: "анализ и синтез"
+    en: "analysis and synthesis"
+
+  current:
+    ru: "Сейчас"
+    en: "Current"
+
+  complexity_set:
+    ru: "Сложность: {level}"
+    en: "Complexity: {level}"
+
+# -----------------------------------------------------------------------------
+# Напоминания (scheduler)
+# -----------------------------------------------------------------------------
+reminders:
+  title:
+    ru: "Напоминание"
+    en: "Reminder"
+
+  last_reminder:
+    ru: "Последнее напоминание"
+    en: "Last reminder"
+
+  day_waiting:
+    ru: "День {day} марафона ждёт вас!"
+    en: "Marathon day {day} is waiting for you!"
+
+  day_not_started:
+    ru: "День {day} ещё не начат."
+    en: "Day {day} hasn't started yet."
+
+  two_topics_today:
+    ru: "Всего 2 темы на сегодня: урок и задание."
+    en: "2 topics today: lesson and task."
+
+  regularity_tip:
+    ru: "Помните: *регулярность > интенсивность*."
+    en: "Remember: *consistency > intensity*."
+
+  even_15_min:
+    ru: "Даже 15 минут сегодня — это прогресс."
+    en: "Even 15 minutes today is progress."
+
+  start_command:
+    ru: "/learn — начать"
+    en: "/learn — start"
+
 # -----------------------------------------------------------------------------
 # Профиль
 # -----------------------------------------------------------------------------
@@ -779,6 +1125,10 @@ profile:
     ru: "не указано"
     en: "not specified"
 
+  not_specified_plural:
+    ru: "не указаны"
+    en: "not specified"
+
   first_start:
     ru: "Сначала /start"
     en: "First run /start"
@@ -791,10 +1141,54 @@ profile:
     ru: "не удалось загрузить"
     en: "failed to load"
 
+  your_profile:
+    ru: "Ваш профиль"
+    en: "Your profile"
+
+  name_label:
+    ru: "Имя"
+    en: "Name"
+
+  occupation_label:
+    ru: "Занятие"
+    en: "Occupation"
+
+  interests_label:
+    ru: "Интересы"
+    en: "Interests"
+
+  per_topic:
+    ru: "на тему"
+    en: "per topic"
+
+  marathon_start:
+    ru: "Старт марафона"
+    en: "Marathon start"
+
+  all_correct:
+    ru: "Всё верно?"
+    en: "Is everything correct?"
+
+  marathon_will_start:
+    ru: "Марафон начнётся {date}"
+    en: "Marathon will start {date}"
+
+  date_not_set:
+    ru: "Дата старта не задана"
+    en: "Start date not set"
+
 # -----------------------------------------------------------------------------
 # Обновление профиля
 # -----------------------------------------------------------------------------
 update:
+  saved:
+    ru: "Сохранено!"
+    en: "Saved!"
+
+  start_date_updated:
+    ru: "Дата старта обновлена!"
+    en: "Start date updated!"
+
   your_name:
     ru: "Ваше имя"
     en: "Your name"
@@ -894,6 +1288,34 @@ update:
   difficulty_changed:
     ru: "Сложность изменена"
     en: "Difficulty changed"
+
+  marathon_start_changed:
+    ru: "Дата старта марафона изменена!"
+    en: "Marathon start date changed!"
+
+  new_date:
+    ru: "Новая дата"
+    en: "New date"
+
+  today:
+    ru: "сегодня"
+    en: "today"
+
+  tomorrow:
+    ru: "завтра"
+    en: "tomorrow"
+
+  day_after_tomorrow:
+    ru: "послезавтра"
+    en: "day after tomorrow"
+
+  continue_learning_hint:
+    ru: "/learn — продолжить обучение"
+    en: "/learn — continue learning"
+
+  update_more:
+    ru: "/update — обновить ещё что-то"
+    en: "/update — update something else"
 
 # -----------------------------------------------------------------------------
 # Справка
@@ -1010,6 +1432,10 @@ fsm:
   button_expired:
     ru: "Кнопка устарела. Используйте /learn для продолжения."
     en: "Button expired. Use /learn to continue."
+
+  see_you_later:
+    ru: "Жду вас в {time}! Или /learn"
+    en: "See you at {time}! Or /learn"
 
 # -----------------------------------------------------------------------------
 # Загрузка
@@ -1196,6 +1622,18 @@ marathon:
     ru: "ваш ответ на вопрос (≥20 символов)"
     en: "your answer to the question (≥20 chars)"
 
+  write_more_details:
+    ru: "Напишите подробнее (хотя бы 2-3 предложения)"
+    en: "Please write more details (at least 2-3 sentences)"
+
+  write_wp_minimum:
+    ru: "Напишите хотя бы название рабочего продукта"
+    en: "Please write at least the work product name"
+
+  wp_example_hint:
+    ru: "например: «Список в заметках»"
+    en: "for example: \"List in notes\""
+
   question_hint:
     ru: "Чтобы задать вопрос к ИИ, начните сообщение с ?"
     en: "To ask a question to AI, start your message with ?"
@@ -1223,6 +1661,70 @@ marathon:
   practice_default:
     ru: "задание"
     en: "task"
+
+  congratulations_completed:
+    ru: "Поздравляем! Марафон пройден!"
+    en: "Congratulations! Marathon completed!"
+
+  completed_all_days:
+    ru: "Вы прошли все *{days} дней* и *{topics} тем*."
+    en: "You completed all *{days} days* and *{topics} topics*."
+
+  your_statistics:
+    ru: "Ваша статистика"
+    en: "Your statistics"
+
+  workshop_link:
+    ru: "Заходите в [Мастерскую](https://system-school.ru/) для продвинутых программ."
+    en: "Visit [Workshop](https://system-school.ru/) for advanced programs."
+
+  something_wrong:
+    ru: "Что-то пошло не так. Попробуйте /learn ещё раз."
+    en: "Something went wrong. Please try /learn again."
+
+  marathon_not_started:
+    ru: "Марафон ещё не начался."
+    en: "Marathon hasn't started yet."
+
+  marathon_starts:
+    ru: "Старт: {date}"
+    en: "Starts: {date}"
+
+  marathon_launched:
+    ru: "Марафон запущен!"
+    en: "Marathon launched!"
+
+  day_completed:
+    ru: "День {day} завершён!"
+    en: "Day {day} completed!"
+
+  topics_passed_of_total:
+    ru: "Пройдено тем: {completed}/{total}"
+    en: "Topics completed: {completed}/{total}"
+
+  next_topics_tomorrow:
+    ru: "Следующие темы откроются завтра."
+    en: "Next topics will open tomorrow."
+
+  return_at:
+    ru: "Возвращайтесь в *{time}*!"
+    en: "Come back at *{time}*!"
+
+  now_practicing_learner:
+    ru: "Теперь вы — *Практикующий ученик* с базовыми практиками"
+    en: "Now you are a *Practicing Learner* with basic practices"
+
+  practices_list:
+    ru: "• Слоты саморазвития\n• Трекер практик\n• Мимолётные заметки\n• Рабочие продукты"
+    en: "• Self-development slots\n• Practice tracker\n• Fleeting notes\n• Work products"
+
+  want_continue:
+    ru: "Хотите продолжить развитие?"
+    en: "Want to continue developing?"
+
+  workshop_full_link:
+    ru: "Заходите в [Мастерскую инженеров-менеджеров](https://system-school.ru/)!"
+    en: "Visit the [Engineer-Manager Workshop](https://system-school.ru/)!"
 
 # -----------------------------------------------------------------------------
 # Лента (Feed)
@@ -1353,6 +1855,14 @@ feed:
     ru: "_Оставлены первые 3 темы_"
     en: "_Limited to first 3 topics_"
 
+  select_up_to_3:
+    ru: "*Выберите до 3 тем:*"
+    en: "*Select up to 3 topics:*"
+
+  max_3_topics:
+    ru: "Максимум 3 темы. Снимите выбор с другой темы."
+    en: "Maximum 3 topics. Deselect another topic first."
+
   change_topics:
     ru: "*Изменить темы (до 3):*"
     en: "*Change topics (up to 3):*"
@@ -1389,6 +1899,10 @@ feed:
     ru: "_Углубление {level}_"
     en: "_Deepening {level}_"
 
+  deepening:
+    ru: "Углубление {level}"
+    en: "Deepening {level}"
+
   content_unavailable:
     ru: "Контент недоступен."
     en: "Content unavailable."
@@ -1422,8 +1936,36 @@ feed:
     en: "📊 *Statistics*"
 
   not_active:
-    ru: "📚 *Режим Лента*\n\nЛента не активна. Используйте /feed для запуска."
-    en: "📚 *Feed Mode*\n\nFeed is not active. Use /feed to start."
+    ru: "Лента не активна. Используйте /feed для запуска."
+    en: "Feed is not active. Use /feed to start."
+
+  mode_title:
+    ru: "Режим Лента"
+    en: "Feed Mode"
+
+  active_days_label:
+    ru: "Активных дней"
+    en: "Active days"
+
+  current_streak:
+    ru: "Текущая серия"
+    en: "Current streak"
+
+  topics_deepen_daily:
+    ru: "_С каждым днём темы раскрываются глубже._"
+    en: "_Topics are explored deeper each day._"
+
+  topics_deepen_each_digest:
+    ru: "_С каждым дайджестом темы раскрываются глубже._"
+    en: "_Topics are explored deeper with each digest._"
+
+  your_topics_count:
+    ru: "*Ваши темы ({count}):*"
+    en: "*Your topics ({count}):*"
+
+  depth_level:
+    ru: "Уровень глубины"
+    en: "Depth level"
 
   mode_header:
     ru: "📚 *Режим Лента*"
@@ -1461,6 +2003,11 @@ feed:
 # Общие сообщения
 # -----------------------------------------------------------------------------
 shared:
+  of:
+    ru: "из"
+    en: "of"
+    description: "Предлог 'из' в конструкции 'X из Y'"
+
   thinking:
     ru: "💭 Думаю над ответом..."
     en: "💭 Thinking about the answer..."

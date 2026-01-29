@@ -120,7 +120,7 @@ async def select_marathon(callback: CallbackQuery):
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в select_marathon: {e}\n{traceback.format_exc()}")
-        await callback.answer("Произошла ошибка. Попробуйте ещё раз.", show_alert=True)
+        await callback.answer(t('modes.error_occurred', 'ru'), show_alert=True)
 
 
 async def show_marathon_activated(message, intern: dict, feed_paused: bool = False, edit: bool = False):
@@ -245,9 +245,11 @@ async def show_feed_activated(message, intern: dict, marathon_paused: bool = Fal
 @mode_router.callback_query(F.data == "marathon_continue")
 async def marathon_continue(callback: CallbackQuery):
     """Продолжить марафон (legacy)"""
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     await callback.message.edit_text(
-        "✅ *Режим Марафон*\n\n"
-        "Используйте /learn для продолжения обучения.",
+        f"✅ *{t('modes.marathon_mode', lang)}*\n\n"
+        f"{t('modes.use_learn', lang)}",
         parse_mode="Markdown"
     )
     await callback.answer()
@@ -274,6 +276,8 @@ async def marathon_set_date(callback: CallbackQuery):
     start_date = intern.get('marathon_start_date')
     today = moscow_today()
 
+    lang = intern.get('language', 'ru') or 'ru'
+
     if start_date:
         if hasattr(start_date, 'date'):
             start_date = start_date.date()
@@ -282,14 +286,14 @@ async def marathon_set_date(callback: CallbackQuery):
         current_date_str = start_date.strftime('%d.%m.%Y')
     else:
         marathon_day = 0
-        current_date_str = "не установлена"
+        current_date_str = t('modes.start_date_not_set', lang)
 
     completed = len(intern.get('completed_topics', []))
 
-    text = "🗓 *Дата старта марафона*\n\n"
-    text += f"Текущая: {current_date_str}"
+    text = f"🗓 *{t('modes.start_date_title', lang)}*\n\n"
+    text += f"{t('modes.start_date_current', lang)}: {current_date_str}"
     if start_date:
-        text += f" (день {marathon_day})"
+        text += f" ({t('modes.day_label', lang)} {marathon_day})"
     text += "\n\n"
 
     # Кнопки
@@ -300,23 +304,23 @@ async def marathon_set_date(callback: CallbackQuery):
     day_after = today + timedelta(days=2)
 
     buttons.append([InlineKeyboardButton(
-        text=f"📅 Завтра ({tomorrow.strftime('%d.%m')})",
+        text=f"📅 {t('modes.tomorrow', lang)} ({tomorrow.strftime('%d.%m')})",
         callback_data="marathon_date_tomorrow"
     )])
     buttons.append([InlineKeyboardButton(
-        text=f"📅 Послезавтра ({day_after.strftime('%d.%m')})",
+        text=f"📅 {t('modes.day_after_tomorrow', lang)} ({day_after.strftime('%d.%m')})",
         callback_data="marathon_date_day_after"
     )])
 
     # Кнопка сброса (если есть прогресс)
     if completed > 0:
         buttons.append([InlineKeyboardButton(
-            text="🔄 Сбросить марафон",
+            text=t('buttons.reset_marathon', lang),
             callback_data="marathon_reset_confirm"
         )])
 
     buttons.append([InlineKeyboardButton(
-        text="« Назад",
+        text=t('buttons.back', lang),
         callback_data="marathon_settings_back"
     )])
 
@@ -335,7 +339,9 @@ async def marathon_date_tomorrow(callback: CallbackQuery):
     new_date = today + timedelta(days=1)
 
     await update_intern(callback.message.chat.id, marathon_start_date=new_date)
-    await callback.answer(f"Дата старта: {new_date.strftime('%d.%m.%Y')}")
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
     # Возвращаемся к настройкам
     intern = await get_intern(callback.message.chat.id)
@@ -352,7 +358,9 @@ async def marathon_date_day_after(callback: CallbackQuery):
     new_date = today + timedelta(days=2)
 
     await update_intern(callback.message.chat.id, marathon_start_date=new_date)
-    await callback.answer(f"Дата старта: {new_date.strftime('%d.%m.%Y')}")
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
     # Возвращаемся к настройкам
     intern = await get_intern(callback.message.chat.id)
@@ -367,19 +375,20 @@ async def marathon_reset_confirm(callback: CallbackQuery):
     try:
         chat_id = callback.message.chat.id
         intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
         completed = len(intern.get('completed_topics', []))
 
-        text = "⚠️ *Сбросить марафон?*\n\n"
-        text += "Будет сброшено:\n"
-        text += f"• {completed} пройденных тем\n"
-        text += "• Весь прогресс по дням\n\n"
-        text += "_Статистика Ленты сохранится._"
+        text = f"⚠️ *{t('modes.reset_marathon_title', lang)}*\n\n"
+        text += f"{t('modes.will_be_reset', lang)}:\n"
+        text += f"• {completed} {t('modes.topics_passed', lang)}\n"
+        text += f"• {t('modes.all_progress', lang)}\n\n"
+        text += f"_{t('modes.feed_stats_kept', lang)}_"
 
         buttons = [
             [
-                InlineKeyboardButton(text="🔄 Да, сбросить", callback_data="marathon_reset_do"),
-                InlineKeyboardButton(text="❌ Отмена", callback_data="marathon_settings_back")
+                InlineKeyboardButton(text=f"🔄 {t('modes.yes_reset', lang)}", callback_data="marathon_reset_do"),
+                InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="marathon_settings_back")
             ]
         ]
 
@@ -390,7 +399,7 @@ async def marathon_reset_confirm(callback: CallbackQuery):
     except Exception as e:
         import traceback
         logger.error(f"Ошибка в marathon_reset_confirm: {e}\n{traceback.format_exc()}")
-        await callback.answer("Произошла ошибка", show_alert=True)
+        await callback.answer(t('modes.error_occurred', lang if 'lang' in dir() else 'ru'), show_alert=True)
 
 
 @mode_router.callback_query(F.data == "marathon_reset_do")
@@ -400,6 +409,8 @@ async def marathon_reset_do(callback: CallbackQuery):
 
     chat_id = callback.message.chat.id
     today = moscow_today()
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
     # Сбрасываем прогресс марафона
     await update_intern(chat_id,
@@ -411,12 +422,12 @@ async def marathon_reset_do(callback: CallbackQuery):
         topics_at_current_bloom=0,
     )
 
-    await callback.answer("Марафон сброшен!")
+    await callback.answer(t('modes.marathon_reset', lang))
 
     await callback.message.edit_text(
-        "✅ *Марафон сброшен!*\n\n"
-        f"Новая дата старта: {today.strftime('%d.%m.%Y')}\n\n"
-        "Используйте /learn для начала обучения.",
+        f"✅ *{t('modes.marathon_reset', lang)}*\n\n"
+        f"{t('modes.new_start_date', lang)}: {today.strftime('%d.%m.%Y')}\n\n"
+        f"{t('modes.use_learn_start', lang)}",
         parse_mode="Markdown"
     )
 
@@ -484,24 +495,25 @@ async def marathon_reminders_input(callback: CallbackQuery, state: FSMContext):
     """Запрос ввода времени напоминаний"""
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
     schedule_time = intern.get('schedule_time', '09:00')
     schedule_time_2 = intern.get('schedule_time_2')
 
-    text = "⏰ *Напоминания*\n\n"
-    text += f"Сейчас: {schedule_time}"
+    text = f"⏰ *{t('modes.reminders_title', lang)}*\n\n"
+    text += f"{t('modes.current_time', lang)}: {schedule_time}"
     if schedule_time_2:
         text += f", {schedule_time_2}"
     text += "\n\n"
-    text += "Введите время в формате ЧЧ:ММ\n"
-    text += "Например: `07:30` или `18:00`\n\n"
-    text += "_Для двух напоминаний введите через запятую:_\n"
-    text += "_Например: `07:00, 19:00`_"
+    text += f"{t('modes.enter_time_format', lang)}\n"
+    text += f"{t('modes.time_example', lang)}\n\n"
+    text += f"_{t('modes.two_reminders_hint', lang)}_\n"
+    text += f"_{t('modes.two_reminders_example', lang)}_"
 
     # Устанавливаем FSM-состояние ожидания ввода времени
     await state.set_state(MarathonSettingsStates.waiting_for_time)
 
-    buttons = [[InlineKeyboardButton(text="« Назад", callback_data="marathon_cancel_input")]]
+    buttons = [[InlineKeyboardButton(text=t('buttons.back', lang), callback_data="marathon_cancel_input")]]
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -544,9 +556,11 @@ async def on_marathon_time_input(message: Message, state: FSMContext):
                 pass
 
     if not valid_times:
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
         await message.answer(
-            "❌ Неверный формат времени.\n\n"
-            "Введите в формате ЧЧ:ММ, например: `09:00` или `07:30, 19:00`",
+            f"❌ {t('modes.invalid_time_format', lang)}\n\n"
+            f"{t('modes.enter_time_example', lang)}",
             parse_mode="Markdown"
         )
         return
@@ -564,10 +578,12 @@ async def on_marathon_time_input(message: Message, state: FSMContext):
     await state.clear()
 
     # Показываем подтверждение
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     if schedule_time_2:
-        confirm_text = f"✅ Напоминания установлены: {schedule_time}, {schedule_time_2}"
+        confirm_text = f"✅ {t('modes.reminders_set', lang, time1=schedule_time, time2=schedule_time_2)}"
     else:
-        confirm_text = f"✅ Напоминание установлено: {schedule_time}"
+        confirm_text = f"✅ {t('modes.reminder_set', lang, time=schedule_time)}"
 
     await message.answer(confirm_text)
 
@@ -645,10 +661,11 @@ async def marathon_reminder_2_add(callback: CallbackQuery):
 async def marathon_reminder_2_remove(callback: CallbackQuery):
     """Удалить второе напоминание"""
     await update_intern(callback.message.chat.id, schedule_time_2=None)
-    await callback.answer("Второе напоминание удалено")
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await callback.answer(t('modes.second_reminder_removed', lang))
 
     # Возвращаемся к настройкам напоминаний
-    intern = await get_intern(callback.message.chat.id)
     await marathon_set_reminders(callback)
 
 
@@ -902,26 +919,27 @@ async def feed_reminders_input(callback: CallbackQuery, state: FSMContext):
     """Запрос ввода времени напоминаний для Ленты"""
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
     schedule_time = intern.get('schedule_time', '09:00')
     schedule_time_2 = intern.get('schedule_time_2')
 
-    text = "⏰ *Напоминания*\n\n"
-    text += f"Сейчас: {schedule_time}"
+    text = f"⏰ *{t('modes.reminders_title', lang)}*\n\n"
+    text += f"{t('modes.current_time', lang)}: {schedule_time}"
     if schedule_time_2:
         text += f", {schedule_time_2}"
     text += "\n\n"
-    text += "Введите время в формате ЧЧ:ММ\n"
-    text += "Например: `07:30` или `18:00`\n\n"
-    text += "_Для двух напоминаний введите через запятую:_\n"
-    text += "_Например: `07:00, 19:00`_"
+    text += f"{t('modes.enter_time_format', lang)}\n"
+    text += f"{t('modes.time_example', lang)}\n\n"
+    text += f"_{t('modes.two_reminders_hint', lang)}_\n"
+    text += f"_{t('modes.two_reminders_example', lang)}_"
 
     # Устанавливаем FSM-состояние (используем то же что и для марафона)
     await state.set_state(MarathonSettingsStates.waiting_for_time)
     # Сохраняем что это для ленты
     await state.update_data(return_to='feed')
 
-    buttons = [[InlineKeyboardButton(text="« Назад", callback_data="feed_cancel_input")]]
+    buttons = [[InlineKeyboardButton(text=t('buttons.back', lang), callback_data="feed_cancel_input")]]
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")

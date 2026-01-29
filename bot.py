@@ -1707,7 +1707,7 @@ async def cmd_start(message: Message, state: FSMContext):
         await message.answer(
             t('welcome.returning', lang, name=intern['name']) + "\n" +
             f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
-            f"📊 {t('welcome.activity_progress', lang)}: {total_active} из {marathon_day}\n\n" +
+            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}\n\n" +
             t('commands.learn', lang) + "\n" +
             t('commands.progress', lang) + "\n" +
             t('commands.profile', lang) + "\n" +
@@ -1866,25 +1866,26 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
 
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else 'не указаны'
+    interests_str = ', '.join(intern['interests']) if intern['interests'] else t('profile.not_specified_plural', lang)
     motivation_short = intern['motivation'][:100] + '...' if len(intern['motivation']) > 100 else intern['motivation']
     goals_short = intern['goals'][:100] + '...' if len(intern['goals']) > 100 else intern['goals']
 
     await callback.message.edit_text(
-        f"📋 *Ваш профиль:*\n\n"
-        f"👤 *Имя:* {intern['name']}\n"
-        f"💼 *Занятие:* {intern['occupation']}\n"
-        f"🎨 *Интересы:* {interests_str}\n\n"
-        f"💫 *Что важно:* {motivation_short}\n"
-        f"🎯 *Что изменить:* {goals_short}\n\n"
-        f"{duration.get('emoji', '')} {duration.get('name', '')} на тему\n"
-        f"⏰ Напоминание в {intern['schedule_time']}\n"
-        f"🗓 Старт марафона: *{start_date.strftime('%d.%m.%Y')}*\n\n"
-        f"Всё верно?",
+        f"📋 *{t('profile.your_profile', lang)}:*\n\n"
+        f"👤 *{t('profile.name_label', lang)}:* {intern['name']}\n"
+        f"💼 *{t('profile.occupation_label', lang)}:* {intern['occupation']}\n"
+        f"🎨 *{t('profile.interests_label', lang)}:* {interests_str}\n\n"
+        f"💫 *{t('profile.what_important', lang)}:* {motivation_short}\n"
+        f"🎯 *{t('profile.what_change', lang)}:* {goals_short}\n\n"
+        f"{duration.get('emoji', '')} {duration.get('name', '')} {t('profile.per_topic', lang)}\n"
+        f"⏰ {t('profile.reminder_at', lang)} {intern['schedule_time']}\n"
+        f"🗓 {t('profile.marathon_start', lang)}: *{start_date.strftime('%d.%m.%Y')}*\n\n"
+        f"{t('profile.all_correct', lang)}",
         parse_mode="Markdown",
-        reply_markup=kb_confirm()
+        reply_markup=kb_confirm(lang)
     )
     await state.set_state(OnboardingStates.confirming_profile)
 
@@ -1892,10 +1893,11 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
     await update_intern(callback.message.chat.id, onboarding_completed=True)
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
     marathon_day = get_marathon_day(intern)
     start_date = intern.get('marathon_start_date')
 
-    await callback.answer("Сохранено!")
+    await callback.answer(t('update.saved', lang))
 
     # Определяем, когда старт
     if start_date:
@@ -1903,31 +1905,25 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         if isinstance(start_date, datetime):
             start_date = start_date.date()
         if start_date > today:
-            start_msg = f"🗓 Марафон начнётся *{start_date.strftime('%d.%m.%Y')}*"
+            start_msg = f"🗓 *{t('profile.marathon_will_start', lang, date=start_date.strftime('%d.%m.%Y'))}*"
             can_start_now = False
         else:
-            start_msg = f"🗓 *День {marathon_day} из {MARATHON_DAYS}*"
+            start_msg = f"🗓 *{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}*"
             can_start_now = True
     else:
-        start_msg = "🗓 Дата старта не задана"
+        start_msg = f"🗓 {t('profile.date_not_set', lang)}"
         can_start_now = False
 
-    # Приветственное сообщение для марафона (English + Russian)
+    # Приветственное сообщение для марафона
     await callback.message.edit_text(
-        f"🎉 *Welcome to the Marathon, {intern['name']}!*\n\n"
-        f"14 days from casual learner to systematic practitioner.\n"
-        f"📅 {MARATHON_DAYS} days — 2 topics per day (theory + practice)\n"
-        f"⏱ {intern['study_duration']} minutes per topic\n"
-        f"⏰ Daily reminders at {intern['schedule_time']}\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
-        f"🎉 *Добро пожаловать в марафон, {intern['name']}!*\n\n"
-        f"14 дней от случайного ученика к систематическому.\n"
-        f"📅 {MARATHON_DAYS} дней — по 2 темы в день (урок + задание)\n"
-        f"⏱ {intern['study_duration']} минут на каждую тему\n"
-        f"⏰ Напоминания каждый день в {intern['schedule_time']}\n\n"
+        f"🎉 *{t('welcome.marathon_welcome', lang, name=intern['name'])}*\n\n"
+        f"{t('welcome.marathon_intro', lang)}\n"
+        f"📅 {t('welcome.marathon_days_info', lang, days=MARATHON_DAYS)}\n"
+        f"⏱ {t('welcome.marathon_duration_info', lang, minutes=intern['study_duration'])}\n"
+        f"⏰ {t('welcome.marathon_reminders_info', lang, time=intern['schedule_time'])}\n\n"
         f"{start_msg}",
         parse_mode="Markdown",
-        reply_markup=kb_learn()
+        reply_markup=kb_learn(lang)
     )
     await state.clear()
 
@@ -1943,7 +1939,8 @@ async def on_restart(callback: CallbackQuery, state: FSMContext):
 async def cmd_learn(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
     if not intern['onboarding_completed']:
-        await message.answer("Сначала /start")
+        lang = intern.get('language', 'ru') or 'ru'
+        await message.answer(t('profile.first_start', lang))
         return
     await send_topic(message.chat.id, state, message.bot)
 
@@ -1956,8 +1953,9 @@ async def cb_learn(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "later")
 async def cb_later(callback: CallbackQuery):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
     await callback.answer()
-    await callback.message.edit_text(f"Жду вас в {intern['schedule_time']}! Или /learn")
+    await callback.message.edit_text(t('fsm.see_you_later', lang, time=intern['schedule_time']))
 
 @router.message(Command("progress"))
 async def cmd_progress(message: Message):
@@ -2053,9 +2051,10 @@ async def show_full_progress(callback: CallbackQuery):
 
         chat_id = callback.message.chat.id
         intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
         if not intern:
-            await callback.message.edit_text("Профиль не найден. Используйте /start")
+            await callback.message.edit_text(t('profile.not_found', lang))
             return
 
         # Получаем полную статистику
@@ -2100,10 +2099,10 @@ async def show_full_progress(callback: CallbackQuery):
 
             if d['status'] == 'completed':
                 emoji = "✅"
-                wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
+                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
             elif d['status'] == 'in_progress':
                 emoji = "🔄"
-                wp_text = f" | РП: {wp_count}" if wp_count > 0 else ""
+                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
             elif d['status'] == 'available':
                 emoji = "📍"
                 wp_text = ""
@@ -2111,7 +2110,7 @@ async def show_full_progress(callback: CallbackQuery):
                 continue  # Пропускаем заблокированные дни
 
             status_text = f"{d['completed']}/{d['total']}"
-            days_text += f"   {emoji} День {day_num}: {status_text}{wp_text}\n"
+            days_text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
 
         # Лента
         try:
@@ -2119,54 +2118,51 @@ async def show_full_progress(callback: CallbackQuery):
             feed_engine = FeedEngine(chat_id)
             feed_status = await feed_engine.get_status()
             feed_topics = feed_status.get('topics', [])
-            feed_topics_text = ", ".join(feed_topics) if feed_topics else "не выбраны"
+            feed_topics_text = ", ".join(feed_topics) if feed_topics else t('progress.topics_not_selected', lang)
         except Exception as e:
             logger.error(f"Ошибка получения feed_status: {e}")
             feed_topics_text = "—"
 
-        name = intern.get('name', 'Пользователь')
-        text = f"📊 *Полный отчёт с {date_str}: {name}*\n\n"
-        text += f"📈 *Активных дней (Марафон+Лента):* {total_active} из {days_since}\n\n"
+        name = intern.get('name', 'User')
+        text = f"📊 *{t('progress.full_report_title', lang, date=date_str, name=name)}*\n\n"
+        text += f"📈 *{t('progress.active_days_both', lang)}:* {total_active} {t('shared.of', lang)} {days_since}\n\n"
 
         # Марафон
-        text += f"🏃 *Марафон*\n"
-        text += f"День {marathon_day} из {MARATHON_DAYS}\n"
-        text += f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
-        text += f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
-        text += f"Рабочих продуктов: {total_stats.get('total_work_products', 0)}\n"
+        text += f"🏃 *{t('progress.marathon_title', lang)}*\n"
+        text += f"{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
+        text += f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+        text += f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
+        text += f"{t('progress.work_products_count', lang)}: {total_stats.get('total_work_products', 0)}\n"
 
         # По дням
         if days_text:
-            text += f"\n📋 *По дням:*\n{days_text}"
+            text += f"\n📋 *{t('progress.by_days', lang)}:*\n{days_text}"
 
         # Отставание (сколько дней контента пропущено)
         # Считаем количество полностью завершённых дней марафона
         days_progress = get_days_progress(intern.get('completed_topics', []), marathon_day)
         completed_days = sum(1 for d in days_progress if d['status'] == 'completed')
         lag = marathon_day - completed_days
-        if lag > 0:
-            text += f"Отставание: {lag} дней\n"
-        else:
-            text += f"Отставание: 0 дней\n"
+        text += f"{t('progress.lag', lang)}: {lag} {t('progress.days', lang)}\n"
 
         # Лента
-        text += f"\n📚 *Лента*\n"
-        text += f"Дайджестов: {total_stats.get('total_digests', 0)}\n"
-        text += f"Фиксаций: {total_stats.get('total_fixations', 0)}\n"
-        text += f"Темы: {feed_topics_text}"
+        text += f"\n📚 *{t('progress.feed_title', lang)}*\n"
+        text += f"{t('progress.digests_count', lang)}: {total_stats.get('total_digests', 0)}\n"
+        text += f"{t('progress.fixations_count', lang)}: {total_stats.get('total_fixations', 0)}\n"
+        text += f"{t('progress.topics_colon', lang)}: {feed_topics_text}"
 
         # Кнопки
         from config import Mode
         current_mode = intern.get('mode', Mode.MARATHON)
 
         if current_mode == Mode.FEED:
-            continue_btn = InlineKeyboardButton(text="📖 Получить дайджест", callback_data="feed_get_digest")
+            continue_btn = InlineKeyboardButton(text=f"📖 {t('progress.get_digest', lang)}", callback_data="feed_get_digest")
         else:
-            continue_btn = InlineKeyboardButton(text="📚 Продолжить обучение", callback_data="learn")
+            continue_btn = InlineKeyboardButton(text=f"📚 {t('progress.continue_learning', lang)}", callback_data="learn")
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [continue_btn],
-            [InlineKeyboardButton(text="« Назад", callback_data="progress_back")]
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_back")]
         ])
 
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -2176,7 +2172,7 @@ async def show_full_progress(callback: CallbackQuery):
         import traceback
         logger.error(traceback.format_exc())
         await callback.message.edit_text(
-            "Не удалось загрузить полный отчёт. Попробуйте позже.\n\n/progress — вернуться"
+            f"{t('progress.full_report_error', lang)}\n\n/progress"
         )
 
 
@@ -2203,8 +2199,10 @@ async def go_to_update(callback: CallbackQuery):
     """Переход к настройкам"""
     await callback.answer()
     # Имитируем команду /update
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     await callback.message.delete()
-    await callback.message.answer("/update — настройки профиля")
+    await callback.message.answer(t('commands.update', lang))
 
 
 @router.callback_query(F.data == "go_progress")
@@ -2503,26 +2501,28 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(UpdateStates.updating_marathon_start, F.data.startswith("start_"))
 async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     today = moscow_today()
 
     if callback.data == "start_today":
         start_date = today
-        date_text = "сегодня"
+        date_text = t('update.today', lang)
     elif callback.data == "start_tomorrow":
         start_date = today + timedelta(days=1)
-        date_text = "завтра"
+        date_text = t('update.tomorrow', lang)
     else:  # start_day_after
         start_date = today + timedelta(days=2)
-        date_text = "послезавтра"
+        date_text = t('update.day_after_tomorrow', lang)
 
     await update_intern(callback.message.chat.id, marathon_start_date=start_date)
 
-    await callback.answer("Дата старта обновлена!")
+    await callback.answer(t('update.start_date_updated', lang))
     await callback.message.edit_text(
-        f"✅ Дата старта марафона изменена!\n\n"
-        f"Новая дата: *{start_date.strftime('%d.%m.%Y')}* ({date_text})\n\n"
-        f"/learn — продолжить обучение\n"
-        f"/update — обновить ещё что-то",
+        f"✅ {t('update.marathon_start_changed', lang)}\n\n"
+        f"{t('update.new_date', lang)}: *{start_date.strftime('%d.%m.%Y')}* ({date_text})\n\n"
+        f"{t('update.continue_learning_hint', lang)}\n"
+        f"{t('update.update_more', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
@@ -2693,7 +2693,7 @@ async def on_answer(message: Message, state: FSMContext, bot: Bot):
             return  # Остаёмся в состоянии waiting_for_answer
 
     if len(text.strip()) < 20:
-        await message.answer("Напишите подробнее (хотя бы 2-3 предложения)")
+        await message.answer(t('marathon.write_more_details', lang))
         return
 
     # Сохраняем ответ
@@ -2928,7 +2928,7 @@ async def on_bonus_answer(message: Message, state: FSMContext, bot: Bot):
             return  # Остаёмся в состоянии waiting_for_bonus_answer
 
     if len(text.strip()) < 20:
-        await message.answer("Напишите подробнее (хотя бы 2-3 предложения)")
+        await message.answer(t('marathon.write_more_details', lang))
         return
 
     # intern и lang уже получены выше
@@ -3029,7 +3029,7 @@ async def on_work_product(message: Message, state: FSMContext):
             return  # Остаёмся в состоянии waiting_for_work_product
 
     if len(text.strip()) < 3:
-        await message.answer("Напишите хотя бы название рабочего продукта (например: «Список в заметках»)")
+        await message.answer(f"{t('marathon.write_wp_minimum', lang)} ({t('marathon.wp_example_hint', lang)})")
         return
 
     # Сохраняем ответ (рабочий продукт)
@@ -3111,6 +3111,7 @@ async def on_skip_practice(callback: CallbackQuery, state: FSMContext):
 
 async def send_topic(chat_id: int, state: Optional[FSMContext], bot: Bot):
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     marathon_day = get_marathon_day(intern)
 
     # Автоматический запуск марафона при первом /learn
@@ -3120,9 +3121,9 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot: Bot):
             # Дата старта в будущем
             await bot.send_message(
                 chat_id,
-                f"🗓 Марафон ещё не начался.\n\n"
-                f"Старт: *{start_date.strftime('%d.%m.%Y')}*\n\n"
-                f"Если хотите изменить дату — /update",
+                f"🗓 {t('marathon.marathon_not_started', lang)}\n\n"
+                f"{t('marathon.marathon_starts', lang, date=start_date.strftime('%d.%m.%Y'))}\n\n"
+                f"{t('update.update_more', lang)}",
                 parse_mode="Markdown"
             )
             return
@@ -3132,10 +3133,9 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot: Bot):
             await update_intern(chat_id, marathon_start_date=today)
             await bot.send_message(
                 chat_id,
-                f"🚀 *Марафон запущен!*\n\n"
-                f"Старт: *{today.strftime('%d.%m.%Y')}* (сегодня)\n\n"
-                f"Если хотите изменить дату старта — /update\n\n"
-                f"А сейчас — ваша первая тема! 👇",
+                f"🚀 *{t('marathon.marathon_launched', lang)}*\n\n"
+                f"{t('marathon.marathon_starts', lang, date=today.strftime('%d.%m.%Y'))} ({t('update.today', lang)})\n\n"
+                f"{t('update.update_more', lang)}",
                 parse_mode="Markdown"
             )
             # Обновляем данные
@@ -3182,10 +3182,10 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot: Bot):
             # Темы за сегодня закончились, ждём следующий день
             await bot.send_message(
                 chat_id,
-                f"✅ *День {marathon_day} завершён!*\n\n"
-                f"Пройдено тем: {completed_count}/{total_topics}\n\n"
-                f"Следующие темы откроются завтра.\n"
-                f"Возвращайтесь в *{intern['schedule_time']}*!",
+                f"✅ *{t('marathon.day_completed', lang, day=marathon_day)}*\n\n"
+                f"{t('marathon.topics_passed_of_total', lang, completed=completed_count, total=total_topics)}\n\n"
+                f"{t('marathon.next_topics_tomorrow', lang)}\n"
+                f"{t('marathon.return_at', lang, time=intern['schedule_time'])}",
                 parse_mode="Markdown"
             )
             return
@@ -3196,19 +3196,19 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot: Bot):
 
             await bot.send_message(
                 chat_id,
-                "🎉 *Поздравляем! Марафон пройден!*\n\n"
-                f"Вы прошли все *{MARATHON_DAYS} дней* и *{total_topics} тем*.\n\n"
-                f"📊 *Ваша статистика:*\n"
-                f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
-                f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
-                "Заходите в [Мастерскую](https://system-school.ru/) для продвинутых программ.",
+                f"🎉 *{t('marathon.congratulations_completed', lang)}*\n\n"
+                f"{t('marathon.completed_all_days', lang, days=MARATHON_DAYS, topics=total_topics)}\n\n"
+                f"📊 *{t('marathon.your_statistics', lang)}:*\n"
+                f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+                f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
+                f"{t('marathon.workshop_link', lang)}",
                 parse_mode="Markdown"
             )
             return
 
         await bot.send_message(
             chat_id,
-            "⚠️ Что-то пошло не так. Попробуйте /learn ещё раз.",
+            f"⚠️ {t('marathon.something_wrong', lang)}",
             parse_mode="Markdown"
         )
         return
@@ -3339,6 +3339,7 @@ state_machine = None
 async def send_scheduled_topic(chat_id: int, bot: Bot):
     """Отправка темы по расписанию"""
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     marathon_day = get_marathon_day(intern)
 
     # Проверяем, начался ли марафон
@@ -3366,18 +3367,15 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
             await bot.send_message(
                 chat_id,
-                "🎉 *Поздравляем! Марафон пройден!*\n\n"
-                f"Вы прошли все *{MARATHON_DAYS} дней* и *{total} тем*.\n\n"
-                f"📊 *Ваша статистика:*\n"
-                f"📖 Уроков: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
-                f"📝 Заданий: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
-                "Теперь вы — *Практикующий ученик* с базовыми практиками:\n"
-                "• Слоты саморазвития\n"
-                "• Трекер практик\n"
-                "• Мимолётные заметки\n"
-                "• Рабочие продукты\n\n"
-                "Хотите продолжить развитие?\n"
-                "Заходите в [Мастерскую инженеров-менеджеров](https://system-school.ru/)!",
+                f"🎉 *{t('marathon.congratulations_completed', lang)}*\n\n"
+                f"{t('marathon.completed_all_days', lang, days=MARATHON_DAYS, topics=total)}\n\n"
+                f"📊 *{t('marathon.your_statistics', lang)}:*\n"
+                f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+                f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
+                f"{t('marathon.now_practicing_learner', lang)}:\n"
+                f"{t('marathon.practices_list', lang)}\n\n"
+                f"{t('marathon.want_continue', lang)}\n"
+                f"{t('marathon.workshop_full_link', lang)}",
                 parse_mode="Markdown"
             )
         return
@@ -3430,6 +3428,7 @@ async def schedule_reminders(chat_id: int, intern: dict):
 async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     """Отправляет напоминание"""
     intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     topics_today = get_topics_today(intern)
 
     # Если уже начал изучение сегодня — не напоминаем
@@ -3443,20 +3442,20 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     if reminder_type == '+1h':
         await bot.send_message(
             chat_id,
-            f"⏰ *Напоминание*\n\n"
-            f"День {marathon_day} марафона ждёт вас!\n\n"
-            f"Всего 2 темы на сегодня: урок и задание.\n\n"
-            f"/learn — начать",
+            f"⏰ *{t('reminders.title', lang)}*\n\n"
+            f"{t('reminders.day_waiting', lang, day=marathon_day)}\n\n"
+            f"{t('reminders.two_topics_today', lang)}\n\n"
+            f"{t('reminders.start_command', lang)}",
             parse_mode="Markdown"
         )
     elif reminder_type == '+3h':
         await bot.send_message(
             chat_id,
-            f"🔔 *Последнее напоминание*\n\n"
-            f"День {marathon_day} ещё не начат.\n\n"
-            f"Помните: *регулярность > интенсивность*.\n"
-            f"Даже 15 минут сегодня — это прогресс.\n\n"
-            f"/learn — начать",
+            f"🔔 *{t('reminders.last_reminder', lang)}*\n\n"
+            f"{t('reminders.day_not_started', lang, day=marathon_day)}\n\n"
+            f"{t('reminders.regularity_tip', lang)}\n"
+            f"{t('reminders.even_15_min', lang)}\n\n"
+            f"{t('reminders.start_command', lang)}",
             parse_mode="Markdown"
         )
 
