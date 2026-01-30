@@ -28,6 +28,7 @@ from core.helpers import (
     get_search_keys,
     get_bloom_questions,
 )
+from core.knowledge import get_topic_title
 from i18n.prompts import (
     get_content_prompts,
     get_practice_prompts,
@@ -376,7 +377,7 @@ Translate and adapt everything to the target language."""
     async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
         """Генерирует вопрос по теме с учётом уровня сложности и метаданных темы
 
-        Использует шаблоны вопросов из метаданных темы (topics/*.yaml) если доступны.
+        Использует локализованные промпты из i18n/prompts.py.
         Учитывает:
         - Сложность 1 (Различения): вопросы "в чём разница"
         - Сложность 2 (Понимание): открытые вопросы
@@ -390,9 +391,14 @@ Translate and adapt everything to the target language."""
         Returns:
             Сгенерированный вопрос
         """
-        # Используем bloom_level для обратной совместимости, но теперь это "сложность"
+        # Получаем язык пользователя
+        lang = intern.get('language', 'ru')
+
+        # Загружаем локализованные промпты
+        qp = get_question_prompts(lang)
+
+        # Используем bloom_level для обратной совместимости
         level = bloom_level or intern.get('bloom_level', intern.get('complexity_level', 1))
-        bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
         occupation = intern.get('occupation', '') or 'работа'
         study_duration = intern.get('study_duration', 15)
 
@@ -401,7 +407,6 @@ Translate and adapt everything to the target language."""
         metadata = load_topic_metadata(topic_id) if topic_id else None
 
         # Получаем настройки вопросов из метаданных
-        question_config = {}
         question_templates = []
         if metadata:
             question_config = get_bloom_questions(metadata, level, study_duration)
@@ -412,7 +417,7 @@ Translate and adapt everything to the target language."""
         lang = intern.get('language', 'ru')
         qp = get_question_prompts(lang)
 
-        # Определяем тип вопроса по уровню сложности
+        # Определяем тип вопроса по уровню сложности (локализованный)
         question_type_hint = qp.get(f'question_type_{level}', qp['question_type_1'])
 
         # Формируем подсказки по шаблонам
@@ -420,7 +425,10 @@ Translate and adapt everything to the target language."""
         if question_templates:
             templates_hint = f"\n{qp['examples_hint']}\n- " + "\n- ".join(question_templates[:3])
 
-        system_prompt = f"""Ты генерируешь ТОЛЬКО ОДИН КОРОТКИЙ ВОПРОС. Ничего больше.
+        # Получаем локализованный заголовок темы
+        topic_title = get_topic_title(topic, lang)
+
+        system_prompt = f"""{qp['generate_question']}
 
 {qp['lang_instruction']}
 
@@ -432,19 +440,19 @@ Translate and adapt everything to the target language."""
 
 {qp['only_question']}
 {qp['related_to_occupation']} "{occupation}".
-{qp['complexity_level']} {bloom['short_name']} — {bloom['desc']}
+{qp['complexity_level']} {level}
 {question_type_hint}
 {templates_hint}
 
 {ONTOLOGY_RULES}"""
 
-        user_prompt = f"""{qp['topic']}: {topic.get('title')}
-{qp['concept']}: {topic.get('main_concept')}
+        user_prompt = f"""{qp['topic']}: {topic_title}
+{qp['concept']}: {topic.get('main_concept', '')}
 
 {qp['output_only_question']}"""
 
         result = await self.generate(system_prompt, user_prompt)
-        return result or bloom['question_type'].format(concept=topic.get('main_concept', 'эту тему'))
+        return result or qp['error_generation']
 
 
 # Создаём экземпляр клиента
