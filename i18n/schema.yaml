@@ -1582,6 +1582,10 @@ marathon:
     ru: "Переходим к заданию..."
     en: "Moving to the practice task..."
 
+  redirecting_to_practice:
+    ru: "Переходим к практике..."
+    en: "Redirecting to practice..."
+
   day_complete:
     ru: "День завершён! Возвращайтесь завтра."
     en: "Day complete! See you tomorrow."
