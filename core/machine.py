@@ -330,4 +330,11 @@ class StateMachine:
             logger.warning(f"Не удалось сохранить стейт в БД: {e}")
 
         # Вход в новый стейт
-        await to_state.enter(user, full_context)
+        event = await to_state.enter(user, full_context)
+
+        # Если enter() вернул событие — обрабатываем переход
+        if event:
+            next_state_name = self.get_next_state(state_name, event, chat_id)
+            if next_state_name and next_state_name != state_name:
+                logger.info(f"[SM] Auto-transition from {state_name} via event '{event}'")
+                await self.go_to(user, next_state_name, full_context)
