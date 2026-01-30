@@ -96,7 +96,7 @@ class MarathonLessonState(BaseState):
             'current_topic_index': getattr(user, 'current_topic_index', 0),
         }
 
-    async def enter(self, user, context: dict = None) -> None:
+    async def enter(self, user, context: dict = None) -> Optional[str]:
         """
         Показываем урок текущего дня.
 
@@ -106,6 +106,9 @@ class MarathonLessonState(BaseState):
         - Лимит тем на сегодня не превышен?
 
         Генерируем контент через Claude API.
+
+        Returns:
+            "lesson_shown" для автоперехода к вопросу, или None
         """
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
@@ -196,6 +199,9 @@ class MarathonLessonState(BaseState):
 
             logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
 
+            # Автоматический переход к вопросу
+            return "lesson_shown"
+
         except Exception as e:
             logger.error(f"Error generating content for user {chat_id}: {e}")
             await self.send(
@@ -204,6 +210,7 @@ class MarathonLessonState(BaseState):
                 f"_{t('errors.try_again_later', lang)}_",
                 parse_mode="Markdown"
             )
+            return None
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
