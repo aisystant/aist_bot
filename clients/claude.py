@@ -27,6 +27,8 @@ from core.helpers import (
     get_search_keys,
     get_bloom_questions,
 )
+from core.knowledge import get_topic_title
+from i18n.prompts import get_question_prompts
 
 logger = get_logger(__name__)
 
@@ -275,7 +277,7 @@ class ClaudeClient:
     async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
         """Генерирует вопрос по теме с учётом уровня сложности и метаданных темы
 
-        Использует шаблоны вопросов из метаданных темы (topics/*.yaml) если доступны.
+        Использует локализованные промпты из i18n/prompts.py.
         Учитывает:
         - Сложность 1 (Различения): вопросы "в чём разница"
         - Сложность 2 (Понимание): открытые вопросы
@@ -289,9 +291,14 @@ class ClaudeClient:
         Returns:
             Сгенерированный вопрос
         """
-        # Используем bloom_level для обратной совместимости, но теперь это "сложность"
+        # Получаем язык пользователя
+        lang = intern.get('language', 'ru')
+
+        # Загружаем локализованные промпты
+        qp = get_question_prompts(lang)
+
+        # Используем bloom_level для обратной совместимости
         level = bloom_level or intern.get('bloom_level', intern.get('complexity_level', 1))
-        bloom = BLOOM_LEVELS.get(level, BLOOM_LEVELS[1])
         occupation = intern.get('occupation', '') or 'работа'
         study_duration = intern.get('study_duration', 15)
 
@@ -300,60 +307,48 @@ class ClaudeClient:
         metadata = load_topic_metadata(topic_id) if topic_id else None
 
         # Получаем настройки вопросов из метаданных
-        question_config = {}
         question_templates = []
         if metadata:
             question_config = get_bloom_questions(metadata, level, study_duration)
             question_templates = question_config.get('question_templates', [])
             logger.info(f"Загружены шаблоны вопросов для {topic_id}: bloom_{level}, {study_duration}мин, {len(question_templates)} шаблонов")
 
-        # Определяем тип вопроса по уровню сложности
-        question_type_hints = {
-            1: "Задай вопрос на РАЗЛИЧЕНИЕ понятий (\"В чём разница между...\", \"Чем отличается...\").",
-            2: "Задай ОТКРЫТЫЙ вопрос на понимание (\"Почему...\", \"Как вы понимаете...\", \"Объясните связь...\").",
-            3: "Задай вопрос на ПРИМЕНЕНИЕ и АНАЛИЗ (\"Приведите пример из жизни\", \"Проанализируйте ситуацию\", \"Как бы вы объяснили коллеге...\")."
-        }
-        question_type_hint = question_type_hints.get(level, question_type_hints[1])
+        # Определяем тип вопроса по уровню сложности (локализованный)
+        question_type_hint = qp.get(f'question_type_{level}', qp.get('question_type_1', ''))
 
         # Формируем подсказки по шаблонам
         templates_hint = ""
         if question_templates:
-            templates_hint = f"\nПРИМЕРЫ ВОПРОСОВ (используй как образец стиля):\n- " + "\n- ".join(question_templates[:3])
+            templates_hint = f"\n{qp['examples_hint']}\n- " + "\n- ".join(question_templates[:3])
 
-        # Определяем язык ответа
-        lang = intern.get('language', 'ru')
-        lang_instruction = {
-            'ru': "ВАЖНО: Задай вопрос на русском языке.",
-            'en': "IMPORTANT: Ask the question in English.",
-            'es': "IMPORTANTE: Haz la pregunta en español.",
-            'fr': "IMPORTANT: Pose la question en français."
-        }.get(lang, "IMPORTANT: Ask the question in English.")
+        # Получаем локализованный заголовок темы
+        topic_title = get_topic_title(topic, lang)
 
-        system_prompt = f"""Ты генерируешь ТОЛЬКО ОДИН КОРОТКИЙ ВОПРОС. Ничего больше.
+        system_prompt = f"""{qp['generate_question']}
 
-{lang_instruction}
+{qp['lang_instruction']}
 
-СТРОГО ЗАПРЕЩЕНО:
-- Писать введение, объяснения, контекст или любой текст перед вопросом
-- Писать заголовки типа "Вопрос:", "Вопрос для размышления:" и т.п.
-- Писать примеры, истории, мотивацию
-- Писать что-либо после вопроса
+{qp['forbidden_header']}
+{qp['forbidden_intro']}
+{qp['forbidden_headers']}
+{qp['forbidden_examples']}
+{qp['forbidden_after']}
 
-Выдай ТОЛЬКО сам вопрос — 1-3 предложения максимум.
-Вопрос должен быть связан с профессией: "{occupation}".
-Уровень сложности: {bloom['short_name']} — {bloom['desc']}
+{qp['only_question']}
+{qp['related_to_occupation']} "{occupation}".
+{qp['complexity_level']} {level}
 {question_type_hint}
 {templates_hint}
 
 {ONTOLOGY_RULES}"""
 
-        user_prompt = f"""Тема: {topic.get('title')}
-Понятие: {topic.get('main_concept')}
+        user_prompt = f"""{qp['topic']}: {topic_title}
+{qp['concept']}: {topic.get('main_concept', '')}
 
-Выдай ТОЛЬКО вопрос (1-3 предложения), без введения и пояснений."""
+{qp['output_only_question']}"""
 
         result = await self.generate(system_prompt, user_prompt)
-        return result or bloom['question_type'].format(concept=topic.get('main_concept', 'эту тему'))
+        return result or qp['error_generation']
 
 
 # Создаём экземпляр клиента
