@@ -370,6 +370,11 @@ async def init_db():
         # Миграции для таблицы answers
         await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS answer_type TEXT DEFAULT 'theory_answer'")
         await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'marathon'")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS topic_id TEXT")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS work_product_category TEXT")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS feedback TEXT")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS feed_session_id INTEGER")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS complexity_level INTEGER")
 
         # FSM состояния (персистентное хранилище)
         await conn.execute('''
