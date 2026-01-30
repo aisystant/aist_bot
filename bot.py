@@ -378,6 +378,7 @@ async def init_db():
         await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS work_product_category TEXT")
         await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS feedback TEXT")
         await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS feed_session_id INTEGER")
+        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS complexity_level INTEGER")
 
         # FSM состояния (персистентное хранилище)
         await conn.execute('''
