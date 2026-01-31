@@ -262,8 +262,13 @@ class FeedEngine:
         if not week:
             return False, t('feed.no_active_week_short', lang)
 
+        # Сначала ищем сессию за сегодня
         today = date.today()
         session = await get_feed_session(week['id'], today)
+
+        # Если нет за сегодня — ищем незавершённую за предыдущие дни
+        if not session:
+            session = await self._get_incomplete_session(week['id'])
 
         if not session:
             return False, t('feed.start_digest_first', lang)
