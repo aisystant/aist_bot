@@ -1,36 +1,66 @@
 """
-Стейт: Показ дайджеста Ленты.
+Стейт: Дайджест Ленты.
 
-Вход: после выбора тем (feed.topics)
-Выход:
-  - feed.topics (смена тем или новая неделя)
-  - common.mode_select (выход из Ленты)
+Вход: из feed.topics (после выбора тем)
+Выход: остаёмся в этом стейте (циклический режим) или common.mode_select
 """
 
-from typing import Optional
+import asyncio
+from datetime import datetime, date
+from typing import Optional, Dict
 
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from states.base import BaseState
 from i18n import t
-from db.queries import update_intern, moscow_today
+from db.queries.users import get_intern, update_intern
+from db.queries.feed import (
+    get_current_feed_week,
+    update_feed_week,
+    create_feed_session,
+    get_feed_session,
+    update_feed_session,
+    get_incomplete_feed_session,
+)
+from db.queries.activity import record_active_day, get_activity_stats
+from engines.feed.planner import generate_multi_topic_digest
+from engines.shared import handle_question
+from config import get_logger, FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN
+
+logger = get_logger(__name__)
+
+# Таймаут на генерацию контента (секунды)
+CONTENT_GENERATION_TIMEOUT = 90
 
 
 class FeedDigestState(BaseState):
     """
-    Стейт показа дайджеста.
+    Стейт показа дайджеста и приёма фиксации.
 
-    Показывает дайджест по выбранным темам, ждёт фиксацию.
+    Объединяет функционал показа дайджеста и ожидания фиксации.
+    Пользователь может:
+    - Читать дайджест
+    - Задавать вопросы
+    - Писать фиксацию
+    - Менять темы
     """
 
     name = "feed.digest"
-    display_name = {"ru": "Дайджест", "en": "Digest", "es": "Resumen", "fr": "Résumé"}
+    display_name = {
+        "ru": "Дайджест Ленты",
+        "en": "Feed Digest",
+        "es": "Resumen del Feed",
+        "fr": "Digest du Flux"
+    }
     allow_global = ["consultation", "notes"]
+
+    # Состояние пользователя: chat_id -> {'session_id': int, 'waiting_fixation': bool}
+    _user_data: Dict[int, Dict] = {}
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
         if isinstance(user, dict):
-            return user.get('language', 'ru')
+            return user.get('language', 'ru') or 'ru'
         return getattr(user, 'language', 'ru') or 'ru'
 
     def _get_chat_id(self, user) -> int:
@@ -39,135 +69,405 @@ class FeedDigestState(BaseState):
             return user.get('chat_id')
         return getattr(user, 'chat_id', None)
 
-    def _get_depth_level(self, user) -> int:
-        """Получить текущий уровень глубины."""
+    def _user_to_intern_dict(self, user) -> dict:
+        """Конвертировать user в dict для совместимости."""
         if isinstance(user, dict):
-            return user.get('feed_depth_level', 1)
-        return getattr(user, 'feed_depth_level', 1)
+            return user
+        return {
+            'chat_id': getattr(user, 'chat_id', None),
+            'language': getattr(user, 'language', 'ru'),
+            'name': getattr(user, 'name', ''),
+            'occupation': getattr(user, 'occupation', ''),
+            'feed_duration': getattr(user, 'feed_duration', FEED_SESSION_DURATION_MAX),
+        }
 
-    def _get_accepted_topics(self, user) -> list:
-        """Получить выбранные темы недели."""
-        if isinstance(user, dict):
-            return user.get('feed_accepted_topics', [])
-        return getattr(user, 'feed_accepted_topics', [])
-
-    async def enter(self, user, context: dict = None) -> None:
+    async def enter(self, user, context: dict = None) -> Optional[str]:
         """
-        Показываем дайджест.
+        Показываем дайджест на сегодня.
 
-        Context может содержать:
-        - from_topics: пришли после выбора тем
-        - depth_level: текущий уровень глубины
+        1. Проверяем активную неделю
+        2. Проверяем/создаём сессию на сегодня
+        3. Генерируем контент если нужно
+        4. Показываем дайджест
+
+        Returns:
+            "digest_shown" или None
         """
         lang = self._get_lang(user)
-        context = context or {}
+        chat_id = self._get_chat_id(user)
+        intern = self._user_to_intern_dict(user)
 
-        depth = context.get('depth_level', self._get_depth_level(user))
-        topics = self._get_accepted_topics(user)
-        topics_str = ", ".join(topics) if topics else "Общие темы"
+        # Получаем текущую неделю
+        week = await get_current_feed_week(chat_id)
 
-        # Показываем индикатор генерации
-        await self.send(user, f"⏳ {t('feed.generating_digest', lang)}")
+        if not week:
+            await self.send(user, t('feed.no_active_week', lang))
+            return "done"
 
-        # Генерация дайджеста делегируется LLM клиенту
-        # TODO: Интеграция с engines/feed/engine.py
+        if week.get('status') != FeedWeekStatus.ACTIVE:
+            if week.get('status') == FeedWeekStatus.PLANNING:
+                await self.send(user, t('feed.select_topics_first', lang))
+                return "change_topics"
+            await self.send(user, t('feed.week_completed', lang))
+            return "done"
 
-        # Название уровня глубины
-        depth_names = {
-            1: t('feed.depth_basic', lang),
-            2: t('feed.depth_practical', lang),
-            3: t('feed.depth_integration', lang),
+        # Проверяем сессию на сегодня
+        today = date.today()
+        existing = await get_feed_session(week['id'], today)
+
+        if existing:
+            if existing.get('status') == 'completed':
+                await self.send(user, f"✅ {t('feed.digest_completed_today', lang)}")
+                await self._show_menu(user, week)
+                return None
+
+            # Показываем существующую сессию
+            await self._show_digest(user, existing, week)
+            return None
+
+        # Проверяем незавершённую сессию за прошлые дни
+        incomplete = await get_incomplete_feed_session(week['id'])
+        if incomplete:
+            await self.send(user, t('feed.incomplete_digest', lang))
+            await self._show_digest(user, incomplete, week)
+            return None
+
+        # Генерируем новый дайджест
+        await self.send(user, f"⏳ {t('loading.generating_content', lang)}")
+
+        try:
+            topics = week.get('accepted_topics', [])
+            depth_level = week.get('current_day', 1)
+
+            if not topics:
+                await self.send(user, t('feed.no_topics_selected', lang))
+                return "change_topics"
+
+            # Длительность из профиля
+            duration = intern.get('feed_duration', FEED_SESSION_DURATION_MAX)
+            if not duration or duration < FEED_SESSION_DURATION_MIN:
+                duration = (FEED_SESSION_DURATION_MIN + FEED_SESSION_DURATION_MAX) // 2
+
+            # Генерируем контент
+            content = await asyncio.wait_for(
+                generate_multi_topic_digest(
+                    topics=topics,
+                    intern=intern,
+                    duration=duration,
+                    depth_level=depth_level,
+                ),
+                timeout=CONTENT_GENERATION_TIMEOUT
+            )
+
+            # Создаём сессию
+            topics_title = ", ".join(topics)
+            session = await create_feed_session(
+                week_id=week['id'],
+                day_number=depth_level,
+                topic_title=topics_title,
+                content=content,
+                session_date=today,
+            )
+
+            # Показываем дайджест
+            await self._show_digest(user, session, week)
+            return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"Digest generation timeout for user {chat_id}")
+            await self.send(user, t('errors.generation_timeout', lang))
+            return None
+        except Exception as e:
+            logger.error(f"Error generating digest for user {chat_id}: {e}")
+            await self.send(user, t('errors.try_again', lang))
+            return None
+
+    async def _show_digest(self, user, session: dict, week: dict) -> None:
+        """Показывает дайджест."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        content = session.get('content', {})
+        topics_list = content.get('topics_list', [])
+        depth_level = content.get('depth_level', session.get('day_number', 1))
+
+        # Формируем заголовок
+        if topics_list:
+            topics_str = ", ".join(topics_list)
+            text = t('feed.digest_header', lang, topics=topics_str) + "\n"
+        else:
+            topic = session.get('topic_title', t('feed.topics_of_day', lang))
+            text = t('feed.digest_header', lang, topics=topic) + "\n"
+
+        # Показываем уровень глубины
+        if depth_level > 1:
+            text += f"_{t('feed.deepening', lang, level=depth_level)}_\n"
+
+        text += "\n"
+
+        if content.get('intro'):
+            text += f"_{content['intro']}_\n\n"
+
+        text += content.get('main_content', t('feed.content_unavailable', lang))
+
+        if content.get('reflection_prompt'):
+            text += f"\n\n💭 *{content['reflection_prompt']}*"
+
+        # Подсказка о возможности задать вопрос
+        text += f"\n\n—\n💡 _{t('feed.ask_details', lang)}_"
+
+        # Кнопки
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"✍️ {t('buttons.write_fixation', lang)}",
+                callback_data="feed_fixation"
+            )],
+            [InlineKeyboardButton(
+                text=f"📋 {t('feed.whats_next', lang)}",
+                callback_data="feed_whats_next"
+            )]
+        ])
+
+        # Сохраняем состояние
+        self._user_data[chat_id] = {
+            'session_id': session['id'],
+            'waiting_fixation': False,
+            'week_id': week['id'],
         }
-        depth_name = depth_names.get(depth, t('feed.depth_deep', lang))
 
-        await self.send(
-            user,
-            f"📖 *{t('feed.digest_title', lang)}*\n"
-            f"_{topics_str}_\n\n"
-            f"📊 *{t('feed.depth_level', lang)}:* {depth} — {depth_name}\n\n"
-            f"_Контент дайджеста будет сгенерирован..._\n\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
-            f"💭 *{t('feed.reflection_question', lang)}*\n"
-            f"_Как эти идеи связаны с вашей работой?_\n\n"
-            f"💬 *{t('feed.waiting_for', lang)}:* {t('feed.fixation', lang)}",
-            parse_mode="Markdown"
-        )
+        # Отправляем (разбиваем длинные сообщения)
+        if len(text) > 4000:
+            parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+            for i, part in enumerate(parts):
+                if i == len(parts) - 1:
+                    await self.send(user, part, reply_markup=keyboard, parse_mode="Markdown")
+                else:
+                    await self.send(user, part, parse_mode="Markdown")
+        else:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _show_menu(self, user, week: dict) -> None:
+        """Показывает меню Ленты."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        topics = week.get('accepted_topics', [])
+
+        text = f"📚 *{t('feed.menu_title', lang)}*\n\n"
+
+        if topics:
+            text += f"{t('feed.your_topics_label', lang)}\n"
+            for i, topic in enumerate(topics, 1):
+                text += f"{i}. {topic}\n"
+        else:
+            text += f"{t('feed.no_topics', lang)}\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"📖 {t('buttons.get_digest', lang)}",
+                callback_data="feed_get_digest"
+            )],
+            [InlineKeyboardButton(
+                text=f"📋 {t('buttons.topics_menu', lang)}",
+                callback_data="feed_topics_menu"
+            )]
+        ])
+
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
-        Обрабатываем ответ пользователя.
+        Обрабатываем сообщения пользователя.
 
-        Returns:
-        - "fixation_saved" → _same (следующий дайджест)
-        - "change_topics" → topics (смена тем)
-        - "done" → mode_select (выход)
-        - None → остаёмся (короткий ответ или вопрос)
+        - Фиксация (если ожидаем)
+        - Вопрос к материалу
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        # Вопрос к ИИ
-        if text.startswith('?'):
-            question = text[1:].strip()
-            if question:
-                await self.send(
-                    user,
-                    f"_Ответ на ваш вопрос..._\n\n"
-                    f"💬 *{t('feed.waiting_for', lang)}:* {t('feed.fixation', lang)}",
-                    parse_mode="Markdown"
-                )
+        if text.startswith('/'):
             return None
 
-        # Команды
-        if text.lower() in ["новая неделя", "new week", "темы", "topics"]:
-            await self.send(user, t('feed.changing_topics', lang))
-            return "change_topics"
+        data = self._user_data.get(chat_id, {})
 
-        if text.lower() in ["выход", "exit", "готово", "done"]:
-            await self.send(user, t('feed.exit', lang))
-            return "done"
+        # Ожидаем фиксацию?
+        if data.get('waiting_fixation'):
+            return await self._handle_fixation(user, text)
 
-        # Слишком короткая фиксация
+        # Иначе — это вопрос к материалу
+        if len(text) >= 3:
+            await self._handle_question(user, text)
+
+        return None
+
+    async def _handle_fixation(self, user, text: str) -> Optional[str]:
+        """Обрабатывает фиксацию."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
         if len(text) < 10:
-            await self.send(
-                user,
-                f"{t('feed.fixation_too_short', lang)}\n\n"
-                f"💬 *{t('feed.waiting_for', lang)}:* {t('feed.fixation', lang)}",
+            await self.send(user, t('feed.fixation_too_short', lang))
+            return None
+
+        data = self._user_data.get(chat_id, {})
+        session_id = data.get('session_id')
+
+        if not session_id:
+            await self.send(user, t('feed.start_digest_first', lang))
+            return None
+
+        try:
+            # Сохраняем фиксацию
+            await update_feed_session(session_id, {
+                'fixation_text': text,
+                'status': 'completed',
+                'completed_at': datetime.utcnow(),
+            })
+
+            # Записываем активность
+            await record_active_day(
+                chat_id=chat_id,
+                activity_type='feed_fixation',
+                mode='feed',
+                reference_id=session_id,
+            )
+
+            # Увеличиваем уровень глубины
+            week_id = data.get('week_id')
+            if week_id:
+                week = await get_current_feed_week(chat_id)
+                if week:
+                    new_depth = week.get('current_day', 1) + 1
+                    await update_feed_week(week_id, {'current_day': new_depth})
+
+            # Показываем статистику
+            stats = await get_activity_stats(chat_id)
+
+            stat_text = (
+                f"✅ {t('feed.fixation_saved', lang)}\n\n"
+                f"📊 *{t('progress.statistics', lang)}*\n"
+                f"• {t('feed.active_days_label', lang)}: {stats.get('total', 0)}\n"
+                f"• {t('feed.current_streak', lang)}: {stats.get('streak', 0)} {t('progress.days', lang)}"
+            )
+            await self.send(user, stat_text, parse_mode="Markdown")
+
+            # Сбрасываем ожидание фиксации
+            self._user_data[chat_id]['waiting_fixation'] = False
+
+            # Показываем меню
+            week = await get_current_feed_week(chat_id)
+            if week:
+                await self._show_menu(user, week)
+
+            return "fixation_saved"
+
+        except Exception as e:
+            logger.error(f"Error saving fixation: {e}")
+            await self.send(user, t('errors.try_again', lang))
+            return None
+
+    async def _handle_question(self, user, question: str) -> None:
+        """Обрабатывает вопрос пользователя."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        # Получаем контекст (темы недели)
+        week = await get_current_feed_week(chat_id)
+        context_topics = None
+        if week:
+            topics = week.get('accepted_topics', [])
+            if topics:
+                context_topics = ", ".join(topics)
+
+        # Получаем профиль
+        intern = await get_intern(chat_id)
+
+        await self.send(user, t('shared.thinking', lang))
+
+        try:
+            answer, sources = await handle_question(
+                question=question,
+                intern=intern,
+                context_topic=context_topics
+            )
+
+            response = answer
+            if sources:
+                response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
+
+            await self.send(user, response, parse_mode="Markdown")
+
+        except Exception as e:
+            logger.error(f"Error handling question: {e}")
+            await self.send(user, t('shared.question_error', lang))
+
+    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Обрабатываем нажатия кнопок."""
+        data = callback.data
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        if data == "feed_fixation":
+            # Начинаем ожидание фиксации
+            self._user_data.setdefault(chat_id, {})['waiting_fixation'] = True
+
+            await callback.message.answer(
+                f"✍️ *{t('feed.fixation_title', lang)}*\n\n"
+                f"{t('feed.fixation_instruction', lang)}\n\n"
+                f"_{t('feed.fixation_hint', lang)}_",
                 parse_mode="Markdown"
             )
+            await callback.answer()
             return None
 
-        # Сохраняем фиксацию
-        # TODO: Сохранить в feed_sessions
-        # await save_fixation(chat_id, text)
+        elif data == "feed_whats_next":
+            # Показываем темы
+            week = await get_current_feed_week(chat_id)
+            if not week:
+                await callback.answer(t('errors.try_again', lang), show_alert=True)
+                return None
 
-        depth = self._get_depth_level(user)
-        today = moscow_today()
+            topics = week.get('accepted_topics', [])
 
-        # Обновляем прогресс
-        if chat_id:
-            await update_intern(
-                chat_id,
-                feed_depth_level=depth + 1,
-                last_feed_date=today
-            )
+            text = f"📋 *{t('feed.topics_menu_title', lang)}*\n\n"
+            if topics:
+                text += f"{t('feed.your_topics_label', lang)}\n"
+                for i, topic in enumerate(topics, 1):
+                    text += f"{i}. {topic}\n"
+                text += f"\n{t('feed.topics_deepen_daily', lang)}"
+            else:
+                text += f"{t('feed.no_topics', lang)}"
 
-        # Подтверждение
-        await self.send(
-            user,
-            f"✅ *{t('feed.fixation_saved', lang)}*\n\n"
-            f"📊 *{t('feed.stats', lang)}:*\n"
-            f"🎯 {t('feed.depth_reached', lang)}: {depth}\n"
-            f"📅 {t('feed.next_digest', lang)}",
-            parse_mode="Markdown"
-        )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"✏️ {t('buttons.topics_menu', lang)}",
+                    callback_data="feed_topics_menu"
+                )]
+            ])
 
-        return "fixation_saved"
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+            await callback.answer()
+            return None
+
+        elif data == "feed_topics_menu":
+            # Переход к редактированию тем
+            await callback.answer()
+            return "change_topics"
+
+        elif data == "feed_get_digest":
+            # Показать дайджест
+            await callback.answer()
+            week = await get_current_feed_week(chat_id)
+            if week:
+                intern = await get_intern(chat_id)
+                await self.enter(intern, {})
+            return None
+
+        return None
 
     async def exit(self, user) -> dict:
-        """Передаём контекст."""
-        return {
-            "digest_completed": True,
-            "depth_level": self._get_depth_level(user)
-        }
+        """Очищаем временные данные."""
+        chat_id = self._get_chat_id(user)
+        self._user_data.pop(chat_id, None)
+        return {}
