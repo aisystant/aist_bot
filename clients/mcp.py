@@ -65,7 +65,7 @@ class MCPClient:
                     self.base_url,
                     headers={"Content-Type": "application/json"},
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    timeout=aiohttp.ClientTimeout(total=10)
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -87,7 +87,7 @@ class MCPClient:
                         logger.error(f"{self.name} HTTP error {resp.status}: {error[:500]}")
                         return None
         except asyncio.TimeoutError:
-            logger.error(f"{self.name} request timeout (30s)")
+            logger.error(f"{self.name} request timeout (10s)")
             return None
         except Exception as e:
             logger.error(f"{self.name} exception: {e}", exc_info=True)
