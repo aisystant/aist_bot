@@ -134,17 +134,19 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.daily_limit', lang))
             return
 
-        # Получаем тему
+        # Получаем тему (пропускаем practice, ищем следующую theory)
         topic = get_topic(topic_index)
+        while topic and topic.get('type', 'theory') != 'theory':
+            # Пропускаем practice темы — они обрабатываются через task.py
+            logger.info(f"Skipping practice topic {topic_index}, looking for next theory")
+            topic_index += 1
+            topic = get_topic(topic_index)
+            # Обновляем индекс в БД
+            if chat_id and topic:
+                await update_intern(chat_id, current_topic_index=topic_index)
+
         if not topic:
             await self.send(user, t('marathon.no_topics_available', lang))
-            return
-
-        # Проверяем тип темы (theory или practice)
-        topic_type = topic.get('type', 'theory')
-        if topic_type != 'theory':
-            # Для практики используем другой стейт
-            await self.send(user, t('marathon.redirecting_to_practice', lang))
             return
 
         # Показываем сообщение о загрузке
