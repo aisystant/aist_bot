@@ -399,6 +399,7 @@ marathon:
   training_skills: "Tu entraînes les compétences"
   and_higher: "et supérieures."
   loading_practice: "Passage à la tâche pratique..."
+  redirecting_to_practice: "Passage à la pratique..."
   day_complete: "Journée terminée ! Reviens demain."
   practice_accepted: "Pratique terminée !"
   generating_material: "Génération du contenu personnalisé..."
