@@ -18,13 +18,15 @@
 
 | Метрика | Таблица | Запрос |
 |---------|---------|--------|
-| Активные дни (неделя) | `activity_log` | `COUNT DISTINCT activity_date WHERE date > NOW() - 7 days` |
+| Активные дни (неделя) | `activity_log` | `COUNT DISTINCT activity_date WHERE activity_date >= week_start` |
 | Активные дни (всего) | `interns` | `active_days_total` |
 | Текущая серия | `interns` | `active_days_streak` |
-| Пройдено тем | `interns` | `completed_topics` |
-| Рабочие продукты | `answers` | `COUNT WHERE answer_type = 'work_product'` |
+| Пройдено тем | `interns` | `len(completed_topics)` |
+| Рабочие продукты | `answers` | `COUNT WHERE answer_type = 'work_product' OR answer LIKE '[РП]%'` |
 | Дайджесты | `feed_sessions` | `COUNT WHERE status = 'completed'` |
 | Фиксации | `answers` | `COUNT WHERE answer_type = 'fixation'` |
+
+> **Примечание:** `week_start = today - timedelta(days=today.weekday())` — понедельник текущей недели.
 
 ---
 
@@ -169,3 +171,4 @@ cmd_progress()
 | 2026-01-23 | Создание документа |
 | 2026-01-25 | Добавлен раздел 3 «Расчёт отставания» и функция get_days_progress() |
 | 2026-01-31 | Исправлен подсчёт статистики: фиксации теперь сохраняются в answers, дайджесты фильтруются по status='completed' |
+| 2026-02-01 | Унифицирован период «за неделю» = с понедельника (во всех функциях). Добавлено описание week_start. |
