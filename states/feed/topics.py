@@ -5,29 +5,53 @@
 Выход: feed.digest (после выбора тем)
 """
 
-from typing import Optional
+import asyncio
+import re
+from typing import Optional, List, Dict
 
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from states.base import BaseState
 from i18n import t
+from db.queries.users import get_intern, update_intern
+from db.queries.feed import (
+    create_feed_week,
+    get_current_feed_week,
+    update_feed_week,
+)
+from engines.feed.planner import suggest_weekly_topics
+from config import get_logger, Mode, FeedStatus, FeedWeekStatus
+
+logger = get_logger(__name__)
+
+# Таймаут на генерацию тем (секунды)
+TOPICS_GENERATION_TIMEOUT = 60
 
 
 class FeedTopicsState(BaseState):
     """
-    Стейт выбора тем для Ленты.
+    Стейт выбора тем на неделю.
 
-    Генерирует 5 тем, показывает меню, принимает выбор (1-3 темы).
+    Генерирует персонализированные темы через Claude API
+    и позволяет пользователю выбрать 1-3 темы.
     """
 
     name = "feed.topics"
-    display_name = {"ru": "Выбор тем", "en": "Topic Selection", "es": "Selección de temas", "fr": "Sélection de sujets"}
+    display_name = {
+        "ru": "Выбор тем Ленты",
+        "en": "Feed Topics Selection",
+        "es": "Selección de temas",
+        "fr": "Sélection des sujets"
+    }
     allow_global = ["consultation", "notes"]
+
+    # Хранение выбранных тем для пользователя (chat_id -> data)
+    _user_data: Dict[int, Dict] = {}
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
         if isinstance(user, dict):
-            return user.get('language', 'ru')
+            return user.get('language', 'ru') or 'ru'
         return getattr(user, 'language', 'ru') or 'ru'
 
     def _get_chat_id(self, user) -> int:
@@ -36,144 +60,345 @@ class FeedTopicsState(BaseState):
             return user.get('chat_id')
         return getattr(user, 'chat_id', None)
 
-    async def enter(self, user, context: dict = None) -> None:
-        """
-        Показываем меню выбора тем.
+    def _user_to_intern_dict(self, user) -> dict:
+        """Конвертировать user в dict для совместимости."""
+        if isinstance(user, dict):
+            return user
+        return {
+            'chat_id': getattr(user, 'chat_id', None),
+            'language': getattr(user, 'language', 'ru'),
+            'name': getattr(user, 'name', ''),
+            'occupation': getattr(user, 'occupation', ''),
+            'interests': getattr(user, 'interests', []),
+            'goals': getattr(user, 'goals', ''),
+            'motivation': getattr(user, 'motivation', ''),
+        }
 
-        Context может содержать:
-        - new_week: True если это начало новой недели
-        - suggested_topics: уже сгенерированные темы
+    def _escape_markdown(self, text: str) -> str:
+        """Экранирует специальные символы Markdown."""
+        if not text:
+            return ''
+        for char in ['_', '*', '[', ']', '`']:
+            text = text.replace(char, '\\' + char)
+        return text
+
+    async def enter(self, user, context: dict = None) -> Optional[str]:
+        """
+        Показываем интерфейс выбора тем.
+
+        1. Проверяем, есть ли активная неделя
+        2. Если нет — генерируем темы
+        3. Показываем интерфейс выбора
+
+        Returns:
+            "topics_selected" если уже есть активная неделя, None иначе
         """
         lang = self._get_lang(user)
-        context = context or {}
+        chat_id = self._get_chat_id(user)
+        intern = self._user_to_intern_dict(user)
 
-        # Показываем индикатор генерации
-        await self.send(user, f"⏳ {t('feed.generating_topics', lang)}")
+        # Обновляем режим пользователя
+        await update_intern(chat_id, mode=Mode.FEED, feed_status=FeedStatus.ACTIVE)
 
-        # Генерация тем делегируется LLM клиенту
-        # TODO: Интеграция с engines/feed/planner.py
+        # Проверяем текущую неделю
+        week = await get_current_feed_week(chat_id)
 
-        # Заглушка: 5 тем
-        topics = context.get('suggested_topics', [
-            "Собранность",
-            "Внимание",
-            "Рефлексия",
-            "Целеполагание",
-            "Привычки",
+        if week and week.get('status') == FeedWeekStatus.ACTIVE:
+            # Уже есть активная неделя — переходим к дайджесту
+            return "topics_selected"
+
+        if week and week.get('status') == FeedWeekStatus.PLANNING:
+            # Неделя в планировании — показываем существующие темы
+            suggested = week.get('suggested_topics', [])
+            if suggested:
+                topics = [{'title': topic_name, 'why': ''} for topic_name in suggested]
+                await self._show_topic_selection(user, topics)
+                return None
+
+        # Генерируем новые темы
+        await self.send(user, f"⏳ {t('loading.generating_topics', lang)}")
+
+        try:
+            topics = await asyncio.wait_for(
+                suggest_weekly_topics(intern),
+                timeout=TOPICS_GENERATION_TIMEOUT
+            )
+
+            if not topics:
+                await self.send(user, t('feed.topics_generation_failed', lang))
+                return "skip"
+
+            # Сохраняем темы в неделю (статус PLANNING)
+            await create_feed_week(
+                chat_id=chat_id,
+                suggested_topics=[topic['title'] for topic in topics],
+                accepted_topics=[],
+            )
+
+            # Показываем выбор
+            await self._show_topic_selection(user, topics)
+            return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"Topics generation timeout for user {chat_id}")
+            await self.send(user, t('errors.generation_timeout', lang))
+            return "skip"
+        except Exception as e:
+            logger.error(f"Error generating topics for user {chat_id}: {e}")
+            await self.send(user, t('errors.try_again', lang))
+            return "skip"
+
+    async def _show_topic_selection(self, user, topics: List[Dict]) -> None:
+        """Показывает интерфейс выбора тем."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        # Сохраняем темы во временное хранилище
+        self._user_data[chat_id] = {
+            'suggested_topics': topics,
+            'selected_indices': []
+        }
+
+        # Формируем текст
+        text = f"📚 *{t('feed.suggested_topics', lang)}*\n\n"
+
+        for i, topic in enumerate(topics):
+            title = self._escape_markdown(topic.get('title', ''))
+            why = self._escape_markdown(topic.get('why', ''))
+            text += f"*{i+1}. {title}*\n"
+            if why:
+                text += f"   _{why}_\n"
+            text += "\n"
+
+        text += "—\n"
+        text += f"{t('feed.select_up_to_3', lang)}\n"
+        text += f"{t('feed.select_hint', lang)}\n"
+        text += f"_{t('feed.select_example', lang)}_"
+
+        # Кнопки выбора тем
+        buttons = []
+        for i, topic in enumerate(topics):
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"☐ {topic['title'][:30]}",
+                    callback_data=f"feed_topic_{i}"
+                )
+            ])
+
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✅ {t('buttons.confirm_selection', lang)}",
+                callback_data="feed_confirm"
+            )
         ])
 
-        # Формируем сообщение
-        topics_text = "\n".join([
-            f"{i+1}️⃣ *{topic}*"
-            for i, topic in enumerate(topics)
-        ])
-
-        await self.send(
-            user,
-            f"📋 *{t('feed.choose_topics', lang)}*\n\n"
-            f"{topics_text}\n\n"
-            f"_{t('feed.choose_hint', lang)}_\n\n"
-            f"💬 *{t('feed.waiting_for', lang)}:* {t('feed.topic_selection', lang)}",
-            parse_mode="Markdown"
-        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
-        Обрабатываем выбор тем.
+        Обрабатываем текстовый выбор тем.
 
-        Returns:
-        - "topics_selected" → digest
-        - "skip" → mode_select
-        - None → остаёмся (неверный формат)
+        Форматы:
+        - "1, 3, 5" — выбор по номерам
+        - "тема 2 и собранность" — номера + кастомные
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        # Вопрос к ИИ
-        if text.startswith('?'):
-            question = text[1:].strip()
-            if question:
-                await self.send(
-                    user,
-                    f"_Ответ на ваш вопрос..._\n\n"
-                    f"💬 *{t('feed.waiting_for', lang)}:* {t('feed.topic_selection', lang)}",
-                    parse_mode="Markdown"
-                )
+        if text.startswith('/'):
+            # Команды обрабатываются отдельно
             return None
 
-        # Пропуск
-        if "пропустить" in text.lower() or "skip" in text.lower():
-            await self.send(user, t('feed.topic_selection_skipped', lang))
-            return "skip"
+        # Получаем сохранённые темы
+        data = self._user_data.get(chat_id, {})
+        topics = data.get('suggested_topics', [])
 
-        # Парсинг выбора тем (1, 2, 3 или "тема 1 и тема 2")
-        selected = self._parse_topic_selection(text)
+        if not topics:
+            await self.send(user, t('feed.use_feed_first', lang))
+            return None
 
-        if not selected or len(selected) > 3:
+        # Парсим выбор
+        selected_indices, custom_topics = self._parse_topic_selection(text, len(topics))
+
+        if not selected_indices and not custom_topics:
             await self.send(
                 user,
-                f"{t('feed.invalid_selection', lang)}\n\n"
-                f"💬 *{t('feed.waiting_for', lang)}:* {t('feed.topic_selection', lang)}",
+                f"{t('feed.select_hint', lang)}\n"
+                f"_{t('feed.select_example', lang)}_",
                 parse_mode="Markdown"
             )
             return None
 
-        # TODO: Сохранить выбранные темы в feed_weeks
-        # await save_feed_week(chat_id, accepted_topics=selected)
+        # Собираем выбранные темы
+        selected_titles = [topics[i]['title'] for i in sorted(selected_indices)]
+        selected_titles.extend(custom_topics)
 
-        # Подтверждение
-        topics_str = ", ".join(selected)
-        await self.send(
-            user,
-            f"✅ *{t('feed.topics_selected', lang)}*\n{topics_str}",
-            parse_mode="Markdown"
-        )
+        # Ограничиваем до 3 тем
+        if len(selected_titles) > 3:
+            selected_titles = selected_titles[:3]
+            await self.send(user, t('feed.limited_to_3', lang))
 
-        return "topics_selected"
+        # Принимаем темы
+        success = await self._accept_topics(chat_id, selected_titles, lang)
 
-    def _parse_topic_selection(self, text: str) -> list[str]:
-        """
-        Парсит выбор тем из текста.
+        if success:
+            # Очищаем временные данные
+            self._user_data.pop(chat_id, None)
+            return "topics_selected"
 
-        Поддерживает:
-        - "1, 2, 3" → индексы
-        - "1 и 3" → индексы
-        - "собранность, внимание" → названия
-        """
-        # Заглушка: темы по умолчанию
-        default_topics = [
-            "Собранность",
-            "Внимание",
-            "Рефлексия",
-            "Целеполагание",
-            "Привычки",
-        ]
+        return None
 
-        selected = []
+    def _parse_topic_selection(self, text: str, topics_count: int) -> tuple:
+        """Парсит текстовый выбор тем."""
+        selected_indices = set()
+        custom_topics = []
 
-        # Ищем цифры
-        import re
-        numbers = re.findall(r'\d+', text)
+        # Ищем номера тем (1-5)
+        numbers = re.findall(r'\b([1-5])\b', text)
         for num in numbers:
             idx = int(num) - 1
-            if 0 <= idx < len(default_topics):
-                topic = default_topics[idx]
-                if topic not in selected:
-                    selected.append(topic)
+            if 0 <= idx < topics_count:
+                selected_indices.add(idx)
 
-        # Если не нашли цифры, ищем названия тем
-        if not selected:
-            text_lower = text.lower()
-            for topic in default_topics:
-                if topic.lower() in text_lower:
-                    selected.append(topic)
+        # Ищем кастомные темы
+        custom_patterns = [
+            r'(?:хочу|добавь|ещё|еще|также)\s+(?:про\s+)?([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
+            r'(?:и\s+)?про\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
+        ]
 
-        return selected[:3]  # Максимум 3 темы
+        for pattern in custom_patterns:
+            matches = re.findall(pattern, text.lower())
+            for match in matches:
+                topic = match.strip()
+                if len(topic) >= 3 and not topic.isdigit():
+                    topic = re.sub(r'^(тему?|темы)\s+', '', topic)
+                    if topic and len(topic) >= 3:
+                        custom_topics.append(topic.capitalize())
+
+        return selected_indices, custom_topics
+
+    async def _accept_topics(self, chat_id: int, titles: List[str], lang: str) -> bool:
+        """Принимает выбранные темы."""
+        try:
+            week = await get_current_feed_week(chat_id)
+            if not week:
+                return False
+
+            # Обновляем неделю
+            await update_feed_week(week['id'], {
+                'accepted_topics': titles,
+                'status': FeedWeekStatus.ACTIVE,
+                'current_day': 1,
+            })
+
+            # Показываем подтверждение
+            confirm_text = f"✅ {t('feed.topics_selected', lang)}\n\n"
+            confirm_text += f"{t('feed.selected_topics', lang)}\n"
+            confirm_text += "\n".join([f"✓ {title}" for title in titles])
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"📖 {t('buttons.get_digest', lang)}",
+                    callback_data="feed_get_digest"
+                )]
+            ])
+
+            await self.bot.send_message(chat_id, confirm_text, reply_markup=keyboard)
+            return True
+
+        except Exception as e:
+            logger.error(f"Error accepting topics: {e}")
+            return False
+
+    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
+        """
+        Обрабатываем нажатия кнопок.
+
+        Вызывается из роутера callback-ов.
+        """
+        data = callback.data
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        user_data = self._user_data.get(chat_id, {})
+        topics = user_data.get('suggested_topics', [])
+        selected = list(user_data.get('selected_indices', []))
+
+        if data.startswith("feed_topic_"):
+            # Переключение выбора темы
+            index = int(data.replace("feed_topic_", ""))
+
+            if index in selected:
+                selected.remove(index)
+            else:
+                if len(selected) >= 3:
+                    await callback.answer(t('feed.max_3_topics', lang), show_alert=True)
+                    return None
+                selected.append(index)
+
+            # Обновляем данные
+            self._user_data[chat_id]['selected_indices'] = selected
+
+            # Обновляем кнопки
+            buttons = []
+            for i, topic in enumerate(topics):
+                mark = "☑" if i in selected else "☐"
+                buttons.append([
+                    InlineKeyboardButton(
+                        text=f"{mark} {topic['title'][:30]}",
+                        callback_data=f"feed_topic_{i}"
+                    )
+                ])
+
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"✅ {t('buttons.confirm_selection', lang)}",
+                    callback_data="feed_confirm"
+                )
+            ])
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+            try:
+                await callback.message.edit_reply_markup(reply_markup=keyboard)
+            except Exception:
+                pass
+
+            await callback.answer()
+            return None
+
+        elif data == "feed_confirm":
+            # Подтверждение выбора
+            if not selected:
+                await callback.answer(t('feed.select_hint', lang), show_alert=True)
+                return None
+
+            # Получаем названия выбранных тем
+            selected_titles = [topics[i]['title'] for i in sorted(selected)]
+
+            # Принимаем темы
+            success = await self._accept_topics(chat_id, selected_titles, lang)
+
+            if success:
+                self._user_data.pop(chat_id, None)
+                await callback.answer()
+                return "topics_selected"
+
+            await callback.answer(t('errors.try_again', lang), show_alert=True)
+            return None
+
+        elif data == "feed_get_digest":
+            # Переход к дайджесту
+            await callback.answer()
+            return "topics_selected"
+
+        return None
 
     async def exit(self, user) -> dict:
         """Передаём контекст следующему стейту."""
-        return {
-            "from_topics": True,
-            "week_started": True
-        }
+        chat_id = self._get_chat_id(user)
+        # Очищаем временные данные
+        self._user_data.pop(chat_id, None)
+        return {}
