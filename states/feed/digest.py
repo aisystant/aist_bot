@@ -19,6 +19,7 @@ from db.queries.feed import (
     update_feed_week,
     create_feed_session,
     get_feed_session,
+    get_feed_session_by_id,
     update_feed_session,
     get_incomplete_feed_session,
 )
@@ -318,12 +319,27 @@ class FeedDigestState(BaseState):
             return None
 
         try:
-            # Сохраняем фиксацию
+            # Получаем информацию о сессии для сохранения
+            session = await get_feed_session_by_id(session_id)
+
+            # Сохраняем фиксацию в feed_sessions
             await update_feed_session(session_id, {
                 'fixation_text': text,
                 'status': 'completed',
                 'completed_at': datetime.utcnow(),
             })
+
+            # Сохраняем фиксацию в answers для статистики
+            from db.queries.answers import save_answer
+            await save_answer(
+                chat_id=chat_id,
+                topic_index=session.get('day_number', 0) if session else 0,
+                answer=text,
+                mode='feed',
+                answer_type='fixation',
+                topic_id=session.get('topic_title') if session else None,
+                feed_session_id=session_id,
+            )
 
             # Записываем активность
             await record_active_day(

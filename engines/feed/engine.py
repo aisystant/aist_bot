@@ -276,12 +276,24 @@ class FeedEngine:
         if session['status'] == 'completed':
             return False, t('feed.digest_already_completed', lang)
 
-        # Сохраняем фиксацию
+        # Сохраняем фиксацию в feed_sessions
         await update_feed_session(session['id'], {
             'fixation_text': text,
             'status': 'completed',
             'completed_at': datetime.utcnow(),
         })
+
+        # Сохраняем фиксацию в answers для статистики
+        from db.queries.answers import save_answer
+        await save_answer(
+            chat_id=self.chat_id,
+            topic_index=session.get('day_number', 0),
+            answer=text,
+            mode='feed',
+            answer_type='fixation',
+            topic_id=session.get('topic_title'),
+            feed_session_id=session['id'],
+        )
 
         # Записываем активность
         await record_active_day(

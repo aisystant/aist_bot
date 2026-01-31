@@ -121,6 +121,30 @@ async def update_feed_session(session_id: int, updates: dict):
             )
 
 
+async def get_feed_session_by_id(session_id: int) -> Optional[dict]:
+    """Получить сессию по ID"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT * FROM feed_sessions WHERE id = $1',
+            session_id
+        )
+
+        if row:
+            return {
+                'id': row['id'],
+                'week_id': row['week_id'],
+                'day_number': row['day_number'],
+                'topic_title': row['topic_title'],
+                'content': json.loads(row['content']) if row['content'] else {},
+                'fixation_text': row.get('fixation_text', ''),
+                'session_date': row['session_date'],
+                'status': row['status'],
+                'completed_at': row.get('completed_at'),
+            }
+        return None
+
+
 async def get_feed_session(week_id: int, session_date: date) -> Optional[dict]:
     """Получить сессию по week_id и дате"""
     pool = await get_pool()

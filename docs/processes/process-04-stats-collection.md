@@ -52,22 +52,23 @@
 **Возвращает:**
 ```python
 {
-    'topics_completed': int,
-    'work_products': int,
-    'bonus_answers': int
+    'active_days': int,      # Активные дни за неделю
+    'theory_answers': int,   # Ответы на уроки
+    'work_products': int,    # Рабочие продукты
+    'bonus_answers': int     # Бонусные ответы
 }
 ```
 
 ### get_weekly_feed_stats()
 
-**Файл:** `db/queries/feed.py`
+**Файл:** `db/queries/answers.py`
 
 **Возвращает:**
 ```python
 {
-    'digests_count': int,
-    'fixations_count': int,
-    'topics': list[str]
+    'active_days': int,   # Активные дни за неделю
+    'digests': int,       # Завершённые дайджесты (status='completed')
+    'fixations': int      # Фиксации (из answers)
 }
 ```
 
@@ -167,3 +168,4 @@ cmd_progress()
 |------|-----------|
 | 2026-01-23 | Создание документа |
 | 2026-01-25 | Добавлен раздел 3 «Расчёт отставания» и функция get_days_progress() |
+| 2026-01-31 | Исправлен подсчёт статистики: фиксации теперь сохраняются в answers, дайджесты фильтруются по status='completed' |

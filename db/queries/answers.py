@@ -129,8 +129,9 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
     Returns:
         {
             'active_days': int,
-            'topics_completed': int,
-            'work_products': int
+            'theory_answers': int,   # Ответы на уроки
+            'work_products': int,    # Рабочие продукты
+            'bonus_answers': int     # Бонусные ответы
         }
     """
     from .users import moscow_today
@@ -149,7 +150,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
               AND activity_date >= $2
         ''', chat_id, week_start)
 
-        # Ответы за неделю
+        # Ответы за неделю по типам
         answers = await conn.fetch('''
             SELECT answer, answer_type
             FROM answers
@@ -158,8 +159,9 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
               AND created_at >= $2
         ''', chat_id, week_start)
 
-    topics_completed = 0
+    theory_answers = 0
     work_products = 0
+    bonus_answers = 0
 
     for row in answers:
         answer = row.get('answer', '')
@@ -167,13 +169,16 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
 
         if answer.startswith('[РП]') or answer_type == 'work_product':
             work_products += 1
-        # Считаем все ответы как пройденные темы
-        topics_completed += 1
+        elif answer_type == 'bonus_answer':
+            bonus_answers += 1
+        elif answer_type == 'theory_answer':
+            theory_answers += 1
 
     return {
         'active_days': active_days or 0,
-        'topics_completed': topics_completed,
-        'work_products': work_products
+        'theory_answers': theory_answers,
+        'work_products': work_products,
+        'bonus_answers': bonus_answers,
     }
 
 
@@ -214,13 +219,14 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
               AND created_at >= $2
         ''', chat_id, week_start)
 
-        # Дайджесты за неделю (из feed_sessions)
+        # Дайджесты за неделю (из feed_sessions, только завершённые)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
             FROM feed_sessions
             WHERE week_id IN (
                 SELECT id FROM feed_weeks WHERE chat_id = $1
             )
+            AND status = 'completed'
             AND session_date >= $2
         ''', chat_id, week_start)
 
@@ -289,13 +295,14 @@ async def get_total_stats(chat_id: int) -> dict:
               AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
         ''', chat_id)
 
-        # Всего дайджестов
+        # Всего дайджестов (только завершённые)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
             FROM feed_sessions
             WHERE week_id IN (
                 SELECT id FROM feed_weeks WHERE chat_id = $1
             )
+            AND status = 'completed'
         ''', chat_id)
 
         # Всего фиксаций
