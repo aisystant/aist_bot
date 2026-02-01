@@ -18,7 +18,7 @@
 
 from aiogram import Dispatcher
 
-from config import get_logger
+from config import get_logger, USE_STATE_MACHINE
 
 logger = get_logger(__name__)
 
@@ -34,10 +34,13 @@ def setup_routers(dp: Dispatcher):
     dp.include_router(mode_router)
     logger.info("✓ Подключен mode_router (/mode)")
 
-    # Роутер режима Лента
-    from .feed import feed_router
-    dp.include_router(feed_router)
-    logger.info("✓ Подключен feed_router (/feed)")
+    # Роутер режима Лента (только если State Machine выключен)
+    if not USE_STATE_MACHINE:
+        from .feed import feed_router
+        dp.include_router(feed_router)
+        logger.info("✓ Подключен feed_router (/feed) [legacy]")
+    else:
+        logger.info("⏭ feed_router пропущен (USE_STATE_MACHINE=true)")
 
     # TODO: Роутер режима Марафон (когда будет вынесен из bot.py)
     # from .marathon import marathon_router

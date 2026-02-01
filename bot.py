@@ -1738,6 +1738,84 @@ async def cb_later(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(t('fsm.see_you_later', lang, time=intern['schedule_time']))
 
+# --- Лента (State Machine routing) ---
+
+@router.message(Command("feed"))
+async def cmd_feed(message: Message, state: FSMContext):
+    """Команда /feed - вход в режим Лента через State Machine"""
+    intern = await get_intern(message.chat.id)
+    if not intern or not intern.get('onboarding_completed'):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('profile.first_start', lang))
+        return
+
+    # State Machine routing
+    if state_machine is not None:
+        logger.info(f"[SM] /feed command routed to StateMachine for chat_id={message.chat.id}")
+        try:
+            await state_machine.go_to(intern, "feed.topics")
+            return
+        except Exception as e:
+            logger.error(f"[SM] Error routing /feed to StateMachine: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback: показываем сообщение об ошибке
+            lang = intern.get('language', 'ru') or 'ru'
+            await message.answer(t('errors.try_again', lang))
+    else:
+        # Если State Machine не включен, показываем сообщение
+        lang = intern.get('language', 'ru') or 'ru'
+        await message.answer(t('feed.not_available', lang))
+
+
+@router.callback_query(F.data == "feed")
+async def cb_feed(callback: CallbackQuery, state: FSMContext):
+    """Callback для входа в Ленту через State Machine"""
+    await callback.answer()
+    await callback.message.edit_reply_markup()
+
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return
+
+    # State Machine routing
+    if state_machine is not None:
+        logger.info(f"[SM] feed callback routed to StateMachine for chat_id={callback.message.chat.id}")
+        try:
+            await state_machine.go_to(intern, "feed.topics")
+            return
+        except Exception as e:
+            logger.error(f"[SM] Error routing feed callback to StateMachine: {e}")
+            lang = intern.get('language', 'ru') or 'ru'
+            await callback.message.answer(t('errors.try_again', lang))
+
+
+@router.callback_query(F.data.startswith("feed_"))
+async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
+    """Обработка всех Feed-специфичных callback-ов через State Machine."""
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        await callback.answer()
+        return
+
+    if state_machine is not None:
+        logger.info(f"[SM] Feed callback '{callback.data}' routed to StateMachine for chat_id={callback.message.chat.id}")
+        try:
+            await state_machine.handle_callback(intern, callback)
+            return
+        except Exception as e:
+            logger.error(f"[SM] Error handling feed callback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            await callback.answer()
+            lang = intern.get('language', 'ru') or 'ru'
+            await callback.message.answer(t('errors.try_again', lang))
+    else:
+        await callback.answer()
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('feed.not_available', lang))
+
+
 @router.message(Command("progress"))
 async def cmd_progress(message: Message):
     """Короткий отчёт прогресса за текущую неделю"""
