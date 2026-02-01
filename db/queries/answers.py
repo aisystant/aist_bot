@@ -95,6 +95,9 @@ async def get_work_products_by_day(chat_id: int, topics_list: list) -> dict:
     """
     Получить количество рабочих продуктов по дням марафона.
 
+    Считает УНИКАЛЬНЫЕ topic_index, чтобы избежать дублирования
+    при повторной отправке РП за одно задание.
+
     Args:
         chat_id: ID пользователя
         topics_list: список тем с полем 'day'
@@ -104,8 +107,9 @@ async def get_work_products_by_day(chat_id: int, topics_list: list) -> dict:
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Считаем уникальные topic_index для каждого РП
         rows = await conn.fetch('''
-            SELECT topic_index, answer
+            SELECT DISTINCT topic_index
             FROM answers
             WHERE chat_id = $1
               AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
@@ -129,8 +133,8 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
     Returns:
         {
             'active_days': int,
-            'theory_answers': int,   # Ответы на уроки
-            'work_products': int,    # Рабочие продукты
+            'theory_answers': int,   # Ответы на уроки (уникальные topic_index)
+            'work_products': int,    # Рабочие продукты (уникальные topic_index)
             'bonus_answers': int     # Бонусные ответы
         }
     """
@@ -150,35 +154,41 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
               AND activity_date >= $2
         ''', chat_id, week_start)
 
-        # Ответы за неделю по типам
-        answers = await conn.fetch('''
-            SELECT answer, answer_type
+        # Рабочие продукты за неделю (уникальные topic_index)
+        work_products = await conn.fetchval('''
+            SELECT COUNT(DISTINCT topic_index)
             FROM answers
             WHERE chat_id = $1
               AND mode = 'marathon'
               AND created_at >= $2
+              AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
         ''', chat_id, week_start)
 
-    theory_answers = 0
-    work_products = 0
-    bonus_answers = 0
+        # Ответы на уроки за неделю (уникальные topic_index)
+        theory_answers = await conn.fetchval('''
+            SELECT COUNT(DISTINCT topic_index)
+            FROM answers
+            WHERE chat_id = $1
+              AND mode = 'marathon'
+              AND created_at >= $2
+              AND answer_type = 'theory_answer'
+        ''', chat_id, week_start)
 
-    for row in answers:
-        answer = row.get('answer', '')
-        answer_type = row.get('answer_type', '')
-
-        if answer.startswith('[РП]') or answer_type == 'work_product':
-            work_products += 1
-        elif answer_type == 'bonus_answer':
-            bonus_answers += 1
-        elif answer_type == 'theory_answer':
-            theory_answers += 1
+        # Бонусные ответы за неделю
+        bonus_answers = await conn.fetchval('''
+            SELECT COUNT(*)
+            FROM answers
+            WHERE chat_id = $1
+              AND mode = 'marathon'
+              AND created_at >= $2
+              AND answer_type = 'bonus_answer'
+        ''', chat_id, week_start)
 
     return {
         'active_days': active_days or 0,
-        'theory_answers': theory_answers,
-        'work_products': work_products,
-        'bonus_answers': bonus_answers,
+        'theory_answers': theory_answers or 0,
+        'work_products': work_products or 0,
+        'bonus_answers': bonus_answers or 0,
     }
 
 
@@ -287,9 +297,9 @@ async def get_total_stats(chat_id: int) -> dict:
             WHERE chat_id = $1
         ''', chat_id)
 
-        # Всего рабочих продуктов
+        # Всего рабочих продуктов (уникальные topic_index)
         work_products = await conn.fetchval('''
-            SELECT COUNT(*)
+            SELECT COUNT(DISTINCT topic_index)
             FROM answers
             WHERE chat_id = $1
               AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
