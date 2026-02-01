@@ -597,8 +597,8 @@ progress:
 
   # Расширенные ключи для /progress
   title:
-    ru: "📊 *Прогресс: {name}*"
-    en: "📊 *Progress: {name}*"
+    ru: "📊 *Прогресс за неделю: {name}*"
+    en: "📊 *Weekly Progress: {name}*"
 
   active_days:
     ru: "📈 Активных дней:"
@@ -700,6 +700,10 @@ progress:
   wp_short:
     ru: "РП"
     en: "WP"
+
+  lessons_tasks_short:
+    ru: "УЗ"
+    en: "LT"
 
   by_days:
     ru: "По дням"

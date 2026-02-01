@@ -1890,7 +1890,7 @@ async def show_full_progress(callback: CallbackQuery):
             else:
                 continue  # Пропускаем заблокированные дни
 
-            status_text = f"{d['completed']}/{d['total']}"
+            status_text = f"{t('progress.lessons_tasks_short', lang)} {d['completed']}/{d['total']}"
             days_text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
 
         # Лента
@@ -2814,7 +2814,12 @@ async def on_work_product(message: Message, state: FSMContext):
         return
 
     # Сохраняем ответ (рабочий продукт)
-    await save_answer(message.chat.id, intern['current_topic_index'], f"[РП] {text.strip()}")
+    await save_answer(
+        message.chat.id,
+        intern['current_topic_index'],
+        f"[РП] {text.strip()}",
+        answer_type='work_product'
+    )
 
     # Обновляем прогресс
     completed = intern['completed_topics'] + [intern['current_topic_index']]
@@ -3519,7 +3524,12 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     logger.info(f"[Fallback] Accepting message as work product for user {chat_id}, practice {practice_index}")
 
                     # Сохраняем ответ (рабочий продукт)
-                    await save_answer(chat_id, practice_index, f"[РП][fallback] {text.strip()}")
+                    await save_answer(
+                        chat_id,
+                        practice_index,
+                        f"[РП][fallback] {text.strip()}",
+                        answer_type='work_product'
+                    )
 
                     # Обновляем прогресс
                     completed = intern['completed_topics'] + [practice_index]
