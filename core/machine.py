@@ -290,6 +290,50 @@ class StateMachine:
         else:
             logger.error(f"Стартовый стейт не найден: {self._default_state}")
 
+    async def handle_callback(self, user, callback) -> None:
+        """
+        Обработка callback query (нажатие на inline кнопку).
+
+        1. Определяет текущий стейт пользователя
+        2. Вызывает handle_callback() текущего стейта
+        3. Выполняет переход если нужно
+
+        Args:
+            user: Объект пользователя
+            callback: Telegram CallbackQuery
+        """
+        current_state_name = self.get_user_state(user)
+        current_state = self.get_state(current_state_name)
+
+        chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
+
+        if not current_state:
+            logger.error(f"Стейт не найден для callback: {current_state_name}")
+            current_state = self.get_state(self._default_state)
+            if not current_state:
+                logger.error("Даже дефолтный стейт не найден!")
+                return
+
+        # Проверяем, есть ли у стейта метод handle_callback
+        if not hasattr(current_state, 'handle_callback'):
+            logger.warning(f"Стейт {current_state_name} не имеет handle_callback")
+            return
+
+        # Обрабатываем callback
+        try:
+            event = await current_state.handle_callback(user, callback)
+        except Exception as e:
+            logger.error(f"Ошибка в handle_callback стейта {current_state_name}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            event = None
+
+        # Если есть событие — переходим
+        if event:
+            next_state_name = self.get_next_state(current_state_name, event, chat_id)
+            if next_state_name and next_state_name != current_state_name:
+                await self._transition(user, current_state, next_state_name)
+
     async def go_to(self, user, state_name: str, context: dict = None) -> None:
         """
         Перейти в указанный стейт (публичный метод для внешних вызовов).
