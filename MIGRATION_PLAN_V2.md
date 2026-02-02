@@ -1632,7 +1632,7 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 
 ---
 
-## 📋 Неделя 7.5: Digital Twin MCP
+## ✅ Неделя 7.5: Digital Twin MCP — В ПРОГРЕССЕ
 
 **Цель:** Интегрировать MCP-сервер Digital Twin для хранения состояния пользователя.
 
@@ -1640,17 +1640,27 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 
 **Репозиторий:** `github.com/aisystant/digital-twin-mcp`
 
-### Задачи
+### Выполнено
 
-1. **Создать клиент Digital Twin**
-   - `clients/digital_twin.py` — MCP-клиент
-   - Методы: `load_state()`, `save_state()`, `sync()`
+1. ✅ **Создан клиент Digital Twin**
+   - `clients/digital_twin.py` — полный MCP-клиент с circuit breaker
+   - Методы метамодели: `get_degrees()`, `get_stages()`, `get_indicators()`, `get_indicator()`
+   - Методы данных пользователя: `read()`, `write()`, `list_users()`
+   - Convenience-методы: `get_user_profile()`, `get_learning_objective()`, `set_learning_objective()`, `get_roles()`, `set_roles()`, `get_weekly_time_budget()`, `set_weekly_time_budget()`, `get_current_degree()`, `get_current_stage()`
+   - Circuit breaker: FAILURE_THRESHOLD=2, RECOVERY_TIME=60s
 
-2. **Расширить `core/storage.py`**
+2. ✅ **MCP подключение протестировано**
+   - tools/list: 10 инструментов доступно
+   - get_degrees: работает (8 степеней: Freshman → Public Figure)
+   - read/write_digital_twin: работает (тестовый пользователь)
+
+### Осталось
+
+1. 📋 **Расширить `core/storage.py`**
    - Добавить `DigitalTwinStorage` как альтернативу PostgreSQL
    - Feature flag: `use_digital_twin: true/false`
 
-3. **Интеграция с State Machine**
+2. 📋 **Интеграция с State Machine**
    - При переходах синхронизировать состояние с Digital Twin
    - Fallback на PostgreSQL при недоступности MCP
 
@@ -1962,8 +1972,8 @@ async def transition(self, user, event: str, message: Message = None):
 | Feed стейты | 4 | ✅ Выполнено |
 | Локализация i18n | 5 | ✅ Выполнено |
 | Интеграция Claude API | 6 | ✅ Выполнено |
-| **Очистка bot.py** | **7** | ✅ Частично (-577 строк) |
-| **Digital Twin MCP** | **7.5** | **📋 Следующий** |
+| Очистка bot.py | 7 | ✅ Выполнено (-577 строк) |
+| **Digital Twin MCP** | **7.5** | **🔄 В прогрессе** (клиент создан, протестирован) |
 | Утилиты | 8 | 📋 Частично (progress.py ✅) |
 | Тест ступени | 9 | 📋 В плане |
 | Стабилизация | 10 | 📋 В плане |
