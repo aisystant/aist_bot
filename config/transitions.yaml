@@ -132,6 +132,17 @@ states:
       exported: _previous
       error: _previous
 
+  utility.progress:
+    description: "Статистика и прогресс (/progress)"
+    events:
+      shown: _same                        # Показан короткий отчёт
+      full_shown: _same                   # Показан полный отчёт
+      continue_marathon: workshop.marathon.lesson
+      continue_feed: feed.digest
+      settings: common.settings
+      back: _same                         # Вернуться к короткому отчёту
+      error: _previous
+
 
 # ==========================================
 # ГЛОБАЛЬНЫЕ СОБЫТИЯ
@@ -151,6 +162,10 @@ global_events:
   export:
     trigger: "/export"
     target: utility.export
+
+  progress:
+    trigger: "/progress"
+    target: utility.progress
 
   help:
     trigger: "/help"

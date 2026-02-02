@@ -183,6 +183,17 @@ progress:
   full_report_error: "No se pudo cargar el informe completo. Inténtalo más tarde."
   continue_learning: "Continuar aprendiendo"
   get_digest: "Obtener resumen"
+  # Кнопки для ProgressState
+  full_report_btn: "📊 Informe completo"
+  continue_learning_btn: "📚 Continuar aprendiendo"
+  get_digest_btn: "📖 Obtener resumen"
+  settings_btn: "⚙️ Ajustes"
+  back_btn: "« Atrás"
+  unknown_choice: "Usa los botones para elegir una acción."
+  active_days_total: "Días activos (Maratón+Cinta)"
+  of: "de"
+  marathon: "Maratón"
+  feed: "Cinta"
 
 modes:
   select: "Seleccionar modo"

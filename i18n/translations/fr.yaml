@@ -182,6 +182,17 @@ progress:
   full_report_error: "Impossible de charger le rapport complet. Réessaie plus tard."
   continue_learning: "Continuer l'apprentissage"
   get_digest: "Obtenir le résumé"
+  # Boutons pour ProgressState
+  full_report_btn: "📊 Rapport complet"
+  continue_learning_btn: "📚 Continuer l'apprentissage"
+  get_digest_btn: "📖 Obtenir le résumé"
+  settings_btn: "⚙️ Paramètres"
+  back_btn: "« Retour"
+  unknown_choice: "Utilise les boutons pour choisir une action."
+  active_days_total: "Jours actifs (Marathon+Fil)"
+  of: "sur"
+  marathon: "Marathon"
+  feed: "Fil"
 
 modes:
   select: "Sélectionner le mode"

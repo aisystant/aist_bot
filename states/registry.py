@@ -28,7 +28,9 @@ from states.workshops.marathon import (
 # Лента (реализовано)
 from states.feed import FeedTopicsState, FeedDigestState
 
-# TODO: Неделя 6 — раскомментировать после создания
+# Utilities (частично реализовано)
+from states.utilities import ProgressState
+# TODO: Неделя 8 — раскомментировать после создания
 # from states.utilities import NotesState, ExportState
 
 logger = logging.getLogger(__name__)
@@ -71,7 +73,9 @@ def register_all_states(
         FeedTopicsState(*args),
         FeedDigestState(*args),
 
-        # TODO: Utility стейты (Неделя 6)
+        # Utility стейты
+        ProgressState(*args),
+        # TODO: Неделя 8 — раскомментировать после создания
         # NotesState(*args),
         # ExportState(*args),
     ]
@@ -105,6 +109,7 @@ def get_available_states() -> list[str]:
         "feed.digest",
 
         # Utilities
+        "utility.progress",
         "utility.notes",
         "utility.export",
     ]

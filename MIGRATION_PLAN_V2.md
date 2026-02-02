@@ -68,6 +68,7 @@
 |---------|----------|-------|
 | **Заметочник** | Сохранить мысль | `utility.notes` |
 | **Экспорт** | Выгрузить в Obsidian | `utility.export` |
+| **Статистика** | Показать прогресс | `utility.progress` |
 
 ## 1.7. Критическое правило: Единая консультация
 
@@ -139,7 +140,8 @@ aist_bot/
 │   └── utilities/                      # Стейты утилит
 │       ├── __init__.py
 │       ├── notes.py                    # Заметочник
-│       └── export.py                   # Экспорт
+│       ├── export.py                   # Экспорт
+│       └── progress.py                 # Статистика (/progress)
 │
 ├── core/                                # ⚙️ ЯДРО
 │   ├── __init__.py
@@ -573,6 +575,17 @@ states:
       exported: _previous
       error: _previous
 
+  utility.progress:
+    description: "Статистика и прогресс (/progress)"
+    events:
+      shown: _same                      # Показан короткий отчёт
+      full_shown: _same                 # Показан полный отчёт
+      continue_marathon: workshop.marathon.lesson
+      continue_feed: feed.digest
+      settings: common.settings
+      back: _same                       # Вернуться к короткому отчёту
+      error: _previous
+
 
 # ==========================================
 # ГЛОБАЛЬНЫЕ СОБЫТИЯ
@@ -592,7 +605,11 @@ global_events:
   export:
     trigger: "/export"
     target: utility.export
-  
+
+  progress:
+    trigger: "/progress"
+    target: utility.progress
+
   help:
     trigger: "/help"
     target: common.help
@@ -1144,6 +1161,8 @@ utilities:
     enabled: false
   export:
     enabled: false
+  progress:
+    enabled: false
 ```
 
 ```python
@@ -1405,6 +1424,7 @@ from states.feed.topics import FeedTopicsState
 from states.feed.digest import FeedDigestState
 
 from states.utilities.notes import NotesState
+from states.utilities.progress import ProgressState
 
 
 def register_all_states(machine: StateMachine, bot, db, llm, i18n):
@@ -1432,6 +1452,7 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 
         # Utilities
         NotesState(*args),
+        ProgressState(*args),
     ]
 
     machine.register_all(states)
@@ -1619,7 +1640,7 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 
 ## 📋 Неделя 8: Утилиты
 
-**Цель:** Реализовать заметочник и экспорт.
+**Цель:** Реализовать заметочник, экспорт и статистику.
 
 **Задачи:**
 
@@ -1627,13 +1648,19 @@ def register_all_states(machine: StateMachine, bot, db, llm, i18n):
 
 2. Создать `states/utilities/export.py`
 
-3. Создать `integrations/export/` с адаптерами (Obsidian, Notion, Markdown)
+3. Создать `states/utilities/progress.py` — перенести логику из `bot.py`:
+   - `cmd_progress()` → `ProgressState.enter()` (короткий отчёт)
+   - `show_full_progress()` → `ProgressState.show_full()` (полный отчёт)
+   - `get_days_progress()` → оставить в `bot.py` или вынести в `utils/`
 
-4. Настроить глобальные команды `/note`, `/export`
+4. Создать `integrations/export/` с адаптерами (Obsidian, Notion, Markdown)
+
+5. Настроить глобальные команды `/note`, `/export`, `/progress`
 
 **Проверка:**
 - `/note текст` сохраняет заметку
 - `/export` предлагает выбор формата
+- `/progress` показывает короткий отчёт с кнопкой "Полный отчёт"
 
 ---
 

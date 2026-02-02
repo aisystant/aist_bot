@@ -4,6 +4,9 @@
 Содержит:
 - notes.py: заметочник (/note)
 - export.py: экспорт данных (/export)
-
-TODO: Будет реализовано на Неделе 6.
+- progress.py: статистика (/progress)
 """
+
+from states.utilities.progress import ProgressState
+
+__all__ = ["ProgressState"]
