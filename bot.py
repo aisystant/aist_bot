@@ -1799,10 +1799,41 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
         return
 
     if state_machine is not None:
-        logger.info(f"[SM] Feed callback '{callback.data}' routed to StateMachine for chat_id={callback.message.chat.id}")
+        data = callback.data
+        logger.info(f"[SM] Feed callback '{data}' for chat_id={callback.message.chat.id}")
+
         try:
-            await state_machine.handle_callback(intern, callback)
-            return
+            # Определяем целевой стейт по типу callback-а
+            # Если пользователь не в Feed-стейте, сначала переходим туда
+            current_state = intern.get('current_state', '')
+
+            if data == "feed_get_digest":
+                # Получить дайджест → переходим в feed.digest
+                await callback.answer()
+                await callback.message.edit_reply_markup()
+                await state_machine.go_to(intern, "feed.digest")
+                return
+
+            elif data == "feed_topics_menu":
+                # Меню тем → переходим в feed.topics
+                await callback.answer()
+                await callback.message.edit_reply_markup()
+                await state_machine.go_to(intern, "feed.topics")
+                return
+
+            elif current_state.startswith("feed."):
+                # Пользователь уже в Feed-стейте — передаём callback туда
+                await state_machine.handle_callback(intern, callback)
+                return
+
+            else:
+                # Для других feed_ callback-ов переходим в feed.digest по умолчанию
+                logger.warning(f"[SM] User in state '{current_state}' clicked '{data}', routing to feed.digest")
+                await callback.answer()
+                await callback.message.edit_reply_markup()
+                await state_machine.go_to(intern, "feed.digest")
+                return
+
         except Exception as e:
             logger.error(f"[SM] Error handling feed callback: {e}")
             import traceback
