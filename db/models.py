@@ -116,6 +116,9 @@ async def create_tables(pool: asyncpg.Pool):
 
             # Язык пользователя
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS language TEXT DEFAULT \'ru\'',
+
+            # Второе напоминание
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS schedule_time_2 TEXT DEFAULT NULL',
         ]
         
         for migration in migrations:
@@ -160,6 +163,7 @@ async def create_tables(pool: asyncpg.Pool):
             'ALTER TABLE answers ADD COLUMN IF NOT EXISTS answer_type TEXT DEFAULT \'theory_answer\'',
             'ALTER TABLE answers ADD COLUMN IF NOT EXISTS work_product_category TEXT',
             'ALTER TABLE answers ADD COLUMN IF NOT EXISTS complexity_level INTEGER',
+            'ALTER TABLE answers ADD COLUMN IF NOT EXISTS feedback TEXT',
         ]
         
         for migration in answer_migrations:
@@ -280,15 +284,33 @@ async def create_tables(pool: asyncpg.Pool):
             CREATE TABLE IF NOT EXISTS qa_history (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
-                
+
                 mode TEXT,
                 context_topic TEXT,
-                
+
                 question TEXT,
                 answer TEXT,
                 mcp_sources TEXT DEFAULT '[]',
-                
+
                 created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # Индекс для быстрого поиска по chat_id
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_qa_history_chat_id
+            ON qa_history(chat_id)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # FSM СОСТОЯНИЯ (для aiogram)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS fsm_states (
+                chat_id BIGINT PRIMARY KEY,
+                state TEXT,
+                data TEXT DEFAULT '{}',
+                updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
 

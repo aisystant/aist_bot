@@ -45,6 +45,7 @@ from config import USE_STATE_MACHINE
 # Импорты из модульных компонентов (вместо дублирующегося кода)
 from clients.mcp import mcp_guides, mcp_knowledge, mcp
 from clients.claude import ClaudeClient
+from db import init_db, get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 
 # ============= КОНФИГУРАЦИЯ =============
@@ -270,195 +271,8 @@ class LoggingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-# ============= БАЗА ДАННЫХ =============
-
-db_pool: Optional[asyncpg.Pool] = None
-
-async def init_db():
-    """Инициализация базы данных"""
-    global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
-    
-    async with db_pool.acquire() as conn:
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS interns (
-                chat_id BIGINT PRIMARY KEY,
-                name TEXT DEFAULT '',
-                role TEXT DEFAULT '',
-                domain TEXT DEFAULT '',
-                interests TEXT DEFAULT '[]',
-                experience_level TEXT DEFAULT '',
-                difficulty_preference TEXT DEFAULT '',
-                learning_style TEXT DEFAULT '',
-                study_duration INTEGER DEFAULT 15,
-                current_problems TEXT DEFAULT '',
-                desires TEXT DEFAULT '',
-                goals TEXT DEFAULT '',
-                schedule_time TEXT DEFAULT '09:00',
-                current_topic_index INTEGER DEFAULT 0,
-                completed_topics TEXT DEFAULT '[]',
-                bloom_level INTEGER DEFAULT 1,
-                topics_at_current_bloom INTEGER DEFAULT 0,
-                topics_today INTEGER DEFAULT 0,
-                last_topic_date DATE DEFAULT NULL,
-                onboarding_completed BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-
-        # Миграции
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS study_duration INTEGER DEFAULT 15')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_problems TEXT DEFAULT \'\'')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS desires TEXT DEFAULT \'\'')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS bloom_level INTEGER DEFAULT 1')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_bloom INTEGER DEFAULT 0')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_today INTEGER DEFAULT 0')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_topic_date DATE DEFAULT NULL')
-        # Новые поля для упрощённого онбординга
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS occupation TEXT DEFAULT \'\'')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS motivation TEXT DEFAULT \'\'')
-        # Порядок тем: default, by_interests, hybrid
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topic_order TEXT DEFAULT \'default\'')
-        # Марафон: дата старта
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_start_date DATE DEFAULT NULL')
-
-        # Режимы работы (Марафон/Лента)
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT \'marathon\'')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_status TEXT DEFAULT \'not_started\'')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_paused_at DATE DEFAULT NULL')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_status TEXT DEFAULT \'not_started\'')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_started_at DATE DEFAULT NULL')
-
-        # Систематичность
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_total INTEGER DEFAULT 0')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_streak INTEGER DEFAULT 0')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS longest_streak INTEGER DEFAULT 0')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_active_date DATE DEFAULT NULL')
-
-        # Сложность (новое название для bloom)
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS complexity_level INTEGER DEFAULT 1')
-        await conn.execute('ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_complexity INTEGER DEFAULT 0')
-
-        # Язык интерфейса
-        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS language VARCHAR(5) DEFAULT 'ru'")
-
-        # Второе напоминание
-        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS schedule_time_2 TEXT DEFAULT NULL")
-
-        # State Machine
-        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_state TEXT DEFAULT NULL")
-        await conn.execute("ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_context TEXT DEFAULT '{}'")
-
-        # Таблица для напоминаний
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS reminders (
-                id SERIAL PRIMARY KEY,
-                chat_id BIGINT,
-                reminder_type TEXT,
-                scheduled_for TIMESTAMP,
-                sent BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-        
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS answers (
-                id SERIAL PRIMARY KEY,
-                chat_id BIGINT,
-                topic_index INTEGER,
-                answer TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-
-        # Миграции для таблицы answers
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS answer_type TEXT DEFAULT 'theory_answer'")
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'marathon'")
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS topic_id TEXT")
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS work_product_category TEXT")
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS feedback TEXT")
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS feed_session_id INTEGER")
-        await conn.execute("ALTER TABLE answers ADD COLUMN IF NOT EXISTS complexity_level INTEGER")
-
-        # FSM состояния (персистентное хранилище)
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS fsm_states (
-                chat_id BIGINT PRIMARY KEY,
-                state TEXT,
-                data TEXT DEFAULT '{}',
-                updated_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-
-        # Лента: недельные планы
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS feed_weeks (
-                id SERIAL PRIMARY KEY,
-                chat_id BIGINT,
-                week_number INTEGER,
-                week_start DATE,
-                suggested_topics TEXT DEFAULT '[]',
-                accepted_topics TEXT DEFAULT '[]',
-                current_day INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'planning',
-                ended_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-
-        # Лента: сессии
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS feed_sessions (
-                id SERIAL PRIMARY KEY,
-                week_id INTEGER,
-                day_number INTEGER,
-                topic_title TEXT,
-                content TEXT DEFAULT '{}',
-                session_date DATE,
-                status TEXT DEFAULT 'active',
-                fixation_text TEXT,
-                completed_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-
-        # Лог активности
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS activity_log (
-                id SERIAL PRIMARY KEY,
-                chat_id BIGINT,
-                activity_date DATE,
-                activity_type TEXT,
-                mode TEXT DEFAULT 'marathon',
-                reference_id INTEGER,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(chat_id, activity_date, activity_type)
-            )
-        ''')
-
-        # История вопросов и ответов (консультации)
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS qa_history (
-                id SERIAL PRIMARY KEY,
-                chat_id BIGINT,
-                mode TEXT,
-                context_topic TEXT,
-                question TEXT,
-                answer TEXT,
-                mcp_sources TEXT DEFAULT '[]',
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
-
-        # Индекс для быстрого поиска по chat_id
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_qa_history_chat_id
-            ON qa_history(chat_id)
-        ''')
-
-    logger.info("✅ База данных инициализирована")
-
+# ============= FSM STORAGE =============
+# init_db импортирован из db/ (db.init_db)
 
 class PostgresStorage(BaseStorage):
     """Персистентное хранилище FSM состояний в PostgreSQL"""
@@ -473,7 +287,7 @@ class PostgresStorage(BaseStorage):
         else:
             state_str = state.state
         logger.info(f"[FSM] set_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={state_str}")
-        async with db_pool.acquire() as conn:
+        async with (await get_pool()).acquire() as conn:
             await conn.execute('''
                 INSERT INTO fsm_states (chat_id, state, updated_at)
                 VALUES ($1, $2, NOW())
@@ -482,7 +296,7 @@ class PostgresStorage(BaseStorage):
 
     async def get_state(self, key: StorageKey) -> Optional[str]:
         """Получить состояние"""
-        async with db_pool.acquire() as conn:
+        async with (await get_pool()).acquire() as conn:
             row = await conn.fetchrow(
                 'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
             )
@@ -493,7 +307,7 @@ class PostgresStorage(BaseStorage):
     async def set_data(self, key: StorageKey, data: dict) -> None:
         """Установить данные состояния"""
         data_str = json.dumps(data, ensure_ascii=False)
-        async with db_pool.acquire() as conn:
+        async with (await get_pool()).acquire() as conn:
             await conn.execute('''
                 INSERT INTO fsm_states (chat_id, data, updated_at)
                 VALUES ($1, $2, NOW())
@@ -502,7 +316,7 @@ class PostgresStorage(BaseStorage):
 
     async def get_data(self, key: StorageKey) -> dict:
         """Получить данные состояния"""
-        async with db_pool.acquire() as conn:
+        async with (await get_pool()).acquire() as conn:
             row = await conn.fetchrow(
                 'SELECT data FROM fsm_states WHERE chat_id = $1', key.chat_id
             )
@@ -525,7 +339,7 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
     else:
         answer_type = 'theory_answer'
 
-    async with db_pool.acquire() as conn:
+    async with (await get_pool()).acquire() as conn:
         await conn.execute(
             '''INSERT INTO answers (chat_id, topic_index, answer, answer_type, mode)
                VALUES ($1, $2, $3, $4, $5)''',
@@ -2916,7 +2730,7 @@ async def schedule_reminders(chat_id: int, intern: dict):
     now = moscow_now()
 
     # Добавляем записи о напоминаниях в БД
-    async with db_pool.acquire() as conn:
+    async with (await get_pool()).acquire() as conn:
         # Удаляем старые неотправленные напоминания
         await conn.execute(
             'DELETE FROM reminders WHERE chat_id = $1 AND sent = FALSE',
@@ -2976,7 +2790,7 @@ async def check_reminders():
     # Убираем timezone для совместимости с TIMESTAMP (без timezone)
     now_naive = now.replace(tzinfo=None)
 
-    async with db_pool.acquire() as conn:
+    async with (await get_pool()).acquire() as conn:
         # Получаем напоминания, которые пора отправить
         rows = await conn.fetch(
             '''SELECT id, chat_id, reminder_type FROM reminders
