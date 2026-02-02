@@ -196,7 +196,9 @@ class MarathonQuestionState(BaseState):
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]
         topics_at_bloom = self._get_topics_at_bloom(user) + 1
-        bloom_level = self._get_bloom_level(user)
+        # Сохраняем ИСХОДНЫЙ уровень для решения о бонусе
+        original_bloom_level = self._get_bloom_level(user)
+        bloom_level = original_bloom_level
 
         # Автоповышение уровня
         if topics_at_bloom >= BLOOM_AUTO_UPGRADE_AFTER and bloom_level < 3:
@@ -221,8 +223,9 @@ class MarathonQuestionState(BaseState):
         await self.send(user, f"✅ *{t('marathon.topic_completed', lang)}*", parse_mode="Markdown")
 
         # Решаем: бонус или сразу задание
-        # Новая логика: бонус предлагается на уровнях 2 и 3
-        if bloom_level >= 2:
+        # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)
+        # Уровень 1 → сразу задание, уровни 2-3 → предложить бонус
+        if original_bloom_level >= 2:
             return "correct"  # → bonus
         else:
             return "correct_level_1"  # → task
