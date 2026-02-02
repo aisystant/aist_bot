@@ -244,24 +244,31 @@ detect_intent(text, context)
 
 ### Решение
 
-В FSM-обработчиках проверяем `current_state` из БД:
+В FSM-обработчиках проверяем два условия:
 
 ```python
 @mode_router.message(MarathonSettingsStates.waiting_for_time)
 async def on_marathon_time_input(message: Message, state: FSMContext):
+    text = (message.text or '').strip()
+
+    # 1. Команды (/start, /progress и т.д.) — пропускаем
+    if text.startswith('/'):
+        await state.clear()
+        return
+
+    # 2. Пользователь в State Machine — FSM устарел
     intern = await get_intern(message.chat.id)
     if intern:
         current_state = intern.get('current_state', '')
-        # Если пользователь в State Machine — FSM устарел
         if current_state.startswith('workshop.'):
-            await state.clear()  # Очищаем FSM
-            return  # State Machine обработает
+            await state.clear()
+            return
 ```
 
-### Правило
+### Правила
 
-> При переходе на State Machine: если `current_state` в БД начинается с `workshop.`,
-> FSM aiogram считается устаревшим и должен быть очищен.
+1. **Команды всегда приоритетнее FSM** — если сообщение начинается с `/`, очищаем FSM
+2. **State Machine приоритетнее FSM** — если `current_state` начинается с `workshop.`, очищаем FSM
 
 ---
 
