@@ -437,6 +437,26 @@ async def init_db():
             )
         ''')
 
+        # История вопросов и ответов (консультации)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS qa_history (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT,
+                mode TEXT,
+                context_topic TEXT,
+                question TEXT,
+                answer TEXT,
+                mcp_sources TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # Индекс для быстрого поиска по chat_id
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_qa_history_chat_id
+            ON qa_history(chat_id)
+        ''')
+
     logger.info("✅ База данных инициализирована")
 
 

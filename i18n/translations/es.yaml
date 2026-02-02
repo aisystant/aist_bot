@@ -194,6 +194,9 @@ progress:
   of: "de"
   marathon: "Maratón"
   feed: "Cinta"
+  lesson_short: "Lección"
+  task_short: "Tarea"
+  lessons_tasks_short: "LT"
 
 modes:
   select: "Seleccionar modo"
