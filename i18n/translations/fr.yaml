@@ -193,6 +193,9 @@ progress:
   of: "sur"
   marathon: "Marathon"
   feed: "Fil"
+  lesson_short: "Leçon"
+  task_short: "Tâche"
+  lessons_tasks_short: "LT"
 
 modes:
   select: "Sélectionner le mode"
