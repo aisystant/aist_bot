@@ -21,6 +21,10 @@ logger = get_logger(__name__)
 class MCPClient:
     """Универсальный клиент для работы с MCP серверами Aisystant"""
 
+    # Настройки таймаутов и retry
+    DEFAULT_TIMEOUT = 30  # секунд (увеличен для cold start Cloudflare Workers)
+    MAX_RETRIES = 1       # количество повторных попыток
+
     def __init__(self, url: str, name: str = "MCP", search_tool: str = "semantic_search"):
         """
         Args:
@@ -38,7 +42,7 @@ class MCPClient:
         return self._request_id
 
     async def _call(self, tool_name: str, arguments: dict) -> Optional[dict]:
-        """Вызов инструмента MCP через JSON-RPC
+        """Вызов инструмента MCP через JSON-RPC с retry
 
         Args:
             tool_name: имя инструмента
@@ -59,39 +63,48 @@ class MCPClient:
 
         logger.debug(f"{self.name}: вызов {tool_name} с аргументами {arguments}")
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.base_url,
-                    headers={"Content-Type": "application/json"},
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if "result" in data:
-                            result = data["result"]
-                            # Логируем структуру ответа для отладки
-                            if result and "content" in result:
-                                content_items = result.get("content", [])
-                                logger.debug(f"{self.name}: ответ содержит {len(content_items)} content items")
-                            return result
-                        if "error" in data:
-                            logger.error(f"{self.name} JSON-RPC error: {data['error']}")
+        last_error = None
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        self.base_url,
+                        headers={"Content-Type": "application/json"},
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=self.DEFAULT_TIMEOUT)
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if "result" in data:
+                                result = data["result"]
+                                # Логируем структуру ответа для отладки
+                                if result and "content" in result:
+                                    content_items = result.get("content", [])
+                                    logger.debug(f"{self.name}: ответ содержит {len(content_items)} content items")
+                                return result
+                            if "error" in data:
+                                logger.error(f"{self.name} JSON-RPC error: {data['error']}")
+                                return None
+                            # Нет ни result, ни error
+                            logger.warning(f"{self.name}: неожиданный ответ (нет result/error): {list(data.keys())}")
                             return None
-                        # Нет ни result, ни error
-                        logger.warning(f"{self.name}: неожиданный ответ (нет result/error): {list(data.keys())}")
-                        return None
-                    else:
-                        error = await resp.text()
-                        logger.error(f"{self.name} HTTP error {resp.status}: {error[:500]}")
-                        return None
-        except asyncio.TimeoutError:
-            logger.error(f"{self.name} request timeout (10s)")
-            return None
-        except Exception as e:
-            logger.error(f"{self.name} exception: {e}", exc_info=True)
-            return None
+                        else:
+                            error = await resp.text()
+                            logger.error(f"{self.name} HTTP error {resp.status}: {error[:500]}")
+                            last_error = f"HTTP {resp.status}"
+            except asyncio.TimeoutError:
+                last_error = "timeout"
+                if attempt < self.MAX_RETRIES:
+                    logger.warning(f"{self.name} timeout, retry {attempt + 1}/{self.MAX_RETRIES}...")
+                    await asyncio.sleep(2)  # Пауза перед retry
+                    continue
+            except Exception as e:
+                logger.error(f"{self.name} exception: {e}", exc_info=True)
+                return None
+
+        # Все попытки исчерпаны
+        logger.error(f"{self.name} request failed after {self.MAX_RETRIES + 1} attempts ({last_error})")
+        return None
 
     async def get_guides_list(self, lang: str = "ru", category: str = None) -> List[dict]:
         """Получить список всех руководств
