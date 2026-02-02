@@ -535,6 +535,17 @@ async def marathon_cancel_input(callback: CallbackQuery, state: FSMContext):
 async def on_marathon_time_input(message: Message, state: FSMContext):
     """Обработка ввода времени напоминаний"""
     chat_id = message.chat.id
+
+    # Проверка: если пользователь в State Machine стейте, FSM устарел
+    # Очищаем FSM и пропускаем — State Machine обработает сообщение
+    intern = await get_intern(chat_id)
+    if intern:
+        current_state = intern.get('current_state', '')
+        if current_state.startswith('workshop.'):
+            logger.info(f"[FSM] User {chat_id} in SM state '{current_state}', clearing stale FSM")
+            await state.clear()
+            return
+
     text = message.text.strip()
 
     # Регулярное выражение для времени ЧЧ:ММ

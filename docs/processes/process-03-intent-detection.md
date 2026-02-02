@@ -226,8 +226,48 @@ detect_intent(text, context)
 
 ---
 
+## 12. Приоритет State Machine над FSM aiogram
+
+### Проблема
+
+При переходе на новую архитектуру (State Machine) возникает конфликт с FSM aiogram:
+
+```
+Порядок роутеров:
+1. mode_router (FSM: MarathonSettingsStates) — ПЕРВЫЙ
+2. feed_router (FSM: FeedStates) — ВТОРОЙ
+3. main router (FSM: LearningStates, OnboardingStates) — ПОСЛЕДНИЙ
+```
+
+Если пользователь попадает в FSM стейт (например, `waiting_for_time`) и не завершает его,
+все последующие сообщения перехватываются FSM-обработчиком вместо State Machine.
+
+### Решение
+
+В FSM-обработчиках проверяем `current_state` из БД:
+
+```python
+@mode_router.message(MarathonSettingsStates.waiting_for_time)
+async def on_marathon_time_input(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    if intern:
+        current_state = intern.get('current_state', '')
+        # Если пользователь в State Machine — FSM устарел
+        if current_state.startswith('workshop.'):
+            await state.clear()  # Очищаем FSM
+            return  # State Machine обработает
+```
+
+### Правило
+
+> При переходе на State Machine: если `current_state` в БД начинается с `workshop.`,
+> FSM aiogram считается устаревшим и должен быть очищен.
+
+---
+
 ## История изменений
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-02-02 | Добавлен раздел о приоритете State Machine над FSM aiogram |
 | 2026-01-22 | Создание документа |
