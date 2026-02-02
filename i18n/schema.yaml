@@ -629,12 +629,12 @@ progress:
     en: "📚 *Feed*"
 
   digests:
-    ru: "Дайджестов:"
-    en: "Digests:"
+    ru: "Дайджестов"
+    en: "Digests"
 
   fixations:
-    ru: "Фиксаций:"
-    en: "Fixations:"
+    ru: "Фиксаций"
+    en: "Fixations"
 
   topics_label:
     ru: "Темы:"
@@ -700,6 +700,14 @@ progress:
   wp_short:
     ru: "РП"
     en: "WP"
+
+  lesson_short:
+    ru: "Урок"
+    en: "Lesson"
+
+  task_short:
+    ru: "Задание"
+    en: "Task"
 
   lessons_tasks_short:
     ru: "УЗ"

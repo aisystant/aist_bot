@@ -1180,13 +1180,20 @@ def get_lessons_tasks_progress(completed_topics: list) -> dict:
 
 
 def get_days_progress(completed_topics: list, marathon_day: int) -> list:
-    """Получить прогресс по дням марафона"""
+    """Получить прогресс по дням марафона с разбивкой на уроки и задания"""
     days = []
     completed_set = set(completed_topics)
 
     for day in range(1, MARATHON_DAYS + 1):
         day_topics = [(i, t) for i, t in enumerate(TOPICS) if t['day'] == day]
-        completed_count = sum(1 for i, _ in day_topics if i in completed_set)
+
+        # Разделяем на уроки (theory) и задания (practice)
+        lessons = [(i, t) for i, t in day_topics if t.get('type') == 'theory']
+        tasks = [(i, t) for i, t in day_topics if t.get('type') == 'practice']
+
+        lessons_completed = sum(1 for i, _ in lessons if i in completed_set)
+        tasks_completed = sum(1 for i, _ in tasks if i in completed_set)
+        completed_count = lessons_completed + tasks_completed
 
         status = 'locked'
         if day <= marathon_day:
@@ -1201,6 +1208,10 @@ def get_days_progress(completed_topics: list, marathon_day: int) -> list:
             'day': day,
             'total': len(day_topics),
             'completed': completed_count,
+            'lessons_total': len(lessons),
+            'lessons_completed': lessons_completed,
+            'tasks_total': len(tasks),
+            'tasks_completed': tasks_completed,
             'status': status
         })
 
@@ -1768,11 +1779,9 @@ async def cmd_progress(message: Message):
     days_active_week = activity_stats.get('days_active_this_week', 0)
 
     # Марафон
-    done = len(intern['completed_topics'])
     marathon_day = get_marathon_day(intern)
-
-    # Общие РП за неделю
-    total_wp_week = marathon_stats.get('work_products', 0)
+    lessons_week = marathon_stats.get('theory_answers', 0)
+    tasks_week = marathon_stats.get('work_products', 0)
 
     # Лента - получаем темы
     try:
@@ -1785,16 +1794,13 @@ async def cmd_progress(message: Message):
         logger.error(f"Ошибка получения статуса ленты для {chat_id}: {e}")
         feed_topics_text = t('progress.topics_not_selected', lang)
 
-    # Общие РП за неделю
-    total_wp_week = marathon_stats.get('work_products', 0)
-
     text = f"{t('progress.title', lang, name=intern['name'])}\n\n"
     text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n\n"
 
     # Марафон
     text += f"🏃 *{t('progress.marathon_title', lang)}*\n"
     text += f"{t('progress.day_of_total', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
-    text += f"{t('progress.topics_done', lang)}: {done}. {t('progress.work_products', lang)}: {total_wp_week}\n\n"
+    text += f"📖 {t('progress.lessons', lang)}: {lessons_week}. 📝 {t('progress.tasks', lang)}: {tasks_week}\n\n"
 
     # Лента
     text += f"📚 *{t('progress.feed_title', lang)}*\n"
@@ -1870,28 +1876,27 @@ async def show_full_progress(callback: CallbackQuery):
 
         days_progress = get_days_progress(intern.get('completed_topics', []), marathon_day)
 
-        # Формируем текст по дням
+        # Формируем текст по дням (обратный порядок: сначала последний день)
         days_text = ""
-        for d in days_progress:
+        visible_days = [d for d in days_progress if d['day'] <= marathon_day and d['status'] != 'locked']
+        for d in reversed(visible_days):
             day_num = d['day']
-            if day_num > marathon_day:
-                break
             wp_count = wp_by_day.get(day_num, 0)
 
             if d['status'] == 'completed':
                 emoji = "✅"
-                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
             elif d['status'] == 'in_progress':
                 emoji = "🔄"
-                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
             elif d['status'] == 'available':
                 emoji = "📍"
-                wp_text = ""
             else:
-                continue  # Пропускаем заблокированные дни
+                continue
 
-            status_text = f"{t('progress.lessons_tasks_short', lang)} {d['completed']}/{d['total']}"
-            days_text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
+            # Формат: День N: Урок: X | Задание: Y | РП: Z
+            lesson_text = f"{t('progress.lesson_short', lang)}: {d['lessons_completed']}"
+            task_text = f"{t('progress.task_short', lang)}: {d['tasks_completed']}"
+            wp_text = f"{t('progress.wp_short', lang)}: {wp_count}"
+            days_text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {lesson_text} | {task_text} | {wp_text}\n"
 
         # Лента
         try:
