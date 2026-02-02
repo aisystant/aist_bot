@@ -91,15 +91,24 @@ class FeedDigestState(BaseState):
         3. Генерируем контент если нужно
         4. Показываем дайджест
 
+        Context:
+            show_topics_menu: если True, показываем меню тем вместо дайджеста
+
         Returns:
             "digest_shown" или None
         """
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         intern = self._user_to_intern_dict(user)
+        context = context or {}
 
         # Получаем текущую неделю
         week = await get_current_feed_week(chat_id)
+
+        # Если запрошено меню тем — показываем его
+        if context.get('show_topics_menu') and week:
+            await self._show_topics_menu_standalone(user, week)
+            return None
 
         if not week:
             await self.send(user, t('feed.no_active_week', lang))
@@ -480,7 +489,48 @@ class FeedDigestState(BaseState):
                 await self.enter(intern, {})
             return None
 
+        elif data == "feed_reset_topics":
+            # Сброс тем — переходим к выбору новых тем
+            await callback.answer()
+            # Сбрасываем статус недели в PLANNING
+            week = await get_current_feed_week(chat_id)
+            if week:
+                from db.queries.feed import update_feed_week
+                await update_feed_week(week['id'], status=FeedWeekStatus.PLANNING, accepted_topics=[])
+            return "change_topics"
+
         return None
+
+    async def _show_topics_menu_standalone(self, user, week: dict) -> None:
+        """
+        Показывает меню тем как отдельное сообщение (не редактирование).
+
+        Используется при входе с контекстом show_topics_menu=True.
+        """
+        lang = self._get_lang(user)
+        topics = week.get('accepted_topics', [])
+
+        text = f"📋 *{t('feed.topics_menu_title', lang)}*\n\n"
+        if topics:
+            text += f"{t('feed.your_topics_label', lang)}\n"
+            for i, topic in enumerate(topics, 1):
+                text += f"{i}. {topic}\n"
+            text += f"\n{t('feed.topics_deepen_daily', lang)}"
+        else:
+            text += f"{t('feed.no_topics', lang)}"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"📖 {t('buttons.get_digest', lang)}",
+                callback_data="feed_get_digest"
+            )],
+            [InlineKeyboardButton(
+                text=f"🔄 {t('buttons.reset_topics', lang)}",
+                callback_data="feed_reset_topics"
+            )]
+        ])
+
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def exit(self, user) -> dict:
         """Очищаем временные данные."""

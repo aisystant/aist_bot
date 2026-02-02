@@ -1826,10 +1826,11 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
                 return
 
             elif data == "feed_topics_menu":
-                # Меню тем → переходим в feed.topics
+                # Меню тем → переходим в feed.digest и показываем меню тем
                 await callback.answer()
                 await callback.message.edit_reply_markup()
-                await state_machine.go_to(intern, "feed.topics")
+                # Передаём контекст для показа меню тем
+                await state_machine.go_to(intern, "feed.digest", context={"show_topics_menu": True})
                 return
 
             elif current_state.startswith("feed."):
