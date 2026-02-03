@@ -335,16 +335,27 @@ async def marathon_date_tomorrow(callback: CallbackQuery):
     from db.queries.users import moscow_today
     from datetime import timedelta
 
+    chat_id = callback.message.chat.id
+    intern = await get_intern(chat_id)
+
+    # Нельзя сдвигать дату если есть прогресс — это сломает статистику
+    if len(intern.get('completed_topics', [])) > 0:
+        await callback.answer(
+            "Нельзя изменить дату: есть пройденные темы.\n"
+            "Используйте 'Сбросить марафон' для начала заново.",
+            show_alert=True
+        )
+        return
+
     today = moscow_today()
     new_date = today + timedelta(days=1)
 
-    await update_intern(callback.message.chat.id, marathon_start_date=new_date)
-    intern = await get_intern(callback.message.chat.id)
-    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await update_intern(chat_id, marathon_start_date=new_date)
+    lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
     # Возвращаемся к настройкам
-    intern = await get_intern(callback.message.chat.id)
+    intern = await get_intern(chat_id)
     await show_marathon_settings(callback.message, intern, edit=True)
 
 
@@ -354,16 +365,27 @@ async def marathon_date_day_after(callback: CallbackQuery):
     from db.queries.users import moscow_today
     from datetime import timedelta
 
+    chat_id = callback.message.chat.id
+    intern = await get_intern(chat_id)
+
+    # Нельзя сдвигать дату если есть прогресс — это сломает статистику
+    if len(intern.get('completed_topics', [])) > 0:
+        await callback.answer(
+            "Нельзя изменить дату: есть пройденные темы.\n"
+            "Используйте 'Сбросить марафон' для начала заново.",
+            show_alert=True
+        )
+        return
+
     today = moscow_today()
     new_date = today + timedelta(days=2)
 
-    await update_intern(callback.message.chat.id, marathon_start_date=new_date)
-    intern = await get_intern(callback.message.chat.id)
-    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await update_intern(chat_id, marathon_start_date=new_date)
+    lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
     # Возвращаемся к настройкам
-    intern = await get_intern(callback.message.chat.id)
+    intern = await get_intern(chat_id)
     await show_marathon_settings(callback.message, intern, edit=True)
 
 

@@ -127,7 +127,7 @@ else:
     'streak': active_days_streak,       # Текущая серия
     'longest_streak': longest_streak,   # Рекорд
     'last_active': last_active_date,    # Последний день
-    'days_active_this_week': int,       # За 7 дней
+    'days_active_this_week': int,       # С понедельника текущей недели
     'recent_activity': [...]            # История недели
 }
 ```
@@ -135,7 +135,7 @@ else:
 ### Источники
 
 - Основные счётчики: таблица `interns`
-- `days_active_this_week`: COUNT из `activity_log` за 7 дней
+- `days_active_this_week`: COUNT из `activity_log` с понедельника текущей недели
 
 ---
 
@@ -244,3 +244,4 @@ INSERT INTO activity_log
 |------|-----------|
 | 2026-01-29 | Обновлены номера строк после рефакторинга bot.py |
 | 2026-01-22 | Создание документа |
+| 2026-02-03 | Исправлен расчёт `days_active_this_week`: теперь с понедельника текущей недели, а не за последние 7 дней |
