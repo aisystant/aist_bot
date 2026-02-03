@@ -33,6 +33,9 @@ class MarathonTaskState(BaseState):
     display_name = {"ru": "Задание", "en": "Task", "es": "Tarea", "fr": "Tâche"}
     allow_global = ["consultation", "notes"]
 
+    # Тексты кнопок для навигации
+    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]
+
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
         if isinstance(user, dict):
@@ -200,6 +203,10 @@ class MarathonTaskState(BaseState):
         if "пропустить" in text.lower() or "skip" in text.lower():
             await self.send(user, t('marathon.practice_skipped', lang))
             return "day_complete"
+
+        # Настройки — переход в настройки
+        if text in self.SETTINGS_BUTTONS or "настройки" in text.lower() or "settings" in text.lower():
+            return "settings"
 
         # Слишком короткий ответ
         if len(text) < 3:

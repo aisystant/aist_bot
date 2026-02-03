@@ -36,6 +36,9 @@ class MarathonQuestionState(BaseState):
     display_name = {"ru": "Вопрос урока", "en": "Lesson Question", "es": "Pregunta de lección", "fr": "Question de leçon"}
     allow_global = ["consultation", "notes"]
 
+    # Тексты кнопок для навигации
+    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]
+
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
         if isinstance(user, dict):
@@ -174,6 +177,10 @@ class MarathonQuestionState(BaseState):
         if "пропустить" in text.lower() or "skip" in text.lower():
             await self.send(user, t('marathon.topic_skipped', lang))
             return "skip"
+
+        # Настройки — переход в настройки
+        if text in self.SETTINGS_BUTTONS or "настройки" in text.lower() or "settings" in text.lower():
+            return "settings"
 
         # Слишком короткий ответ
         if len(text) < 20:

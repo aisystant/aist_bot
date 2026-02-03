@@ -77,6 +77,7 @@ states:
       incorrect: _same                  # Повторяем вопрос
       skip: workshop.marathon.task
       hint: _same                       # Показываем подсказку
+      settings: common.settings         # Переход в настройки
     allow_global: [consultation, notes]
 
   workshop.marathon.bonus:
@@ -85,6 +86,7 @@ states:
       yes: _same                        # Отвечаем на бонусный вопрос
       answered: workshop.marathon.task  # Ответ принят → задание
       no: workshop.marathon.task        # Отказ → сразу к заданию
+      settings: common.settings         # Переход в настройки
     allow_global: [consultation, notes]
 
   workshop.marathon.task:
@@ -94,6 +96,7 @@ states:
       feedback_requested: _same
       day_complete: common.mode_select    # День завершён → меню
       marathon_complete: common.mode_select  # Марафон завершён
+      settings: common.settings           # Переход в настройки
     allow_global: [consultation, notes]
 
   # ==========================================
