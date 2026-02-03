@@ -80,7 +80,7 @@ async def get_activity_stats(chat_id: int) -> dict:
     user = await get_intern(chat_id)
     today = moscow_today()
 
-    # Активность с понедельника текущей недели (для согласованности с другими функциями)
+    # Активность с понедельника текущей недели
     week_start = today - timedelta(days=today.weekday())
 
     async with pool.acquire() as conn:
@@ -91,7 +91,7 @@ async def get_activity_stats(chat_id: int) -> dict:
             ORDER BY activity_date DESC
         ''', chat_id, week_start)
 
-    # Сгруппировать по дням
+    # Количество активных дней с понедельника текущей недели
     days_active_this_week = len(set(a['activity_date'] for a in recent_activity))
 
     return {
