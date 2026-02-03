@@ -15,7 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем все файлы проекта
 COPY bot.py .
-COPY keyboards.py .
 COPY i18n/ ./i18n/
 COPY knowledge_structure.yaml .
 COPY config/ ./config/
@@ -23,6 +22,7 @@ COPY db/ ./db/
 COPY core/ ./core/
 COPY clients/ ./clients/
 COPY engines/ ./engines/
+COPY integrations/ ./integrations/
 COPY topics/ ./topics/
 COPY states/ ./states/
 

@@ -47,7 +47,7 @@ from clients.mcp import mcp_guides, mcp_knowledge, mcp
 from clients.claude import ClaudeClient
 from db import init_db, get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
-from keyboards import (
+from integrations.telegram.keyboards import (
     kb_experience, kb_difficulty, kb_learning_style, kb_study_duration,
     kb_confirm, kb_learn, kb_update_profile, kb_bloom_level,
     kb_bonus_question, kb_skip_topic, kb_marathon_start,
