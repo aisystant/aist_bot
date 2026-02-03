@@ -44,8 +44,20 @@ class ModeSelectState(BaseState):
         return getattr(user, 'chat_id', None)
 
     async def enter(self, user, context: dict = None) -> None:
-        """Показываем меню выбора режима."""
+        """
+        Показываем меню выбора режима.
+
+        Если context содержит day_completed=True, значит пользователь
+        только что завершил день — не показываем меню, просто ждём.
+        """
+        context = context or {}
         lang = self._get_lang(user)
+
+        # После завершения дня не показываем меню режимов
+        if context.get('day_completed'):
+            # Пользователь завершил день, меню не нужно
+            # Он может использовать /learn или /mode когда захочет
+            return
 
         # Формируем список доступных режимов
         buttons = [
