@@ -22,6 +22,7 @@ COPY db/ ./db/
 COPY core/ ./core/
 COPY clients/ ./clients/
 COPY engines/ ./engines/
+COPY integrations/ ./integrations/
 COPY topics/ ./topics/
 COPY states/ ./states/
 
