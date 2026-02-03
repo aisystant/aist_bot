@@ -1899,6 +1899,14 @@ marathon:
     ru: "🎉 Поздравляем! Марафон пройден! Используйте /feed для режима Лента."
     en: "🎉 Congratulations! Marathon completed! Use /feed for Feed mode."
 
+  completed_hint:
+    ru: "Вы можете продолжить обучение в режиме Лента (/feed) или посмотреть продвинутые программы в Мастерской."
+    en: "You can continue learning in Feed mode (/feed) or check advanced programs in the Workshop."
+
+  come_back_tomorrow:
+    ru: "Возвращайтесь завтра за новыми темами!"
+    en: "Come back tomorrow for new topics!"
+
   daily_limit:
     ru: "На сегодня лимит тем исчерпан. Возвращайтесь завтра!"
     en: "Today's topic limit reached. Come back tomorrow!"
