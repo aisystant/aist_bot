@@ -205,10 +205,10 @@
 
 | Namespace | Назначение | Примеры стейтов |
 |-----------|------------|-----------------|
-| `common.*` | Общие процессы | `start`, `mode_select`, `error`, `consultation` |
+| `common.*` | Общие процессы | `start`, `mode_select`, `settings`, `error`, `consultation` |
 | `workshop.marathon.*` | Марафон | `lesson`, `question`, `bonus`, `task` |
 | `feed.*` | Лента | `topics`, `digest` |
-| `utility.*` | Утилиты | `notes`, `export` |
+| `utility.*` | Утилиты | `notes`, `export`, `progress` |
 
 ### Глобальные процессы
 
@@ -239,3 +239,4 @@
 | 2025-01-21 | Добавлены: Вопрос пользователя (Вопрос), Консультация (Обратная связь). Удалён "Вопрос пользователя" из категории "Ответ" |
 | 2026-01-23 | Добавлен раздел 8: Сценарии, Процессы, Данные. Создана структура `docs/processes/` и `docs/data/` |
 | 2026-01-25 | Добавлен раздел 10: Структура стейтов. Определены namespaces: common, workshop.marathon, feed, utility |
+| 2026-02-03 | Добавлены стейты: `common.settings`, `utility.progress` |
