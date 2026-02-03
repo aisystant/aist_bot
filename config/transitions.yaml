@@ -90,9 +90,10 @@ states:
   workshop.marathon.task:
     description: "Практическое задание"
     events:
-      submitted: workshop.marathon.lesson  # Следующий урок
+      submitted: common.mode_select       # День завершён → меню (ждём следующий день)
       feedback_requested: _same
-      day_complete: workshop.marathon.lesson
+      day_complete: common.mode_select    # День завершён → меню
+      marathon_complete: common.mode_select  # Марафон завершён
     allow_global: [consultation, notes]
 
   # ==========================================
