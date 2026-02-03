@@ -2,7 +2,10 @@
 Стейт: Практическое задание Марафона.
 
 Вход: после вопроса урока (или бонусного вопроса)
-Выход: workshop.marathon.lesson (следующий урок)
+Выход:
+  - submitted → common.mode_select (день завершён)
+  - day_complete → common.mode_select (день завершён)
+  - marathon_complete → common.mode_select (марафон завершён)
 """
 
 from typing import Optional
@@ -12,9 +15,9 @@ from aiogram.types import Message
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer, moscow_today
-from core.knowledge import get_topic, get_topic_title
+from core.knowledge import get_topic, get_topic_title, get_total_topics
 from clients import claude
-from config import get_logger
+from config import get_logger, DAILY_TOPICS_LIMIT
 
 logger = get_logger(__name__)
 
@@ -172,9 +175,9 @@ class MarathonTaskState(BaseState):
         Обрабатываем ответ с рабочим продуктом.
 
         Возвращает:
-        - "submitted" → lesson (следующий урок)
-        - "day_complete" → lesson (день завершён)
-        - None → остаёмся (короткий ответ)
+        - "marathon_complete" → марафон полностью завершён
+        - "submitted" / "day_complete" → день завершён, ждём следующий день
+        - None → остаёмся в стейте (короткий ответ или вопрос)
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
@@ -184,7 +187,7 @@ class MarathonTaskState(BaseState):
         if text.startswith('?'):
             question_text = text[1:].strip()
             if question_text:
-                # TODO: Обработка вопроса
+                # TODO: Обработка вопроса через consultation
                 await self.send(
                     user,
                     f"_Ответ на ваш вопрос..._\n\n"
@@ -230,19 +233,30 @@ class MarathonTaskState(BaseState):
                 last_topic_date=today
             )
 
-        # Подтверждение
+        # Проверяем статус завершения
+        total_topics = get_total_topics()
+        marathon_completed = len(completed) >= total_topics or len(completed) >= 28
+
+        if marathon_completed:
+            # Марафон полностью завершён
+            await self.send(
+                user,
+                f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
+                f"🎉 *{t('marathon.completed', lang)}*\n\n"
+                f"_{t('marathon.completed_hint', lang)}_",
+                parse_mode="Markdown"
+            )
+            return "marathon_complete"
+
+        # День завершён (практика = последняя тема дня)
         await self.send(
             user,
             f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
-            f"✅ {t('marathon.day_complete', lang)}",
+            f"✅ {t('marathon.day_complete', lang)}\n\n"
+            f"_{t('marathon.come_back_tomorrow', lang)}_",
             parse_mode="Markdown"
         )
-
-        # Проверяем, есть ли ещё темы
-        if len(completed) >= 28:
-            return "day_complete"  # Марафон завершён
-
-        return "submitted"  # Следующий день
+        return "submitted"  # → common.mode_select
 
     async def exit(self, user) -> dict:
         """Передаём контекст следующему стейту."""
