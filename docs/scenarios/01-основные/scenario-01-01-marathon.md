@@ -416,15 +416,34 @@ UPDATE interns SET marathon_status = 'completed' WHERE chat_id = 123456
 
 ## 10. Ключевые файлы
 
+### State Machine (новая архитектура)
+
 | Файл | Назначение |
 |------|-----------|
-| `bot.py` | Основная логика марафона |
+| `states/workshops/marathon/lesson.py` | Стейт: показ урока |
+| `states/workshops/marathon/question.py` | Стейт: вопрос на понимание |
+| `states/workshops/marathon/bonus.py` | Стейт: бонусный вопрос |
+| `states/workshops/marathon/task.py` | Стейт: практическое задание |
+| `states/common/mode_select.py` | Стейт: выбор режима |
+| `states/common/settings.py` | Стейт: настройки |
+| `config/transitions.yaml` | Таблица переходов между стейтами |
+| `core/machine.py` | Движок State Machine |
+
+### Данные и контент
+
+| Файл | Назначение |
+|------|-----------|
 | `db/models.py` | Схема БД |
-| `db/queries/users.py` | Работа с профилями |
-| `db/queries/answers.py` | Сохранение ответов |
-| `db/queries/activity.py` | Отслеживание активности |
+| `db/queries/` | SQL-запросы |
 | `knowledge_structure.yaml` | Структура 28 тем |
-| `locales.py` | Тексты интерфейса |
+| `i18n/schema.yaml` | Локализация (ru/en/es/fr) |
+| `integrations/telegram/keyboards.py` | Клавиатуры Telegram |
+
+### Устаревшее (bot.py)
+
+| Файл | Назначение |
+|------|-----------|
+| `bot.py` | Старая архитектура (USE_STATE_MACHINE=false) |
 
 ---
 
@@ -434,3 +453,4 @@ UPDATE interns SET marathon_status = 'completed' WHERE chat_id = 123456
 |------|-----------|
 | 2026-01-22 | Создание документа |
 | 2026-01-22 | Добавлена кнопка «Посмотреть прогресс» после завершения дня |
+| 2026-02-03 | Обновлён раздел «Ключевые файлы» — добавлена State Machine архитектура |

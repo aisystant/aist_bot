@@ -18,9 +18,10 @@
 | № | Процесс | Описание | Файл |
 |---|---------|----------|------|
 | P-01 | [Отслеживание активности](process-01-activity-tracking.md) | Запись активных дней, расчёт streak | `db/queries/activity.py` |
-| P-02 | [Генерация контента](process-02-content-generation.md) | Генерация уроков, заданий, дайджестов через Claude API | `bot.py`, `engines/feed/engine.py` |
-| P-03 | [Определение интента](process-03-intent-detection.md) | Классификация сообщений пользователя | `bot.py` |
-| P-04 | [Сбор статистики](process-04-stats-collection.md) | Агрегация данных для /progress | `db/queries/` |
+| P-02 | [Генерация контента](process-02-content-generation.md) | Генерация уроков, заданий, дайджестов через Claude API | `states/workshops/marathon/*.py`, `clients/claude.py` |
+| P-03 | [Определение интента](process-03-intent-detection.md) | Классификация сообщений пользователя | `bot.py` (устаревает при USE_STATE_MACHINE=true) |
+| P-04 | [Сбор статистики](process-04-stats-collection.md) | Агрегация данных для /progress | `db/queries/`, `states/utilities/progress.py` |
+| P-05 | [Локализация](process-05-i18n.md) | Многоязычный интерфейс (ru/en/es/fr) | `i18n/` |
 
 ---
 
@@ -38,3 +39,4 @@
 | Дата | Изменение |
 |------|-----------|
 | 2026-01-23 | Создание раздела |
+| 2026-02-03 | Обновлены ссылки на файлы State Machine |

@@ -29,7 +29,7 @@ Telegram-бот [@aist_track_bot](https://t.me/aist_track_bot) с персона
 ### Общие возможности обоих режимов
 
 - **Консультация** — задавайте вопросы в свободной форме, бот ответит с опорой на базу знаний по системному мышлению
-- **Многоязычность** — интерфейс на русском, английском и испанском языках
+- **Многоязычность** — интерфейс на русском, английском, испанском и французском языках
 - **Персонализация** — адаптивная сложность вопросов под ваш уровень
 - **Прогресс** — отслеживание пройденного материала и достижений
 
@@ -231,16 +231,25 @@ python bot.py
 ### Структура проекта
 
 ```
-aist_track_bot/
-├── bot.py                    # Основной код (Марафон)
-├── engines/
-│   ├── mode_selector.py      # Выбор режима и настройки
-│   └── feed/                 # Режим Лента
+aist_bot/
+├── bot.py                    # Точка входа + старая архитектура
+├── states/                   # 🆕 State Machine стейты
+│   ├── common/               # Общие (start, mode_select, settings)
+│   ├── workshops/marathon/   # Марафон (lesson, question, bonus, task)
+│   ├── feed/                 # Лента (topics, digest)
+│   └── utilities/            # Утилиты (progress)
+├── core/                     # 🆕 Движок State Machine
+│   └── machine.py
+├── config/
+│   ├── settings.py
+│   └── transitions.yaml      # 🆕 Таблица переходов
+├── i18n/                     # 🆕 Локализация (ru/en/es/fr)
+├── integrations/telegram/    # 🆕 Клавиатуры Telegram
+├── engines/feed/             # Режим Лента
+├── clients/                  # Claude API, MCP
 ├── db/                       # Модели и запросы БД
-├── config/                   # Настройки
-├── docs/
-│   └── ontology.md           # Терминология (источник истины)
-├── knowledge_structure.yaml  # Структура тем
+├── docs/ontology.md          # Терминология (источник истины)
+├── knowledge_structure.yaml  # Структура 28 тем
 └── CLAUDE.md                 # Инструкции для ИИ
 ```
 
