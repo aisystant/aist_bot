@@ -33,6 +33,7 @@ class MarathonBonusState(BaseState):
     # Тексты кнопок
     YES_BUTTONS = ["🚀 Да, давай сложнее!", "🚀 Yes, harder!", "🚀 Sí, más difícil", "🚀 Oui, plus difficile!"]
     NO_BUTTONS = ["✅ Достаточно", "✅ Enough", "✅ Suficiente", "✅ Suffisant"]
+    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -94,6 +95,10 @@ class MarathonBonusState(BaseState):
         if self._is_no_button(text, lang):
             await self.send(user, t('marathon.loading_practice', lang))
             return "no"
+
+        # Настройки — переход в настройки
+        if text in self.SETTINGS_BUTTONS or "настройки" in text.lower() or "settings" in text.lower():
+            return "settings"
 
         # Это ответ на бонусный вопрос (текст минимум 20 символов)
         if len(text) >= 20:
