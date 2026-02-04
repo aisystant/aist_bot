@@ -398,9 +398,13 @@ async def marathon_reset_confirm(callback: CallbackQuery):
 async def marathon_reset_do(callback: CallbackQuery):
     """Выполнить сброс марафона"""
     from db.queries.users import moscow_today
+    from db.queries.answers import delete_marathon_answers
 
     chat_id = callback.message.chat.id
     today = moscow_today()
+
+    # Удаляем ответы марафона из таблицы answers
+    await delete_marathon_answers(chat_id)
 
     # Сбрасываем прогресс марафона
     await update_intern(chat_id,
