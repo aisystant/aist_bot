@@ -90,12 +90,12 @@ def _row_to_dict(row) -> dict:
         'topics_today': safe_get('topics_today', 0),
         'last_topic_date': safe_get('last_topic_date', None),
         
-        # Сложность
-        'complexity_level': safe_get('complexity_level', 1) or safe_get('bloom_level', 1) or 1,
-        'topics_at_current_complexity': safe_get('topics_at_current_complexity', 0) or safe_get('topics_at_current_bloom', 0) or 0,
-        # Для обратной совместимости
-        'bloom_level': safe_get('complexity_level', 1) or safe_get('bloom_level', 1) or 1,
-        'topics_at_current_bloom': safe_get('topics_at_current_complexity', 0) or safe_get('topics_at_current_bloom', 0) or 0,
+        # Сложность (используем coalesce-логику, но с учётом 0 как валидного значения)
+        'complexity_level': safe_get('complexity_level', None) if safe_get('complexity_level', None) is not None else (safe_get('bloom_level', 1) or 1),
+        'topics_at_current_complexity': safe_get('topics_at_current_complexity', None) if safe_get('topics_at_current_complexity', None) is not None else (safe_get('topics_at_current_bloom', 0) or 0),
+        # Для обратной совместимости (синхронизируем значения)
+        'bloom_level': safe_get('complexity_level', None) if safe_get('complexity_level', None) is not None else (safe_get('bloom_level', 1) or 1),
+        'topics_at_current_bloom': safe_get('topics_at_current_complexity', None) if safe_get('topics_at_current_complexity', None) is not None else (safe_get('topics_at_current_bloom', 0) or 0),
         
         # Лента
         'feed_status': safe_get('feed_status', 'not_started'),
@@ -183,6 +183,13 @@ async def update_intern(chat_id: int, **kwargs):
                 )
                 continue
             if key == 'topics_at_current_complexity':
+                await conn.execute(
+                    'UPDATE interns SET topics_at_current_complexity = $1, topics_at_current_bloom = $1, updated_at = NOW() WHERE chat_id = $2',
+                    value, chat_id
+                )
+                continue
+            if key == 'topics_at_current_bloom':
+                # Синхронизируем оба поля для обратной совместимости с legacy кодом
                 await conn.execute(
                     'UPDATE interns SET topics_at_current_complexity = $1, topics_at_current_bloom = $1, updated_at = NOW() WHERE chat_id = $2',
                     value, chat_id
