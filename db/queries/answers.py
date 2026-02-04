@@ -33,13 +33,33 @@ async def get_answers(chat_id: int, limit: int = 100) -> List[dict]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT * FROM answers 
-            WHERE chat_id = $1 
-            ORDER BY created_at DESC 
+            SELECT * FROM answers
+            WHERE chat_id = $1
+            ORDER BY created_at DESC
             LIMIT $2
         ''', chat_id, limit)
-        
+
         return [dict(row) for row in rows]
+
+
+async def delete_marathon_answers(chat_id: int) -> int:
+    """
+    Удалить все ответы марафона для пользователя.
+    Вызывается при сбросе марафона.
+
+    Returns:
+        Количество удалённых записей
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('''
+            DELETE FROM answers
+            WHERE chat_id = $1 AND mode = 'marathon'
+        ''', chat_id)
+        # result format: "DELETE N"
+        deleted_count = int(result.split()[-1]) if result else 0
+        logger.info(f"Deleted {deleted_count} marathon answers for chat_id={chat_id}")
+        return deleted_count
 
 
 async def get_weekly_work_products(chat_id: int, week_offset: int = 0) -> List[dict]:
