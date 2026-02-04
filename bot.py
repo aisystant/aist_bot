@@ -1491,13 +1491,20 @@ def get_practice_for_day(intern: dict, day: int) -> Optional[tuple]:
 
 
 def has_pending_practice(intern: dict) -> Optional[tuple]:
-    """Проверить, есть ли незавершённая практика для текущего дня
+    """Проверить, есть ли незавершённая практика (включая пропущенные дни)
 
     Returns:
         (index, topic) если есть, иначе None
     """
     marathon_day = get_marathon_day(intern)
-    return get_practice_for_day(intern, marathon_day)
+    completed = set(intern.get('completed_topics', []))
+
+    for i, topic in enumerate(TOPICS):
+        if topic['day'] > marathon_day:
+            break
+        if topic.get('type') == 'practice' and i not in completed:
+            return (i, topic)
+    return None
 
 
 def get_theory_for_day(intern: dict, day: int) -> Optional[tuple]:
@@ -1516,13 +1523,20 @@ def get_theory_for_day(intern: dict, day: int) -> Optional[tuple]:
 
 
 def has_pending_theory(intern: dict) -> Optional[tuple]:
-    """Проверить, есть ли незавершённый урок для текущего дня
+    """Проверить, есть ли незавершённый урок (включая пропущенные дни)
 
     Returns:
         (index, topic) если есть, иначе None
     """
     marathon_day = get_marathon_day(intern)
-    return get_theory_for_day(intern, marathon_day)
+    completed = set(intern.get('completed_topics', []))
+
+    for i, topic in enumerate(TOPICS):
+        if topic['day'] > marathon_day:
+            break
+        if topic.get('type') == 'theory' and i not in completed:
+            return (i, topic)
+    return None
 
 
 def was_theory_sent_today(intern: dict) -> bool:
@@ -3667,9 +3681,13 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     # Обновляем current_topic_index и отправляем практику
                     await update_intern(chat_id, current_topic_index=practice_index)
                     # Нет state для FSM в fallback — практика будет принята через fallback практики
+                    task_text = practice_topic.get('task', '')
+                    work_product = practice_topic.get('work_product', '')
                     await message.answer(
-                        f"📝 *{t('marathon.task', lang)}:* {practice_topic['title']}\n\n"
-                        f"_{practice_topic.get('description', '')}_ \n\n"
+                        f"📝 *{t('marathon.day_practice', lang, day=practice_topic.get('day', ''))}*\n"
+                        f"*{practice_topic['title']}*\n\n"
+                        f"📋 *{t('marathon.task', lang)}:*\n{task_text}\n\n"
+                        f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
                         f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}\n"
                         f"_{t('marathon.question_hint', lang)}_",
                         parse_mode="Markdown"
