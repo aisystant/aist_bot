@@ -2029,7 +2029,7 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
         marathon_day = get_marathon_day(intern)
         next_level = min(intern['bloom_level'] + 1, 3)
         logger.info(f"[BONUS] Генерируем вопрос уровня {next_level} для темы {topic_index}")
-        question = await claude.generate_question(topic, intern, marathon_day=marathon_day, bloom_level=next_level)
+        question = await claude.generate_question(topic, intern, bloom_level=next_level)
 
         # ВАЖНО: Устанавливаем состояние СРАЗУ после генерации вопроса, ДО отправки
         await state.update_data(topic_index=topic_index, next_command=next_command, bonus_level=next_level)
@@ -2441,8 +2441,8 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     await bot.send_chat_action(chat_id=chat_id, action="typing")
     await bot.send_message(chat_id, f"⏳ {t('marathon.generating_material', lang)}")
 
-    content = await claude.generate_content(topic, intern, marathon_day=marathon_day, mcp_client=mcp_guides, knowledge_client=mcp_knowledge)
-    question = await claude.generate_question(topic, intern, marathon_day=marathon_day)
+    content = await claude.generate_content(topic, intern, mcp_client=mcp_guides, knowledge_client=mcp_knowledge)
+    question = await claude.generate_question(topic, intern)
 
     # Используем день из темы, а не текущий день марафона
     header = (
