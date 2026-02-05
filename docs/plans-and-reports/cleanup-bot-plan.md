@@ -159,6 +159,7 @@ handlers/
 |---|----------|--------|
 | 1 | Scheduler не использовал State Machine | `b7c61bb` |
 | 2 | Устаревший user dict при переходах между стейтами | `f949b35` |
+| 3 | Неверный импорт в bonus.py (engines.topics вместо core.knowledge) | `7d7bcd5` |
 
 ---
 

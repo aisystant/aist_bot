@@ -18,7 +18,7 @@ from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer
 from clients.claude import claude
-from engines.topics import get_topic
+from core.knowledge import get_topic
 
 logger = logging.getLogger(__name__)
 
