@@ -83,7 +83,7 @@ states:
   workshop.marathon.bonus:
     description: "Бонусный вопрос повышенной сложности"
     events:
-      yes: _same                        # Отвечаем на бонусный вопрос
+      # yes убран — теперь handle() возвращает None после генерации вопроса
       answered: workshop.marathon.task  # Ответ принят → задание
       no: workshop.marathon.task        # Отказ → сразу к заданию
       settings: common.settings         # Переход в настройки

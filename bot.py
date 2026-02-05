@@ -1879,6 +1879,13 @@ async def on_answer(message: Message, state: FSMContext, bot: Bot):
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
+    # Bypass: если State Machine включён и у пользователя есть SM-состояние
+    if state_machine is not None and intern and intern.get('current_state'):
+        logger.info(f"[on_answer] Bypassing legacy handler, SM state: {intern.get('current_state')}")
+        await state.clear()  # Очищаем legacy FSM state
+        await state_machine.handle(intern, message)
+        return
+
     # Проверяем, это вопрос к ИИ (начинается с ?)
     if text.strip().startswith('?'):
         question_text = text.strip()[1:].strip()
@@ -2115,6 +2122,13 @@ async def on_bonus_answer(message: Message, state: FSMContext, bot: Bot):
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
+    # Bypass: если State Machine включён и у пользователя есть SM-состояние
+    if state_machine is not None and intern and intern.get('current_state'):
+        logger.info(f"[on_bonus_answer] Bypassing legacy handler, SM state: {intern.get('current_state')}")
+        await state.clear()  # Очищаем legacy FSM state
+        await state_machine.handle(intern, message)
+        return
+
     # Проверяем, это вопрос к ИИ (начинается с ?)
     if text.strip().startswith('?'):
         question_text = text.strip()[1:].strip()
@@ -2218,6 +2232,13 @@ async def on_work_product(message: Message, state: FSMContext):
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
+    # Bypass: если State Machine включён и у пользователя есть SM-состояние
+    if state_machine is not None and intern and intern.get('current_state'):
+        logger.info(f"[on_work_product] Bypassing legacy handler, SM state: {intern.get('current_state')}")
+        await state.clear()  # Очищаем legacy FSM state
+        await state_machine.handle(intern, message)
+        return
+
     # Проверяем, это вопрос к ИИ (начинается с ?)
     if text.strip().startswith('?'):
         question_text = text.strip()[1:].strip()
@@ -2254,8 +2275,7 @@ async def on_work_product(message: Message, state: FSMContext):
     await save_answer(
         message.chat.id,
         topic_index,
-        f"[РП] {text.strip()}",
-        answer_type='work_product'
+        f"[РП] {text.strip()}"
     )
 
     # Получаем информацию о завершённой теме
@@ -3023,8 +3043,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     await save_answer(
                         chat_id,
                         practice_index,
-                        f"[РП][fallback] {text.strip()}",
-                        answer_type='work_product'
+                        f"[РП][fallback] {text.strip()}"
                     )
 
                     # Обновляем прогресс
