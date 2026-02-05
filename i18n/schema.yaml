@@ -1699,6 +1699,11 @@ marathon:
     ru: "Напишите ответ в сообщении. Он не проверяется — после получения любого ответа тема считается пройденной."
     en: "Write your answer in a message. It is not graded — the topic is marked complete after any answer."
 
+  fallback_question:
+    ru: "Как вы понимаете тему «{topic}»? Напишите своими словами."
+    en: 'How do you understand the topic "{topic}"? Write in your own words.'
+    description: "Запасной вопрос, если генерация через Claude API не удалась"
+
   preparing_practice:
     ru: "Готовлю практическое задание..."
     en: "Preparing practice task..."
