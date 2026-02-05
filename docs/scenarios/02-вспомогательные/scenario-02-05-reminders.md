@@ -52,6 +52,14 @@
 ┌─────────────────────────────────────────────────────┐
 │ 1. Отправка темы пользователю                       │
 │    send_scheduled_topic(chat_id, bot)               │
+│                                                     │
+│    [USE_STATE_MACHINE=true]                         │
+│    → state_machine.go_to("workshop.marathon.lesson")│
+│    → SM устанавливает current_state в БД            │
+│                                                     │
+│    [USE_STATE_MACHINE=false]                        │
+│    → send_theory_topic() / send_practice_topic()    │
+│    → Legacy FSM state                               │
 └────────────────────┬────────────────────────────────┘
                      │
                      ↓
@@ -324,12 +332,15 @@ for hours in [1, 3, 5, 24]:  # Добавить +5h и +24h
 
 | Файл | Строки | Назначение |
 |------|--------|-----------|
-| `bot.py` | 2893-2914 | schedule_reminders() |
-| `bot.py` | 2917-2948 | send_reminder() |
-| `bot.py` | 2951-2981 | check_reminders() |
-| `bot.py` | 2984-3007 | scheduled_check() |
-| `bot.py` | 3181-3182 | Инициализация scheduler |
+| `bot.py` | 2628-2714 | send_scheduled_topic() — SM или legacy routing |
+| `bot.py` | 2717-2739 | schedule_reminders() |
+| `bot.py` | 2741-2774 | send_reminder() |
+| `bot.py` | 2776-2806 | check_reminders() |
+| `bot.py` | 2809-2830 | scheduled_check() |
+| `bot.py` | 3267-3268 | Инициализация scheduler |
 | `db/models.py` | 162-173 | Таблица reminders |
+| `states/workshops/marathon/lesson.py` | — | SM стейт: урок (при USE_STATE_MACHINE) |
+| `states/workshops/marathon/task.py` | — | SM стейт: задание (при USE_STATE_MACHINE) |
 
 ---
 
@@ -337,4 +348,6 @@ for hours in [1, 3, 5, 24]:  # Добавить +5h и +24h
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-02-05 | Добавлена документация State Machine routing в send_scheduled_topic() |
+| 2026-02-05 | Обновлены номера строк в разделе «Ключевые файлы» |
 | 2026-01-22 | Создание документа |
