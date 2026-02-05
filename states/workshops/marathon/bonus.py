@@ -210,8 +210,11 @@ class MarathonBonusState(BaseState):
             return True
         if text_lower in [b.lower() for b in self.YES_BUTTONS]:
             return True
-        if "да" in text_lower or "yes" in text_lower or "harder" in text_lower:
-            return True
+        # Проверка ключевых слов только для коротких сообщений (кнопки < 30 символов)
+        # Иначе "создаёшь" и другие слова с "да" триггерят ложное срабатывание
+        if len(text) < 30:
+            if "да" in text_lower or "yes" in text_lower or "harder" in text_lower:
+                return True
 
         return False
 
@@ -224,8 +227,10 @@ class MarathonBonusState(BaseState):
             return True
         if text_lower in [b.lower() for b in self.NO_BUTTONS]:
             return True
-        if "достаточно" in text_lower or "enough" in text_lower:
-            return True
+        # Проверка ключевых слов только для коротких сообщений (кнопки < 30 символов)
+        if len(text) < 30:
+            if "достаточно" in text_lower or "enough" in text_lower:
+                return True
 
         return False
 
