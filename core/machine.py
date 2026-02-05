@@ -256,16 +256,32 @@ class StateMachine:
         full_context = {**(context or {}), **exit_context}
 
         # Сохраняем новый стейт в БД
+        chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
         try:
             from db.queries import update_user_state
-            chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
             if chat_id:
                 await update_user_state(chat_id, to_state_name)
         except Exception as e:
             logger.warning(f"Не удалось сохранить стейт в БД: {e}")
 
-        # Вход в новый стейт
-        await to_state.enter(user, full_context)
+        # ВАЖНО: Обновляем user из БД перед входом в новый стейт
+        # Это необходимо, потому что предыдущий стейт мог обновить данные в БД
+        # (например, current_topic_index), и новый стейт должен работать с актуальными данными
+        fresh_user = user
+        if chat_id:
+            try:
+                from db.queries import get_intern
+                fresh_user = await get_intern(chat_id)
+                if fresh_user:
+                    logger.debug(f"[SM] Refreshed user data for transition to {to_state_name}")
+                else:
+                    fresh_user = user  # Fallback если не удалось получить
+            except Exception as e:
+                logger.warning(f"Не удалось обновить user из БД: {e}")
+                fresh_user = user
+
+        # Вход в новый стейт с актуальными данными
+        await to_state.enter(fresh_user, full_context)
 
     async def start(self, user, context: dict = None) -> None:
         """
@@ -373,12 +389,27 @@ class StateMachine:
         except Exception as e:
             logger.warning(f"Не удалось сохранить стейт в БД: {e}")
 
-        # Вход в новый стейт
-        event = await to_state.enter(user, full_context)
+        # ВАЖНО: Обновляем user из БД перед входом в стейт
+        # Это необходимо, потому что предыдущий стейт мог обновить данные в БД
+        fresh_user = user
+        if chat_id:
+            try:
+                from db.queries import get_intern
+                fresh_user = await get_intern(chat_id)
+                if fresh_user:
+                    logger.debug(f"[SM] Refreshed user data for go_to {state_name}")
+                else:
+                    fresh_user = user
+            except Exception as e:
+                logger.warning(f"Не удалось обновить user из БД: {e}")
+                fresh_user = user
+
+        # Вход в новый стейт с актуальными данными
+        event = await to_state.enter(fresh_user, full_context)
 
         # Если enter() вернул событие — обрабатываем переход
         if event:
             next_state_name = self.get_next_state(state_name, event, chat_id)
             if next_state_name and next_state_name != state_name:
                 logger.info(f"[SM] Auto-transition from {state_name} via event '{event}'")
-                await self.go_to(user, next_state_name, full_context)
+                await self.go_to(fresh_user, next_state_name, full_context)
