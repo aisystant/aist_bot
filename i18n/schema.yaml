@@ -1504,6 +1504,12 @@ errors:
     ru: "Попробуйте ещё раз позже."
     en: "Please try again later."
 
+  processing_error:
+    ru: "Произошла ошибка при обработке сообщения."
+    en: "An error occurred while processing your message."
+    es: "Se produjo un error al procesar tu mensaje."
+    fr: "Une erreur s'est produite lors du traitement de votre message."
+
 # -----------------------------------------------------------------------------
 # FSM fallback-сообщения
 # -----------------------------------------------------------------------------

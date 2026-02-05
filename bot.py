@@ -2761,6 +2761,9 @@ async def on_unknown_message(message: Message, state: FSMContext):
     if state_machine is not None:
         logger.info(f"[SM] Routing message to StateMachine: chat_id={chat_id}, text={text[:50] if text else '[no text]'}")
         try:
+            # Очищаем legacy FSM state чтобы избежать конфликтов
+            await state.clear()
+
             intern = await get_intern(chat_id)
             if intern:
                 await state_machine.handle(intern, message)
@@ -2773,8 +2776,14 @@ async def on_unknown_message(message: Message, state: FSMContext):
             logger.error(f"[SM] Error in StateMachine: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            # Fallback к старой логике
-            logger.info(f"[SM] Falling back to legacy routing")
+            # НЕ делаем fallback на legacy — показываем ошибку пользователю
+            intern = await get_intern(chat_id)
+            lang = intern.get('language', 'ru') if intern else 'ru'
+            await message.answer(
+                f"⚠️ {t('errors.processing_error', lang)}\n\n"
+                f"{t('errors.try_again_later', lang)}"
+            )
+            return
 
     # === LEGACY ROUTING (старая логика) ===
     current_state = await state.get_state()
