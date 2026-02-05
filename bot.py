@@ -2678,6 +2678,30 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     # Отправляем тему
     topic_type = topic.get('type', 'theory')
 
+    # === State Machine routing ===
+    # Если SM включён — направляем через State Machine
+    if state_machine is not None:
+        logger.info(f"[Scheduler] Routing to StateMachine: chat_id={chat_id}, topic_type={topic_type}")
+        try:
+            # Определяем целевой стейт
+            if topic_type == 'theory':
+                target_state = "workshop.marathon.lesson"
+            else:
+                target_state = "workshop.marathon.task"
+
+            # Обновляем intern с актуальным topic_index перед переходом
+            updated_intern = {**intern, 'current_topic_index': topic_index}
+
+            await state_machine.go_to(updated_intern, target_state, context={'topic_index': topic_index, 'from_scheduler': True})
+            logger.info(f"[Scheduler] Successfully routed to {target_state} for chat_id={chat_id}")
+            return
+        except Exception as e:
+            logger.error(f"[Scheduler] Error routing to StateMachine: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback на legacy функции
+
+    # === Legacy routing ===
     if _dispatcher:
         state = FSMContext(
             storage=_dispatcher.storage,
