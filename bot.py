@@ -757,24 +757,32 @@ class ClaudeClient:
             knowledge_search_keys = [default_query]
 
         # Получаем контекст из MCP руководств (используем все ключи поиска)
+        # Таймаут 10 сек на весь блок MCP, чтобы оставить время для Claude API
         guides_context = ""
         if mcp_client:
             try:
                 context_parts = []
                 seen_texts = set()  # Для дедупликации
-                for search_query in guides_search_keys[:3]:  # Максимум 3 запроса
-                    search_results = await mcp_client.semantic_search(search_query, lang="ru", limit=2)
-                    if search_results:
-                        for item in search_results:
-                            if isinstance(item, dict):
-                                text = item.get('text', item.get('content', ''))
-                            elif isinstance(item, str):
-                                text = item
-                            else:
-                                continue
-                            if text and text[:100] not in seen_texts:
-                                seen_texts.add(text[:100])
-                                context_parts.append(text[:1500])
+                for search_query in guides_search_keys[:2]:  # Максимум 2 запроса (было 3)
+                    try:
+                        search_results = await asyncio.wait_for(
+                            mcp_client.semantic_search(search_query, lang="ru", limit=2),
+                            timeout=5.0  # 5 сек на каждый запрос
+                        )
+                        if search_results:
+                            for item in search_results:
+                                if isinstance(item, dict):
+                                    text = item.get('text', item.get('content', ''))
+                                elif isinstance(item, str):
+                                    text = item
+                                else:
+                                    continue
+                                if text and text[:100] not in seen_texts:
+                                    seen_texts.add(text[:100])
+                                    context_parts.append(text[:1500])
+                    except asyncio.TimeoutError:
+                        logger.warning(f"{mcp_client.name}: таймаут поиска '{search_query[:30]}...'")
+                        break  # Прерываем если MCP тормозит
                 if context_parts:
                     guides_context = "\n\n".join(context_parts[:5])  # Максимум 5 фрагментов
                     logger.info(f"{mcp_client.name}: найдено {len(context_parts)} фрагментов контекста")
@@ -782,30 +790,38 @@ class ClaudeClient:
                 logger.error(f"{mcp_client.name} search error: {e}")
 
         # Получаем контекст из MCP базы знаний (knowledge MCP использует инструмент 'search')
+        # Таймаут 5 сек на каждый запрос
         knowledge_context = ""
         if knowledge_client:
             try:
                 context_parts = []
                 seen_texts = set()
-                for search_query in knowledge_search_keys[:3]:  # Максимум 3 запроса
-                    # Сортируем по дате создания (сначала новые)
-                    search_results = await knowledge_client.semantic_search(
-                        search_query, lang="ru", limit=2, sort_by="created_at:desc"
-                    )
-                    if search_results:
-                        for item in search_results:
-                            if isinstance(item, dict):
-                                text = item.get('text', item.get('content', ''))
-                                date_info = item.get('created_at', item.get('date', ''))
-                                if date_info:
-                                    text = f"[{date_info}] {text}"
-                            elif isinstance(item, str):
-                                text = item
-                            else:
-                                continue
-                            if text and text[:100] not in seen_texts:
-                                seen_texts.add(text[:100])
-                                context_parts.append(text[:1500])
+                for search_query in knowledge_search_keys[:2]:  # Максимум 2 запроса (было 3)
+                    try:
+                        # Сортируем по дате создания (сначала новые)
+                        search_results = await asyncio.wait_for(
+                            knowledge_client.semantic_search(
+                                search_query, lang="ru", limit=2, sort_by="created_at:desc"
+                            ),
+                            timeout=5.0  # 5 сек на каждый запрос
+                        )
+                        if search_results:
+                            for item in search_results:
+                                if isinstance(item, dict):
+                                    text = item.get('text', item.get('content', ''))
+                                    date_info = item.get('created_at', item.get('date', ''))
+                                    if date_info:
+                                        text = f"[{date_info}] {text}"
+                                elif isinstance(item, str):
+                                    text = item
+                                else:
+                                    continue
+                                if text and text[:100] not in seen_texts:
+                                    seen_texts.add(text[:100])
+                                    context_parts.append(text[:1500])
+                    except asyncio.TimeoutError:
+                        logger.warning(f"{knowledge_client.name}: таймаут поиска '{search_query[:30]}...'")
+                        break  # Прерываем если MCP тормозит
                 if context_parts:
                     knowledge_context = "\n\n".join(context_parts[:5])  # Максимум 5 фрагментов
                     logger.info(f"{knowledge_client.name}: найдено {len(context_parts)} фрагментов (свежие посты)")
