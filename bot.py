@@ -701,31 +701,41 @@ class ClaudeClient:
         self.base_url = "https://api.anthropic.com/v1/messages"
 
     async def generate(self, system_prompt: str, user_prompt: str) -> str:
-        async with aiohttp.ClientSession() as session:
+        # Таймаут для HTTP запроса (50 сек, чтобы успеть до внешнего таймаута 60 сек)
+        timeout = aiohttp.ClientTimeout(total=50)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             headers = {
                 "Content-Type": "application/json",
                 "x-api-key": self.api_key,
                 "anthropic-version": "2023-06-01"
             }
-            
+
             payload = {
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 4000,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_prompt}]
             }
-            
+
             try:
+                logger.info(f"[Claude API] Отправка запроса, model={payload['model']}, prompt_len={len(user_prompt)}")
                 async with session.post(self.base_url, headers=headers, json=payload) as resp:
+                    logger.info(f"[Claude API] Получен ответ, status={resp.status}")
                     if resp.status == 200:
                         data = await resp.json()
                         return data["content"][0]["text"]
                     else:
                         error = await resp.text()
-                        logger.error(f"Claude API error: {error}")
+                        logger.error(f"[Claude API] Ошибка status={resp.status}: {error[:500]}")
                         return None
+            except asyncio.TimeoutError:
+                logger.error(f"[Claude API] Таймаут HTTP запроса (50 сек)")
+                return None
+            except aiohttp.ClientError as e:
+                logger.error(f"[Claude API] Сетевая ошибка: {type(e).__name__}: {e}")
+                return None
             except Exception as e:
-                logger.error(f"Claude API exception: {e}")
+                logger.error(f"[Claude API] Неизвестная ошибка: {type(e).__name__}: {e}")
                 return None
 
     async def generate_content(self, topic: dict, intern: dict, marathon_day: int = 1, mcp_client=None, knowledge_client=None) -> str:
