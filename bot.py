@@ -3033,10 +3033,15 @@ async def on_work_product(message: Message, state: FSMContext):
         return
 
     # Сохраняем ответ (рабочий продукт)
-    await save_answer(message.chat.id, intern['current_topic_index'], f"[РП] {text.strip()}")
+    topic_index = intern['current_topic_index']
+    await save_answer(message.chat.id, topic_index, f"[РП] {text.strip()}")
+
+    # Получаем информацию о завершённой теме
+    topic = get_topic(topic_index)
+    topic_day = topic['day'] if topic else get_marathon_day(intern)
 
     # Обновляем прогресс
-    completed = intern['completed_topics'] + [intern['current_topic_index']]
+    completed = intern['completed_topics'] + [topic_index]
 
     # Обновляем счётчик тем за сегодня
     today = moscow_today()
@@ -3045,31 +3050,30 @@ async def on_work_product(message: Message, state: FSMContext):
     await update_intern(
         message.chat.id,
         completed_topics=completed,
-        current_topic_index=intern['current_topic_index'] + 1,
+        current_topic_index=topic_index + 1,
         topics_today=topics_today,
         last_topic_date=today
     )
 
     done = len(completed)
     total = get_total_topics()
-    marathon_day = get_marathon_day(intern)
 
-    # Проверяем, завершён ли день
-    day_topics = get_topics_for_day(marathon_day)
-    day_completed = sum(1 for i, _ in enumerate(TOPICS) if TOPICS[i]['day'] == marathon_day and i in completed)
+    # Проверяем, завершён ли день ЗАВЕРШЁННОЙ темы (не текущий день марафона!)
+    day_topics = get_topics_for_day(topic_day)
+    day_completed = sum(1 for i, _ in enumerate(TOPICS) if TOPICS[i]['day'] == topic_day and i in completed)
 
     if day_completed >= len(day_topics):
-        # День полностью завершён
+        # День темы полностью завершён
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📊 Посмотреть прогресс", callback_data="go_progress")]
         ])
         await message.answer(
-            f"🎉 *День {marathon_day} завершён!*\n\n"
+            f"🎉 *День {topic_day} завершён!*\n\n"
             f"✅ Теория пройдена\n"
             f"✅ Практика выполнена\n"
             f"📝 РП: {text.strip()}\n\n"
             f"{progress_bar(done, total)}\n\n"
-            f"Отличная работа! Возвращайтесь завтра за новыми темами.",
+            f"Отличная работа! Используйте /learn для следующей темы.",
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
@@ -3707,9 +3711,9 @@ async def on_unknown_message(message: Message, state: FSMContext):
             practice_index, practice_topic = practice
             # Проверяем, что это не команда и не короткое сообщение
             if text and not text.startswith('/') and len(text.strip()) >= 3:
-                # Проверяем, прошла ли теория этого дня
-                marathon_day = get_marathon_day(intern)
-                day_topics = [(i, t) for i, t in enumerate(TOPICS) if t['day'] == marathon_day]
+                # Проверяем, прошла ли теория этого дня (дня ПРАКТИКИ, не текущий день марафона)
+                practice_day = practice_topic.get('day', get_marathon_day(intern))
+                day_topics = [(i, t) for i, t in enumerate(TOPICS) if t['day'] == practice_day]
                 theory_done = any(
                     i in intern['completed_topics']
                     for i, t in day_topics if t.get('type') == 'theory'
