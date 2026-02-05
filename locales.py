@@ -194,6 +194,8 @@ TRANSLATIONS = {
 
         # Ошибки
         'errors.try_again': 'Попробуй ещё раз',
+        'errors.content_generation_failed': 'Не удалось сгенерировать материал',
+        'errors.try_again_later': 'Пожалуйста, попробуйте /learn через несколько минут',
 
         # FSM fallback-сообщения
         'fsm.unrecognized_onboarding': 'Я не распознал ваш ответ. Пожалуйста, завершите регистрацию или используйте /start для начала заново',
@@ -239,6 +241,7 @@ TRANSLATIONS = {
         'marathon.minutes': '{minutes} минут',
         'marathon.reflection_question': 'Вопрос для размышления',
         'marathon.answer_hint': 'Напишите ответ в сообщении. Он не проверяется — после получения любого ответа тема считается пройденной.',
+        'marathon.fallback_question': 'Как вы понимаете тему «{topic}»? Напишите своими словами.',
         'marathon.preparing_practice': 'Готовлю практическое задание...',
         'marathon.day_practice': 'День {day} — Практика',
         'marathon.task': 'Задание',
@@ -472,6 +475,8 @@ TRANSLATIONS = {
 
         # Errors
         'errors.try_again': 'Try again',
+        'errors.content_generation_failed': 'Failed to generate content',
+        'errors.try_again_later': 'Please try /learn again in a few minutes',
 
         # FSM fallback messages
         'fsm.unrecognized_onboarding': "I didn't recognize your response. Please complete registration or use /start to begin again",
@@ -517,6 +522,7 @@ TRANSLATIONS = {
         'marathon.minutes': '{minutes} minutes',
         'marathon.reflection_question': 'Reflection question',
         'marathon.answer_hint': 'Write your answer in a message. It is not graded — the topic is marked complete after any answer.',
+        'marathon.fallback_question': 'How do you understand the topic "{topic}"? Write in your own words.',
         'marathon.preparing_practice': 'Preparing practice task...',
         'marathon.day_practice': 'Day {day} — Practice',
         'marathon.task': 'Task',
@@ -750,6 +756,8 @@ TRANSLATIONS = {
 
         # Errores
         'errors.try_again': 'Inténtalo de nuevo',
+        'errors.content_generation_failed': 'No se pudo generar el contenido',
+        'errors.try_again_later': 'Por favor, intenta /learn de nuevo en unos minutos',
 
         # Mensajes FSM fallback
         'fsm.unrecognized_onboarding': 'No reconocí tu respuesta. Por favor, completa el registro o usa /start para comenzar de nuevo',
@@ -795,6 +803,7 @@ TRANSLATIONS = {
         'marathon.minutes': '{minutes} minutos',
         'marathon.reflection_question': 'Pregunta de reflexión',
         'marathon.answer_hint': 'Escribe tu respuesta en un mensaje. No se califica — el tema se marca como completado después de cualquier respuesta.',
+        'marathon.fallback_question': '¿Cómo entiendes el tema "{topic}"? Escríbelo con tus propias palabras.',
         'marathon.preparing_practice': 'Preparando tarea práctica...',
         'marathon.day_practice': 'Día {day} — Práctica',
         'marathon.task': 'Tarea',

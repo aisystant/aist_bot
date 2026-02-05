@@ -3235,8 +3235,42 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     await bot.send_chat_action(chat_id=chat_id, action="typing")
     await bot.send_message(chat_id, f"⏳ {t('marathon.generating_material', lang)}")
 
-    content = await claude.generate_content(topic, intern, marathon_day=marathon_day, mcp_client=mcp_guides, knowledge_client=mcp_knowledge)
-    question = await claude.generate_question(topic, intern, marathon_day=marathon_day)
+    # Генерируем контент с таймаутом
+    content = None
+    try:
+        content = await asyncio.wait_for(
+            claude.generate_content(topic, intern, marathon_day=marathon_day, mcp_client=mcp_guides, knowledge_client=mcp_knowledge),
+            timeout=60.0  # 60 секунд для контента
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[send_theory_topic] Таймаут генерации контента для chat_id={chat_id}, topic={topic.get('title')}")
+    except Exception as e:
+        logger.error(f"[send_theory_topic] Ошибка генерации контента: {e}")
+
+    if not content:
+        await bot.send_message(
+            chat_id,
+            f"❌ {t('errors.content_generation_failed', lang)}\n\n"
+            f"{t('errors.try_again_later', lang)}",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Генерируем вопрос с таймаутом
+    question = None
+    try:
+        question = await asyncio.wait_for(
+            claude.generate_question(topic, intern, marathon_day=marathon_day),
+            timeout=30.0  # 30 секунд для вопроса
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"[send_theory_topic] Таймаут генерации вопроса для chat_id={chat_id}")
+    except Exception as e:
+        logger.error(f"[send_theory_topic] Ошибка генерации вопроса: {e}")
+
+    # Fallback вопрос если генерация не удалась
+    if not question:
+        question = t('marathon.fallback_question', lang, topic=topic.get('title', 'тема'))
 
     # Используем день из темы, а не текущий день марафона
     header = (
@@ -3281,8 +3315,17 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     await bot.send_chat_action(chat_id=chat_id, action="typing")
     await bot.send_message(chat_id, f"⏳ {t('marathon.preparing_practice', lang)}")
 
-    # Генерируем краткое введение
-    intro = await claude.generate_practice_intro(topic, intern)
+    # Генерируем краткое введение (с таймаутом и обработкой ошибок)
+    intro = ""
+    try:
+        intro = await asyncio.wait_for(
+            claude.generate_practice_intro(topic, intern),
+            timeout=30.0  # 30 секунд таймаут
+        )
+    except asyncio.TimeoutError:
+        logger.warning(f"[send_practice_topic] Таймаут генерации intro для chat_id={chat_id}")
+    except Exception as e:
+        logger.error(f"[send_practice_topic] Ошибка генерации intro: {e}")
 
     task = topic.get('task', '')
     work_product = topic.get('work_product', '')
