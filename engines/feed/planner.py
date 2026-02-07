@@ -7,6 +7,7 @@
 
 from typing import List, Dict, Optional
 import json
+import asyncio
 
 from config import get_logger, FEED_TOPICS_TO_SUGGEST, ONTOLOGY_RULES, ONTOLOGY_RULES_TOPICS
 from clients import claude, mcp_guides, mcp_knowledge
