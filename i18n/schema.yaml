@@ -115,8 +115,8 @@ menu:
     en: "My profile"
 
   update:
-    ru: "Обновить профиль"
-    en: "Update profile"
+    ru: "Настройки"
+    en: "Settings"
 
   mode:
     ru: "Выбор режима"
@@ -408,8 +408,8 @@ buttons:
     max_length: 25
 
   update_profile:
-    ru: "📝 Обновить данные"
-    en: "📝 Update profile"
+    ru: "⚙️ Настройки"
+    en: "⚙️ Settings"
     max_length: 25
 
   reminders:

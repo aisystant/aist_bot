@@ -93,7 +93,7 @@ buttons:
   select_topics: "Sélectionner les sujets de la semaine"
   reset_topics: "Régénérer les sujets"
   confirm_selection: "✅ Confirmer la sélection"
-  update_profile: "📝 Mettre à jour les données"
+  update_profile: "⚙️ Paramètres"
   reminders: "⏰ Rappels"
   reset_marathon: "🔄 Recommencer le marathon"
   back: "« Retour"
