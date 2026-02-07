@@ -12,7 +12,7 @@
 import logging
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardRemove
 
 from states.base import BaseState
 from i18n import t
@@ -116,7 +116,8 @@ class MarathonBonusState(BaseState):
 
         # Пользователь хочет бонусный вопрос
         if self._is_yes_button(text, lang):
-            await self.send(user, f"⏳ {t('marathon.generating_harder', lang)}")
+            # FIX: Удаляем Reply Keyboard при переходе к вопросу
+            await self.send_remove_keyboard(user, f"⏳ {t('marathon.generating_harder', lang)}")
 
             try:
                 # Получаем данные для генерации
@@ -167,7 +168,8 @@ class MarathonBonusState(BaseState):
 
         # Пользователь отказался
         if self._is_no_button(text, lang):
-            await self.send(user, t('marathon.loading_practice', lang))
+            # FIX: Удаляем Reply Keyboard при переходе к практике
+            await self.send_remove_keyboard(user, t('marathon.loading_practice', lang))
             return "no"
 
         # Настройки — переход в настройки
@@ -189,11 +191,13 @@ class MarathonBonusState(BaseState):
                     answer_type="bonus_answer"
                 )
 
+            # FIX: Удаляем Reply Keyboard при переходе к практике
             await self.send(
                 user,
                 f"🌟 *{t('marathon.bonus_completed', lang)}*\n\n"
                 f"{t('marathon.training_skills', lang)} *{t(f'bloom.level_{self._get_bloom_level(user)}_short', lang)}* {t('marathon.and_higher', lang)}",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardRemove()
             )
             return "answered"
 

@@ -577,11 +577,14 @@ def get_sections_progress(completed_topics: list) -> list:
         'week-2': {'total': 0, 'completed': 0, 'name': 'Неделя 2: От практики к системе'}
     }
 
+    # FIX: Преобразуем в set для O(1) проверки вместо O(n)
+    completed_set = set(completed_topics) if completed_topics else set()
+
     # Собираем темы по неделям
     for i, topic in enumerate(TOPICS):
         week_id = 'week-1' if topic['day'] <= 7 else 'week-2'
         weeks[week_id]['total'] += 1
-        if i in completed_topics:
+        if i in completed_set:
             weeks[week_id]['completed'] += 1
 
     return [weeks['week-1'], weeks['week-2']]
@@ -594,15 +597,18 @@ def get_lessons_tasks_progress(completed_topics: list) -> dict:
         'tasks': {'total': 0, 'completed': 0}
     }
 
+    # FIX: Преобразуем в set для O(1) проверки вместо O(n)
+    completed_set = set(completed_topics) if completed_topics else set()
+
     for i, topic in enumerate(TOPICS):
         topic_type = topic.get('type', 'theory')
         if topic_type == 'theory':
             result['lessons']['total'] += 1
-            if i in completed_topics:
+            if i in completed_set:
                 result['lessons']['completed'] += 1
         else:  # practice
             result['tasks']['total'] += 1
-            if i in completed_topics:
+            if i in completed_set:
                 result['tasks']['completed'] += 1
 
     return result
@@ -1995,7 +2001,9 @@ async def on_answer(message: Message, state: FSMContext, bot: Bot):
         # Не очищаем state — ждём выбора
     else:
         # Уровень максимальный, бонус не предлагаем — сразу к заданию
-        practice = has_pending_practice(updated_intern)
+        # FIX: Получаем практику того же дня, что и завершённая теория
+        completed_topic = TOPICS[intern['current_topic_index']]
+        practice = get_practice_for_day(updated_intern, completed_topic['day'])
 
         if practice:
             practice_index, practice_topic = practice
@@ -2091,7 +2099,10 @@ async def on_bonus_no(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer(t('marathon.ok', lang))
 
     # Проверяем, есть ли практика для этого дня
-    practice = has_pending_practice(intern)
+    # FIX: Используем сохранённый индекс темы для определения дня практики
+    topic_index = data.get('topic_index', 0)
+    completed_topic = TOPICS[topic_index] if topic_index < len(TOPICS) else None
+    practice = get_practice_for_day(intern, completed_topic['day']) if completed_topic else None
 
     if practice:
         practice_index, practice_topic = practice
@@ -2174,7 +2185,9 @@ async def on_bonus_answer(message: Message, state: FSMContext, bot: Bot):
         bloom_level = intern['bloom_level'] if intern else 1
 
         # Проверяем, есть ли практика для этого дня
-        practice = has_pending_practice(intern)
+        # FIX: Используем сохранённый индекс темы для определения дня практики
+        completed_topic = TOPICS[topic_index] if topic_index < len(TOPICS) else None
+        practice = get_practice_for_day(intern, completed_topic['day']) if completed_topic else None
 
         if practice:
             practice_index, practice_topic = practice
@@ -3011,8 +3024,9 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     upgrade_msg = f"\n\n🎉 *{t('marathon.level_up', lang)}* *{t(f'bloom.level_{bloom_level}_short', lang)}*!"
 
                 # Проверяем, есть ли практика для этого дня
+                # FIX: Используем день завершённой теории для поиска практики
                 updated_intern = {**intern, 'completed_topics': completed}
-                practice = has_pending_practice(updated_intern)
+                practice = get_practice_for_day(updated_intern, theory_topic['day'])
 
                 if practice:
                     practice_index, practice_topic = practice
