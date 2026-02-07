@@ -1653,13 +1653,16 @@ async def cmd_linear(message: Message):
         viewer = await linear_oauth.get_viewer(telegram_user_id)
         name = viewer.get("name", "пользователь") if viewer else "пользователь"
 
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Мои задачи", callback_data="linear_tasks")],
+            [InlineKeyboardButton(text="🔌 Отключить Linear", callback_data="linear_disconnect")]
+        ])
+
         await message.answer(
             f"✅ *Linear подключён*\n\n"
-            f"Вы авторизованы как: *{name}*\n\n"
-            f"*Команды:*\n"
-            f"• `/linear tasks` — ваши задачи\n"
-            f"• `/linear disconnect` — отключить",
-            parse_mode="Markdown"
+            f"Вы авторизованы как: *{name}*",
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
     else:
         # Генерируем ссылку авторизации
@@ -1682,6 +1685,67 @@ async def cmd_linear(message: Message):
                 f"❌ Ошибка конфигурации: {e}\n\n"
                 "Обратитесь к администратору."
             )
+
+
+@router.callback_query(F.data == "linear_tasks")
+async def callback_linear_tasks(callback: CallbackQuery):
+    """Callback для кнопки 'Мои задачи' Linear."""
+    try:
+        from clients.linear_oauth import linear_oauth
+    except ImportError:
+        await callback.answer("Linear интеграция не настроена", show_alert=True)
+        return
+
+    telegram_user_id = callback.from_user.id
+
+    if not linear_oauth.is_connected(telegram_user_id):
+        await callback.answer("Linear не подключён", show_alert=True)
+        return
+
+    await callback.answer()  # Убираем loading state
+
+    issues = await linear_oauth.get_my_issues(telegram_user_id, limit=10)
+
+    if not issues:
+        await callback.message.answer("📋 В Linear пока нет задач.")
+        return
+
+    lines = ["📋 *Задачи Linear:*\n"]
+    for issue in issues:
+        state_name = issue.get("state", {}).get("name", "?")
+        identifier = issue.get("identifier", "?")
+        title = issue.get("title", "Без названия")
+        url = issue.get("url", "")
+
+        lines.append(f"• [{identifier}]({url}) — {title}\n  _{state_name}_")
+
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True)
+
+
+@router.callback_query(F.data == "linear_disconnect")
+async def callback_linear_disconnect(callback: CallbackQuery):
+    """Callback для кнопки 'Отключить Linear'."""
+    try:
+        from clients.linear_oauth import linear_oauth
+    except ImportError:
+        await callback.answer("Linear интеграция не настроена", show_alert=True)
+        return
+
+    telegram_user_id = callback.from_user.id
+
+    if not linear_oauth.is_connected(telegram_user_id):
+        await callback.answer("Linear уже отключён", show_alert=True)
+        return
+
+    linear_oauth.disconnect(telegram_user_id)
+    await callback.answer("Linear отключён", show_alert=True)
+
+    # Обновляем сообщение
+    await callback.message.edit_text(
+        "🔌 *Linear отключён*\n\n"
+        "Используйте /linear чтобы подключиться снова.",
+        parse_mode="Markdown"
+    )
 
 
 @router.message(Command("language"))

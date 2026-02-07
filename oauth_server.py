@@ -11,6 +11,7 @@ Endpoints:
 
 import asyncio
 from aiohttp import web
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_logger, OAUTH_SERVER_PORT
 from clients.linear_oauth import linear_oauth
@@ -123,19 +124,22 @@ async def linear_callback_handler(request: web.Request) -> web.Response:
 
     logger.info(f"User {telegram_user_id} successfully connected to Linear as {linear_name}")
 
-    # Отправляем уведомление в Telegram
+    # Отправляем уведомление в Telegram с кнопками
     if _bot_instance:
         try:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Мои задачи", callback_data="linear_tasks")],
+                [InlineKeyboardButton(text="🔌 Отключить Linear", callback_data="linear_disconnect")]
+            ])
+
             await _bot_instance.send_message(
                 chat_id=telegram_user_id,
                 text=(
                     f"✅ *Linear подключён!*\n\n"
-                    f"Вы авторизованы как: *{linear_name}*\n\n"
-                    f"Теперь вы можете:\n"
-                    f"• `/linear tasks` — посмотреть свои задачи\n"
-                    f"• `/linear disconnect` — отключить интеграцию"
+                    f"Вы авторизованы как: *{linear_name}*"
                 ),
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=keyboard
             )
         except Exception as e:
             logger.error(f"Failed to send notification to user {telegram_user_id}: {e}")
