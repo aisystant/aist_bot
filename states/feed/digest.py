@@ -552,11 +552,11 @@ class FeedDigestState(BaseState):
                 text += "\n"
 
             text += (
-                f"📅 *{t('feed.your_statistics', lang)}*\n"
-                f"• {t('feed.day_label', lang).capitalize()}: {current_day}/7\n"
+                f"📅 *{t('marathon.your_statistics', lang)}*\n"
+                f"• {t('modes.day_label', lang).capitalize()}: {current_day}/7\n"
                 f"• {t('feed.active_days_label', lang)}: {stats.get('total', 0)}\n"
                 f"• {t('feed.current_streak', lang)}: {stats.get('streak', 0)} {t('progress.days', lang)}\n\n"
-                f"_{t('feed.come_back_tomorrow', lang)}_"
+                f"_{t('marathon.come_back_tomorrow', lang)}_"
             )
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
