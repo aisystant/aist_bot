@@ -95,8 +95,6 @@ class LinearOAuthClient:
             "response_type": "code",
             "scope": ",".join(LINEAR_SCOPES),
             "state": state,
-            # actor=application чтобы действия были от имени приложения
-            "actor": "application",
         }
 
         auth_url = f"{LINEAR_AUTHORIZE_URL}?{urlencode(params)}"
