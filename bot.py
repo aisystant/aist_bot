@@ -1186,6 +1186,40 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('feed.not_available', lang))
 
 
+async def is_in_sm_settings_state(callback: CallbackQuery) -> bool:
+    """Фильтр: проверяет что пользователь в common.settings стейте State Machine."""
+    if state_machine is None:
+        return False
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return False
+    return intern.get('current_state') == "common.settings"
+
+
+@router.callback_query(
+    F.data.startswith("upd_") | F.data.startswith("settings_") | F.data.startswith("duration_") | F.data.startswith("bloom_") | F.data.startswith("lang_"),
+    is_in_sm_settings_state
+)
+async def cb_settings_actions(callback: CallbackQuery, state: FSMContext):
+    """Обработка Settings-специфичных callback-ов через State Machine."""
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        await callback.answer()
+        return
+
+    data = callback.data
+    logger.info(f"[SM] Settings callback '{data}' for chat_id={callback.message.chat.id}")
+    try:
+        await state_machine.handle_callback(intern, callback)
+    except Exception as e:
+        logger.error(f"[SM] Error handling settings callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.answer()
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.try_again', lang))
+
+
 @router.message(Command("progress"))
 async def cmd_progress(message: Message):
     """Короткий отчёт прогресса за текущую неделю"""
@@ -1421,8 +1455,22 @@ async def progress_back(callback: CallbackQuery):
 async def go_to_update(callback: CallbackQuery):
     """Переход к настройкам"""
     await callback.answer()
-    # Имитируем команду /update
     intern = await get_intern(callback.message.chat.id)
+
+    # State Machine routing
+    if state_machine is not None and intern:
+        logger.info(f"[SM] go_update callback routed to StateMachine for chat_id={callback.message.chat.id}")
+        try:
+            await callback.message.delete()
+            await state_machine.go_to(intern, "common.settings")
+            return
+        except Exception as e:
+            logger.error(f"[SM] Error routing go_update to StateMachine: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback to legacy
+
+    # Legacy: имитируем команду /update
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     await callback.message.delete()
     await callback.message.answer(t('commands.update', lang))
@@ -1516,11 +1564,23 @@ async def cmd_language(message: Message, state: FSMContext):
 @router.message(Command("update"))
 async def cmd_update(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
-    lang = intern.get('language', 'ru')
+    lang = intern.get('language', 'ru') if intern else 'ru'
 
-    if not intern['onboarding_completed']:
+    if not intern or not intern.get('onboarding_completed'):
         await message.answer(t('errors.try_again', lang) + " /start")
         return
+
+    # State Machine routing
+    if state_machine is not None:
+        logger.info(f"[SM] /update command routed to StateMachine for chat_id={message.chat.id}")
+        try:
+            await state_machine.go_to(intern, "common.settings")
+            return
+        except Exception as e:
+            logger.error(f"[SM] Error routing /update to StateMachine: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback to legacy
 
     study_duration = intern['study_duration']
     bloom_level = intern['bloom_level']

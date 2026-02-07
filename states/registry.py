@@ -15,7 +15,7 @@ from core.machine import StateMachine
 from i18n import I18n
 
 # Импортируем стейты
-from states.common import StartState, ErrorState, ModeSelectState, ConsultationState
+from states.common import StartState, ErrorState, ModeSelectState, SettingsState, ConsultationState
 
 # Марафон (полностью реализовано)
 from states.workshops.marathon import (
@@ -61,6 +61,7 @@ def register_all_states(
         StartState(*args),
         ErrorState(*args),
         ModeSelectState(*args),
+        SettingsState(*args),      # Настройки пользователя
         ConsultationState(*args),  # Глобальный стейт консультации
 
         # Marathon стейты (полностью реализовано)
