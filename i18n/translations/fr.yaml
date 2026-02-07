@@ -86,6 +86,7 @@ buttons:
   keep_topic: "Garder ainsi"
   write_fixation: "Écrire une fixation"
   get_digest: "Obtenir le résumé"
+  progress: "Ma progression"
   topics_menu: "Sujets de la semaine"
   edit_topic: "✏️"
   back_to_menu: "« Retour"

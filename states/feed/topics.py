@@ -190,7 +190,7 @@ class FeedTopicsState(BaseState):
 
         buttons.append([
             InlineKeyboardButton(
-                text=f"✅ {t('buttons.confirm_selection', lang)}",
+                text=t('buttons.confirm_selection', lang),
                 callback_data="feed_confirm"
             )
         ])
@@ -357,7 +357,7 @@ class FeedTopicsState(BaseState):
 
             buttons.append([
                 InlineKeyboardButton(
-                    text=f"✅ {t('buttons.confirm_selection', lang)}",
+                    text=t('buttons.confirm_selection', lang),
                     callback_data="feed_confirm"
                 )
             ])

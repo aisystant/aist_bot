@@ -510,12 +510,13 @@ class FeedDigestState(BaseState):
         elif data == "feed_reset_topics":
             # Сброс тем — переходим к выбору новых тем
             await callback.answer()
-            # Сбрасываем статус недели в PLANNING
+            # Сбрасываем статус недели в PLANNING и очищаем темы для перегенерации
             week = await get_current_feed_week(chat_id)
             if week:
                 await update_feed_week(week['id'], {
                     'status': FeedWeekStatus.PLANNING,
-                    'accepted_topics': []
+                    'accepted_topics': [],
+                    'suggested_topics': []  # Очищаем для перегенерации
                 })
             return "change_topics"
 
