@@ -513,8 +513,10 @@ class FeedDigestState(BaseState):
             # Сбрасываем статус недели в PLANNING
             week = await get_current_feed_week(chat_id)
             if week:
-                from db.queries.feed import update_feed_week
-                await update_feed_week(week['id'], status=FeedWeekStatus.PLANNING, accepted_topics=[])
+                await update_feed_week(week['id'], {
+                    'status': FeedWeekStatus.PLANNING,
+                    'accepted_topics': []
+                })
             return "change_topics"
 
         elif data == "feed_my_progress":
