@@ -1500,6 +1500,12 @@ errors:
     ru: "Не удалось сгенерировать вопрос."
     en: "Failed to generate question."
 
+  generation_timeout:
+    ru: "⏱ Генерация заняла слишком много времени. Попробуйте ещё раз."
+    en: "⏱ Generation took too long. Please try again."
+    es: "⏱ La generación tardó demasiado. Por favor, inténtalo de nuevo."
+    fr: "⏱ La génération a pris trop de temps. Veuillez réessayer."
+
   try_again_later:
     ru: "Попробуйте ещё раз позже."
     en: "Please try again later."

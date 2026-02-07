@@ -350,29 +350,52 @@ async def generate_multi_topic_digest(
     time_per_topic = duration // topics_count
     words_per_topic = time_per_topic * 100  # ~100 слов в минуту чтения
 
-    # Получаем контекст из MCP для всех тем
+    # Получаем контекст из MCP для всех тем — ПАРАЛЛЕЛЬНО
     mcp_context = ""
-    for topic in topics:
+
+    async def fetch_topic_context(topic: str) -> str:
+        """Получает контекст для одной темы из MCP (параллельно)."""
+        context = ""
         try:
-            # Ищем в руководствах
-            guides_results = await mcp_guides.semantic_search(topic, limit=1)
-            if guides_results:
+            # Запускаем оба поиска параллельно для каждой темы
+            guides_task = mcp_guides.semantic_search(topic, limit=1)
+            knowledge_task = mcp_knowledge.search(topic, limit=1)
+
+            guides_results, knowledge_results = await asyncio.gather(
+                guides_task, knowledge_task, return_exceptions=True
+            )
+
+            # Обрабатываем результаты guides
+            if isinstance(guides_results, list):
                 for item in guides_results:
                     if isinstance(item, dict):
                         text = item.get('text', item.get('content', ''))[:500]
                         if text:
-                            mcp_context += f"\n[{topic}]: {text}"
+                            context += f"\n[{topic}]: {text}"
 
-            # Ищем в базе знаний
-            knowledge_results = await mcp_knowledge.search(topic, limit=1)
-            if knowledge_results:
+            # Обрабатываем результаты knowledge
+            if isinstance(knowledge_results, list):
                 for item in knowledge_results:
                     if isinstance(item, dict):
                         text = item.get('text', item.get('content', ''))[:500]
                         if text:
-                            mcp_context += f"\n[{topic}]: {text}"
+                            context += f"\n[{topic}]: {text}"
+
         except Exception as e:
             logger.error(f"MCP search error for '{topic}': {e}")
+        return context
+
+    # Запускаем все темы параллельно с таймаутом 30 сек на MCP-фазу
+    try:
+        context_tasks = [fetch_topic_context(topic) for topic in topics]
+        results = await asyncio.wait_for(
+            asyncio.gather(*context_tasks, return_exceptions=True),
+            timeout=30  # 30 сек на все MCP запросы
+        )
+        mcp_context = "".join(r for r in results if isinstance(r, str))
+    except asyncio.TimeoutError:
+        logger.warning("MCP context fetch timeout, continuing without context")
+        mcp_context = ""
 
     # Описание уровня глубины
     depth_descriptions = {
