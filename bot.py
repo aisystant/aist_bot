@@ -3502,16 +3502,23 @@ async def main():
     scheduler.start()
 
     # Запуск OAuth сервера (для Linear интеграции)
-    from oauth_server import start_oauth_server, set_bot_instance, stop_oauth_server
-    set_bot_instance(bot)
-    oauth_runner = await start_oauth_server()
+    oauth_runner = None
+    try:
+        from oauth_server import start_oauth_server, set_bot_instance, stop_oauth_server
+        set_bot_instance(bot)
+        oauth_runner = await start_oauth_server()
+    except ImportError:
+        logger.warning("⚠️ oauth_server не найден, Linear интеграция отключена")
+    except Exception as e:
+        logger.error(f"⚠️ Ошибка запуска OAuth сервера: {e}")
 
     logger.info("🚀 Бот запущен с PostgreSQL!")
 
     try:
         await dp.start_polling(bot)
     finally:
-        await stop_oauth_server(oauth_runner)
+        if oauth_runner:
+            await stop_oauth_server(oauth_runner)
 
 if __name__ == "__main__":
     asyncio.run(main())
