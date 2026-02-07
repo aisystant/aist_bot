@@ -78,11 +78,11 @@ class SettingsState(BaseState):
             await self.send(user, t('profile.not_found', self._get_lang(user)))
             return
 
-        lang = intern.get('language', 'ru')
+        lang = intern.get('language', 'ru') or 'ru'
 
         # Формируем текст профиля
-        study_duration = intern.get('study_duration', 15)
-        bloom_level = intern.get('bloom_level', 1)
+        study_duration = intern.get('study_duration') or 15
+        bloom_level = intern.get('bloom_level') or 1
         bloom_emojis = {1: '🔵', 2: '🟡', 3: '🔴'}
 
         # Дата старта марафона
@@ -230,6 +230,11 @@ class SettingsState(BaseState):
         # Обработка выбора языка
         if data.startswith("lang_"):
             return await self._save_language(user, callback, data)
+
+        # Возврат в главное меню настроек
+        if data == "settings_back_to_menu":
+            await self.enter(user)
+            return None
 
         return None
 

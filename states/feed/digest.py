@@ -227,16 +227,18 @@ class FeedDigestState(BaseState):
             text += f"\n\n💭 *{content['reflection_prompt']}*"
 
         # Подсказка о возможности задать вопрос
-        text += f"\n\n—\n💡 _{t('feed.ask_details', lang)}_"
-
-        # Кнопки
+        # Кнопки (по сценарию: Фиксация, Вопрос, Темы)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text=f"✍️ {t('buttons.write_fixation', lang)}",
                 callback_data="feed_fixation"
             )],
             [InlineKeyboardButton(
-                text=f"📋 {t('feed.whats_next', lang)}",
+                text=f"❓ {t('feed.ask_details', lang)}",
+                callback_data="feed_ask_question"
+            )],
+            [InlineKeyboardButton(
+                text=f"📋 {t('buttons.topics_menu', lang)}",
                 callback_data="feed_whats_next"
             )]
         ])
@@ -459,6 +461,16 @@ class FeedDigestState(BaseState):
                 f"✍️ *{t('feed.fixation_title', lang)}*\n\n"
                 f"{t('feed.fixation_instruction', lang)}\n\n"
                 f"_{t('feed.fixation_hint', lang)}_",
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+            return None
+
+        elif data == "feed_ask_question":
+            # Подсказка о вопросах
+            await callback.message.answer(
+                f"❓ *{t('feed.ask_details', lang)}*\n\n"
+                f"_{t('marathon.question_hint', lang)}_",
                 parse_mode="Markdown"
             )
             await callback.answer()
