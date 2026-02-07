@@ -1581,6 +1581,109 @@ async def cmd_help(message: Message):
         parse_mode="Markdown"
     )
 
+# --- Linear OAuth (тестовая интеграция) ---
+
+@router.message(Command("linear"))
+async def cmd_linear(message: Message):
+    """Команда для интеграции с Linear.
+
+    Подкоманды:
+    - /linear — показать статус и получить ссылку авторизации
+    - /linear tasks — показать свои задачи
+    - /linear disconnect — отключить интеграцию
+    """
+    from clients.linear_oauth import linear_oauth
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
+    telegram_user_id = message.chat.id
+
+    # Парсим подкоманду
+    text = message.text or ""
+    parts = text.strip().split(maxsplit=1)
+    subcommand = parts[1].lower() if len(parts) > 1 else None
+
+    # Проверяем подключение
+    is_connected = linear_oauth.is_connected(telegram_user_id)
+
+    if subcommand == "disconnect":
+        if is_connected:
+            linear_oauth.disconnect(telegram_user_id)
+            await message.answer("✅ Linear отключён.")
+        else:
+            await message.answer("ℹ️ Linear не был подключён.")
+        return
+
+    if subcommand == "tasks":
+        if not is_connected:
+            await message.answer(
+                "❌ Linear не подключён.\n\n"
+                "Используйте /linear для подключения."
+            )
+            return
+
+        # Получаем задачи
+        await message.answer("⏳ Загружаю задачи...")
+        issues = await linear_oauth.get_my_issues(telegram_user_id, limit=10)
+
+        if issues is None:
+            await message.answer("❌ Не удалось получить задачи. Попробуйте переподключиться: /linear disconnect, затем /linear")
+            return
+
+        if not issues:
+            await message.answer("📭 У вас нет назначенных задач.")
+            return
+
+        # Форматируем список задач
+        lines = ["📋 *Ваши задачи в Linear:*\n"]
+        for issue in issues:
+            state_name = issue.get("state", {}).get("name", "?")
+            identifier = issue.get("identifier", "?")
+            title = issue.get("title", "Без названия")
+            url = issue.get("url", "")
+
+            lines.append(f"• [{identifier}]({url}) — {title}\n  _{state_name}_")
+
+        await message.answer("\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True)
+        return
+
+    # Основная команда /linear — показать статус или ссылку авторизации
+    if is_connected:
+        viewer = await linear_oauth.get_viewer(telegram_user_id)
+        name = viewer.get("name", "пользователь") if viewer else "пользователь"
+
+        await message.answer(
+            f"✅ *Linear подключён*\n\n"
+            f"Вы авторизованы как: *{name}*\n\n"
+            f"*Команды:*\n"
+            f"• `/linear tasks` — ваши задачи\n"
+            f"• `/linear disconnect` — отключить",
+            parse_mode="Markdown"
+        )
+    else:
+        # Генерируем ссылку авторизации
+        try:
+            auth_url, state = linear_oauth.get_authorization_url(telegram_user_id)
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔗 Подключить Linear", url=auth_url)]
+            ])
+
+            await message.answer(
+                "🔗 *Подключение к Linear*\n\n"
+                "Нажмите кнопку ниже, чтобы авторизоваться в Linear.\n\n"
+                "После авторизации вы сможете видеть свои задачи прямо в боте.",
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+        except ValueError as e:
+            await message.answer(
+                f"❌ Ошибка конфигурации: {e}\n\n"
+                "Обратитесь к администратору."
+            )
+
+
 @router.message(Command("language"))
 async def cmd_language(message: Message, state: FSMContext):
     """Команда смены языка напрямую"""
@@ -3398,8 +3501,17 @@ async def main():
     scheduler.add_job(scheduled_check, 'cron', minute='*')
     scheduler.start()
 
+    # Запуск OAuth сервера (для Linear интеграции)
+    from oauth_server import start_oauth_server, set_bot_instance, stop_oauth_server
+    set_bot_instance(bot)
+    oauth_runner = await start_oauth_server()
+
     logger.info("🚀 Бот запущен с PostgreSQL!")
-    await dp.start_polling(bot)
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await stop_oauth_server(oauth_runner)
 
 if __name__ == "__main__":
     asyncio.run(main())

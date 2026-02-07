@@ -19,9 +19,8 @@ from datetime import datetime, timedelta
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
-from i18n import t
+from i18n import t, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
-from config import SUPPORTED_LANGUAGES
 
 logger = logging.getLogger(__name__)
 

@@ -17,6 +17,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 MCP_URL = os.getenv("MCP_URL", "https://guides-mcp.aisystant.workers.dev/mcp")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 
+# ============= LINEAR OAUTH (тестовая интеграция) =============
+# Временный код для тестирования OAuth flow перед Digital Twin
+LINEAR_CLIENT_ID = os.getenv("LINEAR_CLIENT_ID")
+LINEAR_CLIENT_SECRET = os.getenv("LINEAR_CLIENT_SECRET")
+LINEAR_REDIRECT_URI = os.getenv("LINEAR_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/linear/callback")
+OAUTH_SERVER_PORT = int(os.getenv("OAUTH_SERVER_PORT", "8080"))
+
 def validate_env():
     """Проверка наличия обязательных переменных окружения"""
     if not BOT_TOKEN:

@@ -14,6 +14,12 @@ from .settings import (
     KNOWLEDGE_MCP_URL,
     validate_env,
 
+    # Linear OAuth (тестовая интеграция)
+    LINEAR_CLIENT_ID,
+    LINEAR_CLIENT_SECRET,
+    LINEAR_REDIRECT_URI,
+    OAUTH_SERVER_PORT,
+
     # Feature flags
     USE_STATE_MACHINE,
 
@@ -77,6 +83,10 @@ __all__ = [
     'MCP_URL',
     'KNOWLEDGE_MCP_URL',
     'validate_env',
+    'LINEAR_CLIENT_ID',
+    'LINEAR_CLIENT_SECRET',
+    'LINEAR_REDIRECT_URI',
+    'OAUTH_SERVER_PORT',
     'USE_STATE_MACHINE',
     'get_logger',
     'MOSCOW_TZ',
