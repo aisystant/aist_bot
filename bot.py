@@ -3032,6 +3032,16 @@ async def on_unknown_message(message: Message, state: FSMContext):
             return
 
         # Для других состояний — показываем подсказку
+        # Но сначала проверим, не консультация ли это (начинается с ?)
+        text = message.text or ''
+        if text.startswith('?') and state_machine is not None:
+            # Роутим в консультацию через State Machine
+            intern = await get_intern(chat_id)
+            if intern:
+                await state.clear()  # Очищаем FSM состояние
+                await state_machine.go_to(intern, "common.consultation", context={'question': text[1:].strip()})
+                return
+
         if 'OnboardingStates' in current_state:
             await message.answer(t('fsm.unrecognized_onboarding', lang))
             return
