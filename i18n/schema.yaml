@@ -2021,6 +2021,10 @@ feed:
     ru: "На сегодня дайджест уже прочитан. Приходите завтра!"
     en: "Today's digest is already read. Come back tomorrow!"
 
+  cannot_reset_completed:
+    ru: "Темы нельзя сменить — сегодня уже был дайджест. Приходите завтра!"
+    en: "Cannot reset topics — today's digest is already completed. Come back tomorrow!"
+
   enter_new_topic:
     ru: "Введите новую тему для дня {day}:"
     en: "Enter new topic for day {day}:"
@@ -2032,6 +2036,10 @@ feed:
   ask_details:
     ru: "Хотите узнать подробнее? Задайте вопрос!"
     en: "Want to learn more? Ask a question!"
+
+  not_available:
+    ru: "Режим Лента временно недоступен. Попробуйте позже."
+    en: "Feed mode is temporarily unavailable. Please try again later."
 
   # Расширенные ключи для режима Лента
   use_command:

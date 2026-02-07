@@ -131,12 +131,20 @@ class FeedTopicsState(BaseState):
                 await self.send(user, t('feed.topics_generation_failed', lang))
                 return "skip"
 
-            # Сохраняем темы в неделю (статус PLANNING)
-            await create_feed_week(
-                chat_id=chat_id,
-                suggested_topics=[topic['title'] for topic in topics],
-                accepted_topics=[],
-            )
+            # Сохраняем темы в неделю
+            # Если есть существующая неделя в PLANNING — обновляем её,
+            # иначе создаём новую
+            if week and week.get('status') == FeedWeekStatus.PLANNING:
+                await update_feed_week(week['id'], {
+                    'suggested_topics': [topic['title'] for topic in topics],
+                    'accepted_topics': [],
+                })
+            else:
+                await create_feed_week(
+                    chat_id=chat_id,
+                    suggested_topics=[topic['title'] for topic in topics],
+                    accepted_topics=[],
+                )
 
             # Показываем выбор
             await self._show_topic_selection(user, topics)
@@ -269,6 +277,13 @@ class FeedTopicsState(BaseState):
         custom_patterns = [
             r'(?:хочу|добавь|ещё|еще|также)\s+(?:про\s+)?([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
             r'(?:и\s+)?про\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
+            # Паттерн "1 и собранность" - после цифры и союза "и"
+            r'\d\s+и\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
+            # Паттерн "и собранность" в начале или после запятой
+            r'(?:^|,\s*)и\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
+            # Паттерн "1, собранность" или "собранность, 1" - через запятую
+            r'\d\s*,\s*([а-яА-ЯёЁa-zA-Z][а-яА-ЯёЁa-zA-Z\s]*?)(?:[,.]|$)',
+            r'([а-яА-ЯёЁa-zA-Z][а-яА-ЯёЁa-zA-Z\s]*?)\s*,\s*\d',
         ]
 
         for pattern in custom_patterns:

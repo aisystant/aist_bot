@@ -31,7 +31,7 @@ def validate_env():
 # State Machine: включает новую архитектуру
 # Когда True — используется StateMachine вместо старых хэндлеров
 # По умолчанию False для обратной совместимости
-USE_STATE_MACHINE = os.getenv("USE_STATE_MACHINE", "false").lower() == "true"
+USE_STATE_MACHINE = os.getenv("USE_STATE_MACHINE", "true").lower() == "true"
 
 # ============= ЛОГИРОВАНИЕ =============
 

@@ -1452,7 +1452,7 @@ async def progress_back(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "go_update")
-async def go_to_update(callback: CallbackQuery):
+async def go_to_update(callback: CallbackQuery, state: FSMContext):
     """Переход к настройкам"""
     await callback.answer()
     intern = await get_intern(callback.message.chat.id)
@@ -1470,10 +1470,45 @@ async def go_to_update(callback: CallbackQuery):
             logger.error(traceback.format_exc())
             # Fallback to legacy
 
-    # Legacy: имитируем команду /update
-    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    # Legacy: показываем экран настроек напрямую
+    if not intern:
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    study_duration = intern.get('study_duration') or 15
+    bloom_level = intern.get('bloom_level') or 1
+    bloom_emojis = {1: '🔵', 2: '🟡', 3: '🔴'}
+
+    start_date = intern.get('marathon_start_date')
+    if start_date:
+        if isinstance(start_date, datetime):
+            start_date = start_date.date()
+        marathon_start_str = start_date.strftime('%d.%m.%Y')
+    else:
+        marathon_start_str = "—"
+
+    marathon_day = get_marathon_day(intern)
+    interests_str = ', '.join(intern.get('interests', [])) if intern.get('interests') else '—'
+    motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or '—'
+    goals_short = (intern.get('goals') or '')[:80] + '...' if len(intern.get('goals') or '') > 80 else intern.get('goals') or '—'
+
     await callback.message.delete()
-    await callback.message.answer(t('commands.update', lang))
+    await callback.message.answer(
+        f"👤 *{intern.get('name', '—')}*\n"
+        f"💼 {intern.get('occupation', '') or '—'}\n"
+        f"🎨 {interests_str}\n\n"
+        f"💫 {motivation_short}\n"
+        f"🎯 {goals_short}\n\n"
+        f"{t(f'duration.minutes_{study_duration}', lang)}\n"
+        f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
+        f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=14)})\n"
+        f"⏰ {intern.get('schedule_time', '09:00')}\n"
+        f"🌐 {get_language_name(lang)}\n\n"
+        f"*{t('settings.what_to_change', lang)}*",
+        parse_mode="Markdown",
+        reply_markup=kb_update_profile(lang)
+    )
+    await state.set_state(UpdateStates.choosing_field)
 
 
 @router.callback_query(F.data == "go_progress")
