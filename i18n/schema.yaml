@@ -83,8 +83,8 @@ commands:
     en: "/profile — my profile"
 
   update:
-    ru: "/update — обновить настройки"
-    en: "/update — update settings"
+    ru: "/update — настройки"
+    en: "/update — settings"
 
   mode:
     ru: "/mode — выбрать режим"
@@ -1406,8 +1406,8 @@ update:
     en: "/learn — continue learning"
 
   update_more:
-    ru: "/update — обновить ещё что-то"
-    en: "/update — update something else"
+    ru: "/update — изменить ещё что-то"
+    en: "/update — change something else"
 
 # -----------------------------------------------------------------------------
 # Справка
@@ -1530,8 +1530,8 @@ fsm:
     en: "I didn't recognize your response. Please complete registration or use /start to begin again"
 
   unrecognized_update:
-    ru: "Я не распознал ваш ответ. Пожалуйста, завершите обновление профиля или используйте /update для начала заново"
-    en: "I didn't recognize your response. Please complete profile update or use /update to start over"
+    ru: "Я не распознал ваш ответ. Пожалуйста, завершите изменение настроек или используйте /update для начала заново"
+    en: "I didn't recognize your response. Please complete settings change or use /update to start over"
 
   unrecognized_feed:
     ru: "Я не распознал ваш ответ. Пожалуйста, завершите действие в Ленте или используйте /feed"

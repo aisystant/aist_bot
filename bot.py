@@ -1879,7 +1879,7 @@ async def on_save_motivation(message: Message, state: FSMContext):
         "✅ Обновлено!\n\n"
         "Теперь мотивационные блоки будут ещё точнее.\n\n"
         "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то"
+        "/update — изменить ещё что-то"
     )
     await state.clear()
 
@@ -1890,7 +1890,7 @@ async def on_save_goals(message: Message, state: FSMContext):
         "✅ Обновлено!\n\n"
         "Теперь материалы будут персонализированы под ваши цели.\n\n"
         "/learn — продолжить обучение\n"
-        "/update — обновить ещё что-то"
+        "/update — изменить ещё что-то"
     )
     await state.clear()
 
