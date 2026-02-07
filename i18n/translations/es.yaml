@@ -19,7 +19,7 @@ commands:
   learn: "/learn — obtener tema"
   progress: "/progress — mi progreso"
   profile: "/profile — mi perfil"
-  update: "/update — actualizar ajustes"
+  update: "/update — configuración"
   mode: "/mode — seleccionar modo"
   language: "/language — cambiar idioma"
   help: "/help — ayuda"
@@ -28,7 +28,7 @@ menu:
   learn: "Obtener un nuevo tema"
   progress: "Mi progreso"
   profile: "Mi perfil"
-  update: "Actualizar perfil"
+  update: "Configuración"
   mode: "Seleccionar modo"
   language: "Cambiar idioma"
   start: "Reiniciar onboarding"
@@ -388,7 +388,7 @@ errors:
 
 fsm:
   unrecognized_onboarding: "No reconocí tu respuesta. Por favor, completa el registro o usa /start para comenzar de nuevo"
-  unrecognized_update: "No reconocí tu respuesta. Por favor, completa la actualización del perfil o usa /update para empezar de nuevo"
+  unrecognized_update: "No reconocí tu respuesta. Por favor, completa el cambio de configuración o usa /update para empezar de nuevo"
   unrecognized_feed: "No reconocí tu respuesta. Por favor, completa la acción en Feed o usa /feed"
   enter_time_format: "Ingresa la hora en formato HH:MM o presiona Atrás"
   new_user_start: "¡Hola! Para comenzar, usa /start"
