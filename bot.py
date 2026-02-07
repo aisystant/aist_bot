@@ -3353,7 +3353,7 @@ async def main():
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="update", description="Настройки"),
         BotCommand(command="mode", description="Выбор режима"),
-        BotCommand(command="language", description="Change language"),
+        BotCommand(command="language", description="Сменить язык"),
         BotCommand(command="start", description="Перезапустить онбординг"),
         BotCommand(command="help", description="Справка")
     ])
@@ -3372,15 +3372,27 @@ async def main():
 
     # Испанский
     await bot.set_my_commands([
-        BotCommand(command="learn", description="Obtener tema"),
+        BotCommand(command="learn", description="Obtener un nuevo tema"),
         BotCommand(command="progress", description="Mi progreso"),
         BotCommand(command="profile", description="Mi perfil"),
         BotCommand(command="update", description="Configuración"),
         BotCommand(command="mode", description="Seleccionar modo"),
-        BotCommand(command="language", description="Change language"),
-        BotCommand(command="start", description="Reiniciar"),
+        BotCommand(command="language", description="Cambiar idioma"),
+        BotCommand(command="start", description="Reiniciar onboarding"),
         BotCommand(command="help", description="Ayuda")
     ], language_code="es")
+
+    # Французский
+    await bot.set_my_commands([
+        BotCommand(command="learn", description="Obtenir un nouveau sujet"),
+        BotCommand(command="progress", description="Mon progrès"),
+        BotCommand(command="profile", description="Mon profil"),
+        BotCommand(command="update", description="Paramètres"),
+        BotCommand(command="mode", description="Sélectionner le mode"),
+        BotCommand(command="language", description="Changer de langue"),
+        BotCommand(command="start", description="Recommencer l'inscription"),
+        BotCommand(command="help", description="Aide")
+    ], language_code="fr")
 
     # Запуск планировщика
     scheduler.add_job(scheduled_check, 'cron', minute='*')
