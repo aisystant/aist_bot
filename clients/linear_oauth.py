@@ -281,7 +281,7 @@ class LinearOAuthClient:
         telegram_user_id: int,
         limit: int = 10
     ) -> Optional[list]:
-        """Получает задачи пользователя.
+        """Получает задачи из workspace.
 
         Args:
             telegram_user_id: ID пользователя
@@ -290,19 +290,21 @@ class LinearOAuthClient:
         Returns:
             Список задач или None
         """
+        # Получаем все задачи workspace (не только назначенные на viewer)
         query = """
         query($limit: Int!) {
-            viewer {
-                assignedIssues(first: $limit) {
-                    nodes {
-                        id
-                        identifier
-                        title
-                        state {
-                            name
-                        }
-                        priority
-                        url
+            issues(first: $limit, orderBy: updatedAt) {
+                nodes {
+                    id
+                    identifier
+                    title
+                    state {
+                        name
+                    }
+                    priority
+                    url
+                    assignee {
+                        name
                     }
                 }
             }
@@ -313,8 +315,8 @@ class LinearOAuthClient:
             query,
             {"limit": limit}
         )
-        if data and data.get("viewer"):
-            return data["viewer"].get("assignedIssues", {}).get("nodes", [])
+        if data:
+            return data.get("issues", {}).get("nodes", [])
         return None
 
     async def create_issue(
