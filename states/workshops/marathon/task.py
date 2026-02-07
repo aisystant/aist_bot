@@ -10,7 +10,7 @@
 
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -152,7 +152,15 @@ class MarathonTaskState(BaseState):
                 f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}"
             )
 
-            await self.send(user, message, parse_mode="Markdown")
+            # Клавиатура с кнопкой пропуска
+            skip_btn = t('buttons.skip_practice', lang)
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text=skip_btn)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+
+            await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
             logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
 
         except Exception as e:
@@ -160,6 +168,14 @@ class MarathonTaskState(BaseState):
             # Fallback: показываем задание без введения
             task_text = topic.get('task', t('marathon.task_default', lang))
             work_product = topic.get('work_product', t('marathon.work_product_default', lang))
+
+            # Клавиатура с кнопкой пропуска (fallback)
+            skip_btn = t('buttons.skip_practice', lang)
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text=skip_btn)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
 
             await self.send(
                 user,
@@ -170,7 +186,8 @@ class MarathonTaskState(BaseState):
                 f"📝 *{t('marathon.when_complete', lang)}:*\n"
                 f"{t('marathon.write_wp_name', lang)}\n\n"
                 f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=keyboard
             )
 
     async def handle(self, user, message: Message) -> Optional[str]:
@@ -186,22 +203,13 @@ class MarathonTaskState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        # Вопрос к ИИ
-        if text.startswith('?'):
-            question_text = text[1:].strip()
-            if question_text:
-                # TODO: Обработка вопроса через consultation
-                await self.send(
-                    user,
-                    f"_Ответ на ваш вопрос..._\n\n"
-                    f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
-                    parse_mode="Markdown"
-                )
-            return None
+        # Примечание: вопросы с ? обрабатываются глобально через State Machine
+        # (allow_global: [consultation] → common.consultation)
 
-        # Пропуск практики
-        if "пропустить" in text.lower() or "skip" in text.lower():
-            await self.send(user, t('marathon.practice_skipped', lang))
+        # Пропуск практики (кнопка или текст)
+        skip_btn = t('buttons.skip_practice', lang)
+        if text == skip_btn or "пропустить" in text.lower() or "skip" in text.lower():
+            await self.send_remove_keyboard(user, t('marathon.practice_skipped', lang))
             return "day_complete"
 
         # Настройки — переход в настройки

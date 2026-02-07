@@ -96,7 +96,16 @@
 
 ---
 
-## 5. Callbacks
+## 5. Кнопки и события
+
+### State Machine (новая архитектура)
+
+| Кнопка (Reply Keyboard) | Стейт | Событие |
+|------------------------|-------|---------|
+| ⏭ Пропустить тему | `workshop.marathon.question` | `skip` → task |
+| ⏭ Пропустить практику | `workshop.marathon.task` | `day_complete` → mode_select |
+
+### Устаревшее (bot.py callbacks)
 
 | Callback | FSM состояние | Действие |
 |----------|---------------|----------|
@@ -154,11 +163,21 @@ _Пропущенные задания не засчитываются в про
 
 ## 9. Ключевые файлы
 
+### State Machine (новая архитектура)
+
+| Файл | Назначение |
+|------|-----------|
+| `states/workshops/marathon/question.py` | Обработка пропуска урока (handle → "skip") |
+| `states/workshops/marathon/task.py` | Обработка пропуска практики (handle → "day_complete") |
+| `config/transitions.yaml` | Переходы: skip → workshop.marathon.task |
+| `i18n/schema.yaml` | Тексты кнопок (buttons.skip_topic, buttons.skip_practice) |
+
+### Устаревшее (bot.py)
+
 | Файл | Строки | Назначение |
 |------|--------|-----------|
-| `bot.py` | 2502-2521 | on_skip_topic |
-| `bot.py` | 2583-2602 | on_skip_practice |
-| `locales.py` | 69-70 | Тексты кнопок |
+| `bot.py` | 2502-2521 | on_skip_topic (USE_STATE_MACHINE=false) |
+| `bot.py` | 2583-2602 | on_skip_practice (USE_STATE_MACHINE=false) |
 
 ---
 
@@ -167,3 +186,4 @@ _Пропущенные задания не засчитываются в про
 | Дата | Изменение |
 |------|-----------|
 | 2026-01-22 | Создание документа |
+| 2026-02-07 | Обновлено для State Machine архитектуры |

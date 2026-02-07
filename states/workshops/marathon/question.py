@@ -9,7 +9,7 @@
 
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -134,7 +134,15 @@ class MarathonQuestionState(BaseState):
                 f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}"
             )
 
-            await self.send(user, header + question + footer, parse_mode="Markdown")
+            # Клавиатура с кнопкой пропуска
+            skip_btn = t('buttons.skip_topic', lang)
+            keyboard = ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text=skip_btn)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+
+            await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
             logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
 
         except Exception as e:
@@ -160,22 +168,13 @@ class MarathonQuestionState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        # Вопрос к ИИ (начинается с ?)
-        if text.startswith('?'):
-            question_text = text[1:].strip()
-            if question_text:
-                # TODO: Обработка вопроса через handle_question
-                await self.send(
-                    user,
-                    f"_Ответ на ваш вопрос..._\n\n"
-                    f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}",
-                    parse_mode="Markdown"
-                )
-            return None  # Остаёмся в стейте
+        # Примечание: вопросы с ? обрабатываются глобально через State Machine
+        # (allow_global: [consultation] → common.consultation)
 
-        # Пропуск темы
-        if "пропустить" in text.lower() or "skip" in text.lower():
-            await self.send(user, t('marathon.topic_skipped', lang))
+        # Пропуск темы (кнопка или текст)
+        skip_btn = t('buttons.skip_topic', lang)
+        if text == skip_btn or "пропустить" in text.lower() or "skip" in text.lower():
+            await self.send_remove_keyboard(user, t('marathon.topic_skipped', lang))
             return "skip"
 
         # Настройки — переход в настройки
