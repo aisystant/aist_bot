@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime, date
 from typing import Optional, Dict
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 
 from states.base import BaseState
 from i18n import t
@@ -102,6 +102,9 @@ class FeedDigestState(BaseState):
         intern = self._user_to_intern_dict(user)
         context = context or {}
 
+        # Удаляем Reply Keyboard (если остался от Marathon)
+        await self.send(user, f"📚 {t('feed.menu_title', lang)}", reply_markup=ReplyKeyboardRemove())
+
         # Получаем текущую неделю
         week = await get_current_feed_week(chat_id)
 
@@ -128,7 +131,7 @@ class FeedDigestState(BaseState):
         if existing:
             if existing.get('status') == 'completed':
                 await self.send(user, f"✅ {t('feed.digest_completed_today', lang)}")
-                await self._show_menu(user, week)
+                await self._show_menu(user, week, digest_completed_today=True)
                 return None
 
             # Показываем существующую сессию
@@ -256,8 +259,14 @@ class FeedDigestState(BaseState):
         else:
             await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
-    async def _show_menu(self, user, week: dict) -> None:
-        """Показывает меню Ленты."""
+    async def _show_menu(self, user, week: dict, digest_completed_today: bool = False) -> None:
+        """Показывает меню Ленты.
+
+        Args:
+            user: Пользователь
+            week: Данные недели
+            digest_completed_today: Если True, показывает "Мой прогресс" вместо "Получить дайджест"
+        """
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
@@ -272,11 +281,20 @@ class FeedDigestState(BaseState):
         else:
             text += f"{t('feed.no_topics', lang)}\n"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
+        # Первая кнопка зависит от статуса дайджеста
+        if digest_completed_today:
+            first_button = InlineKeyboardButton(
+                text=f"📊 {t('buttons.progress', lang)}",
+                callback_data="feed_my_progress"
+            )
+        else:
+            first_button = InlineKeyboardButton(
                 text=f"📖 {t('buttons.get_digest', lang)}",
                 callback_data="feed_get_digest"
-            )],
+            )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [first_button],
             [InlineKeyboardButton(
                 text=f"📋 {t('buttons.topics_menu', lang)}",
                 callback_data="feed_topics_menu"
@@ -380,10 +398,10 @@ class FeedDigestState(BaseState):
             # Сбрасываем ожидание фиксации
             self._user_data[chat_id]['waiting_fixation'] = False
 
-            # Показываем меню
+            # Показываем меню (дайджест завершён, т.к. фиксация сохранена)
             week = await get_current_feed_week(chat_id)
             if week:
-                await self._show_menu(user, week)
+                await self._show_menu(user, week, digest_completed_today=True)
 
             return "fixation_saved"
 
@@ -499,6 +517,42 @@ class FeedDigestState(BaseState):
                 await update_feed_week(week['id'], status=FeedWeekStatus.PLANNING, accepted_topics=[])
             return "change_topics"
 
+        elif data == "feed_my_progress":
+            # Показываем прогресс пользователя
+            await callback.answer()
+
+            week = await get_current_feed_week(chat_id)
+            stats = await get_activity_stats(chat_id)
+
+            topics = week.get('accepted_topics', []) if week else []
+            current_day = week.get('current_day', 1) if week else 1
+
+            text = f"📊 *{t('buttons.progress', lang)}*\n\n"
+
+            if topics:
+                text += f"*{t('feed.your_topics_label', lang)}*\n"
+                for i, topic in enumerate(topics, 1):
+                    text += f"{i}. {topic}\n"
+                text += "\n"
+
+            text += (
+                f"📅 *{t('feed.your_statistics', lang)}*\n"
+                f"• {t('feed.day_label', lang).capitalize()}: {current_day}/7\n"
+                f"• {t('feed.active_days_label', lang)}: {stats.get('total', 0)}\n"
+                f"• {t('feed.current_streak', lang)}: {stats.get('streak', 0)} {t('progress.days', lang)}\n\n"
+                f"_{t('feed.come_back_tomorrow', lang)}_"
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"📋 {t('buttons.topics_menu', lang)}",
+                    callback_data="feed_topics_menu"
+                )]
+            ])
+
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+            return None
+
         return None
 
     async def _show_topics_menu_standalone(self, user, week: dict) -> None:
@@ -508,7 +562,13 @@ class FeedDigestState(BaseState):
         Используется при входе с контекстом show_topics_menu=True.
         """
         lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
         topics = week.get('accepted_topics', [])
+
+        # Проверяем, завершён ли сегодняшний дайджест
+        today = date.today()
+        existing = await get_feed_session(week['id'], today)
+        digest_completed_today = existing and existing.get('status') == 'completed'
 
         text = f"📋 *{t('feed.topics_menu_title', lang)}*\n\n"
         if topics:
@@ -519,11 +579,20 @@ class FeedDigestState(BaseState):
         else:
             text += f"{t('feed.no_topics', lang)}"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
+        # Первая кнопка зависит от статуса дайджеста
+        if digest_completed_today:
+            first_button = InlineKeyboardButton(
+                text=f"📊 {t('buttons.progress', lang)}",
+                callback_data="feed_my_progress"
+            )
+        else:
+            first_button = InlineKeyboardButton(
                 text=f"📖 {t('buttons.get_digest', lang)}",
                 callback_data="feed_get_digest"
-            )],
+            )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [first_button],
             [InlineKeyboardButton(
                 text=f"🔄 {t('buttons.reset_topics', lang)}",
                 callback_data="feed_reset_topics"

@@ -9,7 +9,7 @@ import asyncio
 import re
 from typing import Optional, List, Dict
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 
 from states.base import BaseState
 from i18n import t
@@ -96,6 +96,9 @@ class FeedTopicsState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         intern = self._user_to_intern_dict(user)
+
+        # Удаляем Reply Keyboard (если остался от Marathon)
+        await self.send(user, f"📚 {t('feed.menu_title', lang)}", reply_markup=ReplyKeyboardRemove())
 
         # Обновляем режим пользователя
         await update_intern(chat_id, mode=Mode.FEED, feed_status=FeedStatus.ACTIVE)
