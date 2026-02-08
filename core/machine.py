@@ -281,7 +281,14 @@ class StateMachine:
                 fresh_user = user
 
         # Вход в новый стейт с актуальными данными
-        await to_state.enter(fresh_user, full_context)
+        event = await to_state.enter(fresh_user, full_context)
+
+        # Если enter() вернул событие — обрабатываем авто-переход
+        if event:
+            next_state = self.get_next_state(to_state_name, event, chat_id)
+            if next_state and next_state != to_state_name:
+                logger.info(f"[SM] Auto-transition from {to_state_name} via event '{event}'")
+                await self.go_to(fresh_user, next_state, full_context)
 
     async def start(self, user, context: dict = None) -> None:
         """
