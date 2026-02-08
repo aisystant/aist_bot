@@ -13,9 +13,10 @@ from aiogram.types import Message
 from states.base import BaseState
 from i18n import t
 from db.queries import get_intern, update_intern
+from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from clients import claude, mcp_guides, mcp_knowledge
-from config import get_logger
+from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY
 
 logger = get_logger(__name__)
 
@@ -48,12 +49,30 @@ class MarathonLessonState(BaseState):
         return getattr(user, 'chat_id', None)
 
     def _get_marathon_day(self, user) -> int:
-        """Получить текущий день марафона."""
+        """Получить текущий день марафона (по прогрессу)."""
         if isinstance(user, dict):
             completed = user.get('completed_topics', [])
         else:
             completed = getattr(user, 'completed_topics', [])
         return len(completed) // 2 + 1
+
+    def _get_calendar_marathon_day(self, user) -> int:
+        """Получить день марафона по календарю (от marathon_start_date)."""
+        if isinstance(user, dict):
+            start_date = user.get('marathon_start_date')
+        else:
+            start_date = getattr(user, 'marathon_start_date', None)
+
+        if not start_date:
+            # Нет даты старта — fallback на прогресс
+            return self._get_marathon_day(user)
+
+        from datetime import datetime
+        today = moscow_today()
+        if isinstance(start_date, datetime):
+            start_date = start_date.date()
+        days_passed = (today - start_date).days
+        return min(days_passed + 1, MARATHON_DAYS)
 
     def _get_current_topic_index(self, user) -> int:
         """Получить индекс текущей темы."""
@@ -124,13 +143,13 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.completed', lang))
             return  # Событие marathon_complete обработает StateMachine
 
-        # Проверка: дневной лимит
+        # Проверка: дневной лимит (с учётом last_topic_date)
         if isinstance(user, dict):
-            topics_today = user.get('topics_today', 0)
+            topics_today = get_topics_today(user)
         else:
             topics_today = getattr(user, 'topics_today', 0)
 
-        if topics_today >= 4:
+        if topics_today >= MAX_TOPICS_PER_DAY:
             await self.send(user, t('marathon.daily_limit', lang))
             return
 
@@ -147,6 +166,13 @@ class MarathonLessonState(BaseState):
 
         if not topic:
             await self.send(user, t('marathon.no_topics_available', lang))
+            return
+
+        # Проверка: тема не опережает календарный день марафона
+        calendar_day = self._get_calendar_marathon_day(user)
+        topic_day = topic.get('day', 1)
+        if topic_day > calendar_day:
+            await self.send(user, f"✅ {t('marathon.come_back_tomorrow', lang)}")
             return
 
         # Показываем сообщение о загрузке
