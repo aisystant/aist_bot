@@ -141,7 +141,7 @@ class MarathonLessonState(BaseState):
         # Проверка: марафон завершён
         if len(completed) >= total_topics or len(completed) >= 28:
             await self.send(user, t('marathon.completed', lang))
-            return  # Событие marathon_complete обработает StateMachine
+            return "marathon_complete"
 
         # Проверка: дневной лимит (с учётом last_topic_date)
         if isinstance(user, dict):
@@ -151,7 +151,7 @@ class MarathonLessonState(BaseState):
 
         if topics_today >= MAX_TOPICS_PER_DAY:
             await self.send(user, t('marathon.daily_limit', lang))
-            return
+            return "daily_limit"
 
         # Получаем тему (пропускаем practice, ищем следующую theory)
         topic = get_topic(topic_index)
@@ -173,7 +173,7 @@ class MarathonLessonState(BaseState):
         topic_day = topic.get('day', 1)
         if topic_day > calendar_day:
             await self.send(user, f"✅ {t('marathon.come_back_tomorrow', lang)}")
-            return
+            return "come_back"
 
         # Показываем сообщение о загрузке
         await self.send(user, f"⏳ {t('marathon.generating_material', lang)}")

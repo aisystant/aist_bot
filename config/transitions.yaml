@@ -68,6 +68,8 @@ states:
       lesson_shown: workshop.marathon.question
       already_completed: workshop.marathon.task
       marathon_complete: common.mode_select
+      come_back: common.mode_select
+      daily_limit: common.mode_select
     allow_global: [consultation, notes]
 
   workshop.marathon.question:
