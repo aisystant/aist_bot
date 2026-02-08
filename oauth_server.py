@@ -15,6 +15,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_logger, OAUTH_SERVER_PORT
 from clients.linear_oauth import linear_oauth
+from clients.digital_twin import digital_twin
 
 logger = get_logger(__name__)
 
@@ -202,11 +203,149 @@ async def linear_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def twin_callback_handler(request: web.Request) -> web.Response:
+    """Обрабатывает OAuth callback от Digital Twin MCP.
+
+    Digital Twin MCP редиректит сюда с параметрами:
+    - code: authorization code
+    - state: state для верификации (содержит code_verifier)
+    """
+    code = request.query.get("code")
+    state = request.query.get("state")
+    error = request.query.get("error")
+
+    if error:
+        error_description = request.query.get("error_description", "Unknown error")
+        logger.error(f"DT OAuth error: {error} - {error_description}")
+        return web.Response(
+            text=f"""
+            <html>
+            <head><title>Ошибка авторизации</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка авторизации Digital Twin</h1>
+                <p>{error_description}</p>
+                <p>Вернитесь в Telegram и попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400
+        )
+
+    if not code or not state:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Неверный запрос</h1>
+                <p>Отсутствуют необходимые параметры.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400
+        )
+
+    telegram_user_id = digital_twin.validate_state(state)
+    if not telegram_user_id:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Сессия истекла</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Сессия авторизации истекла</h1>
+                <p>Вернитесь в Telegram и начните авторизацию заново (/twin).</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400
+        )
+
+    tokens = await digital_twin.exchange_code(code, state)
+    if not tokens:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка получения токена</h1>
+                <p>Не удалось завершить авторизацию Digital Twin.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=500
+        )
+
+    logger.info(f"User {telegram_user_id} connected to Digital Twin")
+
+    if _bot_instance:
+        try:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Мой профиль", callback_data="twin_profile")],
+                [InlineKeyboardButton(text="Отключить", callback_data="twin_disconnect")]
+            ])
+
+            await _bot_instance.send_message(
+                chat_id=telegram_user_id,
+                text="*Digital Twin подключён!*\n\nТеперь вы можете просматривать и редактировать свой профиль через /twin.",
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user {telegram_user_id}: {e}")
+
+    return web.Response(
+        text=f"""
+        <html>
+        <head>
+            <title>Digital Twin подключён!</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                    min-height: 100vh;
+                    margin: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .card {{
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    max-width: 400px;
+                }}
+                h1 {{ color: #0ea5e9; }}
+                p {{ color: #666; line-height: 1.6; }}
+                .success-icon {{ font-size: 64px; margin-bottom: 16px; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="success-icon">✅</div>
+                <h1>Digital Twin подключён!</h1>
+                <p>Можете закрыть эту страницу и вернуться в Telegram.</p>
+            </div>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=200
+    )
+
+
 def create_oauth_app() -> web.Application:
     """Создаёт aiohttp приложение для OAuth."""
     app = web.Application()
     app.router.add_get("/health", health_handler)
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
+    app.router.add_get("/auth/twin/callback", twin_callback_handler)
     return app
 
 
