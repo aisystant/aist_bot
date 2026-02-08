@@ -1038,6 +1038,32 @@ async def cmd_learn(message: Message, state: FSMContext):
 
     # State Machine routing
     if state_machine is not None:
+        lang = intern.get('language', 'ru') or 'ru'
+
+        # Проверка дневного лимита (как в legacy send_topic)
+        topics_today = get_topics_today(intern)
+        if topics_today >= MAX_TOPICS_PER_DAY:
+            await message.answer(
+                f"🎯 *{t('marathon.daily_limit_title', lang, count=topics_today)}*\n\n"
+                f"{t('marathon.daily_limit_info', lang, max=MAX_TOPICS_PER_DAY)}\n\n"
+                f"{t('marathon.daily_limit_motto', lang)}\n\n"
+                f"{t('marathon.daily_limit_return', lang, time=intern['schedule_time'])}",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Проверка: нельзя идти вперёд по дням марафона
+        marathon_day = get_marathon_day(intern)
+        next_topic_index = get_next_topic_index(intern)
+        next_topic = get_topic(next_topic_index) if next_topic_index is not None else None
+        if next_topic and next_topic.get('day', 1) > marathon_day:
+            await message.answer(
+                f"✅ *{t('marathon.day_complete', lang)}*\n\n"
+                f"_{t('marathon.come_back_tomorrow', lang)}_",
+                parse_mode="Markdown"
+            )
+            return
+
         logger.info(f"[SM] /learn command routed to StateMachine for chat_id={message.chat.id}")
         try:
             await state.clear()  # Очищаем legacy FSM state перед SM routing
@@ -1058,11 +1084,37 @@ async def cb_learn(callback: CallbackQuery, state: FSMContext):
 
     # State Machine routing
     if state_machine is not None:
-        logger.info(f"[SM] learn callback routed to StateMachine for chat_id={callback.message.chat.id}")
         try:
-            await state.clear()  # Очищаем legacy FSM state перед SM routing
             intern = await get_intern(callback.message.chat.id)
             if intern:
+                lang = intern.get('language', 'ru') or 'ru'
+
+                # Проверка дневного лимита
+                topics_today = get_topics_today(intern)
+                if topics_today >= MAX_TOPICS_PER_DAY:
+                    await callback.message.answer(
+                        f"🎯 *{t('marathon.daily_limit_title', lang, count=topics_today)}*\n\n"
+                        f"{t('marathon.daily_limit_info', lang, max=MAX_TOPICS_PER_DAY)}\n\n"
+                        f"{t('marathon.daily_limit_motto', lang)}\n\n"
+                        f"{t('marathon.daily_limit_return', lang, time=intern['schedule_time'])}",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                # Проверка: нельзя идти вперёд по дням марафона
+                marathon_day = get_marathon_day(intern)
+                next_topic_index = get_next_topic_index(intern)
+                next_topic = get_topic(next_topic_index) if next_topic_index is not None else None
+                if next_topic and next_topic.get('day', 1) > marathon_day:
+                    await callback.message.answer(
+                        f"✅ *{t('marathon.day_complete', lang)}*\n\n"
+                        f"_{t('marathon.come_back_tomorrow', lang)}_",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                logger.info(f"[SM] learn callback routed to StateMachine for chat_id={callback.message.chat.id}")
+                await state.clear()  # Очищаем legacy FSM state перед SM routing
                 await state_machine.go_to(intern, "workshop.marathon.lesson")
                 return
         except Exception as e:
@@ -3094,7 +3146,7 @@ async def check_reminders():
                 logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
             except Exception as e:
                 error_msg = str(e).lower()
-                if 'blocked' in error_msg or 'deactivated' in error_msg:
+                if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
                     # Пользователь заблокировал бота — помечаем reminder как отправленный
                     logger.warning(f"User {row['chat_id']} blocked bot, marking reminder {row['id']} as sent")
                     await conn.execute(
@@ -3129,7 +3181,7 @@ async def scheduled_check():
                 logger.info(f"[Scheduler] Отправлена тема пользователю {chat_id}")
             except Exception as e:
                 error_msg = str(e).lower()
-                if 'blocked' in error_msg or 'deactivated' in error_msg:
+                if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
                     logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
                 else:
                     logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
