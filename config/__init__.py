@@ -12,6 +12,7 @@ from .settings import (
     DATABASE_URL,
     MCP_URL,
     KNOWLEDGE_MCP_URL,
+    DIGITAL_TWIN_MCP_URL,
     validate_env,
 
     # Linear OAuth (тестовая интеграция)
@@ -82,6 +83,7 @@ __all__ = [
     'DATABASE_URL',
     'MCP_URL',
     'KNOWLEDGE_MCP_URL',
+    'DIGITAL_TWIN_MCP_URL',
     'validate_env',
     'LINEAR_CLIENT_ID',
     'LINEAR_CLIENT_SECRET',

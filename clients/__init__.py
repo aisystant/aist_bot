@@ -8,6 +8,7 @@
 
 from .claude import ClaudeClient, claude
 from .mcp import MCPClient, mcp_guides, mcp_knowledge, mcp
+from .digital_twin import DigitalTwinClient, digital_twin
 
 __all__ = [
     'ClaudeClient',
@@ -16,4 +17,6 @@ __all__ = [
     'mcp_guides',
     'mcp_knowledge',
     'mcp',
+    'DigitalTwinClient',
+    'digital_twin',
 ]

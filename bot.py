@@ -1816,6 +1816,161 @@ async def callback_linear_disconnect(callback: CallbackQuery):
     )
 
 
+# ============= DIGITAL TWIN =============
+
+@router.message(Command("twin"))
+async def cmd_twin(message: Message):
+    """Команда для работы с Digital Twin.
+
+    Подкоманды:
+    - /twin — показать профиль (степень, ступень, цель)
+    - /twin objective <текст> — установить цель обучения
+    - /twin roles — показать роли
+    - /twin degrees — показать все степени
+    """
+    from clients.digital_twin import digital_twin
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    telegram_user_id = message.chat.id
+    user_id = str(telegram_user_id)
+
+    # Парсим подкоманду
+    text = message.text or ""
+    parts = text.strip().split(maxsplit=2)
+    subcommand = parts[1].lower() if len(parts) > 1 else None
+    arg = parts[2] if len(parts) > 2 else None
+
+    if subcommand == "objective" and arg:
+        # Установить цель обучения
+        await message.answer("Сохраняю цель обучения...")
+        result = await digital_twin.set_learning_objective(user_id, arg)
+        if result:
+            await message.answer(f"Цель обучения обновлена:\n*{arg}*", parse_mode="Markdown")
+        else:
+            await message.answer("Не удалось сохранить цель. Digital Twin недоступен.")
+        return
+
+    if subcommand == "roles":
+        roles = await digital_twin.get_roles(user_id)
+        if roles:
+            roles_text = ", ".join(roles) if isinstance(roles, list) else str(roles)
+            await message.answer(f"*Ваши роли:*\n{roles_text}", parse_mode="Markdown")
+        else:
+            await message.answer("Роли не заданы или Digital Twin недоступен.\n\nИспользуйте кнопку ниже для просмотра профиля.",
+                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                     [InlineKeyboardButton(text="Мой профиль", callback_data="twin_profile")]
+                                 ]))
+        return
+
+    if subcommand == "degrees":
+        degrees = await digital_twin.get_degrees()
+        if degrees:
+            lines = ["*Степени квалификации:*\n"]
+            for d in degrees:
+                name = d.get("name", d.get("code", "?"))
+                desc = d.get("description", "")
+                lines.append(f"- *{name}*{f' — {desc}' if desc else ''}")
+            await message.answer("\n".join(lines), parse_mode="Markdown")
+        else:
+            await message.answer("Не удалось получить степени. Digital Twin недоступен.")
+        return
+
+    # По умолчанию: показать профиль
+    await message.answer("Загружаю профиль из Digital Twin...")
+    profile = await digital_twin.get_user_profile(user_id)
+
+    if profile is None:
+        await message.answer(
+            "Digital Twin недоступен или профиль не найден.\n\n"
+            "Попробуйте позже или обратитесь к администратору."
+        )
+        return
+
+    # Форматируем профиль
+    degree = profile.get("degree", "не задана")
+    stage = profile.get("stage", "не задана")
+
+    # Извлекаем индикаторы
+    indicators = profile.get("indicators", {})
+    pref = indicators.get("IND.1.PREF", {}) if isinstance(indicators, dict) else {}
+    objective = pref.get("objective", "не задана") if isinstance(pref, dict) else "не задана"
+    roles = pref.get("role_set", []) if isinstance(pref, dict) else []
+    time_budget = pref.get("weekly_time_budget", "не задан") if isinstance(pref, dict) else "не задан"
+
+    roles_text = ", ".join(roles) if isinstance(roles, list) and roles else "не заданы"
+
+    text_msg = (
+        f"*Ваш Digital Twin*\n\n"
+        f"*Степень:* {degree}\n"
+        f"*Ступень:* {stage}\n"
+        f"*Цель обучения:* {objective}\n"
+        f"*Роли:* {roles_text}\n"
+        f"*Бюджет времени:* {time_budget} ч/нед"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Обновить профиль", callback_data="twin_profile")],
+        [InlineKeyboardButton(text="Степени", callback_data="twin_degrees")],
+    ])
+
+    await message.answer(text_msg, parse_mode="Markdown", reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "twin_profile")
+async def callback_twin_profile(callback: CallbackQuery):
+    """Callback для обновления профиля Digital Twin."""
+    from clients.digital_twin import digital_twin
+
+    telegram_user_id = callback.from_user.id
+    user_id = str(telegram_user_id)
+
+    await callback.answer()
+
+    profile = await digital_twin.get_user_profile(user_id)
+    if profile is None:
+        await callback.message.answer("Digital Twin недоступен. Попробуйте позже.")
+        return
+
+    degree = profile.get("degree", "не задана")
+    stage = profile.get("stage", "не задана")
+    indicators = profile.get("indicators", {})
+    pref = indicators.get("IND.1.PREF", {}) if isinstance(indicators, dict) else {}
+    objective = pref.get("objective", "не задана") if isinstance(pref, dict) else "не задана"
+    roles = pref.get("role_set", []) if isinstance(pref, dict) else []
+    time_budget = pref.get("weekly_time_budget", "не задан") if isinstance(pref, dict) else "не задан"
+    roles_text = ", ".join(roles) if isinstance(roles, list) and roles else "не заданы"
+
+    text_msg = (
+        f"*Ваш Digital Twin*\n\n"
+        f"*Степень:* {degree}\n"
+        f"*Ступень:* {stage}\n"
+        f"*Цель обучения:* {objective}\n"
+        f"*Роли:* {roles_text}\n"
+        f"*Бюджет времени:* {time_budget} ч/нед"
+    )
+
+    await callback.message.answer(text_msg, parse_mode="Markdown")
+
+
+@router.callback_query(F.data == "twin_degrees")
+async def callback_twin_degrees(callback: CallbackQuery):
+    """Callback для показа степеней."""
+    from clients.digital_twin import digital_twin
+
+    await callback.answer()
+
+    degrees = await digital_twin.get_degrees()
+    if degrees:
+        lines = ["*Степени квалификации:*\n"]
+        for d in degrees:
+            name = d.get("name", d.get("code", "?"))
+            desc = d.get("description", "")
+            lines.append(f"- *{name}*{f' — {desc}' if desc else ''}")
+        await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+    else:
+        await callback.message.answer("Не удалось получить степени. Digital Twin недоступен.")
+
+
 @router.message(Command("language"))
 async def cmd_language(message: Message, state: FSMContext):
     """Команда смены языка напрямую"""
@@ -2913,7 +3068,7 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     except asyncio.TimeoutError:
         logger.warning(f"[send_practice_topic] Таймаут генерации intro для chat_id={chat_id}")
     except Exception as e:
-        logger.error(f"[send_practice_topic] Ошибка генерации intro: {e}")
+        logger.error(f"[send_practice_topic] Ошибк�� генерации intro: {e}")
 
     task = topic.get('task', '')
     work_product = topic.get('work_product', '')
@@ -3612,6 +3767,7 @@ async def main():
         BotCommand(command="mode", description="Выбор режима"),
         BotCommand(command="language", description="Сменить язык"),
         BotCommand(command="start", description="Перезапустить онбординг"),
+        BotCommand(command="twin", description="Цифровой двойник"),
         BotCommand(command="help", description="Справка")
     ])
 
@@ -3624,6 +3780,7 @@ async def main():
         BotCommand(command="mode", description="Select mode"),
         BotCommand(command="language", description="Change language"),
         BotCommand(command="start", description="Restart onboarding"),
+        BotCommand(command="twin", description="Digital Twin"),
         BotCommand(command="help", description="Help")
     ], language_code="en")
 
@@ -3636,6 +3793,7 @@ async def main():
         BotCommand(command="mode", description="Seleccionar modo"),
         BotCommand(command="language", description="Cambiar idioma"),
         BotCommand(command="start", description="Reiniciar onboarding"),
+        BotCommand(command="twin", description="Gemelo Digital"),
         BotCommand(command="help", description="Ayuda")
     ], language_code="es")
 

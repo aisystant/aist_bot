@@ -28,12 +28,9 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
-from config import get_logger
+from config import DIGITAL_TWIN_MCP_URL, get_logger
 
 logger = get_logger(__name__)
-
-# URL Digital Twin MCP сервера
-DIGITAL_TWIN_MCP_URL = "https://digital-twin-mcp.aisystant.workers.dev/mcp"
 
 
 class DigitalTwinClient:
