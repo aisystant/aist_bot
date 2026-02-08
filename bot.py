@@ -1040,6 +1040,7 @@ async def cmd_learn(message: Message, state: FSMContext):
     if state_machine is not None:
         logger.info(f"[SM] /learn command routed to StateMachine for chat_id={message.chat.id}")
         try:
+            await state.clear()  # Очищаем legacy FSM state перед SM routing
             await state_machine.go_to(intern, "workshop.marathon.lesson")
             return
         except Exception as e:
@@ -1059,6 +1060,7 @@ async def cb_learn(callback: CallbackQuery, state: FSMContext):
     if state_machine is not None:
         logger.info(f"[SM] learn callback routed to StateMachine for chat_id={callback.message.chat.id}")
         try:
+            await state.clear()  # Очищаем legacy FSM state перед SM routing
             intern = await get_intern(callback.message.chat.id)
             if intern:
                 await state_machine.go_to(intern, "workshop.marathon.lesson")
@@ -1091,6 +1093,7 @@ async def cmd_feed(message: Message, state: FSMContext):
     if state_machine is not None:
         logger.info(f"[SM] /feed command routed to StateMachine for chat_id={message.chat.id}")
         try:
+            await state.clear()  # Очищаем legacy FSM state перед SM routing
             await state_machine.go_to(intern, "feed.topics")
             return
         except Exception as e:
@@ -1120,6 +1123,7 @@ async def cb_feed(callback: CallbackQuery, state: FSMContext):
     if state_machine is not None:
         logger.info(f"[SM] feed callback routed to StateMachine for chat_id={callback.message.chat.id}")
         try:
+            await state.clear()  # Очищаем legacy FSM state перед SM routing
             await state_machine.go_to(intern, "feed.topics")
             return
         except Exception as e:
@@ -1149,6 +1153,7 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
                 # Получить дайджест → переходим в feed.digest
                 await callback.answer()
                 await callback.message.edit_reply_markup()
+                await state.clear()  # Очищаем legacy FSM state перед SM routing
                 await state_machine.go_to(intern, "feed.digest")
                 return
 
@@ -1156,6 +1161,7 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
                 # Меню тем → переходим в feed.digest и показываем меню тем
                 await callback.answer()
                 await callback.message.edit_reply_markup()
+                await state.clear()  # Очищаем legacy FSM state перед SM routing
                 # Передаём контекст для показа меню тем
                 await state_machine.go_to(intern, "feed.digest", context={"show_topics_menu": True})
                 return
@@ -1170,6 +1176,7 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
                 logger.warning(f"[SM] User in state '{current_state}' clicked '{data}', routing to feed.digest")
                 await callback.answer()
                 await callback.message.edit_reply_markup()
+                await state.clear()  # Очищаем legacy FSM state перед SM routing
                 await state_machine.go_to(intern, "feed.digest")
                 return
 
@@ -1461,6 +1468,7 @@ async def go_to_update(callback: CallbackQuery, state: FSMContext):
     if state_machine is not None and intern:
         logger.info(f"[SM] go_update callback routed to StateMachine for chat_id={callback.message.chat.id}")
         try:
+            await state.clear()  # Очищаем legacy FSM state перед SM routing
             await callback.message.delete()
             await state_machine.go_to(intern, "common.settings")
             return
@@ -1776,6 +1784,7 @@ async def cmd_update(message: Message, state: FSMContext):
     if state_machine is not None:
         logger.info(f"[SM] /update command routed to StateMachine for chat_id={message.chat.id}")
         try:
+            await state.clear()  # Очищаем legacy FSM state перед SM routing
             await state_machine.go_to(intern, "common.settings")
             return
         except Exception as e:
@@ -2964,6 +2973,14 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             else:
                 target_state = "workshop.marathon.task"
 
+            # Очищаем legacy FSM state перед SM routing
+            if _dispatcher:
+                fsm_ctx = FSMContext(
+                    storage=_dispatcher.storage,
+                    key=StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
+                )
+                await fsm_ctx.clear()
+
             # Обновляем intern с актуальным topic_index перед переходом
             updated_intern = {**intern, 'current_topic_index': topic_index}
 
@@ -3076,7 +3093,16 @@ async def check_reminders():
                 )
                 logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
             except Exception as e:
-                logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
+                error_msg = str(e).lower()
+                if 'blocked' in error_msg or 'deactivated' in error_msg:
+                    # Пользователь заблокировал бота — помечаем reminder как отправленный
+                    logger.warning(f"User {row['chat_id']} blocked bot, marking reminder {row['id']} as sent")
+                    await conn.execute(
+                        'UPDATE reminders SET sent = TRUE WHERE id = $1',
+                        row['id']
+                    )
+                else:
+                    logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
 
         await bot.session.close()
 
@@ -3102,7 +3128,11 @@ async def scheduled_check():
                 await send_scheduled_topic(chat_id, bot)
                 logger.info(f"[Scheduler] Отправлена тема пользователю {chat_id}")
             except Exception as e:
-                logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
+                error_msg = str(e).lower()
+                if 'blocked' in error_msg or 'deactivated' in error_msg:
+                    logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
+                else:
+                    logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
         await bot.session.close()
 
     # Проверяем напоминания
