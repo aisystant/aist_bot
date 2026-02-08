@@ -783,6 +783,14 @@ async def cmd_start(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
 
     if intern['onboarding_completed']:
+        # Очищаем legacy FSM state
+        await state.clear()
+
+        # Если SM активна — переводим в mode_select через SM
+        if state_machine is not None:
+            await state_machine.go_to(intern, "common.mode_select")
+            return
+
         lang = intern.get('language', 'ru')
 
         # Определяем текущий режим

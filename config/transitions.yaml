@@ -49,6 +49,7 @@ states:
     events:
       saved: common.mode_select
       cancel: _previous
+    allow_global: [consultation, notes]
 
   common.consultation:
     description: "Консультация (ответ на вопрос пользователя)"
