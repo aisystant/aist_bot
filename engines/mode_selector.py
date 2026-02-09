@@ -469,7 +469,10 @@ async def marathon_settings_back(callback: CallbackQuery):
 @mode_router.callback_query(F.data == "marathon_go_update")
 async def marathon_go_update(callback: CallbackQuery, state: FSMContext):
     """Переход к обновлению профиля"""
-    from bot import kb_update_profile, get_marathon_day, STUDY_DURATIONS, BLOOM_LEVELS, UpdateStates
+    from integrations.telegram.keyboards import kb_update_profile
+    from core.topics import get_marathon_day
+    from config import STUDY_DURATIONS, BLOOM_LEVELS
+    from handlers.settings import UpdateStates
     from i18n import get_language_name
 
     await callback.answer()
@@ -910,7 +913,10 @@ async def select_feed(callback: CallbackQuery):
 @mode_router.callback_query(F.data == "feed_go_update")
 async def feed_go_update(callback: CallbackQuery, state: FSMContext):
     """Переход к обновлению профиля из Ленты"""
-    from bot import kb_update_profile, get_marathon_day, STUDY_DURATIONS, BLOOM_LEVELS, UpdateStates
+    from integrations.telegram.keyboards import kb_update_profile
+    from core.topics import get_marathon_day
+    from config import STUDY_DURATIONS, BLOOM_LEVELS
+    from handlers.settings import UpdateStates
     from i18n import get_language_name
 
     await callback.answer()

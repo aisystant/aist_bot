@@ -1,27 +1,104 @@
 ---
 type: workplan
-updated: 2026-02-08
+updated: 2026-02-09
 ---
 
-# WORKPLAN
+# WORKPLAN — AIST Bot (new-architecture)
 
-> Операционный план рабочих продуктов для aist_bot_newarchitecture (Downstream/instrument).
+> Операционный план рабочих продуктов.
+> **Стратегия эволюции:** [MAPSTRATEGIC.md](MAPSTRATEGIC.md) (Phase 0 → Phase 3)
+> **Текущая фаза:** Phase 0 — Стабилизация + Mode-aware routing
+
+---
 
 ## Месячные приоритеты (февраль 2026)
 
-| # | Приоритет | Бюджет | Потрачено | Статус |
-|---|-----------|--------|-----------|--------|
-| 1 | State Machine refactor — стабилизация | 6h | 0h | in-progress |
-| 2 | Интеграция с GitHub (для отчётов) | 4h | 0h | pending |
+| # | Приоритет | Фаза | Бюджет | Статус |
+|---|-----------|------|--------|--------|
+| 1 | **Стабилизация для марафона 14 фев** — mode-aware routing, баг-фиксы | Phase 0 | 6h | in-progress |
+| 2 | Рефакторинг UI/UX — кнопки и сценарии | Phase 0 | 4h | pending |
+| 3 | Диспетчер + глобальные префиксы (`.` и `?`) | Phase 1 | 4h | pending |
+| 4 | Подключение digital-twin-mcp | Phase 1 | 2h | pending |
+| 5 | GitHub интеграция (заметки, отчёты) | Phase 1 | 4h | pending |
 
-## Недельный план (W06: 8-14 фев)
+---
 
-| РП | Бюджет | Статус | Критерии |
-|----|--------|--------|----------|
-| Оценка: можно ли использовать для марафона? | 2h | pending | [ ] Функциональность покрыта |
+## Недельный план (W07: 9–14 фев)
 
-## Бэклог
+> **Фокус:** Phase 0 — бот должен работать для марафона.
 
-- [ ] Завершить State Machine (transitions.yaml)
-- [ ] GitHub API интеграция для агента Стратег
-- [ ] Связка с digital-twin-mcp
+### РП 1: Баг-фиксы (4 бага)
+
+| Баг | Файл | Бюджет | Статус |
+|-----|------|--------|--------|
+| `digest.py:559` — hardcoded "Возвращайтесь завтра" в feed progress | states/feed/digest.py | 30m | pending |
+| `bot.py:1078` — /learn всегда роутит в Марафон | bot.py | 30m | pending |
+| `transitions.yaml:71` — come_back → mode_select (показывает меню) | config/transitions.yaml + states/ | 30m | pending |
+| `bot.py:3165` — scheduler только для Марафона | bot.py | 30m | pending |
+
+**Критерии готовности:**
+- [ ] /learn в режиме Feed → открывает Ленту (не Марафон)
+- [ ] /learn в режиме Marathon → открывает Марафон (как сейчас)
+- [ ] "Возвращайтесь завтра" → не показывает меню выбора режима
+- [ ] Feed progress показывает актуальный статус (не hardcoded текст)
+- [ ] Scheduler отправляет уведомления для обоих режимов
+
+### РП 2: Mode-aware routing
+
+| Задача | Файл | Бюджет | Статус |
+|--------|------|--------|--------|
+| Функция `get_user_mode_state(user)` | core/helpers.py (новый) | 30m | pending |
+| Рефакторинг /learn → mode-aware | bot.py | 30m | pending |
+| Рефакторинг callback learn → mode-aware | bot.py | 30m | pending |
+| come_back и day_complete → остаёмся в режиме | transitions.yaml + states/ | 30m | pending |
+
+**Критерии готовности:**
+- [ ] Единая функция определяет стейт по режиму пользователя
+- [ ] Все entry points используют эту функцию
+- [ ] Нет прямых ссылок на "workshop.marathon.lesson" в bot.py
+
+### РП 3: Smoke Test
+
+| Сценарий | Бюджет | Статус |
+|----------|--------|--------|
+| Марафон: Урок → Вопрос → Бонус → Задание → "Завтра" | 30m | pending |
+| Лента: Темы → Дайджест → Фиксация → "Завтра" | 30m | pending |
+| /learn из Марафона и из Ленты | 15m | pending |
+| /progress из обоих режимов | 15m | pending |
+| Scheduler: уведомление в обоих режимах | 15m | pending |
+
+**Критерии готовности:**
+- [ ] Все сценарии проходят без ошибок в @aist_pilot_me
+
+---
+
+## Недельный план (W08: 14–21 фев) — предварительный
+
+> **Фокус:** Phase 0 завершение + начало Phase 1
+
+| РП | Фаза | Бюджет | Статус |
+|----|------|--------|--------|
+| Мерж newarchitecture → main (если smoke test ок) | Phase 0 | 1h | pending |
+| UI/UX: новые кнопки и сценарии | Phase 0 | 4h | pending |
+| Извлечь core/dispatcher.py из bot.py | Phase 1 | 2h | pending |
+| Глобальные `.` (заметка) и `?` (консультация) | Phase 1 | 2h | pending |
+
+---
+
+## Бэклог (Phase 1+)
+
+| Задача | Фаза | Приоритет |
+|--------|------|-----------|
+| Подключение digital-twin-mcp (чтение/запись прогресса) | Phase 1 | high |
+| `.` заметка → коммит в GitHub через API | Phase 1 | high |
+| `?` консультация → guides-mcp | Phase 1 | high |
+| /rp, /report, /twin — новые команды (заглушки) | Phase 1 | medium |
+| MCP Registry (yaml) | Phase 2 | medium |
+| Агент Стратег — отдельный сервис | Phase 2 | medium |
+| Агент Консультант — классификация уровня | Phase 2 | medium |
+| GitHub OAuth для личных репо | Phase 2 | low |
+| Telegram WebApp (сложный UI) | Phase 3 | low |
+
+---
+
+*Последнее обновление: 2026-02-09*

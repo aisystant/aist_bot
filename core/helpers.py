@@ -1,7 +1,8 @@
 """
-Вспомогательные функции для генерации контента.
+Вспомогательные функции для генерации контента и роутинга.
 
 Содержит:
+- get_user_mode_state: определение целевого стейта по режиму пользователя
 - load_topic_metadata: загрузка метаданных темы из YAML
 - get_search_keys: получение ключей поиска для MCP
 - get_bloom_questions: настройки вопросов по уровню Блума
@@ -15,6 +16,32 @@ import yaml
 from config import get_logger, STUDY_DURATIONS, TOPICS_DIR
 
 logger = get_logger(__name__)
+
+
+# ============= РОУТИНГ ПО РЕЖИМУ =============
+
+# Маппинг mode → стейт для /learn и scheduler
+MODE_STATE_MAP = {
+    'marathon': 'workshop.marathon.lesson',
+    'feed': 'feed.digest',
+}
+
+
+def get_user_mode_state(user) -> str:
+    """Определить целевой стейт обучения по режиму пользователя.
+
+    Args:
+        user: dict или объект пользователя из БД
+
+    Returns:
+        Имя стейта (например, "workshop.marathon.lesson" или "feed.digest")
+    """
+    if isinstance(user, dict):
+        mode = user.get('mode', 'marathon')
+    else:
+        mode = getattr(user, 'mode', 'marathon')
+
+    return MODE_STATE_MAP.get(mode or 'marathon', MODE_STATE_MAP['marathon'])
 
 
 def load_topic_metadata(topic_id: str) -> Optional[dict]:

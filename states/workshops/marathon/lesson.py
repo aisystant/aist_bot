@@ -173,7 +173,7 @@ class MarathonLessonState(BaseState):
         topic_day = topic.get('day', 1)
         if topic_day > calendar_day:
             await self.send(user, f"✅ {t('marathon.come_back_tomorrow', lang)}")
-            return "come_back"
+            return None  # Остаёмся в стейте — без перехода в mode_select
 
         # Показываем сообщение о загрузке
         await self.send(user, f"⏳ {t('marathon.generating_material', lang)}")
@@ -249,6 +249,16 @@ class MarathonLessonState(BaseState):
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
+
+        # Проверка: если следующая тема впереди по дням — блокируем
+        topic_index = self._get_current_topic_index(user)
+        topic = get_topic(topic_index)
+        if topic:
+            calendar_day = self._get_calendar_marathon_day(user)
+            topic_day = topic.get('day', 1)
+            if topic_day > calendar_day:
+                await self.send(user, f"✅ {t('marathon.come_back_tomorrow', lang)}")
+                return None
 
         # Вопрос к ИИ
         if text.startswith('?'):

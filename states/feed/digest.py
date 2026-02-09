@@ -551,13 +551,19 @@ class FeedDigestState(BaseState):
                     text += f"{i}. {topic}\n"
                 text += "\n"
 
+            # Проверяем, завершён ли дайджест сегодня
+            today_session = await get_feed_session(week['id'], date.today()) if week else None
+            digest_done_today = today_session and today_session.get('status') == 'completed'
+
             text += (
                 f"📅 *{t('marathon.your_statistics', lang)}*\n"
                 f"• {t('modes.day_label', lang).capitalize()}: {current_day}/7\n"
                 f"• {t('feed.active_days_label', lang)}: {stats.get('total', 0)}\n"
-                f"• {t('feed.current_streak', lang)}: {stats.get('streak', 0)} {t('progress.days', lang)}\n\n"
-                f"_{t('marathon.come_back_tomorrow', lang)}_"
+                f"• {t('feed.current_streak', lang)}: {stats.get('streak', 0)} {t('progress.days', lang)}"
             )
+
+            if digest_done_today:
+                text += f"\n\n_✅ {t('feed.digest_completed_today', lang)}_"
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(

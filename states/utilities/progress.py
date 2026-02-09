@@ -225,7 +225,7 @@ class ProgressState(BaseState):
 
         # Прогресс по дням
         try:
-            from bot import TOPICS
+            from core.topics import TOPICS
             wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
         except Exception as e:
             logger.error(f"Ошибка получения wp_by_day: {e}")
@@ -323,7 +323,7 @@ class ProgressState(BaseState):
     def _get_lessons_tasks_progress(self, completed_topics: list) -> dict:
         """Получить прогресс по урокам и заданиям."""
         try:
-            from bot import TOPICS
+            from core.topics import TOPICS
         except ImportError:
             return {
                 'lessons': {'completed': 0, 'total': 0},
@@ -348,7 +348,7 @@ class ProgressState(BaseState):
     def _get_days_progress(self, completed_topics: list, marathon_day: int) -> list:
         """Получить прогресс по дням марафона."""
         try:
-            from bot import TOPICS
+            from core.topics import TOPICS
         except ImportError:
             return []
 

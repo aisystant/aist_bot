@@ -2267,6 +2267,14 @@ feed:
     ru: "Сегодняшний дайджест уже завершён. До завтра!"
     en: "Today's digest is already completed. See you tomorrow!"
 
+  daily_digest_ready:
+    ru: "Ваш ежедневный дайджест готов!"
+    en: "Your daily digest is ready!"
+
+  start_learning:
+    ru: "Нажмите /learn чтобы начать изучение."
+    en: "Press /learn to start learning."
+
   continuing_digest:
     ru: "Продолжаем дайджест..."
     en: "Continuing digest..."
