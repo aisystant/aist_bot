@@ -43,27 +43,67 @@
 
 ---
 
-## 3. Структура проекта (new-architecture)
+## 3. Структура проекта (модульная архитектура)
 
 ```
 aist_bot/
-├── bot.py                    # Точка входа + старая архитектура
-├── states/                   # 🆕 State Machine стейты
+├── bot.py                    # Тонкий клиент (~246 строк): config + imports + main()
+├── core/
+│   ├── machine.py            # Движок State Machine (без изменений)
+│   ├── dispatcher.py         # Центральный роутинг (mode-aware /learn)
+│   ├── topics.py             # Доменная логика тем: TOPICS, get_marathon_day, save_answer
+│   ├── scheduler.py          # Планировщик отправки тем
+│   ├── storage.py            # PostgresStorage (FSM persistence)
+│   ├── middleware.py          # LoggingMiddleware
+│   ├── helpers.py            # MODE_STATE_MAP, get_user_mode_state
+│   ├── intent.py             # Определение намерения пользователя
+│   └── knowledge.py          # Поиск по MCP
+├── handlers/
+│   ├── __init__.py           # setup_handlers(dp, dispatcher), setup_fallback(dp)
+│   ├── commands.py           # Тонкие обёртки: /learn, /feed, /mode → dispatcher
+│   ├── callbacks.py          # Callback queries → dispatcher
+│   ├── onboarding.py         # /start + OnboardingStates
+│   ├── settings.py           # /profile, /help, /update, /language + UpdateStates
+│   ├── progress.py           # /progress + full report
+│   ├── linear.py             # /linear интеграция
+│   ├── twin.py               # /twin цифровой двойник
+│   ├── fallback.py           # Catch-all: SM routing или legacy
+│   └── legacy/
+│       ├── learning.py       # LearningStates + send_topic (USE_STATE_MACHINE=false)
+│       └── fallback_handler.py # Legacy обработка вне FSM
+├── states/                   # State Machine стейты
 │   ├── common/               # start, mode_select, settings
 │   ├── workshops/marathon/   # lesson, question, bonus, task
-│   └── feed/                 # topics, digest
-├── core/machine.py           # 🆕 Движок State Machine
+│   ├── feed/                 # topics, digest
+│   └── utilities/            # progress
+├── engines/                  # Режимы (mode_selector, feed)
 ├── config/
-│   ├── settings.py
-│   └── transitions.yaml      # 🆕 Таблица переходов
-├── i18n/schema.yaml          # 🆕 Локализация
-├── integrations/telegram/    # 🆕 Клавиатуры
-└── docs/
-    ├── ontology.md           # ТЕРМИНОЛОГИЯ
-    ├── scenarios/
-    ├── processes/
-    └── data/
+│   ├── settings.py           # Все константы
+│   └── transitions.yaml      # Таблица переходов SM
+├── clients/                  # Claude API, MCP клиенты
+├── db/                       # PostgreSQL queries
+├── i18n/                     # Локализация
+├── integrations/telegram/    # Клавиатуры
+└── docs/                     # Документация
 ```
+
+### 3.1. Правила архитектуры
+
+**Порядок роутеров (критично!):** engines → handlers → fallback ПОСЛЕДНИМ.
+
+**Импорты — откуда что брать:**
+
+| Что нужно | Откуда | НЕ из |
+|-----------|--------|-------|
+| Доменные функции (get_marathon_day, TOPICS, save_answer) | `core.topics` | ~~bot~~ |
+| Константы (BLOOM_AUTO_UPGRADE_AFTER, STUDY_DURATIONS) | `config` | ~~bot~~ |
+| Клавиатуры (kb_update_profile) | `integrations.telegram.keyboards` | ~~bot~~ |
+| FSM стейты (UpdateStates, LearningStates) | `handlers.settings`, `handlers.legacy.learning` | ~~bot~~ |
+| `claude`, `state_machine` | `bot` | Единственные легитимные импорты из bot.py |
+
+**Lazy imports (`_bot_imports()`)** — используются в handlers/ для разрыва circular dependencies. Внутри функций, не на уровне модуля.
+
+**bot.py — re-exports:** bot.py импортирует всё из core/topics, handlers/ для обратной совместимости. Новый код должен импортировать из правильного источника напрямую.
 
 ---
 
