@@ -26,10 +26,15 @@ class ModeSelectState(BaseState):
     display_name = {"ru": "Выбор режима", "en": "Mode Select", "es": "Selección de modo", "fr": "Sélection du mode"}
     allow_global = ["consultation", "notes"]
 
-    # Тексты кнопок (для сравнения)
-    MARATHON_BUTTONS = ["📚 Марафон", "📚 Marathon", "📚 Maratón", "📚 Marathon"]
-    FEED_BUTTONS = ["📖 Лента", "📖 Feed", "📖 Feed", "📖 Fil"]
-    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]
+    # Тексты кнопок по языкам: {lang: text}
+    MARATHON_LABELS = {"ru": "📚 Марафон", "en": "📚 Marathon", "es": "📚 Maratón", "fr": "📚 Marathon"}
+    FEED_LABELS = {"ru": "📖 Лента", "en": "📖 Feed", "es": "📖 Feed", "fr": "📖 Fil"}
+    SETTINGS_LABELS = {"ru": "⚙️ Настройки", "en": "⚙️ Settings", "es": "⚙️ Ajustes", "fr": "⚙️ Paramètres"}
+
+    # Все варианты кнопок (для сравнения в handle)
+    MARATHON_BUTTONS = list(MARATHON_LABELS.values())
+    FEED_BUTTONS = list(FEED_LABELS.values())
+    SETTINGS_BUTTONS = list(SETTINGS_LABELS.values())
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -61,9 +66,9 @@ class ModeSelectState(BaseState):
 
         # Формируем список доступных режимов
         buttons = [
-            ["📚 Марафон" if lang == "ru" else "📚 Marathon"],
-            ["📖 Лента" if lang == "ru" else "📖 Feed"],
-            ["⚙️ Настройки" if lang == "ru" else "⚙️ Settings"],
+            [self.MARATHON_LABELS.get(lang, self.MARATHON_LABELS["en"])],
+            [self.FEED_LABELS.get(lang, self.FEED_LABELS["en"])],
+            [self.SETTINGS_LABELS.get(lang, self.SETTINGS_LABELS["en"])],
         ]
 
         await self.send_with_keyboard(

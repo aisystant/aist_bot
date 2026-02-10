@@ -212,7 +212,11 @@ class SettingsState(BaseState):
             return await self._show_bloom_options(user, callback)
 
         if data == "upd_mode":
-            # Переход к выбору режима
+            # Удаляем inline-клавиатуру settings перед переходом
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             return "saved"  # Вернёт в mode_select
 
         if data == "upd_language":
