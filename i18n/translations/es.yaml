@@ -23,6 +23,7 @@ commands:
   mode: "/mode — seleccionar modo"
   language: "/language — cambiar idioma"
   help: "/help — ayuda"
+  feed: "/feed — obtener resumen"
 
 menu:
   learn: "Obtener un nuevo tema"
@@ -351,6 +352,7 @@ update:
 
 help:
   title: "Ayuda"
+  about_marathon: "📚 Modos de aprendizaje:"
   modes_title: "Modos de aprendizaje"
   marathon: "Maratón"
   marathon_desc: "programa de 14 días (lección + tarea)"
@@ -384,6 +386,8 @@ errors:
   digest_load_error: "Error al cargar el resumen"
   content_generation_failed: "No se pudo generar el contenido."
   question_generation_failed: "No se pudo generar la pregunta."
+  generation_timeout: "⏱ La generación tardó demasiado. Por favor, inténtalo de nuevo."
+  processing_error: "Se produjo un error al procesar tu mensaje."
   try_again_later: "Por favor, inténtelo de nuevo más tarde."
 
 fsm:
@@ -488,6 +492,7 @@ marathon:
   daily_limit_return: "¡Vuelve mañana! O te recordaré a las *{time}*."
   completed: "🎉 ¡Felicidades! ¡Maratón completado! Usa /feed para el modo Cinta."
   daily_limit: "Se alcanzó el límite de temas de hoy. ¡Vuelve mañana!"
+  come_back_tomorrow: "¡Vuelve mañana para nuevos temas!"
   question_processed: "✅ ¡Respuesta aceptada!"
 
 feed:
@@ -510,6 +515,7 @@ feed:
   menu_title: "Modo Cinta"
   topics_menu_title: "Temas de la semana"
   topics_edit_hint: "Presiona ✏️ para cambiar un tema"
+  cannot_reset_completed: "Temas no se pueden cambiar — hoy ya hubo resumen. ¡Vuelve mañana!"
   no_digest_today: "El resumen de hoy ya fue leído. ¡Vuelve mañana!"
   enter_new_topic: "Ingresa nuevo tema para el día {day}:"
   topic_updated: "Tema para el día {day} actualizado:"

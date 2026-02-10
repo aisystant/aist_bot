@@ -23,6 +23,7 @@ commands:
   mode: "/mode — sélectionner le mode"
   language: "/language — changer de langue"
   help: "/help — aide"
+  feed: "/feed — obtenir le résumé"
 
 menu:
   learn: "Obtenir un nouveau sujet"
@@ -341,6 +342,7 @@ update:
 
 help:
   title: "Aide"
+  about_marathon: "📚 Modes d'apprentissage :"
   modes_title: "Modes d'apprentissage"
   marathon: "Marathon"
   marathon_desc: "programme de 14 jours (leçon + tâche)"
@@ -374,6 +376,8 @@ errors:
   digest_load_error: "Erreur lors du chargement du résumé"
   content_generation_failed: "Impossible de générer le contenu."
   question_generation_failed: "Impossible de générer la question."
+  generation_timeout: "⏱ La génération a pris trop de temps. Veuillez réessayer."
+  processing_error: "Une erreur s'est produite lors du traitement de votre message."
   try_again_later: "Veuillez réessayer plus tard."
 
 fsm:
@@ -478,6 +482,7 @@ marathon:
   daily_limit_return: "Reviens demain ! Ou je te rappellerai à *{time}*."
   completed: "🎉 Félicitations ! Marathon terminé ! Utilise /feed pour le mode Fil."
   daily_limit: "Limite de sujets atteinte pour aujourd'hui. Reviens demain !"
+  come_back_tomorrow: "Reviens demain pour de nouveaux sujets !"
   question_processed: "✅ Réponse acceptée !"
 
 feed:
@@ -500,6 +505,7 @@ feed:
   menu_title: "Mode Fil"
   topics_menu_title: "Sujets de la semaine"
   topics_edit_hint: "Appuie sur ✏️ pour changer un sujet"
+  cannot_reset_completed: "Impossible de changer les sujets — le résumé d'aujourd'hui est déjà terminé. Reviens demain !"
   no_digest_today: "Le résumé d'aujourd'hui a déjà été lu. Reviens demain !"
   enter_new_topic: "Entre un nouveau sujet pour le jour {day} :"
   topic_updated: "Sujet pour le jour {day} mis à jour :"
