@@ -1,9 +1,6 @@
 """
-Legacy хендлеры — используются при USE_STATE_MACHINE=false.
+Legacy хендлеры — архивные, не используются.
 
-При включённом SM эти хендлеры делают bypass в SM.
+State Machine (states/) — единственный путь обработки сообщений.
+Файлы сохранены как справка для миграции.
 """
-
-from .learning import legacy_learning_router
-
-__all__ = ['legacy_learning_router']

@@ -37,9 +37,8 @@ async def cmd_learn(message: Message, state: FSMContext):
         await dispatcher.route_learn(intern)
         return
 
-    # Legacy fallback
-    from handlers.legacy.learning import send_topic
-    await send_topic(message.chat.id, state, message.bot)
+    lang = intern.get('language', 'ru') if intern else 'ru'
+    await message.answer(t('errors.processing_error', lang))
 
 
 @commands_router.message(Command("feed"))

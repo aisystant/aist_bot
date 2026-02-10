@@ -27,16 +27,17 @@ async def cb_learn(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_reply_markup()
 
-    if dispatcher and dispatcher.is_sm_active:
-        intern = await get_intern(callback.message.chat.id)
-        if intern:
-            await state.clear()
-            await dispatcher.route_learn(intern)
-            return
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return
 
-    # Legacy fallback
-    from handlers.legacy.learning import send_topic
-    await send_topic(callback.message.chat.id, state, callback.bot)
+    if dispatcher and dispatcher.is_sm_active:
+        await state.clear()
+        await dispatcher.route_learn(intern)
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    await callback.message.answer(t('errors.processing_error', lang))
 
 
 @callbacks_router.callback_query(F.data == "later")

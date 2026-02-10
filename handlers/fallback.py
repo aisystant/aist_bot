@@ -38,20 +38,13 @@ async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
 
 @fallback_router.message()
 async def on_unknown_message(message: Message, state: FSMContext):
-    """Обработка сообщений вне FSM-состояний.
-
-    Порядок:
-    1. SM активна → делегируем в SM
-    2. Legacy FSM состояние → роутим к legacy хендлерам
-    3. Произвольное сообщение → определяем intent
-    """
+    """Обработка сообщений — делегирование в State Machine."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
     chat_id = message.chat.id
     text = message.text or ''
 
-    # === STATE MACHINE ROUTING ===
     if dispatcher and dispatcher.is_sm_active:
         logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, text={text[:50]}")
         try:
@@ -75,7 +68,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
             )
             return
 
-    # === LEGACY ROUTING ===
-    # Если SM не активна — используем legacy обработку из bot.py
-    from handlers.legacy.fallback_handler import legacy_on_unknown_message
-    await legacy_on_unknown_message(message, state)
+    # SM не активна — показываем подсказку
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
+    await message.answer(t('errors.processing_error', lang))
