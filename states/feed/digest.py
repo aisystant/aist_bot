@@ -251,15 +251,28 @@ class FeedDigestState(BaseState):
         }
 
         # Отправляем (разбиваем длинные сообщения)
-        if len(text) > 4000:
-            parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-            for i, part in enumerate(parts):
-                if i == len(parts) - 1:
-                    await self.send(user, part, reply_markup=keyboard, parse_mode="Markdown")
-                else:
-                    await self.send(user, part, parse_mode="Markdown")
-        else:
-            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        # Fallback: если Markdown не парсится (Claude-контент с незакрытыми сущностями) → отправляем без parse_mode
+        try:
+            if len(text) > 4000:
+                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+                for i, part in enumerate(parts):
+                    if i == len(parts) - 1:
+                        await self.send(user, part, reply_markup=keyboard, parse_mode="Markdown")
+                    else:
+                        await self.send(user, part, parse_mode="Markdown")
+            else:
+                await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception as md_err:
+            logger.warning(f"Markdown parse failed for digest (user {chat_id}), sending without formatting: {md_err}")
+            if len(text) > 4000:
+                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+                for i, part in enumerate(parts):
+                    if i == len(parts) - 1:
+                        await self.send(user, part, reply_markup=keyboard)
+                    else:
+                        await self.send(user, part)
+            else:
+                await self.send(user, text, reply_markup=keyboard)
 
     async def _show_menu(self, user, week: dict, digest_completed_today: bool = False) -> None:
         """Показывает меню Ленты.
@@ -441,7 +454,10 @@ class FeedDigestState(BaseState):
             if sources:
                 response += "\n\n📚 _Источники: " + ", ".join(sources[:2]) + "_"
 
-            await self.send(user, response, parse_mode="Markdown")
+            try:
+                await self.send(user, response, parse_mode="Markdown")
+            except Exception:
+                await self.send(user, response)
 
         except Exception as e:
             logger.error(f"Error handling question: {e}")

@@ -1,6 +1,6 @@
 ---
 type: workplan
-updated: 2026-02-09
+updated: 2026-02-10
 ---
 
 # WORKPLAN — AIST Bot (new-architecture)
@@ -27,16 +27,22 @@ updated: 2026-02-09
 
 > **Фокус:** Phase 0 — бот должен работать для марафона.
 
-### РП 1: Баг-фиксы (4 бага)
+### РП 1: Баг-фиксы
 
 | Баг | Файл | Бюджет | Статус |
 |-----|------|--------|--------|
+| Legacy router перехватывал сообщения у SM → практика не показывалась | handlers/__init__.py, commands.py, callbacks.py, fallback.py | 30m | done |
+| `digest.py:258` — Markdown parse error в дайджесте (Claude-контент с незакрытыми сущностями) | states/feed/digest.py | 30m | in-progress |
+| MCP-серверы (Guides, Knowledge) — circuit breaker OPEN, таймаут 15s | clients/mcp.py, config | 1h | pending |
 | `digest.py:559` — hardcoded "Возвращайтесь завтра" в feed progress | states/feed/digest.py | 30m | pending |
 | `bot.py:1078` — /learn всегда роутит в Марафон | bot.py | 30m | pending |
 | `transitions.yaml:71` — come_back → mode_select (показывает меню) | config/transitions.yaml + states/ | 30m | pending |
 | `bot.py:3165` — scheduler только для Марафона | bot.py | 30m | pending |
 
 **Критерии готовности:**
+- [x] SM — единственный путь обработки сообщений (legacy router удалён, коммит c7f81c6)
+- [ ] Дайджест Ленты отображается без Markdown-ошибок (fallback без форматирования)
+- [ ] MCP-серверы отвечают (или graceful degradation при таймауте)
 - [ ] /learn в режиме Feed → открывает Ленту (не Марафон)
 - [ ] /learn в режиме Marathon → открывает Марафон (как сейчас)
 - [ ] "Возвращайтесь завтра" → не показывает меню выбора режима
@@ -101,4 +107,4 @@ updated: 2026-02-09
 
 ---
 
-*Последнее обновление: 2026-02-09*
+*Последнее обновление: 2026-02-10*
