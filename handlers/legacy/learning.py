@@ -730,19 +730,25 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     await bot.send_message(chat_id, f"⏳ {t('marathon.preparing_practice', lang)}")
 
     intro = ""
+    task = topic.get('task', '')
+    work_product = topic.get('work_product', '')
+    examples = topic.get('work_product_examples', [])
+
     try:
-        intro = await asyncio.wait_for(
+        practice_data = await asyncio.wait_for(
             b['claude'].generate_practice_intro(topic, intern),
             timeout=30.0
         )
+        if isinstance(practice_data, dict):
+            intro = practice_data.get('intro', '')
+            task = practice_data.get('task', '') or task
+            work_product = practice_data.get('work_product', '') or work_product
+        elif isinstance(practice_data, str):
+            intro = practice_data
     except asyncio.TimeoutError:
         logger.warning(f"[send_practice_topic] Таймаут генерации intro для chat_id={chat_id}")
     except Exception as e:
         logger.error(f"[send_practice_topic] Ошибка генерации intro: {e}")
-
-    task = topic.get('task', '')
-    work_product = topic.get('work_product', '')
-    examples = topic.get('work_product_examples', [])
 
     examples_text = ""
     if examples:
