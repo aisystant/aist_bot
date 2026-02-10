@@ -132,19 +132,31 @@ async def cmd_help(message: Message):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
-    await message.answer(
-        t('help.title', lang) + "\n\n" +
-        t('commands.learn', lang) + "\n" +
-        t('commands.progress', lang) + "\n" +
-        t('commands.profile', lang) + "\n" +
-        t('commands.update', lang) + "\n" +
-        t('commands.mode', lang) + "\n" +
-        t('commands.feed', lang) + "\n\n" +
-        t('help.about_marathon', lang) + "\n" +
-        t('help.marathon', lang) + "\n" +
-        t('help.feed', lang),
-        parse_mode="Markdown"
+    text = (
+        f"*{t('help.title', lang)}*\n\n"
+        f"*{t('help.how_it_works', lang)}*\n"
+        f"{t('help.step1', lang)}\n"
+        f"{t('help.step2', lang)}\n"
+        f"{t('help.step3', lang)}\n"
+        f"{t('help.step4', lang)}\n"
+        f"{t('help.step5', lang)}\n\n"
+        f"*{t('help.about_marathon', lang)}*\n"
+        f"*{t('help.marathon', lang)}* — {t('help.marathon_desc', lang)}\n"
+        f"*{t('help.feed', lang)}* — {t('help.feed_desc', lang)}\n\n"
+        f"_{t('help.ai_questions', lang)}_\n"
+        f"_{t('help.ai_questions_example', lang)}_\n\n"
+        f"*{t('help.commands_title', lang)}*\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.feed', lang)}\n"
+        f"{t('commands.progress', lang)}\n"
+        f"{t('commands.profile', lang)}\n"
+        f"{t('commands.update', lang)}\n"
+        f"{t('commands.mode', lang)}\n"
+        f"{t('commands.language', lang)}\n\n"
+        f"_{t('help.schedule_note', lang)}_\n\n"
+        f"*{t('help.feedback', lang)}:* @tserentserenov"
     )
+    await message.answer(text, parse_mode="Markdown")
 
 
 @settings_router.message(Command("language"))
