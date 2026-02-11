@@ -48,6 +48,14 @@ from .qa import (
     get_qa_count,
 )
 
+from .github import (
+    get_github_connection,
+    save_github_connection,
+    update_github_repo,
+    update_github_notes_path,
+    delete_github_connection,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -82,4 +90,11 @@ __all__ = [
     'save_qa',
     'get_qa_history',
     'get_qa_count',
+
+    # github
+    'get_github_connection',
+    'save_github_connection',
+    'update_github_repo',
+    'update_github_notes_path',
+    'delete_github_connection',
 ]

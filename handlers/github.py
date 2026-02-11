@@ -33,11 +33,11 @@ async def cmd_github(message: Message):
     parts = text.strip().split(maxsplit=1)
     subcommand = parts[1].lower() if len(parts) > 1 else None
 
-    is_connected = github_oauth.is_connected(telegram_user_id)
+    is_connected = await github_oauth.is_connected(telegram_user_id)
 
     if subcommand == "disconnect":
         if is_connected:
-            github_oauth.disconnect(telegram_user_id)
+            await github_oauth.disconnect(telegram_user_id)
             await message.answer("GitHub отключён.")
         else:
             await message.answer("GitHub не был подключён.")
@@ -47,7 +47,7 @@ async def cmd_github(message: Message):
         if not is_connected:
             await message.answer("GitHub не подключён. /github")
             return
-        target_repo = github_oauth.get_target_repo(telegram_user_id)
+        target_repo = await github_oauth.get_target_repo(telegram_user_id)
         if not target_repo:
             await message.answer("Репозиторий не выбран. /github")
             return
@@ -62,8 +62,8 @@ async def cmd_github(message: Message):
     if is_connected:
         user_info = await github_oauth.get_user(telegram_user_id)
         login = user_info.get("login", "user") if user_info else "user"
-        target_repo = github_oauth.get_target_repo(telegram_user_id)
-        notes_path = github_oauth.get_notes_path(telegram_user_id)
+        target_repo = await github_oauth.get_target_repo(telegram_user_id)
+        notes_path = await github_oauth.get_notes_path(telegram_user_id)
 
         status_lines = [
             f"*GitHub подключён*\n",
@@ -133,7 +133,7 @@ async def callback_github_select_repo(callback: CallbackQuery):
 
     telegram_user_id = callback.from_user.id
 
-    if not github_oauth.is_connected(telegram_user_id):
+    if not await github_oauth.is_connected(telegram_user_id):
         await callback.answer("GitHub не подключён", show_alert=True)
         return
 
@@ -176,9 +176,9 @@ async def callback_github_repo_selected(callback: CallbackQuery):
     telegram_user_id = callback.from_user.id
     repo_full_name = callback.data.split(":", 1)[1]
 
-    github_oauth.set_target_repo(telegram_user_id, repo_full_name)
+    await github_oauth.set_target_repo(telegram_user_id, repo_full_name)
 
-    notes_path = github_oauth.get_notes_path(telegram_user_id)
+    notes_path = await github_oauth.get_notes_path(telegram_user_id)
 
     await callback.answer("Репозиторий выбран!", show_alert=True)
 
@@ -200,11 +200,11 @@ async def callback_github_disconnect(callback: CallbackQuery):
 
     telegram_user_id = callback.from_user.id
 
-    if not github_oauth.is_connected(telegram_user_id):
+    if not await github_oauth.is_connected(telegram_user_id):
         await callback.answer("GitHub уже отключён", show_alert=True)
         return
 
-    github_oauth.disconnect(telegram_user_id)
+    await github_oauth.disconnect(telegram_user_id)
     await callback.answer("GitHub отключён", show_alert=True)
 
     await callback.message.edit_text(
@@ -223,11 +223,11 @@ async def handle_fleeting_note(message: Message):
     telegram_user_id = message.chat.id
 
     # Проверяем подключение
-    if not github_oauth.is_connected(telegram_user_id):
+    if not await github_oauth.is_connected(telegram_user_id):
         return  # Тихо пропускаем — пользователь может не знать о фиче
 
     # Проверяем, что выбран репо
-    target_repo = github_oauth.get_target_repo(telegram_user_id)
+    target_repo = await github_oauth.get_target_repo(telegram_user_id)
     if not target_repo:
         return  # Тихо пропускаем
 

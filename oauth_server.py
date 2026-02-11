@@ -414,9 +414,19 @@ async def github_callback_handler(request: web.Request) -> web.Response:
             status=500,
         )
 
-    # Получаем имя пользователя GitHub
+    # Получаем имя пользователя GitHub и сохраняем в БД
     user_info = await github_oauth.get_user(telegram_user_id)
     github_login = user_info.get("login", "user") if user_info else "user"
+
+    if user_info and github_login != "user":
+        from db.queries.github import save_github_connection
+        access_token = await github_oauth.get_access_token(telegram_user_id)
+        if access_token:
+            await save_github_connection(
+                chat_id=telegram_user_id,
+                access_token=access_token,
+                github_username=github_login,
+            )
 
     logger.info(
         f"User {telegram_user_id} connected to GitHub as {github_login}"

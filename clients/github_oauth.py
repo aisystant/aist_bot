@@ -4,6 +4,9 @@ GitHub OAuth клиент — интеграция для записи в реп
 Использует OAuth App (Authorization Code Flow), аналогично Linear.
 Scope 'repo' даёт доступ ко всем репо пользователя.
 
+Токены хранятся в PostgreSQL (таблица github_connections).
+In-memory кеш ускоряет повторные обращения.
+
 Использование:
     from clients.github_oauth import github_oauth
 
@@ -47,7 +50,7 @@ class GitHubOAuthClient:
     Реализует Authorization Code Flow:
     1. Генерация URL авторизации
     2. Обмен code на access_token
-    3. Хранение токенов в памяти
+    3. Хранение токенов в PostgreSQL + in-memory кеш
     4. Вызовы GitHub API (REST)
     """
 
@@ -59,8 +62,31 @@ class GitHubOAuthClient:
         # state -> telegram_user_id (TTL 10 мин)
         self._pending_states: Dict[str, Dict[str, Any]] = {}
 
-        # telegram_user_id -> tokens + settings
-        self._tokens: Dict[int, Dict[str, Any]] = {}
+        # telegram_user_id -> cached data (in-memory кеш)
+        self._cache: Dict[int, Dict[str, Any]] = {}
+
+    async def _load_from_db(self, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+        """Загружает подключение из БД в кеш."""
+        from db.queries.github import get_github_connection
+
+        row = await get_github_connection(telegram_user_id)
+        if row:
+            self._cache[telegram_user_id] = {
+                "access_token": row["access_token"],
+                "token_type": row.get("token_type", "bearer"),
+                "scope": row.get("scope"),
+                "github_username": row.get("github_username"),
+                "target_repo": row.get("target_repo"),
+                "notes_path": row.get("notes_path") or "inbox/fleeting-notes.md",
+            }
+            return self._cache[telegram_user_id]
+        return None
+
+    async def _get_cached(self, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+        """Возвращает данные из кеша или загружает из БД."""
+        if telegram_user_id in self._cache:
+            return self._cache[telegram_user_id]
+        return await self._load_from_db(telegram_user_id)
 
     def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
         """Генерирует URL для OAuth авторизации."""
@@ -114,7 +140,7 @@ class GitHubOAuthClient:
         return data["telegram_user_id"]
 
     async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access token."""
+        """Обменивает authorization code на access token и сохраняет в БД."""
         telegram_user_id = self.validate_state(state)
         if not telegram_user_id:
             return None
@@ -142,17 +168,33 @@ class GitHubOAuthClient:
                             logger.error(f"GitHub token error: {tokens['error']}")
                             return None
 
-                        self._tokens[telegram_user_id] = {
-                            "access_token": tokens.get("access_token"),
-                            "token_type": tokens.get("token_type", "bearer"),
-                            "scope": tokens.get("scope"),
-                            "created_at": time.time(),
+                        access_token = tokens.get("access_token")
+                        token_type = tokens.get("token_type", "bearer")
+                        scope = tokens.get("scope")
+
+                        # Кешируем
+                        self._cache[telegram_user_id] = {
+                            "access_token": access_token,
+                            "token_type": token_type,
+                            "scope": scope,
+                            "target_repo": None,
+                            "notes_path": "inbox/fleeting-notes.md",
                         }
+
+                        # Сохраняем в БД
+                        from db.queries.github import save_github_connection
+
+                        await save_github_connection(
+                            chat_id=telegram_user_id,
+                            access_token=access_token,
+                            token_type=token_type,
+                            scope=scope,
+                        )
 
                         logger.info(
                             f"Successfully exchanged GitHub code for user {telegram_user_id}"
                         )
-                        return self._tokens[telegram_user_id]
+                        return self._cache[telegram_user_id]
                     else:
                         error = await resp.text()
                         logger.error(
@@ -164,16 +206,17 @@ class GitHubOAuthClient:
             logger.error(f"GitHub token exchange exception: {e}")
             return None
 
-    def get_access_token(self, telegram_user_id: int) -> Optional[str]:
+    async def get_access_token(self, telegram_user_id: int) -> Optional[str]:
         """Возвращает access_token для пользователя."""
-        tokens = self._tokens.get(telegram_user_id)
-        if tokens:
-            return tokens.get("access_token")
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            return data.get("access_token")
         return None
 
-    def is_connected(self, telegram_user_id: int) -> bool:
+    async def is_connected(self, telegram_user_id: int) -> bool:
         """Проверяет, подключён ли пользователь к GitHub."""
-        return telegram_user_id in self._tokens
+        data = await self._get_cached(telegram_user_id)
+        return data is not None
 
     async def api_request(
         self,
@@ -183,7 +226,7 @@ class GitHubOAuthClient:
         json_data: Optional[Dict] = None,
     ) -> Optional[Dict[str, Any]]:
         """Выполняет запрос к GitHub REST API."""
-        access_token = self.get_access_token(telegram_user_id)
+        access_token = await self.get_access_token(telegram_user_id)
         if not access_token:
             logger.warning(f"No GitHub access token for user {telegram_user_id}")
             return None
@@ -225,7 +268,7 @@ class GitHubOAuthClient:
         self, telegram_user_id: int, limit: int = 30
     ) -> Optional[List[Dict[str, Any]]]:
         """Получает список репозиториев пользователя."""
-        access_token = self.get_access_token(telegram_user_id)
+        access_token = await self.get_access_token(telegram_user_id)
         if not access_token:
             return None
 
@@ -247,38 +290,52 @@ class GitHubOAuthClient:
             logger.error(f"GitHub get repos exception: {e}")
             return None
 
-    def get_target_repo(self, telegram_user_id: int) -> Optional[str]:
+    async def get_target_repo(self, telegram_user_id: int) -> Optional[str]:
         """Возвращает целевой репо для заметок (owner/repo)."""
-        tokens = self._tokens.get(telegram_user_id)
-        if tokens:
-            return tokens.get("target_repo")
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            return data.get("target_repo")
         return None
 
-    def set_target_repo(self, telegram_user_id: int, repo_full_name: str):
+    async def set_target_repo(self, telegram_user_id: int, repo_full_name: str):
         """Устанавливает целевой репо для заметок."""
-        if telegram_user_id in self._tokens:
-            self._tokens[telegram_user_id]["target_repo"] = repo_full_name
-            logger.info(
-                f"Set target repo for user {telegram_user_id}: {repo_full_name}"
-            )
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            data["target_repo"] = repo_full_name
 
-    def get_notes_path(self, telegram_user_id: int) -> str:
+        from db.queries.github import update_github_repo
+
+        await update_github_repo(telegram_user_id, repo_full_name)
+        logger.info(
+            f"Set target repo for user {telegram_user_id}: {repo_full_name}"
+        )
+
+    async def get_notes_path(self, telegram_user_id: int) -> str:
         """Возвращает путь к файлу заметок."""
-        tokens = self._tokens.get(telegram_user_id)
-        if tokens and tokens.get("notes_path"):
-            return tokens["notes_path"]
+        data = await self._get_cached(telegram_user_id)
+        if data and data.get("notes_path"):
+            return data["notes_path"]
         return "inbox/fleeting-notes.md"
 
-    def set_notes_path(self, telegram_user_id: int, path: str):
+    async def set_notes_path(self, telegram_user_id: int, path: str):
         """Устанавливает путь к файлу заметок."""
-        if telegram_user_id in self._tokens:
-            self._tokens[telegram_user_id]["notes_path"] = path
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            data["notes_path"] = path
 
-    def disconnect(self, telegram_user_id: int):
+        from db.queries.github import update_github_notes_path
+
+        await update_github_notes_path(telegram_user_id, path)
+
+    async def disconnect(self, telegram_user_id: int):
         """Отключает пользователя от GitHub."""
-        if telegram_user_id in self._tokens:
-            del self._tokens[telegram_user_id]
-            logger.info(f"Disconnected user {telegram_user_id} from GitHub")
+        if telegram_user_id in self._cache:
+            del self._cache[telegram_user_id]
+
+        from db.queries.github import delete_github_connection
+
+        await delete_github_connection(telegram_user_id)
+        logger.info(f"Disconnected user {telegram_user_id} from GitHub")
 
 
 # Singleton instance

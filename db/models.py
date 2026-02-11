@@ -303,6 +303,23 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # GITHUB ПОДКЛЮЧЕНИЯ (OAuth токены + настройки)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS github_connections (
+                chat_id BIGINT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                token_type TEXT DEFAULT 'bearer',
+                scope TEXT,
+                github_username TEXT,
+                target_repo TEXT,
+                notes_path TEXT DEFAULT 'inbox/fleeting-notes.md',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

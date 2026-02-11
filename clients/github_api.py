@@ -35,13 +35,13 @@ class GitHubNotesClient:
         Returns:
             {"repo": "owner/repo", "path": "inbox/...", "sha": "..."} или None
         """
-        repo = github_oauth.get_target_repo(telegram_user_id)
+        repo = await github_oauth.get_target_repo(telegram_user_id)
         if not repo:
             logger.warning(f"No target repo for user {telegram_user_id}")
             return None
 
-        path = github_oauth.get_notes_path(telegram_user_id)
-        access_token = github_oauth.get_access_token(telegram_user_id)
+        path = await github_oauth.get_notes_path(telegram_user_id)
+        access_token = await github_oauth.get_access_token(telegram_user_id)
         if not access_token:
             return None
 
@@ -153,12 +153,12 @@ class GitHubNotesClient:
         """Очищает файл заметок (оставляет только заголовок)."""
         import aiohttp
 
-        repo = github_oauth.get_target_repo(telegram_user_id)
+        repo = await github_oauth.get_target_repo(telegram_user_id)
         if not repo:
             return False
 
-        path = github_oauth.get_notes_path(telegram_user_id)
-        access_token = github_oauth.get_access_token(telegram_user_id)
+        path = await github_oauth.get_notes_path(telegram_user_id)
+        access_token = await github_oauth.get_access_token(telegram_user_id)
         if not access_token:
             return False
 
