@@ -610,6 +610,19 @@ error:
   generic: "Une erreur s'est produite. Réessaie ou utilise /help"
   choose_action: "Choisis une action dans le menu ou utilise les commandes"
 
+service:
+  learning: "Pratique"
+  plans: "Plans"
+  notes: "Notes"
+  progress: "Progrès"
+  assessment: "Test"
+  twin: "Jumeau numérique"
+  settings: "Paramètres"
+
+menu:
+  main_title: "Choisis un service :"
+  tools_title: "Outils :"
+
 mode:
   select_mode: "Sélectionne le mode d'apprentissage"
 
@@ -632,7 +645,7 @@ assessment:
   open_response_label: "Description"
   open_too_short: "Écris plus (minimum 10 caractères) ou /skip pour passer."
   open_skip_hint: "Tu peux passer → /skip"
-  retake_hint: "Refaire le test : /assessment"
+  retake_hint: "Refaire le test : /test"
   recommend_marathon: "🏃 Nous recommandons le Marathon de systématicité — il vous aidera à construire une pratique régulière."
   recommend_profile: "👤 Pour de meilleures recommandations, décrivez-vous plus en détail — motivation, objectifs, intérêts."
   btn_marathon: "🏃 Marathon"

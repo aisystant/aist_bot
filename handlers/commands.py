@@ -84,6 +84,7 @@ async def cmd_update(message: Message, state: FSMContext):
     await _show_update_screen(message, intern, state)
 
 
+@commands_router.message(Command("test"))
 @commands_router.message(Command("assessment"))
 async def cmd_assessment(message: Message, state: FSMContext):
     """Запуск теста оценки систематичности через Dispatcher."""

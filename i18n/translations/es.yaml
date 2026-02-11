@@ -620,6 +620,19 @@ error:
   generic: "Ocurrió un error. Inténtalo de nuevo o usa /help"
   choose_action: "Elige una acción del menú o usa los comandos"
 
+service:
+  learning: "Práctica"
+  plans: "Planes"
+  notes: "Notas"
+  progress: "Progreso"
+  assessment: "Test"
+  twin: "Gemelo Digital"
+  settings: "Ajustes"
+
+menu:
+  main_title: "Elige un servicio:"
+  tools_title: "Herramientas:"
+
 mode:
   select_mode: "Selecciona el modo de aprendizaje"
 
@@ -642,7 +655,7 @@ assessment:
   open_response_label: "Descripción"
   open_too_short: "Escribe más (mínimo 10 caracteres) o /skip para saltar."
   open_skip_hint: "Puedes saltar → /skip"
-  retake_hint: "Repetir test: /assessment"
+  retake_hint: "Repetir test: /test"
   recommend_marathon: "🏃 Te recomendamos el Maratón de sistematicidad — te ayudará a construir una práctica regular."
   recommend_profile: "👤 Para mejores recomendaciones, describe tu motivación, objetivos e intereses con más detalle."
   btn_marathon: "🏃 Maratón"

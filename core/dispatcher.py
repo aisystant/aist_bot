@@ -2,8 +2,8 @@
 Центральный диспетчер — единая точка роутинга всех входящих сообщений.
 
 Все entry points (команды, callbacks, scheduler) проходят через Dispatcher.
-Добавление нового режима = добавить строку в MODE_STATE_MAP (core/helpers.py).
-Добавление новой команды = добавить строку в COMMAND_MAP.
+Добавление нового сервиса = добавить запись в core/services_init.py.
+Добавление новой команды = добавить command в ServiceDescriptor.
 """
 
 import logging
@@ -11,13 +11,13 @@ from typing import Optional
 
 from aiogram import Bot
 
-from core.helpers import get_user_mode_state
+from core.registry import registry
 
 logger = logging.getLogger(__name__)
 
 
-# Реестр команд → целевой стейт SM
-COMMAND_MAP = {
+# Legacy COMMAND_MAP — fallback для команд, не зарегистрированных в реестре
+_LEGACY_COMMAND_MAP = {
     'feed': 'feed.topics',
     'mode': 'common.mode_select',
     'update': 'common.settings',
@@ -44,27 +44,46 @@ class Dispatcher:
         return self.sm is not None
 
     async def route_command(self, command: str, user: dict) -> bool:
-        """Роутинг команды → SM стейт из COMMAND_MAP.
+        """Роутинг команды → SM стейт.
+
+        Сначала ищет в ServiceRegistry, затем fallback на legacy map.
 
         Returns:
             True если обработано через SM, False если нет маппинга.
         """
         if not self.sm:
             return False
-        target = COMMAND_MAP.get(command)
-        if target:
-            logger.info(f"[Dispatcher] route_command: /{command} → {target}")
+
+        # 1. Ищем в реестре сервисов
+        service = registry.resolve_command(command)
+        if service:
+            target = service.get_entry_state(user)
+            logger.info(f"[Dispatcher] route_command (registry): /{command} → {target}")
             await self.sm.go_to(user, target)
             return True
+
+        # 2. Fallback на legacy map
+        target = _LEGACY_COMMAND_MAP.get(command)
+        if target:
+            logger.info(f"[Dispatcher] route_command (legacy): /{command} → {target}")
+            await self.sm.go_to(user, target)
+            return True
+
         return False
 
     async def route_learn(self, user: dict) -> None:
         """Единая точка входа для /learn — mode-aware.
 
-        Определяет режим пользователя (marathon/feed) и направляет
-        в соответствующий стейт SM.
+        Использует ServiceRegistry для определения entry_state.
         """
-        target = get_user_mode_state(user)
+        service = registry.get("learning")
+        if service:
+            target = service.get_entry_state(user)
+        else:
+            # Fallback
+            from core.helpers import get_user_mode_state
+            target = get_user_mode_state(user)
+
         logger.info(f"[Dispatcher] route_learn: mode={user.get('mode')} → {target}")
         await self.sm.go_to(user, target)
 

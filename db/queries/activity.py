@@ -104,6 +104,38 @@ async def get_activity_stats(chat_id: int) -> dict:
     }
 
 
+async def record_service_usage(user_id: int, service_id: str, action: str = "enter") -> None:
+    """Записать использование сервиса для аналитики.
+
+    Данные: user_id, service_id, action, timestamp.
+    Используется для адаптивной сортировки меню.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO service_usage (user_id, service_id, action)
+            VALUES ($1, $2, $3)
+        ''', user_id, service_id, action)
+
+
+async def get_service_usage_counts(user_id: int) -> dict[str, int]:
+    """Получить количество использований каждого сервиса.
+
+    Returns:
+        Dict: {service_id: count}
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT service_id, COUNT(*) as cnt
+            FROM service_usage
+            WHERE user_id = $1
+            GROUP BY service_id
+            ORDER BY cnt DESC
+        ''', user_id)
+    return {row['service_id']: row['cnt'] for row in rows}
+
+
 async def get_activity_calendar(chat_id: int, weeks: int = 4) -> List[dict]:
     """
     Получить календарь активности за последние N недель.

@@ -1,40 +1,35 @@
 """
-Стейт: Выбор режима работы.
+Стейт: Главное меню (генерируется из сервисного реестра).
 
-Вход: после онбординга или по команде /mode
-Выход: workshop.marathon.lesson, feed.topics и т.д.
+Вход: после онбординга или по команде /mode, /start (existing user)
+Выход: в entry_state выбранного сервиса
+
+Меню строится из ServiceRegistry:
+  menu(user) = registry.filter(access).render()
+
+Добавление нового сервиса = 1 запись в services_init.py → меню обновляется.
 """
 
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup
 
 from states.base import BaseState
+from core.registry import registry
 from i18n import t
-from db.queries import update_intern
 
 
 class ModeSelectState(BaseState):
     """
-    Стейт выбора режима работы.
+    Стейт главного меню.
 
-    Показывает доступные режимы (мастерские, консультанты) и переходит
-    в выбранный режим.
+    Генерирует inline keyboard из сервисного реестра.
+    Callback-ы обрабатываются в handlers/callbacks.py (cb_service_select).
     """
 
     name = "common.mode_select"
-    display_name = {"ru": "Выбор режима", "en": "Mode Select", "es": "Selección de modo", "fr": "Sélection du mode"}
+    display_name = {"ru": "Главное меню", "en": "Main Menu", "es": "Menú principal", "fr": "Menu principal"}
     allow_global = ["consultation", "notes"]
-
-    # Тексты кнопок по языкам: {lang: text}
-    MARATHON_LABELS = {"ru": "📚 Марафон", "en": "📚 Marathon", "es": "📚 Maratón", "fr": "📚 Marathon"}
-    FEED_LABELS = {"ru": "📖 Лента", "en": "📖 Feed", "es": "📖 Feed", "fr": "📖 Fil"}
-    SETTINGS_LABELS = {"ru": "⚙️ Настройки", "en": "⚙️ Settings", "es": "⚙️ Ajustes", "fr": "⚙️ Paramètres"}
-
-    # Все варианты кнопок (для сравнения в handle)
-    MARATHON_BUTTONS = list(MARATHON_LABELS.values())
-    FEED_BUTTONS = list(FEED_LABELS.values())
-    SETTINGS_BUTTONS = list(SETTINGS_LABELS.values())
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -42,64 +37,48 @@ class ModeSelectState(BaseState):
             return user.get('language', 'ru')
         return getattr(user, 'language', 'ru') or 'ru'
 
-    def _get_chat_id(self, user) -> int:
-        """Получить chat_id пользователя."""
+    def _user_dict(self, user) -> dict:
+        """Привести user к dict для реестра."""
         if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
+            return user
+        return {
+            'chat_id': getattr(user, 'chat_id', None),
+            'language': getattr(user, 'language', 'ru'),
+            'mode': getattr(user, 'mode', 'marathon'),
+        }
 
     async def enter(self, user, context: dict = None) -> None:
         """
-        Показываем меню выбора режима.
+        Показываем главное меню из сервисного реестра.
 
-        Если context содержит day_completed=True, значит пользователь
-        только что завершил день — не показываем меню, просто ждём.
+        Если context содержит day_completed=True — не показываем меню.
         """
         context = context or {}
         lang = self._get_lang(user)
 
-        # После завершения дня не показываем меню режимов
+        # После завершения дня не показываем меню
         if context.get('day_completed'):
-            # Пользователь завершил день, меню не нужно
-            # Он может использовать /learn или /mode когда захочет
             return
 
-        # Формируем список доступных режимов
-        buttons = [
-            [self.MARATHON_LABELS.get(lang, self.MARATHON_LABELS["en"])],
-            [self.FEED_LABELS.get(lang, self.FEED_LABELS["en"])],
-            [self.SETTINGS_LABELS.get(lang, self.SETTINGS_LABELS["en"])],
-        ]
+        user_dict = self._user_dict(user)
 
-        await self.send_with_keyboard(
-            user,
-            t('mode.select_mode', lang),
-            buttons,
-            one_time=False
+        # Генерируем меню из реестра: main (2 колонки) + tools + settings
+        main_kb = await registry.build_menu(user_dict, category="main", columns=2)
+        tools_kb = await registry.build_menu(user_dict, category="tools", columns=2)
+        settings_kb = await registry.build_menu(user_dict, category="settings", columns=1)
+
+        # Объединяем все кнопки в одну клавиатуру
+        all_buttons = (
+            main_kb.inline_keyboard
+            + tools_kb.inline_keyboard
+            + settings_kb.inline_keyboard
         )
 
+        keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
+
+        await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
+
     async def handle(self, user, message: Message) -> Optional[str]:
-        """Обрабатываем выбор режима."""
-        text = (message.text or "").strip()
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-
-        # Марафон
-        if text in self.MARATHON_BUTTONS or "марафон" in text.lower() or "marathon" in text.lower():
-            if chat_id:
-                await update_intern(chat_id, mode='marathon')
-            return "marathon"
-
-        # Лента
-        if text in self.FEED_BUTTONS or "лента" in text.lower() or "feed" in text.lower():
-            if chat_id:
-                await update_intern(chat_id, mode='feed')
-            return "feed"
-
-        # Настройки
-        if text in self.SETTINGS_BUTTONS or "настройки" in text.lower() or "settings" in text.lower():
-            return "settings"
-
-        # Неизвестный выбор — показываем меню снова
-        await self.send(user, t('mode.select_mode', lang))
+        """Текстовый ввод в главном меню → показываем меню заново."""
+        await self.enter(user)
         return None  # Остаёмся в стейте

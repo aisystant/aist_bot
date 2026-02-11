@@ -142,6 +142,11 @@ async def main():
             traceback.print_exc()
             state_machine = None
 
+    # Инициализация сервисного реестра
+    from core.services_init import register_all_services
+    register_all_services()
+    logger.info("✅ ServiceRegistry инициализирован")
+
     # Центральный диспетчер — единая точка роутинга
     from core.dispatcher import Dispatcher as BotDispatcher
     bot_dispatcher = BotDispatcher(state_machine, bot)
@@ -177,8 +182,8 @@ async def main():
         BotCommand(command="mode", description="Выбор режима"),
         BotCommand(command="language", description="Сменить язык"),
         BotCommand(command="start", description="Перезапустить онбординг"),
+        BotCommand(command="test", description="Тест систематичности"),
         BotCommand(command="twin", description="Цифровой двойник"),
-        BotCommand(command="assessment", description="Тест систематичности"),
         BotCommand(command="help", description="Справка")
     ])
 
@@ -191,8 +196,8 @@ async def main():
         BotCommand(command="mode", description="Select mode"),
         BotCommand(command="language", description="Change language"),
         BotCommand(command="start", description="Restart onboarding"),
+        BotCommand(command="test", description="Systematicity test"),
         BotCommand(command="twin", description="Digital Twin"),
-        BotCommand(command="assessment", description="Systematicity test"),
         BotCommand(command="help", description="Help")
     ], language_code="en")
 
@@ -205,8 +210,8 @@ async def main():
         BotCommand(command="mode", description="Seleccionar modo"),
         BotCommand(command="language", description="Cambiar idioma"),
         BotCommand(command="start", description="Reiniciar onboarding"),
+        BotCommand(command="test", description="Test de sistematicidad"),
         BotCommand(command="twin", description="Gemelo Digital"),
-        BotCommand(command="assessment", description="Test de sistematicidad"),
         BotCommand(command="help", description="Ayuda")
     ], language_code="es")
 
@@ -219,7 +224,8 @@ async def main():
         BotCommand(command="mode", description="Sélectionner le mode"),
         BotCommand(command="language", description="Changer de langue"),
         BotCommand(command="start", description="Recommencer l'inscription"),
-        BotCommand(command="assessment", description="Test de systématicité"),
+        BotCommand(command="test", description="Test de systématicité"),
+        BotCommand(command="twin", description="Jumeau numérique"),
         BotCommand(command="help", description="Aide")
     ], language_code="fr")
 

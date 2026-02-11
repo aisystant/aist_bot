@@ -1,7 +1,9 @@
 """
-Стейт: Консультация.
+Стейт: Консультация (Слой 1 архитектуры бота).
 
-Глобальный стейт для ответа на вопросы пользователя.
+Консультант — слой поверх всего бота, не отдельный домен.
+Знает структуру бота (из ServiceRegistry) и может перенаправить в сервис (deep links).
+
 Вызывается из любого стейта, где allow_global содержит "consultation".
 После ответа возвращается в предыдущий стейт.
 
@@ -13,6 +15,7 @@ from typing import Optional
 from aiogram.types import Message
 
 from states.base import BaseState
+from core.registry import registry
 from i18n import t
 
 
@@ -68,6 +71,45 @@ class ConsultationState(BaseState):
             'complexity_level': getattr(user, 'complexity_level', 1),
         }
 
+    def _get_bot_knowledge(self, lang: str) -> str:
+        """Генерирует описание структуры бота для self-knowledge консультанта.
+
+        Используется как контекст для LLM: консультант знает, какие сервисы есть в боте.
+        """
+        services = registry.get_all()
+        if not services:
+            return ""
+
+        lines = ["Available bot services:"]
+        for service in sorted(services, key=lambda s: s.order):
+            name = t(service.i18n_key, lang)
+            cmd = service.command or ""
+            lines.append(f"- {service.icon} {name} ({service.id}){f' — command: {cmd}' if cmd else ''}")
+
+        return "\n".join(lines)
+
+    def _detect_service_intent(self, question: str) -> Optional[str]:
+        """Определяет, относится ли вопрос к конкретному сервису.
+
+        Если да — возвращает service_id для deep link.
+        """
+        q = question.lower()
+        keyword_map = {
+            "learning": ["учи", "урок", "тем", "марафон", "лент", "learn", "lesson", "marathon", "feed"],
+            "plans": ["план", "рп", "отчет", "report", "plan"],
+            "notes": ["замет", "note"],
+            "progress": ["прогресс", "статистик", "progress"],
+            "assessment": ["тест", "оценк", "assessment", "test"],
+            "settings": ["настрой", "setting", "язык", "language"],
+        }
+
+        for service_id, keywords in keyword_map.items():
+            if any(kw in q for kw in keywords):
+                if registry.get(service_id):
+                    return service_id
+
+        return None
+
     async def enter(self, user, context: dict = None) -> Optional[str]:
         """
         Обрабатываем вопрос пользователя.
@@ -98,15 +140,30 @@ class ConsultationState(BaseState):
             context_topic = self._get_current_topic(user)
             intern_dict = self._user_to_dict(user)
 
+            # Добавляем self-knowledge о структуре бота в вопрос
+            bot_knowledge = self._get_bot_knowledge(lang)
+            enriched_question = question
+            if bot_knowledge:
+                enriched_question = f"{question}\n\n[Bot context: {bot_knowledge}]"
+
             # Вызываем существующий обработчик
             answer, sources = await handle_question(
-                question=question,
+                question=enriched_question,
                 intern=intern_dict,
                 context_topic=context_topic,
             )
 
             # Форматируем ответ
             response = self._format_response(answer, sources, lang)
+
+            # Добавляем deep link если вопрос относится к сервису
+            service_id = self._detect_service_intent(question)
+            if service_id:
+                service = registry.get(service_id)
+                if service and service.command:
+                    service_name = t(service.i18n_key, lang)
+                    response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
+
             await self.send(user, response, parse_mode="Markdown")
 
         except Exception as e:

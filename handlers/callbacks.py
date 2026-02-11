@@ -18,6 +18,49 @@ logger = logging.getLogger(__name__)
 callbacks_router = Router(name="callbacks")
 
 
+# === Сервисный реестр: единая точка входа для service:* callbacks ===
+
+@callbacks_router.callback_query(F.data.startswith("service:"))
+async def cb_service_select(callback: CallbackQuery, state: FSMContext):
+    """Callback из главного меню (service registry).
+
+    Формат callback_data: "service:{service_id}"
+    Роутит в entry_state сервиса из реестра.
+    """
+    from handlers import get_dispatcher
+    from core.registry import registry
+
+    dispatcher = get_dispatcher()
+    await callback.answer()
+
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return
+
+    service = registry.resolve_callback(callback.data)
+    if not service:
+        logger.warning(f"[CB] Unknown service callback: {callback.data}")
+        return
+
+    if not (dispatcher and dispatcher.is_sm_active):
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+        return
+
+    # Определяем entry_state с учётом режима (mode-aware)
+    entry_state = service.get_entry_state(intern)
+    logger.info(f"[CB] Service select: {service.id} → {entry_state}")
+
+    # Записываем аналитику использования сервиса
+    await registry.record_usage(callback.message.chat.id, service.id)
+
+    await state.clear()
+    await callback.message.edit_reply_markup()
+    await dispatcher.go_to(intern, entry_state)
+
+
+# === Legacy callbacks (обратная совместимость) ===
+
 @callbacks_router.callback_query(F.data == "learn")
 async def cb_learn(callback: CallbackQuery, state: FSMContext):
     """Callback 'Учиться' — mode-aware через Dispatcher."""
