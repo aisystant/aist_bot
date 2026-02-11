@@ -27,5 +27,6 @@ COPY integrations/ ./integrations/
 COPY topics/ ./topics/
 COPY states/ ./states/
 COPY handlers/ ./handlers/
+COPY helpers/ ./helpers/
 
 CMD ["python", "bot.py"]
