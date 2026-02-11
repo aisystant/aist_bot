@@ -149,6 +149,60 @@ class GitHubNotesClient:
             logger.error(f"GitHub append_note exception: {e}")
             return None
 
+    async def clear_notes(self, telegram_user_id: int) -> bool:
+        """Очищает файл заметок (оставляет только заголовок)."""
+        import aiohttp
+
+        repo = github_oauth.get_target_repo(telegram_user_id)
+        if not repo:
+            return False
+
+        path = github_oauth.get_notes_path(telegram_user_id)
+        access_token = github_oauth.get_access_token(telegram_user_id)
+        if not access_token:
+            return False
+
+        url = f"https://api.github.com/repos/{repo}/contents/{path}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Получаем SHA текущего файла
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status != 200:
+                        return False
+                    file_data = await resp.json()
+                    current_sha = file_data["sha"]
+
+                # Перезаписываем пустым файлом с заголовком
+                clean_content = "# Исчезающие заметки\n"
+                async with session.put(
+                    url,
+                    headers=headers,
+                    json={
+                        "message": "clear fleeting notes",
+                        "content": base64.b64encode(
+                            clean_content.encode("utf-8")
+                        ).decode("ascii"),
+                        "sha": current_sha,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status in (200, 201):
+                        logger.info(f"Notes cleared: {repo}/{path}")
+                        return True
+                    return False
+
+        except Exception as e:
+            logger.error(f"GitHub clear_notes exception: {e}")
+            return False
+
 
 # Singleton instance
 github_notes = GitHubNotesClient()

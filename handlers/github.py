@@ -43,6 +43,22 @@ async def cmd_github(message: Message):
             await message.answer("GitHub не был подключён.")
         return
 
+    if subcommand == "clear":
+        if not is_connected:
+            await message.answer("GitHub не подключён. /github")
+            return
+        target_repo = github_oauth.get_target_repo(telegram_user_id)
+        if not target_repo:
+            await message.answer("Репозиторий не выбран. /github")
+            return
+        from clients.github_api import github_notes
+        result = await github_notes.clear_notes(telegram_user_id)
+        if result:
+            await message.answer("Заметки очищены.")
+        else:
+            await message.answer("Не удалось очистить заметки.")
+        return
+
     if is_connected:
         user_info = await github_oauth.get_user(telegram_user_id)
         login = user_info.get("login", "user") if user_info else "user"
@@ -227,13 +243,6 @@ async def handle_fleeting_note(message: Message):
         repo = result["repo"]
         path = result["path"]
         url = f"https://github.com/{repo}/blob/main/{path}"
-        try:
-            await message.answer(
-                f"Записано → [{repo}/{path}]({url})",
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            await message.answer(f"Записано → {url}")
+        await message.answer(f"Записано → {url}")
     else:
         await message.answer("Не удалось записать заметку. Проверьте /github")
