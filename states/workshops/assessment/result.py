@@ -2,15 +2,20 @@
 Стейт: Результат теста (Assessment Result).
 
 Вход: из workshop.assessment.flow (событие "done")
-Выход: common.mode_select (событие "back")
+Выход: workshop.marathon.lesson (marathon) | common.settings (settings) | common.mode_select (back)
 
-Показывает финальный результат, сохраняет в БД
-и обновляет профиль пользователя.
+Показывает финальный результат, сохраняет в БД,
+обновляет профиль и предлагает следующий шаг.
 """
 
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 
 from states.base import BaseState
 from i18n import t
@@ -31,7 +36,8 @@ class AssessmentResultState(BaseState):
     """
     Стейт показа результата теста.
 
-    Сохраняет в таблицу assessments и обновляет profil пользователя.
+    Сохраняет в таблицу assessments и обновляет профиль пользователя.
+    После результата предлагает пройти марафон или заполнить профиль.
     """
 
     name = "workshop.assessment.result"
@@ -53,6 +59,17 @@ class AssessmentResultState(BaseState):
             return user.get('chat_id')
         return getattr(user, 'chat_id', None)
 
+    def _is_profile_sparse(self, user) -> bool:
+        """Проверить, заполнен ли профиль содержательно."""
+        if isinstance(user, dict):
+            get = user.get
+        else:
+            get = lambda k, d='': getattr(user, k, d)
+        motivation = get('motivation', '') or ''
+        goals = get('goals', '') or ''
+        occupation = get('occupation', '') or ''
+        return len(motivation) < 20 or len(goals) < 20 or len(occupation) < 3
+
     async def enter(self, user, context: dict = None) -> Optional[str]:
         """Показываем итоговый результат и сохраняем."""
         context = context or {}
@@ -73,8 +90,6 @@ class AssessmentResultState(BaseState):
         scores = calculate_scores(assessment, answers)
         dominant = get_dominant_group(assessment, scores)
         dominant_id = dominant.get('id', '')
-        dominant_emoji = dominant.get('emoji', '')
-        dominant_title = dominant.get('title', {}).get(lang, dominant.get('title', {}).get('ru', ''))
 
         # Самооценка — найти label
         self_check_label = self_check or ''
@@ -98,7 +113,6 @@ class AssessmentResultState(BaseState):
                 open_response=open_response,
             )
 
-            # Обновляем профиль
             from db.queries.users import moscow_today
             await update_intern(
                 chat_id,
@@ -116,11 +130,10 @@ class AssessmentResultState(BaseState):
         # Форматируем результат
         result = format_result(assessment, scores, lang)
 
-        # Дата
         from db.queries.users import moscow_today
         date_str = moscow_today().strftime("%d.%m.%Y")
 
-        # Собираем финальное сообщение
+        # Собираем финальное сообщение с результатом
         lines = [
             f"✅ *{t('assessment.completed', lang)}*\n",
             result,
@@ -130,27 +143,66 @@ class AssessmentResultState(BaseState):
             lines.append(f"\n🪞 {t('assessment.self_check_label', lang)}: {self_check_label}")
 
         if open_response:
-            # Показываем начало текста
             preview = open_response[:100]
             if len(open_response) > 100:
                 preview += "..."
             lines.append(f"\n✍️ {t('assessment.open_response_label', lang)}: _{preview}_")
 
         lines.append(f"\n📅 {date_str}")
-        lines.append(f"\n_{t('assessment.retake_hint', lang)}_")
 
         try:
             await self.send(user, "\n".join(lines), parse_mode="Markdown")
         except Exception:
-            # Fallback без Markdown если символы ломают форматирование
             await self.send(user, "\n".join(lines).replace("*", "").replace("_", ""))
 
         # Очистка данных flow-стейта
         from states.workshops.assessment.flow import AssessmentFlowState
         AssessmentFlowState._user_data.pop(chat_id, None)
 
-        return "back"
+        # Рекомендация: марафон + профиль
+        rec_lines = [t('assessment.recommend_marathon', lang)]
+        if self._is_profile_sparse(user):
+            rec_lines.append(t('assessment.recommend_profile', lang))
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=t('assessment.btn_marathon', lang),
+                    callback_data="assess_result_marathon",
+                ),
+                InlineKeyboardButton(
+                    text=t('assessment.btn_profile', lang),
+                    callback_data="assess_result_settings",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t('assessment.btn_menu', lang),
+                    callback_data="assess_result_menu",
+                ),
+            ],
+        ])
+
+        await self.send(user, "\n".join(rec_lines), reply_markup=keyboard)
+
+        return None  # Остаёмся в стейте — ждём нажатия кнопки
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        """Result — транзитный стейт, не обрабатывает сообщения."""
-        return "back"
+        """Текстовое сообщение — подсказываем про кнопки."""
+        lang = self._get_lang(user)
+        await self.send(user, t('assessment.use_buttons', lang))
+        return None
+
+    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Обработка нажатий кнопок после результата."""
+        await callback.answer()
+        data = callback.data
+
+        if data == "assess_result_marathon":
+            return "marathon"
+        elif data == "assess_result_settings":
+            return "settings"
+        elif data == "assess_result_menu":
+            return "back"
+
+        return None

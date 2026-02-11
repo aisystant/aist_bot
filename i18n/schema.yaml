@@ -2551,3 +2551,34 @@ assessment:
   retake_hint:
     ru: "Повторить тест: /assessment"
     en: "Retake test: /assessment"
+
+  recommend_marathon:
+    ru: "🏃 Рекомендуем пройти Марафон систематичности — он поможет выстроить регулярную практику."
+    en: "🏃 We recommend the Systematicity Marathon — it will help you build a regular practice."
+
+  recommend_profile:
+    ru: "👤 Для более точных рекомендаций подробнее опишите себя — мотивацию, цели, интересы."
+    en: "👤 For better recommendations, describe yourself in more detail — motivation, goals, interests."
+
+  btn_marathon:
+    ru: "🏃 Марафон"
+    en: "🏃 Marathon"
+    max_length: 15
+
+  btn_profile:
+    ru: "👤 Профиль"
+    en: "👤 Profile"
+    max_length: 15
+
+  btn_menu:
+    ru: "↩️ Меню"
+    en: "↩️ Menu"
+    max_length: 12
+
+  profile_label:
+    ru: "Оценка"
+    en: "Assessment"
+
+  profile_not_tested:
+    ru: "не пройдена"
+    en: "not taken"

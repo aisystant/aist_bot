@@ -111,6 +111,28 @@ async def cmd_profile(message: Message):
     start_date = intern.get('marathon_start_date')
     marathon_start_str = start_date.strftime('%d.%m.%Y') if start_date else t('profile.date_not_set', lang)
 
+    # Оценка систематичности
+    assessment_state = intern.get('assessment_state')
+    assessment_date = intern.get('assessment_date')
+    if assessment_state and assessment_date:
+        from core.assessment import load_assessment
+        assess_data = load_assessment('systematicity')
+        group = None
+        if assess_data:
+            group = next(
+                (g for g in assess_data.get('groups', []) if g['id'] == assessment_state),
+                None,
+            )
+        if group:
+            a_emoji = group.get('emoji', '')
+            a_title = group.get('title', {}).get(lang, group.get('title', {}).get('ru', assessment_state))
+            a_date = assessment_date.strftime('%d.%m.%Y') if hasattr(assessment_date, 'strftime') else str(assessment_date)
+            assessment_line = f"📋 {t('assessment.profile_label', lang)}: {a_emoji} {a_title} ({a_date})"
+        else:
+            assessment_line = f"📋 {t('assessment.profile_label', lang)}: {assessment_state}"
+    else:
+        assessment_line = f"📋 {t('assessment.profile_label', lang)}: {t('assessment.profile_not_tested', lang)}"
+
     await message.answer(
         f"👤 *{intern['name']}*\n"
         f"💼 {intern.get('occupation', '')}\n"
@@ -121,7 +143,8 @@ async def cmd_profile(message: Message):
         f"{STUDY_DURATIONS.get(str(study_duration), {}).get('name', '')} {t('profile.per_topic', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
         f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)})\n"
-        f"⏰ {intern.get('schedule_time', '09:00')}\n\n"
+        f"⏰ {intern.get('schedule_time', '09:00')}\n"
+        f"{assessment_line}\n\n"
         f"{t('commands.update', lang)}",
         parse_mode="Markdown"
     )

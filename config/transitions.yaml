@@ -134,9 +134,11 @@ states:
     allow_global: [consultation, notes]
 
   workshop.assessment.result:
-    description: "Результат теста + сохранение"
+    description: "Результат теста + рекомендация следующего шага"
     events:
-      back: common.mode_select          # Возврат в меню
+      marathon: workshop.marathon.lesson  # Начать марафон
+      settings: common.settings           # Настройки профиля
+      back: common.mode_select            # Возврат в меню
     allow_global: [consultation, notes]
 
   # ==========================================

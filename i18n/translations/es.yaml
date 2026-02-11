@@ -643,6 +643,13 @@ assessment:
   open_too_short: "Escribe más (mínimo 10 caracteres) o /skip para saltar."
   open_skip_hint: "Puedes saltar → /skip"
   retake_hint: "Repetir test: /assessment"
+  recommend_marathon: "🏃 Te recomendamos el Maratón de sistematicidad — te ayudará a construir una práctica regular."
+  recommend_profile: "👤 Para mejores recomendaciones, describe tu motivación, objetivos e intereses con más detalle."
+  btn_marathon: "🏃 Maratón"
+  btn_profile: "👤 Perfil"
+  btn_menu: "↩️ Menú"
+  profile_label: "Evaluación"
+  profile_not_tested: "no realizada"
 
 my_state:
   welcome: "¡Bienvenido!"
