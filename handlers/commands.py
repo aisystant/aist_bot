@@ -20,6 +20,27 @@ logger = logging.getLogger(__name__)
 commands_router = Router(name="commands")
 
 
+@commands_router.message(Command("mode"))
+async def cmd_mode(message: Message, state: FSMContext):
+    """Главное меню через Dispatcher → common.mode_select."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(message.chat.id)
+    if not intern or not intern.get('onboarding_completed'):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('profile.first_start', lang))
+        return
+
+    if dispatcher and dispatcher.is_sm_active:
+        await state.clear()
+        await dispatcher.route_command('mode', intern)
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    await message.answer(t('errors.processing_error', lang))
+
+
 @commands_router.message(Command("learn"))
 async def cmd_learn(message: Message, state: FSMContext):
     """Начать обучение — mode-aware через Dispatcher."""

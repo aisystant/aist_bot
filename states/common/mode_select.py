@@ -12,10 +12,11 @@
 
 from typing import Optional
 
-from aiogram.types import Message, InlineKeyboardMarkup
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 
 from states.base import BaseState
 from core.registry import registry
+from core import callback_protocol
 from i18n import t
 
 
@@ -62,21 +63,58 @@ class ModeSelectState(BaseState):
 
         user_dict = self._user_dict(user)
 
-        # Генерируем меню из реестра: main (2 колонки) + tools + settings
-        main_kb = await registry.build_menu(user_dict, category="main", columns=2)
-        tools_kb = await registry.build_menu(user_dict, category="tools", columns=2)
-        settings_kb = await registry.build_menu(user_dict, category="settings", columns=1)
+        # Генерируем меню из реестра по категориям
+        main_services = await registry.for_user(user_dict, category="main")
+        tools_services = await registry.for_user(user_dict, category="tools")
+        settings_services = await registry.for_user(user_dict, category="settings")
 
-        # Объединяем все кнопки в одну клавиатуру
-        all_buttons = (
-            main_kb.inline_keyboard
-            + tools_kb.inline_keyboard
-            + settings_kb.inline_keyboard
-        )
+        all_buttons = []
+
+        # Основные сервисы (2 колонки)
+        row = []
+        for s in main_services:
+            btn = InlineKeyboardButton(
+                text=f"{s.icon} {t(s.i18n_key, lang)}",
+                callback_data=callback_protocol.encode("service", s.id),
+            )
+            row.append(btn)
+            if len(row) >= 2:
+                all_buttons.append(row)
+                row = []
+        if row:
+            all_buttons.append(row)
+
+        # Разделитель + инструменты (2 колонки)
+        if tools_services:
+            all_buttons.append([InlineKeyboardButton(
+                text=f"── {t('menu.tools_title', lang)} ──",
+                callback_data="noop",
+            )])
+            row = []
+            for s in tools_services:
+                btn = InlineKeyboardButton(
+                    text=f"{s.icon} {t(s.i18n_key, lang)}",
+                    callback_data=callback_protocol.encode("service", s.id),
+                )
+                row.append(btn)
+                if len(row) >= 2:
+                    all_buttons.append(row)
+                    row = []
+            if row:
+                all_buttons.append(row)
+
+        # Настройки (1 колонка)
+        for s in settings_services:
+            all_buttons.append([InlineKeyboardButton(
+                text=f"{s.icon} {t(s.i18n_key, lang)}",
+                callback_data=callback_protocol.encode("service", s.id),
+            )])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 
-        await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
+        # Убираем старую ReplyKeyboard + показываем меню
+        await self.send(user, t('menu.main_title', lang), reply_markup=ReplyKeyboardRemove())
+        await self.send(user, "⬇", reply_markup=keyboard)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""

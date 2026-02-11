@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 callbacks_router = Router(name="callbacks")
 
 
+# === Noop (разделители меню) ===
+
+@callbacks_router.callback_query(F.data == "noop")
+async def cb_noop(callback: CallbackQuery):
+    """Разделитель в меню — без действия."""
+    await callback.answer()
+
+
 # === Сервисный реестр: единая точка входа для service:* callbacks ===
 
 @callbacks_router.callback_query(F.data.startswith("service:"))

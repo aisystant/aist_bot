@@ -29,10 +29,13 @@ def setup_routers(dp: Dispatcher):
     Args:
         dp: Dispatcher aiogram
     """
-    # Роутер выбора режима
-    from .mode_selector import mode_router
-    dp.include_router(mode_router)
-    logger.info("✓ Подключен mode_router (/mode)")
+    # Роутер выбора режима (только если State Machine выключен)
+    if not USE_STATE_MACHINE:
+        from .mode_selector import mode_router
+        dp.include_router(mode_router)
+        logger.info("✓ Подключен mode_router (/mode) [legacy]")
+    else:
+        logger.info("⏭ mode_router пропущен (USE_STATE_MACHINE=true)")
 
     # Роутер режима Лента (только если State Machine выключен)
     if not USE_STATE_MACHINE:
