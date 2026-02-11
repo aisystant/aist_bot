@@ -248,10 +248,9 @@ async def handle_fleeting_note(message: Message):
         if not note_text:
             return
 
-    # Сценарий 3: просто "." — ожидать пересылку
+    # Сценарий 3: просто "." — ожидать пересылку (тихо, без сообщения)
     if not note_text:
         _pending_forwards[telegram_user_id] = time.time()
-        await message.answer("Перешлите сообщение — запишу в заметки.")
         return
 
     # Сценарий 1 и 2: записываем
