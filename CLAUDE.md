@@ -203,6 +203,10 @@ aist_bot/
 
 При отправке LLM-генерированного текста с `parse_mode="Markdown"` — **всегда** оборачивай в `try/except` с fallback без форматирования. Claude может генерировать незакрытые сущности (`*`, `_`, `[`), которые ломают Telegram API (`TelegramBadRequest: can't parse entities`).
 
-### 10.3. Inline keyboard при смене стейта
+### 10.3. State не должен модифицировать DB-указатель чужого типа контента
+
+Lesson state (theory) **не должен** менять `current_topic_index` в БД, перешагивая practice-темы. Если current topic — practice, lesson маршрутизирует на task state через `return "already_completed"`. Иначе work products сохраняются под неправильным topic_index и пропадают из прогресса.
+
+### 10.4. Inline keyboard при смене стейта
 
 При переходе между стейтами с разными типами клавиатур (inline → reply) **обязательно** удалять/редактировать сообщение со старой inline-клавиатурой. Иначе пользователь кликает по устаревшим кнопкам → `Unhandled callback`.
