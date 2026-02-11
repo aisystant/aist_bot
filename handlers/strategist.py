@@ -10,6 +10,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_logger
+from utils.telegram_format import format_strategy_content
 
 logger = get_logger(__name__)
 
@@ -23,6 +24,15 @@ def _truncate(text: str, max_len: int = MAX_MESSAGE_LEN) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len] + "\n\n... (обрезано)"
+
+
+def _format(content: str, repo_url: str = None) -> str:
+    """Форматирует контент стратега для Telegram."""
+    text = format_strategy_content(content)
+    text = _truncate(text)
+    if repo_url:
+        text += f'\n\n<a href="{repo_url}/tree/main/current">Открыть в GitHub</a>'
+    return text
 
 
 async def _check_strategy_ready_msg(message: Message) -> tuple[bool, int]:
@@ -84,11 +94,11 @@ async def cmd_rp(message: Message):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    text = _truncate(content)
-    if repo_url:
-        text += f"\n\n[Открыть в GitHub]({repo_url}/tree/main/current)"
-
-    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    await message.answer(
+        _format(content, repo_url),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 @strategist_router.message(F.text == "/plan")
@@ -106,11 +116,11 @@ async def cmd_plan(message: Message):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    text = _truncate(content)
-    if repo_url:
-        text += f"\n\n[Открыть в GitHub]({repo_url}/tree/main/current)"
-
-    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    await message.answer(
+        _format(content, repo_url),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 @strategist_router.message(F.text == "/report")
@@ -128,11 +138,11 @@ async def cmd_report(message: Message):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    text = _truncate(content)
-    if repo_url:
-        text += f"\n\n[Открыть в GitHub]({repo_url}/tree/main/current)"
-
-    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    await message.answer(
+        _format(content, repo_url),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 # --- Callback-кнопки из уведомлений стратега ---
@@ -153,9 +163,10 @@ async def callback_strat_plan(callback: CallbackQuery):
         await callback.message.answer("DayPlan на сегодня не найден.")
         return
 
+    repo_url = await github_strategy.get_strategy_repo_url(user_id)
     await callback.message.answer(
-        _truncate(content),
-        parse_mode="Markdown",
+        _format(content, repo_url),
+        parse_mode="HTML",
         disable_web_page_preview=True,
     )
 
@@ -176,9 +187,10 @@ async def callback_strat_rp(callback: CallbackQuery):
         await callback.message.answer("WeekPlan не найден.")
         return
 
+    repo_url = await github_strategy.get_strategy_repo_url(user_id)
     await callback.message.answer(
-        _truncate(content),
-        parse_mode="Markdown",
+        _format(content, repo_url),
+        parse_mode="HTML",
         disable_web_page_preview=True,
     )
 
@@ -199,9 +211,10 @@ async def callback_strat_report(callback: CallbackQuery):
         await callback.message.answer("WeekReport не найден.")
         return
 
+    repo_url = await github_strategy.get_strategy_repo_url(user_id)
     await callback.message.answer(
-        _truncate(content),
-        parse_mode="Markdown",
+        _format(content, repo_url),
+        parse_mode="HTML",
         disable_web_page_preview=True,
     )
 
@@ -212,9 +225,9 @@ async def callback_strat_day_close(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(
         "Закрытие дня запускается локально:\n\n"
-        "`~/Github/DS-strategist-agent/scripts/strategist.sh day-close`\n\n"
+        "<code>~/Github/DS-strategist-agent/scripts/strategist.sh day-close</code>\n\n"
         "После завершения вы получите уведомление.",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -269,11 +282,11 @@ async def callback_strategy_repo_selected(callback: CallbackQuery):
     await callback.answer("Репозиторий стратега выбран!", show_alert=True)
 
     await callback.message.edit_text(
-        f"*Репозиторий стратега настроен!*\n\n"
-        f"Репо: `{repo_full_name}`\n\n"
+        f"<b>Репозиторий стратега настроен!</b>\n\n"
+        f"Репо: <code>{repo_full_name}</code>\n\n"
         f"Доступные команды:\n"
         f"/rp — WeekPlan (план недели)\n"
         f"/plan — DayPlan (план дня)\n"
         f"/report — WeekReport (отчёт недели)",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )

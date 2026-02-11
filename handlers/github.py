@@ -8,6 +8,7 @@
 """
 
 import logging
+import time
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -21,6 +22,9 @@ from aiogram.filters import Command
 logger = logging.getLogger(__name__)
 
 github_router = Router(name="github")
+
+# Ожидание пересылки после ".": user_id -> timestamp (TTL 60 сек)
+_pending_forwards: dict[int, float] = {}
 
 
 @github_router.message(Command("github"))
@@ -216,7 +220,13 @@ async def callback_github_disconnect(callback: CallbackQuery):
 
 @github_router.message(F.text.startswith("."))
 async def handle_fleeting_note(message: Message):
-    """Обработка исчезающих заметок (сообщения с '.' в начале)."""
+    """Обработка исчезающих заметок.
+
+    Сценарии:
+    1. ".текст" — записать текст как заметку
+    2. "." (reply на сообщение) — записать текст из replied сообщения
+    3. "." (без reply) — ожидать пересылку (следующее сообщение)
+    """
     from clients.github_oauth import github_oauth
     from clients.github_api import github_notes
 
@@ -224,19 +234,27 @@ async def handle_fleeting_note(message: Message):
 
     # Проверяем подключение
     if not await github_oauth.is_connected(telegram_user_id):
-        return  # Тихо пропускаем — пользователь может не знать о фиче
-
-    # Проверяем, что выбран репо
+        return
     target_repo = await github_oauth.get_target_repo(telegram_user_id)
     if not target_repo:
-        return  # Тихо пропускаем
+        return
 
-    # Извлекаем текст заметки (без точки)
-    note_text = message.text[1:].strip()
+    note_text = (message.text or "")[1:].strip()
+
+    # Сценарий 2: "." как reply на сообщение
+    if not note_text and message.reply_to_message:
+        replied = message.reply_to_message
+        note_text = _extract_message_text(replied)
+        if not note_text:
+            return
+
+    # Сценарий 3: просто "." — ожидать пересылку
     if not note_text:
-        return  # Пустая заметка
+        _pending_forwards[telegram_user_id] = time.time()
+        await message.answer("Перешлите сообщение — запишу в заметки.")
+        return
 
-    # Записываем
+    # Сценарий 1 и 2: записываем
     result = await github_notes.append_note(telegram_user_id, note_text)
 
     if result:
@@ -246,3 +264,64 @@ async def handle_fleeting_note(message: Message):
         await message.answer(f"Записано → {url}")
     else:
         await message.answer("Не удалось записать заметку. Проверьте /github")
+
+
+@github_router.message(F.forward_date)
+async def handle_forwarded_message(message: Message):
+    """Обработка пересланных сообщений → заметки.
+
+    Срабатывает если перед этим было отправлено "." (в течение 60 сек).
+    """
+    from clients.github_oauth import github_oauth
+    from clients.github_api import github_notes
+
+    telegram_user_id = message.chat.id
+
+    # Проверяем, что было "." недавно
+    pending_time = _pending_forwards.get(telegram_user_id)
+    if not pending_time or (time.time() - pending_time) > 60:
+        return  # Не ожидаем пересылку — пропускаем
+
+    # Очищаем флаг
+    del _pending_forwards[telegram_user_id]
+
+    # Проверяем подключение
+    if not await github_oauth.is_connected(telegram_user_id):
+        return
+    target_repo = await github_oauth.get_target_repo(telegram_user_id)
+    if not target_repo:
+        return
+
+    note_text = _extract_message_text(message)
+    if not note_text:
+        await message.answer("Нет текста для записи.")
+        return
+
+    result = await github_notes.append_note(telegram_user_id, note_text)
+
+    if result:
+        repo = result["repo"]
+        path = result["path"]
+        url = f"https://github.com/{repo}/blob/main/{path}"
+        await message.answer(f"Записано → {url}")
+    else:
+        await message.answer("Не удалось записать заметку. Проверьте /github")
+
+
+def _extract_message_text(message: Message) -> str:
+    """Извлекает текст из сообщения (обычного или пересланного)."""
+    parts = []
+
+    # Источник пересылки
+    if message.forward_from:
+        parts.append(f"[от {message.forward_from.full_name}]")
+    elif message.forward_sender_name:
+        parts.append(f"[от {message.forward_sender_name}]")
+
+    # Текст
+    if message.text:
+        parts.append(message.text)
+    elif message.caption:
+        parts.append(message.caption)
+
+    return " ".join(parts).strip()
