@@ -44,20 +44,26 @@ class GitHubNotesClient:
         Returns:
             (title, body) — body пустой, если текст короткий.
         """
+        # Убираем начальную пунктуацию (. ! ? и пробелы)
+        clean = text.lstrip('.!? ')
+        if not clean:
+            return text.strip() or "заметка", ""
+        offset = len(text) - len(clean)
+
         # Первое предложение (до . ! ? с пробелом или концом строки)
-        match = re.search(r'[.!?](?:\s|$)', text)
+        match = re.search(r'[.!?](?:\s|$)', clean)
         if match:
-            title = text[:match.start() + 1].strip()
+            title = clean[:match.start() + 1].strip()
             if len(title.split()) <= max_words:
-                body = text[match.end():].strip()
+                body = clean[match.end():].strip()
                 return title, body
 
         # Fallback: первые 5 слов
-        words = text.split()
+        words = clean.split()
         if len(words) <= 5:
-            return text.strip(), ""
+            return clean.strip(), ""
         title = " ".join(words[:5]) + "…"
-        return title, text.strip()
+        return title, clean.strip()
 
     @staticmethod
     def _format_note_lines(text: str, now: datetime) -> list[str]:
