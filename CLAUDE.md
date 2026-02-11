@@ -67,10 +67,7 @@ aist_bot/
 │   ├── progress.py           # /progress + full report
 │   ├── linear.py             # /linear интеграция
 │   ├── twin.py               # /twin цифровой двойник
-│   ├── fallback.py           # Catch-all: SM routing или legacy
-│   └── legacy/
-│       ├── learning.py       # LearningStates + send_topic (USE_STATE_MACHINE=false)
-│       └── fallback_handler.py # Legacy обработка вне FSM
+│   └── fallback.py           # Catch-all: SM routing
 ├── states/                   # State Machine стейты
 │   ├── common/               # start, mode_select, settings
 │   ├── workshops/marathon/   # lesson, question, bonus, task
@@ -98,7 +95,7 @@ aist_bot/
 | Доменные функции (get_marathon_day, TOPICS, save_answer) | `core.topics` | ~~bot~~ |
 | Константы (BLOOM_AUTO_UPGRADE_AFTER, STUDY_DURATIONS) | `config` | ~~bot~~ |
 | Клавиатуры (kb_update_profile) | `integrations.telegram.keyboards` | ~~bot~~ |
-| FSM стейты (UpdateStates, LearningStates) | `handlers.settings`, `handlers.legacy.learning` | ~~bot~~ |
+| FSM стейты (UpdateStates) | `handlers.settings` | ~~bot~~ |
 | `claude`, `state_machine` | `bot` | Единственные легитимные импорты из bot.py |
 
 **Lazy imports (`_bot_imports()`)** — используются в handlers/ для разрыва circular dependencies. Внутри функций, не на уровне модуля.
