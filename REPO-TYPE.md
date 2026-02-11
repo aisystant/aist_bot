@@ -8,9 +8,9 @@
 
 ## Upstream dependencies
 
-- [aisystant/spf-personal-pack](https://github.com/aisystant/spf-personal-pack) — source-of-truth области созидателя
+- [aisystant/PACK-personal](https://github.com/aisystant/PACK-personal) — source-of-truth области созидателя
 - [aisystant/digital-twin-mcp](https://github.com/aisystant/digital-twin-mcp) — MCP для работы с индикаторами
-- [TserenTserenov/spf-digital-platform-pack](https://github.com/TserenTserenov/spf-digital-platform-pack) — архитектура платформы
+- [TserenTserenov/PACK-digital-platform](https://github.com/TserenTserenov/PACK-digital-platform) — архитектура платформы
 
 ## Downstream outputs
 

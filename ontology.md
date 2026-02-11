@@ -1,7 +1,7 @@
 # Онтология AIST Track Bot
 
 > **Тип:** Downstream-instrument
-> **Upstream:** spf-personal-pack, spf-ecosystem-pack
+> **Upstream:** PACK-personal, PACK-ecosystem
 > **Базовая онтология:** [SPF/ontology.md](../SPF/ontology.md) (SPF.SPEC.002)
 >
 > Downstream ссылается на понятия Pack'ов и SPF. Новых онтологических понятий не вводит (SPF.SPEC.002 § 4.3).

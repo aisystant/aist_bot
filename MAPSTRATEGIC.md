@@ -7,7 +7,7 @@ updated: 2026-02-09
 
 # Карта стратегии: AIST Bot → Тонкий клиент
 
-> **Тип:** Downstream/instrument → Слой 1 (Интерфейс) в [архитектуре платформы](../my-strategy/inbox/platform_architecture_v2.md)
+> **Тип:** Downstream/instrument → Слой 1 (Интерфейс) в [архитектуре платформы](../DS-my-strategy/inbox/platform_architecture_v2.md)
 >
 > **Целевое состояние:** Бот = тонкий клиент без бизнес-логики. Вся логика — в агентах (слой 2) и MCP (слой 3).
 
