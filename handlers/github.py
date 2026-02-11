@@ -226,12 +226,14 @@ async def handle_fleeting_note(message: Message):
     if result:
         repo = result["repo"]
         path = result["path"]
+        url = f"https://github.com/{repo}/blob/main/{path}"
         try:
             await message.answer(
-                f"Записано → `{repo}/{path}`",
+                f"Записано → [{repo}/{path}]({url})",
                 parse_mode="Markdown",
+                disable_web_page_preview=True,
             )
         except Exception:
-            await message.answer(f"Записано → {repo}/{path}")
+            await message.answer(f"Записано → {url}")
     else:
         await message.answer("Не удалось записать заметку. Проверьте /github")
