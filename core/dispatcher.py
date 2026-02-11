@@ -22,6 +22,7 @@ COMMAND_MAP = {
     'mode': 'common.mode_select',
     'update': 'common.settings',
     'settings': 'common.settings',
+    'assessment': 'workshop.assessment.flow',
 }
 
 

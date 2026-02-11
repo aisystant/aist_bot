@@ -48,6 +48,12 @@ from .qa import (
     get_qa_count,
 )
 
+from .assessment import (
+    save_assessment,
+    get_latest_assessment,
+    get_assessment_history,
+)
+
 from .github import (
     get_github_connection,
     save_github_connection,
@@ -91,6 +97,11 @@ __all__ = [
     'save_qa',
     'get_qa_history',
     'get_qa_count',
+
+    # assessment
+    'save_assessment',
+    'get_latest_assessment',
+    'get_assessment_history',
 
     # github
     'get_github_connection',

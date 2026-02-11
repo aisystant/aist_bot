@@ -1,0 +1,200 @@
+# =============================================================================
+# Тест: Определение текущего состояния (систематичность)
+# =============================================================================
+# Source-of-truth: DS-marathon-v2-tseren/materials/participants/00_questionnaire.md
+#
+# Формат: данные теста отделены от кода.
+# Добавление нового теста = добавление нового YAML файла.
+# =============================================================================
+
+id: systematicity
+version: 1
+
+title:
+  ru: "Тест: Моё текущее состояние"
+  en: "Test: My Current State"
+  es: "Test: Mi estado actual"
+  fr: "Test: Mon état actuel"
+
+intro:
+  ru: "12 вопросов Да/Нет. Займёт ~2 минуты.\nОтвечай честно — это не экзамен, а точка старта."
+  en: "12 Yes/No questions. Takes ~2 minutes.\nAnswer honestly — this is not an exam, but a starting point."
+  es: "12 preguntas Sí/No. Toma ~2 minutos.\nResponde honestamente — no es un examen, sino un punto de partida."
+  fr: "12 questions Oui/Non. Prend ~2 minutes.\nRéponds honnêtement — ce n'est pas un examen, mais un point de départ."
+
+groups:
+  - id: chaos
+    emoji: "😵"
+    title:
+      ru: "Хаос"
+      en: "Chaos"
+      es: "Caos"
+      fr: "Chaos"
+    description:
+      ru: "Внимание не принадлежит вам: постоянно отвлекают чаты, уведомления, мелкие задачи. День уходит на «тушение пожаров», важные вещи откладываются."
+      en: "Your attention doesn't belong to you: chats, notifications, small tasks constantly distract. The day is spent 'putting out fires', important things are postponed."
+      es: "Tu atención no te pertenece: chats, notificaciones, pequeñas tareas distraen constantemente. El día se va en 'apagar fuegos', las cosas importantes se postergan."
+      fr: "Votre attention ne vous appartient pas: chats, notifications, petites tâches distraient constamment. La journée se passe à 'éteindre des feux', les choses importantes sont reportées."
+
+  - id: deadlock
+    emoji: "🧱"
+    title:
+      ru: "Тупик"
+      en: "Deadlock"
+      es: "Estancamiento"
+      fr: "Impasse"
+    description:
+      ru: "В целом всё стабильно, нет хаоса, но нет и роста. «День сурка»: много работы, но результаты и доход почти не меняются."
+      en: "Overall everything is stable, no chaos, but no growth either. 'Groundhog Day': lots of work, but results and income barely change."
+      es: "En general todo es estable, no hay caos, pero tampoco crecimiento. 'Día de la marmota': mucho trabajo, pero los resultados e ingresos apenas cambian."
+      fr: "Dans l'ensemble tout est stable, pas de chaos, mais pas de croissance non plus. 'Jour de la marmotte': beaucoup de travail, mais les résultats et revenus changent à peine."
+
+  - id: turning_point
+    emoji: "🔁"
+    title:
+      ru: "Поворот"
+      en: "Turning Point"
+      es: "Punto de inflexión"
+      fr: "Tournant"
+    description:
+      ru: "Всё неплохо: есть стабильность, иногда даже рост, но это уже не радует. Есть ощущение, что вы переросли текущий формат жизни."
+      en: "Things are fine: there's stability, sometimes even growth, but it no longer brings joy. You feel you've outgrown your current life format."
+      es: "Las cosas están bien: hay estabilidad, a veces incluso crecimiento, pero ya no trae alegría. Sientes que has superado tu formato de vida actual."
+      fr: "Tout va bien: il y a de la stabilité, parfois même de la croissance, mais ça ne réjouit plus. Vous sentez que vous avez dépassé votre format de vie actuel."
+
+questions:
+  - id: q1
+    group: chaos
+    text:
+      ru: "В конце большинства дней я чувствую, что весь день тушил(а) пожары и не успел(а) заняться действительно важным"
+      en: "At the end of most days, I feel I spent the whole day putting out fires and didn't get to what's truly important"
+      es: "Al final de la mayoría de los días, siento que pasé todo el día apagando fuegos y no logré hacer lo realmente importante"
+      fr: "À la fin de la plupart des jours, je sens que j'ai passé la journée à éteindre des feux et n'ai pas pu m'occuper de ce qui est vraiment important"
+
+  - id: q2
+    group: chaos
+    text:
+      ru: "У меня много незавершённых дел или проектов, которые «висят» и вызывают чувство вины"
+      en: "I have many unfinished tasks or projects that 'hang' and cause guilt"
+      es: "Tengo muchas tareas o proyectos sin terminar que 'cuelgan' y causan culpa"
+      fr: "J'ai beaucoup de tâches ou projets inachevés qui 'pendent' et causent de la culpabilité"
+
+  - id: q3
+    group: chaos
+    text:
+      ru: "Уведомления, чаты и мелкие задачи часто полностью ломают мои планы на день"
+      en: "Notifications, chats, and small tasks often completely break my plans for the day"
+      es: "Las notificaciones, chats y pequeñas tareas a menudo rompen completamente mis planes del día"
+      fr: "Les notifications, chats et petites tâches cassent souvent complètement mes plans de la journée"
+
+  - id: q4
+    group: chaos
+    text:
+      ru: "Я пробовал(а) разные системы планирования / самоорганизации, но ни одна не прижилась надолго"
+      en: "I've tried various planning / self-organization systems, but none stuck for long"
+      es: "He probado varios sistemas de planificación / autoorganización, pero ninguno duró mucho"
+      fr: "J'ai essayé divers systèmes de planification / auto-organisation, mais aucun n'a duré longtemps"
+
+  - id: q5
+    group: deadlock
+    text:
+      ru: "Моя жизнь и работа больше похожи на «день сурка»: в целом всё предсказуемо, но движения вперёд почти нет"
+      en: "My life and work are more like 'Groundhog Day': everything is predictable, but there's almost no forward movement"
+      es: "Mi vida y trabajo se parecen más al 'Día de la Marmota': todo es predecible, pero casi no hay movimiento hacia adelante"
+      fr: "Ma vie et mon travail ressemblent plus au 'Jour de la marmotte': tout est prévisible, mais il n'y a presque pas de mouvement en avant"
+
+  - id: q6
+    group: deadlock
+    text:
+      ru: "Я работаю достаточно много, но мой доход или результаты почти не растут"
+      en: "I work quite a lot, but my income or results barely grow"
+      es: "Trabajo bastante, pero mis ingresos o resultados apenas crecen"
+      fr: "Je travaille beaucoup, mais mes revenus ou résultats ne grandissent presque pas"
+
+  - id: q7
+    group: deadlock
+    text:
+      ru: "Когда я чему-то учусь (курсы, книги, вебинары), это редко приводит к реальным изменениям"
+      en: "When I learn something (courses, books, webinars), it rarely leads to real changes"
+      es: "Cuando aprendo algo (cursos, libros, webinars), rara vez lleva a cambios reales"
+      fr: "Quand j'apprends quelque chose (cours, livres, webinaires), cela mène rarement à de vrais changements"
+
+  - id: q8
+    group: deadlock
+    text:
+      ru: "У меня нет ощущения, что я расту как специалист или как личность"
+      en: "I don't feel like I'm growing as a professional or as a person"
+      es: "No siento que estoy creciendo como profesional o como persona"
+      fr: "Je ne sens pas que je grandis en tant que professionnel ou en tant que personne"
+
+  - id: q9
+    group: turning_point
+    text:
+      ru: "В целом у меня всё неплохо: есть стабильность, но это меня уже не радует"
+      en: "Overall I'm doing fine: there's stability, but it no longer makes me happy"
+      es: "En general me va bien: hay estabilidad, pero ya no me hace feliz"
+      fr: "Dans l'ensemble ça va bien: il y a de la stabilité, mais ça ne me rend plus heureux"
+
+  - id: q10
+    group: turning_point
+    text:
+      ru: "Мне кажется, что я перерос(ла) текущие задачи / формат жизни и хочу чего-то большего"
+      en: "I feel I've outgrown my current tasks / life format and want something more"
+      es: "Siento que he superado mis tareas actuales / formato de vida y quiero algo más"
+      fr: "Je sens que j'ai dépassé mes tâches actuelles / mon format de vie et je veux quelque chose de plus"
+
+  - id: q11
+    group: turning_point
+    text:
+      ru: "Я чувствую внутренний запрос на изменения, но не очень понимаю, в какую сторону двигаться"
+      en: "I feel an inner request for change, but I don't quite understand which direction to move"
+      es: "Siento una necesidad interna de cambio, pero no entiendo bien en qué dirección moverme"
+      fr: "Je ressens un besoin intérieur de changement, mais je ne comprends pas bien dans quelle direction aller"
+
+  - id: q12
+    group: turning_point
+    text:
+      ru: "Мне одновременно и хочется серьёзных изменений, и страшно трогать то, что уже работает"
+      en: "I simultaneously want serious changes and am afraid to touch what already works"
+      es: "Simultáneamente quiero cambios serios y tengo miedo de tocar lo que ya funciona"
+      fr: "Je veux simultanément des changements sérieux et j'ai peur de toucher ce qui fonctionne déjà"
+
+self_check:
+  question:
+    ru: "А как ты сам(а) чувствуешь?\nКакое состояние тебе сейчас ближе всего?"
+    en: "How do you feel yourself?\nWhich state feels closest to you right now?"
+    es: "¿Cómo te sientes tú?\n¿Qué estado te parece más cercano ahora?"
+    fr: "Comment te sens-tu toi-même?\nQuel état te semble le plus proche maintenant?"
+  options:
+    - id: chaos
+      label:
+        ru: "😵 Хаос"
+        en: "😵 Chaos"
+        es: "😵 Caos"
+        fr: "😵 Chaos"
+    - id: deadlock
+      label:
+        ru: "🧱 Тупик"
+        en: "🧱 Deadlock"
+        es: "🧱 Estancamiento"
+        fr: "🧱 Impasse"
+    - id: turning_point
+      label:
+        ru: "🔁 Поворот"
+        en: "🔁 Turning Point"
+        es: "🔁 Punto de inflexión"
+        fr: "🔁 Tournant"
+    - id: unsure
+      label:
+        ru: "🤔 Не понимаю"
+        en: "🤔 Not sure"
+        es: "🤔 No estoy seguro"
+        fr: "🤔 Pas sûr(e)"
+
+open_question:
+  text:
+    ru: "Опиши своими словами: что сейчас больше всего не устраивает в твоей ситуации?"
+    en: "Describe in your own words: what bothers you most about your current situation?"
+    es: "Describe con tus propias palabras: ¿qué es lo que más te molesta de tu situación actual?"
+    fr: "Décris avec tes propres mots: qu'est-ce qui te dérange le plus dans ta situation actuelle?"
+  optional: true

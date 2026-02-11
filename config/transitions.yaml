@@ -123,6 +123,23 @@ states:
     allow_global: [consultation, notes]
 
   # ==========================================
+  # МАСТЕРСКАЯ: ОЦЕНКА (workshop.assessment.*)
+  # ==========================================
+
+  workshop.assessment.flow:
+    description: "Прохождение теста (intro → вопросы → self-check → open)"
+    events:
+      done: workshop.assessment.result  # Все фазы пройдены
+      cancel: common.mode_select        # Отмена
+    allow_global: [consultation, notes]
+
+  workshop.assessment.result:
+    description: "Результат теста + сохранение"
+    events:
+      back: common.mode_select          # Возврат в меню
+    allow_global: [consultation, notes]
+
+  # ==========================================
   # УТИЛИТЫ (utility.*)
   # ==========================================
 

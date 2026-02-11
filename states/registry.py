@@ -25,6 +25,12 @@ from states.workshops.marathon import (
     MarathonTaskState,
 )
 
+# Оценка систематичности (реализовано)
+from states.workshops.assessment import (
+    AssessmentFlowState,
+    AssessmentResultState,
+)
+
 # Лента (реализовано)
 from states.feed import FeedTopicsState, FeedDigestState
 
@@ -70,6 +76,10 @@ def register_all_states(
         MarathonBonusState(*args),
         MarathonTaskState(*args),
 
+        # Assessment стейты (оценка систематичности)
+        AssessmentFlowState(*args),
+        AssessmentResultState(*args),
+
         # Feed стейты (Лента)
         FeedTopicsState(*args),
         FeedDigestState(*args),
@@ -104,6 +114,10 @@ def get_available_states() -> list[str]:
         "workshop.marathon.question",
         "workshop.marathon.bonus",
         "workshop.marathon.task",
+
+        # Assessment (Оценка)
+        "workshop.assessment.flow",
+        "workshop.assessment.result",
 
         # Feed (Лента)
         "feed.topics",

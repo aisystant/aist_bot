@@ -2467,3 +2467,87 @@ consultation:
   returning:
     ru: "↩️ Возвращаюсь к предыдущему занятию."
     en: "↩️ Returning to previous activity."
+
+# -----------------------------------------------------------------------------
+# Оценка (assessment) — только UI-ключи, вопросы в YAML
+# -----------------------------------------------------------------------------
+assessment:
+  btn_start:
+    ru: "▶️ Начать"
+    en: "▶️ Start"
+    max_length: 20
+
+  btn_cancel:
+    ru: "✖️ Отмена"
+    en: "✖️ Cancel"
+    max_length: 20
+
+  btn_yes:
+    ru: "✅ Да"
+    en: "✅ Yes"
+    max_length: 20
+
+  btn_no:
+    ru: "❌ Нет"
+    en: "❌ No"
+    max_length: 20
+
+  question_count:
+    ru: "{count} вопросов"
+    en: "{count} questions"
+
+  question_label:
+    ru: "Вопрос"
+    en: "Question"
+
+  of:
+    ru: "из"
+    en: "of"
+
+  answer_yes:
+    ru: "Да"
+    en: "Yes"
+
+  answer_no:
+    ru: "Нет"
+    en: "No"
+
+  cancelled:
+    ru: "Тест отменён."
+    en: "Test cancelled."
+
+  not_found:
+    ru: "Тест не найден."
+    en: "Test not found."
+
+  use_buttons:
+    ru: "Используй кнопки для ответа."
+    en: "Use the buttons to answer."
+
+  completed:
+    ru: "Тест завершён! Результат сохранён."
+    en: "Test completed! Result saved."
+
+  self_check_answer:
+    ru: "Твой ответ"
+    en: "Your answer"
+
+  self_check_label:
+    ru: "Самооценка"
+    en: "Self-assessment"
+
+  open_response_label:
+    ru: "Описание"
+    en: "Description"
+
+  open_too_short:
+    ru: "Напиши подробнее (минимум 10 символов) или /skip чтобы пропустить."
+    en: "Write more (minimum 10 characters) or /skip to skip."
+
+  open_skip_hint:
+    ru: "Можешь пропустить → /skip"
+    en: "You can skip → /skip"
+
+  retake_hint:
+    ru: "Повторить тест: /assessment"
+    en: "Retake test: /assessment"

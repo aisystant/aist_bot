@@ -623,5 +623,26 @@ error:
 mode:
   select_mode: "Selecciona el modo de aprendizaje"
 
+assessment:
+  btn_start: "▶️ Comenzar"
+  btn_cancel: "✖️ Cancelar"
+  btn_yes: "✅ Sí"
+  btn_no: "❌ No"
+  question_count: "{count} preguntas"
+  question_label: "Pregunta"
+  of: "de"
+  answer_yes: "Sí"
+  answer_no: "No"
+  cancelled: "Test cancelado."
+  not_found: "Test no encontrado."
+  use_buttons: "Usa los botones para responder."
+  completed: "¡Test completado! Resultado guardado."
+  self_check_answer: "Tu respuesta"
+  self_check_label: "Autoevaluación"
+  open_response_label: "Descripción"
+  open_too_short: "Escribe más (mínimo 10 caracteres) o /skip para saltar."
+  open_skip_hint: "Puedes saltar → /skip"
+  retake_hint: "Repetir test: /assessment"
+
 my_state:
   welcome: "¡Bienvenido!"

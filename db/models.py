@@ -331,6 +331,41 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
+        # ОЦЕНКИ / ТЕСТЫ (assessments)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS assessments (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT,
+
+                assessment_id TEXT NOT NULL,
+                answers TEXT DEFAULT '{}',
+                scores TEXT DEFAULT '{}',
+                dominant_state TEXT,
+                self_check TEXT,
+                open_response TEXT,
+
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_assessments_chat_id
+            ON assessments(chat_id)
+        ''')
+
+        # Миграции для interns — поля последней оценки
+        assessment_migrations = [
+            "ALTER TABLE interns ADD COLUMN IF NOT EXISTS assessment_state TEXT DEFAULT NULL",
+            "ALTER TABLE interns ADD COLUMN IF NOT EXISTS assessment_date DATE DEFAULT NULL",
+        ]
+        for migration in assessment_migrations:
+            try:
+                await conn.execute(migration)
+            except Exception:
+                pass
+
+        # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

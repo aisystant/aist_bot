@@ -178,6 +178,7 @@ async def main():
         BotCommand(command="language", description="Сменить язык"),
         BotCommand(command="start", description="Перезапустить онбординг"),
         BotCommand(command="twin", description="Цифровой двойник"),
+        BotCommand(command="assessment", description="Тест систематичности"),
         BotCommand(command="help", description="Справка")
     ])
 
@@ -191,6 +192,7 @@ async def main():
         BotCommand(command="language", description="Change language"),
         BotCommand(command="start", description="Restart onboarding"),
         BotCommand(command="twin", description="Digital Twin"),
+        BotCommand(command="assessment", description="Systematicity test"),
         BotCommand(command="help", description="Help")
     ], language_code="en")
 
@@ -204,6 +206,7 @@ async def main():
         BotCommand(command="language", description="Cambiar idioma"),
         BotCommand(command="start", description="Reiniciar onboarding"),
         BotCommand(command="twin", description="Gemelo Digital"),
+        BotCommand(command="assessment", description="Test de sistematicidad"),
         BotCommand(command="help", description="Ayuda")
     ], language_code="es")
 
@@ -216,6 +219,7 @@ async def main():
         BotCommand(command="mode", description="Sélectionner le mode"),
         BotCommand(command="language", description="Changer de langue"),
         BotCommand(command="start", description="Recommencer l'inscription"),
+        BotCommand(command="assessment", description="Test de systématicité"),
         BotCommand(command="help", description="Aide")
     ], language_code="fr")
 

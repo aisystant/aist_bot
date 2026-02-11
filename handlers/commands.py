@@ -82,3 +82,24 @@ async def cmd_update(message: Message, state: FSMContext):
     # Legacy fallback — show update screen directly
     from handlers.settings import _show_update_screen
     await _show_update_screen(message, intern, state)
+
+
+@commands_router.message(Command("assessment"))
+async def cmd_assessment(message: Message, state: FSMContext):
+    """Запуск теста оценки систематичности через Dispatcher."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(message.chat.id)
+    if not intern or not intern.get('onboarding_completed'):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('profile.first_start', lang))
+        return
+
+    if dispatcher and dispatcher.is_sm_active:
+        await state.clear()
+        await dispatcher.route_command('assessment', intern)
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    await message.answer(t('errors.processing_error', lang))

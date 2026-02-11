@@ -107,6 +107,10 @@ def _row_to_dict(row) -> dict:
         'longest_streak': safe_get('longest_streak', 0),
         'last_active_date': safe_get('last_active_date', None),
         
+        # Оценка
+        'assessment_state': safe_get('assessment_state', None),
+        'assessment_date': safe_get('assessment_date', None),
+
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
         'language': safe_get('language', 'ru'),
@@ -160,7 +164,10 @@ def _get_default_intern(chat_id: int) -> dict:
         'active_days_streak': 0,
         'longest_streak': 0,
         'last_active_date': None,
-        
+
+        'assessment_state': None,
+        'assessment_date': None,
+
         'onboarding_completed': False,
         'language': 'ru',
     }
