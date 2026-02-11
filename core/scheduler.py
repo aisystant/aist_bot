@@ -284,3 +284,7 @@ async def scheduled_check():
 
     # Проверяем напоминания
     await check_reminders()
+
+    # Повторная отправка неотправленных заметок
+    from clients.github_api import github_notes
+    await github_notes.retry_pending()

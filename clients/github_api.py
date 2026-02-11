@@ -14,6 +14,7 @@ GitHub Contents API — запись файлов в репозитории.
 """
 
 import base64
+import re
 from datetime import datetime, timezone, timedelta
 
 from config import get_logger
@@ -23,9 +24,106 @@ logger = get_logger(__name__)
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
+MONTHS_RU = {
+    1: "янв", 2: "фев", 3: "мар", 4: "апр",
+    5: "май", 6: "июн", 7: "июл", 8: "авг",
+    9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+}
+
 
 class GitHubNotesClient:
-    """Клиент для записи исчезающих заметок в GitHub."""
+    """Клиент для записи заметок в GitHub."""
+
+    def __init__(self):
+        self._pending: list[tuple[int, str]] = []
+
+    @staticmethod
+    def _extract_title(text: str, max_words: int = 7) -> tuple[str, str]:
+        """Извлекает заголовок из первого предложения или первых 5 слов.
+
+        Returns:
+            (title, body) — body пустой, если текст короткий.
+        """
+        # Первое предложение (до . ! ? с пробелом или концом строки)
+        match = re.search(r'[.!?](?:\s|$)', text)
+        if match:
+            title = text[:match.start() + 1].strip()
+            if len(title.split()) <= max_words:
+                body = text[match.end():].strip()
+                return title, body
+
+        # Fallback: первые 5 слов
+        words = text.split()
+        if len(words) <= 5:
+            return text.strip(), ""
+        title = " ".join(words[:5]) + "…"
+        return title, text.strip()
+
+    @staticmethod
+    def _format_note_lines(text: str, now: datetime) -> list[str]:
+        """Форматирует заметку как markdown-блок.
+
+        Формат: ---\\n\\n**Title**\\n<sub>date</sub>\\n\\nBody
+        """
+        title, body = GitHubNotesClient._extract_title(text)
+
+        day = now.day
+        month = MONTHS_RU[now.month]
+        time_str = now.strftime("%H:%M")
+        date_str = f"{day} {month}, {time_str}"
+
+        lines = ["---", "", f"**{title}**", f"<sub>{date_str}</sub>"]
+        if body:
+            lines.extend(["", body])
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def _find_insert_position(lines: list[str]) -> int:
+        """Находит позицию для вставки новой заметки.
+
+        Стратегия:
+        1. После blockquote-описания (> ...), перед первым ---
+        2. Fallback: после заголовка # + пустых строк
+        """
+        # Пропускаем YAML frontmatter
+        start = 0
+        if lines and lines[0].strip() == '---':
+            for i in range(1, len(lines)):
+                if lines[i].strip() == '---':
+                    start = i + 1
+                    break
+
+        # Ищем заголовок #
+        header_pos = None
+        for i in range(start, len(lines)):
+            if lines[i].startswith('# '):
+                header_pos = i
+                break
+
+        if header_pos is None:
+            return len(lines)
+
+        # Пропускаем blockquote-описание после заголовка
+        i = header_pos + 1
+        found_blockquote = False
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if stripped.startswith('>'):
+                found_blockquote = True
+                i += 1
+                continue
+            if not stripped:
+                i += 1
+                continue
+            # Непустая строка, не blockquote
+            if found_blockquote and stripped == '---':
+                return i  # вставляем перед этим ---
+            if found_blockquote:
+                return i
+            break
+
+        return i if i < len(lines) else len(lines)
 
     async def append_note(
         self, telegram_user_id: int, text: str
@@ -46,27 +144,33 @@ class GitHubNotesClient:
             return None
 
         now = datetime.now(MOSCOW_TZ)
-        timestamp = now.strftime("%Y-%m-%d %H:%M")
-        new_line = f"- {timestamp} — {text}\n"
+        note_lines = self._format_note_lines(text, now)
 
-        return await self._append_to_file(
+        result = await self._append_to_file(
             access_token=access_token,
             repo=repo,
             path=path,
-            new_line=new_line,
+            note_lines=note_lines,
             commit_message=f"note: {text[:50]}",
         )
+
+        if not result:
+            self._pending.append((telegram_user_id, text))
+            logger.warning(f"Note queued for retry: {text[:30]}...")
+
+        return result
 
     async def _append_to_file(
         self,
         access_token: str,
         repo: str,
         path: str,
-        new_line: str,
+        note_lines: list[str],
         commit_message: str,
         branch: str = "main",
+        max_retries: int = 3,
     ) -> dict | None:
-        """Добавляет строку в конец файла через Contents API."""
+        """Добавляет заметку в файл через Contents API с retry на 409."""
         import aiohttp
 
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
@@ -76,81 +180,112 @@ class GitHubNotesClient:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                # 1. Получаем текущий файл
-                async with session.get(
-                    url,
-                    headers=headers,
-                    params={"ref": branch},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status == 200:
-                        file_data = await resp.json()
-                        current_sha = file_data["sha"]
-                        current_content = base64.b64decode(
-                            file_data["content"]
-                        ).decode("utf-8")
-                        # Вставляем новую заметку сверху (после заголовка)
-                        lines = current_content.split("\n")
-                        # Находим конец заголовка (после "# ..." и пустой строки)
-                        insert_pos = 0
-                        for i, line in enumerate(lines):
-                            if line.startswith("# "):
-                                insert_pos = i + 1
-                                # Пропускаем пустые строки после заголовка
-                                while insert_pos < len(lines) and not lines[insert_pos].strip():
-                                    insert_pos += 1
-                                break
-                        lines.insert(insert_pos, new_line.rstrip("\n"))
-                        updated_content = "\n".join(lines)
-                    elif resp.status == 404:
-                        # Файл не существует — создаём
-                        current_sha = None
-                        updated_content = (
-                            "# Исчезающие заметки\n\n" + new_line
-                        )
-                    else:
-                        error = await resp.text()
-                        logger.error(f"GitHub GET {path}: {resp.status} - {error}")
-                        return None
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # 1. Получаем текущий файл
+                    async with session.get(
+                        url,
+                        headers=headers,
+                        params={"ref": branch},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status == 200:
+                            file_data = await resp.json()
+                            current_sha = file_data["sha"]
+                            current_content = base64.b64decode(
+                                file_data["content"]
+                            ).decode("utf-8")
 
-                # 2. Записываем обновлённый файл
-                put_data = {
-                    "message": commit_message,
-                    "content": base64.b64encode(
-                        updated_content.encode("utf-8")
-                    ).decode("ascii"),
-                    "branch": branch,
-                }
-                if current_sha:
-                    put_data["sha"] = current_sha
+                            lines = current_content.split("\n")
+                            insert_pos = self._find_insert_position(lines)
 
-                async with session.put(
-                    url,
-                    headers=headers,
-                    json=put_data,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status in (200, 201):
-                        result = await resp.json()
-                        logger.info(f"Note written to {repo}/{path}")
-                        return {
-                            "repo": repo,
-                            "path": path,
-                            "sha": result.get("content", {}).get("sha", ""),
-                        }
-                    else:
-                        error = await resp.text()
-                        logger.error(f"GitHub PUT {path}: {resp.status} - {error}")
-                        return None
+                            for j, note_line in enumerate(note_lines):
+                                lines.insert(insert_pos + j, note_line)
 
-        except Exception as e:
-            logger.error(f"GitHub append_note exception: {e}")
-            return None
+                            updated_content = "\n".join(lines)
+                        elif resp.status == 404:
+                            current_sha = None
+                            now_str = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
+                            header = (
+                                f"---\ntype: inbox\nstatus: active\n"
+                                f"updated: {now_str}\n---\n\n"
+                                f"# Fleeting Notes\n\n"
+                            )
+                            updated_content = header + "\n".join(note_lines)
+                        else:
+                            error = await resp.text()
+                            logger.error(
+                                f"GitHub GET {path}: {resp.status} - {error}"
+                            )
+                            return None
+
+                    # 2. Записываем обновлённый файл
+                    put_data = {
+                        "message": commit_message,
+                        "content": base64.b64encode(
+                            updated_content.encode("utf-8")
+                        ).decode("ascii"),
+                        "branch": branch,
+                    }
+                    if current_sha:
+                        put_data["sha"] = current_sha
+
+                    async with session.put(
+                        url,
+                        headers=headers,
+                        json=put_data,
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status in (200, 201):
+                            result = await resp.json()
+                            logger.info(f"Note written to {repo}/{path}")
+                            return {
+                                "repo": repo,
+                                "path": path,
+                                "sha": result.get("content", {}).get(
+                                    "sha", ""
+                                ),
+                            }
+                        elif resp.status == 409 and attempt < max_retries - 1:
+                            logger.warning(
+                                f"SHA conflict on {path}, "
+                                f"retry {attempt + 1}/{max_retries}"
+                            )
+                            continue
+                        else:
+                            error = await resp.text()
+                            logger.error(
+                                f"GitHub PUT {path}: {resp.status} - {error}"
+                            )
+                            return None
+
+            except Exception as e:
+                logger.error(
+                    f"GitHub append_note exception "
+                    f"(attempt {attempt + 1}): {e}"
+                )
+                if attempt < max_retries - 1:
+                    continue
+                return None
+
+        return None
+
+    async def retry_pending(self):
+        """Повторная отправка неотправленных заметок."""
+        if not self._pending:
+            return
+
+        pending = self._pending.copy()
+        self._pending.clear()
+
+        for user_id, text in pending:
+            result = await self.append_note(user_id, text)
+            if result:
+                logger.info(f"Retry succeeded: {text[:30]}...")
 
     async def clear_notes(self, telegram_user_id: int) -> bool:
-        """Очищает файл заметок (оставляет только заголовок)."""
+        """Очищает файл заметок (сохраняет шапку с описанием)."""
         import aiohttp
 
         repo = await github_oauth.get_target_repo(telegram_user_id)
@@ -171,17 +306,24 @@ class GitHubNotesClient:
 
         try:
             async with aiohttp.ClientSession() as session:
-                # Получаем SHA текущего файла
                 async with session.get(
-                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status != 200:
                         return False
                     file_data = await resp.json()
                     current_sha = file_data["sha"]
+                    current_content = base64.b64decode(
+                        file_data["content"]
+                    ).decode("utf-8")
 
-                # Перезаписываем пустым файлом с заголовком
-                clean_content = "# Исчезающие заметки\n"
+                # Сохраняем шапку до позиции вставки заметок
+                lines = current_content.split("\n")
+                insert_pos = self._find_insert_position(lines)
+                clean_content = "\n".join(lines[:insert_pos]).rstrip() + "\n"
+
                 async with session.put(
                     url,
                     headers=headers,
