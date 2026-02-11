@@ -91,7 +91,19 @@ class GitHubNotesClient:
                         current_content = base64.b64decode(
                             file_data["content"]
                         ).decode("utf-8")
-                        updated_content = current_content.rstrip("\n") + "\n" + new_line
+                        # Вставляем новую заметку сверху (после заголовка)
+                        lines = current_content.split("\n")
+                        # Находим конец заголовка (после "# ..." и пустой строки)
+                        insert_pos = 0
+                        for i, line in enumerate(lines):
+                            if line.startswith("# "):
+                                insert_pos = i + 1
+                                # Пропускаем пустые строки после заголовка
+                                while insert_pos < len(lines) and not lines[insert_pos].strip():
+                                    insert_pos += 1
+                                break
+                        lines.insert(insert_pos, new_line.rstrip("\n"))
+                        updated_content = "\n".join(lines)
                     elif resp.status == 404:
                         # Файл не существует — создаём
                         current_sha = None
