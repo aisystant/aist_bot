@@ -484,6 +484,8 @@ marathon:
   daily_limit: "Limite de sujets atteinte pour aujourd'hui. Reviens demain !"
   come_back_tomorrow: "Reviens demain pour de nouveaux sujets !"
   question_processed: "✅ Réponse acceptée !"
+  fallback_question: "Comment comprenez-vous le sujet « {topic} » ? Écrivez avec vos propres mots."
+  completed_hint: "Vous pouvez continuer l'apprentissage en mode Fil (/feed) ou consulter les programmes avancés dans l'Atelier."
 
 feed:
   suggested_topics: "Sujets suggérés"
@@ -591,6 +593,9 @@ feed:
   topics_already_selected: "Les sujets de cette semaine sont déjà sélectionnés."
   topics_generation_failed: "Impossible de générer les sujets. Réessaie plus tard."
   week_completed: "Semaine terminée. Utilise /feed pour une nouvelle."
+  not_available: "Le mode Fil est temporairement indisponible. Réessaie plus tard."
+  daily_digest_ready: "Ton résumé quotidien est prêt !"
+  start_learning: "Appuie sur /learn pour commencer l'apprentissage."
 
 shared:
   of: "sur"
@@ -605,6 +610,7 @@ consultation:
   error: "Une erreur s'est produite lors du traitement de ta question. Réessaie."
   sources: "Sources"
   returning: "↩️ Retour à l'activité précédente."
+  try_service: "Essayer"
 
 error:
   generic: "Une erreur s'est produite. Réessaie ou utilise /help"

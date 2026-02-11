@@ -95,5 +95,5 @@ def register_all_services() -> None:
         category="settings",
         order=10,
         command="/settings",
-        commands=["/update", "/mode"],
+        commands=["/update"],
     ))

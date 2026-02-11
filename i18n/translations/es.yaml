@@ -494,6 +494,8 @@ marathon:
   daily_limit: "Se alcanzó el límite de temas de hoy. ¡Vuelve mañana!"
   come_back_tomorrow: "¡Vuelve mañana para nuevos temas!"
   question_processed: "✅ ¡Respuesta aceptada!"
+  fallback_question: "¿Cómo entiendes el tema «{topic}»? Escribe con tus propias palabras."
+  completed_hint: "Puedes continuar aprendiendo en modo Cinta (/feed) o ver programas avanzados en el Taller."
 
 feed:
   suggested_topics: "Temas Sugeridos"
@@ -601,6 +603,9 @@ feed:
   topics_already_selected: "Los temas de esta semana ya están seleccionados."
   topics_generation_failed: "No se pudieron generar los temas. Inténtalo más tarde."
   week_completed: "Semana completada. Usa /feed para una nueva."
+  not_available: "El modo Cinta no está disponible temporalmente. Inténtalo más tarde."
+  daily_digest_ready: "¡Tu resumen diario está listo!"
+  start_learning: "Pulsa /learn para empezar a aprender."
 
 shared:
   of: "de"
@@ -615,6 +620,7 @@ consultation:
   error: "Se produjo un error al procesar tu pregunta. Inténtalo de nuevo."
   sources: "Fuentes"
   returning: "↩️ Volviendo a la actividad anterior."
+  try_service: "Prueba"
 
 error:
   generic: "Ocurrió un error. Inténtalo de nuevo o usa /help"
