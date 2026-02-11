@@ -21,6 +21,11 @@ from .settings import (
     LINEAR_REDIRECT_URI,
     OAUTH_SERVER_PORT,
 
+    # GitHub OAuth
+    GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET,
+    GITHUB_REDIRECT_URI,
+
     # Feature flags
     USE_STATE_MACHINE,
 
@@ -89,6 +94,9 @@ __all__ = [
     'LINEAR_CLIENT_SECRET',
     'LINEAR_REDIRECT_URI',
     'OAUTH_SERVER_PORT',
+    'GITHUB_CLIENT_ID',
+    'GITHUB_CLIENT_SECRET',
+    'GITHUB_REDIRECT_URI',
     'USE_STATE_MACHINE',
     'get_logger',
     'MOSCOW_TZ',

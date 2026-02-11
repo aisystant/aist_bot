@@ -25,6 +25,11 @@ LINEAR_CLIENT_SECRET = os.getenv("LINEAR_CLIENT_SECRET")
 LINEAR_REDIRECT_URI = os.getenv("LINEAR_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/linear/callback")
 OAUTH_SERVER_PORT = int(os.getenv("OAUTH_SERVER_PORT", "8080"))
 
+# ============= GITHUB OAUTH =============
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
+
 def validate_env():
     """Проверка наличия обязательных переменных окружения"""
     if not BOT_TOKEN:

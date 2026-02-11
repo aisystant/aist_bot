@@ -1,11 +1,13 @@
 """
-OAuth callback сервер — тестовая интеграция.
+OAuth callback сервер.
 
-Этот сервер обрабатывает OAuth callbacks от Linear.
+Обрабатывает OAuth callbacks от Linear, Digital Twin, GitHub.
 Запускается параллельно с ботом на порту 8080.
 
 Endpoints:
 - GET /auth/linear/callback — OAuth callback от Linear
+- GET /auth/twin/callback — OAuth callback от Digital Twin
+- GET /auth/github/callback — OAuth callback от GitHub
 - GET /health — health check для Railway
 """
 
@@ -16,6 +18,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import get_logger, OAUTH_SERVER_PORT
 from clients.linear_oauth import linear_oauth
 from clients.digital_twin import digital_twin
+from clients.github_oauth import github_oauth
 
 logger = get_logger(__name__)
 
@@ -340,12 +343,171 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def github_callback_handler(request: web.Request) -> web.Response:
+    """Обрабатывает OAuth callback от GitHub."""
+    code = request.query.get("code")
+    state = request.query.get("state")
+    error = request.query.get("error")
+
+    if error:
+        error_description = request.query.get("error_description", "Unknown error")
+        logger.error(f"GitHub OAuth error: {error} - {error_description}")
+        return web.Response(
+            text=f"""
+            <html>
+            <head><title>Ошибка авторизации</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка авторизации GitHub</h1>
+                <p>{error_description}</p>
+                <p>Вернитесь в Telegram и попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    if not code or not state:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Неверный запрос</h1>
+                <p>Отсутствуют необходимые параметры.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    telegram_user_id = github_oauth.validate_state(state)
+    if not telegram_user_id:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Сессия истекла</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Сессия авторизации истекла</h1>
+                <p>Вернитесь в Telegram и начните авторизацию заново (/github).</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    tokens = await github_oauth.exchange_code(code, state)
+    if not tokens:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка получения токена</h1>
+                <p>Не удалось завершить авторизацию GitHub.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=500,
+        )
+
+    # Получаем имя пользователя GitHub
+    user_info = await github_oauth.get_user(telegram_user_id)
+    github_login = user_info.get("login", "user") if user_info else "user"
+
+    logger.info(
+        f"User {telegram_user_id} connected to GitHub as {github_login}"
+    )
+
+    if _bot_instance:
+        try:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Выбрать репо для заметок",
+                            callback_data="github_select_repo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Отключить GitHub",
+                            callback_data="github_disconnect",
+                        )
+                    ],
+                ]
+            )
+
+            await _bot_instance.send_message(
+                chat_id=telegram_user_id,
+                text=(
+                    f"*GitHub подключён!*\n\n"
+                    f"Пользователь: *{github_login}*\n\n"
+                    f"Теперь выберите репозиторий для исчезающих заметок."
+                ),
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to send GitHub notification to user {telegram_user_id}: {e}"
+            )
+
+    return web.Response(
+        text=f"""
+        <html>
+        <head>
+            <title>GitHub подключён!</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background: linear-gradient(135deg, #24292e 0%, #40c463 100%);
+                    min-height: 100vh;
+                    margin: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .card {{
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    max-width: 400px;
+                }}
+                h1 {{ color: #24292e; }}
+                p {{ color: #666; line-height: 1.6; }}
+                .success-icon {{ font-size: 64px; margin-bottom: 16px; }}
+                .name {{ font-weight: bold; color: #333; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="success-icon">✅</div>
+                <h1>GitHub подключён!</h1>
+                <p>Вы авторизованы как <span class="name">{github_login}</span>.</p>
+                <p>Можете закрыть эту страницу и вернуться в Telegram.</p>
+            </div>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=200,
+    )
+
+
 def create_oauth_app() -> web.Application:
     """Создаёт aiohttp приложение для OAuth."""
     app = web.Application()
     app.router.add_get("/health", health_handler)
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
+    app.router.add_get("/auth/github/callback", github_callback_handler)
     return app
 
 
