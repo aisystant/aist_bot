@@ -278,7 +278,7 @@ async def handle_forwarded_message(message: Message):
 
     # Проверяем, что было "." недавно
     pending_time = _pending_forwards.get(telegram_user_id)
-    if not pending_time or (time.time() - pending_time) > 60:
+    if not pending_time or (time.time() - pending_time) > 3:
         return  # Не ожидаем пересылку — пропускаем
 
     # Очищаем флаг
