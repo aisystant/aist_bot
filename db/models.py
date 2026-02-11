@@ -314,10 +314,21 @@ async def create_tables(pool: asyncpg.Pool):
                 github_username TEXT,
                 target_repo TEXT,
                 notes_path TEXT DEFAULT 'inbox/fleeting-notes.md',
+                strategy_repo TEXT,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
+
+        # Миграции для github_connections
+        github_migrations = [
+            'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS strategy_repo TEXT',
+        ]
+        for migration in github_migrations:
+            try:
+                await conn.execute(migration)
+            except Exception:
+                pass
 
         # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)

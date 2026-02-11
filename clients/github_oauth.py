@@ -78,6 +78,7 @@ class GitHubOAuthClient:
                 "github_username": row.get("github_username"),
                 "target_repo": row.get("target_repo"),
                 "notes_path": row.get("notes_path") or "inbox/fleeting-notes.md",
+                "strategy_repo": row.get("strategy_repo"),
             }
             return self._cache[telegram_user_id]
         return None
@@ -326,6 +327,26 @@ class GitHubOAuthClient:
         from db.queries.github import update_github_notes_path
 
         await update_github_notes_path(telegram_user_id, path)
+
+    async def get_strategy_repo(self, telegram_user_id: int) -> Optional[str]:
+        """Возвращает репо стратега (owner/repo)."""
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            return data.get("strategy_repo")
+        return None
+
+    async def set_strategy_repo(self, telegram_user_id: int, repo_full_name: str):
+        """Устанавливает репо стратега."""
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            data["strategy_repo"] = repo_full_name
+
+        from db.queries.github import update_github_strategy_repo
+
+        await update_github_strategy_repo(telegram_user_id, repo_full_name)
+        logger.info(
+            f"Set strategy repo for user {telegram_user_id}: {repo_full_name}"
+        )
 
     async def disconnect(self, telegram_user_id: int):
         """Отключает пользователя от GitHub."""

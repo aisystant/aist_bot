@@ -53,6 +53,7 @@ from .github import (
     save_github_connection,
     update_github_repo,
     update_github_notes_path,
+    update_github_strategy_repo,
     delete_github_connection,
 )
 
@@ -96,5 +97,6 @@ __all__ = [
     'save_github_connection',
     'update_github_repo',
     'update_github_notes_path',
+    'update_github_strategy_repo',
     'delete_github_connection',
 ]
