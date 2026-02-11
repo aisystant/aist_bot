@@ -150,7 +150,7 @@ async def show_full_progress(callback: CallbackQuery):
         days_progress = b['get_days_progress'](intern.get('completed_topics', []), marathon_day)
 
         days_text = ""
-        visible_days = [d for d in days_progress if d['day'] <= marathon_day and d['status'] != 'locked']
+        visible_days = [d for d in days_progress if d['status'] != 'locked']
         for d in reversed(visible_days):
             day_num = d['day']
             wp_count = wp_by_day.get(day_num, 0)

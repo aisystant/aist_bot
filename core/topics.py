@@ -245,6 +245,12 @@ def get_days_progress(completed_topics: list, marathon_day: int) -> list:
                 status = 'in_progress'
             else:
                 status = 'available'
+        elif completed_count > 0:
+            # День за пределами calendar day, но есть выполненный контент
+            if completed_count == len(day_topics):
+                status = 'completed'
+            else:
+                status = 'in_progress'
 
         days.append({
             'day': day,

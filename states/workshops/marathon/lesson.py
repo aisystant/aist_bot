@@ -15,6 +15,7 @@ from i18n import t
 from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
+from core.topics import get_marathon_day as canonical_get_marathon_day
 from clients import claude, mcp_guides, mcp_knowledge
 from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY
 
@@ -49,12 +50,9 @@ class MarathonLessonState(BaseState):
         return getattr(user, 'chat_id', None)
 
     def _get_marathon_day(self, user) -> int:
-        """Получить текущий день марафона (по прогрессу)."""
-        if isinstance(user, dict):
-            completed = user.get('completed_topics', [])
-        else:
-            completed = getattr(user, 'completed_topics', [])
-        return len(completed) // 2 + 1
+        """Получить текущий день марафона (canonical — через core.topics)."""
+        intern = self._user_to_intern_dict(user)
+        return canonical_get_marathon_day(intern)
 
     def _get_calendar_marathon_day(self, user) -> int:
         """Получить день марафона по календарю (от marathon_start_date)."""
@@ -153,16 +151,12 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.daily_limit', lang))
             return "daily_limit"
 
-        # Получаем тему (пропускаем practice, ищем следующую theory)
+        # Проверяем тип текущей темы
         topic = get_topic(topic_index)
-        while topic and topic.get('type', 'theory') != 'theory':
-            # Пропускаем practice темы — они обрабатываются через task.py
-            logger.info(f"Skipping practice topic {topic_index}, looking for next theory")
-            topic_index += 1
-            topic = get_topic(topic_index)
-            # Обновляем индекс в БД
-            if chat_id and topic:
-                await update_intern(chat_id, current_topic_index=topic_index)
+        if topic and topic.get('type', 'theory') != 'theory':
+            # Текущая тема — practice → маршрутизируем в task state
+            logger.info(f"Current topic {topic_index} is practice, routing to task state")
+            return "already_completed"  # → workshop.marathon.task
 
         if not topic:
             await self.send(user, t('marathon.no_topics_available', lang))
@@ -250,9 +244,13 @@ class MarathonLessonState(BaseState):
         text = (message.text or "").strip()
         lang = self._get_lang(user)
 
-        # Проверка: если следующая тема впереди по дням — блокируем
+        # Проверка: текущая тема — practice → маршрутизируем в task
         topic_index = self._get_current_topic_index(user)
         topic = get_topic(topic_index)
+        if topic and topic.get('type', 'theory') != 'theory':
+            return "already_completed"  # → workshop.marathon.task
+
+        # Проверка: если следующая тема впереди по дням — блокируем
         if topic:
             calendar_day = self._get_calendar_marathon_day(user)
             topic_day = topic.get('day', 1)

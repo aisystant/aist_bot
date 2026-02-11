@@ -16,6 +16,7 @@ from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer, moscow_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
+from core.topics import get_marathon_day
 from clients import claude
 from config import get_logger, DAILY_TOPICS_LIMIT
 
@@ -61,9 +62,9 @@ class MarathonTaskState(BaseState):
         return getattr(user, 'completed_topics', [])
 
     def _get_marathon_day(self, user) -> int:
-        """Получить текущий день марафона."""
-        completed = self._get_completed_topics(user)
-        return len(completed) // 2 + 1
+        """Получить текущий день марафона (canonical — через core.topics)."""
+        intern = self._user_to_intern_dict(user)
+        return get_marathon_day(intern)
 
     def _get_topics_today(self, user) -> int:
         """Получить количество тем за сегодня."""
