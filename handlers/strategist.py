@@ -10,7 +10,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_logger
-from utils.telegram_format import format_strategy_content
+from helpers.telegram_format import format_strategy_content
 
 logger = get_logger(__name__)
 
