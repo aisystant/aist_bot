@@ -162,6 +162,28 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.no_topics_available', lang))
             return
 
+        # Гарантируем marathon_start_date: если нет или в будущем — ставим сегодня
+        if isinstance(user, dict):
+            start_date = user.get('marathon_start_date')
+        else:
+            start_date = getattr(user, 'marathon_start_date', None)
+
+        today = moscow_today()
+        needs_start_date_fix = False
+        if not start_date:
+            needs_start_date_fix = True
+        else:
+            from datetime import datetime as _dt
+            sd = start_date.date() if isinstance(start_date, _dt) else start_date
+            if sd > today:
+                needs_start_date_fix = True
+
+        if needs_start_date_fix:
+            await update_intern(chat_id, marathon_start_date=today)
+            if isinstance(user, dict):
+                user['marathon_start_date'] = today
+            logger.info(f"Set marathon_start_date={today} for user {chat_id}")
+
         # Проверка: тема не опережает календарный день марафона
         calendar_day = self._get_calendar_marathon_day(user)
         topic_day = topic.get('day', 1)

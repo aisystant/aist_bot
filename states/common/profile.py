@@ -154,6 +154,9 @@ class ProfileState(BaseState):
                 InlineKeyboardButton(text="📋 " + t('buttons.commands', lang), callback_data="show_commands")
             ],
             [
+                InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="marathon_reset_confirm"),
+            ],
+            [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
             ]
         ])
@@ -205,6 +208,14 @@ class ProfileState(BaseState):
 
         if data == "show_commands":
             return await self._show_commands(user, callback)
+
+        if data == "marathon_reset_confirm":
+            return await self._marathon_reset_confirm(user, callback)
+        if data == "marathon_reset_do":
+            return await self._marathon_reset_do(user, callback)
+        if data == "marathon_reset_cancel":
+            await self.enter(user)
+            return None
 
         if data.startswith("duration_"):
             return await self._save_duration(user, callback, data)
@@ -333,6 +344,57 @@ class ProfileState(BaseState):
             parse_mode="Markdown"
         )
         await self.enter(user)
+        return None
+
+    async def _marathon_reset_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Подтверждение сброса марафона."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        intern = await get_intern(chat_id)
+        completed = len(intern.get('completed_topics', []))
+
+        text = (
+            f"⚠️ *{t('modes.reset_marathon_title', lang)}*\n\n"
+            f"{t('modes.reset_marathon_warning', lang, completed=completed)}"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"🔄 {t('modes.yes_reset', lang)}", callback_data="marathon_reset_do"),
+                InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="marathon_reset_cancel")
+            ]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _marathon_reset_do(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Выполнить сброс марафона."""
+        from db.queries.answers import delete_marathon_answers
+        from db.queries.users import moscow_today
+        from config import MarathonStatus
+
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        today = moscow_today()
+
+        await delete_marathon_answers(chat_id)
+        await update_intern(chat_id,
+            completed_topics=[],
+            current_topic_index=0,
+            marathon_start_date=today,
+            marathon_status=MarathonStatus.ACTIVE,
+            topics_today=0,
+            topics_at_current_bloom=0,
+        )
+
+        await callback.answer(t('modes.marathon_reset', lang))
+        await callback.message.edit_text(
+            f"✅ *{t('modes.marathon_reset', lang)}*\n\n"
+            f"{t('modes.new_start_date', lang)}: {today.strftime('%d.%m.%Y')}\n\n"
+            f"{t('modes.use_learn_start', lang)}",
+            parse_mode="Markdown"
+        )
         return None
 
     async def _show_commands(self, user, callback: CallbackQuery) -> Optional[str]:
