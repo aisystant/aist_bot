@@ -90,11 +90,12 @@ async def cmd_start(message: Message, state: FSMContext):
             t('welcome.returning', lang, name=intern['name']) + "\n" +
             f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
             f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}\n\n" +
+            t('commands.mode', lang) + "\n" +
             t('commands.learn', lang) + "\n" +
+            t('commands.feed', lang) + "\n" +
             t('commands.progress', lang) + "\n" +
             t('commands.profile', lang) + "\n" +
-            t('commands.update', lang) + "\n" +
-            t('commands.mode', lang),
+            t('commands.settings', lang),
             parse_mode="Markdown"
         )
         return

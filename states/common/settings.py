@@ -146,6 +146,10 @@ class SettingsState(BaseState):
         if data.startswith("lang_"):
             return await self._save_language(user, callback, data)
 
+        if data in ("conn_github", "conn_twin"):
+            # Заглушка — подключения пока в разработке
+            return None
+
         if data == "settings_back_to_menu":
             await self.enter(user)
             return None

@@ -150,7 +150,8 @@ class ProfileState(BaseState):
                 InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom")
             ],
             [
-                InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")
+                InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode"),
+                InlineKeyboardButton(text="📋 " + t('buttons.commands', lang), callback_data="show_commands")
             ],
             [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
@@ -201,6 +202,9 @@ class ProfileState(BaseState):
             except Exception:
                 pass
             return "saved"
+
+        if data == "show_commands":
+            return await self._show_commands(user, callback)
 
         if data.startswith("duration_"):
             return await self._save_duration(user, callback, data)
@@ -329,4 +333,27 @@ class ProfileState(BaseState):
             parse_mode="Markdown"
         )
         await self.enter(user)
+        return None
+
+    async def _show_commands(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем все команды бота."""
+        lang = self._get_lang(user)
+
+        text = (
+            f"📋 *{t('help.commands_title', lang)}*\n\n"
+            f"{t('commands.mode', lang)}\n"
+            f"{t('commands.learn', lang)}\n"
+            f"{t('commands.feed', lang)}\n"
+            f"{t('commands.progress', lang)}\n"
+            f"{t('commands.test', lang)}\n"
+            f"{t('commands.profile', lang)}\n"
+            f"{t('commands.settings', lang)}\n"
+            f"{t('commands.help', lang)}\n"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         return None

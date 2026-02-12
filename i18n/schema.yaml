@@ -396,6 +396,11 @@ buttons:
     en: "« Back"
     max_length: 15
 
+  commands:
+    ru: "Команды"
+    en: "Commands"
+    max_length: 15
+
   select_topics:
     ru: "Выбрать темы на неделю"
     en: "Select week topics"
