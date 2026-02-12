@@ -102,6 +102,18 @@ commands:
     ru: "/help — справка"
     en: "/help — help"
 
+  plan:
+    ru: "/plan — планы и отчёты"
+    en: "/plan — plans and reports"
+
+  notes:
+    ru: ". — заметка (текст после точки)"
+    en: ". — note (text after dot)"
+
+  consultation:
+    ru: "? — вопрос боту (текст после ?)"
+    en: "? — ask the bot (text after ?)"
+
 # -----------------------------------------------------------------------------
 # Меню (короткие описания для кнопок Telegram)
 # -----------------------------------------------------------------------------
@@ -599,6 +611,18 @@ settings:
   connections_label:
     ru: "Подключения"
     en: "Connections"
+
+  reset_label:
+    ru: "Сброс"
+    en: "Reset"
+
+  reset_title:
+    ru: "Сброс данных"
+    en: "Reset data"
+
+  reset_description:
+    ru: "Выберите, что хотите сбросить:"
+    en: "Choose what to reset:"
 
   twin_label:
     ru: "Цифровой двойник"

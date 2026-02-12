@@ -408,9 +408,12 @@ class ProfileState(BaseState):
             f"{t('commands.feed', lang)}\n"
             f"{t('commands.progress', lang)}\n"
             f"{t('commands.test', lang)}\n"
+            f"{t('commands.plan', lang)}\n"
             f"{t('commands.profile', lang)}\n"
             f"{t('commands.settings', lang)}\n"
-            f"{t('commands.help', lang)}\n"
+            f"{t('commands.help', lang)}\n\n"
+            f"{t('commands.notes', lang)}\n"
+            f"{t('commands.consultation', lang)}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
