@@ -150,7 +150,14 @@ class SettingsState(BaseState):
             return await self._handle_github_connection(user, callback)
 
         if data == "conn_twin":
-            # Цифровой двойник — в разработке
+            lang = self._get_lang(user)
+            await callback.message.edit_text(
+                f"🤖 *{t('settings.twin_label', lang)}*\n\n{t('settings.twin_coming_soon', lang)}",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                ]),
+            )
             return None
 
         if data == "github_select_repo":
