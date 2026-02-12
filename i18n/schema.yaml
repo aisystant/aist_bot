@@ -82,25 +82,25 @@ commands:
     ru: "/profile — мой профиль"
     en: "/profile — my profile"
 
-  update:
-    ru: "/update — настройки"
-    en: "/update — settings"
+  feed:
+    ru: "/feed — получить дайджест"
+    en: "/feed — get a digest"
+
+  test:
+    ru: "/test — тест систематичности"
+    en: "/test — systematicity test"
+
+  settings:
+    ru: "/settings — настройки системы"
+    en: "/settings — system settings"
 
   mode:
-    ru: "/mode — выбрать режим"
-    en: "/mode — select mode"
-
-  language:
-    ru: "/language — сменить язык"
-    en: "/language — change language"
+    ru: "/mode — главное меню"
+    en: "/mode — main menu"
 
   help:
     ru: "/help — справка"
     en: "/help — help"
-
-  feed:
-    ru: "/feed — получить дайджест"
-    en: "/feed — get digest"
 
 # -----------------------------------------------------------------------------
 # Меню (короткие описания для кнопок Telegram)

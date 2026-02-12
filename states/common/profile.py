@@ -53,6 +53,21 @@ class ProfileState(BaseState):
             return user.get('chat_id')
         return getattr(user, 'chat_id', None)
 
+    async def _set_waiting(self, user, field: str | None) -> None:
+        """Сохраняем waiting_for в current_context (персистентно в БД)."""
+        chat_id = self._get_chat_id(user)
+        ctx = user.get('current_context', {}) if isinstance(user, dict) else {}
+        ctx['settings_waiting_for'] = field
+        await update_intern(chat_id, current_context=ctx)
+        if isinstance(user, dict):
+            user['current_context'] = ctx
+
+    def _get_waiting(self, user) -> str | None:
+        """Читаем waiting_for из current_context."""
+        if isinstance(user, dict):
+            return user.get('current_context', {}).get('settings_waiting_for')
+        return None
+
     async def enter(self, user, context: dict = None) -> None:
         """Показываем карточку профиля с кнопками редактирования."""
         chat_id = self._get_chat_id(user)
@@ -144,20 +159,11 @@ class ProfileState(BaseState):
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
-        if isinstance(user, dict):
-            user['state_context'] = user.get('state_context', {})
-            user['state_context']['settings_waiting_for'] = None
-        else:
-            if not hasattr(user, 'state_context') or user.state_context is None:
-                user.state_context = {}
-            user.state_context['settings_waiting_for'] = None
+        await self._set_waiting(user, None)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Обрабатываем ввод пользователя."""
-        if isinstance(user, dict):
-            waiting_for = user.get('state_context', {}).get('settings_waiting_for')
-        else:
-            waiting_for = getattr(user, 'state_context', {}).get('settings_waiting_for') if hasattr(user, 'state_context') else None
+        waiting_for = self._get_waiting(user)
 
         text = (message.text or "").strip()
 
@@ -227,14 +233,7 @@ class ProfileState(BaseState):
             parse_mode="Markdown"
         )
 
-        if isinstance(user, dict):
-            user['state_context'] = user.get('state_context', {})
-            user['state_context']['settings_waiting_for'] = field
-        else:
-            if not hasattr(user, 'state_context') or user.state_context is None:
-                user.state_context = {}
-            user.state_context['settings_waiting_for'] = field
-
+        await self._set_waiting(user, field)
         return None
 
     async def _handle_text_input(self, user, field: str, text: str) -> Optional[str]:
@@ -255,10 +254,7 @@ class ProfileState(BaseState):
             await update_intern(chat_id, goals=text)
             await self.send(user, f"✅ {t('update.goals_changed', lang)}", parse_mode="Markdown")
 
-        if isinstance(user, dict):
-            user['state_context']['settings_waiting_for'] = None
-        else:
-            user.state_context['settings_waiting_for'] = None
+        await self._set_waiting(user, None)
 
         await self.enter(user)
         return None

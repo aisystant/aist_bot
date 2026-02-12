@@ -69,20 +69,13 @@ class ModeSelectState(BaseState):
 
         all_buttons = []
 
-        # Все сервисы в 2 колонки, без разделителей
+        # Каждый сервис — отдельная строка (полная ширина, корректно на Desktop)
         for services in [scenario_services, system_services]:
-            row = []
             for s in services:
-                btn = InlineKeyboardButton(
+                all_buttons.append([InlineKeyboardButton(
                     text=f"{s.icon} {t(s.i18n_key, lang)}",
                     callback_data=callback_protocol.encode("service", s.id),
-                )
-                row.append(btn)
-                if len(row) >= 2:
-                    all_buttons.append(row)
-                    row = []
-            if row:
-                all_buttons.append(row)
+                )])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 

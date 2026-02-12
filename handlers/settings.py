@@ -172,10 +172,11 @@ async def cmd_help(message: Message):
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.feed', lang)}\n"
         f"{t('commands.progress', lang)}\n"
+        f"{t('commands.test', lang)}\n"
         f"{t('commands.profile', lang)}\n"
-        f"{t('commands.update', lang)}\n"
+        f"{t('commands.settings', lang)}\n"
         f"{t('commands.mode', lang)}\n"
-        f"{t('commands.language', lang)}\n\n"
+        f"{t('commands.help', lang)}\n\n"
         f"_{t('help.schedule_note', lang)}_\n\n"
         f"*{t('help.feedback', lang)}:* @tserentserenov"
     )
