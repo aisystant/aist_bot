@@ -187,30 +187,35 @@ class ConsultationState(BaseState):
             await self.send(user, t('consultation.no_question', lang))
             return "answered"
 
-        # Показываем индикатор обработки
-        await self.send(user, f"💭 {t('consultation.thinking', lang)}")
-
         try:
-            if self._is_bot_question(question):
-                # --- Быстрый путь: вопрос о боте ---
-                answer = await self._answer_bot_question(user, question, lang)
-                response = self._format_response(answer, [], lang)
+            # --- L1: FAQ-матч (мгновенный, до любой классификации) ---
+            faq_answer = match_faq(question, lang)
+            if faq_answer:
+                response = self._format_response(faq_answer, [], lang)
             else:
-                # --- Доменный путь: MCP + Claude ---
-                from engines.shared import handle_question
+                # Показываем индикатор обработки (FAQ не совпал — будет задержка)
+                await self.send(user, f"💭 {t('consultation.thinking', lang)}")
 
-                context_topic = self._get_current_topic(user)
-                intern_dict = self._user_to_dict(user)
-                bot_context = get_self_knowledge(lang)
+                if self._is_bot_question(question):
+                    # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
+                    answer = await self._answer_bot_question(user, question, lang)
+                    response = self._format_response(answer, [], lang)
+                else:
+                    # --- L3: доменный путь → MCP + Claude ---
+                    from engines.shared import handle_question
 
-                answer, sources = await handle_question(
-                    question=question,
-                    intern=intern_dict,
-                    context_topic=context_topic,
-                    bot_context=bot_context,
-                )
+                    context_topic = self._get_current_topic(user)
+                    intern_dict = self._user_to_dict(user)
+                    bot_context = get_self_knowledge(lang)
 
-                response = self._format_response(answer, sources, lang)
+                    answer, sources = await handle_question(
+                        question=question,
+                        intern=intern_dict,
+                        context_topic=context_topic,
+                        bot_context=bot_context,
+                    )
+
+                    response = self._format_response(answer, sources, lang)
 
             # Добавляем deep link если вопрос относится к сервису
             service_id = self._detect_service_intent(question)

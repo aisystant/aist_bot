@@ -79,9 +79,9 @@ class ModeSelectState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 
-        # Убираем старую ReplyKeyboard, затем показываем меню с заголовком
-        await self.send(user, "​", reply_markup=ReplyKeyboardRemove())  # zero-width space
-        await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
+        # Убираем старую ReplyKeyboard + показываем меню одним сообщением
+        await self.send(user, t('menu.main_title', lang), reply_markup=ReplyKeyboardRemove())
+        await self.send(user, "⬇️", reply_markup=keyboard)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
