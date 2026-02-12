@@ -187,9 +187,12 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"{t('commands.feed', lang)}\n"
         f"{t('commands.progress', lang)}\n"
         f"{t('commands.test', lang)}\n"
+        f"{t('commands.plan', lang)}\n"
         f"{t('commands.profile', lang)}\n"
         f"{t('commands.settings', lang)}\n"
-        f"{t('commands.help', lang)}"
+        f"{t('commands.help', lang)}\n\n"
+        f"{t('commands.notes', lang)}\n"
+        f"{t('commands.consultation', lang)}"
     )
 
     await callback.message.edit_text(text, parse_mode="Markdown")

@@ -29,9 +29,28 @@ def _is_main_router_callback(callback: CallbackQuery) -> bool:
 
 @fallback_router.callback_query(_is_main_router_callback)
 async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
-    """Обработка неизвестных callback-запросов (истёкшие кнопки и т.д.)."""
+    """Обработка callback-запросов — делегирование в State Machine."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    chat_id = callback.message.chat.id
+
+    if dispatcher and dispatcher.is_sm_active:
+        try:
+            await state.clear()
+            intern = await get_intern(chat_id)
+            if intern:
+                handled = await dispatcher.route_callback(intern, callback)
+                if handled:
+                    return
+        except Exception as e:
+            logger.error(f"[SM] Error routing callback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    # SM не обработала или не активна — показываем "кнопка устарела"
     logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
-    intern = await get_intern(callback.message.chat.id)
+    intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
     await callback.answer(t('fsm.button_expired', lang), show_alert=True)
 

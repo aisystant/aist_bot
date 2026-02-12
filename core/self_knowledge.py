@@ -293,11 +293,14 @@ def get_self_knowledge(lang: str = 'ru') -> str:
 def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
     """Проверить, совпадает ли вопрос с FAQ (L1 кеш).
 
-    Простое keyword-совпадение. Возвращает ответ или None.
+    Скоринг по количеству совпавших keywords. Возвращает лучший ответ или None.
     """
     _parse_pack()
 
     q_lower = question.lower()
+
+    best_item = None
+    best_score = 0
 
     for item in _faq:
         keywords = item.get('keywords', [])
@@ -305,8 +308,12 @@ def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
             continue
 
         matched = sum(1 for kw in keywords if kw in q_lower)
-        if matched >= 1:
-            return item.get(f'answer_{lang}') or item.get('answer_ru', '')
+        if matched > best_score:
+            best_score = matched
+            best_item = item
+
+    if best_item and best_score >= 1:
+        return best_item.get(f'answer_{lang}') or best_item.get('answer_ru', '')
 
     return None
 
