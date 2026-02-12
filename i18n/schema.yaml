@@ -1526,6 +1526,10 @@ help:
     ru: "Основные команды"
     en: "Main commands"
 
+  all_commands:
+    ru: "Все команды"
+    en: "All commands"
+
   feed_cmd:
     ru: "получить дайджест (Лента)"
     en: "get digest (Feed)"

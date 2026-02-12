@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -169,7 +169,25 @@ async def cmd_help(message: Message):
         f"_{t('help.ai_questions', lang)}_\n"
         f"_{t('help.ai_questions_example', lang)}_\n\n"
         f"_{t('help.schedule_note', lang)}_\n\n"
-        f"*{t('help.commands_title', lang)}*\n"
+        f"*{t('help.feedback', lang)}:* @tserentserenov"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 " + t('help.all_commands', lang), callback_data="help_all_commands")]
+    ])
+    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+@settings_router.callback_query(F.data == "help_all_commands")
+async def cb_help_all_commands(callback: CallbackQuery):
+    """Показать все команды бота."""
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
+
+    await callback.answer()
+
+    text = (
+        f"*{t('help.commands_title', lang)}*\n\n"
         f"{t('commands.mode', lang)}\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.feed', lang)}\n"
@@ -177,10 +195,10 @@ async def cmd_help(message: Message):
         f"{t('commands.test', lang)}\n"
         f"{t('commands.profile', lang)}\n"
         f"{t('commands.settings', lang)}\n"
-        f"{t('commands.help', lang)}\n\n"
-        f"*{t('help.feedback', lang)}:* @tserentserenov"
+        f"{t('commands.help', lang)}"
     )
-    await message.answer(text, parse_mode="Markdown")
+
+    await callback.message.edit_text(text, parse_mode="Markdown")
 
 
 @settings_router.message(Command("language"))
