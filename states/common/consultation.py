@@ -28,11 +28,14 @@ from i18n import t
 _BOT_KEYWORDS_RU = [
     "бот", "умеешь", "можешь", "команд", "функц", "помощ",
     "кнопк", "меню", "серви", "навиг", "как пользо", "что делает",
-    "как работает бот", "возможност",
+    "как работает бот", "возможност", "о себе", "кто ты", "расскаж",
+    "знаешь о", "представ", "что ты", "твои возможн", "твои функц",
 ]
 _BOT_KEYWORDS_EN = [
     "bot", "can you", "feature", "command", "help", "menu",
     "service", "navigate", "how to use", "what can", "how does the bot",
+    "about yourself", "who are you", "tell me about", "your capabilit",
+    "introduce", "what are you",
 ]
 _BOT_KEYWORDS = _BOT_KEYWORDS_RU + _BOT_KEYWORDS_EN
 

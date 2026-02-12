@@ -67,6 +67,10 @@ class ServiceRegistry:
         user_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
 
         for service in self._services.values():
+            # Фильтр по visible
+            if not service.visible:
+                continue
+
             # Фильтр по категории
             if category and service.category != category:
                 continue

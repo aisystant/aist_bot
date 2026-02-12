@@ -26,6 +26,7 @@ class ServiceDescriptor:
         feature_flag: Фича-флаг для биллинга (None = всем доступен)
         access_check: Асинхронная функция проверки доступа (user_id) -> bool
         mode_entry_states: Для mode-aware сервисов: {mode: entry_state}
+        visible: Показывать ли в меню (False = скрыт, но команды работают)
     """
     id: str
     i18n_key: str
@@ -39,6 +40,7 @@ class ServiceDescriptor:
     feature_flag: Optional[str] = None
     access_check: Optional[Callable[..., Awaitable[bool]]] = None
     mode_entry_states: Optional[dict[str, str]] = None
+    visible: bool = True
 
     def get_entry_state(self, user: dict = None) -> str:
         """Получить entry_state с учётом режима пользователя."""
