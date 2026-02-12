@@ -87,15 +87,17 @@ class ProgressState(BaseState):
         total_wp_week = marathon_stats.get('work_products', 0)
 
         # Марафон: день и пройденные темы
+        from core.topics import get_marathon_day
+        from db.queries import get_intern
+        intern = await get_intern(chat_id)
+
         if isinstance(user, dict):
             completed_topics = user.get('completed_topics', [])
-            marathon_started = user.get('marathon_started_at')
         else:
             completed_topics = getattr(user, 'completed_topics', []) or []
-            marathon_started = getattr(user, 'marathon_started_at', None)
 
         done = len(completed_topics) if completed_topics else 0
-        marathon_day = self._get_marathon_day(marathon_started)
+        marathon_day = get_marathon_day(intern) if intern else 1
 
         # Лента: темы
         try:
@@ -192,14 +194,16 @@ class ProgressState(BaseState):
         total_active = total_stats.get('total_active_days', 0)
 
         # Марафон
+        from core.topics import get_marathon_day
+        from db.queries import get_intern
+        intern = await get_intern(chat_id)
+
         if isinstance(user, dict):
             completed_topics = user.get('completed_topics', [])
-            marathon_started = user.get('marathon_started_at')
         else:
             completed_topics = getattr(user, 'completed_topics', []) or []
-            marathon_started = getattr(user, 'marathon_started_at', None)
 
-        marathon_day = self._get_marathon_day(marathon_started)
+        marathon_day = get_marathon_day(intern) if intern else 1
 
         # Прогресс по Урокам и Заданиям
         progress = self._get_lessons_tasks_progress(completed_topics)
@@ -281,20 +285,6 @@ class ProgressState(BaseState):
         ])
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
-
-    def _get_marathon_day(self, marathon_started) -> int:
-        """Вычислить текущий день марафона."""
-        from datetime import datetime, timezone
-
-        if not marathon_started:
-            return 1
-
-        now = datetime.now(timezone.utc)
-        if marathon_started.tzinfo is None:
-            marathon_started = marathon_started.replace(tzinfo=timezone.utc)
-
-        days_passed = (now - marathon_started).days + 1
-        return min(max(days_passed, 1), MARATHON_DAYS)
 
     def _get_lessons_tasks_progress(self, completed_topics: list) -> dict:
         """Получить прогресс по урокам и заданиям."""
