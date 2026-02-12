@@ -177,8 +177,8 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
-async def _is_in_sm_settings_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в common.settings стейте SM."""
+async def _is_in_sm_profile_or_settings_state(callback: CallbackQuery) -> bool:
+    """Фильтр: пользователь в common.profile или common.settings стейте SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -187,15 +187,16 @@ async def _is_in_sm_settings_state(callback: CallbackQuery) -> bool:
     intern = await get_intern(callback.message.chat.id)
     if not intern:
         return False
-    return intern.get('current_state') == "common.settings"
+    current = intern.get('current_state', '')
+    return current in ("common.profile", "common.settings")
 
 
 @callbacks_router.callback_query(
     F.data.startswith("upd_") | F.data.startswith("settings_") | F.data.startswith("duration_") | F.data.startswith("bloom_") | F.data.startswith("lang_"),
-    _is_in_sm_settings_state
+    _is_in_sm_profile_or_settings_state
 )
 async def cb_settings_actions(callback: CallbackQuery, state: FSMContext):
-    """Settings callback-ы через SM."""
+    """Profile/Settings callback-ы через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -204,11 +205,11 @@ async def cb_settings_actions(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    logger.info(f"[CB] Settings callback '{callback.data}' for chat_id={callback.message.chat.id}")
+    logger.info(f"[CB] Profile/Settings callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.error(f"[CB] Error handling settings callback: {e}")
+        logger.error(f"[CB] Error handling profile/settings callback: {e}")
         import traceback
         logger.error(traceback.format_exc())
         await callback.answer()

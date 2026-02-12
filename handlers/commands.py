@@ -83,9 +83,9 @@ async def cmd_feed(message: Message, state: FSMContext):
     await message.answer(t('feed.not_available', lang))
 
 
-@commands_router.message(Command("update"))
-async def cmd_update(message: Message, state: FSMContext):
-    """Настройки через Dispatcher → common.settings."""
+@commands_router.message(Command("profile"))
+async def cmd_profile(message: Message, state: FSMContext):
+    """Профиль пользователя через Dispatcher → common.profile."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -97,7 +97,29 @@ async def cmd_update(message: Message, state: FSMContext):
 
     if dispatcher and dispatcher.is_sm_active:
         await state.clear()
-        await dispatcher.route_command('update', intern)
+        await dispatcher.route_command('profile', intern)
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    await message.answer(t('errors.processing_error', lang))
+
+
+@commands_router.message(Command("settings"))
+@commands_router.message(Command("update"))
+async def cmd_settings(message: Message, state: FSMContext):
+    """Настройки системы через Dispatcher → common.settings."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(message.chat.id)
+    if not intern or not intern.get('onboarding_completed'):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('errors.try_again', lang) + " /start")
+        return
+
+    if dispatcher and dispatcher.is_sm_active:
+        await state.clear()
+        await dispatcher.route_command('settings', intern)
         return
 
     # Legacy fallback — show update screen directly

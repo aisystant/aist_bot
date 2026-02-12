@@ -583,6 +583,14 @@ settings:
     ru: "Что хочешь обновить?"
     en: "What would you like to update?"
 
+  language_label:
+    ru: "Язык"
+    en: "Language"
+
+  schedule_label:
+    ru: "Расписание"
+    en: "Schedule"
+
   language:
     title:
       ru: "Выбери язык:"
@@ -2407,6 +2415,25 @@ error:
 # Сервисы (названия для меню, генерируемого из реестра)
 # -----------------------------------------------------------------------------
 service:
+  marathon:
+    ru: "Марафон"
+    en: "Marathon"
+  feed:
+    ru: "Лента"
+    en: "Feed"
+  progress:
+    ru: "Прогресс"
+    en: "Progress"
+  assessment:
+    ru: "Тест"
+    en: "Test"
+  profile:
+    ru: "Профиль"
+    en: "Profile"
+  settings:
+    ru: "Настройки"
+    en: "Settings"
+  # Скрытые сервисы (visible=false, команды работают)
   learning:
     ru: "Практика"
     en: "Practice"
@@ -2416,18 +2443,9 @@ service:
   notes:
     ru: "Заметки"
     en: "Notes"
-  progress:
-    ru: "Прогресс"
-    en: "Progress"
-  assessment:
-    ru: "Тест"
-    en: "Test"
   twin:
     ru: "Цифровой двойник"
     en: "Digital Twin"
-  settings:
-    ru: "Настройки"
-    en: "Settings"
 
 # -----------------------------------------------------------------------------
 # Меню (генерируемое из реестра)

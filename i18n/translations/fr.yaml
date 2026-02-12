@@ -617,13 +617,16 @@ error:
   choose_action: "Choisis une action dans le menu ou utilise les commandes"
 
 service:
+  marathon: "Marathon"
+  feed: "Fil"
+  progress: "Progrès"
+  assessment: "Test"
+  profile: "Profil"
+  settings: "Paramètres"
   learning: "Pratique"
   plans: "Plans"
   notes: "Notes"
-  progress: "Progrès"
-  assessment: "Test"
   twin: "Jumeau numérique"
-  settings: "Paramètres"
 
 menu:
   main_title: "Choisis un service :"

@@ -44,8 +44,15 @@ states:
       settings: common.settings
     allow_global: [consultation, notes]
 
+  common.profile:
+    description: "Профиль пользователя (персональные данные)"
+    events:
+      saved: common.mode_select
+      cancel: _previous
+    allow_global: [consultation, notes]
+
   common.settings:
-    description: "Настройки пользователя"
+    description: "Настройки системы (язык, расписание, подключения)"
     events:
       saved: common.mode_select
       cancel: _previous

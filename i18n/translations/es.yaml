@@ -627,13 +627,16 @@ error:
   choose_action: "Elige una acción del menú o usa los comandos"
 
 service:
+  marathon: "Maratón"
+  feed: "Feed"
+  progress: "Progreso"
+  assessment: "Test"
+  profile: "Perfil"
+  settings: "Ajustes"
   learning: "Práctica"
   plans: "Planes"
   notes: "Notas"
-  progress: "Progreso"
-  assessment: "Test"
   twin: "Gemelo Digital"
-  settings: "Ajustes"
 
 menu:
   main_title: "Elige un servicio:"

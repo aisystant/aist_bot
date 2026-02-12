@@ -21,7 +21,7 @@ _LEGACY_COMMAND_MAP = {
     'feed': 'feed.topics',
     'mode': 'common.mode_select',
     'update': 'common.settings',
-    'settings': 'common.settings',
+    'language': 'common.settings',
     'assessment': 'workshop.assessment.flow',
 }
 
@@ -76,7 +76,7 @@ class Dispatcher:
 
         Использует ServiceRegistry для определения entry_state.
         """
-        service = registry.get("learning")
+        service = registry.get("marathon")
         if service:
             target = service.get_entry_state(user)
         else:
