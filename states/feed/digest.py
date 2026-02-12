@@ -102,9 +102,6 @@ class FeedDigestState(BaseState):
         intern = self._user_to_intern_dict(user)
         context = context or {}
 
-        # Удаляем Reply Keyboard (если остался от Marathon)
-        await self.send(user, f"📚 {t('feed.menu_title', lang)}", reply_markup=ReplyKeyboardRemove())
-
         # Получаем текущую неделю
         week = await get_current_feed_week(chat_id)
 

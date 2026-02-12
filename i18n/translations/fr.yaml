@@ -350,7 +350,7 @@ help:
   feed_desc: "Mode flexible pour ceux qui veulent étudier des sujets à leur propre rythme sans contraintes de délais. Tu choisis jusqu'à 3 sujets et reçois des résumés quotidiens. Après chaque résumé — une fixation (ta conclusion personnelle)."
   ai_questions: "Dans les deux modes, tu peux poser des questions à l'IA. Commence ton message par ? pour poser une question."
   ai_questions_example: "Exemple : ?Qu'est-ce que l'autodiscipline ?"
-  commands_title: "Commandes principales"
+  commands_title: "Commandes du bot"
   feed_cmd: "obtenir le résumé (Fil)"
   how_it_works: "Comment utiliser le bot"
   step1: "1. Tu configures le mode, l'heure du contenu, etc."

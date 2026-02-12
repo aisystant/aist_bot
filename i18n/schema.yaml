@@ -1661,8 +1661,8 @@ help:
     en: "Example: ?What is self-discipline?"
 
   commands_title:
-    ru: "Основные команды"
-    en: "Main commands"
+    ru: "Команды бота"
+    en: "Bot commands"
 
   all_commands:
     ru: "Все команды"
