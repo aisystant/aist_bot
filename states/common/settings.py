@@ -146,9 +146,21 @@ class SettingsState(BaseState):
         if data.startswith("lang_"):
             return await self._save_language(user, callback, data)
 
-        if data in ("conn_github", "conn_twin"):
-            # Заглушка — подключения пока в разработке
+        if data == "conn_github":
+            return await self._handle_github_connection(user, callback)
+
+        if data == "conn_twin":
+            # Цифровой двойник — в разработке
             return None
+
+        if data == "github_select_repo":
+            return await self._github_select_repo(user, callback)
+
+        if data.startswith("github_repo:"):
+            return await self._github_repo_selected(user, callback, data)
+
+        if data == "github_disconnect":
+            return await self._github_disconnect(user, callback)
 
         if data == "settings_back_to_menu":
             await self.enter(user)
@@ -242,10 +254,22 @@ class SettingsState(BaseState):
         """Показываем подключения к сторонним сервисам."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
-        intern = await get_intern(chat_id)
 
-        github_link = intern.get('github_link', '') if intern else ''
-        github_status = f"✅ {github_link}" if github_link else t('settings.not_connected', lang)
+        # Проверяем GitHub подключение из github_connections таблицы
+        from db.queries.github import get_github_connection
+        gh_conn = await get_github_connection(chat_id)
+
+        if gh_conn:
+            gh_username = gh_conn.get('github_username', '')
+            gh_repo = gh_conn.get('target_repo', '')
+            if gh_username and gh_repo:
+                github_status = f"✅ @{gh_username} → `{gh_repo}`"
+            elif gh_username:
+                github_status = f"✅ @{gh_username}"
+            else:
+                github_status = "✅ " + t('settings.connected', lang)
+        else:
+            github_status = t('settings.not_connected', lang)
 
         text = (
             f"🔗 *{t('settings.connections_label', lang)}*\n\n"
@@ -260,4 +284,153 @@ class SettingsState(BaseState):
         ])
 
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _handle_github_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус GitHub или кнопку подключения."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.github_oauth import github_oauth
+
+        is_connected = await github_oauth.is_connected(chat_id)
+
+        if is_connected:
+            user_info = await github_oauth.get_user(chat_id)
+            login = user_info.get("login", "user") if user_info else "user"
+            target_repo = await github_oauth.get_target_repo(chat_id)
+            notes_path = await github_oauth.get_notes_path(chat_id)
+
+            lines = [f"🐙 *GitHub {t('settings.connected', lang)}*\n"]
+            lines.append(f"{t('settings.github_user', lang)}: *{login}*")
+
+            buttons = []
+            if target_repo:
+                lines.append(f"{t('settings.github_repo', lang)}: `{target_repo}`")
+                lines.append(f"{t('settings.github_path', lang)}: `{notes_path}`")
+            else:
+                buttons.append([InlineKeyboardButton(
+                    text=t('settings.github_select_repo', lang),
+                    callback_data="github_select_repo",
+                )])
+
+            buttons.append([InlineKeyboardButton(
+                text=t('settings.github_disconnect', lang),
+                callback_data="github_disconnect",
+            )])
+            buttons.append([InlineKeyboardButton(
+                text=t('buttons.back', lang),
+                callback_data="upd_connections",
+            )])
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await callback.message.edit_text(
+                "\n".join(lines), parse_mode="Markdown", reply_markup=keyboard
+            )
+        else:
+            try:
+                auth_url, state = github_oauth.get_authorization_url(chat_id)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('settings.github_connect', lang), url=auth_url)],
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+                ])
+                await callback.message.edit_text(
+                    f"🐙 *GitHub*\n\n{t('settings.github_connect_desc', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+            except (ValueError, Exception) as e:
+                logger.error(f"GitHub OAuth error: {e}")
+                await callback.message.edit_text(
+                    f"🐙 *GitHub*\n\n{t('settings.github_unavailable', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                    ]),
+                )
+
+        return None
+
+    async def _github_select_repo(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем список репозиториев для выбора."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.github_oauth import github_oauth
+
+        if not await github_oauth.is_connected(chat_id):
+            await callback.message.edit_text(
+                t('settings.not_connected', lang),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
+                ]),
+            )
+            return None
+
+        repos = await github_oauth.get_repos(chat_id, limit=20)
+        if not repos:
+            await callback.message.edit_text(
+                f"🐙 {t('settings.github_no_repos', lang)}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
+                ]),
+            )
+            return None
+
+        buttons = []
+        for repo in repos[:10]:
+            full_name = repo.get("full_name", "")
+            name = repo.get("name", "")
+            buttons.append([InlineKeyboardButton(
+                text=name, callback_data=f"github_repo:{full_name}",
+            )])
+        buttons.append([InlineKeyboardButton(
+            text=t('buttons.back', lang), callback_data="conn_github",
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.edit_text(
+            f"🐙 *{t('settings.github_select_repo', lang)}:*",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+        return None
+
+    async def _github_repo_selected(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохраняем выбранный репозиторий."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.github_oauth import github_oauth
+
+        repo_full_name = data.split(":", 1)[1]
+        await github_oauth.set_target_repo(chat_id, repo_full_name)
+        notes_path = await github_oauth.get_notes_path(chat_id)
+
+        await callback.message.edit_text(
+            f"✅ {t('settings.github_repo', lang)}: `{repo_full_name}`\n"
+            f"{t('settings.github_path', lang)}: `{notes_path}`",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
+            ]),
+        )
+        return None
+
+    async def _github_disconnect(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Отключаем GitHub."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.github_oauth import github_oauth
+
+        if await github_oauth.is_connected(chat_id):
+            await github_oauth.disconnect(chat_id)
+
+        await callback.message.edit_text(
+            f"🐙 GitHub {t('settings.not_connected', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+            ]),
+        )
         return None

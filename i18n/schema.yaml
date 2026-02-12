@@ -612,6 +612,46 @@ settings:
     ru: "скоро"
     en: "coming soon"
 
+  connected:
+    ru: "подключён"
+    en: "connected"
+
+  github_user:
+    ru: "Пользователь"
+    en: "User"
+
+  github_repo:
+    ru: "Репозиторий"
+    en: "Repository"
+
+  github_path:
+    ru: "Путь"
+    en: "Path"
+
+  github_select_repo:
+    ru: "Выбрать репозиторий"
+    en: "Select repository"
+
+  github_disconnect:
+    ru: "Отключить GitHub"
+    en: "Disconnect GitHub"
+
+  github_connect:
+    ru: "Подключить GitHub"
+    en: "Connect GitHub"
+
+  github_connect_desc:
+    ru: "Подключите GitHub для записи заметок прямо из Telegram в ваш репозиторий."
+    en: "Connect GitHub to save notes from Telegram to your repository."
+
+  github_unavailable:
+    ru: "GitHub-интеграция временно недоступна."
+    en: "GitHub integration is temporarily unavailable."
+
+  github_no_repos:
+    ru: "Не удалось получить список репозиториев."
+    en: "Could not get repository list."
+
   language:
     title:
       ru: "Выбери язык:"
