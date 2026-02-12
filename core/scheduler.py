@@ -50,13 +50,52 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     return _scheduler
 
 
+async def send_feed_notification(chat_id: int, bot: Bot):
+    """Отправка уведомления о готовности дайджеста для пользователей в режиме Лента."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    feed_status = intern.get('feed_status', 'not_started')
+
+    if feed_status != 'active':
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")]
+    ])
+
+    try:
+        await bot.send_message(
+            chat_id,
+            f"*{t('reminders.feed_digest_reminder', lang)}*\n\n"
+            f"{t('reminders.feed_digest_cta', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"[Scheduler] Sent feed notification to {chat_id}")
+    except Exception as e:
+        error_msg = str(e).lower()
+        if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+            logger.error(f"[Scheduler] Error sending feed notification to {chat_id}: {e}")
+
+
 async def send_scheduled_topic(chat_id: int, bot: Bot):
-    """Отправка темы по расписанию."""
-    # Lazy imports from bot.py (legacy functions)
+    """Отправка темы марафона по расписанию."""
     from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    # Проверяем что марафон активен
+    marathon_status = intern.get('marathon_status', 'not_started')
+    if marathon_status != 'active':
+        logger.info(f"[Scheduler] {chat_id}: marathon not active ({marathon_status}), skip")
+        return
+
     marathon_day = get_marathon_day(intern)
 
     # Проверяем, начался ли марафон
@@ -263,17 +302,20 @@ async def scheduled_check():
     if now.minute % 10 == 0:
         logger.info(f"[Scheduler] Проверка в {time_str} MSK")
 
-    chat_ids = await get_all_scheduled_interns(now.hour, now.minute)
+    scheduled = await get_all_scheduled_interns(now.hour, now.minute)
 
-    if chat_ids:
-        logger.info(f"[Scheduler] {time_str} MSK — найдено {len(chat_ids)} пользователей для отправки")
+    if scheduled:
+        logger.info(f"[Scheduler] {time_str} MSK — найдено {len(scheduled)} пользователей для отправки")
         bot = Bot(token=_bot_token)
         me = await bot.get_me()
         logger.info(f"[Scheduler] Bot ID: {bot.id}, username: {me.username}")
-        for chat_id in chat_ids:
+        for chat_id, send_type in scheduled:
             try:
-                await send_scheduled_topic(chat_id, bot)
-                logger.info(f"[Scheduler] Отправлена тема пользователю {chat_id}")
+                if send_type in ('marathon', 'both'):
+                    await send_scheduled_topic(chat_id, bot)
+                if send_type in ('feed', 'both'):
+                    await send_feed_notification(chat_id, bot)
+                logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
             except Exception as e:
                 error_msg = str(e).lower()
                 if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:

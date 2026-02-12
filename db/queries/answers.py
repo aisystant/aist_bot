@@ -269,7 +269,7 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
 
 async def get_total_stats(chat_id: int) -> dict:
     """
-    Получить общую статистику с даты регистрации.
+    Получить общую статистику с даты регистрации (или с даты сброса).
 
     Returns:
         {
@@ -278,13 +278,15 @@ async def get_total_stats(chat_id: int) -> dict:
             'total_active_days': int,
             'total_work_products': int,
             'total_digests': int,
-            'total_fixations': int
+            'total_fixations': int,
+            'stats_reset_date': date | None
         }
     """
     from .users import get_intern, moscow_today
 
     user = await get_intern(chat_id)
     today = moscow_today()
+    stats_reset_date = user.get('stats_reset_date')
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -296,7 +298,6 @@ async def get_total_stats(chat_id: int) -> dict:
             else:
                 start_date = created_at
         else:
-            # Fallback: берём первую дату активности или первый ответ
             first_activity = await conn.fetchval('''
                 SELECT MIN(activity_date) FROM activity_log WHERE chat_id = $1
             ''', chat_id)
@@ -308,24 +309,27 @@ async def get_total_stats(chat_id: int) -> dict:
                 ''', chat_id)
                 start_date = first_answer if first_answer else today
 
-        days_since_start = (today - start_date).days + 1
+        # Если был сброс — считаем от даты сброса
+        count_from = stats_reset_date if stats_reset_date else start_date
+        days_since_start = (today - count_from).days + 1
 
-        # Всего активных дней (из activity_log)
+        # Всего активных дней (от даты сброса)
         total_active_days = await conn.fetchval('''
             SELECT COUNT(DISTINCT activity_date)
             FROM activity_log
-            WHERE chat_id = $1
-        ''', chat_id)
+            WHERE chat_id = $1 AND activity_date >= $2
+        ''', chat_id, count_from)
 
-        # Всего рабочих продуктов (уникальные topic_index)
+        # Всего рабочих продуктов (от даты сброса)
         work_products = await conn.fetchval('''
             SELECT COUNT(DISTINCT topic_index)
             FROM answers
             WHERE chat_id = $1
               AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
-        ''', chat_id)
+              AND created_at >= $2
+        ''', chat_id, count_from)
 
-        # Всего дайджестов (только завершённые)
+        # Всего дайджестов (от даты сброса)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
             FROM feed_sessions
@@ -333,15 +337,17 @@ async def get_total_stats(chat_id: int) -> dict:
                 SELECT id FROM feed_weeks WHERE chat_id = $1
             )
             AND status = 'completed'
-        ''', chat_id)
+            AND created_at >= $2
+        ''', chat_id, count_from)
 
-        # Всего фиксаций
+        # Всего фиксаций (от даты сброса)
         fixations = await conn.fetchval('''
             SELECT COUNT(*)
             FROM answers
             WHERE chat_id = $1
               AND answer_type = 'fixation'
-        ''', chat_id)
+              AND created_at >= $2
+        ''', chat_id, count_from)
 
     return {
         'registered_at': start_date,
@@ -349,5 +355,24 @@ async def get_total_stats(chat_id: int) -> dict:
         'total_active_days': total_active_days or 0,
         'total_work_products': work_products or 0,
         'total_digests': digests or 0,
-        'total_fixations': fixations or 0
+        'total_fixations': fixations or 0,
+        'stats_reset_date': stats_reset_date,
     }
+
+
+async def reset_user_stats(chat_id: int) -> None:
+    """
+    Сбросить статистику пользователя.
+    Сохраняет active_days_total (общее количество активных дней).
+    Сбрасывает: streak, longest_streak, last_active_date.
+    Устанавливает stats_reset_date = сегодня.
+    """
+    from .users import update_intern, moscow_today
+
+    today = moscow_today()
+    await update_intern(chat_id,
+        stats_reset_date=today,
+        active_days_streak=0,
+        longest_streak=0,
+        last_active_date=None,
+    )

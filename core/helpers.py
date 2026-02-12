@@ -24,6 +24,7 @@ logger = get_logger(__name__)
 MODE_STATE_MAP = {
     'marathon': 'workshop.marathon.lesson',
     'feed': 'feed.digest',
+    'both': 'workshop.marathon.lesson',  # /learn → марафон при обоих режимах
 }
 
 

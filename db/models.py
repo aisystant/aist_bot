@@ -119,6 +119,7 @@ async def create_tables(pool: asyncpg.Pool):
 
             # Второе напоминание
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS schedule_time_2 TEXT DEFAULT NULL',
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_schedule_time TEXT DEFAULT NULL',
         ]
         
         for migration in migrations:
@@ -354,10 +355,11 @@ async def create_tables(pool: asyncpg.Pool):
             ON assessments(chat_id)
         ''')
 
-        # Миграции для interns — поля последней оценки
+        # Миграции для interns — поля последней оценки + сброс статистики
         assessment_migrations = [
             "ALTER TABLE interns ADD COLUMN IF NOT EXISTS assessment_state TEXT DEFAULT NULL",
             "ALTER TABLE interns ADD COLUMN IF NOT EXISTS assessment_date DATE DEFAULT NULL",
+            "ALTER TABLE interns ADD COLUMN IF NOT EXISTS stats_reset_date DATE DEFAULT NULL",
         ]
         for migration in assessment_migrations:
             try:

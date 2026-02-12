@@ -100,6 +100,7 @@ def _row_to_dict(row) -> dict:
         # Лента
         'feed_status': safe_get('feed_status', 'not_started'),
         'feed_started_at': safe_get('feed_started_at', None),
+        'feed_schedule_time': safe_get('feed_schedule_time', None),
         
         # Систематичность
         'active_days_total': safe_get('active_days_total', 0),
@@ -110,6 +111,9 @@ def _row_to_dict(row) -> dict:
         # Оценка
         'assessment_state': safe_get('assessment_state', None),
         'assessment_date': safe_get('assessment_date', None),
+
+        # Сброс статистики
+        'stats_reset_date': safe_get('stats_reset_date', None),
 
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
@@ -159,7 +163,8 @@ def _get_default_intern(chat_id: int) -> dict:
         
         'feed_status': 'not_started',
         'feed_started_at': None,
-        
+        'feed_schedule_time': None,
+
         'active_days_total': 0,
         'active_days_streak': 0,
         'longest_streak': 0,
@@ -167,6 +172,8 @@ def _get_default_intern(chat_id: int) -> dict:
 
         'assessment_state': None,
         'assessment_date': None,
+
+        'stats_reset_date': None,
 
         'onboarding_completed': False,
         'language': 'ru',
@@ -226,16 +233,70 @@ async def update_user_state(chat_id: int, state_name: str) -> None:
     logger.debug(f"[SM] User {chat_id} state updated to: {state_name}")
 
 
-async def get_all_scheduled_interns(hour: int, minute: int) -> List[int]:
-    """Получить всех пользователей с заданным временем обучения"""
+def derive_mode(marathon_status: str, feed_status: str) -> str:
+    """Вычислить эффективный режим из независимых статусов.
+
+    Returns 'both', 'feed' или 'marathon' (по умолчанию).
+    """
+    m_active = marathon_status in ('active', 'completed')
+    f_active = feed_status == 'active'
+    if m_active and f_active:
+        return 'both'
+    elif f_active:
+        return 'feed'
+    return 'marathon'
+
+
+async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
+    """Получить пользователей для отправки по расписанию.
+
+    Returns:
+        list of (chat_id, send_type) где send_type = 'marathon' | 'feed' | 'both'
+    """
     pool = await get_pool()
     time_str = f"{hour:02d}:{minute:02d}"
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            'SELECT chat_id FROM interns WHERE schedule_time = $1 AND onboarding_completed = TRUE',
+        # Марафон: schedule_time совпадает, марафон активен
+        marathon_rows = await conn.fetch(
+            '''SELECT chat_id FROM interns
+               WHERE schedule_time = $1
+                 AND marathon_status = 'active'
+                 AND onboarding_completed = TRUE''',
             time_str
         )
-        return [row['chat_id'] for row in rows]
+        marathon_ids = {row['chat_id'] for row in marathon_rows}
+
+        # Лента: feed_schedule_time совпадает, лента активна
+        feed_rows = await conn.fetch(
+            '''SELECT chat_id FROM interns
+               WHERE feed_schedule_time = $1
+                 AND feed_status = 'active'
+                 AND onboarding_completed = TRUE''',
+            time_str
+        )
+        feed_ids = {row['chat_id'] for row in feed_rows}
+
+        # Fallback: feed_schedule_time не задан → используем schedule_time
+        fallback_rows = await conn.fetch(
+            '''SELECT chat_id FROM interns
+               WHERE schedule_time = $1
+                 AND feed_schedule_time IS NULL
+                 AND feed_status = 'active'
+                 AND onboarding_completed = TRUE''',
+            time_str
+        )
+        feed_ids = feed_ids | {row['chat_id'] for row in fallback_rows}
+
+        # Объединяем
+        result = []
+        for cid in marathon_ids | feed_ids:
+            if cid in marathon_ids and cid in feed_ids:
+                result.append((cid, 'both'))
+            elif cid in feed_ids:
+                result.append((cid, 'feed'))
+            else:
+                result.append((cid, 'marathon'))
+        return result
 
 
 def get_topics_today(intern: dict) -> int:

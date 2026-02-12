@@ -147,7 +147,9 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule")],
         [InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom"),
          InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")],
-        [InlineKeyboardButton(text="🌐 Language (en, es, fr, ru)", callback_data="upd_language")]
+        [InlineKeyboardButton(text="🌐 Language (en, es, fr, ru)", callback_data="upd_language")],
+        [InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="marathon_reset_confirm"),
+         InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="stats_reset_confirm")],
     ])
 
 

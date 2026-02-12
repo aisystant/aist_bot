@@ -60,24 +60,20 @@ async def cmd_mode(message: Message):
         f"{t('modes.feed_daily', lang)}\n"
     )
 
-    # Кнопки выбора режима
+    # Кнопки выбора режима — независимые ✓ по статусам
+    marathon_active = marathon_status in (MarathonStatus.ACTIVE, MarathonStatus.COMPLETED)
+    feed_active = feed_status == FeedStatus.ACTIVE
+
     buttons = [
         [InlineKeyboardButton(
-            text=t('modes.marathon_button', lang) + (" ✓" if current_mode == Mode.MARATHON else ""),
+            text=t('modes.marathon_button', lang) + (" ✓" if marathon_active else ""),
             callback_data="mode_marathon"
         )],
         [InlineKeyboardButton(
-            text=t('modes.feed_button', lang) + (" ✓" if current_mode == Mode.FEED else ""),
+            text=t('modes.feed_button', lang) + (" ✓" if feed_active else ""),
             callback_data="mode_feed"
         )],
     ]
-
-    # Если оба режима активны, показываем статус "Оба"
-    if current_mode == Mode.BOTH:
-        buttons.append([InlineKeyboardButton(
-            text=t('modes.both_modes', lang),
-            callback_data="mode_both"
-        )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -95,26 +91,24 @@ async def select_marathon(callback: CallbackQuery):
         feed_status = intern.get('feed_status', FeedStatus.NOT_STARTED)
         has_progress = len(intern.get('completed_topics', [])) > 0 or intern.get('current_topic_index', 0) > 0
 
-        # Если была активная Лента - ставим на паузу
-        if feed_status == FeedStatus.ACTIVE:
-            await update_intern(chat_id,
-                mode=Mode.MARATHON,
-                marathon_status=MarathonStatus.ACTIVE if marathon_status != MarathonStatus.COMPLETED else MarathonStatus.COMPLETED,
-                feed_status=FeedStatus.PAUSED,
-            )
-            feed_paused = True
-        else:
-            await update_intern(chat_id,
-                mode=Mode.MARATHON,
-                marathon_status=MarathonStatus.ACTIVE if marathon_status != MarathonStatus.COMPLETED else MarathonStatus.COMPLETED,
-            )
-            feed_paused = False
+        # Активируем марафон, НЕ паузя ленту
+        from db.queries.users import derive_mode
+        new_marathon_status = (
+            MarathonStatus.ACTIVE
+            if marathon_status != MarathonStatus.COMPLETED
+            else MarathonStatus.COMPLETED
+        )
+        new_mode = derive_mode(new_marathon_status, feed_status)
+
+        await update_intern(chat_id,
+            mode=new_mode,
+            marathon_status=new_marathon_status,
+        )
 
         # Обновляем intern после изменений
         intern = await get_intern(chat_id)
 
-        # Показываем сообщение в стиле Ленты
-        await show_marathon_activated(callback.message, intern, feed_paused, edit=True)
+        await show_marathon_activated(callback.message, intern, edit=True)
         await callback.answer()
 
     except Exception as e:
@@ -123,8 +117,8 @@ async def select_marathon(callback: CallbackQuery):
         await callback.answer(t('modes.error_occurred', 'ru'), show_alert=True)
 
 
-async def show_marathon_activated(message, intern: dict, feed_paused: bool = False, edit: bool = False):
-    """Показывает сообщение об активации Марафона в стиле Ленты"""
+async def show_marathon_activated(message, intern: dict, edit: bool = False):
+    """Показывает сообщение об активации Марафона"""
     from db.queries.users import moscow_today
 
     lang = intern.get('language', 'ru') or 'ru'
@@ -160,9 +154,6 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
     if schedule_time_2:
         text += f"{t('modes.extra_reminder', lang)} {schedule_time_2}\n"
 
-    if feed_paused:
-        text += f"\n{t('modes.feed_paused', lang)}"
-
     # Кнопки
     buttons = [
         [InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="learn")],
@@ -181,17 +172,18 @@ async def show_marathon_activated(message, intern: dict, feed_paused: bool = Fal
 
 async def show_marathon_settings(message, intern: dict, edit: bool = False):
     """Показывает меню настроек марафона (устаревшая функция, используется show_marathon_activated)"""
-    # Перенаправляем на новую функцию
-    await show_marathon_activated(message, intern, feed_paused=False, edit=edit)
+    await show_marathon_activated(message, intern, edit=edit)
 
 
-async def show_feed_activated(message, intern: dict, marathon_paused: bool = False, edit: bool = False):
+async def show_feed_activated(message, intern: dict, edit: bool = False):
     """Показывает сообщение об активации Ленты"""
     chat_id = message.chat.id if hasattr(message, 'chat') else intern.get('chat_id')
     lang = intern.get('language', 'ru') or 'ru'
 
-    # Получаем настройки
+    # Получаем настройки (с учётом отдельного расписания ленты)
+    feed_time = intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')
     settings_text = get_user_settings_text(intern, lang)
+    settings_text += f"\n{t('modes.feed_schedule_label', lang)} {feed_time}"
 
     # Проверяем, есть ли активная неделя
     from .feed.engine import FeedEngine
@@ -209,9 +201,6 @@ async def show_feed_activated(message, intern: dict, marathon_paused: bool = Fal
             text += f"\n{t('feed.your_topics_label', lang)}\n"
             for i, topic in enumerate(topics, 1):
                 text += f"{i}. {topic}\n"
-
-    if marathon_paused:
-        text += f"\n{t('modes.marathon_paused', lang)}"
 
     # Кнопки
     buttons = []
@@ -611,36 +600,33 @@ async def on_marathon_time_input(message: Message, state: FSMContext):
         )
         return
 
-    # Сохраняем времена
-    schedule_time = valid_times[0]
-    schedule_time_2 = valid_times[1] if len(valid_times) > 1 else None
-
-    await update_intern(chat_id, schedule_time=schedule_time, schedule_time_2=schedule_time_2)
-
     # Получаем данные состояния для определения куда возвращаться
     state_data = await state.get_data()
     return_to = state_data.get('return_to', 'marathon')
+
+    # Сохраняем времена — раздельно для марафона и ленты
+    schedule_time = valid_times[0]
+    if return_to == 'feed':
+        await update_intern(chat_id, feed_schedule_time=schedule_time)
+    else:
+        schedule_time_2 = valid_times[1] if len(valid_times) > 1 else None
+        await update_intern(chat_id, schedule_time=schedule_time, schedule_time_2=schedule_time_2)
 
     await state.clear()
 
     # Показываем подтверждение
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
-    if schedule_time_2:
-        confirm_text = f"✅ {t('modes.reminders_set', lang, time1=schedule_time, time2=schedule_time_2)}"
-    else:
-        confirm_text = f"✅ {t('modes.reminder_set', lang, time=schedule_time)}"
+    confirm_text = f"✅ {t('modes.reminder_set', lang, time=schedule_time)}"
 
     await message.answer(confirm_text)
 
     # Возвращаемся к нужному экрану
     intern = await get_intern(chat_id)
     if return_to == 'feed':
-        # Показываем экран Ленты
         await show_feed_activated(message, intern)
     else:
-        # Показываем экран Марафона
-        await show_marathon_activated(message, intern, feed_paused=False, edit=False)
+        await show_marathon_activated(message, intern, edit=False)
 
 
 # ==================== НАСТРОЙКА НАПОМИНАНИЙ ====================
@@ -859,20 +845,12 @@ async def select_feed(callback: CallbackQuery):
                 for i, topic in enumerate(topics, 1):
                     text += f"{i}. {topic}\n"
 
-        # Если был активный марафон - ставим на паузу
-        if (marathon_status == MarathonStatus.ACTIVE or
-            (marathon_status == MarathonStatus.NOT_STARTED and has_marathon_progress)):
-            await update_intern(chat_id,
-                mode=Mode.FEED,
-                marathon_status=MarathonStatus.PAUSED,
-                feed_status=FeedStatus.ACTIVE,
-            )
-            text += f"\n\n{t('modes.marathon_paused', lang)}"
-        else:
-            await update_intern(chat_id,
-                mode=Mode.FEED,
-                feed_status=FeedStatus.ACTIVE,
-            )
+        # Активируем ленту, НЕ паузя марафон
+        from db.queries.users import derive_mode
+        await update_intern(chat_id,
+            mode=derive_mode(marathon_status, FeedStatus.ACTIVE),
+            feed_status=FeedStatus.ACTIVE,
+        )
 
         # Кнопки в зависимости от наличия активной недели
         buttons = []
@@ -970,18 +948,13 @@ async def feed_reminders_input(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
-    schedule_time = intern.get('schedule_time', '09:00')
-    schedule_time_2 = intern.get('schedule_time_2')
+    # Показываем текущее время ленты (отдельное от марафона)
+    feed_time = intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')
 
     text = f"⏰ *{t('modes.reminders_title', lang)}*\n\n"
-    text += f"{t('modes.current_time', lang)}: {schedule_time}"
-    if schedule_time_2:
-        text += f", {schedule_time_2}"
-    text += "\n\n"
+    text += f"{t('modes.current_time', lang)}: {feed_time}\n\n"
     text += f"{t('modes.enter_time_format', lang)}\n"
-    text += f"{t('modes.time_example', lang)}\n\n"
-    text += f"_{t('modes.two_reminders_hint', lang)}_\n"
-    text += f"_{t('modes.two_reminders_example', lang)}_"
+    text += f"{t('modes.time_example', lang)}"
 
     # Устанавливаем FSM-состояние (используем то же что и для марафона)
     await state.set_state(MarathonSettingsStates.waiting_for_time)

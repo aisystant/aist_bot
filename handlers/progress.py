@@ -87,6 +87,15 @@ async def cmd_progress(message: Message):
     text += f"{t('progress.digests', lang)}: {feed_stats.get('digests', 0)}. {t('progress.fixations', lang)}: {feed_stats.get('fixations', 0)}\n"
     text += f"{t('progress.topics', lang)}: {feed_topics_text}"
 
+    # Инфо о сбросе статистики
+    stats_reset_date = intern.get('stats_reset_date')
+    if stats_reset_date:
+        if hasattr(stats_reset_date, 'strftime'):
+            reset_str = stats_reset_date.strftime('%d.%m.%Y')
+        else:
+            reset_str = str(stats_reset_date)
+        text += f"\n\n_📌 {t('progress.stats_reset_info', lang, date=reset_str)}_"
+
     from config import Mode
     current_mode = intern.get('mode', Mode.MARATHON)
 
@@ -202,6 +211,15 @@ async def show_full_progress(callback: CallbackQuery):
         text += f"{t('progress.fixations_count', lang)}: {total_stats.get('total_fixations', 0)}\n"
         text += f"{t('progress.topics_colon', lang)}: {feed_topics_text}"
 
+        # Инфо о сбросе статистики
+        stats_reset_date = total_stats.get('stats_reset_date')
+        if stats_reset_date:
+            if hasattr(stats_reset_date, 'strftime'):
+                reset_str = stats_reset_date.strftime('%d.%m.%Y')
+            else:
+                reset_str = str(stats_reset_date)
+            text += f"\n\n_📌 {t('progress.stats_reset_info', lang, date=reset_str)}_"
+
         from config import Mode
         current_mode = intern.get('mode', Mode.MARATHON)
 
@@ -229,6 +247,47 @@ async def show_full_progress(callback: CallbackQuery):
         await callback.message.edit_text(
             f"{t('progress.full_report_error', lang)}\n\n/progress"
         )
+
+
+@progress_router.callback_query(F.data == "stats_reset_confirm")
+async def stats_reset_confirm(callback: CallbackQuery):
+    """Подтверждение сброса статистики"""
+    await callback.answer()
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    text = f"⚠️ *{t('progress.stats_reset_title', lang)}*\n\n"
+    text += f"{t('progress.stats_reset_warning', lang)}\n\n"
+    text += f"_{t('progress.stats_reset_kept', lang)}_"
+
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"🔄 {t('progress.stats_reset_yes', lang)}", callback_data="stats_reset_do"),
+            InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="progress_full"),
+        ]
+    ]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+@progress_router.callback_query(F.data == "stats_reset_do")
+async def stats_reset_do(callback: CallbackQuery):
+    """Выполнить сброс статистики"""
+    from db.queries.answers import reset_user_stats
+
+    chat_id = callback.message.chat.id
+    await reset_user_stats(chat_id)
+
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    await callback.answer(t('progress.stats_reset_done', lang))
+    await callback.message.edit_text(
+        f"✅ *{t('progress.stats_reset_done', lang)}*\n\n"
+        f"{t('progress.stats_reset_note', lang)}\n\n"
+        f"/progress",
+        parse_mode="Markdown"
+    )
 
 
 @progress_router.callback_query(F.data == "progress_back")
