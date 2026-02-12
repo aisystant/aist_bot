@@ -93,7 +93,7 @@ def register_all_services() -> None:
         icon="\U0001f4cb",  # 📋
         entry_state="common.plans",
         category="scenario",
-        order=25,
+        order=35,
         command="/plan",
         commands=["/rp", "/report"],
     ))
@@ -106,7 +106,7 @@ def register_all_services() -> None:
         icon="\U0001f4dd",  # 📝
         entry_state="utility.notes",
         category="scenario",
-        order=35,
+        order=45,
         visible=False,
     ))
 
