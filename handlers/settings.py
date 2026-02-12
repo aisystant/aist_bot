@@ -78,7 +78,7 @@ async def _show_update_screen(message, intern, state):
         f"{t(f'duration.minutes_{study_duration}', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
         f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=14)})\n"
-        f"⏰ {intern.get('schedule_time', '09:00')}\n"
+        f"⏰ {intern.get('schedule_time', '09:00')} (МСК)\n"
         f"🌐 {get_language_name(lang)}\n\n"
         f"*{t('settings.what_to_change', lang)}*",
         parse_mode="Markdown",
@@ -143,7 +143,7 @@ async def cmd_profile(message: Message):
         f"{STUDY_DURATIONS.get(str(study_duration), {}).get('name', '')} {t('profile.per_topic', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
         f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)})\n"
-        f"⏰ {intern.get('schedule_time', '09:00')}\n"
+        f"⏰ {intern.get('schedule_time', '09:00')} (МСК)\n"
         f"{assessment_line}\n\n"
         f"{t('commands.update', lang)}",
         parse_mode="Markdown"
@@ -299,7 +299,7 @@ async def on_upd_schedule(callback: CallbackQuery, state: FSMContext):
     lang = intern.get('language', 'ru')
     await callback.answer()
     await callback.message.edit_text(
-        f"⏰ *{t('update.current_schedule', lang)}:* {intern['schedule_time']}\n\n"
+        f"⏰ *{t('update.current_schedule', lang)}:* {intern['schedule_time']} (МСК)\n\n"
         f"{t('update.when_remind', lang)}",
         parse_mode="Markdown"
     )

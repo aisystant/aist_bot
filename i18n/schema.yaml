@@ -1048,8 +1048,8 @@ modes:
     en: "*Your settings:*"
 
   time_label:
-    ru: "⏰ Время:"
-    en: "⏰ Time:"
+    ru: "⏰ Время (МСК):"
+    en: "⏰ Time (MSK):"
 
   duration_label:
     ru: "📖 На чтение:"
@@ -1244,8 +1244,8 @@ modes:
     en: "Current"
 
   enter_time_format:
-    ru: "Введите время в формате ЧЧ:ММ"
-    en: "Enter time in HH:MM format"
+    ru: "Введите время по Москве в формате ЧЧ:ММ"
+    en: "Enter Moscow time in HH:MM format"
 
   time_example:
     ru: "Например: `07:30` или `18:00`"
@@ -1264,16 +1264,16 @@ modes:
     en: "Invalid time format."
 
   enter_time_example:
-    ru: "Введите в формате ЧЧ:ММ, например: `09:00` или `07:30, 19:00`"
-    en: "Enter in HH:MM format, e.g.: `09:00` or `07:30, 19:00`"
+    ru: "Введите время по Москве в формате ЧЧ:ММ, например: `09:00` или `07:30, 19:00`"
+    en: "Enter Moscow time in HH:MM format, e.g.: `09:00` or `07:30, 19:00`"
 
   reminders_set:
     ru: "Напоминания установлены: {time1}, {time2}"
     en: "Reminders set: {time1}, {time2}"
 
   reminder_set:
-    ru: "Напоминание установлено: {time}"
-    en: "Reminder set: {time}"
+    ru: "Напоминание установлено: {time} (МСК)"
+    en: "Reminder set: {time} (MSK)"
 
   second_reminder_removed:
     ru: "Второе напоминание удалено"
@@ -1513,8 +1513,8 @@ update:
     en: "Current schedule"
 
   when_remind:
-    ru: "Во сколько напоминать о новой теме? (ЧЧ:ММ)"
-    en: "When should I remind you? (HH:MM)"
+    ru: "Во сколько напоминать? Укажите время по Москве (ЧЧ:ММ)"
+    en: "When should I remind you? Enter Moscow time (HH:MM)"
 
   current_difficulty:
     ru: "Текущий уровень сложности"
@@ -1757,8 +1757,8 @@ fsm:
     en: "I didn't recognize your response. Please complete the Feed action or use /feed"
 
   enter_time_format:
-    ru: "Введите время в формате ЧЧ:ММ или нажмите Назад"
-    en: "Enter time in HH:MM format or press Back"
+    ru: "Введите время по Москве в формате ЧЧ:ММ или нажмите Назад"
+    en: "Enter Moscow time in HH:MM format or press Back"
 
   new_user_start:
     ru: "Здравствуйте! Для начала используйте /start"

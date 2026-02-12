@@ -132,7 +132,7 @@ class ProfileState(BaseState):
             f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
             f"🗓 {marathon_start_str}\n"
             f"⏰ {t('settings.schedule_marathon', lang)}: {intern.get('schedule_time', '09:00')}, "
-            f"{t('settings.schedule_feed', lang)}: {intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')}"
+            f"{t('settings.schedule_feed', lang)}: {intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')} (МСК)"
             f"{assessment_line}\n\n"
             f"*{t('settings.what_to_change', lang)}*"
         )
@@ -391,7 +391,7 @@ class ProfileState(BaseState):
         feed_time = intern.get('feed_schedule_time') or marathon_time
 
         text = (
-            f"⏰ *{t('settings.schedule_label', lang)}*\n\n"
+            f"⏰ *{t('settings.schedule_label', lang)}* (МСК)\n\n"
             f"📚 {t('settings.schedule_marathon', lang)}: *{marathon_time}*\n"
             f"📖 {t('settings.schedule_feed', lang)}: *{feed_time}*"
         )
