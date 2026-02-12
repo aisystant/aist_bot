@@ -8,7 +8,7 @@
 - L3 (полный, ~3-8s): MCP guides + knowledge + Sonnet. (существующий pipeline)
 
 Source-of-truth: секция 4.1.1 в DP.AISYS.014 (PACK-digital-platform).
-Бот читает паспорт из файловой системы (Pack-репо рядом).
+Загрузка: локальный файл (dev) → GitHub raw URL (prod/Railway).
 
 Использование:
     from core.self_knowledge import get_self_knowledge, match_faq
@@ -21,6 +21,8 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
 from core.registry import registry
 from i18n import t
@@ -28,9 +30,15 @@ from i18n import t
 logger = logging.getLogger(__name__)
 
 # Путь к Pack-паспорту бота (source-of-truth)
-# Pack-репо расположено рядом с ботом: ~/Github/PACK-digital-platform/
+# Dev: Pack-репо рядом с ботом ~/Github/PACK-digital-platform/
 _PACK_PATH = Path(__file__).parent.parent.parent / "PACK-digital-platform" / \
     "pack" / "digital-platform" / "02-domain-entities" / "DP.AISYS.014-aist-bot.md"
+
+# Prod (Railway): загрузить с GitHub (репо публичный)
+_GITHUB_RAW_URL = (
+    "https://raw.githubusercontent.com/TserenTserenov/PACK-digital-platform"
+    "/main/pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
+)
 
 # Кеш
 _scenarios: list[dict] = []
@@ -38,6 +46,30 @@ _faq: list[dict] = []
 _identity: dict = {}
 _loaded: bool = False
 _cache: dict[str, str] = {}
+
+
+def _fetch_content() -> Optional[str]:
+    """Загрузить паспорт бота: сначала локально, потом с GitHub."""
+    # 1. Локальный файл (dev)
+    if _PACK_PATH.exists():
+        try:
+            content = _PACK_PATH.read_text(encoding="utf-8")
+            logger.info(f"Self-knowledge: loaded from local Pack: {_PACK_PATH}")
+            return content
+        except Exception as e:
+            logger.warning(f"Failed to read local Pack: {e}")
+
+    # 2. GitHub raw URL (prod)
+    try:
+        req = Request(_GITHUB_RAW_URL, headers={"User-Agent": "AIST-Bot"})
+        with urlopen(req, timeout=10) as resp:
+            content = resp.read().decode("utf-8")
+        logger.info(f"Self-knowledge: loaded from GitHub ({len(content)} chars)")
+        return content
+    except (URLError, OSError) as e:
+        logger.error(f"Failed to fetch Pack from GitHub: {e}")
+
+    return None
 
 
 def _parse_pack() -> None:
@@ -49,14 +81,9 @@ def _parse_pack() -> None:
 
     _loaded = True
 
-    if not _PACK_PATH.exists():
-        logger.warning(f"Pack passport not found: {_PACK_PATH}")
-        return
-
-    try:
-        content = _PACK_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.error(f"Failed to read Pack passport: {e}")
+    content = _fetch_content()
+    if not content:
+        logger.warning("Self-knowledge: no content loaded (local + GitHub both failed)")
         return
 
     # --- Извлечь секцию между "##### Идентичность бота" и "##### Сценарии" ---
