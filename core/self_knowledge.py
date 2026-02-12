@@ -134,7 +134,11 @@ def _parse_identity(content: str) -> dict:
 
 
 def _parse_scenarios_table(content: str) -> list[dict]:
-    """Извлечь таблицу сценариев из markdown."""
+    """Извлечь таблицу сценариев из markdown.
+
+    Формат: # | Сценарий | Команда | Статус | Описание (ru) | Описание (en)
+    Только строки со статусом ✅ попадают в L1 кеш.
+    """
     scenarios = []
 
     # Найти секцию "##### Сценарии"
@@ -146,12 +150,16 @@ def _parse_scenarios_table(content: str) -> list[dict]:
     rows = _parse_md_table(table_text)
 
     for row in rows:
-        if len(row) >= 5:
+        if len(row) >= 6:
+            status = row[3].strip()
+            if '✅' not in status:
+                continue
             scenarios.append({
                 'name': row[1].strip(),
                 'command': row[2].strip(),
-                'description_ru': row[3].strip(),
-                'description_en': row[4].strip(),
+                'status': status,
+                'description_ru': row[4].strip(),
+                'description_en': row[5].strip(),
             })
 
     return scenarios
