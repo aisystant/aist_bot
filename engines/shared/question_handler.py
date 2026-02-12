@@ -50,6 +50,7 @@ async def handle_question(
     knowledge_structure: dict = None,
     use_enhanced_retrieval: bool = True,
     progress_callback: ProgressCallback = None,
+    bot_context: Optional[str] = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос пользователя и генерирует ответ
 
@@ -61,6 +62,7 @@ async def handle_question(
         knowledge_structure: структура знаний (для метаданных темы)
         use_enhanced_retrieval: использовать улучшенный retrieval (по умолчанию True)
         progress_callback: callback для отображения прогресса (stage, percent)
+        bot_context: self-knowledge бота для system prompt (из core.self_knowledge)
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
@@ -131,7 +133,8 @@ async def handle_question(
     # === ЭТАП 3: Генерация ответа (60-95%) ===
     await report_progress(ProcessingStage.GENERATING, 70)
     answer = await generate_answer(
-        question, intern, mcp_context, context_topic, dynamic_context
+        question, intern, mcp_context, context_topic, dynamic_context,
+        bot_context=bot_context,
     )
 
     await report_progress(ProcessingStage.DONE, 100)
@@ -267,7 +270,8 @@ async def generate_answer(
     intern: dict,
     mcp_context: str,
     context_topic: Optional[str] = None,
-    dynamic_context: DynamicContext = None
+    dynamic_context: DynamicContext = None,
+    bot_context: Optional[str] = None,
 ) -> str:
     """Генерирует ответ на вопрос через Claude
 
@@ -277,6 +281,7 @@ async def generate_answer(
         mcp_context: контекст из MCP
         context_topic: текущая тема для контекста
         dynamic_context: динамический контекст (прогресс, история, метаданные)
+        bot_context: self-knowledge бота (из core.self_knowledge)
 
     Returns:
         Текст ответа
@@ -344,6 +349,14 @@ async def generate_answer(
    - НЕ выдумывай источники — лучше не указывать, чем указать несуществующий
    - Приводи источники только если они ТОЧНО релевантны вопросу"""
 
+    bot_section = ""
+    if bot_context:
+        bot_section = f"""
+
+ЗНАНИЯ О БОТЕ:
+{bot_context}
+Если вопрос касается бота — используй эту информацию."""
+
     system_prompt = f"""Ты — дружелюбный наставник по системному мышлению и личному развитию.
 Отвечаешь на вопросы пользователя {name}.{occupation_info}{context_info}{dynamic_sections}
 
@@ -359,6 +372,7 @@ async def generate_answer(
 
 {ONTOLOGY_RULES}
 {mcp_section}
+{bot_section}
 
 {lang_reminder}"""
 

@@ -2,7 +2,11 @@
 Стейт: Консультация (Слой 1 архитектуры бота).
 
 Консультант — слой поверх всего бота, не отдельный домен.
-Знает структуру бота (из ServiceRegistry) и может перенаправить в сервис (deep links).
+Знает структуру бота (из Self-Knowledge) и может перенаправить в сервис (deep links).
+
+Два пути обработки:
+- "bot": вопрос о боте → FAQ или Claude + self-knowledge (без MCP, быстрее)
+- "domain": вопрос о предмете → handle_question() + self-knowledge в system prompt
 
 Вызывается из любого стейта, где allow_global содержит "consultation".
 После ответа возвращается в предыдущий стейт.
@@ -16,20 +20,36 @@ from aiogram.types import Message
 
 from states.base import BaseState
 from core.registry import registry
+from core.self_knowledge import get_self_knowledge, match_faq
 from i18n import t
+
+
+# Ключевые слова для классификации «вопрос о боте»
+_BOT_KEYWORDS_RU = [
+    "бот", "умеешь", "можешь", "команд", "функц", "помощ",
+    "кнопк", "меню", "серви", "навиг", "как пользо", "что делает",
+    "как работает бот", "возможност",
+]
+_BOT_KEYWORDS_EN = [
+    "bot", "can you", "feature", "command", "help", "menu",
+    "service", "navigate", "how to use", "what can", "how does the bot",
+]
+_BOT_KEYWORDS = _BOT_KEYWORDS_RU + _BOT_KEYWORDS_EN
 
 
 class ConsultationState(BaseState):
     """
     Стейт консультации.
 
-    Обрабатывает вопросы пользователя через Claude + MCP.
+    Обрабатывает вопросы пользователя через два пути:
+    - bot: вопросы о боте (FAQ + Claude с self-knowledge)
+    - domain: предметные вопросы (MCP + Claude)
+
     После ответа автоматически возвращается в предыдущий стейт.
     """
 
     name = "common.consultation"
     display_name = {"ru": "Консультация", "en": "Consultation", "es": "Consulta", "fr": "Consultation"}
-    # Консультация не имеет allow_global — это сам глобальный стейт
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -59,7 +79,6 @@ class ConsultationState(BaseState):
         """Преобразовать user в dict для handle_question."""
         if isinstance(user, dict):
             return user
-        # Собираем нужные поля
         return {
             'chat_id': getattr(user, 'chat_id', None),
             'name': getattr(user, 'name', None),
@@ -71,22 +90,13 @@ class ConsultationState(BaseState):
             'complexity_level': getattr(user, 'complexity_level', 1),
         }
 
-    def _get_bot_knowledge(self, lang: str) -> str:
-        """Генерирует описание структуры бота для self-knowledge консультанта.
-
-        Используется как контекст для LLM: консультант знает, какие сервисы есть в боте.
-        """
-        services = registry.get_all()
-        if not services:
-            return ""
-
-        lines = ["Available bot services:"]
-        for service in sorted(services, key=lambda s: s.order):
-            name = t(service.i18n_key, lang)
-            cmd = service.command or ""
-            lines.append(f"- {service.icon} {name} ({service.id}){f' — command: {cmd}' if cmd else ''}")
-
-        return "\n".join(lines)
+    def _is_bot_question(self, question: str) -> bool:
+        """Классифицировать: вопрос о боте или о домене?"""
+        q = question.lower()
+        return (
+            any(kw in q for kw in _BOT_KEYWORDS)
+            or self._detect_service_intent(question) is not None
+        )
 
     def _detect_service_intent(self, question: str) -> Optional[str]:
         """Определяет, относится ли вопрос к конкретному сервису.
@@ -109,6 +119,51 @@ class ConsultationState(BaseState):
                     return service_id
 
         return None
+
+    async def _answer_bot_question(self, user, question: str, lang: str) -> str:
+        """Быстрый путь: ответ на вопрос о боте.
+
+        1. Проверить FAQ → мгновенный ответ
+        2. Иначе → Claude с self-knowledge (без MCP-поиска)
+        """
+        # Попробовать FAQ
+        faq_answer = match_faq(question, lang)
+        if faq_answer:
+            return faq_answer
+
+        # Claude с self-knowledge в system prompt
+        from clients import claude
+        from config import ONTOLOGY_RULES
+
+        name = self._user_to_dict(user).get('name', '')
+        self_knowledge = get_self_knowledge(lang)
+
+        lang_instruction = {
+            'ru': "ВАЖНО: Отвечай на русском языке.",
+            'en': "IMPORTANT: Answer in English.",
+            'es': "IMPORTANTE: Responde en español.",
+            'fr': "IMPORTANT: Réponds en français."
+        }.get(lang, "IMPORTANT: Answer in English.")
+
+        system_prompt = f"""Ты — AIST Bot, дружелюбный бот-наставник.
+Отвечаешь на вопрос пользователя {name} о себе (о боте).
+
+{lang_instruction}
+
+ЗНАНИЯ О БОТЕ:
+{self_knowledge}
+
+ПРАВИЛА:
+1. Отвечай кратко и по существу (2-4 абзаца)
+2. Используй информацию из знаний о боте — не выдумывай функции
+3. Предлагай конкретные команды (например /learn, /test)
+4. Если вопрос не о боте — вежливо перенаправь
+
+{ONTOLOGY_RULES}"""
+
+        user_prompt = f"Вопрос: {question}" if lang == 'ru' else f"Question: {question}"
+        answer = await claude.generate(system_prompt, user_prompt)
+        return answer or t('consultation.error', lang)
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
         """
@@ -133,41 +188,37 @@ class ConsultationState(BaseState):
         await self.send(user, f"💭 {t('consultation.thinking', lang)}")
 
         try:
-            # Импортируем handle_question
-            from engines.shared import handle_question
+            if self._is_bot_question(question):
+                # --- Быстрый путь: вопрос о боте ---
+                answer = await self._answer_bot_question(user, question, lang)
+                response = self._format_response(answer, [], lang)
+            else:
+                # --- Доменный путь: MCP + Claude ---
+                from engines.shared import handle_question
 
-            # Получаем контекст темы
-            context_topic = self._get_current_topic(user)
-            intern_dict = self._user_to_dict(user)
+                context_topic = self._get_current_topic(user)
+                intern_dict = self._user_to_dict(user)
+                bot_context = get_self_knowledge(lang)
 
-            # Добавляем self-knowledge о структуре бота в вопрос
-            bot_knowledge = self._get_bot_knowledge(lang)
-            enriched_question = question
-            if bot_knowledge:
-                enriched_question = f"{question}\n\n[Bot context: {bot_knowledge}]"
+                answer, sources = await handle_question(
+                    question=question,
+                    intern=intern_dict,
+                    context_topic=context_topic,
+                    bot_context=bot_context,
+                )
 
-            # Вызываем существующий обработчик
-            answer, sources = await handle_question(
-                question=enriched_question,
-                intern=intern_dict,
-                context_topic=context_topic,
-            )
-
-            # Форматируем ответ
-            response = self._format_response(answer, sources, lang)
+                response = self._format_response(answer, sources, lang)
 
             # Добавляем deep link если вопрос относится к сервису
             service_id = self._detect_service_intent(question)
             if service_id:
                 service = registry.get(service_id)
                 if service and service.command:
-                    service_name = t(service.i18n_key, lang)
                     response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
 
             await self.send(user, response, parse_mode="Markdown")
 
         except Exception as e:
-            # Логируем ошибку и показываем сообщение
             import logging
             logging.getLogger(__name__).error(f"Consultation error: {e}")
             await self.send(user, t('consultation.error', lang))
@@ -180,7 +231,6 @@ class ConsultationState(BaseState):
         response = answer
 
         if sources:
-            # Максимум 2 источника
             sources_text = ", ".join(sources[:2])
             response += f"\n\n📚 _{t('consultation.sources', lang)}: {sources_text}_"
 
@@ -201,12 +251,10 @@ class ConsultationState(BaseState):
         if text.startswith('?'):
             question = text[1:].strip()
             if question:
-                # Обрабатываем как новый вопрос
                 await self.enter(user, context={'question': question})
                 return "followup"
 
         # Любое другое сообщение — возврат
-        # Сообщаем что консультация завершена
         await self.send(user, t('consultation.returning', lang))
         return "done"
 
