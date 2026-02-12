@@ -90,10 +90,14 @@ class SettingsState(BaseState):
 
         lang = intern.get('language', 'ru') or 'ru'
 
+        marathon_time = intern.get('schedule_time', '09:00')
+        feed_time = intern.get('feed_schedule_time') or marathon_time
+
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
             f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
-            f"⏰ {t('settings.schedule_label', lang)}: {intern.get('schedule_time', '09:00')}\n"
+            f"⏰ {t('settings.schedule_marathon', lang)}: {marathon_time}\n"
+            f"⏰ {t('settings.schedule_feed', lang)}: {feed_time}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -141,7 +145,11 @@ class SettingsState(BaseState):
             return await self._show_language_options(user, callback)
 
         if data == "upd_schedule":
-            return await self._ask_for_field(user, callback, 'schedule')
+            return await self._show_schedule_options(user, callback)
+        if data == "upd_schedule_marathon":
+            return await self._ask_for_field(user, callback, 'schedule_marathon')
+        if data == "upd_schedule_feed":
+            return await self._ask_for_field(user, callback, 'schedule_feed')
 
         if data == "upd_connections":
             return await self._show_connections(user, callback)
@@ -192,6 +200,30 @@ class SettingsState(BaseState):
 
         return None
 
+    async def _show_schedule_options(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Подменю расписания: Марафон / Лента."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        intern = await get_intern(chat_id)
+
+        marathon_time = intern.get('schedule_time', '09:00')
+        feed_time = intern.get('feed_schedule_time') or marathon_time
+
+        text = (
+            f"⏰ *{t('settings.schedule_label', lang)}*\n\n"
+            f"📚 {t('settings.schedule_marathon', lang)}: *{marathon_time}*\n"
+            f"📖 {t('settings.schedule_feed', lang)}: *{feed_time}*"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"📚 {t('settings.schedule_marathon', lang)}", callback_data="upd_schedule_marathon")],
+            [InlineKeyboardButton(text=f"📖 {t('settings.schedule_feed', lang)}", callback_data="upd_schedule_feed")],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
     async def _ask_for_field(self, user, callback: CallbackQuery, field: str) -> Optional[str]:
         """Запрашиваем ввод текстового поля."""
         chat_id = self._get_chat_id(user)
@@ -199,14 +231,14 @@ class SettingsState(BaseState):
         intern = await get_intern(chat_id)
 
         prompts = {
-            'schedule': ('update.current_schedule', 'update.when_remind', intern.get('schedule_time', '09:00')),
+            'schedule_marathon': ('settings.schedule_marathon', 'update.when_remind', intern.get('schedule_time', '09:00')),
+            'schedule_feed': ('settings.schedule_feed', 'update.when_remind', intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')),
         }
 
         label_key, prompt_key, current_value = prompts.get(field, ('', '', ''))
-        emoji_map = {'schedule': '⏰'}
 
         await callback.message.edit_text(
-            f"{emoji_map.get(field, '')} *{t(label_key, lang)}:* {current_value}\n\n"
+            f"⏰ *{t(label_key, lang)}:* {current_value}\n\n"
             f"{t(prompt_key, lang)}",
             parse_mode="Markdown"
         )
@@ -220,11 +252,20 @@ class SettingsState(BaseState):
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
-        if field == 'schedule':
-            time_pattern = r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$'
+        time_pattern = r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$'
+
+        if field == 'schedule_marathon':
             if re.match(time_pattern, text):
                 await update_intern(chat_id, schedule_time=text)
-                await self.send(user, f"✅ {t('update.schedule_changed', lang)}: *{text}*", parse_mode="Markdown")
+                await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{text}*", parse_mode="Markdown")
+            else:
+                await self.send(user, t('modes.invalid_time_format', lang))
+                return None
+
+        elif field == 'schedule_feed':
+            if re.match(time_pattern, text):
+                await update_intern(chat_id, feed_schedule_time=text)
+                await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{text}*", parse_mode="Markdown")
             else:
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None

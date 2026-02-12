@@ -608,6 +608,14 @@ settings:
     ru: "Расписание"
     en: "Schedule"
 
+  schedule_marathon:
+    ru: "Марафон"
+    en: "Marathon"
+
+  schedule_feed:
+    ru: "Лента"
+    en: "Feed"
+
   connections_label:
     ru: "Подключения"
     en: "Connections"
