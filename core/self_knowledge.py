@@ -305,7 +305,7 @@ def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
             continue
 
         matched = sum(1 for kw in keywords if kw in q_lower)
-        if matched >= 2 or (len(keywords) == 1 and matched == 1):
+        if matched >= 1:
             return item.get(f'answer_{lang}') or item.get('answer_ru', '')
 
     return None
