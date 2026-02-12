@@ -102,6 +102,9 @@ class SettingsState(BaseState):
                 InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule"),
             ],
             [
+                InlineKeyboardButton(text="🔗 " + t('settings.connections_label', lang), callback_data="upd_connections"),
+            ],
+            [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
             ]
         ])
@@ -136,6 +139,9 @@ class SettingsState(BaseState):
 
         if data == "upd_schedule":
             return await self._ask_for_field(user, callback, 'schedule')
+
+        if data == "upd_connections":
+            return await self._show_connections(user, callback)
 
         if data.startswith("lang_"):
             return await self._save_language(user, callback, data)
@@ -226,4 +232,28 @@ class SettingsState(BaseState):
             user.language = new_lang
 
         await self.enter(user)
+        return None
+
+    async def _show_connections(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем подключения к сторонним сервисам."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        intern = await get_intern(chat_id)
+
+        github_link = intern.get('github_link', '') if intern else ''
+        github_status = f"✅ {github_link}" if github_link else t('settings.not_connected', lang)
+
+        text = (
+            f"🔗 *{t('settings.connections_label', lang)}*\n\n"
+            f"🐙 GitHub: {github_status}\n"
+            f"🤖 {t('settings.twin_label', lang)}: {t('settings.coming_soon', lang)}\n"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github")],
+            [InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin")],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         return None

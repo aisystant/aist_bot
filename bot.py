@@ -175,49 +175,49 @@ async def main():
     # Установка команд бота для разных языков
     # Русский (по умолчанию)
     await bot.set_my_commands([
+        BotCommand(command="mode", description="Главное меню"),
         BotCommand(command="learn", description="Марафон — получить урок"),
         BotCommand(command="feed", description="Лента — получить дайджест"),
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="test", description="Тест систематичности"),
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="settings", description="Настройки"),
-        BotCommand(command="mode", description="Главное меню"),
         BotCommand(command="help", description="Справка"),
     ])
 
     # Английский
     await bot.set_my_commands([
+        BotCommand(command="mode", description="Main menu"),
         BotCommand(command="learn", description="Marathon — get a lesson"),
         BotCommand(command="feed", description="Feed — get a digest"),
         BotCommand(command="progress", description="My progress"),
         BotCommand(command="test", description="Systematicity test"),
         BotCommand(command="profile", description="My profile"),
         BotCommand(command="settings", description="Settings"),
-        BotCommand(command="mode", description="Main menu"),
         BotCommand(command="help", description="Help"),
     ], language_code="en")
 
     # Испанский
     await bot.set_my_commands([
+        BotCommand(command="mode", description="Menú principal"),
         BotCommand(command="learn", description="Maratón — obtener lección"),
         BotCommand(command="feed", description="Feed — obtener resumen"),
         BotCommand(command="progress", description="Mi progreso"),
         BotCommand(command="test", description="Test de sistematicidad"),
         BotCommand(command="profile", description="Mi perfil"),
         BotCommand(command="settings", description="Ajustes"),
-        BotCommand(command="mode", description="Menú principal"),
         BotCommand(command="help", description="Ayuda"),
     ], language_code="es")
 
     # Французский
     await bot.set_my_commands([
+        BotCommand(command="mode", description="Menu principal"),
         BotCommand(command="learn", description="Marathon — obtenir une leçon"),
         BotCommand(command="feed", description="Fil — obtenir un résumé"),
         BotCommand(command="progress", description="Mon progrès"),
         BotCommand(command="test", description="Test de systématicité"),
         BotCommand(command="profile", description="Mon profil"),
         BotCommand(command="settings", description="Paramètres"),
-        BotCommand(command="mode", description="Menu principal"),
         BotCommand(command="help", description="Aide"),
     ], language_code="fr")
 

@@ -591,6 +591,22 @@ settings:
     ru: "Расписание"
     en: "Schedule"
 
+  connections_label:
+    ru: "Подключения"
+    en: "Connections"
+
+  twin_label:
+    ru: "Цифровой двойник"
+    en: "Digital Twin"
+
+  not_connected:
+    ru: "не подключён"
+    en: "not connected"
+
+  coming_soon:
+    ru: "скоро"
+    en: "coming soon"
+
   language:
     title:
       ru: "Выбери язык:"

@@ -167,7 +167,7 @@ class MarathonLessonState(BaseState):
         topic_day = topic.get('day', 1)
         if topic_day > calendar_day:
             await self.send(user, f"✅ {t('marathon.come_back_tomorrow', lang)}")
-            return "come_back"
+            return None  # Остаёмся в стейте, пользователь уходит через /mode
 
         # Показываем сообщение о загрузке
         await self.send(user, f"⏳ {t('marathon.generating_material', lang)}")
