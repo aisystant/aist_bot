@@ -58,6 +58,12 @@ states:
       cancel: _previous
     allow_global: [consultation, notes]
 
+  common.plans:
+    description: "Планы (интеграция со Стратегом)"
+    events:
+      back: common.mode_select
+    allow_global: [consultation, notes]
+
   common.consultation:
     description: "Консультация (ответ на вопрос пользователя)"
     events:

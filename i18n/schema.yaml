@@ -604,6 +604,10 @@ settings:
     ru: "Цифровой двойник"
     en: "Digital Twin"
 
+  twin_coming_soon:
+    ru: "Цифровой двойник — персональный ИИ-ассистент, обученный на ваших данных. Эта функция находится в разработке."
+    en: "Digital Twin — a personal AI assistant trained on your data. This feature is under development."
+
   not_connected:
     ru: "не подключён"
     en: "not connected"
@@ -2498,7 +2502,7 @@ service:
   settings:
     ru: "Настройки"
     en: "Settings"
-  # Скрытые сервисы (visible=false, команды работают)
+  # Скрытые сервисы (visible=false)
   learning:
     ru: "Практика"
     en: "Practice"
@@ -2511,6 +2515,38 @@ service:
   twin:
     ru: "Цифровой двойник"
     en: "Digital Twin"
+
+# -----------------------------------------------------------------------------
+# Планы (интеграция со Стратегом)
+# -----------------------------------------------------------------------------
+plans:
+  title:
+    ru: "📋 Планы"
+    en: "📋 Plans"
+  day_plan:
+    ru: "📝 План дня"
+    en: "📝 Day Plan"
+  week_plan:
+    ru: "📊 РП недели"
+    en: "📊 Week Plan"
+  week_report:
+    ru: "📈 Отчёт недели"
+    en: "📈 Week Report"
+  not_found_day:
+    ru: "DayPlan на сегодня не найден."
+    en: "No DayPlan found for today."
+  not_found_week:
+    ru: "WeekPlan не найден."
+    en: "WeekPlan not found."
+  not_found_report:
+    ru: "WeekReport не найден."
+    en: "WeekReport not found."
+  github_not_connected:
+    ru: "Для просмотра планов подключите GitHub через /settings → Подключения."
+    en: "Connect GitHub via /settings → Connections to view plans."
+  repo_not_selected:
+    ru: "Выберите репозиторий стратега."
+    en: "Select a strategist repository."
 
 # -----------------------------------------------------------------------------
 # Меню (генерируемое из реестра)

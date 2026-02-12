@@ -87,19 +87,18 @@ def register_all_services() -> None:
         commands=["/update"],
     ))
 
-    # --- HIDDEN: в разработке (visible=False, команды работают) ---
-
     registry.register(ServiceDescriptor(
         id="plans",
         i18n_key="service.plans",
         icon="\U0001f4cb",  # 📋
-        entry_state="common.mode_select",  # TODO: plans state
+        entry_state="common.plans",
         category="scenario",
         order=25,
         command="/plan",
         commands=["/rp", "/report"],
-        visible=False,
     ))
+
+    # --- HIDDEN: в разработке (visible=False, команды работают) ---
 
     registry.register(ServiceDescriptor(
         id="notes",

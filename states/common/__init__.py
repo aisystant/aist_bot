@@ -16,5 +16,6 @@ from .mode_select import ModeSelectState
 from .profile import ProfileState
 from .settings import SettingsState
 from .consultation import ConsultationState
+from .plans import PlansState
 
-__all__ = ['StartState', 'ErrorState', 'ModeSelectState', 'ProfileState', 'SettingsState', 'ConsultationState']
+__all__ = ['StartState', 'ErrorState', 'ModeSelectState', 'ProfileState', 'SettingsState', 'ConsultationState', 'PlansState']

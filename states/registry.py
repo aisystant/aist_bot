@@ -15,7 +15,7 @@ from core.machine import StateMachine
 from i18n import I18n
 
 # Импортируем стейты
-from states.common import StartState, ErrorState, ModeSelectState, ProfileState, SettingsState, ConsultationState
+from states.common import StartState, ErrorState, ModeSelectState, ProfileState, SettingsState, ConsultationState, PlansState
 
 # Марафон (полностью реализовано)
 from states.workshops.marathon import (
@@ -70,6 +70,7 @@ def register_all_states(
         ProfileState(*args),       # Профиль пользователя (персональные данные)
         SettingsState(*args),      # Настройки системы (язык, расписание)
         ConsultationState(*args),  # Глобальный стейт консультации
+        PlansState(*args),         # Планы (интеграция со Стратегом)
 
         # Marathon стейты (полностью реализовано)
         MarathonLessonState(*args),
@@ -110,6 +111,7 @@ def get_available_states() -> list[str]:
         "common.profile",
         "common.settings",
         "common.consultation",  # Консультация
+        "common.plans",         # Планы
 
         # Marathon
         "workshop.marathon.lesson",
