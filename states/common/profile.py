@@ -131,7 +131,8 @@ class ProfileState(BaseState):
             f"{t(f'duration.minutes_{study_duration}', lang)}\n"
             f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
             f"🗓 {marathon_start_str}\n"
-            f"⏰ {intern.get('schedule_time', '09:00')}"
+            f"⏰ {t('settings.schedule_marathon', lang)}: {intern.get('schedule_time', '09:00')}, "
+            f"{t('settings.schedule_feed', lang)}: {intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')}"
             f"{assessment_line}\n\n"
             f"*{t('settings.what_to_change', lang)}*"
         )
@@ -150,11 +151,8 @@ class ProfileState(BaseState):
                 InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom")
             ],
             [
-                InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode"),
+                InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="profile_schedule"),
                 InlineKeyboardButton(text="📋 " + t('buttons.commands', lang), callback_data="show_commands")
-            ],
-            [
-                InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="marathon_reset_confirm"),
             ],
             [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
@@ -209,13 +207,12 @@ class ProfileState(BaseState):
         if data == "show_commands":
             return await self._show_commands(user, callback)
 
-        if data == "marathon_reset_confirm":
-            return await self._marathon_reset_confirm(user, callback)
-        if data == "marathon_reset_do":
-            return await self._marathon_reset_do(user, callback)
-        if data == "marathon_reset_cancel":
-            await self.enter(user)
-            return None
+        if data == "profile_schedule":
+            return await self._show_schedule(user, callback)
+        if data == "upd_schedule_marathon":
+            return await self._ask_for_schedule(user, callback, 'schedule_marathon')
+        if data == "upd_schedule_feed":
+            return await self._ask_for_schedule(user, callback, 'schedule_feed')
 
         if data.startswith("duration_"):
             return await self._save_duration(user, callback, data)
@@ -268,10 +265,48 @@ class ProfileState(BaseState):
         elif field == 'goals':
             await update_intern(chat_id, goals=text)
             await self.send(user, f"✅ {t('update.goals_changed', lang)}", parse_mode="Markdown")
+        elif field == 'schedule_marathon':
+            import re
+            if re.match(r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$', text):
+                await update_intern(chat_id, schedule_time=text)
+                await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{text}*", parse_mode="Markdown")
+            else:
+                await self.send(user, t('modes.invalid_time_format', lang))
+                return None
+        elif field == 'schedule_feed':
+            import re
+            if re.match(r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$', text):
+                await update_intern(chat_id, feed_schedule_time=text)
+                await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{text}*", parse_mode="Markdown")
+            else:
+                await self.send(user, t('modes.invalid_time_format', lang))
+                return None
 
         await self._set_waiting(user, None)
 
         await self.enter(user)
+        return None
+
+    async def _ask_for_schedule(self, user, callback: CallbackQuery, field: str) -> Optional[str]:
+        """Запрашиваем ввод времени."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        intern = await get_intern(chat_id)
+
+        if field == 'schedule_marathon':
+            current_value = intern.get('schedule_time', '09:00')
+            label_key = 'settings.schedule_marathon'
+        else:
+            current_value = intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')
+            label_key = 'settings.schedule_feed'
+
+        await callback.message.edit_text(
+            f"⏰ *{t(label_key, lang)}:* {current_value}\n\n"
+            f"{t('update.when_remind', lang)}",
+            parse_mode="Markdown"
+        )
+
+        await self._set_waiting(user, field)
         return None
 
     async def _show_duration_options(self, user, callback: CallbackQuery) -> Optional[str]:
@@ -346,55 +381,28 @@ class ProfileState(BaseState):
         await self.enter(user)
         return None
 
-    async def _marathon_reset_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Подтверждение сброса марафона."""
+    async def _show_schedule(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Подменю расписания: Марафон / Лента."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         intern = await get_intern(chat_id)
-        completed = len(intern.get('completed_topics', []))
+
+        marathon_time = intern.get('schedule_time', '09:00')
+        feed_time = intern.get('feed_schedule_time') or marathon_time
 
         text = (
-            f"⚠️ *{t('modes.reset_marathon_title', lang)}*\n\n"
-            f"{t('modes.reset_marathon_warning', lang, completed=completed)}"
+            f"⏰ *{t('settings.schedule_label', lang)}*\n\n"
+            f"📚 {t('settings.schedule_marathon', lang)}: *{marathon_time}*\n"
+            f"📖 {t('settings.schedule_feed', lang)}: *{feed_time}*"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"🔄 {t('modes.yes_reset', lang)}", callback_data="marathon_reset_do"),
-                InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="marathon_reset_cancel")
-            ]
+            [InlineKeyboardButton(text=f"📚 {t('settings.schedule_marathon', lang)}", callback_data="upd_schedule_marathon")],
+            [InlineKeyboardButton(text=f"📖 {t('settings.schedule_feed', lang)}", callback_data="upd_schedule_feed")],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
         ])
 
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        return None
-
-    async def _marathon_reset_do(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Выполнить сброс марафона."""
-        from db.queries.answers import delete_marathon_answers
-        from db.queries.users import moscow_today
-        from config import MarathonStatus
-
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-        today = moscow_today()
-
-        await delete_marathon_answers(chat_id)
-        await update_intern(chat_id,
-            completed_topics=[],
-            current_topic_index=0,
-            marathon_start_date=today,
-            marathon_status=MarathonStatus.ACTIVE,
-            topics_today=0,
-            topics_at_current_bloom=0,
-        )
-
-        await callback.answer(t('modes.marathon_reset', lang))
-        await callback.message.edit_text(
-            f"✅ *{t('modes.marathon_reset', lang)}*\n\n"
-            f"{t('modes.new_start_date', lang)}: {today.strftime('%d.%m.%Y')}\n\n"
-            f"{t('modes.use_learn_start', lang)}",
-            parse_mode="Markdown"
-        )
         return None
 
     async def _show_commands(self, user, callback: CallbackQuery) -> Optional[str]:
@@ -403,17 +411,23 @@ class ProfileState(BaseState):
 
         text = (
             f"📋 *{t('help.commands_title', lang)}*\n\n"
+            f"*{t('commands.section_main', lang)}*\n"
+            f"{t('commands.start', lang)}\n"
             f"{t('commands.mode', lang)}\n"
             f"{t('commands.learn', lang)}\n"
             f"{t('commands.feed', lang)}\n"
             f"{t('commands.progress', lang)}\n"
             f"{t('commands.test', lang)}\n"
-            f"{t('commands.plan', lang)}\n"
+            f"{t('commands.plan', lang)}\n\n"
+            f"*{t('commands.section_settings', lang)}*\n"
             f"{t('commands.profile', lang)}\n"
             f"{t('commands.settings', lang)}\n"
-            f"{t('commands.help', lang)}\n\n"
+            f"{t('commands.help', lang)}\n"
+            f"{t('commands.language', lang)}\n\n"
+            f"*{t('commands.section_special', lang)}*\n"
             f"{t('commands.notes', lang)}\n"
             f"{t('commands.consultation', lang)}\n"
+            f"{t('commands.github', lang)}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

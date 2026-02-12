@@ -10,7 +10,7 @@
 import logging
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -25,7 +25,7 @@ class ProgressState(BaseState):
 
     Показывает:
     - Короткий отчёт (enter): активность за неделю, день марафона, РП
-    - Полный отчёт (handle "full"): статистика с начала, прогресс по дням
+    - Полный отчёт (handle_callback "progress_full"): статистика с начала, прогресс по дням
     """
 
     name = "utility.progress"
@@ -36,13 +36,6 @@ class ProgressState(BaseState):
         "fr": "Progrès"
     }
     allow_global = ["consultation", "notes"]
-
-    # Тексты кнопок (для сравнения)
-    FULL_REPORT_BUTTONS = ["📊 Полный отчёт", "📊 Full report", "📊 Informe completo", "📊 Rapport complet"]
-    CONTINUE_MARATHON_BUTTONS = ["📚 Продолжить обучение", "📚 Continue learning", "📚 Continuar aprendiendo", "📚 Continuer"]
-    CONTINUE_FEED_BUTTONS = ["📖 Получить дайджест", "📖 Get digest", "📖 Obtener resumen", "📖 Obtenir le résumé"]
-    SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]
-    BACK_BUTTONS = ["« Назад", "« Back", "« Atrás", "« Retour"]
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -116,13 +109,13 @@ class ProgressState(BaseState):
             feed_topics_text = "—"
 
         # Формируем текст
-        text = f"📊 *{t('progress.title', lang)}: {name}*\n\n"
+        text = f"{t('progress.title', lang, name=name)}\n\n"
         text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n\n"
 
         # Марафон
         text += f"🏃 *{t('progress.marathon', lang)}*\n"
-        text += f"{t('progress.day', lang)} {marathon_day}/{MARATHON_DAYS}\n"
-        text += f"{t('progress.topics_completed', lang)}: {done}. {t('progress.work_products', lang)}: {total_wp_week}\n\n"
+        text += f"{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
+        text += f"{t('progress.topics_completed', lang)} {done}. {t('progress.work_products', lang)}: {total_wp_week}\n\n"
 
         # Лента
         text += f"📚 *{t('progress.feed', lang)}*\n"
@@ -130,58 +123,47 @@ class ProgressState(BaseState):
         text += f"{t('progress.fixations', lang)}: {feed_stats.get('fixations', 0)}\n"
         text += f"{t('progress.topics', lang)}: {feed_topics_text}"
 
-        # Кнопки
+        # Inline-кнопки
+        buttons = []
         if mode == Mode.FEED:
-            continue_btn = t('progress.get_digest_btn', lang)
+            buttons.append([InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")])
         else:
-            continue_btn = t('progress.continue_learning_btn', lang)
+            buttons.append([InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="progress_continue")])
 
-        buttons = [
-            [continue_btn],
-            [t('progress.full_report_btn', lang), t('progress.settings_btn', lang)]
-        ]
+        buttons.append([
+            InlineKeyboardButton(text=f"📊 {t('progress.full_report', lang)}", callback_data="progress_full"),
+            InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")
+        ])
 
-        await self.send_with_keyboard(user, text, buttons, one_time=False)
-
-        # Сохраняем состояние (показан короткий отчёт)
-        if isinstance(user, dict):
-            user['state_context'] = user.get('state_context', {})
-            user['state_context']['progress_view'] = 'short'
-        else:
-            if not hasattr(user, 'state_context') or user.state_context is None:
-                user.state_context = {}
-            user.state_context['progress_view'] = 'short'
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        """Обрабатываем выбор пользователя."""
-        text = (message.text or "").strip()
-        lang = self._get_lang(user)
-        mode = self._get_mode(user)
+        """Обрабатываем текстовые сообщения."""
+        return None
 
-        # Полный отчёт
-        if any(btn in text for btn in self.FULL_REPORT_BUTTONS) or "полный" in text.lower() or "full" in text.lower():
+    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Обрабатываем inline-кнопки."""
+        data = callback.data
+        await callback.answer()
+
+        if data == "progress_full":
             await self._show_full_progress(user)
             return "full_shown"
 
-        # Продолжить обучение (Марафон)
-        if any(btn in text for btn in self.CONTINUE_MARATHON_BUTTONS) or "продолжить" in text.lower() or "continue" in text.lower():
+        if data == "progress_continue":
+            mode = self._get_mode(user)
+            if mode == Mode.FEED:
+                return "continue_feed"
             return "continue_marathon"
 
-        # Получить дайджест (Лента)
-        if any(btn in text for btn in self.CONTINUE_FEED_BUTTONS) or "дайджест" in text.lower() or "digest" in text.lower():
-            return "continue_feed"
-
-        # Настройки
-        if any(btn in text for btn in self.SETTINGS_BUTTONS) or "настройки" in text.lower() or "settings" in text.lower():
+        if data == "progress_settings":
             return "settings"
 
-        # Назад (возврат к короткому отчёту)
-        if any(btn in text for btn in self.BACK_BUTTONS) or "назад" in text.lower() or "back" in text.lower():
-            await self.enter(user)  # Показываем короткий отчёт снова
+        if data == "progress_back":
+            await self.enter(user)
             return "shown"
 
-        # Неизвестный выбор — повторяем меню
-        await self.send(user, t('progress.unknown_choice', lang))
         return None
 
     async def _show_full_progress(self, user) -> None:
@@ -191,7 +173,6 @@ class ProgressState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         name = self._get_user_name(user)
-        mode = self._get_mode(user)
 
         # Получаем полную статистику
         try:
@@ -254,7 +235,7 @@ class ProgressState(BaseState):
                 continue
 
             status_text = f"{d['completed']}/{d['total']}"
-            days_text += f"   {emoji} {t('progress.day', lang)} {day_num}: {status_text}{wp_text}\n"
+            days_text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
 
         # Лента: темы
         try:
@@ -268,12 +249,12 @@ class ProgressState(BaseState):
             feed_topics_text = "—"
 
         # Формируем текст
-        text = f"📊 *{t('progress.full_report_title', lang)} {date_str}: {name}*\n\n"
-        text += f"📈 *{t('progress.active_days_total', lang)}:* {total_active} {t('progress.of', lang)} {days_since}\n\n"
+        text = f"📊 *{t('progress.full_report_title', lang, date=date_str, name=name)}*\n\n"
+        text += f"📈 *{t('progress.active_days_both', lang)}:* {total_active} / {days_since}\n\n"
 
         # Марафон
         text += f"🏃 *{t('progress.marathon', lang)}*\n"
-        text += f"{t('progress.day', lang)} {marathon_day} {t('progress.of', lang)} {MARATHON_DAYS}\n"
+        text += f"{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
         text += f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
         text += f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
         text += f"{t('progress.work_products', lang)}: {total_stats.get('total_work_products', 0)}\n"
@@ -293,18 +274,13 @@ class ProgressState(BaseState):
         text += f"{t('progress.fixations', lang)}: {total_stats.get('total_fixations', 0)}\n"
         text += f"{t('progress.topics', lang)}: {feed_topics_text}"
 
-        # Кнопки
-        if mode == Mode.FEED:
-            continue_btn = t('progress.get_digest_btn', lang)
-        else:
-            continue_btn = t('progress.continue_learning_btn', lang)
+        # Inline-кнопки
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="progress_continue")],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_back")]
+        ])
 
-        buttons = [
-            [continue_btn],
-            [t('progress.back_btn', lang)]
-        ]
-
-        await self.send_with_keyboard(user, text, buttons, one_time=False)
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     def _get_marathon_day(self, marathon_started) -> int:
         """Вычислить текущий день марафона."""

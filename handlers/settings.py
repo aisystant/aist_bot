@@ -182,17 +182,23 @@ async def cb_help_all_commands(callback: CallbackQuery):
 
     text = (
         f"*{t('help.commands_title', lang)}*\n\n"
+        f"*{t('commands.section_main', lang)}*\n"
+        f"{t('commands.start', lang)}\n"
         f"{t('commands.mode', lang)}\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.feed', lang)}\n"
         f"{t('commands.progress', lang)}\n"
         f"{t('commands.test', lang)}\n"
-        f"{t('commands.plan', lang)}\n"
+        f"{t('commands.plan', lang)}\n\n"
+        f"*{t('commands.section_settings', lang)}*\n"
         f"{t('commands.profile', lang)}\n"
         f"{t('commands.settings', lang)}\n"
-        f"{t('commands.help', lang)}\n\n"
+        f"{t('commands.help', lang)}\n"
+        f"{t('commands.language', lang)}\n\n"
+        f"*{t('commands.section_special', lang)}*\n"
         f"{t('commands.notes', lang)}\n"
-        f"{t('commands.consultation', lang)}"
+        f"{t('commands.consultation', lang)}\n"
+        f"{t('commands.github', lang)}"
     )
 
     await callback.message.edit_text(text, parse_mode="Markdown")

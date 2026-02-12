@@ -114,6 +114,30 @@ commands:
     ru: "? — вопрос боту (текст после ?)"
     en: "? — ask the bot (text after ?)"
 
+  start:
+    ru: "/start — регистрация / перезапуск"
+    en: "/start — registration / restart"
+
+  language:
+    ru: "/language — сменить язык"
+    en: "/language — change language"
+
+  github:
+    ru: "/github — подключение GitHub"
+    en: "/github — GitHub integration"
+
+  section_main:
+    ru: "Основные"
+    en: "Main"
+
+  section_settings:
+    ru: "Настройки и профиль"
+    en: "Settings & profile"
+
+  section_special:
+    ru: "Специальные"
+    en: "Special"
+
 # -----------------------------------------------------------------------------
 # Меню (короткие описания для кнопок Telegram)
 # -----------------------------------------------------------------------------
@@ -439,7 +463,7 @@ buttons:
     max_length: 20
 
   reset_marathon:
-    ru: "🔄 Сбросить марафон"
+    ru: "🔄 Сброс марафона"
     en: "🔄 Reset marathon"
     max_length: 25
 
@@ -944,9 +968,9 @@ progress:
     en: "Counting starts from today.\nTotal active days count is preserved."
 
   reset_stats_btn:
-    ru: "📊 Сбросить стат."
-    en: "📊 Reset stats"
-    max_length: 20
+    ru: "📊 Сброс статистики"
+    en: "📊 Reset statistics"
+    max_length: 25
 
 # -----------------------------------------------------------------------------
 # Режимы
@@ -1161,6 +1185,10 @@ modes:
   reset_marathon_title:
     ru: "Сбросить марафон?"
     en: "Reset marathon?"
+
+  reset_marathon_warning:
+    ru: "Будет сброшено: {completed} пройденных тем, весь прогресс по дням.\nСтатистика Ленты сохранится."
+    en: "Will be reset: {completed} completed topics, all daily progress.\nFeed statistics will be kept."
 
   will_be_reset:
     ru: "Будет сброшено"

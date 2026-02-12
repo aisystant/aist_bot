@@ -96,14 +96,11 @@ class SettingsState(BaseState):
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
             f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
-            f"⏰ {t('settings.schedule_marathon', lang)}: {marathon_time}\n"
-            f"⏰ {t('settings.schedule_feed', lang)}: {feed_time}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language"),
-                InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule"),
             ],
             [
                 InlineKeyboardButton(text="🔗 " + t('settings.connections_label', lang), callback_data="upd_connections"),
