@@ -280,6 +280,12 @@ class StateMachine:
                 logger.warning(f"Не удалось обновить user из БД: {e}")
                 fresh_user = user
 
+        # Тихий возврат из глобального события (консультация, заметки):
+        # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта
+        if (full_context.get('consultation_complete') or full_context.get('notes_complete')) and from_state.name != to_state_name:
+            logger.info(f"[SM] Silent return to {to_state_name} (skipping enter)")
+            return
+
         # Вход в новый стейт с актуальными данными
         event = await to_state.enter(fresh_user, full_context)
 
