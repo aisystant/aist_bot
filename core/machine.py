@@ -412,8 +412,9 @@ class StateMachine:
                 fresh_user = user
 
         # Тихий возврат из глобального события (консультация, заметки):
-        # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта
-        if full_context.get('consultation_complete') or full_context.get('notes_complete'):
+        # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта.
+        # НО: если re-enter в тот же стейт (напр. consultation→consultation при refinement) — пропускаем silent return
+        if (full_context.get('consultation_complete') or full_context.get('notes_complete')) and current_state_name != state_name:
             logger.info(f"[SM] Silent return to {state_name} (skipping enter)")
             return
 
