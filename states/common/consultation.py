@@ -21,6 +21,7 @@ from aiogram.types import Message
 from states.base import BaseState
 from core.registry import registry
 from core.self_knowledge import get_self_knowledge, match_faq
+from engines.shared.structured_lookup import structured_lookup, format_structured_context
 from i18n import t
 
 
@@ -210,6 +211,10 @@ class ConsultationState(BaseState):
                 # Показываем индикатор обработки (FAQ не совпал — будет задержка)
                 await self.send(user, f"💭 {t('consultation.thinking', lang)}")
 
+                # --- L1: Structured Lookup (YAML данные марафона из RAM) ---
+                structured_hit = None if deep_search else structured_lookup(question, lang)
+                structured_context = format_structured_context(structured_hit, lang) if structured_hit else ""
+
                 if deep_search:
                     # --- L3 forced: глубокий поиск через MCP (пропуск L2) ---
                     from engines.shared import handle_question
@@ -244,6 +249,10 @@ class ConsultationState(BaseState):
                     context_topic = self._get_current_topic(user)
                     intern_dict = self._user_to_dict(user)
                     bot_context = get_self_knowledge(lang)
+
+                    # L1 structured data → prepend to bot_context
+                    if structured_context:
+                        bot_context = structured_context + "\n\n" + bot_context
 
                     answer, sources = await handle_question(
                         question=question,

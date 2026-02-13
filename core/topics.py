@@ -98,6 +98,7 @@ def load_knowledge_structure() -> tuple:
             'title': topic.get('title', ''),
             'title_en': topic.get('title_en', ''),
             'title_es': topic.get('title_es', ''),
+            'title_fr': topic.get('title_fr', ''),
             'main_concept': topic.get('main_concept', ''),
             'related_concepts': topic.get('related_concepts', []),
             'key_insight': topic.get('key_insight', ''),
