@@ -447,6 +447,11 @@ buttons:
     en: "Regenerate topics"
     max_length: 25
 
+  other_topics:
+    ru: "Другие темы"
+    en: "Other topics"
+    max_length: 20
+
   confirm_selection:
     ru: "✅ Подтвердить выбор"
     en: "✅ Confirm selection"

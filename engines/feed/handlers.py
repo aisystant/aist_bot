@@ -132,17 +132,15 @@ async def cmd_feed(message: Message, state: FSMContext):
             await show_topic_selection(message, topics, state)
 
         elif status['week_status'] == 'planning':
-            # Показываем уже предложенные темы (не создаём новую неделю!)
-            logger.info(f"Показываем выбор тем (planning) для {chat_id}")
-            week = await engine.get_current_week()
-            if week and week.get('suggested_topics'):
-                # Преобразуем названия тем в формат для отображения
-                topics = [{'title': topic_name, 'description': '', 'why': ''} for topic_name in week['suggested_topics']]
-                await show_topic_selection(message, topics, state)
-            else:
-                # Если тем нет, генерируем новые
-                topics, msg = await engine.suggest_topics()
-                await show_topic_selection(message, topics, state)
+            # Всегда перегенерируем темы из каталога (мгновенно)
+            logger.info(f"Перегенерируем темы (planning) для {chat_id}")
+            loading_msg = await message.answer(t('loading.generating_topics', lang))
+            topics, msg = await engine.suggest_topics()
+            await loading_msg.delete()
+            if not topics:
+                await message.answer(msg)
+                return
+            await show_topic_selection(message, topics, state)
 
         else:
             # Есть активная неделя - показываем меню Ленты
@@ -203,6 +201,9 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
         buttons.append([
             InlineKeyboardButton(text=f"✅ {t('buttons.yes', lang)}", callback_data="feed_confirm")
         ])
+        buttons.append([
+            InlineKeyboardButton(text=f"🔄 {t('buttons.other_topics', lang)}", callback_data="feed_reset_topics")
+        ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -246,6 +247,9 @@ async def show_topic_selection_direct(bot, chat_id: int, topics: list, state: FS
 
         buttons.append([
             InlineKeyboardButton(text=f"✅ {t('buttons.yes', lang)}", callback_data="feed_confirm")
+        ])
+        buttons.append([
+            InlineKeyboardButton(text=f"🔄 {t('buttons.other_topics', lang)}", callback_data="feed_reset_topics")
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)

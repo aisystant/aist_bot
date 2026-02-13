@@ -110,15 +110,7 @@ class FeedTopicsState(BaseState):
             # Уже есть активная неделя — переходим к дайджесту
             return "topics_selected"
 
-        if week and week.get('status') == FeedWeekStatus.PLANNING:
-            # Неделя в планировании — показываем существующие темы
-            suggested = week.get('suggested_topics', [])
-            if suggested:
-                topics = [{'title': topic_name, 'why': ''} for topic_name in suggested]
-                await self._show_topic_selection(user, topics)
-                return None
-
-        # Генерируем новые темы
+        # Генерируем новые темы (из каталога — мгновенно)
         await self.send(user, f"⏳ {t('loading.generating_topics', lang)}")
 
         try:
@@ -200,6 +192,12 @@ class FeedTopicsState(BaseState):
             InlineKeyboardButton(
                 text=t('buttons.confirm_selection', lang),
                 callback_data="feed_confirm"
+            )
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🔄 {t('buttons.other_topics', lang)}",
+                callback_data="feed_reset_topics"
             )
         ])
 

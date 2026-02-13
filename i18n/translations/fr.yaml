@@ -93,6 +93,7 @@ buttons:
   back_to_menu: "« Retour"
   select_topics: "Sélectionner les sujets de la semaine"
   reset_topics: "Régénérer les sujets"
+  other_topics: "Autres sujets"
   confirm_selection: "✅ Confirmer la sélection"
   update_profile: "⚙️ Paramètres"
   reminders: "⏰ Rappels"
