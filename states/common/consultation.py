@@ -308,9 +308,9 @@ class ConsultationState(BaseState):
                     else:
                         # Regular deep search (ИИ prefix)
                         depth_instruction = {
-                            'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай подробный, развёрнутый ответ. Раскрой тему глубже, чем FAQ. Объясни механизмы, приведи примеры, покажи связи между концепциями.",
-                            'en': "\n\nDEPTH INSTRUCTION: Give a detailed, comprehensive answer. Go deeper than FAQ. Explain mechanisms, give examples, show connections between concepts.",
-                        }.get(lang, "\n\nDEPTH INSTRUCTION: Give a detailed answer.")
+                            'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай развёрнутый ответ, используя ВСЕ доступные фрагменты из контекста. Если в контексте есть связи между темами — покажи их. Если есть примеры — приведи. НО НЕ выдумывай то, чего в контексте нет.",
+                            'en': "\n\nDEPTH INSTRUCTION: Give a comprehensive answer using ALL available context fragments. Show connections between topics if present. Cite examples from context. But DO NOT invent what is not in the context.",
+                        }.get(lang, "\n\nDEPTH INSTRUCTION: Use ALL context fragments. Do not invent.")
                         bot_context += depth_instruction
 
                     # L1 structured data — inject even in deep search if available

@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-from core.topics import TOPICS, get_topics_for_day, get_topic_title
+from core.topics import TOPICS, get_topics_for_day, get_topic_title, load_topic_metadata
 
 
 @dataclass
@@ -251,6 +251,19 @@ def format_structured_context(hit: StructuredHit, lang: str = 'ru') -> str:
                 lines.append(f"  Инсайт: {key_insight}")
             if related:
                 lines.append(f"  Связанные: {', '.join(related)}")
+
+            # Кросс-ссылки из topic YAML (P3 fix: Context Engineering Select)
+            topic_id = topic.get('id', '')
+            if topic_id:
+                metadata = load_topic_metadata(topic_id)
+                if metadata and 'previous_days_connection' in metadata:
+                    connections = metadata['previous_days_connection']
+                    lines.append("  Связи с предыдущими днями:")
+                    for day_key, conn in connections.items():
+                        link_text = conn.get('link', '')
+                        if link_text:
+                            lines.append(f"    • {day_key}: {link_text}")
+
             lines.append("")
 
     else:  # title, concept
@@ -272,6 +285,19 @@ def format_structured_context(hit: StructuredHit, lang: str = 'ru') -> str:
                 lines.append(f"  Проблема: {pain_point}")
             if related:
                 lines.append(f"  Связанные: {', '.join(related)}")
+
+            # Кросс-ссылки из topic YAML (P3 fix: Context Engineering Select)
+            topic_id = topic.get('id', '')
+            if topic_id:
+                metadata = load_topic_metadata(topic_id)
+                if metadata and 'previous_days_connection' in metadata:
+                    connections = metadata['previous_days_connection']
+                    lines.append("  Связи с предыдущими днями:")
+                    for day_key, conn in connections.items():
+                        link_text = conn.get('link', '')
+                        if link_text:
+                            lines.append(f"    • {day_key}: {link_text}")
+
             lines.append("")
 
     lines.append("Используй эти данные в ответе. Они точные и из программы марафона.")
