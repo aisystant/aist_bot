@@ -441,7 +441,15 @@ class EnhancedRetrieval:
         # 3. Расширяем запросы
         expanded_queries = self.expander.expand(base_query, max_expansions=2)
 
-        # 3. Выполняем поиск по всем запросам
+        # 3a. Также ищем по чистым ключевым словам (без навигационного шума)
+        # MCP embedding search лучше находит по короткому точному запросу
+        if keywords:
+            keyword_query = ' '.join(keywords)
+            if keyword_query.lower() not in [q.lower() for q in expanded_queries]:
+                expanded_queries.append(keyword_query)
+                logger.info(f"EnhancedRetrieval: добавлен keyword-only запрос: '{keyword_query}'")
+
+        # 4. Выполняем поиск по всем запросам
         all_results: List[RetrievalResult] = []
         tried_queries = []
 
