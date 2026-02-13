@@ -621,6 +621,7 @@ consultation:
   sources: "Fuentes"
   returning: "↩️ Volviendo a la actividad anterior."
   try_service: "Prueba"
+  faq_hint: "💡 Para una respuesta detallada, escribe: ?IA {question}"
 
 error:
   generic: "Ocurrió un error. Inténtalo de nuevo o usa /help"

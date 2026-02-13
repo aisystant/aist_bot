@@ -188,11 +188,24 @@ class ConsultationState(BaseState):
             await self.send(user, t('consultation.no_question', lang))
             return "answered"
 
+        # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
+        deep_search = False
+        _DEEP_PREFIXES = ("ии ", "аи ", "ai ")
+        q_check = question.lower()
+        for prefix in _DEEP_PREFIXES:
+            if q_check.startswith(prefix):
+                question = question[len(prefix):].strip()
+                deep_search = True
+                break
+
         try:
             # --- L1: FAQ-матч (мгновенный, до любой классификации) ---
-            faq_answer = match_faq(question, lang)
+            faq_answer = None if deep_search else match_faq(question, lang)
             if faq_answer:
                 response = self._format_response(faq_answer, [], lang)
+                # Hint: предложить глубокий поиск
+                hint = t('consultation.faq_hint', lang).format(question=question)
+                response += f"\n\n{hint}"
             else:
                 # Показываем индикатор обработки (FAQ не совпал — будет задержка)
                 await self.send(user, f"💭 {t('consultation.thinking', lang)}")
