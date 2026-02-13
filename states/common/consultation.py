@@ -200,8 +200,13 @@ class ConsultationState(BaseState):
                 break
 
         try:
-            # --- L1: FAQ-матч (мгновенный, до любой классификации) ---
-            faq_answer = None if deep_search else match_faq(question, lang)
+            # --- L1: Structured Lookup (YAML данные марафона из RAM, ~0ms) ---
+            # Проверяем ДО FAQ: если есть точные данные марафона — FAQ не нужен
+            structured_hit = None if deep_search else structured_lookup(question, lang)
+            structured_context = format_structured_context(structured_hit, lang) if structured_hit else ""
+
+            # --- L0: FAQ-матч (только если L1 не нашёл структурированных данных) ---
+            faq_answer = None if (deep_search or structured_hit) else match_faq(question, lang)
             if faq_answer:
                 response = self._format_response(faq_answer, [], lang)
                 # Hint: предложить глубокий поиск
@@ -210,10 +215,6 @@ class ConsultationState(BaseState):
             else:
                 # Показываем индикатор обработки (FAQ не совпал — будет задержка)
                 await self.send(user, f"💭 {t('consultation.thinking', lang)}")
-
-                # --- L1: Structured Lookup (YAML данные марафона из RAM) ---
-                structured_hit = None if deep_search else structured_lookup(question, lang)
-                structured_context = format_structured_context(structured_hit, lang) if structured_hit else ""
 
                 if deep_search:
                     # --- L3 forced: глубокий поиск через MCP (пропуск L2) ---
