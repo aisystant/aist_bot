@@ -85,6 +85,11 @@ async def handle_question(
     keywords = get_question_keywords(question)
     search_query = ' '.join(keywords) if keywords else question[:100]
 
+    # Если ключевые слова сильно отличаются от исходного вопроса,
+    # используем исходный вопрос — MCP semantic search лучше работает с natural language
+    if len(keywords) <= 1 or (len(keywords) <= 2 and len(question) > 30):
+        search_query = question[:150]
+
     logger.info(f"QuestionHandler: chat_id={chat_id}, mode={mode}")
     logger.info(f"QuestionHandler: исходный вопрос: '{question}'")
     logger.info(f"QuestionHandler: извлечённые ключевые слова: {keywords}")

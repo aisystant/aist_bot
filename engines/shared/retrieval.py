@@ -53,6 +53,7 @@ TERM_RELATIONS: Dict[str, List[str]] = {
 
     # Системное мышление
     "системное мышление": ["системный подход", "холизм", "взаимосвязи", "эмерджентность"],
+    "мантра": ["мантра системного мышления", "рассуждение", "шаги мышления", "последовательность"],
     "экзокортекс": ["внешний мозг", "заметки", "база знаний", "second brain"],
     "итерации": ["циклы", "повторения", "спринты", "улучшения"],
     "инкременты": ["приращения", "шаги", "малые изменения"],
@@ -384,8 +385,13 @@ class FallbackStrategy:
         if simple_query and simple_query not in tried_set:
             fallback_queries.append(simple_query)
 
+        # 4. Каждое длинное слово отдельно (для опечаток и неточных запросов)
+        for word in words[:2]:
+            if word not in tried_set and len(word) >= 5:
+                fallback_queries.append(word)
+
         logger.info(f"FallbackStrategy: сгенерировано {len(fallback_queries)} запросов")
-        return fallback_queries[:3]  # Максимум 3 fallback запроса
+        return fallback_queries[:4]  # Максимум 4 fallback запроса
 
 
 # =============================================================================

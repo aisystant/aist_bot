@@ -294,7 +294,17 @@ class StateMachine:
             next_state = self.get_next_state(to_state_name, event, chat_id)
             if next_state and next_state != to_state_name:
                 logger.info(f"[SM] Auto-transition from {to_state_name} via event '{event}'")
-                await self.go_to(fresh_user, next_state, full_context)
+                # Для модальных стейтов (consultation, notes) — пробрасываем exit-флаг,
+                # чтобы go_to() мог выполнить silent return в предыдущий стейт
+                auto_context = dict(full_context)
+                _MODAL_EXIT_FLAGS = {
+                    'common.consultation': 'consultation_complete',
+                    'utility.notes': 'notes_complete',
+                }
+                flag = _MODAL_EXIT_FLAGS.get(to_state_name)
+                if flag:
+                    auto_context[flag] = True
+                await self.go_to(fresh_user, next_state, auto_context)
 
     async def start(self, user, context: dict = None) -> None:
         """
