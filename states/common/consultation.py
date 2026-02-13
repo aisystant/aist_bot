@@ -210,7 +210,30 @@ class ConsultationState(BaseState):
                 # Показываем индикатор обработки (FAQ не совпал — будет задержка)
                 await self.send(user, f"💭 {t('consultation.thinking', lang)}")
 
-                if self._is_bot_question(question):
+                if deep_search:
+                    # --- L3 forced: глубокий поиск через MCP (пропуск L2) ---
+                    from engines.shared import handle_question
+
+                    context_topic = self._get_current_topic(user)
+                    intern_dict = self._user_to_dict(user)
+                    bot_context = get_self_knowledge(lang)
+
+                    # Подсказка: не повторять FAQ, дать подробный ответ
+                    depth_hint = {
+                        'ru': " (Дай подробный, развёрнутый ответ с деталями из базы знаний. Не ограничивайся кратким FAQ — раскрой тему глубже.)",
+                        'en': " (Give a detailed, comprehensive answer from the knowledge base. Don't limit to a brief FAQ — cover the topic in depth.)",
+                    }.get(lang, " (Give a detailed answer.)")
+                    deep_question = question + depth_hint
+
+                    answer, sources = await handle_question(
+                        question=deep_question,
+                        intern=intern_dict,
+                        context_topic=context_topic,
+                        bot_context=bot_context,
+                    )
+
+                    response = self._format_response(answer, sources, lang)
+                elif self._is_bot_question(question):
                     # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
                     answer = await self._answer_bot_question(user, question, lang)
                     response = self._format_response(answer, [], lang)
