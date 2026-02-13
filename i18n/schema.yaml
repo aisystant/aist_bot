@@ -2791,10 +2791,10 @@ consultation:
     fr: "🔍 Recherche approfondie..."
 
   btn_comment:
-    ru: "✏️ Замечание"
-    en: "✏️ Comment"
-    es: "✏️ Comentario"
-    fr: "✏️ Commentaire"
+    ru: "✏️ Обратная связь"
+    en: "✏️ Feedback"
+    es: "✏️ Feedback"
+    fr: "✏️ Feedback"
 
   comment_prompt:
     ru: "✏️ Напишите, что было не так или чего не хватило:"
@@ -2803,7 +2803,7 @@ consultation:
     fr: "✏️ Décrivez ce qui n'allait pas ou ce qui manquait :"
 
   comment_saved:
-    ru: "✅ Спасибо! Замечание записано, мы учтём это."
+    ru: "✅ Спасибо! Обратная связь записана, мы учтём это."
     en: "✅ Thanks! Your feedback has been recorded."
     es: "✅ ¡Gracias! Su comentario ha sido registrado."
     fr: "✅ Merci ! Votre commentaire a été enregistré."
