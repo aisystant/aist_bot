@@ -2,13 +2,17 @@
 Модуль самознания бота (Self-Knowledge).
 
 Трёхуровневая модель скорости ответа:
-- L1 (кеш, ~100ms): описания и FAQ из Pack + граф сервисов из реестра.
+- L0 (проекция, ~10ms): YAML-проекция, сгенерированная Синхронизатором из Pack.
+  Файл: config/self_knowledge_projection.yaml (read-only, auto-generated).
+- L1 (кеш, ~100ms): описания и FAQ из проекции/Pack + граф сервисов из реестра.
   Обновляется раз в день или при рестарте.
 - L2 (MCP, ~1-3s): запрос к Pack через MCP + быстрая модель. (TODO)
 - L3 (полный, ~3-8s): MCP guides + knowledge + Sonnet. (существующий pipeline)
 
+Приоритет загрузки: L0 проекция → локальный Pack → GitHub raw URL.
+
 Source-of-truth: секция 4.1.1 в DP.AISYS.014 (PACK-digital-platform).
-Загрузка: локальный файл (dev) → GitHub raw URL (prod/Railway).
+Синхронизатор: DS-synchronizer/scripts/pack-project.sh → projection YAML.
 
 Использование:
     from core.self_knowledge import get_self_knowledge, match_faq
@@ -24,17 +28,22 @@ from typing import Optional
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
+import yaml
+
 from core.registry import registry
 from i18n import t
 
 logger = logging.getLogger(__name__)
 
-# Путь к Pack-паспорту бота (source-of-truth)
+# L0: Проекция из Синхронизатора (приоритетный источник)
+_PROJECTION_PATH = Path(__file__).parent.parent / "config" / "self_knowledge_projection.yaml"
+
+# Fallback: Pack-паспорт бота (source-of-truth)
 # Dev: Pack-репо рядом с ботом ~/Github/PACK-digital-platform/
 _PACK_PATH = Path(__file__).parent.parent.parent / "PACK-digital-platform" / \
     "pack" / "digital-platform" / "02-domain-entities" / "DP.AISYS.014-aist-bot.md"
 
-# Prod (Railway): загрузить с GitHub (репо публичный)
+# Fallback: Prod (Railway/Neon): загрузить с GitHub (репо публичный)
 _GITHUB_RAW_URL = (
     "https://raw.githubusercontent.com/TserenTserenov/PACK-digital-platform"
     "/main/pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
@@ -48,8 +57,28 @@ _loaded: bool = False
 _cache: dict[str, str] = {}
 
 
+def _load_projection() -> Optional[dict]:
+    """L0: Загрузить YAML-проекцию из Синхронизатора (приоритетный путь)."""
+    if not _PROJECTION_PATH.exists():
+        return None
+
+    try:
+        with open(_PROJECTION_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if data and isinstance(data, dict) and '_meta' in data:
+            logger.info(
+                f"Self-knowledge: loaded from projection "
+                f"(synced_at={data['_meta'].get('synced_at', '?')})"
+            )
+            return data
+    except Exception as e:
+        logger.warning(f"Failed to read projection: {e}")
+
+    return None
+
+
 def _fetch_content() -> Optional[str]:
-    """Загрузить паспорт бота: сначала локально, потом с GitHub."""
+    """Fallback: загрузить паспорт бота из Pack (локально или GitHub)."""
     # 1. Локальный файл (dev)
     if _PACK_PATH.exists():
         try:
@@ -73,7 +102,7 @@ def _fetch_content() -> Optional[str]:
 
 
 def _parse_pack() -> None:
-    """Парсить секцию 4.1.1 из Pack-паспорта (lazy, один раз)."""
+    """Загрузить самознание: L0 проекция → fallback Pack markdown (lazy, один раз)."""
     global _scenarios, _faq, _identity, _loaded
 
     if _loaded:
@@ -81,74 +110,77 @@ def _parse_pack() -> None:
 
     _loaded = True
 
-    content = _fetch_content()
-    if not content:
-        logger.warning("Self-knowledge: no content loaded (local + GitHub both failed)")
+    # --- L0: Проекция (приоритет) ---
+    projection = _load_projection()
+    if projection:
+        identity_text = projection.get('identity', '')
+        scenarios_text = projection.get('scenarios', '')
+        faq_text = projection.get('faq', '')
+
+        _identity.update(_parse_identity(identity_text))
+        _scenarios.extend(_parse_scenarios_table_from_text(scenarios_text))
+        _faq.extend(_parse_faq_table_from_text(faq_text))
+
+        logger.info(
+            f"Self-knowledge loaded from projection: "
+            f"{len(_scenarios)} scenarios, {len(_faq)} FAQ items"
+        )
         return
 
-    # --- Извлечь секцию между "##### Идентичность бота" и "##### Сценарии" ---
-    _identity.update(_parse_identity(content))
+    # --- Fallback: Pack markdown ---
+    content = _fetch_content()
+    if not content:
+        logger.warning("Self-knowledge: no content loaded (projection + Pack + GitHub all failed)")
+        return
 
-    # --- Извлечь таблицу сценариев ---
+    _identity.update(_parse_identity_from_pack(content))
     _scenarios.extend(_parse_scenarios_table(content))
-
-    # --- Извлечь таблицу FAQ ---
     _faq.extend(_parse_faq_table(content))
 
     logger.info(
-        f"Self-knowledge loaded from Pack: "
+        f"Self-knowledge loaded from Pack fallback: "
         f"{len(_scenarios)} scenarios, {len(_faq)} FAQ items"
     )
 
 
-def _parse_identity(content: str) -> dict:
-    """Извлечь идентичность бота из markdown."""
+def _parse_identity(text: str) -> dict:
+    """Извлечь идентичность бота из текста (projection или Pack section)."""
     result = {}
 
-    # Имя
-    m = re.search(r'\*\*Имя:\*\*\s*(.+)', content)
+    m = re.search(r'\*\*Имя:\*\*\s*(.+)', text)
     if m:
         result['name'] = m.group(1).strip()
 
-    # Назначение (ru)
-    m = re.search(r'\*\*Назначение \(ru\):\*\*\s*(.+)', content)
+    m = re.search(r'\*\*Назначение \(ru\):\*\*\s*(.+)', text)
     if m:
         result['purpose_ru'] = m.group(1).strip()
 
-    # Назначение (en)
-    m = re.search(r'\*\*Назначение \(en\):\*\*\s*(.+)', content)
+    m = re.search(r'\*\*Назначение \(en\):\*\*\s*(.+)', text)
     if m:
         result['purpose_en'] = m.group(1).strip()
 
-    # Как задать вопрос (ru)
-    m = re.search(r'\*\*Как задать вопрос \(ru\):\*\*\s*(.+)', content)
+    m = re.search(r'\*\*Как задать вопрос \(ru\):\*\*\s*(.+)', text)
     if m:
         result['ask_ru'] = m.group(1).strip()
 
-    # Как задать вопрос (en)
-    m = re.search(r'\*\*Как задать вопрос \(en\):\*\*\s*(.+)', content)
+    m = re.search(r'\*\*Как задать вопрос \(en\):\*\*\s*(.+)', text)
     if m:
         result['ask_en'] = m.group(1).strip()
 
     return result
 
 
-def _parse_scenarios_table(content: str) -> list[dict]:
-    """Извлечь таблицу сценариев из markdown.
+def _parse_identity_from_pack(content: str) -> dict:
+    """Извлечь идентичность из полного Pack markdown (fallback)."""
+    match = re.search(r'##### Идентичность бота\s*\n(.*?)(?=\n##### |\Z)', content, re.DOTALL)
+    if match:
+        return _parse_identity(match.group(1))
+    return _parse_identity(content)
 
-    Формат: # | Сценарий | Команда | Статус | Описание (ru) | Описание (en)
-    Только строки со статусом ✅ попадают в L1 кеш.
-    """
+
+def _parse_scenarios_from_rows(rows: list[list[str]]) -> list[dict]:
+    """Распарсить строки таблицы сценариев. Только ✅ попадают в L1."""
     scenarios = []
-
-    # Найти секцию "##### Сценарии"
-    match = re.search(r'##### Сценарии\s*\n(.*?)(?=\n##### |\n### |\Z)', content, re.DOTALL)
-    if not match:
-        return scenarios
-
-    table_text = match.group(1)
-    rows = _parse_md_table(table_text)
-
     for row in rows:
         if len(row) >= 6:
             status = row[3].strip()
@@ -161,22 +193,12 @@ def _parse_scenarios_table(content: str) -> list[dict]:
                 'description_ru': row[4].strip(),
                 'description_en': row[5].strip(),
             })
-
     return scenarios
 
 
-def _parse_faq_table(content: str) -> list[dict]:
-    """Извлечь таблицу FAQ из markdown."""
+def _parse_faq_from_rows(rows: list[list[str]]) -> list[dict]:
+    """Распарсить строки таблицы FAQ."""
     faq = []
-
-    # Найти секцию "##### FAQ"
-    match = re.search(r'##### FAQ\s*\n(.*?)(?=\n### |\n## |\Z)', content, re.DOTALL)
-    if not match:
-        return faq
-
-    table_text = match.group(1)
-    rows = _parse_md_table(table_text)
-
     for row in rows:
         if len(row) >= 6:
             keywords_str = row[3].strip()
@@ -188,8 +210,33 @@ def _parse_faq_table(content: str) -> list[dict]:
                 'answer_ru': row[4].strip(),
                 'answer_en': row[5].strip(),
             })
-
     return faq
+
+
+def _parse_scenarios_table_from_text(text: str) -> list[dict]:
+    """Извлечь сценарии из текста секции (projection path)."""
+    return _parse_scenarios_from_rows(_parse_md_table(text))
+
+
+def _parse_faq_table_from_text(text: str) -> list[dict]:
+    """Извлечь FAQ из текста секции (projection path)."""
+    return _parse_faq_from_rows(_parse_md_table(text))
+
+
+def _parse_scenarios_table(content: str) -> list[dict]:
+    """Извлечь таблицу сценариев из полного Pack markdown (fallback)."""
+    match = re.search(r'##### Сценарии\s*\n(.*?)(?=\n##### |\n### |\Z)', content, re.DOTALL)
+    if not match:
+        return []
+    return _parse_scenarios_from_rows(_parse_md_table(match.group(1)))
+
+
+def _parse_faq_table(content: str) -> list[dict]:
+    """Извлечь FAQ из полного Pack markdown (fallback)."""
+    match = re.search(r'##### FAQ\s*\n(.*?)(?=\n### |\n## |\Z)', content, re.DOTALL)
+    if not match:
+        return []
+    return _parse_faq_from_rows(_parse_md_table(match.group(1)))
 
 
 def _parse_md_table(text: str) -> list[list[str]]:
