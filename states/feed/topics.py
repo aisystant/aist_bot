@@ -90,12 +90,16 @@ class FeedTopicsState(BaseState):
         2. Если нет — генерируем темы
         3. Показываем интерфейс выбора
 
+        Context:
+            force_regenerate: если True — сбрасываем ACTIVE неделю и генерируем новые темы
+
         Returns:
             "topics_selected" если уже есть активная неделя, None иначе
         """
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         intern = self._user_to_intern_dict(user)
+        context = context or {}
 
         # Удаляем Reply Keyboard (если остался от Marathon)
         await self.send(user, f"📚 {t('feed.menu_title', lang)}", reply_markup=ReplyKeyboardRemove())
@@ -105,6 +109,18 @@ class FeedTopicsState(BaseState):
 
         # Проверяем текущую неделю
         week = await get_current_feed_week(chat_id)
+
+        # force_regenerate: сбрасываем ACTIVE неделю для перегенерации тем
+        if context.get('force_regenerate') and week and week.get('status') == FeedWeekStatus.ACTIVE:
+            logger.info(f"force_regenerate: resetting week {week['id']} to PLANNING for chat_id={chat_id}")
+            await update_feed_week(week['id'], {
+                'status': FeedWeekStatus.PLANNING,
+                'accepted_topics': [],
+                'suggested_topics': [],
+            })
+            week['status'] = FeedWeekStatus.PLANNING
+            week['accepted_topics'] = []
+            week['suggested_topics'] = []
 
         if week and week.get('status') == FeedWeekStatus.ACTIVE:
             # Уже есть активная неделя — переходим к дайджесту

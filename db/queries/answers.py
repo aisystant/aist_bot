@@ -216,6 +216,10 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
     """
     Получить статистику ленты за текущую неделю.
 
+    Дайджесты = все сессии (показаны пользователю), по session_date.
+    Фиксации = завершённые сессии (пользователь написал фиксацию), по session_date.
+    Инвариант: digests >= fixations.
+
     Returns:
         {
             'active_days': int,
@@ -239,18 +243,18 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
               AND activity_date >= $2
         ''', chat_id, week_start)
 
-        # Фиксации за неделю
-        fixations = await conn.fetchval('''
+        # Дайджесты за неделю (все сессии по session_date)
+        digests = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM answers
-            WHERE chat_id = $1
-              AND mode = 'feed'
-              AND answer_type = 'fixation'
-              AND created_at >= $2
+            FROM feed_sessions
+            WHERE week_id IN (
+                SELECT id FROM feed_weeks WHERE chat_id = $1
+            )
+            AND session_date >= $2
         ''', chat_id, week_start)
 
-        # Дайджесты за неделю (из feed_sessions, только завершённые)
-        digests = await conn.fetchval('''
+        # Фиксации за неделю (завершённые сессии по session_date)
+        fixations = await conn.fetchval('''
             SELECT COUNT(*)
             FROM feed_sessions
             WHERE week_id IN (
@@ -329,24 +333,25 @@ async def get_total_stats(chat_id: int) -> dict:
               AND created_at >= $2
         ''', chat_id, count_from)
 
-        # Всего дайджестов (от даты сброса)
+        # Всего дайджестов (от даты сброса, все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
             FROM feed_sessions
             WHERE week_id IN (
                 SELECT id FROM feed_weeks WHERE chat_id = $1
             )
-            AND status = 'completed'
-            AND created_at >= $2
+            AND session_date >= $2
         ''', chat_id, count_from)
 
-        # Всего фиксаций (от даты сброса)
+        # Всего фиксаций (от даты сброса, завершённые сессии по session_date)
         fixations = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM answers
-            WHERE chat_id = $1
-              AND answer_type = 'fixation'
-              AND created_at >= $2
+            FROM feed_sessions
+            WHERE week_id IN (
+                SELECT id FROM feed_weeks WHERE chat_id = $1
+            )
+            AND status = 'completed'
+            AND session_date >= $2
         ''', chat_id, count_from)
 
     return {

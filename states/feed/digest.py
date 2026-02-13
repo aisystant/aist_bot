@@ -600,11 +600,6 @@ class FeedDigestState(BaseState):
         chat_id = self._get_chat_id(user)
         topics = week.get('accepted_topics', [])
 
-        # Проверяем, завершён ли сегодняшний дайджест
-        today = date.today()
-        existing = await get_feed_session(week['id'], today)
-        digest_completed_today = existing and existing.get('status') == 'completed'
-
         text = f"📋 *{t('feed.topics_menu_title', lang)}*\n\n"
         if topics:
             text += f"{t('feed.your_topics_label', lang)}\n"
@@ -614,20 +609,11 @@ class FeedDigestState(BaseState):
         else:
             text += f"{t('feed.no_topics', lang)}"
 
-        # Первая кнопка зависит от статуса дайджеста
-        if digest_completed_today:
-            first_button = InlineKeyboardButton(
-                text=f"📊 {t('buttons.progress', lang)}",
-                callback_data="feed_my_progress"
-            )
-        else:
-            first_button = InlineKeyboardButton(
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
                 text=f"📖 {t('buttons.get_digest', lang)}",
                 callback_data="feed_get_digest"
-            )
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [first_button],
+            )],
             [InlineKeyboardButton(
                 text=f"🔄 {t('buttons.reset_topics', lang)}",
                 callback_data="feed_reset_topics"
