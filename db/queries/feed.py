@@ -148,11 +148,20 @@ async def get_feed_session_by_id(session_id: int) -> Optional[dict]:
 
 
 async def get_feed_session(week_id: int, session_date: date) -> Optional[dict]:
-    """Получить сессию по week_id и дате"""
+    """Получить сессию по week_id и дате.
+
+    При дубликатах (несколько сессий на один день) приоритет:
+    completed > active, затем по created_at DESC.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT * FROM feed_sessions WHERE week_id = $1 AND session_date = $2',
+            '''SELECT * FROM feed_sessions
+               WHERE week_id = $1 AND session_date = $2
+               ORDER BY
+                   CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
+                   created_at DESC
+               LIMIT 1''',
             week_id, session_date
         )
 
