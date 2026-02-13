@@ -242,6 +242,30 @@ async def cb_go_update(callback: CallbackQuery, state: FSMContext):
     await _show_update_screen(callback.message, intern, state)
 
 
+@callbacks_router.callback_query(F.data == "go_profile")
+async def cb_go_profile(callback: CallbackQuery, state: FSMContext):
+    """Переход к профилю из progress и других мест."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    await callback.answer()
+    intern = await get_intern(callback.message.chat.id)
+
+    if dispatcher and dispatcher.is_sm_active and intern:
+        try:
+            await state.clear()
+            await callback.message.delete()
+            await dispatcher.route_command('profile', intern)
+            return
+        except Exception as e:
+            logger.error(f"[CB] Error routing go_profile: {e}")
+
+    # Legacy fallback — просто отправляем /profile
+    if intern:
+        await callback.message.delete()
+        await callback.message.answer("/profile — используйте для перехода в профиль")
+
+
 @callbacks_router.callback_query(F.data == "go_progress")
 async def cb_go_progress(callback: CallbackQuery):
     """Переход к прогрессу."""

@@ -69,7 +69,6 @@ class ProgressState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         name = self._get_user_name(user)
-        mode = self._get_mode(user)
 
         # Получаем статистику
         try:
@@ -126,18 +125,12 @@ class ProgressState(BaseState):
         text += f"{t('progress.topics', lang)}: {feed_topics_text}"
 
         # Inline-кнопки
-        buttons = []
-        if mode == Mode.FEED:
-            buttons.append([InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")])
-        else:
-            buttons.append([InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="progress_continue")])
-
-        buttons.append([
-            InlineKeyboardButton(text=f"📊 {t('progress.full_report', lang)}", callback_data="progress_full"),
-            InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"📊 {t('progress.full_report', lang)}", callback_data="progress_full"),
+                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")
+            ]
         ])
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
@@ -280,7 +273,10 @@ class ProgressState(BaseState):
 
         # Inline-кнопки
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="progress_continue")],
+            [
+                InlineKeyboardButton(text=f"👤 {t('buttons.profile', lang)}", callback_data="go_profile"),
+                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")
+            ],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_back")]
         ])
 

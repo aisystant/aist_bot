@@ -96,16 +96,7 @@ async def cmd_progress(message: Message):
             reset_str = str(stats_reset_date)
         text += f"\n\n_📌 {t('progress.stats_reset_info', lang, date=reset_str)}_"
 
-    from config import Mode
-    current_mode = intern.get('mode', Mode.MARATHON)
-
-    if current_mode == Mode.FEED:
-        continue_btn = InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")
-    else:
-        continue_btn = InlineKeyboardButton(text=f"📚 {t('buttons.continue_learning', lang)}", callback_data="learn")
-
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [continue_btn],
         [
             InlineKeyboardButton(text=f"📊 {t('progress.full_report', lang)}", callback_data="progress_full"),
             InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="go_update")
@@ -220,16 +211,11 @@ async def show_full_progress(callback: CallbackQuery):
                 reset_str = str(stats_reset_date)
             text += f"\n\n_📌 {t('progress.stats_reset_info', lang, date=reset_str)}_"
 
-        from config import Mode
-        current_mode = intern.get('mode', Mode.MARATHON)
-
-        if current_mode == Mode.FEED:
-            continue_btn = InlineKeyboardButton(text=f"📖 {t('progress.get_digest', lang)}", callback_data="feed_get_digest")
-        else:
-            continue_btn = InlineKeyboardButton(text=f"📚 {t('progress.continue_learning', lang)}", callback_data="learn")
-
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [continue_btn],
+            [
+                InlineKeyboardButton(text=f"👤 {t('buttons.profile', lang)}", callback_data="go_profile"),
+                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="go_update")
+            ],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_back")]
         ])
 
@@ -292,16 +278,15 @@ async def stats_reset_do(callback: CallbackQuery):
 
 @progress_router.callback_query(F.data == "progress_back")
 async def progress_back(callback: CallbackQuery):
-    """Возврат к короткому отчёту"""
+    """Возврат к короткому отчёту — рендерим /progress заново"""
     await callback.answer()
 
     try:
+        # Удаляем полный отчёт и показываем короткий заново
         await callback.message.delete()
-        await callback.message.answer(
-            "Для обновлённого отчёта используйте /progress"
-        )
+        # Используем message.answer чтобы вызвать cmd_progress
+        msg = callback.message
+        await cmd_progress(msg)
     except Exception as e:
         logger.error(f"Ошибка в progress_back: {e}")
-        await callback.message.edit_text(
-            "/progress — посмотреть прогресс"
-        )
+        await callback.message.answer("/progress — посмотреть прогресс")
