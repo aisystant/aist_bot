@@ -33,6 +33,7 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
     interests = intern.get('interests', [])
     goals = intern.get('goals', '')
     motivation = intern.get('motivation', '')
+    assessment_state = intern.get('assessment_state', '')
 
     # Получаем контекст из MCP для актуальных тем
     mcp_context = await get_trending_topics()
@@ -56,6 +57,9 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
         'fr': "RAPPEL: Tout le texte (title, why) doit être en FRANÇAIS!"
     }.get(lang, "REMINDER: All text (title, why) must be in ENGLISH!")
 
+    # Адаптация тематики по состоянию теста
+    assessment_topic_hint = _get_feed_topic_hint(assessment_state)
+
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {lang_instruction}
 
@@ -67,7 +71,7 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
 - Интересы: {interests_str}
 - Цели: {goals or 'не указаны'}
 - Мотивация: {motivation or 'не указана'}
-
+{assessment_topic_hint}
 ПРАВИЛА:
 1. Темы из области системного мышления и личного развития
 2. Учитывай профессию и интересы — темы должны быть релевантны
@@ -336,6 +340,7 @@ async def generate_multi_topic_digest(
     """
     name = intern.get('name', 'пользователь')
     occupation = intern.get('occupation', '')
+    assessment_state = intern.get('assessment_state', '')
 
     topics_count = len(topics)
     if topics_count == 0:
@@ -412,13 +417,16 @@ async def generate_multi_topic_digest(
         'fr': "RAPPEL: Tout le texte (intro, main_content, reflection_prompt) doit être en FRANÇAIS!"
     }.get(lang, "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!")
 
+    # Адаптация стиля дайджеста по состоянию теста
+    assessment_digest_hint = _get_feed_digest_hint(assessment_state)
+
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 Создай дайджест, объединяющий несколько тем для {name}.
 {lang_instruction}
 
 ПРОФИЛЬ:
 - Занятие: {occupation or 'не указано'}
-
+{assessment_digest_hint}
 ТЕМЫ ДАЙДЖЕСТА ({topics_count} шт.):
 {chr(10).join(f'- {t}' for t in topics)}
 
@@ -618,3 +626,47 @@ async def generate_topic_content(
         "main_content": response,
         "reflection_prompt": "Что вы вынесли из этого материала?",
     }
+
+
+def _get_feed_topic_hint(assessment_state: str) -> str:
+    """Подсказка для выбора тем Ленты на основе состояния теста."""
+    hints = {
+        'chaos': (
+            "\nСОСТОЯНИЕ УЧЕНИКА: Хаос (внимание фрагментировано, день = тушение пожаров)\n"
+            "ПРИОРИТЕТ ТЕМ: внимание, привычки, маленькие системы, фокус, приоритизация\n"
+        ),
+        'deadlock': (
+            "\nСОСТОЯНИЕ УЧЕНИКА: Тупик (стабильность без роста, «день сурка»)\n"
+            "ПРИОРИТЕТ ТЕМ: навыки, deliberate practice, кейсы изменений, разрыв петли знание→бездействие\n"
+        ),
+        'turning_point': (
+            "\nСОСТОЯНИЕ УЧЕНИКА: Поворот (всё хорошо, но хочется большего, направление неясно)\n"
+            "ПРИОРИТЕТ ТЕМ: стратегия, смыслы, развитие как процесс, исследование направлений\n"
+        ),
+    }
+    return hints.get(assessment_state, '')
+
+
+def _get_feed_digest_hint(assessment_state: str) -> str:
+    """Адаптация стиля дайджеста по состоянию теста."""
+    hints = {
+        'chaos': (
+            "\nАДАПТАЦИЯ ПО СОСТОЯНИЮ (Хаос):\n"
+            "- Короткие абзацы, одна мысль за раз\n"
+            "- Заверши одним конкретным микро-действием: «попробуй сегодня одну вещь»\n"
+            "- Не перегружай деталями\n"
+        ),
+        'deadlock': (
+            "\nАДАПТАЦИЯ ПО СОСТОЯНИЮ (Тупик):\n"
+            "- Акцент на применение, не на теорию\n"
+            "- Провокационный вопрос: «ты это знаешь — почему не делаешь?»\n"
+            "- Покажи пример: «вот как X изменил Y — сделай свой шаг»\n"
+        ),
+        'turning_point': (
+            "\nАДАПТАЦИЯ ПО СОСТОЯНИЮ (Поворот):\n"
+            "- Рефлексия и связи с жизненным направлением\n"
+            "- Исследовательский тон: «три направления, куда можно двинуться»\n"
+            "- Безопасные эксперименты вместо радикальных решений\n"
+        ),
+    }
+    return hints.get(assessment_state, '')

@@ -114,11 +114,23 @@ class AssessmentResultState(BaseState):
             )
 
             from db.queries.users import moscow_today
-            await update_intern(
-                chat_id,
+            from core.helpers import ASSESSMENT_BLOOM_MAP
+
+            # Auto-init bloom_level из состояния теста
+            # (только если пользователь не выставлял вручную, т.е. стоит дефолт 1)
+            update_kwargs = dict(
                 assessment_state=dominant_id,
                 assessment_date=moscow_today(),
             )
+            if isinstance(user, dict):
+                current_bloom = user.get('bloom_level', 1)
+            else:
+                current_bloom = getattr(user, 'bloom_level', 1)
+            suggested_bloom = ASSESSMENT_BLOOM_MAP.get(dominant_id, 1)
+            if current_bloom == 1 or suggested_bloom > current_bloom:
+                update_kwargs['bloom_level'] = suggested_bloom
+
+            await update_intern(chat_id, **update_kwargs)
 
             logger.info(
                 f"Assessment saved for user {chat_id}: "
