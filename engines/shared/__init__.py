@@ -5,8 +5,8 @@
 - question_handler.py: обработка вопросов пользователя
   (работает в любом режиме, использует MCP + контекст)
 - retrieval.py: улучшенный Knowledge Retrieval с:
-  - Query Expansion (расширение запросов связанными терминами)
-  - Relevance Scoring (оценка релевантности)
+  - Query Expansion (расширение запросов + fuzzy correction опечаток)
+  - MCP Score Ranking (ранжирование по embedding similarity от сервера)
   - Semantic Deduplication (умная дедупликация)
   - Fallback Strategy (стратегия при пустых результатах)
 - context.py: динамический контекст для улучшения поиска и генерации:
@@ -27,7 +27,6 @@ from .question_handler import (
 from .retrieval import (
     EnhancedRetrieval,
     QueryExpander,
-    RelevanceScorer,
     SemanticDeduplicator,
     FallbackStrategy,
     RetrievalResult,
@@ -62,7 +61,6 @@ __all__ = [
     # Enhanced Retrieval
     'EnhancedRetrieval',
     'QueryExpander',
-    'RelevanceScorer',
     'SemanticDeduplicator',
     'FallbackStrategy',
     'RetrievalResult',

@@ -1,9 +1,11 @@
 """
 Улучшенный Knowledge Retrieval для MCP.
 
+Ранжирование: MCP embedding score (cosine similarity от bge-m3).
+Клиент НЕ переранжирует результаты — это ответственность MCP-сервера.
+
 Компоненты:
-- QueryExpander: расширение запросов синонимами и связанными терминами
-- RelevanceScorer: оценка релевантности результатов
+- QueryExpander: расширение запросов + fuzzy correction опечаток
 - SemanticDeduplicator: умная дедупликация
 - FallbackStrategy: стратегия при пустых результатах
 - EnhancedRetrieval: основной класс, объединяющий всё
@@ -12,6 +14,7 @@
 import re
 import hashlib
 import asyncio
+from difflib import get_close_matches
 from typing import Optional, List, Tuple, Dict, Set
 from dataclasses import dataclass, field
 
@@ -53,7 +56,6 @@ TERM_RELATIONS: Dict[str, List[str]] = {
 
     # Системное мышление
     "системное мышление": ["системный подход", "холизм", "взаимосвязи", "эмерджентность"],
-    "мантра": ["мантра системного мышления", "рассуждение", "шаги мышления", "последовательность"],
     "экзокортекс": ["внешний мозг", "заметки", "база знаний", "second brain"],
     "итерации": ["циклы", "повторения", "спринты", "улучшения"],
     "инкременты": ["приращения", "шаги", "малые изменения"],
@@ -144,6 +146,38 @@ class QueryExpander:
         self.term_relations = term_relations or TERM_RELATIONS
         self.synonyms = synonyms or SYNONYMS
 
+    def fuzzy_correct(self, text: str, cutoff: float = 0.7) -> str:
+        """Исправляет опечатки, сверяя слова с известными терминами.
+
+        Использует difflib.get_close_matches (SequenceMatcher ratio).
+        Порог 0.7 достаточно консервативен: «манры»→«мантра» (0.73) ✓,
+        «манеры»→«мантра» (0.67) ✗.
+        """
+        known_terms = list(self.term_relations.keys())
+        words = text.split()
+        corrected = []
+        changed = False
+
+        for word in words:
+            word_lower = word.lower()
+            # Пропускаем короткие слова и уже известные термины
+            if len(word_lower) < 4 or word_lower in self.term_relations:
+                corrected.append(word)
+                continue
+
+            matches = get_close_matches(word_lower, known_terms, n=1, cutoff=cutoff)
+            if matches:
+                logger.info(f"QueryExpander: опечатка '{word}' → '{matches[0]}'")
+                corrected.append(matches[0])
+                changed = True
+            else:
+                corrected.append(word)
+
+        result = ' '.join(corrected)
+        if changed:
+            logger.info(f"QueryExpander: corrected → '{result[:80]}'")
+        return result
+
     def expand(self, query: str, max_expansions: int = 3) -> List[str]:
         """Расширяет запрос связанными терминами
 
@@ -154,6 +188,8 @@ class QueryExpander:
         Returns:
             Список запросов (оригинал + расширенные)
         """
+        # Сначала исправляем опечатки
+        query = self.fuzzy_correct(query)
         queries = [query]
         query_lower = query.lower()
 
@@ -195,86 +231,6 @@ class QueryExpander:
                 concepts.append(term)
 
         return concepts
-
-
-# =============================================================================
-# RELEVANCE SCORER
-# =============================================================================
-
-class RelevanceScorer:
-    """Оценивает релевантность результатов запросу"""
-
-    def __init__(self, query_expander: QueryExpander = None):
-        self.expander = query_expander or QueryExpander()
-
-    def score(self, result: RetrievalResult, query: str,
-              query_keywords: List[str] = None) -> float:
-        """Вычисляет score релевантности
-
-        Args:
-            result: результат поиска
-            query: исходный запрос
-            query_keywords: ключевые слова запроса
-
-        Returns:
-            Score от 0.0 до 1.0
-        """
-        text_lower = result.text.lower()
-        query_lower = query.lower()
-
-        score = 0.0
-
-        # 1. Совпадение ключевых слов запроса (40%)
-        if query_keywords:
-            matched = sum(1 for kw in query_keywords if kw.lower() in text_lower)
-            keyword_score = matched / len(query_keywords) if query_keywords else 0
-            score += keyword_score * 0.4
-
-        # 2. Совпадение ключевых концепций (30%)
-        concepts = self.expander.extract_key_concepts(query)
-        if concepts:
-            concept_matches = sum(1 for c in concepts if c in text_lower)
-            concept_score = concept_matches / len(concepts)
-            score += concept_score * 0.3
-
-        # 3. Наличие связанных терминов (20%)
-        related_found = 0
-        for concept in concepts:
-            related = self.expander.term_relations.get(concept, [])
-            for term in related:
-                if term in text_lower:
-                    related_found += 1
-                    break
-        if concepts:
-            related_score = min(related_found / len(concepts), 1.0)
-            score += related_score * 0.2
-
-        # 4. Длина текста — бонус за содержательность (10%)
-        text_len = len(result.text)
-        if text_len > 500:
-            score += 0.1
-        elif text_len > 200:
-            score += 0.05
-
-        # 5. Штраф за слишком короткий текст
-        if text_len < 100:
-            score *= 0.5
-
-        return min(score, 1.0)
-
-    def rank_results(self, results: List[RetrievalResult], query: str,
-                     query_keywords: List[str] = None) -> List[RetrievalResult]:
-        """Ранжирует результаты по релевантности"""
-        for result in results:
-            result.relevance_score = self.score(result, query, query_keywords)
-
-        # Сортируем по score (убывание)
-        ranked = sorted(results, key=lambda r: r.relevance_score, reverse=True)
-
-        logger.info(f"RelevanceScorer: ранжировано {len(ranked)} результатов, "
-                   f"top score={ranked[0].relevance_score:.2f}" if ranked else "")
-
-        return ranked
 
 
 # =============================================================================
@@ -404,7 +360,6 @@ class EnhancedRetrieval:
     def __init__(self, config: RetrievalConfig = None):
         self.config = config or RetrievalConfig()
         self.expander = QueryExpander()
-        self.scorer = RelevanceScorer(self.expander)
         self.deduplicator = SemanticDeduplicator(self.config.similarity_threshold)
         self.fallback = FallbackStrategy(self.expander)
 
@@ -438,22 +393,13 @@ class EnhancedRetrieval:
                 base_query = f"{base_query} {boost_query}"
                 logger.info(f"EnhancedRetrieval: boost terms: {boost_terms[:3]}")
 
-        # 3. Расширяем запросы
+        # 3. Расширяем запросы (включая fuzzy correction опечаток)
         expanded_queries = self.expander.expand(base_query, max_expansions=2)
 
-        # 3a. Также ищем по чистым ключевым словам (без навигационного шума)
-        # MCP embedding search лучше находит по короткому точному запросу
-        if keywords:
-            keyword_query = ' '.join(keywords)
-            if keyword_query.lower() not in [q.lower() for q in expanded_queries]:
-                expanded_queries.append(keyword_query)
-                logger.info(f"EnhancedRetrieval: добавлен keyword-only запрос: '{keyword_query}'")
-
-        # 4. Выполняем поиск по всем запросам
+        # 4. Выполняем поиск по всем запросам параллельно
         all_results: List[RetrievalResult] = []
         tried_queries = []
 
-        # Выполняем поиск по ВСЕМ expanded queries ПАРАЛЛЕЛЬНО
         search_tasks = [self._search_both_sources(q) for q in expanded_queries]
         search_results = await asyncio.gather(*search_tasks)
 
@@ -461,12 +407,12 @@ class EnhancedRetrieval:
             all_results.extend(results)
         tried_queries.extend(expanded_queries)
 
-        # 4. Fallback только если совсем мало результатов (не 3, а 1)
+        # 5. Fallback при пустых результатах
         if len(all_results) < 2 and self.config.enable_fallback:
-            logger.info("EnhancedRetrieval: очень мало результатов, пробуем fallback")
+            logger.info("EnhancedRetrieval: мало результатов, пробуем fallback")
             fallback_queries = self.fallback.generate_fallback_queries(
                 base_query, tried_queries
-            )[:2]  # Максимум 2 fallback запроса
+            )[:2]
             if fallback_queries:
                 fallback_results = await asyncio.gather(
                     *[self._search_both_sources(q) for q in fallback_queries]
@@ -474,32 +420,28 @@ class EnhancedRetrieval:
                 for results in fallback_results:
                     all_results.extend(results)
 
-        # 5. Scoring
-        all_results = self.scorer.rank_results(all_results, base_query, keywords)
+        # 6. Ранжирование по MCP embedding score (уже установлен в _parse_result)
+        all_results.sort(key=lambda r: r.relevance_score, reverse=True)
 
-        # 6. Фильтрация по минимальному score
+        if all_results:
+            logger.info(f"EnhancedRetrieval: {len(all_results)} результатов, "
+                       f"top MCP score={all_results[0].relevance_score:.3f}")
+
+        # 7. Фильтрация по MCP score
         filtered = [r for r in all_results
                    if r.relevance_score >= self.config.min_relevance_score]
 
-        # Гарантируем минимум 2 результата из MCP (semantic search),
-        # даже если keyword scoring низкий (опечатки, нестандартные формулировки)
-        MIN_GUARANTEED = 2
-        if len(filtered) < MIN_GUARANTEED and len(all_results) >= MIN_GUARANTEED:
-            filtered = all_results[:MIN_GUARANTEED]
-            logger.info(f"EnhancedRetrieval: keyword score низкий, но MCP вернул результаты — "
-                       f"гарантируем top-{MIN_GUARANTEED}")
-
         if len(filtered) < len(all_results):
             logger.info(f"EnhancedRetrieval: отфильтровано {len(all_results) - len(filtered)} "
-                       f"результатов с низкой релевантностью")
+                       f"результатов (MCP score < {self.config.min_relevance_score})")
 
-        # 7. Дедупликация
+        # 8. Дедупликация
         unique_results = self.deduplicator.deduplicate(filtered)
 
-        # 8. Ограничиваем количество
+        # 9. Ограничиваем количество
         final_results = unique_results[:self.config.max_results]
 
-        # 9. Формируем контекст и источники
+        # 10. Формируем контекст и источники
         context, sources = self._format_results(final_results)
 
         logger.info(f"EnhancedRetrieval: итого {len(final_results)} результатов, "
@@ -573,10 +515,20 @@ class EnhancedRetrieval:
         # Обрезаем до максимального размера
         text = text[:self.config.max_chunk_size]
 
+        # MCP возвращает cosine similarity score (0..1)
+        mcp_score = 0.0
+        if isinstance(item, dict):
+            raw_score = item.get('score', 0)
+            try:
+                mcp_score = float(raw_score)
+            except (TypeError, ValueError):
+                mcp_score = 0.0
+
         return RetrievalResult(
             text=text,
             source=source,
             source_type=source_type,
+            relevance_score=mcp_score,
             date=date,
             original_item=item if isinstance(item, dict) else {}
         )
