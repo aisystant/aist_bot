@@ -94,6 +94,9 @@ class FeedEngine:
     async def suggest_topics(self) -> Tuple[List[Dict], str]:
         """Генерирует и возвращает предложения тем на неделю
 
+        Если есть PLANNING-неделя — обновляет её.
+        Иначе создаёт новую.
+
         Returns:
             (topics, message)
         """
@@ -106,12 +109,23 @@ class FeedEngine:
         if not topics:
             return [], t('feed.topics_generation_failed', lang)
 
-        # Создаём неделю в статусе PLANNING
-        await create_feed_week(
-            chat_id=self.chat_id,
-            suggested_topics=[topic['title'] for topic in topics],
-            accepted_topics=[],
-        )
+        suggested_titles = [topic['title'] for topic in topics]
+
+        # Обновляем существующую PLANNING-неделю или создаём новую
+        self._current_week = None  # Сбрасываем кеш для свежего запроса
+        week = await get_current_feed_week(self.chat_id)
+
+        if week and week['status'] == FeedWeekStatus.PLANNING:
+            await update_feed_week(week['id'], {
+                'suggested_topics': suggested_titles,
+                'accepted_topics': [],
+            })
+        else:
+            await create_feed_week(
+                chat_id=self.chat_id,
+                suggested_topics=suggested_titles,
+                accepted_topics=[],
+            )
 
         # Очищаем кеш
         self._current_week = None

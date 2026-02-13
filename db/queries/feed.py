@@ -50,7 +50,9 @@ async def get_current_feed_week(chat_id: int) -> Optional[dict]:
         row = await conn.fetchrow('''
             SELECT * FROM feed_weeks
             WHERE chat_id = $1 AND status IN ($2, $3)
-            ORDER BY created_at DESC
+            ORDER BY
+                CASE WHEN status = $3 THEN 0 ELSE 1 END,
+                created_at DESC
             LIMIT 1
         ''', chat_id, FeedWeekStatus.PLANNING, FeedWeekStatus.ACTIVE)
 

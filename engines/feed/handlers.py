@@ -107,32 +107,13 @@ async def cmd_feed(message: Message, state: FSMContext):
         status = await engine.get_status()
         logger.info(f"Статус Ленты для {chat_id}: {status}")
 
-        if not status['has_week'] or status['week_status'] == 'completed':
-            # Показываем индикатор загрузки
-            loading_msg = await message.answer(t('loading.generating_topics', lang))
-
-            # Нужно предложить новые темы
-            logger.info(f"Запускаем feed для {chat_id}")
-            success, msg = await engine.start_feed()
-            if not success:
-                await loading_msg.delete()
-                await message.answer(msg)
-                return
-
-            logger.info(f"Генерируем темы для {chat_id}")
-            topics, msg = await engine.suggest_topics()
-
-            # Удаляем индикатор загрузки
-            await loading_msg.delete()
-            if not topics:
-                await message.answer(msg)
-                return
-
-            # Показываем темы для выбора
-            await show_topic_selection(message, topics, state)
+        if status['week_status'] == 'active':
+            # Есть активная неделя — показываем меню Ленты (дайджест)
+            logger.info(f"Показываем меню Ленты для {chat_id}")
+            await show_feed_menu(message, engine, state)
 
         elif status['week_status'] == 'planning':
-            # Всегда перегенерируем темы из каталога (мгновенно)
+            # Неделя в планировании — перегенерируем темы из каталога
             logger.info(f"Перегенерируем темы (planning) для {chat_id}")
             loading_msg = await message.answer(t('loading.generating_topics', lang))
             topics, msg = await engine.suggest_topics()
@@ -143,9 +124,25 @@ async def cmd_feed(message: Message, state: FSMContext):
             await show_topic_selection(message, topics, state)
 
         else:
-            # Есть активная неделя - показываем меню Ленты
-            logger.info(f"Показываем меню Ленты для {chat_id}")
-            await show_feed_menu(message, engine, state)
+            # Нет недели или завершена — запускаем новую
+            loading_msg = await message.answer(t('loading.generating_topics', lang))
+
+            logger.info(f"Запускаем feed для {chat_id}")
+            success, msg = await engine.start_feed()
+            if not success:
+                await loading_msg.delete()
+                await message.answer(msg)
+                return
+
+            logger.info(f"Генерируем темы для {chat_id}")
+            topics, msg = await engine.suggest_topics()
+
+            await loading_msg.delete()
+            if not topics:
+                await message.answer(msg)
+                return
+
+            await show_topic_selection(message, topics, state)
 
     except Exception as e:
         import traceback

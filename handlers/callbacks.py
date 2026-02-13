@@ -157,6 +157,16 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
             await state.clear()
             await dispatcher.go_to(intern, "feed.digest", context={"show_topics_menu": True})
 
+        elif data == "feed_reset_topics":
+            # Перегенерация тем — всегда переходим в feed.topics
+            await callback.answer()
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+            await state.clear()
+            await dispatcher.go_to(intern, "feed.topics")
+
         elif current_state.startswith("feed."):
             # Пользователь уже в Feed-стейте — передаём callback в SM
             await dispatcher.route_callback(intern, callback)
