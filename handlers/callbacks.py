@@ -158,7 +158,16 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
             await dispatcher.go_to(intern, "feed.digest", context={"show_topics_menu": True})
 
         elif data == "feed_reset_topics":
-            # Перегенерация тем — всегда переходим в feed.topics
+            # Перегенерация тем: сбрасываем неделю в PLANNING → feed.topics
+            from db.queries.feed import get_current_feed_week, update_feed_week
+            from config import FeedWeekStatus
+            week = await get_current_feed_week(callback.message.chat.id)
+            if week:
+                await update_feed_week(week['id'], {
+                    'status': FeedWeekStatus.PLANNING,
+                    'accepted_topics': [],
+                    'suggested_topics': [],
+                })
             await callback.answer()
             try:
                 await callback.message.edit_reply_markup()
