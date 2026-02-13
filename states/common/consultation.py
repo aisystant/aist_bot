@@ -238,7 +238,15 @@ class ConsultationState(BaseState):
                 if service and service.command:
                     response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
 
-            await self.send(user, response, parse_mode="Markdown")
+            try:
+                await self.send(user, response, parse_mode="Markdown")
+            except Exception as send_err:
+                # Fallback: Telegram не смог распарсить Markdown → отправляем plain text
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Consultation markdown error, falling back to plain text: {send_err}"
+                )
+                await self.send(user, response)
 
         except Exception as e:
             import logging
