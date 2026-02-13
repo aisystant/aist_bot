@@ -473,6 +473,14 @@ class EnhancedRetrieval:
         filtered = [r for r in all_results
                    if r.relevance_score >= self.config.min_relevance_score]
 
+        # Гарантируем минимум 2 результата из MCP (semantic search),
+        # даже если keyword scoring низкий (опечатки, нестандартные формулировки)
+        MIN_GUARANTEED = 2
+        if len(filtered) < MIN_GUARANTEED and len(all_results) >= MIN_GUARANTEED:
+            filtered = all_results[:MIN_GUARANTEED]
+            logger.info(f"EnhancedRetrieval: keyword score низкий, но MCP вернул результаты — "
+                       f"гарантируем top-{MIN_GUARANTEED}")
+
         if len(filtered) < len(all_results):
             logger.info(f"EnhancedRetrieval: отфильтровано {len(all_results) - len(filtered)} "
                        f"результатов с низкой релевантностью")
