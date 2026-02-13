@@ -309,7 +309,16 @@ class FeedTopicsState(BaseState):
                     if topic and len(topic) >= 3:
                         custom_topics.append(topic.capitalize())
 
-        return selected_indices, custom_topics
+        # Дедупликация кастомных тем (несколько regex могут захватить одно и то же)
+        seen = set()
+        unique_custom = []
+        for topic in custom_topics:
+            key = topic.lower()
+            if key not in seen:
+                seen.add(key)
+                unique_custom.append(topic)
+
+        return selected_indices, unique_custom
 
     async def _accept_topics(self, chat_id: int, titles: List[str], lang: str) -> bool:
         """Принимает выбранные темы."""
