@@ -143,7 +143,7 @@ class FeedDigestState(BaseState):
             return None
 
         # Генерируем новый дайджест
-        await self.send(user, f"⏳ {t('loading.generating_content', lang)}")
+        await self.send(user, t('loading.generating_content', lang))
 
         try:
             topics = week.get('accepted_topics', [])

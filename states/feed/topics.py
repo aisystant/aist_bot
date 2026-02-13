@@ -125,7 +125,7 @@ class FeedTopicsState(BaseState):
             return "topics_selected"
 
         # Генерируем новые темы (из каталога — мгновенно)
-        await self.send(user, f"⏳ {t('loading.generating_topics', lang)}", reply_markup=ReplyKeyboardRemove())
+        await self.send(user, t('loading.generating_topics', lang), reply_markup=ReplyKeyboardRemove())
 
         try:
             topics = await asyncio.wait_for(

@@ -286,9 +286,9 @@ class ConsultationState(BaseState):
             else:
                 # Показываем индикатор обработки
                 if is_refinement:
-                    await self.send(user, f"🔍 {t('consultation.refine_thinking', lang)}")
+                    await self.send(user, t('consultation.refine_thinking', lang))
                 else:
-                    await self.send(user, f"💭 {t('consultation.thinking', lang)}")
+                    await self.send(user, t('consultation.thinking', lang))
 
                 if deep_search:
                     # --- L3 forced: глубокий поиск через MCP ---

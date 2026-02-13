@@ -386,6 +386,12 @@ class StateMachine:
         chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
         logger.info(f"[SM] go_to: {current_state_name} -> {state_name} for chat_id={chat_id}")
 
+        # Сохраняем предыдущий стейт при входе в модальный стейт (consultation, notes),
+        # чтобы _previous корректно работал при возврате (в т.ч. из callback-вызовов)
+        _MODAL_STATES = ('common.consultation', 'utility.notes')
+        if chat_id and state_name in _MODAL_STATES and current_state_name != state_name:
+            self.set_previous_state(chat_id, current_state_name)
+
         # Выход из текущего стейта (если есть)
         exit_context = {}
         if current_state:
@@ -419,8 +425,9 @@ class StateMachine:
 
         # Тихий возврат из глобального события (консультация, заметки):
         # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта.
-        # НО: если re-enter в тот же стейт (напр. consultation→consultation при refinement) — пропускаем silent return
-        if (full_context.get('consultation_complete') or full_context.get('notes_complete')) and current_state_name != state_name:
+        # НО: проверяем только явно переданный context (не exit_context),
+        # иначе /learn и другие команды блокируются silent return при выходе из consultation.
+        if context and (context.get('consultation_complete') or context.get('notes_complete')) and current_state_name != state_name:
             logger.info(f"[SM] Silent return to {state_name} (skipping enter)")
             return
 
