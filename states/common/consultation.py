@@ -8,21 +8,33 @@
 - "bot": вопрос о боте → FAQ или Claude + self-knowledge (без MCP, быстрее)
 - "domain": вопрос о предмете → handle_question() + self-knowledge в system prompt
 
+Progressive Refinement:
+- После каждого ответа (кроме FAQ) — кнопки 👍 / 🔍 Подробнее
+- 🔍 → повторный запрос с deep_search + previous_answer в контексте
+- Максимум 3 раунда (initial + 2 refinements)
+
 Вызывается из любого стейта, где allow_global содержит "consultation".
 После ответа возвращается в предыдущий стейт.
 
 Триггер: сообщение начинается с "?"
 """
 
+import logging
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from core.registry import registry
 from core.self_knowledge import get_self_knowledge, match_faq
 from engines.shared.structured_lookup import structured_lookup, format_structured_context
+from db.queries.qa import save_qa, get_latest_qa_id
 from i18n import t
+
+logger = logging.getLogger(__name__)
+
+# Максимум раундов уточнения (1 = initial, 2 = first refine, 3 = max)
+MAX_REFINEMENT_ROUNDS = 3
 
 
 # Ключевые слова для классификации «вопрос о боте»
@@ -39,6 +51,27 @@ _BOT_KEYWORDS_EN = [
     "introduce", "what are you",
 ]
 _BOT_KEYWORDS = _BOT_KEYWORDS_RU + _BOT_KEYWORDS_EN
+
+
+def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> InlineKeyboardMarkup:
+    """Собрать inline-клавиатуру с кнопками feedback."""
+    buttons = [
+        InlineKeyboardButton(
+            text=t('consultation.btn_helpful', lang),
+            callback_data=f"qa_helpful_{qa_id}"
+        ),
+    ]
+
+    if refinement_round < MAX_REFINEMENT_ROUNDS:
+        refine_key = 'consultation.btn_refine' if refinement_round <= 1 else 'consultation.btn_refine_more'
+        buttons.append(
+            InlineKeyboardButton(
+                text=t(refine_key, lang),
+                callback_data=f"qa_refine_{qa_id}"
+            )
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 
 class ConsultationState(BaseState):
@@ -177,6 +210,9 @@ class ConsultationState(BaseState):
         Context содержит:
         - question: текст вопроса (без префикса ?)
         - previous_state: откуда пришли
+        - refinement: True если это уточнение (из callback)
+        - previous_answer: предыдущий ответ (для refinement)
+        - refinement_round: номер раунда (2, 3)
 
         Returns:
         - "answered" → возврат в предыдущий стейт
@@ -184,20 +220,24 @@ class ConsultationState(BaseState):
         context = context or {}
         question = context.get('question', '')
         lang = self._get_lang(user)
+        is_refinement = context.get('refinement', False)
+        previous_answer = context.get('previous_answer', '')
+        refinement_round = context.get('refinement_round', 1)
 
         if not question:
             await self.send(user, t('consultation.no_question', lang))
             return "answered"
 
         # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
-        deep_search = False
-        _DEEP_PREFIXES = ("ии ", "аи ", "ai ")
-        q_check = question.lower()
-        for prefix in _DEEP_PREFIXES:
-            if q_check.startswith(prefix):
-                question = question[len(prefix):].strip()
-                deep_search = True
-                break
+        deep_search = is_refinement  # Refinement всегда = deep search
+        if not is_refinement:
+            _DEEP_PREFIXES = ("ии ", "аи ", "ai ")
+            q_check = question.lower()
+            for prefix in _DEEP_PREFIXES:
+                if q_check.startswith(prefix):
+                    question = question[len(prefix):].strip()
+                    deep_search = True
+                    break
 
         try:
             # --- L1: Structured Lookup (YAML данные марафона из RAM, ~0ms) ---
@@ -212,30 +252,54 @@ class ConsultationState(BaseState):
                 # Hint: предложить глубокий поиск
                 hint = t('consultation.faq_hint', lang).format(question=question)
                 response += f"\n\n{hint}"
+                # FAQ — без кнопок feedback (мгновенный ответ)
+                try:
+                    await self.send(user, response, parse_mode="Markdown")
+                except Exception:
+                    await self.send(user, response)
             else:
-                # Показываем индикатор обработки (FAQ не совпал — будет задержка)
-                await self.send(user, f"💭 {t('consultation.thinking', lang)}")
+                # Показываем индикатор обработки
+                if is_refinement:
+                    await self.send(user, f"🔍 {t('consultation.refine_thinking', lang)}")
+                else:
+                    await self.send(user, f"💭 {t('consultation.thinking', lang)}")
 
                 if deep_search:
-                    # --- L3 forced: глубокий поиск через MCP (пропуск L2) ---
+                    # --- L3 forced: глубокий поиск через MCP ---
                     from engines.shared import handle_question
 
                     context_topic = self._get_current_topic(user)
                     intern_dict = self._user_to_dict(user)
                     bot_context = get_self_knowledge(lang)
 
-                    # Depth instruction → bot_context (system prompt), НЕ в question (keywords)
-                    # Иначе hint-слова загрязняют MCP-поиск и снижают релевантность
-                    depth_instruction = {
-                        'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай подробный, развёрнутый ответ. Раскрой тему глубже, чем FAQ. Объясни механизмы, приведи примеры, покажи связи между концепциями.",
-                        'en': "\n\nDEPTH INSTRUCTION: Give a detailed, comprehensive answer. Go deeper than FAQ. Explain mechanisms, give examples, show connections between concepts.",
-                    }.get(lang, "\n\nDEPTH INSTRUCTION: Give a detailed answer.")
+                    # Refinement: inject previous answer
+                    if is_refinement and previous_answer:
+                        refinement_instruction = {
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:1500]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:1500]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:1500]}\n\nGive more detail.")
+                        bot_context += refinement_instruction
+                    else:
+                        # Regular deep search (ИИ prefix)
+                        depth_instruction = {
+                            'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай подробный, развёрнутый ответ. Раскрой тему глубже, чем FAQ. Объясни механизмы, приведи примеры, покажи связи между концепциями.",
+                            'en': "\n\nDEPTH INSTRUCTION: Give a detailed, comprehensive answer. Go deeper than FAQ. Explain mechanisms, give examples, show connections between concepts.",
+                        }.get(lang, "\n\nDEPTH INSTRUCTION: Give a detailed answer.")
+                        bot_context += depth_instruction
+
+                    # L1 structured data — inject even in deep search if available
+                    if not is_refinement:
+                        hit = structured_lookup(question, lang)
+                        if hit:
+                            sc = format_structured_context(hit, lang)
+                            if sc:
+                                bot_context = sc + "\n\n" + bot_context
 
                     answer, sources = await handle_question(
                         question=question,
                         intern=intern_dict,
                         context_topic=context_topic,
-                        bot_context=bot_context + depth_instruction,
+                        bot_context=bot_context,
                     )
 
                     response = self._format_response(answer, sources, lang)
@@ -243,6 +307,19 @@ class ConsultationState(BaseState):
                     # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
                     answer = await self._answer_bot_question(user, question, lang)
                     response = self._format_response(answer, [], lang)
+                    # Сохраняем Q&A для кнопок feedback
+                    chat_id_l2 = self._get_chat_id(user)
+                    if chat_id_l2:
+                        try:
+                            await save_qa(
+                                chat_id=chat_id_l2,
+                                mode=self._get_mode(user),
+                                context_topic='',
+                                question=question,
+                                answer=answer,
+                            )
+                        except Exception as e:
+                            logger.warning(f"L2 save_qa error: {e}")
                 else:
                     # --- L3: доменный путь → MCP + Claude ---
                     from engines.shared import handle_question
@@ -264,26 +341,29 @@ class ConsultationState(BaseState):
 
                     response = self._format_response(answer, sources, lang)
 
-            # Добавляем deep link если вопрос относится к сервису
-            service_id = self._detect_service_intent(question)
-            if service_id:
-                service = registry.get(service_id)
-                if service and service.command:
-                    response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
+                # Добавляем deep link если вопрос относится к сервису
+                service_id = self._detect_service_intent(question)
+                if service_id:
+                    service = registry.get(service_id)
+                    if service and service.command:
+                        response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
 
-            try:
-                await self.send(user, response, parse_mode="Markdown")
-            except Exception as send_err:
-                # Fallback: Telegram не смог распарсить Markdown → отправляем plain text
-                import logging
-                logging.getLogger(__name__).warning(
-                    f"Consultation markdown error, falling back to plain text: {send_err}"
-                )
-                await self.send(user, response)
+                # Отправляем ответ с кнопками feedback
+                chat_id = self._get_chat_id(user)
+                qa_id = await get_latest_qa_id(chat_id) if chat_id else None
+
+                reply_markup = None
+                if qa_id:
+                    reply_markup = _build_feedback_keyboard(qa_id, refinement_round, lang)
+
+                try:
+                    await self.send(user, response, parse_mode="Markdown", reply_markup=reply_markup)
+                except Exception as send_err:
+                    logger.warning(f"Consultation markdown error, falling back to plain text: {send_err}")
+                    await self.send(user, response, reply_markup=reply_markup)
 
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Consultation error: {e}")
+            logger.error(f"Consultation error: {e}")
             await self.send(user, t('consultation.error', lang))
 
         # Автоматический возврат в предыдущий стейт

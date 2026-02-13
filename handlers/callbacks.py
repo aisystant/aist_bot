@@ -327,3 +327,91 @@ async def cb_assessment_actions(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
+
+
+# === Q&A Feedback: глобальный обработчик (не зависит от стейта) ===
+
+@callbacks_router.callback_query(F.data.startswith("qa_"))
+async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
+    """Обработка feedback-кнопок консультации.
+
+    callback_data форматы:
+    - qa_helpful_{qa_id}  → записать helpful=True, убрать кнопки
+    - qa_refine_{qa_id}   → загрузить Q&A, re-enter consultation с refinement
+    """
+    from handlers import get_dispatcher
+    from db.queries.qa import get_qa_by_id, update_qa_helpful
+
+    data = callback.data
+    chat_id = callback.message.chat.id
+
+    intern = await get_intern(chat_id)
+    if not intern:
+        await callback.answer()
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+
+    try:
+        if data.startswith("qa_helpful_"):
+            # --- 👍 Полезно ---
+            qa_id = int(data.split("_")[-1])
+            await callback.answer("👍")
+            await update_qa_helpful(qa_id, True)
+            # Убираем кнопки
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+
+        elif data.startswith("qa_refine_"):
+            # --- 🔍 Подробнее ---
+            qa_id = int(data.split("_")[-1])
+            await callback.answer()
+
+            # Записываем что ответ не помог
+            await update_qa_helpful(qa_id, False)
+
+            # Загружаем оригинальный Q&A
+            qa = await get_qa_by_id(qa_id)
+            if not qa:
+                await callback.message.answer(t('consultation.error', lang))
+                return
+
+            # Убираем кнопки с текущего сообщения
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+
+            # Определяем round: считаем сколько helpful=False для этого вопроса
+            # Простой подход: round = 2 при первом refine, 3 при втором
+            from db.queries.qa import get_qa_history
+            history = await get_qa_history(chat_id, limit=10)
+            same_question_unhelpful = sum(
+                1 for h in history
+                if h['question'] == qa['question'] and h.get('id') != qa_id
+            )
+            refinement_round = min(same_question_unhelpful + 2, 3)
+
+            # Re-enter consultation с refinement контекстом
+            dispatcher = get_dispatcher()
+            if dispatcher and dispatcher.is_sm_active:
+                await state.clear()
+                await dispatcher.go_to(intern, "common.consultation", context={
+                    'question': qa['question'],
+                    'refinement': True,
+                    'previous_answer': qa['answer'],
+                    'refinement_round': refinement_round,
+                })
+            else:
+                await callback.message.answer(t('consultation.error', lang))
+
+        else:
+            await callback.answer()
+
+    except Exception as e:
+        logger.error(f"[CB] Error handling qa feedback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.answer()

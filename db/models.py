@@ -303,6 +303,16 @@ async def create_tables(pool: asyncpg.Pool):
             ON qa_history(chat_id)
         ''')
 
+        # Миграции qa_history
+        qa_migrations = [
+            'ALTER TABLE qa_history ADD COLUMN IF NOT EXISTS helpful BOOLEAN',
+        ]
+        for migration in qa_migrations:
+            try:
+                await conn.execute(migration)
+            except Exception:
+                pass
+
         # ═══════════════════════════════════════════════════════════
         # GITHUB ПОДКЛЮЧЕНИЯ (OAuth токены + настройки)
         # ═══════════════════════════════════════════════════════════

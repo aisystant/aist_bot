@@ -2766,6 +2766,30 @@ consultation:
     ru: "💡 Для развёрнутого ответа напиши: ?ИИ {question}"
     en: "💡 For a detailed answer, type: ?AI {question}"
 
+  btn_helpful:
+    ru: "👍"
+    en: "👍"
+    es: "👍"
+    fr: "👍"
+
+  btn_refine:
+    ru: "🔍 Подробнее"
+    en: "🔍 More detail"
+    es: "🔍 Más detalle"
+    fr: "🔍 Plus de détails"
+
+  btn_refine_more:
+    ru: "🔍 Ещё подробнее"
+    en: "🔍 Even more detail"
+    es: "🔍 Aún más detalle"
+    fr: "🔍 Encore plus"
+
+  refine_thinking:
+    ru: "🔍 Ищу подробнее..."
+    en: "🔍 Searching deeper..."
+    es: "🔍 Buscando más..."
+    fr: "🔍 Recherche approfondie..."
+
 # -----------------------------------------------------------------------------
 # Оценка (assessment) — только UI-ключи, вопросы в YAML
 # -----------------------------------------------------------------------------
