@@ -3,8 +3,7 @@
 
 MCPClient - универсальный клиент для JSON-RPC взаимодействия с MCP серверами.
 Поддерживает:
-- MCP-Guides (руководства): semantic_search, get_guides_list, get_guide_sections
-- MCP-Knowledge (база знаний): search
+- Knowledge MCP (SYS.017): unified search по Pack + guides + DS
 """
 
 import json
@@ -13,7 +12,7 @@ from typing import Optional, List
 
 import aiohttp
 
-from config import get_logger, MCP_URL, KNOWLEDGE_MCP_URL
+from config import get_logger, KNOWLEDGE_MCP_URL
 
 logger = get_logger(__name__)
 
@@ -37,16 +36,14 @@ class MCPClient:
     # Глобальное состояние circuit breaker для каждого сервера
     _circuit_state: dict = {}  # url -> {"failures": int, "last_failure": timestamp, "open": bool}
 
-    def __init__(self, url: str, name: str = "MCP", search_tool: str = "semantic_search"):
+    def __init__(self, url: str, name: str = "MCP"):
         """
         Args:
             url: URL MCP сервера
             name: имя клиента для логов
-            search_tool: инструмент поиска ("semantic_search" для guides, "search" для knowledge)
         """
         self.base_url = url
         self.name = name
-        self.search_tool = search_tool
         self._request_id = 0
 
         # Инициализируем circuit breaker для этого URL
@@ -173,127 +170,27 @@ class MCPClient:
         logger.warning(f"{self.name}: unavailable, continuing without MCP context")
         return None
 
-    async def get_guides_list(self, lang: str = "ru", category: str = None) -> List[dict]:
-        """Получить список всех руководств
-
-        Args:
-            lang: язык (ru/en)
-            category: категория для фильтрации
-
-        Returns:
-            Список руководств
-        """
-        args = {"lang": lang}
-        if category:
-            args["category"] = category
-
-        result = await self._call("get_guides_list", args)
-        if result and "content" in result:
-            # Парсим JSON из content
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        return json.loads(item.get("text", "[]"))
-                    except json.JSONDecodeError:
-                        pass
-        return []
-
-    async def get_guide_sections(self, guide_slug: str, lang: str = "ru") -> List[dict]:
-        """Получить разделы конкретного руководства
-
-        Args:
-            guide_slug: slug руководства
-            lang: язык (ru/en)
-
-        Returns:
-            Список разделов
-        """
-        result = await self._call("get_guide_sections", {
-            "guide_slug": guide_slug,
-            "lang": lang
-        })
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        return json.loads(item.get("text", "[]"))
-                    except json.JSONDecodeError:
-                        pass
-        return []
-
-    async def get_section_content(self, guide_slug: str, section_slug: str, lang: str = "ru") -> str:
-        """Получить содержимое раздела
-
-        Args:
-            guide_slug: slug руководства
-            section_slug: slug раздела
-            lang: язык (ru/en)
-
-        Returns:
-            Текст раздела
-        """
-        result = await self._call("get_section_content", {
-            "guide_slug": guide_slug,
-            "section_slug": section_slug,
-            "lang": lang
-        })
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    return item.get("text", "")
-        return ""
-
-    async def semantic_search(self, query: str, lang: str = "ru", limit: int = 5, sort_by: str = None) -> List[dict]:
-        """Семантический поиск по руководствам или базе знаний
+    async def search(self, query: str, limit: int = 5,
+                     source: str = None, source_type: str = None) -> List[dict]:
+        """Семантический поиск по unified Knowledge MCP
 
         Args:
             query: поисковый запрос
-            lang: язык (ru/en) — только для MCP-Guides
             limit: максимальное количество результатов
-            sort_by: сортировка (например, "created_at:desc" для свежих постов)
+            source: фильтр по источнику (например, "PACK-digital-platform")
+            source_type: фильтр по типу ("pack", "guides", "ds")
 
         Returns:
-            Список результатов поиска
+            Список результатов поиска [{filename, content, source, source_type, score}]
         """
         args = {
             "query": query,
             "limit": limit
         }
-        # Параметр lang только для semantic_search (MCP-Guides)
-        if self.search_tool == "semantic_search":
-            args["lang"] = lang
-        if sort_by:
-            args["sort"] = sort_by
-
-        result = await self._call(self.search_tool, args)
-        if result and "content" in result:
-            for item in result.get("content", []):
-                if item.get("type") == "text":
-                    try:
-                        data = json.loads(item.get("text", "[]"))
-                        # Если sort_by указан и данные содержат дату, сортируем на клиенте
-                        if sort_by and "desc" in sort_by and isinstance(data, list):
-                            data.sort(key=lambda x: x.get('created_at', x.get('date', '')), reverse=True)
-                        return data
-                    except json.JSONDecodeError:
-                        # Если не JSON, возвращаем как текст
-                        return [{"text": item.get("text", "")}]
-        return []
-
-    async def search(self, query: str, limit: int = 5) -> List[dict]:
-        """Поиск по базе знаний (knowledge MCP)
-
-        Args:
-            query: поисковый запрос
-            limit: максимальное количество результатов
-
-        Returns:
-            Список результатов поиска
-        """
-        args = {
-            "query": query,
-            "limit": limit
-        }
+        if source:
+            args["source"] = source
+        if source_type:
+            args["source_type"] = source_type
 
         result = await self._call("search", args)
         if result and "content" in result:
@@ -308,15 +205,64 @@ class MCPClient:
                         return data if isinstance(data, list) else [data]
                     except json.JSONDecodeError as e:
                         logger.warning(f"{self.name} search: JSON parse error: {e}, returning as text")
-                        # Если не JSON, возвращаем как текст
                         return [{"text": raw_text}]
         logger.debug(f"{self.name} search: no content in result")
         return []
 
+    async def get_document(self, filename: str, source: str = None) -> Optional[dict]:
+        """Получить документ по имени файла
 
-# Создаём клиенты для двух MCP серверов
-mcp_guides = MCPClient(MCP_URL, "MCP-Guides")
-mcp_knowledge = MCPClient(KNOWLEDGE_MCP_URL, "MCP-Knowledge", search_tool="search")
+        Args:
+            filename: имя файла (относительный путь)
+            source: фильтр по источнику
 
-# Для обратной совместимости
-mcp = mcp_guides
+        Returns:
+            Документ {filename, content, source, source_type} или None
+        """
+        args = {"filename": filename}
+        if source:
+            args["source"] = source
+
+        result = await self._call("get_document", args)
+        if result and "content" in result:
+            for item in result.get("content", []):
+                if item.get("type") == "text":
+                    try:
+                        return json.loads(item.get("text", "null"))
+                    except json.JSONDecodeError:
+                        pass
+        return None
+
+    async def list_sources(self, source_type: str = None) -> List[dict]:
+        """Список доступных баз знаний
+
+        Args:
+            source_type: фильтр по типу ("pack", "guides", "ds")
+
+        Returns:
+            Список источников [{source, source_type, doc_count}]
+        """
+        args = {}
+        if source_type:
+            args["source_type"] = source_type
+
+        result = await self._call("list_sources", args)
+        if result and "content" in result:
+            for item in result.get("content", []):
+                if item.get("type") == "text":
+                    try:
+                        return json.loads(item.get("text", "[]"))
+                    except json.JSONDecodeError:
+                        pass
+        return []
+
+    # Backward-compatible alias for code that still calls semantic_search
+    async def semantic_search(self, query: str, lang: str = "ru",
+                              limit: int = 5, sort_by: str = None,
+                              source_type: str = None) -> List[dict]:
+        """Alias for search() — backward compatibility with old guides-mcp API"""
+        return await self.search(query, limit=limit, source_type=source_type)
+
+
+# Unified Knowledge MCP client (SYS.017)
+mcp_knowledge = MCPClient(KNOWLEDGE_MCP_URL, "MCP-Knowledge")

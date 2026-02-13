@@ -94,8 +94,8 @@ class ClaudeClient:
         Args:
             topic: тема для генерации
             intern: профиль стажера
-            mcp_client: клиент MCP для руководств (guides)
-            knowledge_client: клиент MCP для базы знаний (knowledge) - приоритет свежим постам
+            mcp_client: unified Knowledge MCP клиент
+            knowledge_client: deprecated, ignored (backward compat)
 
         Returns:
             Сгенерированный контент или сообщение об ошибке
@@ -109,32 +109,35 @@ class ClaudeClient:
 
         # Используем ключи поиска из метаданных или формируем общий запрос
         if metadata:
-            guides_search_keys = get_search_keys(metadata, "guides_mcp")
-            knowledge_search_keys = get_search_keys(metadata, "knowledge_mcp")
-            logger.info(f"Загружены метаданные темы {topic_id}: {len(guides_search_keys)} guides, {len(knowledge_search_keys)} knowledge")
+            search_keys = get_search_keys(metadata, "guides_mcp") + get_search_keys(metadata, "knowledge_mcp")
+            # Deduplicate
+            seen = set()
+            unique_keys = []
+            for k in search_keys:
+                if k not in seen:
+                    seen.add(k)
+                    unique_keys.append(k)
+            search_keys = unique_keys
+            logger.info(f"Загружены метаданные темы {topic_id}: {len(search_keys)} search keys")
         else:
-            # Fallback на общий запрос
             default_query = f"{topic.get('title')} {topic.get('main_concept')}"
-            guides_search_keys = [default_query]
-            knowledge_search_keys = [default_query]
+            search_keys = [default_query]
 
-        # Получаем контекст из MCP параллельно (guides + knowledge одновременно)
+        # Получаем контекст из unified Knowledge MCP
+        client = mcp_client or knowledge_client
         guides_context = ""
         knowledge_context = ""
 
-        async def fetch_guides():
-            """Получаем контекст из guides MCP"""
-            if not mcp_client:
-                return ""
+        if client:
             try:
-                # Запускаем все поисковые запросы параллельно
                 tasks = [
-                    mcp_client.semantic_search(q, lang="ru", limit=2)
-                    for q in guides_search_keys[:3]
+                    client.search(q, limit=3)
+                    for q in search_keys[:4]
                 ]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                context_parts = []
+                guides_parts = []
+                knowledge_parts = []
                 seen_texts = set()
                 for search_results in results:
                     if isinstance(search_results, Exception):
@@ -143,68 +146,31 @@ class ClaudeClient:
                         for item in search_results:
                             if isinstance(item, dict):
                                 text = item.get('text', item.get('content', ''))
+                                source_type = item.get('source_type', 'pack')
                             elif isinstance(item, str):
                                 text = item
+                                source_type = 'pack'
                             else:
                                 continue
                             if text and text[:100] not in seen_texts:
                                 seen_texts.add(text[:100])
-                                context_parts.append(text[:1500])
-                if context_parts:
-                    logger.info(f"{mcp_client.name}: найдено {len(context_parts)} фрагментов контекста")
-                    return "\n\n".join(context_parts[:5])
+                                if source_type == 'guides':
+                                    guides_parts.append(text[:1500])
+                                else:
+                                    knowledge_parts.append(text[:1500])
+                if guides_parts:
+                    logger.info(f"{client.name}: найдено {len(guides_parts)} фрагментов guides")
+                    guides_context = "\n\n".join(guides_parts[:5])
+                if knowledge_parts:
+                    logger.info(f"{client.name}: найдено {len(knowledge_parts)} фрагментов pack/ds")
+                    knowledge_context = "\n\n".join(knowledge_parts[:5])
             except Exception as e:
-                logger.error(f"{mcp_client.name} search error: {e}")
-            return ""
+                logger.error(f"MCP search error: {e}")
 
-        async def fetch_knowledge():
-            """Получаем контекст из knowledge MCP"""
-            if not knowledge_client:
-                return ""
-            try:
-                # Запускаем все поисковые запросы параллельно
-                tasks = [
-                    knowledge_client.semantic_search(q, lang="ru", limit=2, sort_by="created_at:desc")
-                    for q in knowledge_search_keys[:3]
-                ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                context_parts = []
-                seen_texts = set()
-                for search_results in results:
-                    if isinstance(search_results, Exception):
-                        continue
-                    if search_results:
-                        for item in search_results:
-                            if isinstance(item, dict):
-                                text = item.get('text', item.get('content', ''))
-                                date_info = item.get('created_at', item.get('date', ''))
-                                if date_info:
-                                    text = f"[{date_info}] {text}"
-                            elif isinstance(item, str):
-                                text = item
-                            else:
-                                continue
-                            if text and text[:100] not in seen_texts:
-                                seen_texts.add(text[:100])
-                                context_parts.append(text[:1500])
-                if context_parts:
-                    logger.info(f"{knowledge_client.name}: найдено {len(context_parts)} фрагментов (свежие посты)")
-                    return "\n\n".join(context_parts[:5])
-            except Exception as e:
-                logger.error(f"{knowledge_client.name} search error: {e}")
-            return ""
-
-        # Запускаем оба MCP-запроса параллельно
-        guides_context, knowledge_context = await asyncio.gather(
-            fetch_guides(),
-            fetch_knowledge()
-        )
-
-        # Объединяем контексты (knowledge имеет приоритет, поэтому идёт первым)
+        # Объединяем контексты (pack/ds имеют приоритет, поэтому идут первыми)
         mcp_context = ""
         if knowledge_context and guides_context:
-            mcp_context = f"АКТУАЛЬНЫЕ ПОСТЫ:\n{knowledge_context}\n\n---\n\nИЗ РУКОВОДСТВ:\n{guides_context}"
+            mcp_context = f"АКТУАЛЬНЫЕ МАТЕРИАЛЫ:\n{knowledge_context}\n\n---\n\nИЗ РУКОВОДСТВ:\n{guides_context}"
         elif knowledge_context:
             mcp_context = knowledge_context
         elif guides_context:

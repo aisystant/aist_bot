@@ -10,7 +10,7 @@ import json
 import asyncio
 
 from config import get_logger, FEED_TOPICS_TO_SUGGEST, ONTOLOGY_RULES, ONTOLOGY_RULES_TOPICS
-from clients import claude, mcp_guides, mcp_knowledge
+from clients import claude, mcp_knowledge
 
 logger = get_logger(__name__)
 
@@ -355,33 +355,16 @@ async def generate_multi_topic_digest(
     mcp_context = ""
 
     async def fetch_topic_context(topic: str) -> str:
-        """Получает контекст для одной темы из MCP (параллельно)."""
+        """Получает контекст для одной темы из unified Knowledge MCP."""
         context = ""
         try:
-            # Запускаем оба поиска параллельно для каждой темы
-            guides_task = mcp_guides.semantic_search(topic, limit=1)
-            knowledge_task = mcp_knowledge.search(topic, limit=1)
-
-            guides_results, knowledge_results = await asyncio.gather(
-                guides_task, knowledge_task, return_exceptions=True
-            )
-
-            # Обрабатываем результаты guides
-            if isinstance(guides_results, list):
-                for item in guides_results:
+            results = await mcp_knowledge.search(topic, limit=2)
+            if isinstance(results, list):
+                for item in results:
                     if isinstance(item, dict):
                         text = item.get('text', item.get('content', ''))[:500]
                         if text:
                             context += f"\n[{topic}]: {text}"
-
-            # Обрабатываем результаты knowledge
-            if isinstance(knowledge_results, list):
-                for item in knowledge_results:
-                    if isinstance(item, dict):
-                        text = item.get('text', item.get('content', ''))[:500]
-                        if text:
-                            context += f"\n[{topic}]: {text}"
-
         except Exception as e:
             logger.error(f"MCP search error for '{topic}': {e}")
         return context
@@ -539,19 +522,9 @@ async def generate_topic_content(
 
     mcp_context = ""
     try:
-        # Ищем в руководствах
-        guides_results = await mcp_guides.semantic_search(search_query, limit=2)
-        if guides_results:
-            for item in guides_results:
-                if isinstance(item, dict):
-                    text = item.get('text', item.get('content', ''))[:1000]
-                    if text:
-                        mcp_context += f"\n\n{text}"
-
-        # Ищем в базе знаний
-        knowledge_results = await mcp_knowledge.search(search_query, limit=2)
-        if knowledge_results:
-            for item in knowledge_results:
+        results = await mcp_knowledge.search(search_query, limit=4)
+        if results:
+            for item in results:
                 if isinstance(item, dict):
                     text = item.get('text', item.get('content', ''))[:1000]
                     if text:

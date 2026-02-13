@@ -21,7 +21,7 @@ from aiogram.types import BotCommand
 from config import USE_STATE_MACHINE
 
 # Импорты из модульных компонентов
-from clients.mcp import mcp_guides, mcp_knowledge, mcp
+from clients.mcp import mcp_knowledge
 from clients.claude import ClaudeClient
 from db import init_db
 from db.queries import get_intern, update_intern, get_topics_today
@@ -32,7 +32,6 @@ from integrations.telegram.keyboards import kb_update_profile, progress_bar
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
-MCP_URL = os.getenv("MCP_URL", "https://guides-mcp.aisystant.workers.dev/mcp")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 
 if not BOT_TOKEN:

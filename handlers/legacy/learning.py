@@ -28,7 +28,7 @@ from engines.shared import handle_question, ProcessingStage
 from integrations.telegram.keyboards import (
     kb_bonus_question, kb_skip_topic, kb_submit_work_product, progress_bar,
 )
-from clients.mcp import mcp_guides, mcp_knowledge
+from clients.mcp import mcp_knowledge
 from clients.claude import ClaudeClient
 
 logger = logging.getLogger(__name__)
@@ -659,7 +659,7 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     content = None
     try:
         content = await asyncio.wait_for(
-            b['claude'].generate_content(topic, intern, mcp_client=mcp_guides, knowledge_client=mcp_knowledge),
+            b['claude'].generate_content(topic, intern, mcp_client=mcp_knowledge),
             timeout=60.0
         )
     except asyncio.TimeoutError:

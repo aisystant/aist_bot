@@ -16,7 +16,7 @@ from typing import Optional, List, Tuple, Dict, Callable, Awaitable
 
 from config import get_logger, ONTOLOGY_RULES
 from core.intent import get_question_keywords
-from clients import claude, mcp_guides, mcp_knowledge
+from clients import claude, mcp_knowledge
 from db.queries.qa import save_qa, get_qa_history
 from .retrieval import enhanced_search, get_retrieval
 from .context import (
@@ -172,65 +172,30 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
     sources = []
     seen_texts = set()
 
-    # Поиск в руководствах (MCP-Guides)
-    try:
-        logger.info(f"MCP-Guides: отправляю запрос '{query}'")
-        guides_results = await mcp_guides.semantic_search(query, lang="ru", limit=3)
-        logger.info(f"MCP-Guides: получено {len(guides_results) if guides_results else 0} результатов")
-
-        if guides_results:
-            # Логируем первый результат для отладки
-            first_item = guides_results[0]
-            if isinstance(first_item, dict):
-                logger.debug(f"MCP-Guides первый результат (ключи): {list(first_item.keys())}")
-                preview = extract_text(first_item)[:200]
-                logger.debug(f"MCP-Guides первый результат (превью): {preview}...")
-            else:
-                logger.debug(f"MCP-Guides первый результат (тип): {type(first_item)}")
-
-            for item in guides_results:
-                text = extract_text(item)
-                if text and text[:100] not in seen_texts:
-                    seen_texts.add(text[:100])
-                    context_parts.append(text[:1500])
-                    # Добавляем источник если есть
-                    if isinstance(item, dict):
-                        source = item.get('source', item.get('guide', ''))
-                        if source and source not in sources:
-                            sources.append(f"Руководство: {source}")
-        else:
-            logger.warning(f"MCP-Guides: пустой результат для запроса '{query}'")
-    except Exception as e:
-        logger.error(f"MCP-Guides search error: {e}", exc_info=True)
-
-    # Поиск в базе знаний (MCP-Knowledge)
+    # Поиск в unified Knowledge MCP (все источники: pack + guides + ds)
     try:
         logger.info(f"MCP-Knowledge: отправляю запрос '{query}'")
-        knowledge_results = await mcp_knowledge.search(query, limit=3)
-        logger.info(f"MCP-Knowledge: получено {len(knowledge_results) if knowledge_results else 0} результатов")
+        results = await mcp_knowledge.search(query, limit=6)
+        logger.info(f"MCP-Knowledge: получено {len(results) if results else 0} результатов")
 
-        if knowledge_results:
-            # Логируем первый результат для отладки
-            first_item = knowledge_results[0]
+        if results:
+            first_item = results[0]
             if isinstance(first_item, dict):
                 logger.debug(f"MCP-Knowledge первый результат (ключи): {list(first_item.keys())}")
-                preview = extract_text(first_item)[:200]
-                logger.debug(f"MCP-Knowledge первый результат (превью): {preview}...")
-            else:
-                logger.debug(f"MCP-Knowledge первый результат (тип): {type(first_item)}")
 
-            for item in knowledge_results:
+            for item in results:
                 text = extract_text(item)
                 if text and text[:100] not in seen_texts:
                     seen_texts.add(text[:100])
-                    # Добавляем дату если есть
                     if isinstance(item, dict):
-                        date_info = item.get('created_at', item.get('date', ''))
-                        if date_info:
-                            text = f"[{date_info}] {text}"
                         source = item.get('source', item.get('title', ''))
-                        if source and source not in sources:
-                            sources.append(f"База знаний: {source}")
+                        source_type = item.get('source_type', 'pack')
+                        if source_type == 'guides':
+                            if source and f"Руководство: {source}" not in sources:
+                                sources.append(f"Руководство: {source}")
+                        else:
+                            if source and f"База знаний: {source}" not in sources:
+                                sources.append(f"База знаний: {source}")
                     context_parts.append(text[:1500])
         else:
             logger.warning(f"MCP-Knowledge: пустой результат для запроса '{query}'")

@@ -16,7 +16,7 @@ from typing import Optional, List, Tuple, Dict, Set
 from dataclasses import dataclass, field
 
 from config import get_logger
-from clients import mcp_guides, mcp_knowledge
+from clients import mcp_knowledge
 
 logger = get_logger(__name__)
 
@@ -88,7 +88,7 @@ class RetrievalResult:
     """Результат поиска с метаданными"""
     text: str
     source: str
-    source_type: str  # "guides" или "knowledge"
+    source_type: str  # "pack", "guides", or "ds"
     relevance_score: float = 0.0
     date: Optional[str] = None
     original_item: dict = field(default_factory=dict)
@@ -486,44 +486,22 @@ class EnhancedRetrieval:
         return context, sources
 
     async def _search_both_sources(self, query: str) -> List[RetrievalResult]:
-        """Ищет в обоих MCP источниках ПАРАЛЛЕЛЬНО"""
+        """Ищет в unified Knowledge MCP (все source_type)"""
         results = []
+        total_limit = self.config.guides_limit + self.config.knowledge_limit
 
-        async def search_guides():
-            """Поиск в MCP-Guides"""
-            try:
-                return await mcp_guides.semantic_search(
-                    query, lang="ru", limit=self.config.guides_limit
-                )
-            except Exception as e:
-                logger.error(f"MCP-Guides error: {e}")
-                return []
+        try:
+            search_results = await mcp_knowledge.search(
+                query, limit=total_limit
+            )
+        except Exception as e:
+            logger.error(f"MCP-Knowledge error: {e}")
+            search_results = []
 
-        async def search_knowledge():
-            """Поиск в MCP-Knowledge"""
-            try:
-                return await mcp_knowledge.search(
-                    query, limit=self.config.knowledge_limit
-                )
-            except Exception as e:
-                logger.error(f"MCP-Knowledge error: {e}")
-                return []
-
-        # Выполняем оба запроса ПАРАЛЛЕЛЬНО
-        guides_results, knowledge_results = await asyncio.gather(
-            search_guides(),
-            search_knowledge()
-        )
-
-        # Парсим результаты Guides
-        for item in (guides_results or []):
-            result = self._parse_result(item, "guides")
-            if result:
-                results.append(result)
-
-        # Парсим результаты Knowledge
-        for item in (knowledge_results or []):
-            result = self._parse_result(item, "knowledge")
+        for item in (search_results or []):
+            # source_type приходит из unified MCP (pack/guides/ds)
+            item_source_type = item.get('source_type', 'pack') if isinstance(item, dict) else 'pack'
+            result = self._parse_result(item, item_source_type)
             if result:
                 results.append(result)
 
@@ -589,11 +567,11 @@ class EnhancedRetrieval:
         context_parts = []
         sources = []
 
-        # Группируем по источникам
+        # Группируем: guides отдельно, pack/ds — вместе как "знания"
         guides_results = [r for r in results if r.source_type == "guides"]
-        knowledge_results = [r for r in results if r.source_type == "knowledge"]
+        knowledge_results = [r for r in results if r.source_type in ("pack", "ds")]
 
-        # Knowledge имеет приоритет (свежие посты важнее)
+        # Pack/DS имеют приоритет (source-of-truth)
         if knowledge_results:
             context_parts.append("📚 АКТУАЛЬНЫЕ МАТЕРИАЛЫ:")
             for r in knowledge_results:

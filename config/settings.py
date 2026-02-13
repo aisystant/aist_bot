@@ -14,7 +14,6 @@ from pathlib import Path
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
-MCP_URL = os.getenv("MCP_URL", "https://guides-mcp.aisystant.workers.dev/mcp")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 
