@@ -99,6 +99,7 @@ buttons:
   reset_marathon: "🔄 Reiniciar maratón"
   back: "« Atrás"
   settings: "Ajustes"
+  profile: "Perfil"
 
 experience:
   student: "Estudiante"
