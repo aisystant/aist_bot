@@ -101,9 +101,6 @@ class FeedTopicsState(BaseState):
         intern = self._user_to_intern_dict(user)
         context = context or {}
 
-        # Удаляем Reply Keyboard (если остался от Marathon)
-        await self.send(user, f"📚 {t('feed.menu_title', lang)}", reply_markup=ReplyKeyboardRemove())
-
         # Обновляем режим пользователя
         await update_intern(chat_id, mode=Mode.FEED, feed_status=FeedStatus.ACTIVE)
 
@@ -127,7 +124,7 @@ class FeedTopicsState(BaseState):
             return "topics_selected"
 
         # Генерируем новые темы (из каталога — мгновенно)
-        await self.send(user, f"⏳ {t('loading.generating_topics', lang)}")
+        await self.send(user, f"⏳ {t('loading.generating_topics', lang)}", reply_markup=ReplyKeyboardRemove())
 
         try:
             topics = await asyncio.wait_for(
@@ -276,49 +273,41 @@ class FeedTopicsState(BaseState):
         return None
 
     def _parse_topic_selection(self, text: str, topics_count: int) -> tuple:
-        """Парсит текстовый выбор тем."""
+        """Парсит текстовый выбор тем.
+
+        Стратегия: извлекаем номера тем (1-5), а весь оставшийся текст
+        после очистки стоп-слов = одна кастомная тема.
+        """
         selected_indices = set()
         custom_topics = []
 
-        # Ищем номера тем (1-5)
+        # 1. Извлекаем номера тем (1-5)
         numbers = re.findall(r'\b([1-5])\b', text)
         for num in numbers:
             idx = int(num) - 1
             if 0 <= idx < topics_count:
                 selected_indices.add(idx)
 
-        # Ищем кастомные темы
-        custom_patterns = [
-            r'(?:хочу|добавь|ещё|еще|также)\s+(?:про\s+)?([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
-            r'(?:и\s+)?про\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
-            # Паттерн "1 и собранность" - после цифры и союза "и"
-            r'\d\s+и\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
-            # Паттерн "и собранность" в начале или после запятой
-            r'(?:^|,\s*)и\s+([а-яА-ЯёЁa-zA-Z\s]+?)(?:[,.]|$)',
-            # Паттерн "1, собранность" или "собранность, 1" - через запятую
-            r'\d\s*,\s*([а-яА-ЯёЁa-zA-Z][а-яА-ЯёЁa-zA-Z\s]*?)(?:[,.]|$)',
-            r'([а-яА-ЯёЁa-zA-Z][а-яА-ЯёЁa-zA-Z\s]*?)\s*,\s*\d',
-        ]
+        # 2. Извлекаем кастомную тему из оставшегося текста
+        remaining = text.lower()
+        # Убираем номера
+        remaining = re.sub(r'\b[1-5]\b', '', remaining)
+        # Убираем стоп-слова и префиксы
+        remaining = re.sub(r'\b(хочу|добавь|ещё|еще|также|тему|тема|темы)\b', '', remaining)
+        # "про то, как/что/чтобы" → убираем обёртку, оставляем суть
+        remaining = re.sub(r'\bпро\s+то\s*,?\s*(?:как|что|чтобы)\s+', '', remaining)
+        # Убираем "про"
+        remaining = re.sub(r'\bпро\s+', '', remaining)
+        # Убираем союзы на краях
+        remaining = re.sub(r'^\s*(и|или|а)\s+', '', remaining)
+        remaining = re.sub(r'\s+(и|или|а)\s*$', '', remaining)
+        # Чистим пробелы и пунктуацию
+        remaining = re.sub(r'\s+', ' ', remaining).strip(' ,.')
 
-        for pattern in custom_patterns:
-            matches = re.findall(pattern, text.lower())
-            for match in matches:
-                topic = match.strip()
-                if len(topic) >= 3 and not topic.isdigit():
-                    topic = re.sub(r'^(тему?|темы)\s+', '', topic)
-                    if topic and len(topic) >= 3:
-                        custom_topics.append(topic.capitalize())
+        if remaining and len(remaining) >= 3:
+            custom_topics.append(remaining.capitalize())
 
-        # Дедупликация кастомных тем (несколько regex могут захватить одно и то же)
-        seen = set()
-        unique_custom = []
-        for topic in custom_topics:
-            key = topic.lower()
-            if key not in seen:
-                seen.add(key)
-                unique_custom.append(topic)
-
-        return selected_indices, unique_custom
+        return selected_indices, custom_topics
 
     async def _accept_topics(self, chat_id: int, titles: List[str], lang: str) -> bool:
         """Принимает выбранные темы."""
