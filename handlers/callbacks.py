@@ -407,6 +407,28 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             else:
                 await callback.message.answer(t('consultation.error', lang))
 
+        elif data.startswith("qa_comment_"):
+            # --- ✏️ Замечание ---
+            qa_id = int(data.split("_")[-1])
+            await callback.answer()
+
+            # Убираем кнопки
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+
+            # Go to consultation в comment_mode
+            dispatcher = get_dispatcher()
+            if dispatcher and dispatcher.is_sm_active:
+                await state.clear()
+                await dispatcher.go_to(intern, "common.consultation", context={
+                    'comment_mode': True,
+                    'comment_qa_id': qa_id,
+                })
+            else:
+                await callback.message.answer(t('consultation.error', lang))
+
         else:
             await callback.answer()
 

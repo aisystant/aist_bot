@@ -90,6 +90,16 @@ async def update_qa_helpful(qa_id: int, helpful: bool):
         )
 
 
+async def update_qa_comment(qa_id: int, comment: str):
+    """Записать замечание пользователя."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE qa_history SET user_comment = $1 WHERE id = $2',
+            comment, qa_id
+        )
+
+
 async def get_qa_count(chat_id: int) -> int:
     """Получить количество заданных вопросов"""
     pool = await get_pool()

@@ -306,6 +306,7 @@ async def create_tables(pool: asyncpg.Pool):
         # Миграции qa_history
         qa_migrations = [
             'ALTER TABLE qa_history ADD COLUMN IF NOT EXISTS helpful BOOLEAN',
+            'ALTER TABLE qa_history ADD COLUMN IF NOT EXISTS user_comment TEXT',
         ]
         for migration in qa_migrations:
             try:

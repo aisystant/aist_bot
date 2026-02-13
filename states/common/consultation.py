@@ -55,7 +55,7 @@ _BOT_KEYWORDS = _BOT_KEYWORDS_RU + _BOT_KEYWORDS_EN
 
 def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> InlineKeyboardMarkup:
     """Собрать inline-клавиатуру с кнопками feedback."""
-    buttons = [
+    row1 = [
         InlineKeyboardButton(
             text=t('consultation.btn_helpful', lang),
             callback_data=f"qa_helpful_{qa_id}"
@@ -64,14 +64,21 @@ def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> In
 
     if refinement_round < MAX_REFINEMENT_ROUNDS:
         refine_key = 'consultation.btn_refine' if refinement_round <= 1 else 'consultation.btn_refine_more'
-        buttons.append(
+        row1.append(
             InlineKeyboardButton(
                 text=t(refine_key, lang),
                 callback_data=f"qa_refine_{qa_id}"
             )
         )
 
-    return InlineKeyboardMarkup(inline_keyboard=[buttons])
+    row2 = [
+        InlineKeyboardButton(
+            text=t('consultation.btn_comment', lang),
+            callback_data=f"qa_comment_{qa_id}"
+        ),
+    ]
+
+    return InlineKeyboardMarkup(inline_keyboard=[row1, row2])
 
 
 class ConsultationState(BaseState):
@@ -213,11 +220,30 @@ class ConsultationState(BaseState):
         - refinement: True если это уточнение (из callback)
         - previous_answer: предыдущий ответ (для refinement)
         - refinement_round: номер раунда (2, 3)
+        - comment_mode: True если ожидаем текст замечания
+        - comment_qa_id: ID записи для замечания
 
         Returns:
         - "answered" → возврат в предыдущий стейт
+        - None → остаёмся в стейте (ожидаем текст замечания)
         """
         context = context or {}
+
+        # --- Comment mode: ожидаем текст замечания ---
+        if context.get('comment_mode'):
+            lang = self._get_lang(user)
+            qa_id = context.get('comment_qa_id')
+            # Сохраняем qa_id в current_context для handle()
+            chat_id = self._get_chat_id(user)
+            if chat_id and qa_id:
+                from db.queries.users import update_intern
+                import json
+                ctx = json.loads(user.get('current_context', '{}')) if isinstance(user.get('current_context'), str) else (user.get('current_context') or {})
+                ctx['qa_comment_id'] = qa_id
+                await update_intern(chat_id, current_context=ctx)
+            await self.send(user, t('consultation.comment_prompt', lang))
+            return None  # Остаёмся в стейте, ждём текст
+
         question = context.get('question', '')
         lang = self._get_lang(user)
         is_refinement = context.get('refinement', False)
@@ -381,7 +407,7 @@ class ConsultationState(BaseState):
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
-        Обрабатываем followup вопросы.
+        Обрабатываем followup вопросы и замечания.
 
         Returns:
         - "followup" → обрабатываем ещё один вопрос
@@ -389,6 +415,28 @@ class ConsultationState(BaseState):
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
+
+        # --- Проверяем: ожидаем ли замечание? ---
+        import json
+        ctx = json.loads(user.get('current_context', '{}')) if isinstance(user.get('current_context'), str) else (user.get('current_context') or {})
+        qa_comment_id = ctx.get('qa_comment_id')
+
+        if qa_comment_id and text and not text.startswith('?'):
+            # Сохраняем замечание
+            from db.queries.qa import update_qa_comment
+            from db.queries.users import update_intern
+            try:
+                await update_qa_comment(qa_comment_id, text)
+                # Очищаем флаг
+                del ctx['qa_comment_id']
+                chat_id = self._get_chat_id(user)
+                if chat_id:
+                    await update_intern(chat_id, current_context=ctx)
+                await self.send(user, t('consultation.comment_saved', lang))
+            except Exception as e:
+                logger.error(f"Comment save error: {e}")
+                await self.send(user, t('consultation.error', lang))
+            return "done"
 
         # Если это ещё один вопрос
         if text.startswith('?'):
