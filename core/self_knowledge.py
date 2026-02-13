@@ -360,7 +360,9 @@ def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
             best_item = item
 
     if best_item and best_score >= 1:
-        return best_item.get(f'answer_{lang}') or best_item.get('answer_ru', '')
+        answer = best_item.get(f'answer_{lang}') or best_item.get('answer_ru', '')
+        # Конвертировать литеральные \n маркеры из Pack в реальные переносы строк
+        return answer.replace('\\n', '\n')
 
     return None
 
