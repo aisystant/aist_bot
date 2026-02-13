@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "15d88f294e3fd449029f980e50b86c91a37ef2ce969ba66471e1cd68dcc2793e"
-  synced_at: "2026-02-13T07:21:17Z"
+  source_hash: "25d6f2c815624068122eeff473ce578508888acb360c799a6eb2a835e3f9dc10"
+  synced_at: "2026-02-13T14:14:07Z"
   generator: "DS-synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -33,7 +33,7 @@ scenarios: |
   | 2 | Выбор режима | `/mode` | ✅ | Переключение между Марафоном, Лентой и другими программами | Switch between Marathon, Feed, and other programs |
   | 3 | Марафон | `/learn` (mode=marathon) | ✅ | 14-дневная программа: каждый день теория → вопрос на понимание → бонусный вопрос → практическое задание. Прогресс сохраняется | 14-day program: daily theory → comprehension question → bonus question → practical task. Progress is saved |
   | 4 | Лента | `/learn` (mode=feed) | ✅ | Гибкий режим: выбираешь до 3 тем, получаешь ежедневные дайджесты с углублением | Flexible mode: choose up to 3 topics, receive daily digests with increasing depth |
-  | 5 | Тест систематичности | `/test` | ✅ | Data-driven тест уровня системного мышления по таксономии Блума (знание → понимание → применение). Результат с персональной рекомендацией | Data-driven systems thinking assessment using Bloom taxonomy. Results with personal recommendation |
+  | 5 | Тест систематичности | `/test` | ✅ | Data-driven тест: 12 вопросов → состояние (Хаос/Тупик/Поворот) → адаптация контента Марафона и Ленты через DP.M.004 (стиль, bloom_level, тематика) | Data-driven assessment: 12 questions → state (Chaos/Deadlock/Turning Point) → content adaptation for Marathon and Feed via DP.M.004 (style, bloom_level, topics) |
   | 6 | Консультация | `?вопрос` | ✅ | Задать вопрос консультанту из любого места в боте. Ответ на основе базы знаний и MCP | Ask the consultant a question from anywhere in the bot. Answer based on knowledge base and MCP |
   | 7 | Заметки | `.текст` | ✅ | Три способа: `.текст` (прямая), `.` + reply, `.` + forward. Заметки сохраняются для анализа | Three ways: `.text` (direct), `.` + reply, `.` + forward. Notes are saved for analysis |
   | 8 | Прогресс | `/progress` | ✅ | Статистика обучения: пройденные темы, текущий день марафона, выполненные задания | Learning stats: completed topics, current marathon day, completed tasks |
