@@ -132,7 +132,7 @@ async def get_work_products_by_day(chat_id: int, topics_list: list) -> dict:
             SELECT DISTINCT topic_index
             FROM answers
             WHERE chat_id = $1
-              AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
+              AND answer_type = 'work_product'
         ''', chat_id)
 
     # Группируем по дням
@@ -181,7 +181,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
             WHERE chat_id = $1
               AND mode = 'marathon'
               AND created_at >= $2
-              AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
+              AND answer_type = 'work_product'
         ''', chat_id, week_start)
 
         # Ответы на уроки за неделю (уникальные topic_index)
@@ -325,7 +325,7 @@ async def get_total_stats(chat_id: int) -> dict:
             SELECT COUNT(DISTINCT topic_index)
             FROM answers
             WHERE chat_id = $1
-              AND (answer LIKE '[РП]%' OR answer_type = 'work_product')
+              AND answer_type = 'work_product'
               AND created_at >= $2
         ''', chat_id, count_from)
 
