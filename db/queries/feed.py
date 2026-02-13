@@ -207,6 +207,17 @@ async def get_incomplete_feed_session(week_id: int) -> Optional[dict]:
         return None
 
 
+async def delete_feed_sessions(week_id: int):
+    """Удалить все сессии недели (при смене тем)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        deleted = await conn.execute(
+            'DELETE FROM feed_sessions WHERE week_id = $1',
+            week_id
+        )
+        logger.info(f"Deleted feed sessions for week {week_id}: {deleted}")
+
+
 async def get_feed_history(chat_id: int, limit: int = 20) -> List[dict]:
     """Получить историю сессий Ленты"""
     pool = await get_pool()

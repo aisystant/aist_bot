@@ -18,6 +18,7 @@ from db.queries.feed import (
     create_feed_week,
     get_current_feed_week,
     update_feed_week,
+    delete_feed_sessions,
 )
 from engines.feed.planner import suggest_weekly_topics
 from config import get_logger, Mode, FeedStatus, FeedWeekStatus
@@ -315,6 +316,9 @@ class FeedTopicsState(BaseState):
             week = await get_current_feed_week(chat_id)
             if not week:
                 return False
+
+            # Удаляем старые сессии (темы сменились → старые дайджесты невалидны)
+            await delete_feed_sessions(week['id'])
 
             # Обновляем неделю
             await update_feed_week(week['id'], {
