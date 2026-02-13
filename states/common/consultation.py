@@ -218,18 +218,18 @@ class ConsultationState(BaseState):
                     intern_dict = self._user_to_dict(user)
                     bot_context = get_self_knowledge(lang)
 
-                    # Подсказка: не повторять FAQ, дать подробный ответ
-                    depth_hint = {
-                        'ru': " (Дай подробный, развёрнутый ответ с деталями из базы знаний. Не ограничивайся кратким FAQ — раскрой тему глубже.)",
-                        'en': " (Give a detailed, comprehensive answer from the knowledge base. Don't limit to a brief FAQ — cover the topic in depth.)",
-                    }.get(lang, " (Give a detailed answer.)")
-                    deep_question = question + depth_hint
+                    # Depth instruction → bot_context (system prompt), НЕ в question (keywords)
+                    # Иначе hint-слова загрязняют MCP-поиск и снижают релевантность
+                    depth_instruction = {
+                        'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай подробный, развёрнутый ответ. Раскрой тему глубже, чем FAQ. Объясни механизмы, приведи примеры, покажи связи между концепциями.",
+                        'en': "\n\nDEPTH INSTRUCTION: Give a detailed, comprehensive answer. Go deeper than FAQ. Explain mechanisms, give examples, show connections between concepts.",
+                    }.get(lang, "\n\nDEPTH INSTRUCTION: Give a detailed answer.")
 
                     answer, sources = await handle_question(
-                        question=deep_question,
+                        question=question,
                         intern=intern_dict,
                         context_topic=context_topic,
-                        bot_context=bot_context,
+                        bot_context=bot_context + depth_instruction,
                     )
 
                     response = self._format_response(answer, sources, lang)
