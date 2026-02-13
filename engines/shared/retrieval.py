@@ -121,7 +121,7 @@ class RetrievalConfig:
     min_relevance_score: float = 0.3
 
     # Размеры текста
-    max_chunk_size: int = 2000
+    max_chunk_size: int = 5000
 
     # Дедупликация
     similarity_threshold: float = 0.6  # Jaccard similarity для дедупликации
