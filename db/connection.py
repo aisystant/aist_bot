@@ -4,6 +4,8 @@
 Пул соединений PostgreSQL через asyncpg.
 """
 
+import ssl as ssl_module
+
 import asyncpg
 from typing import Optional
 
@@ -20,7 +22,12 @@ async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         try:
-            _pool = await asyncpg.create_pool(DATABASE_URL)
+            ssl_ctx = ssl_module.create_default_context()
+            _pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                statement_cache_size=0,
+                ssl=ssl_ctx,
+            )
             logger.info("✅ Пул соединений создан")
         except Exception as e:
             logger.error(f"❌ Ошибка создания пула соединений: {e}")
