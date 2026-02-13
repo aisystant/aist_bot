@@ -61,7 +61,7 @@ class AssessmentFlowState(BaseState):
         "es": "Evaluación: flujo",
         "fr": "Évaluation: flux",
     }
-    allow_global = ["consultation", "notes"]
+    allow_global = []  # Assessment не прерывается глобальными событиями
 
     # In-memory хранение прогресса (chat_id → data)
     _user_data: Dict[int, Dict] = {}
