@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "487be056f9c1ad7baf6f1928685cdb3ea4be611fcaa0fbcea25b39ed5e33dce1"
-  synced_at: "2026-02-13T14:50:02Z"
+  source_hash: "26fbe8be1d1de58e008b7bac985833850284b651c173de58627ed918813a166b"
+  synced_at: "2026-02-14T09:32:44Z"
   generator: "DS-synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -60,4 +60,16 @@ faq: |
   | 11 | Как сбросить марафон? | How to reset the marathon? | сброс, сбросить, reset, обнулить, заново, restart | Открой `/settings` → кнопка «Сброс» → «Сбросить марафон» → подтверди. Прогресс обнулится, марафон начнётся с 1-го дня. Также можно сбросить через `/profile`. | Open `/settings` → "Reset" button → "Reset marathon" → confirm. Progress resets, marathon starts from day 1. You can also reset via `/profile`. |
   | 12 | Как сбросить статистику? | How to reset statistics? | сброс стат, статистик, reset stats, обнулить стат | Открой `/settings` → кнопка «Сброс» → «Сбросить статистику» → подтверди. Сбрасываются серии активных дней. Ответы и прогресс сохраняются. | Open `/settings` → "Reset" button → "Reset statistics" → confirm. Active day streaks are reset. Answers and progress are preserved. |
   | 13 | Как работает персонализация? | How does personalization work? | персонал, адапт, подстра, adapt, personaliz, customize | Бот адаптирует контент на трёх уровнях:\n\n1) Профиль — заполни имя, профессию, интересы и цели в /settings, и бот подстроит примеры, стиль и контент под тебя.\n\n2) Тест систематичности — /test определяет состояние (Хаос/Тупик/Поворот) и адаптирует стиль уроков, сложность и темы Ленты.\n\n3) Цифровой двойник — в будущем персональная траектория обучения на основе полного профиля, прогресса и заметок. | The bot adapts content on three levels:\n\n1) Profile — fill in your name, occupation, interests and goals in /settings, and the bot will tailor examples, style and content for you.\n\n2) Systematicity test — /test determines your state (Chaos/Deadlock/Turning Point) and adapts lesson style, difficulty and Feed topics.\n\n3) Digital twin — in the future, a personal learning trajectory based on your full profile, progress and notes. |
+
+integrations: |
+  
+  | Система | Интерфейс | Текущий статус |
+  |---------|-----------|----------------|
+  | Claude API (Sonnet/Haiku) | `clients/claude.py` | Active |
+  | knowledge-mcp v3.1 (CF Workers AI, bge-m3) | `clients/mcp.py`, `core/knowledge.py` | Active |
+  | PostgreSQL (Neon.com, asyncpg) | `db/`, asyncpg pool | Active |
+  | aiogram 3.x | Telegram Bot Framework | Active |
+  | GitHub API (OAuth) | `clients/github_api.py` | Active |
+  | Стратег (TG integration) | `notify.sh` + `/rp`, `/plan`, `/report` | Active |
+  | Цифровой двойник | `clients/digital_twin.py` | In progress |
 
