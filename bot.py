@@ -180,10 +180,10 @@ async def main():
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="test", description="Тест систематичности"),
         BotCommand(command="profile", description="Мой профиль"),
-        BotCommand(command="settings", description="Настройки"),
         BotCommand(command="mydata", description="Мои данные"),
         BotCommand(command="feedback", description="Обратная связь"),
         BotCommand(command="help", description="Справка"),
+        BotCommand(command="settings", description="Настройки"),
     ])
 
     # Английский
@@ -194,10 +194,10 @@ async def main():
         BotCommand(command="progress", description="My progress"),
         BotCommand(command="test", description="Systematicity test"),
         BotCommand(command="profile", description="My profile"),
-        BotCommand(command="settings", description="Settings"),
         BotCommand(command="mydata", description="My data"),
         BotCommand(command="feedback", description="Feedback"),
         BotCommand(command="help", description="Help"),
+        BotCommand(command="settings", description="Settings"),
     ], language_code="en")
 
     # Испанский
@@ -208,10 +208,10 @@ async def main():
         BotCommand(command="progress", description="Mi progreso"),
         BotCommand(command="test", description="Test de sistematicidad"),
         BotCommand(command="profile", description="Mi perfil"),
-        BotCommand(command="settings", description="Ajustes"),
         BotCommand(command="mydata", description="Mis datos"),
         BotCommand(command="feedback", description="Comentarios"),
         BotCommand(command="help", description="Ayuda"),
+        BotCommand(command="settings", description="Ajustes"),
     ], language_code="es")
 
     # Французский
@@ -222,10 +222,10 @@ async def main():
         BotCommand(command="progress", description="Mon progrès"),
         BotCommand(command="test", description="Test de systématicité"),
         BotCommand(command="profile", description="Mon profil"),
-        BotCommand(command="settings", description="Paramètres"),
         BotCommand(command="mydata", description="Mes données"),
         BotCommand(command="feedback", description="Retour"),
         BotCommand(command="help", description="Aide"),
+        BotCommand(command="settings", description="Paramètres"),
     ], language_code="fr")
 
     # Команды разработчика (отдельное меню)
