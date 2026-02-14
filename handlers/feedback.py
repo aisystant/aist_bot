@@ -56,24 +56,55 @@ async def cmd_feedback(message: Message, state: FSMContext):
 
 @feedback_router.message(Command("reports"))
 async def cmd_reports(message: Message):
-    """/reports — список отчётов (только для DEVELOPER_CHAT_ID)."""
+    """/reports [day|week|clear] — управление отчётами (только DEVELOPER_CHAT_ID).
+
+    /reports       — все отчёты (последние 15)
+    /reports day   — за сегодня
+    /reports week  — за неделю
+    /reports clear — удалить все отчёты
+    """
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
     if not dev_chat_id or str(message.chat.id) != dev_chat_id:
         return  # Молча игнорируем для не-разработчиков
 
+    # Парсим аргумент
+    parts = (message.text or "").split(maxsplit=1)
+    arg = parts[1].strip().lower() if len(parts) > 1 else ""
+
+    # /reports clear — удалить все
+    if arg == "clear":
+        from db.queries.feedback import clear_all_reports
+        try:
+            count = await clear_all_reports()
+            await message.answer(f"\u2705 Deleted {count} reports.")
+        except Exception as e:
+            logger.error(f"[Feedback] Error clearing reports: {e}")
+            await message.answer("Error clearing reports.")
+        return
+
     from db.queries.feedback import get_all_reports, get_report_stats
+
+    # Определяем период
+    since_hours = None
+    period_label = "All time"
+    if arg == "day":
+        since_hours = 24
+        period_label = "Today (24h)"
+    elif arg == "week":
+        since_hours = 168
+        period_label = "This week (7d)"
 
     try:
         stats = await get_report_stats()
-        reports = await get_all_reports(limit=15)
+        reports = await get_all_reports(limit=20, since_hours=since_hours)
     except Exception as e:
         logger.error(f"[Feedback] Error fetching reports: {e}")
         await message.answer("Error fetching reports.")
         return
 
-    # Заголовок со статистикой
+    separator = "\u2500" * 20
     text = (
-        f"<b>Feedback Reports</b>\n"
+        f"<b>Feedback Reports</b> | {period_label}\n"
         f"Total: {stats.get('total', 0)} | "
         f"\U0001f195 {stats.get('new_count', 0)} | "
         f"\U0001f4e8 {stats.get('notified_count', 0)} | "
@@ -81,21 +112,22 @@ async def cmd_reports(message: Message):
         f"\U0001f534 {stats.get('red_count', 0)} | "
         f"\U0001f7e1 {stats.get('yellow_count', 0)} | "
         f"\U0001f7e2 {stats.get('green_count', 0)}\n"
-        f"\u2500" * 20 + "\n"
+        f"{separator}\n"
     )
 
     if not reports:
-        text += "\nNo reports yet."
+        text += "\nNo reports."
     else:
         for r in reports:
             sev = _SEVERITY_ICON.get(r['severity'], '\u2753')
             st = _STATUS_ICON.get(r['status'], '\u2753')
-            dt = r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '—'
+            dt = r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '\u2014'
             msg = (r.get('message') or '')[:80]
             scenario = r.get('scenario', 'other')
             text += f"\n{sev}{st} <b>#{r['id']}</b> | {scenario} | {dt}\n{msg}\n"
 
-    # Telegram limit 4096
+    text += f"\n<i>/reports day | week | clear</i>"
+
     if len(text) > 4000:
         text = text[:4000] + "\n\n... (truncated)"
 
