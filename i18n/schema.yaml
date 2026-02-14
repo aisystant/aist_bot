@@ -2400,6 +2400,10 @@ feed:
     ru: "Углубление {level}"
     en: "Deepening {level}"
 
+  more_details:
+    ru: "Подробнее"
+    en: "More details"
+
   content_unavailable:
     ru: "Контент недоступен."
     en: "Content unavailable."
@@ -2719,6 +2723,9 @@ service:
   mydata:
     ru: "Мои данные"
     en: "My Data"
+  feedback:
+    ru: "Обратная связь"
+    en: "Feedback"
 
 # -----------------------------------------------------------------------------
 # Мои данные (просмотр и объяснение)
@@ -2781,6 +2788,101 @@ mydata:
   explain_error:
     ru: "Не удалось проанализировать данные. Попробуйте позже."
     en: "Could not analyze data. Please try again later."
+
+# -----------------------------------------------------------------------------
+# Обратная связь (feedback)
+# -----------------------------------------------------------------------------
+feedback:
+  welcome:
+    ru: "Что случилось?"
+    en: "What happened?"
+    es: "Que paso?"
+    fr: "Que s'est-il passe?"
+  cat_bug:
+    ru: "Сломалось"
+    en: "Something broke"
+    es: "Algo fallo"
+    fr: "Quelque chose est casse"
+  cat_suggestion:
+    ru: "Предложение"
+    en: "Suggestion"
+    es: "Sugerencia"
+    fr: "Suggestion"
+  scenario_prompt:
+    ru: "Где возникла проблема?"
+    en: "Where did the problem occur?"
+    es: "Donde ocurrio el problema?"
+    fr: "Ou le probleme est-il survenu?"
+  scenario_marathon:
+    ru: "Марафон"
+    en: "Marathon"
+    es: "Maraton"
+    fr: "Marathon"
+  scenario_feed:
+    ru: "Лента"
+    en: "Feed"
+    es: "Feed"
+    fr: "Fil"
+  scenario_test:
+    ru: "Тест"
+    en: "Test"
+    es: "Test"
+    fr: "Test"
+  scenario_consultant:
+    ru: "Консультант"
+    en: "Consultant"
+    es: "Consultor"
+    fr: "Consultant"
+  scenario_progress:
+    ru: "Прогресс"
+    en: "Progress"
+    es: "Progreso"
+    fr: "Progres"
+  scenario_other:
+    ru: "Другое"
+    en: "Other"
+    es: "Otro"
+    fr: "Autre"
+  severity_prompt:
+    ru: "Насколько серьёзно?"
+    en: "How serious?"
+    es: "Que tan grave?"
+    fr: "Quelle gravite?"
+  severity_red:
+    ru: "Не могу продолжить"
+    en: "Can't continue"
+    es: "No puedo continuar"
+    fr: "Je ne peux pas continuer"
+  severity_yellow:
+    ru: "Работает с ошибками"
+    en: "Works with errors"
+    es: "Funciona con errores"
+    fr: "Fonctionne avec des erreurs"
+  text_prompt:
+    ru: "Опишите проблему одним сообщением:"
+    en: "Describe the problem in one message:"
+    es: "Describa el problema en un mensaje:"
+    fr: "Decrivez le probleme en un message:"
+  saved:
+    ru: "Спасибо! Отчёт #{id} записан. Мы разберёмся."
+    en: "Thank you! Report #{id} saved. We'll look into it."
+    es: "Gracias! Informe #{id} guardado."
+    fr: "Merci! Rapport #{id} enregistre."
+  quick_saved:
+    ru: "Отчёт #{id} записан."
+    en: "Report #{id} saved."
+    es: "Informe #{id} guardado."
+    fr: "Rapport #{id} enregistre."
+  cancel:
+    ru: "Отменено."
+    en: "Cancelled."
+    es: "Cancelado."
+    fr: "Annule."
+  error:
+    ru: "Не удалось сохранить отчёт. Попробуйте позже."
+    en: "Could not save report. Please try again later."
+    es: "No se pudo guardar. Intentelo mas tarde."
+    fr: "Impossible de sauvegarder. Reessayez plus tard."
 
 # -----------------------------------------------------------------------------
 # Планы (интеграция со Стратегом)

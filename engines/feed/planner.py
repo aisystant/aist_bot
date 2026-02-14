@@ -488,7 +488,8 @@ async def generate_multi_topic_digest(
     Returns:
         {
             "intro": "вводный текст",
-            "main_content": "основной контент по всем темам",
+            "main_content": "fallback (конкатенация summary+detail)",
+            "topics_detail": [{"title", "summary", "detail"}, ...],
             "topics_list": ["тема1", "тема2"],
             "reflection_prompt": "вопрос для рефлексии",
             "depth_level": 1
@@ -503,6 +504,7 @@ async def generate_multi_topic_digest(
         return {
             "intro": "Темы не выбраны",
             "main_content": "Используйте меню тем для выбора.",
+            "topics_detail": [],
             "topics_list": [],
             "reflection_prompt": "",
             "depth_level": depth_level,
@@ -568,18 +570,18 @@ async def generate_multi_topic_digest(
         'fr': "IMPORTANT: Écris TOUT en français."
     }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
-    lang_reminder = {
-        'ru': "НАПОМИНАНИЕ: Весь текст (intro, main_content, reflection_prompt) должен быть на РУССКОМ языке!",
-        'en': "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!",
-        'es': "RECORDATORIO: ¡Todo el texto (intro, main_content, reflection_prompt) debe estar en ESPAÑOL!",
-        'fr': "RAPPEL: Tout le texte (intro, main_content, reflection_prompt) doit être en FRANÇAIS!"
-    }.get(lang, "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!")
-
     # Адаптация стиля дайджеста по состоянию теста
     assessment_digest_hint = _get_feed_digest_hint(assessment_state)
 
+    lang_reminder = {
+        'ru': "НАПОМИНАНИЕ: Весь текст (intro, topics[].summary, topics[].detail, reflection_prompt) должен быть на РУССКОМ языке!",
+        'en': "REMINDER: All text (intro, topics[].summary, topics[].detail, reflection_prompt) must be in ENGLISH!",
+        'es': "RECORDATORIO: ¡Todo el texto (intro, topics[].summary, topics[].detail, reflection_prompt) debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Tout le texte (intro, topics[].summary, topics[].detail, reflection_prompt) doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: All text (intro, topics[].summary, topics[].detail, reflection_prompt) must be in ENGLISH!")
+
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
-Создай дайджест, объединяющий несколько тем для {name}.
+Создай дайджест по нескольким темам для {name}.
 {lang_instruction}
 
 ПРОФИЛЬ:
@@ -592,26 +594,30 @@ async def generate_multi_topic_digest(
 (С каждым днём одни и те же темы раскрываются глубже)
 
 ФОРМАТ:
-1. Краткое введение (1-2 предложения) — зацепи внимание, объедини темы
-2. По каждой теме ~{words_per_topic} слов — раскрой на текущем уровне глубины
-3. Покажи связи между темами если они есть
-4. Один общий вопрос для рефлексии в конце
+1. Краткое введение (intro) — 1-2 предложения, зацепи внимание
+2. По каждой теме два блока:
+   - summary: 2-3 предложения — суть темы (показывается в списке)
+   - detail: развёрнутый текст ~{words_per_topic} слов — примеры, применение, глубина
+3. Один общий вопрос для рефлексии в конце
 
 {f"КОНТЕКСТ ИЗ МАТЕРИАЛОВ:{chr(10)}{mcp_context[:3000]}" if mcp_context else ""}
 
 ВАЖНО:
 - Пиши просто и вовлекающе
 - Используй примеры из сферы "{occupation}" если возможно
-- НЕ используй заголовки, подзаголовки и markdown-разметку
-- Переходи от темы к теме плавно, без явного деления
-- Заверши текст вопросом для размышления
+- В detail НЕ используй markdown-заголовки (# ##), можно *жирный* и _курсив_
+- Каждую тему обрабатывай отдельно
+- title должен совпадать с названием темы из списка
 
 {lang_reminder}
 
 Верни JSON:
 {{
     "intro": "краткое введение (1-2 предложения)",
-    "main_content": "основной текст по всем темам",
+    "topics": [
+        {{"title": "название темы 1", "summary": "2-3 предложения — суть", "detail": "развёрнутый текст"}},
+        {{"title": "название темы 2", "summary": "2-3 предложения — суть", "detail": "развёрнутый текст"}}
+    ],
     "reflection_prompt": "один вопрос для рефлексии"
 }}"""
 
@@ -627,6 +633,7 @@ async def generate_multi_topic_digest(
         return {
             "intro": f"Сегодняшний дайджест: {topics_str}",
             "main_content": "Контент не удалось сгенерировать. Попробуйте позже.",
+            "topics_detail": [],
             "topics_list": topics,
             "reflection_prompt": "Какие мысли вызвали эти темы?",
             "depth_level": depth_level,
@@ -638,9 +645,19 @@ async def generate_multi_topic_digest(
         end = response.rfind('}') + 1
         if start >= 0 and end > start:
             content = json.loads(response[start:end])
+            topics_detail = content.get('topics', [])
+            # Backward-compat fallback: собираем main_content из per-topic блоков
+            if topics_detail:
+                main_content = "\n\n".join(
+                    f"*{td.get('title', '')}*\n{td.get('summary', '')}\n{td.get('detail', '')}"
+                    for td in topics_detail
+                )
+            else:
+                main_content = content.get('main_content', '')
             return {
                 "intro": content.get('intro', ''),
-                "main_content": content.get('main_content', ''),
+                "main_content": main_content,
+                "topics_detail": topics_detail,
                 "topics_list": topics,
                 "reflection_prompt": content.get('reflection_prompt', ''),
                 "depth_level": depth_level,
@@ -652,6 +669,7 @@ async def generate_multi_topic_digest(
     return {
         "intro": f"Дайджест: {topics_str}",
         "main_content": response,
+        "topics_detail": [],
         "topics_list": topics,
         "reflection_prompt": "Что вы вынесли из этого материала?",
         "depth_level": depth_level,

@@ -199,6 +199,7 @@ class FeedDigestState(BaseState):
 
         content = session.get('content', {})
         topics_list = content.get('topics_list', [])
+        topics_detail = content.get('topics_detail', [])
         depth_level = content.get('depth_level', session.get('day_number', 1))
 
         # Формируем заголовок
@@ -218,27 +219,51 @@ class FeedDigestState(BaseState):
         if content.get('intro'):
             text += f"_{content['intro']}_\n\n"
 
-        text += content.get('main_content', t('feed.content_unavailable', lang))
+        # Per-topic display or legacy main_content
+        if topics_detail and len(topics_detail) > 1:
+            # Multi-topic: показываем summary каждой темы
+            for td in topics_detail:
+                title = td.get('title', '')
+                summary = td.get('summary', '')
+                text += f"*{title}*\n{summary}\n\n"
+        elif topics_detail and len(topics_detail) == 1:
+            # Single topic: показываем summary + detail сразу
+            td = topics_detail[0]
+            text += f"{td.get('summary', '')}\n\n{td.get('detail', '')}"
+        else:
+            # Backward compat: старый формат main_content
+            text += content.get('main_content', t('feed.content_unavailable', lang))
 
         if content.get('reflection_prompt'):
             text += f"\n\n💭 *{content['reflection_prompt']}*"
 
-        # Подсказка о возможности задать вопрос
-        # Кнопки (по сценарию: Фиксация, Вопрос, Темы)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"✍️ {t('buttons.write_fixation', lang)}",
-                callback_data="feed_fixation"
-            )],
-            [InlineKeyboardButton(
-                text=f"❓ {t('feed.ask_details', lang)}",
-                callback_data="feed_ask_question"
-            )],
-            [InlineKeyboardButton(
-                text=f"📋 {t('buttons.topics_menu', lang)}",
-                callback_data="feed_whats_next"
-            )]
-        ])
+        # Кнопки
+        buttons = []
+
+        # Per-topic «Подробнее» buttons (только для 2+ тем)
+        if topics_detail and len(topics_detail) > 1:
+            for i, td in enumerate(topics_detail):
+                title = td.get('title', topics_list[i] if i < len(topics_list) else '')
+                short_title = title[:25]
+                buttons.append([InlineKeyboardButton(
+                    text=f"🔎 {t('feed.more_details', lang)}: {short_title}",
+                    callback_data=f"feed_detail_{i}"
+                )])
+
+        buttons.append([InlineKeyboardButton(
+            text=f"✍️ {t('buttons.write_fixation', lang)}",
+            callback_data="feed_fixation"
+        )])
+        buttons.append([InlineKeyboardButton(
+            text=f"❓ {t('feed.ask_details', lang)}",
+            callback_data="feed_ask_question"
+        )])
+        buttons.append([InlineKeyboardButton(
+            text=f"📋 {t('buttons.topics_menu', lang)}",
+            callback_data="feed_whats_next"
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         # Сохраняем состояние
         self._user_data[chat_id] = {
@@ -270,6 +295,49 @@ class FeedDigestState(BaseState):
                         await self.send(user, part)
             else:
                 await self.send(user, text, reply_markup=keyboard)
+
+    async def _show_topic_detail(self, user, topic_index: int, callback: CallbackQuery) -> None:
+        """Показывает развёрнутый текст по конкретной теме."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        data = self._user_data.get(chat_id, {})
+        session_id = data.get('session_id')
+
+        if not session_id:
+            await callback.answer(t('errors.try_again', lang), show_alert=True)
+            return
+
+        session = await get_feed_session_by_id(session_id)
+        if not session:
+            await callback.answer(t('errors.try_again', lang), show_alert=True)
+            return
+
+        content = session.get('content', {})
+        topics_detail = content.get('topics_detail', [])
+
+        if topic_index >= len(topics_detail):
+            await callback.answer(t('errors.try_again', lang), show_alert=True)
+            return
+
+        td = topics_detail[topic_index]
+        title = td.get('title', '')
+        detail = td.get('detail', td.get('summary', t('feed.content_unavailable', lang)))
+
+        text = f"📖 *{title}*\n\n{detail}"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"✍️ {t('buttons.write_fixation', lang)}",
+                callback_data="feed_fixation"
+            )]
+        ])
+
+        try:
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await callback.message.answer(text, reply_markup=keyboard)
+        await callback.answer()
 
     async def _show_menu(self, user, week: dict, digest_completed_today: bool = False) -> None:
         """Показывает меню Ленты.
@@ -504,6 +572,20 @@ class FeedDigestState(BaseState):
                 f"_{t('feed.fixation_hint', lang)}_",
                 parse_mode="Markdown"
             )
+            await callback.answer()
+            return None
+
+        elif data.startswith("feed_detail_"):
+            # Per-topic detail expansion
+            try:
+                idx = int(data.replace("feed_detail_", ""))
+            except ValueError:
+                await callback.answer()
+                return None
+            await self._show_topic_detail(user, idx, callback)
+            return None
+
+        elif data == "feed_back_to_digest":
             await callback.answer()
             return None
 
