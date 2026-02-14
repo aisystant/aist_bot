@@ -448,7 +448,7 @@ def _catalog_to_topics(selected: List[Dict], lang: str = 'ru') -> List[Dict]:
         'en': "A topic from the Personal Development program.",
         'es': "Un tema del programa de Desarrollo Personal.",
         'fr': "Un sujet du programme de Développement Personnel.",
-        'zh': "来自"个人发展"项目的主题。",
+        'zh': '来自"个人发展"项目的主题。',
     }
     return [
         {
