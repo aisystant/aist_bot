@@ -155,7 +155,10 @@ class ProgressState(BaseState):
             pool = await get_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    "SELECT COUNT(*) AS cnt FROM feed_weeks WHERE chat_id = $1 AND status IN ('active', 'completed')",
+                    """SELECT COUNT(DISTINCT fw.id) AS cnt
+                       FROM feed_weeks fw
+                       WHERE fw.chat_id = $1
+                         AND EXISTS (SELECT 1 FROM feed_sessions fs WHERE fs.week_id = fw.id)""",
                     chat_id,
                 )
                 feed_weeks_count = row['cnt'] if row else 0
@@ -461,14 +464,30 @@ class ProgressState(BaseState):
 
         await self._show_section(user, text, self._back_button(lang), callback)
 
+    # Маппинг assessment state → emoji + i18n (из systematicity.yaml)
+    _ASSESSMENT_LABELS = {
+        'chaos': {'emoji': '😵', 'ru': 'Хаос', 'en': 'Chaos', 'es': 'Caos', 'fr': 'Chaos'},
+        'deadlock': {'emoji': '🧱', 'ru': 'Тупик', 'en': 'Deadlock', 'es': 'Estancamiento', 'fr': 'Impasse'},
+        'turning_point': {'emoji': '🔁', 'ru': 'Поворот', 'en': 'Turning Point', 'es': 'Punto de giro', 'fr': 'Tournant'},
+    }
+
+    def _translate_state(self, key: str, lang: str) -> str:
+        info = self._ASSESSMENT_LABELS.get(key)
+        if info:
+            return f"{info['emoji']} {info.get(lang, info.get('en', key))}"
+        return key
+
     async def _show_assessment(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         last = cache.get('last_assessment')
 
         text = f"<b>🧪 {t('progress.assessment_title', lang)}</b>\n\n"
 
         if last:
+            dominant = last.get('dominant_state', '—')
+            dominant_label = self._translate_state(dominant, lang)
+
             text += f"📅 {t('progress.last_assessment', lang)}: {last.get('created_at', '—')}\n"
-            text += f"🏷 {t('progress.assessment_result', lang)}: {last.get('dominant_state', '—')}\n"
+            text += f"🏷 {t('progress.assessment_result', lang)}: {dominant_label}\n"
 
             scores_raw = last.get('scores', '{}')
             if isinstance(scores_raw, str):
@@ -482,7 +501,8 @@ class ProgressState(BaseState):
             if scores:
                 text += f"\n📊 {t('progress.scores', lang)}:\n"
                 for key, value in scores.items():
-                    text += f"• {key}: {value}\n"
+                    label = self._translate_state(key, lang)
+                    text += f"• {label}: {value}\n"
         else:
             text += t('progress.no_assessment', lang)
 
