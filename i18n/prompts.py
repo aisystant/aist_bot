@@ -110,6 +110,27 @@ def get_content_prompts(lang: str, study_duration: int, words: int) -> Dict[str,
             'start_with': "Commence par reconnaître la douleur du lecteur, puis développe le sujet et mène à l'idée clé.",
             'use_context': "Utilise le contexte, mais adapte-le au profil de l'étudiant. Les publications récentes sont plus importantes.",
             'error_generation': "Échec de la génération du contenu. Veuillez réessayer /learn.",
+        },
+        'zh': {
+            'lang_instruction': "重要：请用中文书写所有内容。",
+            'create_text': f"创建一篇{study_duration}分钟阅读量的文本（约{words}字）。不要标题，只用段落。",
+            'engaging': "文本应具有吸引力，包含与读者生活相关的例子。",
+            'forbidden_header': "严格禁止：",
+            'forbidden_questions': "- 在文本任何位置添加问题",
+            'forbidden_headers': "- 使用"问题："、"思考问题："等标题",
+            'forbidden_end': "- 以问题结尾",
+            'question_later': "问题将在文本之后单独提出。",
+            'topic': "主题",
+            'main_concept': "核心概念",
+            'related_concepts': "相关概念",
+            'pain_point': "读者的痛点",
+            'key_insight': "关键洞察",
+            'source': "来源",
+            'content_instruction': "内容指导",
+            'context_from': "AISYSTANT资料的上下文",
+            'start_with': "先承认读者的痛点，然后展开主题并引向关键洞察。",
+            'use_context': "参考上下文，但要适配学员的个人资料。最近的文章更为重要。",
+            'error_generation': "无法生成内容。请再次尝试 /learn。",
         }
     }
 
@@ -170,6 +191,17 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'wp_instruction': "Décris le produit de travail attendu.",
             'examples_instruction': "Fournis 2-3 exemples de bons produits de travail.",
             'error_generation': "Échec de la génération de la tâche. Veuillez réessayer.",
+        },
+        'zh': {
+            'lang_instruction': "重要：请用中文书写所有内容。",
+            'task_header': "任务",
+            'work_product_header': "工作成果",
+            'examples_header': "示例",
+            'intro_instruction': "写一段简短的任务介绍（2-3句话）。",
+            'task_instruction': "根据学员的个人资料翻译并调整任务。",
+            'wp_instruction': "描述预期的工作成果。",
+            'examples_instruction': "提供2-3个优秀工作成果的示例。",
+            'error_generation': "无法生成任务。请重试。",
         }
     }
 
@@ -270,6 +302,27 @@ def get_question_prompts(lang: str) -> Dict[str, str]:
             'output_only_question': "Génère UNIQUEMENT la question (1-3 phrases), sans introduction ni explications.",
             'no_numbering': "Ne numérote pas la question, écris simplement son texte.",
             'error_generation': "Échec de la génération de la question.",
+        },
+        'zh': {
+            'lang_instruction': "重要：请用中文提问。",
+            'generate_question': "生成一个检验主题理解的问题。",
+            'question_type_1': "提出一个区分概念的问题（"……和……有什么区别"、"……与……有何不同"）。",
+            'question_type_2': "提出一个开放式理解问题（"为什么……"、"你如何理解……"、"解释……之间的联系"）。",
+            'question_type_3': "提出一个应用与分析问题（"举一个生活中的例子"、"分析这个情况"、"你会如何向同事解释……"）。",
+            'forbidden_header': "严格禁止：",
+            'forbidden_intro': "- 在问题前写任何介绍、解释、背景或文字",
+            'forbidden_headers': "- 使用"问题："、"思考问题："等标题",
+            'forbidden_examples': "- 写示例、故事、鼓励性文字",
+            'forbidden_after': "- 在问题后写任何内容",
+            'only_question': "只输出问题本身——最多1-3句话。",
+            'related_to_occupation': "问题应与职业相关：",
+            'complexity_level': "难度级别：",
+            'examples_hint': "问题示例（作为风格参考）：",
+            'topic': "主题",
+            'concept': "概念",
+            'output_only_question': "只输出问题（1-3句话），不要介绍和解释。",
+            'no_numbering': "不要给问题编号，直接写出问题文本。",
+            'error_generation': "无法生成问题。",
         }
     }
 
@@ -322,6 +375,15 @@ def get_feedback_prompts(lang: str) -> Dict[str, str]:
             'incorrect_answer': "Si la réponse est incorrecte, indique doucement l'erreur et explique.",
             'partial_answer': "Si la réponse est partiellement correcte, note ce qui est juste et ce qui peut être amélioré.",
             'error_generation': "Échec de la génération du feedback.",
+        },
+        'zh': {
+            'lang_instruction': "重要：请用中文书写所有内容。",
+            'evaluate_answer': "评估学员对问题的回答。",
+            'be_supportive': "保持支持性但诚实。",
+            'correct_answer': "如果回答正确，给予表扬并补充。",
+            'incorrect_answer': "如果回答不正确，温和地指出错误并解释。",
+            'partial_answer': "如果回答部分正确，指出正确之处和可以改进之处。",
+            'error_generation': "无法生成反馈。",
         }
     }
 
@@ -370,6 +432,14 @@ def get_consultation_prompts(lang: str) -> Dict[str, str]:
             'be_helpful': "Sois utile et précis.",
             'admit_unknown': "Si tu ne connais pas la réponse, dis-le honnêtement.",
             'error_generation': "Échec de la génération d'une réponse à la question.",
+        },
+        'zh': {
+            'lang_instruction': "重要：请用中文回答。",
+            'answer_question': "回答用户关于系统思维和个人发展的问题。",
+            'use_context': "如果相关，请使用材料中的上下文。",
+            'be_helpful': "保持有用和具体。",
+            'admit_unknown': "如果你不知道答案，请诚实地说明。",
+            'error_generation': "无法生成问题的答案。",
         }
     }
 

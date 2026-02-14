@@ -15,12 +15,14 @@ title:
   en: "Test: My Current State"
   es: "Test: Mi estado actual"
   fr: "Test: Mon état actuel"
+  zh: "测试：我的当前状态"
 
 intro:
   ru: "12 вопросов Да/Нет. Займёт ~2 минуты.\nОтвечай честно — это не экзамен, а точка старта."
   en: "12 Yes/No questions. Takes ~2 minutes.\nAnswer honestly — this is not an exam, but a starting point."
   es: "12 preguntas Sí/No. Toma ~2 minutos.\nResponde honestamente — no es un examen, sino un punto de partida."
   fr: "12 questions Oui/Non. Prend ~2 minutes.\nRéponds honnêtement — ce n'est pas un examen, mais un point de départ."
+  zh: "12个是/否问题。大约需要2分钟。\n请诚实回答——这不是考试，而是一个起点。"
 
 groups:
   - id: chaos
@@ -30,11 +32,13 @@ groups:
       en: "Chaos"
       es: "Caos"
       fr: "Chaos"
+      zh: "混乱"
     description:
       ru: "Внимание не принадлежит вам: постоянно отвлекают чаты, уведомления, мелкие задачи. День уходит на «тушение пожаров», важные вещи откладываются."
       en: "Your attention doesn't belong to you: chats, notifications, small tasks constantly distract. The day is spent 'putting out fires', important things are postponed."
       es: "Tu atención no te pertenece: chats, notificaciones, pequeñas tareas distraen constantemente. El día se va en 'apagar fuegos', las cosas importantes se postergan."
       fr: "Votre attention ne vous appartient pas: chats, notifications, petites tâches distraient constamment. La journée se passe à 'éteindre des feux', les choses importantes sont reportées."
+      zh: "你的注意力不属于你：聊天、通知、小任务不断干扰。一天都在"灭火"，重要的事情被推迟。"
 
   - id: deadlock
     emoji: "🧱"
@@ -43,11 +47,13 @@ groups:
       en: "Deadlock"
       es: "Estancamiento"
       fr: "Impasse"
+      zh: "僵局"
     description:
       ru: "В целом всё стабильно, нет хаоса, но нет и роста. «День сурка»: много работы, но результаты и доход почти не меняются."
       en: "Overall everything is stable, no chaos, but no growth either. 'Groundhog Day': lots of work, but results and income barely change."
       es: "En general todo es estable, no hay caos, pero tampoco crecimiento. 'Día de la marmota': mucho trabajo, pero los resultados e ingresos apenas cambian."
       fr: "Dans l'ensemble tout est stable, pas de chaos, mais pas de croissance non plus. 'Jour de la marmotte': beaucoup de travail, mais les résultats et revenus changent à peine."
+      zh: "总体一切稳定，没有混乱，但也没有增长。"土拨鼠之日"：工作很多，但成果和收入几乎不变。"
 
   - id: turning_point
     emoji: "🔁"
@@ -56,11 +62,13 @@ groups:
       en: "Turning Point"
       es: "Punto de inflexión"
       fr: "Tournant"
+      zh: "转折点"
     description:
       ru: "Всё неплохо: есть стабильность, иногда даже рост, но это уже не радует. Есть ощущение, что вы переросли текущий формат жизни."
       en: "Things are fine: there's stability, sometimes even growth, but it no longer brings joy. You feel you've outgrown your current life format."
       es: "Las cosas están bien: hay estabilidad, a veces incluso crecimiento, pero ya no trae alegría. Sientes que has superado tu formato de vida actual."
       fr: "Tout va bien: il y a de la stabilité, parfois même de la croissance, mais ça ne réjouit plus. Vous sentez que vous avez dépassé votre format de vie actuel."
+      zh: "一切还不错：有稳定，有时甚至有增长，但已经不再让人高兴。你感觉自己已经超越了当前的生活模式。"
 
 questions:
   - id: q1
@@ -70,6 +78,7 @@ questions:
       en: "At the end of most days, I feel I spent the whole day putting out fires and didn't get to what's truly important"
       es: "Al final de la mayoría de los días, siento que pasé todo el día apagando fuegos y no logré hacer lo realmente importante"
       fr: "À la fin de la plupart des jours, je sens que j'ai passé la journée à éteindre des feux et n'ai pas pu m'occuper de ce qui est vraiment important"
+      zh: "大多数日子结束时，我觉得一整天都在灭火，没有时间做真正重要的事"
 
   - id: q2
     group: chaos
@@ -78,6 +87,7 @@ questions:
       en: "I have many unfinished tasks or projects that 'hang' and cause guilt"
       es: "Tengo muchas tareas o proyectos sin terminar que 'cuelgan' y causan culpa"
       fr: "J'ai beaucoup de tâches ou projets inachevés qui 'pendent' et causent de la culpabilité"
+      zh: "我有很多未完成的任务或项目，它们"悬而未决"并让我感到内疚"
 
   - id: q3
     group: chaos
@@ -86,6 +96,7 @@ questions:
       en: "Notifications, chats, and small tasks often completely break my plans for the day"
       es: "Las notificaciones, chats y pequeñas tareas a menudo rompen completamente mis planes del día"
       fr: "Les notifications, chats et petites tâches cassent souvent complètement mes plans de la journée"
+      zh: "通知、聊天和小任务经常完全打乱我一天的计划"
 
   - id: q4
     group: chaos
@@ -94,6 +105,7 @@ questions:
       en: "I've tried various planning / self-organization systems, but none stuck for long"
       es: "He probado varios sistemas de planificación / autoorganización, pero ninguno duró mucho"
       fr: "J'ai essayé divers systèmes de planification / auto-organisation, mais aucun n'a duré longtemps"
+      zh: "我尝试过各种计划/自我管理系统，但没有一个能长期坚持"
 
   - id: q5
     group: deadlock
@@ -102,6 +114,7 @@ questions:
       en: "My life and work are more like 'Groundhog Day': everything is predictable, but there's almost no forward movement"
       es: "Mi vida y trabajo se parecen más al 'Día de la Marmota': todo es predecible, pero casi no hay movimiento hacia adelante"
       fr: "Ma vie et mon travail ressemblent plus au 'Jour de la marmotte': tout est prévisible, mais il n'y a presque pas de mouvement en avant"
+      zh: "我的生活和工作更像是"土拨鼠之日"：一切都可以预见，但几乎没有前进"
 
   - id: q6
     group: deadlock
@@ -110,6 +123,7 @@ questions:
       en: "I work quite a lot, but my income or results barely grow"
       es: "Trabajo bastante, pero mis ingresos o resultados apenas crecen"
       fr: "Je travaille beaucoup, mais mes revenus ou résultats ne grandissent presque pas"
+      zh: "我工作很多，但收入或成果几乎没有增长"
 
   - id: q7
     group: deadlock
@@ -118,6 +132,7 @@ questions:
       en: "When I learn something (courses, books, webinars), it rarely leads to real changes"
       es: "Cuando aprendo algo (cursos, libros, webinars), rara vez lleva a cambios reales"
       fr: "Quand j'apprends quelque chose (cours, livres, webinaires), cela mène rarement à de vrais changements"
+      zh: "当我学习东西（课程、书籍、网络研讨会）时，很少能带来真正的改变"
 
   - id: q8
     group: deadlock
@@ -126,6 +141,7 @@ questions:
       en: "I don't feel like I'm growing as a professional or as a person"
       es: "No siento que estoy creciendo como profesional o como persona"
       fr: "Je ne sens pas que je grandis en tant que professionnel ou en tant que personne"
+      zh: "我没有感觉自己在专业上或个人上有所成长"
 
   - id: q9
     group: turning_point
@@ -134,6 +150,7 @@ questions:
       en: "Overall I'm doing fine: there's stability, but it no longer makes me happy"
       es: "En general me va bien: hay estabilidad, pero ya no me hace feliz"
       fr: "Dans l'ensemble ça va bien: il y a de la stabilité, mais ça ne me rend plus heureux"
+      zh: "总的来说还不错：有稳定性，但这已经不再让我高兴"
 
   - id: q10
     group: turning_point
@@ -142,6 +159,7 @@ questions:
       en: "I feel I've outgrown my current tasks / life format and want something more"
       es: "Siento que he superado mis tareas actuales / formato de vida y quiero algo más"
       fr: "Je sens que j'ai dépassé mes tâches actuelles / mon format de vie et je veux quelque chose de plus"
+      zh: "我觉得自己已经超越了当前的任务/生活模式，想要更多"
 
   - id: q11
     group: turning_point
@@ -150,6 +168,7 @@ questions:
       en: "I feel an inner request for change, but I don't quite understand which direction to move"
       es: "Siento una necesidad interna de cambio, pero no entiendo bien en qué dirección moverme"
       fr: "Je ressens un besoin intérieur de changement, mais je ne comprends pas bien dans quelle direction aller"
+      zh: "我感到内心有改变的需求，但不太清楚该往哪个方向走"
 
   - id: q12
     group: turning_point
@@ -158,6 +177,7 @@ questions:
       en: "I simultaneously want serious changes and am afraid to touch what already works"
       es: "Simultáneamente quiero cambios serios y tengo miedo de tocar lo que ya funciona"
       fr: "Je veux simultanément des changements sérieux et j'ai peur de toucher ce qui fonctionne déjà"
+      zh: "我既想要重大改变，又害怕触动已经运作良好的东西"
 
 self_check:
   question:
@@ -165,6 +185,7 @@ self_check:
     en: "How do you feel yourself?\nWhich state feels closest to you right now?"
     es: "¿Cómo te sientes tú?\n¿Qué estado te parece más cercano ahora?"
     fr: "Comment te sens-tu toi-même?\nQuel état te semble le plus proche maintenant?"
+    zh: "你自己感觉如何？\n哪种状态现在最接近你？"
   options:
     - id: chaos
       label:
@@ -172,24 +193,28 @@ self_check:
         en: "😵 Chaos"
         es: "😵 Caos"
         fr: "😵 Chaos"
+        zh: "😵 混乱"
     - id: deadlock
       label:
         ru: "🧱 Тупик"
         en: "🧱 Deadlock"
         es: "🧱 Estancamiento"
         fr: "🧱 Impasse"
+        zh: "🧱 僵局"
     - id: turning_point
       label:
         ru: "🔁 Поворот"
         en: "🔁 Turning Point"
         es: "🔁 Punto de inflexión"
         fr: "🔁 Tournant"
+        zh: "🔁 转折点"
     - id: unsure
       label:
         ru: "🤔 Не понимаю"
         en: "🤔 Not sure"
         es: "🤔 No estoy seguro"
         fr: "🤔 Pas sûr(e)"
+        zh: "🤔 不确定"
 
 open_question:
   text:
@@ -197,4 +222,5 @@ open_question:
     en: "Describe in your own words: what bothers you most about your current situation?"
     es: "Describe con tus propias palabras: ¿qué es lo que más te molesta de tu situación actual?"
     fr: "Décris avec tes propres mots: qu'est-ce qui te dérange le plus dans ta situation actuelle?"
+    zh: "用你自己的话描述：你目前的状况中最不满意的是什么？"
   optional: true

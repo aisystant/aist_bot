@@ -116,7 +116,8 @@ def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
         'ru': ('Сегодня', 'Завтра', 'Послезавтра'),
         'en': ('Today', 'Tomorrow', 'Day after'),
         'es': ('Hoy', 'Mañana', 'Pasado mañana'),
-        'fr': ('Aujourd\'hui', 'Demain', 'Après-demain')
+        'fr': ('Aujourd\'hui', 'Demain', 'Après-demain'),
+        'zh': ('今天', '明天', '后天')
     }
     names = day_names.get(lang, day_names['en'])
 

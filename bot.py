@@ -228,6 +228,20 @@ async def main():
         BotCommand(command="settings", description="Paramètres"),
     ], language_code="fr")
 
+    # Китайский
+    await bot.set_my_commands([
+        BotCommand(command="mode", description="主菜单"),
+        BotCommand(command="learn", description="马拉松 — 获取课程"),
+        BotCommand(command="feed", description="信息流 — 获取摘要"),
+        BotCommand(command="progress", description="我的进度"),
+        BotCommand(command="test", description="系统性测试"),
+        BotCommand(command="profile", description="我的档案"),
+        BotCommand(command="mydata", description="我的数据"),
+        BotCommand(command="feedback", description="反馈"),
+        BotCommand(command="help", description="帮助"),
+        BotCommand(command="settings", description="设置"),
+    ], language_code="zh")
+
     # Команды разработчика (отдельное меню)
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
     if dev_chat_id:

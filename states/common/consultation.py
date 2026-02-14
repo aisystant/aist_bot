@@ -189,7 +189,8 @@ class ConsultationState(BaseState):
             'ru': "ВАЖНО: Отвечай на русском языке.",
             'en': "IMPORTANT: Answer in English.",
             'es': "IMPORTANTE: Responde en español.",
-            'fr': "IMPORTANT: Réponds en français."
+            'fr': "IMPORTANT: Réponds en français.",
+            'zh': "重要：请用中文回答。"
         }.get(lang, "IMPORTANT: Answer in English.")
 
         refinement_block = ""

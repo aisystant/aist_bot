@@ -466,9 +466,9 @@ class ProgressState(BaseState):
 
     # Маппинг assessment state → emoji + i18n (из systematicity.yaml)
     _ASSESSMENT_LABELS = {
-        'chaos': {'emoji': '😵', 'ru': 'Хаос', 'en': 'Chaos', 'es': 'Caos', 'fr': 'Chaos'},
-        'deadlock': {'emoji': '🧱', 'ru': 'Тупик', 'en': 'Deadlock', 'es': 'Estancamiento', 'fr': 'Impasse'},
-        'turning_point': {'emoji': '🔁', 'ru': 'Поворот', 'en': 'Turning Point', 'es': 'Punto de giro', 'fr': 'Tournant'},
+        'chaos': {'emoji': '😵', 'ru': 'Хаос', 'en': 'Chaos', 'es': 'Caos', 'fr': 'Chaos', 'zh': '混乱'},
+        'deadlock': {'emoji': '🧱', 'ru': 'Тупик', 'en': 'Deadlock', 'es': 'Estancamiento', 'fr': 'Impasse', 'zh': '僵局'},
+        'turning_point': {'emoji': '🔁', 'ru': 'Поворот', 'en': 'Turning Point', 'es': 'Punto de giro', 'fr': 'Tournant', 'zh': '转折点'},
     }
 
     def _translate_state(self, key: str, lang: str) -> str:

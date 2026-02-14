@@ -376,7 +376,8 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
         'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
         'en': "IMPORTANT: Write EVERYTHING in English.",
         'es': "IMPORTANTE: Escribe TODO en español.",
-        'fr': "IMPORTANT: Écris TOUT en français."
+        'fr': "IMPORTANT: Écris TOUT en français.",
+        'zh': "重要：请用中文书写所有内容。"
     }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
     system_prompt = f"""Ты — персональный наставник.
@@ -447,6 +448,7 @@ def _catalog_to_topics(selected: List[Dict], lang: str = 'ru') -> List[Dict]:
         'en': "A topic from the Personal Development program.",
         'es': "Un tema del programa de Desarrollo Personal.",
         'fr': "Un sujet du programme de Développement Personnel.",
+        'zh': "来自"个人发展"项目的主题。",
     }
     return [
         {
@@ -567,7 +569,8 @@ async def generate_multi_topic_digest(
         'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
         'en': "IMPORTANT: Write EVERYTHING in English.",
         'es': "IMPORTANTE: Escribe TODO en español.",
-        'fr': "IMPORTANT: Écris TOUT en français."
+        'fr': "IMPORTANT: Écris TOUT en français.",
+        'zh': "重要：请用中文书写所有内容。"
     }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
     # Адаптация стиля дайджеста по состоянию теста
@@ -577,7 +580,8 @@ async def generate_multi_topic_digest(
         'ru': "НАПОМИНАНИЕ: Весь текст (intro, topics[].summary, topics[].detail, reflection_prompt) должен быть на РУССКОМ языке!",
         'en': "REMINDER: All text (intro, topics[].summary, topics[].detail, reflection_prompt) must be in ENGLISH!",
         'es': "RECORDATORIO: ¡Todo el texto (intro, topics[].summary, topics[].detail, reflection_prompt) debe estar en ESPAÑOL!",
-        'fr': "RAPPEL: Tout le texte (intro, topics[].summary, topics[].detail, reflection_prompt) doit être en FRANÇAIS!"
+        'fr': "RAPPEL: Tout le texte (intro, topics[].summary, topics[].detail, reflection_prompt) doit être en FRANÇAIS!",
+        'zh': "提醒：所有文本（intro、topics[].summary、topics[].detail、reflection_prompt）必须使用中文！"
     }.get(lang, "REMINDER: All text (intro, topics[].summary, topics[].detail, reflection_prompt) must be in ENGLISH!")
 
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
@@ -624,7 +628,8 @@ async def generate_multi_topic_digest(
     user_prompt = {
         'ru': f"Темы: {topics_str}\nУровень глубины: {depth_level}",
         'en': f"Topics: {topics_str}\nDepth level: {depth_level}",
-        'es': f"Temas: {topics_str}\nNivel de profundidad: {depth_level}"
+        'es': f"Temas: {topics_str}\nNivel de profundidad: {depth_level}",
+        'zh': f"主题：{topics_str}\n深度级别：{depth_level}"
     }.get(lang, f"Темы: {topics_str}\nУровень глубины: {depth_level}")
 
     response = await claude.generate(system_prompt, user_prompt)
@@ -727,14 +732,16 @@ async def generate_topic_content(
         'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
         'en': "IMPORTANT: Write EVERYTHING in English.",
         'es': "IMPORTANTE: Escribe TODO en español.",
-        'fr': "IMPORTANT: Écris TOUT en français."
+        'fr': "IMPORTANT: Écris TOUT en français.",
+        'zh': "重要：请用中文书写所有内容。"
     }.get(lang, "IMPORTANT: Write EVERYTHING in English.")
 
     lang_reminder = {
         'ru': "НАПОМИНАНИЕ: Весь текст (intro, main_content, reflection_prompt) должен быть на РУССКОМ языке!",
         'en': "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!",
         'es': "RECORDATORIO: ¡Todo el texto (intro, main_content, reflection_prompt) debe estar en ESPAÑOL!",
-        'fr': "RAPPEL: Tout le texte (intro, main_content, reflection_prompt) doit être en FRANÇAIS!"
+        'fr': "RAPPEL: Tout le texte (intro, main_content, reflection_prompt) doit être en FRANÇAIS!",
+        'zh': "提醒：所有文本（intro、main_content、reflection_prompt）必须使用中文！"
     }.get(lang, "REMINDER: All text (intro, main_content, reflection_prompt) must be in ENGLISH!")
 
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
@@ -772,7 +779,8 @@ async def generate_topic_content(
     user_prompt = {
         'ru': f"Тема: {topic.get('title')}\nОписание: {topic.get('description', '')}",
         'en': f"Topic: {topic.get('title')}\nDescription: {topic.get('description', '')}",
-        'es': f"Tema: {topic.get('title')}\nDescripción: {topic.get('description', '')}"
+        'es': f"Tema: {topic.get('title')}\nDescripción: {topic.get('description', '')}",
+        'zh': f"主题：{topic.get('title')}\n描述：{topic.get('description', '')}"
     }.get(lang, f"Тема: {topic.get('title')}\nОписание: {topic.get('description', '')}")
 
     response = await claude.generate(system_prompt, user_prompt)
