@@ -318,6 +318,29 @@ async def cb_go_profile(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("/profile — используйте для перехода в профиль")
 
 
+@callbacks_router.callback_query(F.data == "go_mydata")
+async def cb_go_mydata(callback: CallbackQuery, state: FSMContext):
+    """Переход к «Мои данные» из progress и других мест."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    await callback.answer()
+    intern = await get_intern(callback.message.chat.id)
+
+    if dispatcher and dispatcher.is_sm_active and intern:
+        try:
+            await state.clear()
+            await callback.message.delete()
+            await dispatcher.route_command('mydata', intern)
+            return
+        except Exception as e:
+            logger.error(f"[CB] Error routing go_mydata: {e}")
+
+    if intern:
+        await callback.message.delete()
+        await callback.message.answer("/mydata — используйте для просмотра данных")
+
+
 @callbacks_router.callback_query(F.data == "go_progress")
 async def cb_go_progress(callback: CallbackQuery):
     """Переход к прогрессу."""

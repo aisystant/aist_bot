@@ -8,5 +8,6 @@
 """
 
 from states.utilities.progress import ProgressState
+from states.utilities.mydata import MyDataState
 
-__all__ = ["ProgressState"]
+__all__ = ["ProgressState", "MyDataState"]

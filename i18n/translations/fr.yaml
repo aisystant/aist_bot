@@ -24,6 +24,7 @@ commands:
   language: "/language — changer de langue"
   help: "/help — aide"
   feed: "/feed — obtenir le résumé"
+  mydata: "/mydata — mes données"
 
 menu:
   learn: "Obtenir un nouveau sujet"
@@ -630,6 +631,28 @@ service:
   plans: "Plans"
   notes: "Notes"
   twin: "Jumeau numérique"
+  mydata: "Mes données"
+
+mydata:
+  title: "📊 Mes données"
+  summary: "Voici ce que je sais sur toi :"
+  cat_profile: "Profil"
+  cat_learning: "Apprentissage"
+  cat_activity: "Activité"
+  cat_marathon: "Marathon"
+  cat_feed: "Fil"
+  why_button: "Pourquoi ?"
+  why_thinking: "Analyse des données..."
+  no_data: "Pas encore de données."
+  back_to_overview: "← Aperçu"
+  complexity: "complexité"
+  streak: "série"
+  total: "total"
+  wp: "PT"
+  answers: "réponses"
+  digests: "résumés"
+  fixations: "fixations"
+  explain_error: "Impossible d'analyser les données. Réessayez plus tard."
 
 menu:
   main_title: "Choisis un service :"

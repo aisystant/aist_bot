@@ -122,6 +122,10 @@ commands:
     ru: "/language — сменить язык"
     en: "/language — change language"
 
+  mydata:
+    ru: "/mydata — мои данные"
+    en: "/mydata — my data"
+
   github:
     ru: "/github — подключение GitHub"
     en: "/github — GitHub integration"
@@ -2690,6 +2694,71 @@ service:
   twin:
     ru: "Цифровой двойник"
     en: "Digital Twin"
+  mydata:
+    ru: "Мои данные"
+    en: "My Data"
+
+# -----------------------------------------------------------------------------
+# Мои данные (просмотр и объяснение)
+# -----------------------------------------------------------------------------
+mydata:
+  title:
+    ru: "📊 Мои данные"
+    en: "📊 My Data"
+  summary:
+    ru: "Вот что я знаю о тебе:"
+    en: "Here's what I know about you:"
+  cat_profile:
+    ru: "Профиль"
+    en: "Profile"
+  cat_learning:
+    ru: "Обучение"
+    en: "Learning"
+  cat_activity:
+    ru: "Активность"
+    en: "Activity"
+  cat_marathon:
+    ru: "Марафон"
+    en: "Marathon"
+  cat_feed:
+    ru: "Лента"
+    en: "Feed"
+  why_button:
+    ru: "Почему?"
+    en: "Why?"
+  why_thinking:
+    ru: "Анализирую данные..."
+    en: "Analyzing data..."
+  no_data:
+    ru: "Данных пока нет."
+    en: "No data yet."
+  back_to_overview:
+    ru: "← Обзор"
+    en: "← Overview"
+  complexity:
+    ru: "сложность"
+    en: "complexity"
+  streak:
+    ru: "серия"
+    en: "streak"
+  total:
+    ru: "всего"
+    en: "total"
+  wp:
+    ru: "РП"
+    en: "WPs"
+  answers:
+    ru: "ответов"
+    en: "answers"
+  digests:
+    ru: "дайджестов"
+    en: "digests"
+  fixations:
+    ru: "фиксаций"
+    en: "fixations"
+  explain_error:
+    ru: "Не удалось проанализировать данные. Попробуйте позже."
+    en: "Could not analyze data. Please try again later."
 
 # -----------------------------------------------------------------------------
 # Планы (интеграция со Стратегом)

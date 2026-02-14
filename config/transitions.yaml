@@ -182,6 +182,12 @@ states:
       back: _same                         # Вернуться к короткому отчёту
       error: _previous
 
+  utility.mydata:
+    description: "Мои данные — просмотр и объяснение (/mydata)"
+    events:
+      back: _previous
+    allow_global: [consultation, notes]
+
 
 # ==========================================
 # ГЛОБАЛЬНЫЕ СОБЫТИЯ
@@ -205,6 +211,10 @@ global_events:
   progress:
     trigger: "/progress"
     target: utility.progress
+
+  mydata:
+    trigger: "/mydata"
+    target: utility.mydata
 
   help:
     trigger: "/help"

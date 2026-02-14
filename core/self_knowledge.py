@@ -53,6 +53,7 @@ _GITHUB_RAW_URL = (
 _scenarios: list[dict] = []
 _faq: list[dict] = []
 _identity: dict = {}
+_integrations: str = ""
 _loaded: bool = False
 _cache: dict[str, str] = {}
 
@@ -103,7 +104,7 @@ def _fetch_content() -> Optional[str]:
 
 def _parse_pack() -> None:
     """Загрузить самознание: L0 проекция → fallback Pack markdown (lazy, один раз)."""
-    global _scenarios, _faq, _identity, _loaded
+    global _scenarios, _faq, _identity, _integrations, _loaded
 
     if _loaded:
         return
@@ -120,6 +121,7 @@ def _parse_pack() -> None:
         _identity.update(_parse_identity(identity_text))
         _scenarios.extend(_parse_scenarios_table_from_text(scenarios_text))
         _faq.extend(_parse_faq_table_from_text(faq_text))
+        _integrations = projection.get('integrations', '')
 
         logger.info(
             f"Self-knowledge loaded from projection: "
@@ -332,6 +334,11 @@ def get_self_knowledge(lang: str = 'ru') -> str:
                 lines.append(f"\nВ: {q}" if is_ru else f"\nQ: {q}")
                 lines.append(f"О: {a}" if is_ru else f"A: {a}")
 
+    # --- Интеграции (технический стек) ---
+    if _integrations:
+        lines.append("\n## Интеграции" if is_ru else "\n## Integrations")
+        lines.append(_integrations.strip())
+
     result = "\n".join(lines)
     _cache[lang] = result
     return result
@@ -375,9 +382,10 @@ def get_scenario_names(lang: str = 'ru') -> list[str]:
 
 def invalidate_cache():
     """Сбросить кеш (для ежедневного обновления или тестов)."""
-    global _loaded, _scenarios, _faq, _identity, _cache
+    global _loaded, _scenarios, _faq, _identity, _integrations, _cache
     _loaded = False
     _scenarios = []
     _faq = []
     _identity = {}
+    _integrations = ""
     _cache = {}

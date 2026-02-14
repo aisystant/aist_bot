@@ -422,6 +422,7 @@ class ProfileState(BaseState):
             f"*{t('commands.section_settings', lang)}*\n"
             f"{t('commands.profile', lang)}\n"
             f"{t('commands.settings', lang)}\n"
+            f"{t('commands.mydata', lang)}\n"
             f"{t('commands.help', lang)}\n"
             f"{t('commands.language', lang)}\n\n"
             f"*{t('commands.section_special', lang)}*\n"

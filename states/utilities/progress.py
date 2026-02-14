@@ -275,7 +275,10 @@ class ProgressState(BaseState):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text=f"👤 {t('buttons.profile', lang)}", callback_data="go_profile"),
-                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")
+                InlineKeyboardButton(text=f"💾 {t('service.mydata', lang)}", callback_data="go_mydata"),
+            ],
+            [
+                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings"),
             ],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_back")]
         ])

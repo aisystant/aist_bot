@@ -24,6 +24,7 @@ commands:
   language: "/language — cambiar idioma"
   help: "/help — ayuda"
   feed: "/feed — obtener resumen"
+  mydata: "/mydata — mis datos"
 
 menu:
   learn: "Obtener un nuevo tema"
@@ -640,6 +641,28 @@ service:
   plans: "Planes"
   notes: "Notas"
   twin: "Gemelo Digital"
+  mydata: "Mis datos"
+
+mydata:
+  title: "📊 Mis datos"
+  summary: "Esto es lo que sé sobre ti:"
+  cat_profile: "Perfil"
+  cat_learning: "Aprendizaje"
+  cat_activity: "Actividad"
+  cat_marathon: "Maratón"
+  cat_feed: "Feed"
+  why_button: "¿Por qué?"
+  why_thinking: "Analizando datos..."
+  no_data: "Aún no hay datos."
+  back_to_overview: "← Resumen"
+  complexity: "complejidad"
+  streak: "racha"
+  total: "total"
+  wp: "PT"
+  answers: "respuestas"
+  digests: "resúmenes"
+  fixations: "fijaciones"
+  explain_error: "No se pudieron analizar los datos. Inténtalo más tarde."
 
 menu:
   main_title: "Elige un servicio:"

@@ -35,7 +35,7 @@ from states.workshops.assessment import (
 from states.feed import FeedTopicsState, FeedDigestState
 
 # Utilities (частично реализовано)
-from states.utilities import ProgressState
+from states.utilities import ProgressState, MyDataState
 # TODO: Неделя 8 — раскомментировать после создания
 # from states.utilities import NotesState, ExportState
 
@@ -88,6 +88,7 @@ def register_all_states(
 
         # Utility стейты
         ProgressState(*args),
+        MyDataState(*args),
         # TODO: Неделя 8 — раскомментировать после создания
         # NotesState(*args),
         # ExportState(*args),
@@ -129,6 +130,7 @@ def get_available_states() -> list[str]:
 
         # Utilities
         "utility.progress",
+        "utility.mydata",
         "utility.notes",
         "utility.export",
     ]

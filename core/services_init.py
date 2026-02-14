@@ -88,6 +88,16 @@ def register_all_services() -> None:
     ))
 
     registry.register(ServiceDescriptor(
+        id="mydata",
+        i18n_key="service.mydata",
+        icon="\U0001f4be",  # 💾
+        entry_state="utility.mydata",
+        category="system",
+        order=25,
+        command="/mydata",
+    ))
+
+    registry.register(ServiceDescriptor(
         id="plans",
         i18n_key="service.plans",
         icon="\U0001f4cb",  # 📋
