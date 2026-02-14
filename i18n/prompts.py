@@ -10,7 +10,7 @@
 from typing import Dict, Any
 
 # Поддерживаемые языки
-SUPPORTED_LANGUAGES = ['ru', 'en', 'es', 'fr']
+SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'ru']
 DEFAULT_LANGUAGE = 'ru'
 
 
