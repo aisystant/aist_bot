@@ -46,12 +46,13 @@ class ClaudeClient:
         self.api_key = ANTHROPIC_API_KEY
         self.base_url = "https://api.anthropic.com/v1/messages"
 
-    async def generate(self, system_prompt: str, user_prompt: str) -> Optional[str]:
+    async def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> Optional[str]:
         """Базовый метод генерации текста через Claude API
 
         Args:
             system_prompt: системный промпт
             user_prompt: пользовательский промпт
+            max_tokens: максимальное количество токенов ответа
 
         Returns:
             Сгенерированный текст или None при ошибке
@@ -65,7 +66,7 @@ class ClaudeClient:
 
             payload = {
                 "model": "claude-sonnet-4-20250514",
-                "max_tokens": 4000,
+                "max_tokens": max_tokens,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_prompt}]
             }

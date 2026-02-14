@@ -166,16 +166,17 @@ class ConsultationState(BaseState):
 
         return None
 
-    async def _answer_bot_question(self, user, question: str, lang: str) -> str:
-        """Быстрый путь: ответ на вопрос о боте.
+    async def _answer_bot_question(self, user, question: str, lang: str, previous_answer: str = None) -> str:
+        """Быстрый путь: ответ на вопрос о боте (L2).
 
-        1. Проверить FAQ → мгновенный ответ
+        1. Проверить FAQ → мгновенный ответ (пропускается при refinement)
         2. Иначе → Claude с self-knowledge (без MCP-поиска)
         """
-        # Попробовать FAQ
-        faq_answer = match_faq(question, lang)
-        if faq_answer:
-            return faq_answer
+        # Попробовать FAQ (не при refinement — пользователь уже видел FAQ или L2 ответ)
+        if not previous_answer:
+            faq_answer = match_faq(question, lang)
+            if faq_answer:
+                return faq_answer
 
         # Claude с self-knowledge в system prompt
         from clients import claude
@@ -191,6 +192,13 @@ class ConsultationState(BaseState):
             'fr': "IMPORTANT: Réponds en français."
         }.get(lang, "IMPORTANT: Answer in English.")
 
+        refinement_block = ""
+        if previous_answer:
+            refinement_block = {
+                'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный ответ. Раскрой аспекты, которые не были затронуты.",
+                'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+            }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+
         system_prompt = f"""Ты — AIST Bot, дружелюбный бот-наставник.
 Отвечаешь на вопрос пользователя {name} о себе (о боте).
 
@@ -199,17 +207,18 @@ class ConsultationState(BaseState):
 ЗНАНИЯ О БОТЕ:
 {self_knowledge}
 
-ПРАВИЛА:
-1. Отвечай кратко и по существу (2-4 абзаца)
-2. Используй информацию из знаний о боте — не выдумывай функции
-3. Предлагай конкретные команды (например /learn, /test)
-4. Если вопрос не о боте — вежливо перенаправь
-5. «ты/вы» = вопрос о боте, «я/мне» = вопрос о пользователе. Если пользователь путает — помоги разобраться в интерфейсе
+ЖЁСТКОЕ ОГРАНИЧЕНИЕ ДЛИНЫ: максимум 150 слов. Ответ — 3-5 коротких абзацев. Если информации много — выбери самое важное, остальное пропусти. Пользователь может нажать 🔍 для подробностей.
 
+ПРАВИЛА:
+1. Используй информацию из знаний о боте — не выдумывай функции
+2. Предлагай конкретные команды (например /learn, /test)
+3. Если вопрос не о боте — вежливо перенаправь
+4. «ты/вы» = вопрос о боте, «я/мне» = вопрос о пользователе
+{refinement_block}
 {ONTOLOGY_RULES}"""
 
         user_prompt = f"Вопрос: {question}" if lang == 'ru' else f"Question: {question}"
-        answer = await claude.generate(system_prompt, user_prompt)
+        answer = await claude.generate(system_prompt, user_prompt, max_tokens=800)
         return answer or t('consultation.error', lang)
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
@@ -257,7 +266,10 @@ class ConsultationState(BaseState):
             return "answered"
 
         # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
-        deep_search = is_refinement  # Refinement всегда = deep search
+        # Refinement: deep search только для доменных вопросов (L3).
+        # Для bot-вопросов refinement → L2 (Claude + self-knowledge, без MCP).
+        is_bot_q = self._is_bot_question(question)
+        deep_search = is_refinement and not is_bot_q
         if not is_refinement:
             _DEEP_PREFIXES = ("ии ", "аи ", "ai ")
             q_check = question.lower()
@@ -303,9 +315,9 @@ class ConsultationState(BaseState):
                     # Refinement: inject previous answer
                     if is_refinement and previous_answer:
                         refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:1500]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
-                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:1500]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:1500]}\n\nGive more detail.")
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
                         bot_context += refinement_instruction
                     else:
                         # Regular deep search (ИИ prefix)
@@ -331,9 +343,12 @@ class ConsultationState(BaseState):
                     )
 
                     response = self._format_response(answer, sources, lang)
-                elif self._is_bot_question(question):
+                elif is_bot_q:
                     # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
-                    answer = await self._answer_bot_question(user, question, lang)
+                    answer = await self._answer_bot_question(
+                        user, question, lang,
+                        previous_answer=previous_answer if is_refinement else None,
+                    )
                     response = self._format_response(answer, [], lang)
                     # Сохраняем Q&A для кнопок feedback
                     chat_id_l2 = self._get_chat_id(user)
@@ -391,7 +406,7 @@ class ConsultationState(BaseState):
                     await self.send(user, response, reply_markup=reply_markup)
 
         except Exception as e:
-            logger.error(f"Consultation error: {e}")
+            logger.error(f"Consultation error: {e}", exc_info=True)
             await self.send(user, t('consultation.error', lang))
 
         # Автоматический возврат в предыдущий стейт
