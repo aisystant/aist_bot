@@ -32,7 +32,8 @@ def get_language_name(code: str) -> str:
         'ru': '🇷🇺 Русский',
         'en': '🇬🇧 English',
         'es': '🇪🇸 Español',
-        'fr': '🇫🇷 Français'
+        'fr': '🇫🇷 Français',
+        'zh': '🇨🇳 中文'
     }
     return names.get(code, code)
 

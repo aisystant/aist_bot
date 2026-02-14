@@ -254,11 +254,11 @@ def detect_language(language_code: Optional[str]) -> str:
 def get_language_name(lang: str) -> str:
     """Возвращает название языка"""
     names = {
-        'ru': 'Русский',
-        'en': 'English',
-        'es': 'Español',
-        'fr': 'Français',
-        'zh': '中文'
+        'ru': '🇷🇺 Русский',
+        'en': '🇬🇧 English',
+        'es': '🇪🇸 Español',
+        'fr': '🇫🇷 Français',
+        'zh': '🇨🇳 中文'
     }
     return names.get(lang, lang)
 
