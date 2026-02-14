@@ -10,6 +10,7 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
 )
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 
 from config import MARATHON_DAYS
 from db.queries import get_intern
@@ -35,17 +36,28 @@ def _bot_imports():
 
 
 @progress_router.message(Command("progress"))
-async def cmd_progress(message: Message):
-    """Короткий отчёт прогресса за текущую неделю"""
-    from db.queries.answers import get_weekly_marathon_stats, get_weekly_feed_stats
-    from db.queries.activity import get_activity_stats
-    b = _bot_imports()
+async def cmd_progress(message: Message, state: FSMContext = None):
+    """Прогресс — делегирует в SM (хаб с секциями) или legacy fallback."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
     if not intern or not intern.get('onboarding_completed'):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('progress.first_start', lang))
         return
+
+    # SM active → delegate to ProgressState (hub with prefetch + sections)
+    if dispatcher and dispatcher.is_sm_active:
+        if state:
+            await state.clear()
+        await dispatcher.route_command('progress', intern)
+        return
+
+    # Legacy fallback (SM disabled)
+    from db.queries.answers import get_weekly_marathon_stats, get_weekly_feed_stats
+    from db.queries.activity import get_activity_stats
+    b = _bot_imports()
 
     chat_id = message.chat.id
     lang = intern.get('language', 'ru') or 'ru'
