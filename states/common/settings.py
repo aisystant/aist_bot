@@ -134,6 +134,10 @@ class SettingsState(BaseState):
         """Обрабатываем нажатия inline-кнопок."""
         data = callback.data
 
+        # lang_ обрабатывает answer() сам (с текстом подтверждения)
+        if data.startswith("lang_"):
+            return await self._save_language(user, callback, data)
+
         await callback.answer()
 
         if data == "settings_back":
@@ -151,9 +155,6 @@ class SettingsState(BaseState):
 
         if data == "upd_connections":
             return await self._show_connections(user, callback)
-
-        if data.startswith("lang_"):
-            return await self._save_language(user, callback, data)
 
         if data == "conn_github":
             return await self._handle_github_connection(user, callback)
@@ -301,16 +302,28 @@ class SettingsState(BaseState):
 
         await update_intern(chat_id, language=new_lang)
 
-        await callback.message.edit_text(
-            t('settings.language.changed', new_lang),
-        )
-
         if isinstance(user, dict):
             user['language'] = new_lang
         else:
             user.language = new_lang
 
-        await self.enter(user)
+        # Toast с подтверждением
+        await callback.answer(t('settings.language.changed', new_lang))
+
+        # Редактируем текущее сообщение обратно в меню настроек (без нового сообщения)
+        text = (
+            f"⚙️ *{t('settings.title', new_lang)}*\n\n"
+            f"🌐 {t('settings.language_label', new_lang)}: {get_language_name(new_lang)}\n"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 " + t('buttons.change_language', new_lang), callback_data="upd_language")],
+            [InlineKeyboardButton(text="🔗 " + t('settings.connections_label', new_lang), callback_data="upd_connections")],
+            [InlineKeyboardButton(text="🔄 " + t('settings.reset_label', new_lang), callback_data="show_resets")],
+            [InlineKeyboardButton(text=t('buttons.back', new_lang), callback_data="settings_back")],
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         return None
 
     async def _show_reset_options(self, user, callback: CallbackQuery) -> Optional[str]:
