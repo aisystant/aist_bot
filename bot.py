@@ -228,21 +228,17 @@ async def main():
         BotCommand(command="help", description="Aide"),
     ], language_code="fr")
 
-    # Команды разработчика (расширенный список)
+    # Команды разработчика (отдельное меню)
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
     if dev_chat_id:
         try:
             await bot.set_my_commands([
+                BotCommand(command="stats", description="Пользователи и активность"),
+                BotCommand(command="usage", description="Популярность сервисов"),
+                BotCommand(command="qa", description="Качество консультаций"),
+                BotCommand(command="health", description="Состояние системы"),
+                BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="mode", description="Главное меню"),
-                BotCommand(command="learn", description="Марафон — получить урок"),
-                BotCommand(command="feed", description="Лента — получить дайджест"),
-                BotCommand(command="progress", description="Мой прогресс"),
-                BotCommand(command="test", description="Тест систематичности"),
-                BotCommand(command="profile", description="Мой профиль"),
-                BotCommand(command="settings", description="Настройки"),
-                BotCommand(command="mydata", description="Мои данные"),
-                BotCommand(command="feedback", description="Обратная связь"),
-                BotCommand(command="reports", description="Отчёты (dev)"),
                 BotCommand(command="help", description="Справка"),
             ], scope=BotCommandScopeChat(chat_id=int(dev_chat_id)))
         except Exception as e:
