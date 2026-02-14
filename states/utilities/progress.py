@@ -269,17 +269,27 @@ class ProgressState(BaseState):
             await self.send(user, t('progress.full_report_error', lang))
             return
 
-        # Сохраняем кеш в current_context
+        # Сохраняем кеш в current_context (мержим, не перезаписываем)
         try:
+            existing_ctx = {}
+            ctx_raw = user.get('current_context', '{}') if isinstance(user, dict) else getattr(user, 'current_context', '{}')
+            if isinstance(ctx_raw, str):
+                try:
+                    existing_ctx = json.loads(ctx_raw) or {}
+                except Exception:
+                    existing_ctx = {}
+            elif isinstance(ctx_raw, dict):
+                existing_ctx = ctx_raw
+            existing_ctx['progress_cache'] = cache
             await update_intern(chat_id, current_context=json.dumps(
-                {'progress_cache': cache}, ensure_ascii=False, default=str
+                existing_ctx, ensure_ascii=False, default=str
             ))
         except Exception as e:
             logger.error(f"[Progress] Cache save error: {e}")
 
         await self._render_overview(user, cache, lang)
 
-    async def _render_overview(self, user, cache: dict, lang: str) -> None:
+    async def _render_overview(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         """Рендер обзорной карточки."""
         name = cache.get('name', '')
         streak = cache.get('streak', 0)
@@ -310,7 +320,19 @@ class ProgressState(BaseState):
             ],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_exit")],
         ])
-        await self.send(user, text, reply_markup=keyboard, parse_mode="HTML")
+        await self._show_section(user, text, keyboard, callback)
+
+    # ─── DISPLAY HELPER ────────────────────────────────────────
+
+    async def _show_section(self, user, text: str, reply_markup, callback: CallbackQuery = None) -> None:
+        """Edit existing message (callback) or send new (enter)."""
+        if callback and callback.message:
+            try:
+                await callback.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+                return
+            except Exception as e:
+                logger.debug(f"[Progress] edit_text failed, sending new: {e}")
+        await self.send(user, text, reply_markup=reply_markup, parse_mode="HTML")
 
     # ─── SECTIONS ─────────────────────────────────────────────
 
@@ -319,7 +341,7 @@ class ProgressState(BaseState):
             [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")]
         ])
 
-    async def _show_calendar(self, user, cache: dict, lang: str) -> None:
+    async def _show_calendar(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         cal = cache.get('calendar', [])
         active_count = cache.get('calendar_active_count', 0)
         total_days = cache.get('calendar_total_days', 0)
@@ -354,9 +376,9 @@ class ProgressState(BaseState):
         if most_active_wd is not None:
             text += f"\n{t('progress.most_active_day', lang)}: {names[most_active_wd]}"
 
-        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+        await self._show_section(user, text, self._back_button(lang), callback)
 
-    async def _show_marathon(self, user, cache: dict, lang: str) -> None:
+    async def _show_marathon(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         day = cache.get('marathon_day', 1)
         total = cache.get('marathon_total', MARATHON_DAYS)
         lessons = cache.get('lessons', {'completed': 0, 'total': 0})
@@ -396,9 +418,9 @@ class ProgressState(BaseState):
                 wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
                 text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
 
-        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+        await self._show_section(user, text, self._back_button(lang), callback)
 
-    async def _show_feed(self, user, cache: dict, lang: str) -> None:
+    async def _show_feed(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         digests_total = cache.get('feed_digests_total', 0)
         fixations_total = cache.get('feed_fixations_total', 0)
         digests_week = cache.get('feed_digests_week', 0)
@@ -414,9 +436,9 @@ class ProgressState(BaseState):
         text += f"📅 {t('progress.weeks_completed', lang)}: {weeks_count}\n"
         text += f"🎯 {t('progress.topics', lang)}: {topics_text}"
 
-        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+        await self._show_section(user, text, self._back_button(lang), callback)
 
-    async def _show_qa(self, user, cache: dict, lang: str) -> None:
+    async def _show_qa(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         qa = cache.get('qa', {})
         total = qa.get('total', 0)
         helpful = qa.get('helpful', 0)
@@ -437,9 +459,9 @@ class ProgressState(BaseState):
             for topic in top_topics:
                 text += f"• {topic['topic']} ({topic['cnt']})\n"
 
-        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+        await self._show_section(user, text, self._back_button(lang), callback)
 
-    async def _show_assessment(self, user, cache: dict, lang: str) -> None:
+    async def _show_assessment(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         last = cache.get('last_assessment')
 
         text = f"<b>🧪 {t('progress.assessment_title', lang)}</b>\n\n"
@@ -468,9 +490,9 @@ class ProgressState(BaseState):
             [InlineKeyboardButton(text=f"🧪 {t('progress.take_test', lang)}", callback_data="progress_go_assessment")],
             [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")],
         ])
-        await self.send(user, text, reply_markup=keyboard, parse_mode="HTML")
+        await self._show_section(user, text, keyboard, callback)
 
-    async def _show_integrations(self, user, cache: dict, lang: str) -> None:
+    async def _show_integrations(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         gh = cache.get('github', {})
 
         text = f"<b>🔗 {t('progress.integrations_title', lang)}</b>\n\n"
@@ -488,7 +510,7 @@ class ProgressState(BaseState):
             [InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")],
             [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")],
         ])
-        await self.send(user, text, reply_markup=keyboard, parse_mode="HTML")
+        await self._show_section(user, text, keyboard, callback)
 
     # ─── HANDLERS ─────────────────────────────────────────────
 
@@ -519,10 +541,7 @@ class ProgressState(BaseState):
 
         if data in section_map:
             method = getattr(self, section_map[data])
-            if data == "progress_back":
-                await method(user, cache, lang)
-            else:
-                await method(user, cache, lang)
+            await method(user, cache, lang, callback=callback)
             return "section_shown" if data != "progress_back" else "shown"
 
         if data == "progress_go_assessment":
