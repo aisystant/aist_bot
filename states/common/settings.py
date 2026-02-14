@@ -179,13 +179,13 @@ class SettingsState(BaseState):
 
         if data == "show_resets":
             return await self._show_reset_options(user, callback)
-        if data == "marathon_reset_confirm":
+        if data == "reset_marathon_confirm":
             return await self._marathon_reset_confirm(user, callback)
-        if data == "marathon_reset_do":
+        if data == "reset_marathon_do":
             return await self._marathon_reset_do(user, callback)
-        if data == "stats_reset_confirm":
+        if data == "reset_stats_confirm":
             return await self._stats_reset_confirm(user, callback)
-        if data == "stats_reset_do":
+        if data == "reset_stats_do":
             return await self._stats_reset_do(user, callback)
         if data == "reset_cancel":
             await self.enter(user)
@@ -319,8 +319,8 @@ class SettingsState(BaseState):
         text = f"🔄 *{t('settings.reset_title', lang)}*\n\n{t('settings.reset_description', lang)}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="marathon_reset_confirm")],
-            [InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="stats_reset_confirm")],
+            [InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="reset_marathon_confirm")],
+            [InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="reset_stats_confirm")],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
         ])
 
@@ -341,7 +341,7 @@ class SettingsState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"🔄 {t('modes.yes_reset', lang)}", callback_data="marathon_reset_do"),
+                InlineKeyboardButton(text=f"🔄 {t('modes.yes_reset', lang)}", callback_data="reset_marathon_do"),
                 InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="reset_cancel")
             ]
         ])
@@ -369,12 +369,15 @@ class SettingsState(BaseState):
             topics_at_current_bloom=0,
         )
 
-        await callback.answer(t('modes.marathon_reset', lang))
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
+        ])
         await callback.message.edit_text(
             f"✅ *{t('modes.marathon_reset', lang)}*\n\n"
             f"{t('modes.new_start_date', lang)}: {today.strftime('%d.%m.%Y')}\n\n"
             f"{t('modes.use_learn_start', lang)}",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=keyboard,
         )
         return None
 
@@ -390,7 +393,7 @@ class SettingsState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"🔄 {t('progress.stats_reset_yes', lang)}", callback_data="stats_reset_do"),
+                InlineKeyboardButton(text=f"🔄 {t('progress.stats_reset_yes', lang)}", callback_data="reset_stats_do"),
                 InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="reset_cancel")
             ]
         ])

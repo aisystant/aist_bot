@@ -93,7 +93,7 @@ def register_all_services() -> None:
         icon="\U0001f4be",  # 💾
         entry_state="utility.mydata",
         category="system",
-        order=25,
+        order=15,
         command="/mydata",
     ))
 
