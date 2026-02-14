@@ -84,8 +84,14 @@ async def send_feed_notification(chat_id: int, bot: Bot):
 
 
 async def send_scheduled_topic(chat_id: int, bot: Bot):
-    """Отправка темы марафона по расписанию."""
+    """Отправка уведомления о готовности урока марафона по расписанию.
+
+    Вместо прямой генерации контента — отправляем уведомление
+    с кнопкой «Получить урок» (аналогично Feed-дайджесту).
+    """
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress
+    from core.knowledge import get_topic_title
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
@@ -142,52 +148,24 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     # Планируем напоминания (+1ч и +3ч)
     await schedule_reminders(chat_id, intern)
 
-    # Отправляем тему
-    topic_type = topic.get('type', 'theory')
+    # Отправляем уведомление с кнопкой «Получить урок»
+    topic_title = get_topic_title(topic, lang)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"📚 {t('buttons.get_lesson', lang)}",
+            callback_data="marathon_get_lesson"
+        )]
+    ])
 
-    # === State Machine routing ===
-    if _bot_dispatcher and _bot_dispatcher.is_sm_active:
-        logger.info(f"[Scheduler] Routing to StateMachine: chat_id={chat_id}, topic_type={topic_type}")
-        try:
-            # Определяем целевой стейт
-            if topic_type == 'theory':
-                target_state = "workshop.marathon.lesson"
-            else:
-                target_state = "workshop.marathon.task"
-
-            # Очищаем legacy FSM state перед SM routing
-            if _aiogram_dispatcher:
-                fsm_ctx = FSMContext(
-                    storage=_aiogram_dispatcher.storage,
-                    key=StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
-                )
-                await fsm_ctx.clear()
-
-            # Обновляем intern с актуальным topic_index перед переходом
-            updated_intern = {**intern, 'current_topic_index': topic_index}
-
-            await _bot_dispatcher.sm.go_to(updated_intern, target_state, context={'topic_index': topic_index, 'from_scheduler': True})
-            logger.info(f"[Scheduler] Successfully routed to {target_state} for chat_id={chat_id}")
-            return
-        except Exception as e:
-            logger.error(f"[Scheduler] Error routing to StateMachine: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # Fallback на legacy функции
-
-    # === Legacy routing ===
-    if _aiogram_dispatcher:
-        from handlers.legacy.learning import send_theory_topic, send_practice_topic
-
-        state = FSMContext(
-            storage=_aiogram_dispatcher.storage,
-            key=StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
-        )
-
-        if topic_type == 'theory':
-            await send_theory_topic(chat_id, topic, intern, state, bot)
-        else:
-            await send_practice_topic(chat_id, topic, intern, state, bot)
+    await bot.send_message(
+        chat_id,
+        f"*{t('reminders.marathon_lesson_ready', lang)}*\n"
+        f"📚 {topic_title}\n\n"
+        f"{t('reminders.marathon_lesson_cta', lang)}",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
 
 
 async def schedule_reminders(chat_id: int, intern: dict):
@@ -216,7 +194,8 @@ async def schedule_reminders(chat_id: int, intern: dict):
 
 
 async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
-    """Отправляет напоминание."""
+    """Отправляет напоминание с кнопкой «Получить урок»."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from core.topics import get_marathon_day
 
     intern = await get_intern(chat_id)
@@ -231,13 +210,20 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     if marathon_day == 0:
         return
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"📚 {t('buttons.get_lesson', lang)}",
+            callback_data="marathon_get_lesson"
+        )]
+    ])
+
     if reminder_type == '+1h':
         await bot.send_message(
             chat_id,
             f"⏰ *{t('reminders.title', lang)}*\n\n"
             f"{t('reminders.day_waiting', lang, day=marathon_day)}\n\n"
-            f"{t('reminders.two_topics_today', lang)}\n\n"
-            f"{t('reminders.start_command', lang)}",
+            f"{t('reminders.two_topics_today', lang)}",
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
     elif reminder_type == '+3h':
@@ -246,8 +232,8 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
             f"🔔 *{t('reminders.last_reminder', lang)}*\n\n"
             f"{t('reminders.day_not_started', lang, day=marathon_day)}\n\n"
             f"{t('reminders.regularity_tip', lang)}\n"
-            f"{t('reminders.even_15_min', lang)}\n\n"
-            f"{t('reminders.start_command', lang)}",
+            f"{t('reminders.even_15_min', lang)}",
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
 

@@ -390,4 +390,51 @@ async def create_tables(pool: asyncpg.Pool):
             )
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # АГРЕГИРОВАННЫЙ ПРОФИЛЬ ЗНАНИЙ (VIEW)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE OR REPLACE VIEW user_knowledge_profile AS
+            SELECT
+                i.chat_id,
+                i.name, i.occupation, i.role, i.domain,
+                i.interests, i.goals, i.motivation,
+                i.language, i.experience_level,
+                -- Learning state
+                i.mode, i.marathon_status, i.feed_status,
+                i.current_topic_index, i.complexity_level,
+                i.assessment_state, i.assessment_date,
+                -- Systematicity
+                i.active_days_total, i.active_days_streak, i.longest_streak,
+                i.last_active_date,
+                -- Timestamps
+                i.created_at, i.updated_at,
+                -- Aggregates: answers
+                (SELECT COUNT(*) FROM answers a
+                 WHERE a.chat_id = i.chat_id AND a.answer_type = 'theory_answer')
+                    AS theory_answers_count,
+                (SELECT COUNT(*) FROM answers a
+                 WHERE a.chat_id = i.chat_id AND a.answer_type = 'work_product')
+                    AS work_products_count,
+                -- Aggregates: QA
+                (SELECT COUNT(*) FROM qa_history q
+                 WHERE q.chat_id = i.chat_id)
+                    AS qa_count,
+                -- Aggregates: Feed
+                (SELECT COUNT(*) FROM feed_sessions fs
+                 JOIN feed_weeks fw ON fs.week_id = fw.id
+                 WHERE fw.chat_id = i.chat_id)
+                    AS total_digests,
+                (SELECT COUNT(*) FROM feed_sessions fs
+                 JOIN feed_weeks fw ON fs.week_id = fw.id
+                 WHERE fw.chat_id = i.chat_id AND fs.status = 'completed')
+                    AS total_fixations,
+                -- Current feed topics
+                (SELECT fw2.accepted_topics FROM feed_weeks fw2
+                 WHERE fw2.chat_id = i.chat_id AND fw2.status = 'active'
+                 ORDER BY fw2.created_at DESC LIMIT 1)
+                    AS current_feed_topics
+            FROM interns i
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

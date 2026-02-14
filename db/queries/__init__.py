@@ -63,6 +63,10 @@ from .github import (
     delete_github_connection,
 )
 
+from .profile import (
+    get_knowledge_profile,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -110,4 +114,7 @@ __all__ = [
     'update_github_notes_path',
     'update_github_strategy_repo',
     'delete_github_connection',
+
+    # profile
+    'get_knowledge_profile',
 ]

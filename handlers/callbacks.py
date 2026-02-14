@@ -122,6 +122,47 @@ async def cb_feed(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(t('feed.not_available', lang))
 
 
+@callbacks_router.callback_query(F.data.startswith("marathon_"))
+async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
+    """Обработка Marathon callback-ов (Получить урок/вопрос/практику)."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    chat_id = callback.message.chat.id
+    data = callback.data
+    intern = await get_intern(chat_id)
+
+    if not intern or not (dispatcher and dispatcher.is_sm_active):
+        await callback.answer()
+        return
+
+    logger.info(f"[CB] Marathon callback '{data}' for chat_id={chat_id}")
+
+    try:
+        await callback.answer()
+        try:
+            await callback.message.edit_reply_markup()
+        except Exception:
+            pass
+        await state.clear()
+
+        if data == "marathon_get_lesson":
+            await dispatcher.go_to(intern, "workshop.marathon.lesson")
+        elif data == "marathon_get_question":
+            await dispatcher.go_to(intern, "workshop.marathon.question")
+        elif data == "marathon_get_practice":
+            await dispatcher.go_to(intern, "workshop.marathon.task")
+        else:
+            logger.warning(f"[CB] Unknown marathon callback: {data}")
+
+    except Exception as e:
+        logger.error(f"[CB] Error handling marathon callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.try_again', lang))
+
+
 @callbacks_router.callback_query(F.data.startswith("feed_"))
 async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка всех Feed-специфичных callback-ов через SM."""

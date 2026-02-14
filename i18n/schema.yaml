@@ -407,6 +407,21 @@ buttons:
     en: "Get digest"
     max_length: 25
 
+  get_lesson:
+    ru: "Получить урок"
+    en: "Get lesson"
+    max_length: 25
+
+  get_question:
+    ru: "Получить вопрос"
+    en: "Get question"
+    max_length: 25
+
+  get_practice:
+    ru: "Получить практику"
+    en: "Get practice"
+    max_length: 25
+
   progress:
     ru: "Мой прогресс"
     en: "My progress"
@@ -1394,6 +1409,14 @@ reminders:
     ru: "Нажмите кнопку, чтобы прочитать."
     en: "Press the button to read it."
 
+  marathon_lesson_ready:
+    ru: "📚 Ваш урок на сегодня готов!"
+    en: "📚 Your lesson for today is ready!"
+
+  marathon_lesson_cta:
+    ru: "Нажмите кнопку, чтобы начать."
+    en: "Press the button to start."
+
 # -----------------------------------------------------------------------------
 # Профиль
 # -----------------------------------------------------------------------------
@@ -2157,6 +2180,14 @@ marathon:
   come_back_tomorrow:
     ru: "Возвращайтесь завтра за новыми темами!"
     en: "Come back tomorrow for new topics!"
+
+  question_ready:
+    ru: "Вопрос по уроку готов."
+    en: "Lesson question is ready."
+
+  practice_ready:
+    ru: "Практическое задание готово."
+    en: "Practice task is ready."
 
   daily_limit:
     ru: "На сегодня лимит тем исчерпан. Возвращайтесь завтра!"

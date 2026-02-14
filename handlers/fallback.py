@@ -23,7 +23,7 @@ def _is_main_router_callback(callback: CallbackQuery) -> bool:
     """Проверяет, что callback НЕ принадлежит engines/ роутерам."""
     if not callback.data:
         return True
-    excluded_prefixes = ('mode_', 'feed_')
+    excluded_prefixes = ('mode_', 'feed_', 'marathon_')
     return not callback.data.startswith(excluded_prefixes)
 
 

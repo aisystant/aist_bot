@@ -9,7 +9,7 @@
 
 from typing import Optional
 
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -232,9 +232,28 @@ class MarathonQuestionState(BaseState):
         # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)
         # Уровень 1 → сразу задание, уровни 2-3 → предложить бонус
         if original_bloom_level >= 2:
-            return "correct"  # → bonus
+            return "correct"  # → bonus (автопереход)
         else:
-            return "correct_level_1"  # → task
+            # Показываем кнопку «Получить практику»
+            practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"✏️ {t('buttons.get_practice', lang)}",
+                    callback_data="marathon_get_practice"
+                )]
+            ])
+            await self.send(
+                user,
+                f"✏️ {t('marathon.practice_ready', lang)}",
+                reply_markup=practice_keyboard
+            )
+            return None  # ждём клик
+
+    async def handle_callback(self, user, callback) -> Optional[str]:
+        """Обработка inline-кнопки «Получить практику»."""
+        if callback.data == "marathon_get_practice":
+            await callback.answer()
+            return "correct_level_1"  # SM перейдёт в task
+        return None
 
     async def exit(self, user) -> dict:
         """Передаём контекст следующему стейту."""

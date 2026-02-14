@@ -8,7 +8,7 @@
 import asyncio
 from typing import Optional
 
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -242,8 +242,19 @@ class MarathonLessonState(BaseState):
 
             logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
 
-            # Автоматический переход к вопросу
-            return "lesson_shown"
+            # Показываем кнопку перехода к вопросу
+            question_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"❓ {t('buttons.get_question', lang)}",
+                    callback_data="marathon_get_question"
+                )]
+            ])
+            await self.send(
+                user,
+                f"✅ {t('marathon.question_ready', lang)}",
+                reply_markup=question_keyboard
+            )
+            return None  # остаёмся, ждём клик
 
         except Exception as e:
             logger.error(f"Error generating content for user {chat_id}: {e}")
@@ -287,6 +298,13 @@ class MarathonLessonState(BaseState):
 
         # Готов к вопросу
         return "lesson_shown"
+
+    async def handle_callback(self, user, callback) -> Optional[str]:
+        """Обработка inline-кнопки «Получить вопрос»."""
+        if callback.data == "marathon_get_question":
+            await callback.answer()
+            return "lesson_shown"  # SM перейдёт в question
+        return None
 
     async def exit(self, user) -> dict:
         """Передаём контекст следующему стейту."""

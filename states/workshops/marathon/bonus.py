@@ -12,7 +12,7 @@
 import logging
 from typing import Optional
 
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -170,7 +170,19 @@ class MarathonBonusState(BaseState):
         if self._is_no_button(text, lang):
             # FIX: Удаляем Reply Keyboard при переходе к практике
             await self.send_remove_keyboard(user, t('marathon.loading_practice', lang))
-            return "no"
+            # Показываем кнопку «Получить практику»
+            practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"✏️ {t('buttons.get_practice', lang)}",
+                    callback_data="marathon_get_practice"
+                )]
+            ])
+            await self.send(
+                user,
+                f"✏️ {t('marathon.practice_ready', lang)}",
+                reply_markup=practice_keyboard
+            )
+            return None  # ждём клик
 
         # Настройки — переход в настройки
         if text in self.SETTINGS_BUTTONS or "настройки" in text.lower() or "settings" in text.lower():
@@ -199,7 +211,19 @@ class MarathonBonusState(BaseState):
                 parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove()
             )
-            return "answered"
+            # Показываем кнопку «Получить практику»
+            practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"✏️ {t('buttons.get_practice', lang)}",
+                    callback_data="marathon_get_practice"
+                )]
+            ])
+            await self.send(
+                user,
+                f"✏️ {t('marathon.practice_ready', lang)}",
+                reply_markup=practice_keyboard
+            )
+            return None  # ждём клик
 
         # Слишком короткий ответ — показываем ожидание
         await self.send(user, f"{t('marathon.waiting_for', lang)}: {t('marathon.answer_expected', lang)}")
@@ -237,6 +261,13 @@ class MarathonBonusState(BaseState):
                 return True
 
         return False
+
+    async def handle_callback(self, user, callback) -> Optional[str]:
+        """Обработка inline-кнопки «Получить практику»."""
+        if callback.data == "marathon_get_practice":
+            await callback.answer()
+            return "answered"  # SM перейдёт в task
+        return None
 
     async def exit(self, user) -> dict:
         """Передаём контекст следующему стейту (заданию)."""
