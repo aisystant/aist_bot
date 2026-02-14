@@ -182,6 +182,7 @@ async def main():
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="settings", description="Настройки"),
         BotCommand(command="mydata", description="Мои данные"),
+        BotCommand(command="feedback", description="Обратная связь"),
         BotCommand(command="help", description="Справка"),
     ])
 
@@ -195,6 +196,7 @@ async def main():
         BotCommand(command="profile", description="My profile"),
         BotCommand(command="settings", description="Settings"),
         BotCommand(command="mydata", description="My data"),
+        BotCommand(command="feedback", description="Feedback"),
         BotCommand(command="help", description="Help"),
     ], language_code="en")
 
@@ -208,6 +210,7 @@ async def main():
         BotCommand(command="profile", description="Mi perfil"),
         BotCommand(command="settings", description="Ajustes"),
         BotCommand(command="mydata", description="Mis datos"),
+        BotCommand(command="feedback", description="Comentarios"),
         BotCommand(command="help", description="Ayuda"),
     ], language_code="es")
 
@@ -221,6 +224,7 @@ async def main():
         BotCommand(command="profile", description="Mon profil"),
         BotCommand(command="settings", description="Paramètres"),
         BotCommand(command="mydata", description="Mes données"),
+        BotCommand(command="feedback", description="Retour"),
         BotCommand(command="help", description="Aide"),
     ], language_code="fr")
 

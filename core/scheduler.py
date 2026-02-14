@@ -313,6 +313,75 @@ async def scheduled_check():
     # Проверяем напоминания
     await check_reminders()
 
+    # Дайджесты обратной связи для разработчика
+    dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
+    if dev_chat_id:
+        try:
+            dev_id = int(dev_chat_id)
+            # 🟡 Ежедневный дайджест в 21:00 MSK
+            if now.hour == 21 and now.minute == 0:
+                await send_feedback_daily_digest(dev_id)
+            # 🟢 Еженедельный дайджест Пн 10:00 MSK
+            if now.weekday() == 0 and now.hour == 10 and now.minute == 0:
+                await send_feedback_weekly_digest(dev_id)
+        except (ValueError, Exception) as e:
+            logger.error(f"[Scheduler] Feedback digest error: {e}")
+
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()
+
+
+# ═══════════════════════════════════════════════════════════
+# ДАЙДЖЕСТЫ ОБРАТНОЙ СВЯЗИ
+# ═══════════════════════════════════════════════════════════
+
+async def send_feedback_daily_digest(dev_chat_id: int):
+    """Отправить 🟡 ежедневный дайджест жёлтых отчётов."""
+    from db.queries.feedback import get_pending_reports, mark_notified
+
+    reports = await get_pending_reports(severity='yellow', since_hours=24)
+    if not reports:
+        return
+
+    bot = Bot(token=_bot_token)
+    lines = [f"\U0001f7e1 <b>{len(reports)} новых отчётов за день:</b>\n"]
+    for r in reports:
+        scenario = r.get('scenario', 'other')
+        msg = (r.get('message', '') or '')[:60]
+        lines.append(f"\u2022 #{r['id']} | {scenario} | \"{msg}\"")
+    text = "\n".join(lines)
+
+    try:
+        await bot.send_message(dev_chat_id, text, parse_mode="HTML")
+        await mark_notified([r['id'] for r in reports])
+        logger.info(f"[Scheduler] Sent feedback daily digest: {len(reports)} reports")
+    except Exception as e:
+        logger.error(f"[Scheduler] Feedback daily digest error: {e}")
+    finally:
+        await bot.session.close()
+
+
+async def send_feedback_weekly_digest(dev_chat_id: int):
+    """Отправить 🟢 еженедельный дайджест предложений."""
+    from db.queries.feedback import get_pending_reports, mark_notified
+
+    reports = await get_pending_reports(severity='green', since_hours=168)
+    if not reports:
+        return
+
+    bot = Bot(token=_bot_token)
+    lines = [f"\U0001f7e2 <b>{len(reports)} предложений за неделю:</b>\n"]
+    for r in reports:
+        msg = (r.get('message', '') or '')[:60]
+        lines.append(f"\u2022 #{r['id']} | \"{msg}\"")
+    text = "\n".join(lines)
+
+    try:
+        await bot.send_message(dev_chat_id, text, parse_mode="HTML")
+        await mark_notified([r['id'] for r in reports])
+        logger.info(f"[Scheduler] Sent feedback weekly digest: {len(reports)} reports")
+    except Exception as e:
+        logger.error(f"[Scheduler] Feedback weekly digest error: {e}")
+    finally:
+        await bot.session.close()

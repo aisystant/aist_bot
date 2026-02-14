@@ -189,6 +189,13 @@ states:
       settings: common.settings
     allow_global: [consultation, notes]
 
+  utility.feedback:
+    description: "Обратная связь и баг-репорты (/feedback)"
+    events:
+      submitted: _previous
+      cancel: _previous
+    allow_global: [consultation, notes]
+
 
 # ==========================================
 # ГЛОБАЛЬНЫЕ СОБЫТИЯ

@@ -536,3 +536,44 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
         import traceback
         logger.error(traceback.format_exc())
         await callback.answer()
+
+
+# === Feedback: обратная связь и баг-репорты ===
+
+async def _is_in_sm_feedback_state(callback: CallbackQuery) -> bool:
+    """Фильтр: пользователь в utility.feedback стейте SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    if not (dispatcher and dispatcher.is_sm_active):
+        return False
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return False
+    return intern.get('current_state') == "utility.feedback"
+
+
+@callbacks_router.callback_query(
+    F.data.startswith("feedback:"),
+    _is_in_sm_feedback_state
+)
+async def cb_feedback_actions(callback: CallbackQuery, state: FSMContext):
+    """Feedback callback-ы через SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        await callback.answer()
+        return
+
+    logger.info(f"[CB] Feedback callback '{callback.data}' for chat_id={callback.message.chat.id}")
+    try:
+        await dispatcher.route_callback(intern, callback)
+    except Exception as e:
+        logger.error(f"[CB] Error handling feedback callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.answer()
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.try_again', lang))

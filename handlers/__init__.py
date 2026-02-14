@@ -37,6 +37,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .twin import twin_router
     from .github import github_router
     from .strategist import strategist_router
+    from .feedback import feedback_router
 
     dp.include_router(onboarding_router)
     dp.include_router(commands_router)
@@ -45,6 +46,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(progress_router)
     dp.include_router(twin_router)
     dp.include_router(strategist_router)
+    dp.include_router(feedback_router)
     dp.include_router(github_router)
 
 

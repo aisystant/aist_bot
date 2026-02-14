@@ -379,6 +379,31 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
+        # ОБРАТНАЯ СВЯЗЬ (feedback_reports)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS feedback_reports (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+
+                category TEXT NOT NULL DEFAULT 'bug',
+                scenario TEXT DEFAULT 'other',
+                severity TEXT NOT NULL DEFAULT 'yellow',
+
+                message TEXT NOT NULL,
+
+                status TEXT DEFAULT 'new',
+                notified_at TIMESTAMP DEFAULT NULL
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_feedback_reports_severity_status
+            ON feedback_reports(severity, status)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

@@ -9,5 +9,6 @@
 
 from states.utilities.progress import ProgressState
 from states.utilities.mydata import MyDataState
+from states.utilities.feedback import FeedbackState
 
-__all__ = ["ProgressState", "MyDataState"]
+__all__ = ["ProgressState", "MyDataState", "FeedbackState"]

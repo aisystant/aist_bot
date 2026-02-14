@@ -163,7 +163,7 @@ async def cmd_help(message: Message):
         f"{t('help.ai_hint', lang)}\n"
         f"{t('help.notes_hint', lang)}\n\n"
         f"{t('help.schedule_hint', lang)}\n\n"
-        f"*{t('help.feedback', lang)}:* @tserentserenov"
+        f"*{t('help.feedback', lang)}:* /feedback {t('help.feedback_or', lang)} !текст"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -199,7 +199,8 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"*{t('commands.section_special', lang)}*\n"
         f"{t('commands.notes', lang)}\n"
         f"{t('commands.consultation', lang)}\n"
-        f"{t('commands.github', lang)}"
+        f"{t('commands.github', lang)}\n"
+        f"{t('commands.feedback', lang)}"
     )
 
     await callback.message.edit_text(text, parse_mode="Markdown")

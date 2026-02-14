@@ -129,6 +129,9 @@ commands:
   github:
     ru: "/github — подключение GitHub"
     en: "/github — GitHub integration"
+  feedback:
+    ru: "/feedback — обратная связь (!текст — быстро)"
+    en: "/feedback — feedback (!text — quick)"
 
   section_main:
     ru: "Основные"
@@ -1754,6 +1757,9 @@ help:
   feedback:
     ru: "Замечания и предложения"
     en: "Feedback and suggestions"
+  feedback_or:
+    ru: "или"
+    en: "or"
 
 # -----------------------------------------------------------------------------
 # Ошибки
