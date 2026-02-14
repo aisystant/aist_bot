@@ -103,7 +103,7 @@ def register_all_services() -> None:
         icon="\U0001f4e3",  # 📣
         entry_state="utility.feedback",
         category="system",
-        order=25,
+        order=18,
         command="/feedback",
     ))
 
