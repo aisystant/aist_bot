@@ -109,6 +109,7 @@ class FeedbackState(BaseState):
         context = context or {}
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
+        logger.info(f"[Feedback] enter() chat_id={chat_id}, context_keys={list(context.keys())}")
 
         # Quick shortcut (от ! handler)
         if context.get('quick_message'):
@@ -127,6 +128,7 @@ class FeedbackState(BaseState):
         # Обычный flow — категория
         await self._save_step(chat_id, STEP_CATEGORY, {})
         await self._show_category(user, lang)
+        logger.info(f"[Feedback] category picker sent to chat_id={chat_id}")
         return None
 
     async def _show_category(self, user, lang: str):

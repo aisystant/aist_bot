@@ -34,7 +34,15 @@ async def cmd_feedback(message: Message, state: FSMContext):
 
     if dispatcher and dispatcher.is_sm_active:
         await state.clear()
-        await dispatcher.route_command('feedback', intern)
+        logger.info(f"[Feedback] /feedback from chat_id={message.chat.id}, current_state={intern.get('current_state')}")
+        try:
+            await dispatcher.route_command('feedback', intern)
+        except Exception as e:
+            logger.error(f"[Feedback] Error routing /feedback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            lang = intern.get('language', 'ru') or 'ru'
+            await message.answer(t('errors.processing_error', lang))
         return
 
     lang = intern.get('language', 'ru') or 'ru'
@@ -59,6 +67,12 @@ async def handle_quick_feedback(message: Message, state: FSMContext):
         return
 
     await state.clear()
-    await dispatcher.go_to(intern, "utility.feedback", context={
-        'quick_message': text,
-    })
+    logger.info(f"[Feedback] !shortcut from chat_id={message.chat.id}, text={text[:50]}")
+    try:
+        await dispatcher.go_to(intern, "utility.feedback", context={
+            'quick_message': text,
+        })
+    except Exception as e:
+        logger.error(f"[Feedback] Error routing !shortcut: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
