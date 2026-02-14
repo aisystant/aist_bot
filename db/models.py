@@ -427,6 +427,29 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # ИСПОЛЬЗОВАНИЕ СЕРВИСОВ (аналитика)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS service_usage (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                service_id TEXT NOT NULL,
+                action TEXT DEFAULT 'enter',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_service_usage_user
+            ON service_usage(user_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_service_usage_service
+            ON service_usage(user_id, service_id)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

@@ -80,15 +80,19 @@ async def get_global_service_usage(limit: int = 15) -> List[dict]:
     """Топ сервисов по использованию (все пользователи)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT service_id, COUNT(*) AS cnt,
-                   COUNT(DISTINCT user_id) AS users
-            FROM service_usage
-            GROUP BY service_id
-            ORDER BY cnt DESC
-            LIMIT $1
-        ''', limit)
-        return [dict(r) for r in rows]
+        try:
+            rows = await conn.fetch('''
+                SELECT service_id, COUNT(*) AS cnt,
+                       COUNT(DISTINCT user_id) AS users
+                FROM service_usage
+                GROUP BY service_id
+                ORDER BY cnt DESC
+                LIMIT $1
+            ''', limit)
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"service_usage query failed: {e}")
+            return []
 
 
 async def get_schedule_distribution() -> List[dict]:
