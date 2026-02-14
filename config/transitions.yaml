@@ -186,6 +186,7 @@ states:
     description: "Мои данные — просмотр и объяснение (/mydata)"
     events:
       back: _previous
+      settings: common.settings
     allow_global: [consultation, notes]
 
 

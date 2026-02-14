@@ -26,7 +26,7 @@ from db.queries.feed import (
 from db.queries.activity import record_active_day, get_activity_stats
 from engines.feed.planner import generate_multi_topic_digest
 from engines.shared import handle_question
-from config import get_logger, FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN
+from config import get_logger, FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN, FEED_DAYS_PER_WEEK
 
 logger = get_logger(__name__)
 
@@ -390,11 +390,20 @@ class FeedDigestState(BaseState):
 
             # Увеличиваем уровень глубины
             week_id = data.get('week_id')
+            week_completed = False
             if week_id:
                 week = await get_current_feed_week(chat_id)
                 if week:
                     new_depth = week.get('current_day', 1) + 1
-                    await update_feed_week(week_id, {'current_day': new_depth})
+                    if new_depth > FEED_DAYS_PER_WEEK:
+                        # Неделя завершена
+                        await update_feed_week(week_id, {
+                            'current_day': new_depth,
+                            'status': FeedWeekStatus.COMPLETED,
+                        })
+                        week_completed = True
+                    else:
+                        await update_feed_week(week_id, {'current_day': new_depth})
 
             # Показываем статистику
             stats = await get_activity_stats(chat_id)
@@ -410,10 +419,29 @@ class FeedDigestState(BaseState):
             # Сбрасываем ожидание фиксации
             self._user_data[chat_id]['waiting_fixation'] = False
 
-            # Показываем меню (дайджест завершён, т.к. фиксация сохранена)
-            week = await get_current_feed_week(chat_id)
-            if week:
-                await self._show_menu(user, week, digest_completed_today=True)
+            if week_completed:
+                # Неделя завершена — предлагаем начать новую
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"📚 {t('feed.start_new_week', lang)}",
+                        callback_data="feed_reset_topics"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"← {t('buttons.back_to_menu', lang)}",
+                        callback_data="feed_back_to_menu"
+                    )],
+                ])
+                await self.send(
+                    user,
+                    f"🎉 {t('feed.week_completed', lang)}",
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+            else:
+                # Показываем меню (дайджест завершён, т.к. фиксация сохранена)
+                week = await get_current_feed_week(chat_id)
+                if week:
+                    await self._show_menu(user, week, digest_completed_today=True)
 
             return "fixation_saved"
 
@@ -545,6 +573,10 @@ class FeedDigestState(BaseState):
                 })
             await callback.answer()
             return "change_topics"
+
+        elif data == "feed_back_to_menu":
+            await callback.answer()
+            return "done"
 
         elif data == "feed_my_progress":
             # Показываем прогресс пользователя

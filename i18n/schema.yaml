@@ -451,6 +451,20 @@ buttons:
     en: "« Back"
     max_length: 15
 
+  back_to_menu:
+    ru: "В меню"
+    en: "To menu"
+    es: "Al menú"
+    fr: "Au menu"
+    max_length: 15
+
+  try_again:
+    ru: "Попробовать снова"
+    en: "Try again"
+    es: "Intentar de nuevo"
+    fr: "Réessayer"
+    max_length: 25
+
   commands:
     ru: "Команды"
     en: "Commands"
@@ -2524,8 +2538,16 @@ feed:
     en: "First select topics for the week."
 
   week_completed:
-    ru: "Неделя завершена. Используйте /feed для новой."
-    en: "Week completed. Use /feed for a new one."
+    ru: "Неделя завершена! Вы прошли все 7 дайджестов."
+    en: "Week completed! You've finished all 7 digests."
+    es: "¡Semana completada! Has terminado los 7 resúmenes."
+    fr: "Semaine terminée ! Vous avez fini les 7 digests."
+
+  start_new_week:
+    ru: "Начать новую неделю"
+    en: "Start new week"
+    es: "Comenzar nueva semana"
+    fr: "Commencer une nouvelle semaine"
 
   digest_completed_today:
     ru: "Сегодняшний дайджест уже завершён. До завтра!"

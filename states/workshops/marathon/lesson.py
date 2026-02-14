@@ -159,8 +159,14 @@ class MarathonLessonState(BaseState):
             return "already_completed"  # → workshop.marathon.task
 
         if not topic:
-            await self.send(user, t('marathon.no_topics_available', lang))
-            return
+            back_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('buttons.back_to_menu', lang)}",
+                    callback_data="marathon_back_menu"
+                )]
+            ])
+            await self.send(user, t('marathon.no_topics_available', lang), reply_markup=back_keyboard)
+            return "come_back"
 
         # Гарантируем marathon_start_date: если нет или в будущем — ставим сегодня
         if isinstance(user, dict):
@@ -212,10 +218,21 @@ class MarathonLessonState(BaseState):
                 )
             except asyncio.TimeoutError:
                 logger.error(f"Content generation timeout ({CONTENT_GENERATION_TIMEOUT}s) for user {chat_id}")
+                retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"🔄 {t('buttons.try_again', lang)}",
+                        callback_data="marathon_retry_lesson"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"← {t('buttons.back_to_menu', lang)}",
+                        callback_data="marathon_back_menu"
+                    )],
+                ])
                 await self.send(
                     user,
                     f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
                     f"_{t('errors.try_again_later', lang)}_",
+                    reply_markup=retry_keyboard,
                     parse_mode="Markdown"
                 )
                 return
@@ -300,10 +317,19 @@ class MarathonLessonState(BaseState):
         return "lesson_shown"
 
     async def handle_callback(self, user, callback) -> Optional[str]:
-        """Обработка inline-кнопки «Получить вопрос»."""
+        """Обработка inline-кнопок."""
+        await callback.answer()
+
         if callback.data == "marathon_get_question":
-            await callback.answer()
             return "lesson_shown"  # SM перейдёт в question
+
+        if callback.data == "marathon_retry_lesson":
+            await self.enter(user)
+            return None
+
+        if callback.data == "marathon_back_menu":
+            return "come_back"
+
         return None
 
     async def exit(self, user) -> dict:

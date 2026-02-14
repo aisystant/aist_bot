@@ -181,10 +181,7 @@ class MyDataState(BaseState):
             ],
             [
                 InlineKeyboardButton(text=f"🔥 {t('mydata.cat_activity', lang)}", callback_data="mydata_cat_activity"),
-                InlineKeyboardButton(text=f"🏃 {t('mydata.cat_marathon', lang)}", callback_data="mydata_cat_marathon"),
-            ],
-            [
-                InlineKeyboardButton(text=f"📖 {t('mydata.cat_feed', lang)}", callback_data="mydata_cat_feed"),
+                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="mydata_settings"),
             ],
             [
                 InlineKeyboardButton(text=f"← {t('buttons.back', lang)}", callback_data="mydata_back"),
@@ -204,6 +201,9 @@ class MyDataState(BaseState):
 
         if data == "mydata_back":
             return "back"
+
+        if data == "mydata_settings":
+            return "settings"
 
         if data == "mydata_overview":
             await self.enter(user)
