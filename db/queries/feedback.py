@@ -55,18 +55,18 @@ async def mark_notified(ids: List[int]):
         )
 
 
-async def get_all_reports(limit: int = 20, status_filter: str = None) -> List[dict]:
-    """Получить все отчёты (для /reports)."""
+async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict]:
+    """Получить отчёты. since_hours=24 → за день, 168 → за неделю, None → все."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        if status_filter:
+        if since_hours:
             rows = await conn.fetch('''
                 SELECT id, chat_id, category, scenario, severity, message, status, created_at
                 FROM feedback_reports
-                WHERE status = $1
+                WHERE created_at >= NOW() - make_interval(hours => $1)
                 ORDER BY created_at DESC
                 LIMIT $2
-            ''', status_filter, limit)
+            ''', since_hours, limit)
         else:
             rows = await conn.fetch('''
                 SELECT id, chat_id, category, scenario, severity, message, status, created_at
@@ -93,3 +93,12 @@ async def get_report_stats() -> dict:
             FROM feedback_reports
         ''')
         return dict(row) if row else {}
+
+
+async def clear_all_reports() -> int:
+    """Удалить все отчёты. Возвращает количество удалённых."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('DELETE FROM feedback_reports')
+        # result = "DELETE N"
+        return int(result.split()[-1]) if result else 0
