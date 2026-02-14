@@ -6,6 +6,7 @@
 """
 
 import logging
+import traceback
 
 from aiogram import Router
 from aiogram.types import Message
@@ -18,6 +19,18 @@ from i18n import t
 logger = logging.getLogger(__name__)
 
 commands_router = Router(name="commands")
+
+
+async def _safe_route(message: Message, state: FSMContext, intern: dict, route_coro):
+    """Обёртка: clear FSM → route через SM → catch ошибки."""
+    lang = intern.get('language', 'ru') or 'ru'
+    try:
+        await state.clear()
+        await route_coro
+    except Exception as e:
+        logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
+        logger.error(traceback.format_exc())
+        await message.answer(t('errors.processing_error', lang))
 
 
 @commands_router.message(Command("mode"))
@@ -33,8 +46,7 @@ async def cmd_mode(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await state.clear()
-        await dispatcher.route_command('mode', intern)
+        await _safe_route(message, state, intern, dispatcher.route_command('mode', intern))
         return
 
     lang = intern.get('language', 'ru') or 'ru'
@@ -54,8 +66,7 @@ async def cmd_learn(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await state.clear()
-        await dispatcher.route_learn(intern)
+        await _safe_route(message, state, intern, dispatcher.route_learn(intern))
         return
 
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -75,8 +86,7 @@ async def cmd_feed(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await state.clear()
-        await dispatcher.route_command('feed', intern)
+        await _safe_route(message, state, intern, dispatcher.route_command('feed', intern))
         return
 
     lang = intern.get('language', 'ru') or 'ru'
@@ -96,8 +106,7 @@ async def cmd_profile(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await state.clear()
-        await dispatcher.route_command('profile', intern)
+        await _safe_route(message, state, intern, dispatcher.route_command('profile', intern))
         return
 
     lang = intern.get('language', 'ru') or 'ru'
@@ -118,8 +127,7 @@ async def cmd_settings(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await state.clear()
-        await dispatcher.route_command('settings', intern)
+        await _safe_route(message, state, intern, dispatcher.route_command('settings', intern))
         return
 
     # Legacy fallback — show update screen directly
@@ -141,8 +149,7 @@ async def cmd_assessment(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await state.clear()
-        await dispatcher.route_command('assessment', intern)
+        await _safe_route(message, state, intern, dispatcher.route_command('assessment', intern))
         return
 
     lang = intern.get('language', 'ru') or 'ru'

@@ -145,7 +145,7 @@ async def cmd_profile(message: Message):
         f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)})\n"
         f"⏰ {intern.get('schedule_time', '09:00')} (МСК)\n"
         f"{assessment_line}\n\n"
-        f"{t('commands.update', lang)}",
+        f"{t('commands.settings', lang)}",
         parse_mode="Markdown"
     )
 
@@ -337,7 +337,7 @@ async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
         f"{t(f'bloom.level_{level}_desc', lang)}\n\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.mode', lang)}\n"
-        f"{t('commands.update', lang)}",
+        f"{t('commands.settings', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
@@ -434,7 +434,7 @@ async def on_select_language(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         t('settings.language.changed', new_lang) + "\n\n" +
         t('commands.learn', new_lang) + "\n" +
-        t('commands.update', new_lang)
+        t('commands.settings', new_lang)
     )
     await state.clear()
 
@@ -443,23 +443,25 @@ async def on_select_language(callback: CallbackQuery, state: FSMContext):
 
 @settings_router.message(UpdateStates.updating_motivation)
 async def on_save_motivation(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
     await update_intern(message.chat.id, motivation=message.text.strip())
     await message.answer(
-        "✅ Обновлено!\n\n"
-        "Теперь мотивационные блоки будут ещё точнее.\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — изменить ещё что-то"
+        f"✅ {t('update.saved', lang)}\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.settings', lang)}"
     )
     await state.clear()
 
 @settings_router.message(UpdateStates.updating_goals)
 async def on_save_goals(message: Message, state: FSMContext):
+    intern = await get_intern(message.chat.id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
     await update_intern(message.chat.id, goals=message.text.strip())
     await message.answer(
-        "✅ Обновлено!\n\n"
-        "Теперь материалы будут персонализированы под ваши цели.\n\n"
-        "/learn — продолжить обучение\n"
-        "/update — изменить ещё что-то"
+        f"✅ {t('update.saved', lang)}\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.settings', lang)}"
     )
     await state.clear()
 
@@ -471,7 +473,7 @@ async def on_save_name(message: Message, state: FSMContext):
     await message.answer(
         f"✅ {t('update.name_changed', lang)}: *{message.text.strip()}*\n\n"
         f"{t('commands.learn', lang)}\n"
-        f"{t('commands.update', lang)}",
+        f"{t('commands.settings', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
@@ -484,7 +486,7 @@ async def on_save_occupation(message: Message, state: FSMContext):
     await message.answer(
         f"✅ {t('update.occupation_changed', lang)}!\n\n"
         f"{t('commands.learn', lang)}\n"
-        f"{t('commands.update', lang)}"
+        f"{t('commands.settings', lang)}"
     )
     await state.clear()
 
@@ -497,7 +499,7 @@ async def on_save_interests(message: Message, state: FSMContext):
     await message.answer(
         f"✅ {t('update.interests_changed', lang)}!\n\n"
         f"{t('commands.learn', lang)}\n"
-        f"{t('commands.update', lang)}"
+        f"{t('commands.settings', lang)}"
     )
     await state.clear()
 
@@ -512,7 +514,7 @@ async def on_save_duration(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"✅ {t('update.duration_changed', lang)}: {duration_info.get('emoji', '')} *{duration_info.get('name', '')}*\n\n"
         f"{t('commands.learn', lang)}\n"
-        f"{t('commands.update', lang)}",
+        f"{t('commands.settings', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
@@ -534,7 +536,7 @@ async def on_save_schedule(message: Message, state: FSMContext):
     await message.answer(
         f"✅ {t('update.schedule_changed', lang)}: *{normalized_time}*\n\n"
         f"{t('commands.learn', lang)}\n"
-        f"{t('commands.update', lang)}",
+        f"{t('commands.settings', lang)}",
         parse_mode="Markdown"
     )
     await state.clear()
