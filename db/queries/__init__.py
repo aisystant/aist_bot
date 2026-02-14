@@ -67,6 +67,13 @@ from .profile import (
     get_knowledge_profile,
 )
 
+from .marathon import (
+    save_marathon_content,
+    get_marathon_content,
+    mark_content_delivered,
+    cleanup_expired_content,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -117,4 +124,10 @@ __all__ = [
 
     # profile
     'get_knowledge_profile',
+
+    # marathon content
+    'save_marathon_content',
+    'get_marathon_content',
+    'mark_content_delivered',
+    'cleanup_expired_content',
 ]

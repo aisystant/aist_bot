@@ -4,6 +4,7 @@
 Извлечён из bot.py. Использует core.dispatcher для SM-роутинга.
 """
 
+import asyncio
 import logging
 import os
 from datetime import timedelta
@@ -17,6 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
+from db.queries.marathon import save_marathon_content, cleanup_expired_content
 from db.queries.users import moscow_now
 from i18n import t
 
@@ -144,6 +146,62 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
     if topic_index is not None and topic_index != intern['current_topic_index']:
         await update_intern(chat_id, current_topic_index=topic_index)
+
+    # ─── Пре-генерация контента (урок + вопрос + практика) ───
+    from clients import claude, mcp_knowledge
+
+    bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
+
+    try:
+        # Генерируем все 3 типа параллельно
+        lesson_task = claude.generate_content(
+            topic=topic, intern=intern, mcp_client=mcp_knowledge
+        )
+        question_task = claude.generate_question(
+            topic=topic, intern=intern, bloom_level=bloom_level
+        )
+        practice_task = claude.generate_practice_intro(
+            topic=topic, intern=intern
+        )
+
+        results = await asyncio.wait_for(
+            asyncio.gather(lesson_task, question_task, practice_task, return_exceptions=True),
+            timeout=120,
+        )
+
+        lesson_content = results[0] if not isinstance(results[0], Exception) else None
+        question_content = results[1] if not isinstance(results[1], Exception) else None
+        practice_content = results[2] if not isinstance(results[2], Exception) else None
+
+        if lesson_content is None:
+            logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}: {results[0]}")
+            # Без урока уведомление бессмысленно — пропускаем
+            return
+
+        if isinstance(results[1], Exception):
+            logger.warning(f"[Scheduler] Question generation failed for {chat_id}: {results[1]}")
+        if isinstance(results[2], Exception):
+            logger.warning(f"[Scheduler] Practice generation failed for {chat_id}: {results[2]}")
+
+        # Сохраняем в БД
+        await save_marathon_content(
+            chat_id=chat_id,
+            topic_index=topic_index,
+            lesson_content=lesson_content,
+            question_content=question_content,
+            practice_content=practice_content,
+            bloom_level=bloom_level,
+        )
+        logger.info(f"[Scheduler] Pre-generated content for {chat_id}, topic {topic_index} "
+                     f"(lesson: ✅, question: {'✅' if question_content else '❌'}, "
+                     f"practice: {'✅' if practice_content else '❌'})")
+
+    except asyncio.TimeoutError:
+        logger.error(f"[Scheduler] Pre-generation timeout (120s) for {chat_id}, topic {topic_index}")
+        return
+    except Exception as e:
+        logger.error(f"[Scheduler] Pre-generation error for {chat_id}: {e}")
+        return
 
     # Планируем напоминания (+1ч и +3ч)
     await schedule_reminders(chat_id, intern)
@@ -326,6 +384,13 @@ async def scheduled_check():
                 await send_feedback_weekly_digest(dev_id)
         except (ValueError, Exception) as e:
             logger.error(f"[Scheduler] Feedback digest error: {e}")
+
+    # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент
+    if now.hour == 0 and now.minute == 0:
+        try:
+            await cleanup_expired_content()
+        except Exception as e:
+            logger.error(f"[Scheduler] Midnight cleanup error: {e}")
 
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes

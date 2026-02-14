@@ -179,7 +179,7 @@ class MarathonBonusState(BaseState):
             ])
             await self.send(
                 user,
-                f"✏️ {t('marathon.practice_ready', lang)}",
+                f"✏️ {t('buttons.get_practice', lang)}",
                 reply_markup=practice_keyboard
             )
             return None  # ждём клик
@@ -220,7 +220,7 @@ class MarathonBonusState(BaseState):
             ])
             await self.send(
                 user,
-                f"✏️ {t('marathon.practice_ready', lang)}",
+                f"✏️ {t('buttons.get_practice', lang)}",
                 reply_markup=practice_keyboard
             )
             return None  # ждём клик

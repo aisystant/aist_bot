@@ -13,6 +13,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from states.base import BaseState
 from i18n import t
 from db.queries import get_intern, update_intern
+from db.queries.marathon import get_marathon_content, mark_content_delivered
 from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day as canonical_get_marathon_day
@@ -197,91 +198,85 @@ class MarathonLessonState(BaseState):
             await self.send(user, f"✅ {t('marathon.come_back_tomorrow', lang)}")
             return "come_back"
 
-        # Показываем сообщение о загрузке
-        await self.send(user, f"⏳ {t('marathon.generating_material', lang)}")
+        topic_day = topic.get('day', marathon_day)
 
-        try:
-            # Получаем intern dict для Claude
-            intern = self._user_to_intern_dict(user)
-            topic_day = topic.get('day', marathon_day)
+        # ─── Попытка загрузить пре-генерированный контент из БД ───
+        pre_generated = await get_marathon_content(chat_id, topic_index)
 
-            # Генерируем контент через Claude API с таймаутом
-            logger.info(f"Generating content for topic {topic_index}, day {topic_day}, user {chat_id}")
+        if pre_generated and pre_generated.get('lesson_content'):
+            # Контент готов — показываем мгновенно
+            content = pre_generated['lesson_content']
+            await mark_content_delivered(chat_id, topic_index)
+            logger.info(f"Loaded pre-generated lesson for user {chat_id}, topic {topic_index}")
+        else:
+            # Fallback: генерация на лету
+            await self.send(user, f"⏳ {t('marathon.generating_material', lang)}")
+
             try:
-                content = await asyncio.wait_for(
-                    claude.generate_content(
-                        topic=topic,
-                        intern=intern,
-                        mcp_client=mcp_knowledge
-                    ),
-                    timeout=CONTENT_GENERATION_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                logger.error(f"Content generation timeout ({CONTENT_GENERATION_TIMEOUT}s) for user {chat_id}")
-                retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text=f"🔄 {t('buttons.try_again', lang)}",
-                        callback_data="marathon_retry_lesson"
-                    )],
-                    [InlineKeyboardButton(
-                        text=f"← {t('buttons.back_to_menu', lang)}",
-                        callback_data="marathon_back_menu"
-                    )],
-                ])
+                intern = self._user_to_intern_dict(user)
+                logger.info(f"Generating content on-the-fly for topic {topic_index}, day {topic_day}, user {chat_id}")
+                try:
+                    content = await asyncio.wait_for(
+                        claude.generate_content(
+                            topic=topic,
+                            intern=intern,
+                            mcp_client=mcp_knowledge
+                        ),
+                        timeout=CONTENT_GENERATION_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"Content generation timeout ({CONTENT_GENERATION_TIMEOUT}s) for user {chat_id}")
+                    retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=f"🔄 {t('buttons.try_again', lang)}",
+                            callback_data="marathon_retry_lesson"
+                        )],
+                        [InlineKeyboardButton(
+                            text=f"← {t('buttons.back_to_menu', lang)}",
+                            callback_data="marathon_back_menu"
+                        )],
+                    ])
+                    await self.send(
+                        user,
+                        f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
+                        f"_{t('errors.try_again_later', lang)}_",
+                        reply_markup=retry_keyboard,
+                        parse_mode="Markdown"
+                    )
+                    return
+
+            except Exception as e:
+                logger.error(f"Error generating content for user {chat_id}: {e}")
                 await self.send(
                     user,
                     f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
                     f"_{t('errors.try_again_later', lang)}_",
-                    reply_markup=retry_keyboard,
                     parse_mode="Markdown"
                 )
-                return
+                return "come_back"
 
-            # Формируем заголовок
-            topic_title = get_topic_title(topic, lang)
-            study_duration = self._get_study_duration(user)
+        # ─── Показываем урок ───
+        topic_title = get_topic_title(topic, lang)
+        study_duration = self._get_study_duration(user)
 
-            header = (
-                f"📚 *{t('marathon.day_theory', lang, day=topic_day)}*\n"
-                f"*{topic_title}*\n"
-                f"⏱ {t('marathon.minutes', lang, minutes=study_duration)}\n\n"
-            )
+        header = (
+            f"📚 *{t('marathon.day_theory', lang, day=topic_day)}*\n"
+            f"*{topic_title}*\n"
+            f"⏱ {t('marathon.minutes', lang, minutes=study_duration)}\n\n"
+        )
 
-            # Отправляем контент
-            full = header + content
-            if len(full) > 4000:
-                await self.send(user, header, parse_mode="Markdown")
-                # Разбиваем контент на части
-                for i in range(0, len(content), 4000):
-                    await self.send(user, content[i:i+4000])
-            else:
-                await self.send(user, full, parse_mode="Markdown")
+        full = header + content
+        if len(full) > 4000:
+            await self.send(user, header, parse_mode="Markdown")
+            for i in range(0, len(content), 4000):
+                await self.send(user, content[i:i+4000])
+        else:
+            await self.send(user, full, parse_mode="Markdown")
 
-            logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
+        logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
 
-            # Показываем кнопку перехода к вопросу
-            question_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=f"❓ {t('buttons.get_question', lang)}",
-                    callback_data="marathon_get_question"
-                )]
-            ])
-            await self.send(
-                user,
-                f"✅ {t('marathon.question_ready', lang)}",
-                reply_markup=question_keyboard
-            )
-            return None  # остаёмся, ждём клик
-
-        except Exception as e:
-            logger.error(f"Error generating content for user {chat_id}: {e}")
-            await self.send(
-                user,
-                f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
-                f"_{t('errors.try_again_later', lang)}_",
-                parse_mode="Markdown"
-            )
-            return "come_back"
+        # Автопереход к вопросу (без кнопки «Получить вопрос»)
+        return "lesson_shown"
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
@@ -319,9 +314,6 @@ class MarathonLessonState(BaseState):
     async def handle_callback(self, user, callback) -> Optional[str]:
         """Обработка inline-кнопок."""
         await callback.answer()
-
-        if callback.data == "marathon_get_question":
-            return "lesson_shown"  # SM перейдёт в question
 
         if callback.data == "marathon_retry_lesson":
             await self.enter(user)

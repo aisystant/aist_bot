@@ -15,6 +15,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer, moscow_today
+from db.queries.marathon import get_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
 from clients import claude
@@ -109,87 +110,88 @@ class MarathonTaskState(BaseState):
             await self.send(user, t('marathon.no_topics_available', lang))
             return
 
-        # Показываем сообщение о загрузке
-        await self.send(user, f"⏳ {t('marathon.preparing_practice', lang)}")
+        # ─── Попытка загрузить пре-генерированную практику из БД ───
+        pre_generated = await get_marathon_content(chat_id, topic_index)
+        practice_data = pre_generated.get('practice_content') if pre_generated else None
 
-        try:
-            # Получаем intern dict для Claude
-            intern = self._user_to_intern_dict(user)
+        if practice_data and isinstance(practice_data, dict):
+            logger.info(f"Loaded pre-generated practice for user {chat_id}, topic {topic_index}")
+        else:
+            # Fallback: генерация на лету
+            await self.send(user, f"⏳ {t('marathon.preparing_practice', lang)}")
 
-            # Генерируем полное описание задания через Claude API (включая перевод)
-            logger.info(f"Generating practice content for topic {topic_index}, user {chat_id}, lang {lang}")
-            practice_data = await claude.generate_practice_intro(
-                topic=topic,
-                intern=intern
-            )
+            try:
+                intern = self._user_to_intern_dict(user)
+                logger.info(f"Generating practice on-the-fly for topic {topic_index}, user {chat_id}, lang {lang}")
+                practice_data = await claude.generate_practice_intro(
+                    topic=topic,
+                    intern=intern
+                )
+            except Exception as e:
+                logger.error(f"Error generating practice intro for user {chat_id}: {e}")
+                # Fallback: показываем задание без введения
+                task_text = topic.get('task', t('marathon.task_default', lang))
+                work_product = topic.get('work_product', t('marathon.work_product_default', lang))
 
-            # Получаем переведённые данные из ответа Claude
-            topic_title = get_topic_title(topic, lang)
-            intro = practice_data.get('intro', '')
-            task_text = practice_data.get('task', '') or topic.get('task', t('marathon.task_default', lang))
-            work_product = practice_data.get('work_product', '') or topic.get('work_product', t('marathon.work_product_default', lang))
-            examples = practice_data.get('examples', '')
+                skip_btn = t('buttons.skip_practice', lang)
+                keyboard = ReplyKeyboardMarkup(
+                    keyboard=[[KeyboardButton(text=skip_btn)]],
+                    resize_keyboard=True,
+                    one_time_keyboard=True
+                )
 
-            # Формируем сообщение
-            message = (
-                f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n"
-                f"*{topic_title}*\n\n"
-            )
+                await self.send(
+                    user,
+                    f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n\n"
+                    f"📋 *{t('marathon.task', lang)}:*\n"
+                    f"{task_text}\n\n"
+                    f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
+                    f"📝 *{t('marathon.when_complete', lang)}:*\n"
+                    f"{t('marathon.write_wp_name', lang)}\n\n"
+                    f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+                return
 
-            if intro:
-                message += f"{intro}\n\n"
+        # ─── Показываем практическое задание ───
+        topic_title = get_topic_title(topic, lang)
+        intro = practice_data.get('intro', '')
+        task_text = practice_data.get('task', '') or topic.get('task', t('marathon.task_default', lang))
+        work_product = practice_data.get('work_product', '') or topic.get('work_product', t('marathon.work_product_default', lang))
+        examples = practice_data.get('examples', '')
 
-            message += f"📋 *{t('marathon.task', lang)}:*\n{task_text}\n\n"
-            message += f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n"
+        message = (
+            f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n"
+            f"*{topic_title}*\n\n"
+        )
 
-            if examples:
-                message += f"{t('marathon.wp_examples', lang)}:\n{examples}\n\n"
-            else:
-                message += "\n"
+        if intro:
+            message += f"{intro}\n\n"
 
-            message += (
-                f"📝 *{t('marathon.when_complete', lang)}:*\n"
-                f"{t('marathon.write_wp_name', lang)}\n\n"
-                f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}"
-            )
+        message += f"📋 *{t('marathon.task', lang)}:*\n{task_text}\n\n"
+        message += f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n"
 
-            # Клавиатура с кнопкой пропуска
-            skip_btn = t('buttons.skip_practice', lang)
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text=skip_btn)]],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
+        if examples:
+            message += f"{t('marathon.wp_examples', lang)}:\n{examples}\n\n"
+        else:
+            message += "\n"
 
-            await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
-            logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
+        message += (
+            f"📝 *{t('marathon.when_complete', lang)}:*\n"
+            f"{t('marathon.write_wp_name', lang)}\n\n"
+            f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}"
+        )
 
-        except Exception as e:
-            logger.error(f"Error generating practice intro for user {chat_id}: {e}")
-            # Fallback: показываем задание без введения
-            task_text = topic.get('task', t('marathon.task_default', lang))
-            work_product = topic.get('work_product', t('marathon.work_product_default', lang))
+        skip_btn = t('buttons.skip_practice', lang)
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=skip_btn)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
 
-            # Клавиатура с кнопкой пропуска (fallback)
-            skip_btn = t('buttons.skip_practice', lang)
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text=skip_btn)]],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
-
-            await self.send(
-                user,
-                f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n\n"
-                f"📋 *{t('marathon.task', lang)}:*\n"
-                f"{task_text}\n\n"
-                f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
-                f"📝 *{t('marathon.when_complete', lang)}:*\n"
-                f"{t('marathon.write_wp_name', lang)}\n\n"
-                f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.work_product_name', lang)}",
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
+        await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
+        logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """

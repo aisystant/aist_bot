@@ -14,6 +14,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKe
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer
+from db.queries.marathon import get_marathon_content
 from core.knowledge import get_topic
 from clients import claude
 from config import get_logger
@@ -112,47 +113,50 @@ class MarathonQuestionState(BaseState):
             await self.send(user, t('marathon.no_topics_available', lang))
             return
 
-        # Показываем сообщение о генерации
-        await self.send(user, f"⏳ {t('marathon.generating_question', lang)}")
+        # ─── Попытка загрузить пре-генерированный вопрос из БД ───
+        pre_generated = await get_marathon_content(chat_id, topic_index)
+        question = pre_generated.get('question_content') if pre_generated else None
 
-        try:
-            # Получаем intern dict для Claude
-            intern = self._user_to_intern_dict(user)
+        if question:
+            logger.info(f"Loaded pre-generated question for user {chat_id}, topic {topic_index}")
+        else:
+            # Fallback: генерация на лету
+            await self.send(user, f"⏳ {t('marathon.generating_question', lang)}")
 
-            # Генерируем вопрос через Claude API
-            logger.info(f"Generating question for topic {topic_index}, bloom {bloom_level}, user {chat_id}")
-            question = await claude.generate_question(
-                topic=topic,
-                intern=intern,
-                bloom_level=bloom_level
-            )
+            try:
+                intern = self._user_to_intern_dict(user)
+                logger.info(f"Generating question on-the-fly for topic {topic_index}, bloom {bloom_level}, user {chat_id}")
+                question = await claude.generate_question(
+                    topic=topic,
+                    intern=intern,
+                    bloom_level=bloom_level
+                )
+            except Exception as e:
+                logger.error(f"Error generating question for user {chat_id}: {e}")
+                await self.send(
+                    user,
+                    f"⚠️ {t('errors.question_generation_failed', lang)}\n\n"
+                    f"_{t('errors.try_again_later', lang)}_",
+                    parse_mode="Markdown"
+                )
+                return
 
-            # Формируем сообщение с вопросом
-            header = f"💭 *{t('marathon.reflection_question', lang)}* ({t(f'bloom.level_{bloom_level}_short', lang)})\n\n"
-            footer = (
-                f"\n\n_{t('marathon.answer_hint', lang)}_\n\n"
-                f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}"
-            )
+        # ─── Показываем вопрос ───
+        header = f"💭 *{t('marathon.reflection_question', lang)}* ({t(f'bloom.level_{bloom_level}_short', lang)})\n\n"
+        footer = (
+            f"\n\n_{t('marathon.answer_hint', lang)}_\n\n"
+            f"💬 *{t('marathon.waiting_for', lang)}:* {t('marathon.answer_expected', lang)}"
+        )
 
-            # Клавиатура с кнопкой пропуска
-            skip_btn = t('buttons.skip_topic', lang)
-            keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text=skip_btn)]],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
+        skip_btn = t('buttons.skip_topic', lang)
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=skip_btn)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
 
-            await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
-            logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
-
-        except Exception as e:
-            logger.error(f"Error generating question for user {chat_id}: {e}")
-            await self.send(
-                user,
-                f"⚠️ {t('errors.question_generation_failed', lang)}\n\n"
-                f"_{t('errors.try_again_later', lang)}_",
-                parse_mode="Markdown"
-            )
+        await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
+        logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
@@ -243,7 +247,7 @@ class MarathonQuestionState(BaseState):
             ])
             await self.send(
                 user,
-                f"✏️ {t('marathon.practice_ready', lang)}",
+                f"✏️ {t('buttons.get_practice', lang)}",
                 reply_markup=practice_keyboard
             )
             return None  # ждём клик

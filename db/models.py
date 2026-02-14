@@ -254,6 +254,29 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
+        # МАРАФОН: ПРЕ-ГЕНЕРИРОВАННЫЙ КОНТЕНТ
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS marathon_content (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                topic_index INTEGER NOT NULL,
+
+                lesson_content TEXT,
+                question_content TEXT,
+                practice_content TEXT,
+
+                bloom_level INTEGER,
+                status TEXT DEFAULT 'pending',
+
+                created_at TIMESTAMP DEFAULT NOW(),
+                delivered_at TIMESTAMP,
+
+                UNIQUE(chat_id, topic_index)
+            )
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # ЛОГ АКТИВНОСТИ (NEW)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
