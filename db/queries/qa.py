@@ -109,3 +109,46 @@ async def get_qa_count(chat_id: int) -> int:
             chat_id
         )
         return row['count']
+
+
+async def get_user_qa_stats(chat_id: int) -> dict:
+    """Статистика консультаций для одного пользователя.
+
+    Returns:
+        {total, helpful, not_helpful, this_week, top_topics: [{topic, cnt}]}
+    """
+    from datetime import timedelta
+    from db.queries.users import moscow_today
+
+    today = moscow_today()
+    week_start = today - timedelta(days=today.weekday())
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE helpful = TRUE) AS helpful,
+                COUNT(*) FILTER (WHERE helpful = FALSE) AS not_helpful,
+                COUNT(*) FILTER (WHERE created_at >= $2) AS this_week
+            FROM qa_history
+            WHERE chat_id = $1
+        ''', chat_id, week_start)
+
+        topics = await conn.fetch('''
+            SELECT context_topic AS topic, COUNT(*) AS cnt
+            FROM qa_history
+            WHERE chat_id = $1
+              AND context_topic IS NOT NULL AND context_topic != ''
+            GROUP BY context_topic
+            ORDER BY cnt DESC
+            LIMIT 5
+        ''', chat_id)
+
+    return {
+        'total': row['total'] if row else 0,
+        'helpful': row['helpful'] if row else 0,
+        'not_helpful': row['not_helpful'] if row else 0,
+        'this_week': row['this_week'] if row else 0,
+        'top_topics': [dict(t) for t in topics],
+    }

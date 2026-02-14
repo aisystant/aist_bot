@@ -1018,6 +1018,159 @@ progress:
     en: "📊 Reset statistics"
     max_length: 25
 
+  # --- Хаб статистики (обзор + секции) ---
+
+  title_hub:
+    ru: "📊 Статистика — {name}"
+    en: "📊 Statistics — {name}"
+
+  streak_line:
+    ru: "Серия"
+    en: "Streak"
+
+  record:
+    ru: "Рекорд"
+    en: "Record"
+
+  activity_line:
+    ru: "Активность"
+    en: "Activity"
+
+  total_word:
+    ru: "всего"
+    en: "total"
+
+  this_week:
+    ru: "за неделю"
+    en: "this week"
+
+  complexity_line:
+    ru: "Уровень сложности"
+    en: "Complexity level"
+
+  since:
+    ru: "С нами с"
+    en: "With us since"
+
+  # Кнопки секций
+  sec_calendar:
+    ru: "Календарь"
+    en: "Calendar"
+    max_length: 12
+
+  sec_marathon:
+    ru: "Марафон"
+    en: "Marathon"
+    max_length: 12
+
+  sec_feed:
+    ru: "Лента"
+    en: "Feed"
+    max_length: 12
+
+  sec_qa:
+    ru: "Вопросы"
+    en: "Q&A"
+    max_length: 12
+
+  sec_assessment:
+    ru: "Оценка"
+    en: "Assessment"
+    max_length: 12
+
+  sec_integrations:
+    ru: "Связи"
+    en: "Links"
+    max_length: 12
+
+  back_to_overview:
+    ru: "К обзору"
+    en: "To overview"
+    max_length: 15
+
+  # Секция: Календарь
+  calendar_title:
+    ru: "Календарь активности"
+    en: "Activity calendar"
+
+  active_of_total:
+    ru: "Активных дней"
+    en: "Active days"
+
+  most_active_day:
+    ru: "Самый активный день"
+    en: "Most active day"
+
+  # Секция: Марафон
+  topics_at_level:
+    ru: "тем на этом уровне"
+    en: "topics at this level"
+
+  # Секция: Лента
+  weeks_completed:
+    ru: "Недель пройдено"
+    en: "Weeks completed"
+
+  # Секция: Консультации
+  qa_title:
+    ru: "Консультации"
+    en: "Consultations"
+
+  qa_total:
+    ru: "Всего вопросов"
+    en: "Total questions"
+
+  qa_helpful:
+    ru: "Полезных ответов"
+    en: "Helpful answers"
+
+  qa_top_topics:
+    ru: "Топ-темы"
+    en: "Top topics"
+
+  # Секция: Оценка
+  assessment_title:
+    ru: "Оценка систематичности"
+    en: "Systematicity assessment"
+
+  last_assessment:
+    ru: "Последняя"
+    en: "Last"
+
+  assessment_result:
+    ru: "Результат"
+    en: "Result"
+
+  scores:
+    ru: "Баллы"
+    en: "Scores"
+
+  no_assessment:
+    ru: "Вы ещё не проходили тест. Пройдите, чтобы узнать свой уровень систематичности."
+    en: "You haven't taken the test yet. Take it to find out your systematicity level."
+
+  take_test:
+    ru: "Пройти тест"
+    en: "Take test"
+    max_length: 15
+
+  # Секция: Интеграции
+  integrations_title:
+    ru: "Интеграции"
+    en: "Integrations"
+
+  repo:
+    ru: "Репо"
+    en: "Repo"
+
+  notes_path:
+    ru: "Путь заметок"
+    en: "Notes path"
+
+  not_connected:
+    ru: "не подключён"
+    en: "not connected"
+
 # -----------------------------------------------------------------------------
 # Режимы
 # -----------------------------------------------------------------------------

@@ -342,12 +342,64 @@ async def cb_go_mydata(callback: CallbackQuery, state: FSMContext):
 
 
 @callbacks_router.callback_query(F.data == "go_progress")
-async def cb_go_progress(callback: CallbackQuery):
+async def cb_go_progress(callback: CallbackQuery, state: FSMContext):
     """Переход к прогрессу."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
     await callback.answer()
-    # Импортируем cmd_progress — он остаётся в bot.py на этом шаге
+    intern = await get_intern(callback.message.chat.id)
+
+    if dispatcher and dispatcher.is_sm_active and intern:
+        try:
+            await state.clear()
+            await callback.message.delete()
+            await dispatcher.route_command('progress', intern)
+            return
+        except Exception as e:
+            logger.error(f"[CB] Error routing go_progress: {e}")
+
     from handlers.progress import cmd_progress
     await cmd_progress(callback.message)
+
+
+async def _is_in_sm_progress_state(callback: CallbackQuery) -> bool:
+    """Фильтр: пользователь в utility.progress стейте SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    if not (dispatcher and dispatcher.is_sm_active):
+        return False
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return False
+    return intern.get('current_state') == "utility.progress"
+
+
+@callbacks_router.callback_query(
+    F.data.startswith("progress_"),
+    _is_in_sm_progress_state
+)
+async def cb_progress_actions(callback: CallbackQuery, state: FSMContext):
+    """Progress section callback-ы через SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        await callback.answer()
+        return
+
+    logger.info(f"[CB] Progress callback '{callback.data}' for chat_id={callback.message.chat.id}")
+    try:
+        await dispatcher.route_callback(intern, callback)
+    except Exception as e:
+        logger.error(f"[CB] Error handling progress callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.answer()
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.try_again', lang))
 
 
 async def _is_in_sm_plans_state(callback: CallbackQuery) -> bool:

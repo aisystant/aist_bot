@@ -1,13 +1,18 @@
 """
 Стейт: Статистика и прогресс (/progress).
 
-Показывает прогресс пользователя по Марафону и Ленте.
+Хаб с обзорной карточкой + 6 секций (inline-кнопки, edit_text).
+Prefetch: enter() загружает ВСЕ данные одним батчем → current_context.
+Секции рендерят из кеша — 0 DB-запросов при переключении.
 
 Вход: по команде /progress
 Выход: продолжить обучение (marathon/feed), настройки, или _previous
 """
 
+import asyncio
+import json
 import logging
+from datetime import timedelta
 from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -23,9 +28,8 @@ class ProgressState(BaseState):
     """
     Стейт статистики и прогресса.
 
-    Показывает:
-    - Короткий отчёт (enter): активность за неделю, день марафона, РП
-    - Полный отчёт (handle_callback "progress_full"): статистика с начала, прогресс по дням
+    enter() загружает все данные в current_context['progress_cache'].
+    Секции рендерят из кеша — мгновенное переключение.
     """
 
     name = "utility.progress"
@@ -38,280 +42,538 @@ class ProgressState(BaseState):
     allow_global = ["consultation", "notes"]
 
     def _get_lang(self, user) -> str:
-        """Получить язык пользователя."""
         if isinstance(user, dict):
             return user.get('language', 'ru')
         return getattr(user, 'language', 'ru') or 'ru'
 
     def _get_chat_id(self, user) -> int:
-        """Получить chat_id пользователя."""
         if isinstance(user, dict):
             return user.get('chat_id')
         return getattr(user, 'chat_id', None)
 
     def _get_user_name(self, user) -> str:
-        """Получить имя пользователя."""
         if isinstance(user, dict):
-            return user.get('name', 'Пользователь')
-        return getattr(user, 'name', 'Пользователь') or 'Пользователь'
+            return user.get('name', '')
+        return getattr(user, 'name', '') or ''
 
     def _get_mode(self, user) -> str:
-        """Получить режим пользователя."""
         if isinstance(user, dict):
             return user.get('mode', Mode.MARATHON)
         return getattr(user, 'mode', Mode.MARATHON) or Mode.MARATHON
 
-    async def enter(self, user, context: dict = None) -> None:
-        """Показываем короткий отчёт прогресса."""
-        from db.queries.answers import get_weekly_marathon_stats, get_weekly_feed_stats
-        from db.queries.activity import get_activity_stats
+    # ─── PREFETCH ─────────────────────────────────────────────
 
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-        name = self._get_user_name(user)
-
-        # Получаем статистику
-        try:
-            activity_stats = await get_activity_stats(chat_id)
-            marathon_stats = await get_weekly_marathon_stats(chat_id)
-            feed_stats = await get_weekly_feed_stats(chat_id)
-        except Exception as e:
-            logger.error(f"Ошибка получения статистики для {chat_id}: {e}")
-            activity_stats = {'days_active_this_week': 0}
-            marathon_stats = {'work_products': 0}
-            feed_stats = {'digests': 0, 'fixations': 0}
-
-        # Данные для отчёта
-        days_active_week = activity_stats.get('days_active_this_week', 0)
-        total_wp_week = marathon_stats.get('work_products', 0)
-
-        # Марафон: день и пройденные темы
-        from core.topics import get_marathon_day
+    async def _prefetch(self, chat_id: int) -> dict:
+        """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
         from db.queries import get_intern
+        from db.queries.answers import (
+            get_weekly_marathon_stats, get_weekly_feed_stats,
+            get_total_stats, get_work_products_by_day,
+        )
+        from db.queries.activity import get_activity_stats, get_activity_calendar
+        from db.queries.qa import get_user_qa_stats
+        from db.queries.github import get_github_connection
+        from core.topics import get_marathon_day, TOPICS
+
         intern = await get_intern(chat_id)
+        if not intern:
+            return {}
 
-        if isinstance(user, dict):
-            completed_topics = user.get('completed_topics', [])
-        else:
-            completed_topics = getattr(user, 'completed_topics', []) or []
+        (
+            activity_stats,
+            calendar,
+            marathon_week,
+            feed_week,
+            total_stats,
+            qa_stats,
+            github,
+        ) = await asyncio.gather(
+            get_activity_stats(chat_id),
+            get_activity_calendar(chat_id, weeks=4),
+            get_weekly_marathon_stats(chat_id),
+            get_weekly_feed_stats(chat_id),
+            get_total_stats(chat_id),
+            get_user_qa_stats(chat_id),
+            get_github_connection(chat_id),
+            return_exceptions=True,
+        )
 
-        done = len(completed_topics) if completed_topics else 0
-        marathon_day = get_marathon_day(intern) if intern else 1
+        # Безопасная обработка ошибок
+        if isinstance(activity_stats, Exception):
+            logger.error(f"[Progress] activity_stats error: {activity_stats}")
+            activity_stats = {'total': 0, 'streak': 0, 'longest_streak': 0, 'days_active_this_week': 0}
+        if isinstance(calendar, Exception):
+            logger.error(f"[Progress] calendar error: {calendar}")
+            calendar = []
+        if isinstance(marathon_week, Exception):
+            logger.error(f"[Progress] marathon_week error: {marathon_week}")
+            marathon_week = {'work_products': 0}
+        if isinstance(feed_week, Exception):
+            logger.error(f"[Progress] feed_week error: {feed_week}")
+            feed_week = {'digests': 0, 'fixations': 0}
+        if isinstance(total_stats, Exception):
+            logger.error(f"[Progress] total_stats error: {total_stats}")
+            total_stats = {}
+        if isinstance(qa_stats, Exception):
+            logger.error(f"[Progress] qa_stats error: {qa_stats}")
+            qa_stats = {'total': 0, 'helpful': 0, 'not_helpful': 0, 'this_week': 0, 'top_topics': []}
+        if isinstance(github, Exception):
+            logger.error(f"[Progress] github error: {github}")
+            github = None
+
+        # Марафон
+        completed_topics = intern.get('completed_topics', [])
+        if isinstance(completed_topics, str):
+            try:
+                completed_topics = json.loads(completed_topics)
+            except Exception:
+                completed_topics = []
+
+        marathon_day = get_marathon_day(intern)
+        days_progress = self._get_days_progress(completed_topics, marathon_day)
+        lessons_tasks = self._get_lessons_tasks_progress(completed_topics)
+
+        try:
+            wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
+        except Exception:
+            wp_by_day = {}
 
         # Лента: темы
+        feed_topics = []
         try:
             from engines.feed.engine import FeedEngine
             feed_engine = FeedEngine(chat_id)
             feed_status = await feed_engine.get_status()
             feed_topics = feed_status.get('topics', [])
-            feed_topics_text = ", ".join(feed_topics) if feed_topics else t('progress.topics_not_selected', lang)
+        except Exception:
+            pass
+
+        # Feed weeks count
+        feed_weeks_count = 0
+        try:
+            from db.connection import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT COUNT(*) AS cnt FROM feed_weeks WHERE chat_id = $1 AND status IN ('active', 'completed')",
+                    chat_id,
+                )
+                feed_weeks_count = row['cnt'] if row else 0
+        except Exception:
+            pass
+
+        # Assessment
+        last_assessment = None
+        try:
+            from db.connection import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT scores, dominant_state, created_at FROM assessments WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
+                    chat_id,
+                )
+                if row:
+                    last_assessment = {
+                        'scores': row['scores'],
+                        'dominant_state': row['dominant_state'],
+                        'created_at': row['created_at'].strftime('%d.%m.%Y') if row['created_at'] else None,
+                    }
+        except Exception:
+            pass
+
+        assessment_date = intern.get('assessment_date')
+        if assessment_date and hasattr(assessment_date, 'isoformat'):
+            assessment_date = assessment_date.isoformat()
+
+        # Registered date
+        reg_date = total_stats.get('registered_at')
+        reg_date_str = reg_date.strftime('%d.%m.%Y') if reg_date and hasattr(reg_date, 'strftime') else '—'
+
+        # Calendar → serializable + most active weekday
+        cal_data = []
+        weekday_counts = {}
+        for day in calendar:
+            cal_data.append({
+                'date': day['date'].isoformat() if hasattr(day['date'], 'isoformat') else str(day['date']),
+                'weekday': day['weekday'],
+                'active': day['active'],
+            })
+            if day['active']:
+                wd = day['weekday']
+                weekday_counts[wd] = weekday_counts.get(wd, 0) + 1
+        most_active_wd = max(weekday_counts, key=weekday_counts.get) if weekday_counts else None
+
+        return {
+            'name': self._get_user_name(intern),
+            'reg_date': reg_date_str,
+            'complexity_level': intern.get('complexity_level', 1),
+            'topics_at_current_complexity': intern.get('topics_at_current_complexity', 0),
+            # Activity
+            'streak': activity_stats.get('streak', 0),
+            'longest_streak': activity_stats.get('longest_streak', 0),
+            'active_days_total': activity_stats.get('total', 0),
+            'days_active_week': activity_stats.get('days_active_this_week', 0),
+            # Calendar
+            'calendar': cal_data,
+            'most_active_wd': most_active_wd,
+            'calendar_active_count': sum(1 for d in calendar if d['active']),
+            'calendar_total_days': len(calendar),
+            # Marathon
+            'marathon_day': marathon_day,
+            'marathon_total': MARATHON_DAYS,
+            'done_count': len(completed_topics) if completed_topics else 0,
+            'lessons': lessons_tasks['lessons'],
+            'tasks': lessons_tasks['tasks'],
+            'wp_total': total_stats.get('total_work_products', 0),
+            'wp_week': marathon_week.get('work_products', 0),
+            'days_progress': days_progress,
+            'wp_by_day': {str(k): v for k, v in wp_by_day.items()},
+            'lag': marathon_day - sum(1 for d in days_progress if d['status'] == 'completed'),
+            # Feed
+            'feed_topics': feed_topics,
+            'feed_digests_total': total_stats.get('total_digests', 0),
+            'feed_fixations_total': total_stats.get('total_fixations', 0),
+            'feed_digests_week': feed_week.get('digests', 0),
+            'feed_fixations_week': feed_week.get('fixations', 0),
+            'feed_weeks_count': feed_weeks_count,
+            # QA
+            'qa': qa_stats,
+            # Assessment
+            'assessment_state': intern.get('assessment_state', '') or '',
+            'assessment_date': assessment_date,
+            'last_assessment': last_assessment,
+            # GitHub
+            'github': {
+                'connected': github is not None,
+                'username': github.get('github_username', '') if github else '',
+                'repo': github.get('target_repo', '') if github else '',
+                'notes_path': github.get('notes_path', '') if github else '',
+            },
+        }
+
+    # ─── ENTER ────────────────────────────────────────────────
+
+    async def enter(self, user, context: dict = None) -> None:
+        """Обзорная карточка + навигационные кнопки."""
+        from db.queries.users import update_intern
+
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        try:
+            cache = await self._prefetch(chat_id)
         except Exception as e:
-            logger.error(f"Ошибка получения статуса ленты для {chat_id}: {e}")
-            feed_topics_text = "—"
+            logger.error(f"[Progress] Prefetch error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            await self.send(user, t('progress.full_report_error', lang))
+            return
 
-        # Формируем текст
-        text = f"{t('progress.title', lang, name=name)}\n\n"
-        text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n\n"
+        # Сохраняем кеш в current_context
+        try:
+            await update_intern(chat_id, current_context=json.dumps(
+                {'progress_cache': cache}, ensure_ascii=False, default=str
+            ))
+        except Exception as e:
+            logger.error(f"[Progress] Cache save error: {e}")
 
-        # Марафон
-        text += f"🏃 *{t('progress.marathon', lang)}*\n"
-        text += f"{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
-        text += f"{t('progress.topics_completed', lang)} {done}. {t('progress.work_products', lang)}: {total_wp_week}\n\n"
+        await self._render_overview(user, cache, lang)
 
-        # Лента
-        text += f"📚 *{t('progress.feed', lang)}*\n"
-        text += f"{t('progress.digests', lang)}: {feed_stats.get('digests', 0)}. "
-        text += f"{t('progress.fixations', lang)}: {feed_stats.get('fixations', 0)}\n"
-        text += f"{t('progress.topics', lang)}: {feed_topics_text}"
+    async def _render_overview(self, user, cache: dict, lang: str) -> None:
+        """Рендер обзорной карточки."""
+        name = cache.get('name', '')
+        streak = cache.get('streak', 0)
+        longest = cache.get('longest_streak', 0)
+        total_active = cache.get('active_days_total', 0)
+        week_active = cache.get('days_active_week', 0)
+        complexity = cache.get('complexity_level', 1)
+        reg_date = cache.get('reg_date', '—')
 
-        # Inline-кнопки
+        text = f"<b>{t('progress.title_hub', lang, name=name)}</b>\n\n"
+        text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest}\n"
+        text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
+        text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
+        text += f"📆 {t('progress.since', lang)}: {reg_date}"
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"📊 {t('progress.full_report', lang)}", callback_data="progress_full"),
-                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")
-            ]
+                InlineKeyboardButton(text=f"📅 {t('progress.sec_calendar', lang)}", callback_data="progress_calendar"),
+                InlineKeyboardButton(text=f"🏃 {t('progress.sec_marathon', lang)}", callback_data="progress_marathon"),
+            ],
+            [
+                InlineKeyboardButton(text=f"📚 {t('progress.sec_feed', lang)}", callback_data="progress_feed"),
+                InlineKeyboardButton(text=f"❓ {t('progress.sec_qa', lang)}", callback_data="progress_qa"),
+            ],
+            [
+                InlineKeyboardButton(text=f"🧪 {t('progress.sec_assessment', lang)}", callback_data="progress_assessment"),
+                InlineKeyboardButton(text=f"🔗 {t('progress.sec_integrations', lang)}", callback_data="progress_integrations"),
+            ],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_exit")],
         ])
-        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        await self.send(user, text, reply_markup=keyboard, parse_mode="HTML")
+
+    # ─── SECTIONS ─────────────────────────────────────────────
+
+    def _back_button(self, lang: str) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")]
+        ])
+
+    async def _show_calendar(self, user, cache: dict, lang: str) -> None:
+        cal = cache.get('calendar', [])
+        active_count = cache.get('calendar_active_count', 0)
+        total_days = cache.get('calendar_total_days', 0)
+        most_active_wd = cache.get('most_active_wd')
+
+        wd_names = {
+            'ru': ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+            'en': ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
+        }
+        names = wd_names.get(lang, wd_names['en'])
+
+        text = f"<b>📅 {t('progress.calendar_title', lang)}</b>\n\n"
+
+        # Группировка по неделям
+        from datetime import date as dt_date
+        weeks = {}
+        for day in cal:
+            d = dt_date.fromisoformat(day['date'])
+            week_start = d - timedelta(days=d.weekday())
+            if week_start not in weeks:
+                weeks[week_start] = ['⬜'] * 7
+            weeks[week_start][d.weekday()] = '🟩' if day['active'] else '⬜'
+
+        text += f"<code>      {' '.join(names)}</code>\n"
+        for week_start in sorted(weeks.keys()):
+            label = week_start.strftime('%d.%m')
+            row = ' '.join(weeks[week_start])
+            text += f"<code>{label}</code> {row}\n"
+
+        text += f"\n{t('progress.active_of_total', lang)}: {active_count} / {total_days}"
+
+        if most_active_wd is not None:
+            text += f"\n{t('progress.most_active_day', lang)}: {names[most_active_wd]}"
+
+        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+
+    async def _show_marathon(self, user, cache: dict, lang: str) -> None:
+        day = cache.get('marathon_day', 1)
+        total = cache.get('marathon_total', MARATHON_DAYS)
+        lessons = cache.get('lessons', {'completed': 0, 'total': 0})
+        tasks = cache.get('tasks', {'completed': 0, 'total': 0})
+        wp_total = cache.get('wp_total', 0)
+        wp_week = cache.get('wp_week', 0)
+        complexity = cache.get('complexity_level', 1)
+        topics_at = cache.get('topics_at_current_complexity', 0)
+        lag = cache.get('lag', 0)
+        days_progress = cache.get('days_progress', [])
+        wp_by_day = cache.get('wp_by_day', {})
+
+        text = f"<b>🏃 {t('progress.marathon_title', lang)}</b>\n\n"
+        text += f"📈 {t('progress.day', lang, day=day, total=total)}\n"
+        text += f"📖 {t('progress.lessons', lang)}: {lessons['completed']}/{lessons['total']}\n"
+        text += f"📝 {t('progress.tasks', lang)}: {tasks['completed']}/{tasks['total']}\n"
+        text += f"📦 {t('progress.work_products', lang)}: {wp_total} {t('progress.total_word', lang)} ({wp_week} {t('progress.this_week', lang)})\n"
+        text += f"🎯 {t('progress.complexity_line', lang)}: {complexity} ({topics_at} {t('progress.topics_at_level', lang)})\n"
+        text += f"⏱ {t('progress.lag', lang)}: {lag} {t('progress.days', lang)}\n"
+
+        if days_progress:
+            text += f"\n📋 <b>{t('progress.by_days', lang)}:</b>\n"
+            for d in days_progress:
+                day_num = d['day']
+                if day_num > day:
+                    break
+                wp_count = wp_by_day.get(str(day_num), 0)
+                if d['status'] == 'completed':
+                    emoji = "✅"
+                elif d['status'] == 'in_progress':
+                    emoji = "🔄"
+                elif d['status'] == 'available':
+                    emoji = "📍"
+                else:
+                    continue
+                status_text = f"{d['completed']}/{d['total']}"
+                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
+                text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
+
+        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+
+    async def _show_feed(self, user, cache: dict, lang: str) -> None:
+        digests_total = cache.get('feed_digests_total', 0)
+        fixations_total = cache.get('feed_fixations_total', 0)
+        digests_week = cache.get('feed_digests_week', 0)
+        fixations_week = cache.get('feed_fixations_week', 0)
+        weeks_count = cache.get('feed_weeks_count', 0)
+        topics = cache.get('feed_topics', [])
+
+        topics_text = ", ".join(topics) if topics else t('progress.topics_not_selected', lang)
+
+        text = f"<b>📚 {t('progress.feed_title', lang)}</b>\n\n"
+        text += f"📖 {t('progress.digests', lang)}: {digests_total} {t('progress.total_word', lang)} ({digests_week} {t('progress.this_week', lang)})\n"
+        text += f"✍️ {t('progress.fixations', lang)}: {fixations_total} {t('progress.total_word', lang)} ({fixations_week} {t('progress.this_week', lang)})\n"
+        text += f"📅 {t('progress.weeks_completed', lang)}: {weeks_count}\n"
+        text += f"🎯 {t('progress.topics', lang)}: {topics_text}"
+
+        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+
+    async def _show_qa(self, user, cache: dict, lang: str) -> None:
+        qa = cache.get('qa', {})
+        total = qa.get('total', 0)
+        helpful = qa.get('helpful', 0)
+        not_helpful = qa.get('not_helpful', 0)
+        this_week = qa.get('this_week', 0)
+        top_topics = qa.get('top_topics', [])
+
+        rated = helpful + not_helpful
+        rate_text = f"{helpful}/{rated} ({round(helpful * 100 / rated)}%)" if rated > 0 else "—"
+
+        text = f"<b>❓ {t('progress.qa_title', lang)}</b>\n\n"
+        text += f"📊 {t('progress.qa_total', lang)}: {total}\n"
+        text += f"📅 {t('progress.this_week', lang)}: {this_week}\n"
+        text += f"👍 {t('progress.qa_helpful', lang)}: {rate_text}\n"
+
+        if top_topics:
+            text += f"\n{t('progress.qa_top_topics', lang)}:\n"
+            for topic in top_topics:
+                text += f"• {topic['topic']} ({topic['cnt']})\n"
+
+        await self.send(user, text, reply_markup=self._back_button(lang), parse_mode="HTML")
+
+    async def _show_assessment(self, user, cache: dict, lang: str) -> None:
+        last = cache.get('last_assessment')
+
+        text = f"<b>🧪 {t('progress.assessment_title', lang)}</b>\n\n"
+
+        if last:
+            text += f"📅 {t('progress.last_assessment', lang)}: {last.get('created_at', '—')}\n"
+            text += f"🏷 {t('progress.assessment_result', lang)}: {last.get('dominant_state', '—')}\n"
+
+            scores_raw = last.get('scores', '{}')
+            if isinstance(scores_raw, str):
+                try:
+                    scores = json.loads(scores_raw)
+                except Exception:
+                    scores = {}
+            else:
+                scores = scores_raw or {}
+
+            if scores:
+                text += f"\n📊 {t('progress.scores', lang)}:\n"
+                for key, value in scores.items():
+                    text += f"• {key}: {value}\n"
+        else:
+            text += t('progress.no_assessment', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"🧪 {t('progress.take_test', lang)}", callback_data="progress_go_assessment")],
+            [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")],
+        ])
+        await self.send(user, text, reply_markup=keyboard, parse_mode="HTML")
+
+    async def _show_integrations(self, user, cache: dict, lang: str) -> None:
+        gh = cache.get('github', {})
+
+        text = f"<b>🔗 {t('progress.integrations_title', lang)}</b>\n\n"
+
+        if gh.get('connected'):
+            text += f"🐙 GitHub: ✅ {gh.get('username', '')}\n"
+            if gh.get('repo'):
+                text += f"   📂 {t('progress.repo', lang)}: {gh['repo']}\n"
+            if gh.get('notes_path'):
+                text += f"   📝 {t('progress.notes_path', lang)}: {gh['notes_path']}\n"
+        else:
+            text += f"🐙 GitHub: ❌ {t('progress.not_connected', lang)}\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings")],
+            [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")],
+        ])
+        await self.send(user, text, reply_markup=keyboard, parse_mode="HTML")
+
+    # ─── HANDLERS ─────────────────────────────────────────────
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        """Обрабатываем текстовые сообщения."""
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Обрабатываем inline-кнопки."""
         data = callback.data
         await callback.answer()
 
-        if data == "progress_full":
-            await self._show_full_progress(user)
-            return "full_shown"
+        lang = self._get_lang(user)
+        cache = self._load_cache(user)
 
-        if data == "progress_continue":
-            mode = self._get_mode(user)
-            if mode == Mode.FEED:
-                return "continue_feed"
-            return "continue_marathon"
-
-        if data == "progress_settings":
-            return "settings"
-
-        if data == "progress_back":
+        if not cache:
             await self.enter(user)
             return "shown"
 
+        section_map = {
+            "progress_back": "_render_overview",
+            "progress_calendar": "_show_calendar",
+            "progress_marathon": "_show_marathon",
+            "progress_feed": "_show_feed",
+            "progress_qa": "_show_qa",
+            "progress_assessment": "_show_assessment",
+            "progress_integrations": "_show_integrations",
+            "progress_full": "_show_marathon",  # legacy
+        }
+
+        if data in section_map:
+            method = getattr(self, section_map[data])
+            if data == "progress_back":
+                await method(user, cache, lang)
+            else:
+                await method(user, cache, lang)
+            return "section_shown" if data != "progress_back" else "shown"
+
+        if data == "progress_go_assessment":
+            return "go_assessment"
+        if data == "progress_settings":
+            return "settings"
+        if data == "progress_exit":
+            return "back"
+        if data == "progress_continue":
+            mode = self._get_mode(user)
+            return "continue_feed" if mode == Mode.FEED else "continue_marathon"
+
         return None
 
-    async def _show_full_progress(self, user) -> None:
-        """Показываем полный отчёт."""
-        from db.queries.answers import get_total_stats, get_work_products_by_day
-
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-        name = self._get_user_name(user)
-
-        # Получаем полную статистику
-        try:
-            total_stats = await get_total_stats(chat_id)
-        except Exception as e:
-            logger.error(f"Ошибка получения total_stats: {e}")
-            total_stats = {}
-
-        # Дата регистрации
-        reg_date = total_stats.get('registered_at')
-        if reg_date:
-            date_str = reg_date.strftime('%d.%m.%Y')
-        else:
-            date_str = "—"
-
-        days_since = total_stats.get('days_since_start', 1)
-        total_active = total_stats.get('total_active_days', 0)
-
-        # Марафон
-        from core.topics import get_marathon_day
-        from db.queries import get_intern
-        intern = await get_intern(chat_id)
-
+    def _load_cache(self, user) -> dict:
         if isinstance(user, dict):
-            completed_topics = user.get('completed_topics', [])
+            ctx_raw = user.get('current_context', '{}')
         else:
-            completed_topics = getattr(user, 'completed_topics', []) or []
+            ctx_raw = getattr(user, 'current_context', '{}')
 
-        marathon_day = get_marathon_day(intern) if intern else 1
+        if isinstance(ctx_raw, str):
+            try:
+                ctx = json.loads(ctx_raw)
+            except Exception:
+                return {}
+        else:
+            ctx = ctx_raw or {}
 
-        # Прогресс по Урокам и Заданиям
-        progress = self._get_lessons_tasks_progress(completed_topics)
+        return ctx.get('progress_cache', {})
 
-        # Прогресс по дням
-        try:
-            from core.topics import TOPICS
-            wp_by_day = await get_work_products_by_day(chat_id, TOPICS)
-        except Exception as e:
-            logger.error(f"Ошибка получения wp_by_day: {e}")
-            wp_by_day = {}
-
-        days_progress = self._get_days_progress(completed_topics, marathon_day)
-
-        # Формируем текст по дням
-        days_text = ""
-        for d in days_progress:
-            day_num = d['day']
-            if day_num > marathon_day:
-                break
-            wp_count = wp_by_day.get(day_num, 0)
-
-            if d['status'] == 'completed':
-                emoji = "✅"
-                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
-            elif d['status'] == 'in_progress':
-                emoji = "🔄"
-                wp_text = f" | {t('progress.wp_short', lang)}: {wp_count}" if wp_count > 0 else ""
-            elif d['status'] == 'available':
-                emoji = "📍"
-                wp_text = ""
-            else:
-                continue
-
-            status_text = f"{d['completed']}/{d['total']}"
-            days_text += f"   {emoji} {t('progress.day_text', lang, day=day_num)}: {status_text}{wp_text}\n"
-
-        # Лента: темы
-        try:
-            from engines.feed.engine import FeedEngine
-            feed_engine = FeedEngine(chat_id)
-            feed_status = await feed_engine.get_status()
-            feed_topics = feed_status.get('topics', [])
-            feed_topics_text = ", ".join(feed_topics) if feed_topics else t('progress.topics_not_selected', lang)
-        except Exception as e:
-            logger.error(f"Ошибка получения feed_status: {e}")
-            feed_topics_text = "—"
-
-        # Формируем текст
-        text = f"📊 *{t('progress.full_report_title', lang, date=date_str, name=name)}*\n\n"
-        text += f"📈 *{t('progress.active_days_both', lang)}:* {total_active} / {days_since}\n\n"
-
-        # Марафон
-        text += f"🏃 *{t('progress.marathon', lang)}*\n"
-        text += f"{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
-        text += f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
-        text += f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
-        text += f"{t('progress.work_products', lang)}: {total_stats.get('total_work_products', 0)}\n"
-
-        # По дням
-        if days_text:
-            text += f"\n📋 *{t('progress.by_days', lang)}:*\n{days_text}"
-
-        # Отставание
-        completed_days = sum(1 for d in days_progress if d['status'] == 'completed')
-        lag = marathon_day - completed_days
-        text += f"{t('progress.lag', lang)}: {lag} {t('progress.days', lang)}\n"
-
-        # Лента
-        text += f"\n📚 *{t('progress.feed', lang)}*\n"
-        text += f"{t('progress.digests', lang)}: {total_stats.get('total_digests', 0)}\n"
-        text += f"{t('progress.fixations', lang)}: {total_stats.get('total_fixations', 0)}\n"
-        text += f"{t('progress.topics', lang)}: {feed_topics_text}"
-
-        # Inline-кнопки
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"👤 {t('buttons.profile', lang)}", callback_data="go_profile"),
-                InlineKeyboardButton(text=f"💾 {t('service.mydata', lang)}", callback_data="go_mydata"),
-            ],
-            [
-                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="progress_settings"),
-            ],
-            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_back")]
-        ])
-
-        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+    # ─── HELPERS ──────────────────────────────────────────────
 
     def _get_lessons_tasks_progress(self, completed_topics: list) -> dict:
-        """Получить прогресс по урокам и заданиям."""
         try:
             from core.topics import TOPICS
         except ImportError:
-            return {
-                'lessons': {'completed': 0, 'total': 0},
-                'tasks': {'completed': 0, 'total': 0}
-            }
+            return {'lessons': {'completed': 0, 'total': 0}, 'tasks': {'completed': 0, 'total': 0}}
 
         completed_set = set(completed_topics) if completed_topics else set()
-
         lessons_total = sum(1 for t in TOPICS if t.get('type') == 'theory')
         lessons_completed = sum(1 for i, t in enumerate(TOPICS)
                                if t.get('type') == 'theory' and i in completed_set)
-
         tasks_total = sum(1 for t in TOPICS if t.get('type') == 'practice')
         tasks_completed = sum(1 for i, t in enumerate(TOPICS)
                              if t.get('type') == 'practice' and i in completed_set)
-
         return {
             'lessons': {'completed': lessons_completed, 'total': lessons_total},
             'tasks': {'completed': tasks_completed, 'total': tasks_total}
         }
 
     def _get_days_progress(self, completed_topics: list, marathon_day: int) -> list:
-        """Получить прогресс по дням марафона."""
         try:
             from core.topics import TOPICS
         except ImportError:
@@ -319,11 +581,9 @@ class ProgressState(BaseState):
 
         days = []
         completed_set = set(completed_topics) if completed_topics else set()
-
         for day in range(1, MARATHON_DAYS + 1):
             day_topics = [(i, t) for i, t in enumerate(TOPICS) if t.get('day') == day]
             completed_count = sum(1 for i, _ in day_topics if i in completed_set)
-
             status = 'locked'
             if day <= marathon_day:
                 if completed_count == len(day_topics):
@@ -332,12 +592,5 @@ class ProgressState(BaseState):
                     status = 'in_progress'
                 else:
                     status = 'available'
-
-            days.append({
-                'day': day,
-                'total': len(day_topics),
-                'completed': completed_count,
-                'status': status
-            })
-
+            days.append({'day': day, 'total': len(day_topics), 'completed': completed_count, 'status': status})
         return days

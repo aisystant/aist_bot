@@ -28,7 +28,7 @@ I18N_DIR = Path(__file__).parent
 BASE_LANGUAGES = ['ru', 'en']
 
 # Поддерживаемые языки
-SUPPORTED_LANGUAGES = ['ru', 'en', 'es', 'fr']
+SUPPORTED_LANGUAGES = ['en', 'es', 'fr', 'ru']
 
 
 class I18n:

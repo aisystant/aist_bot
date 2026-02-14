@@ -172,14 +172,15 @@ states:
       error: _previous
 
   utility.progress:
-    description: "Статистика и прогресс (/progress)"
+    description: "Статистика и прогресс (/progress) — хаб с секциями"
     events:
-      shown: _same                        # Показан короткий отчёт
-      full_shown: _same                   # Показан полный отчёт
+      shown: _same                        # Обзор или возврат к обзору
+      section_shown: _same                # Секция отображена
       continue_marathon: workshop.marathon.lesson
       continue_feed: feed.digest
       settings: common.settings
-      back: _same                         # Вернуться к короткому отчёту
+      go_assessment: workshop.assessment.flow
+      back: _previous                     # Выход из progress
       error: _previous
 
   utility.mydata:
