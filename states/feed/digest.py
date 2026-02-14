@@ -6,14 +6,14 @@
 """
 
 import asyncio
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional, Dict
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 
 from states.base import BaseState
 from i18n import t
-from db.queries.users import get_intern, update_intern
+from db.queries.users import get_intern, update_intern, moscow_today
 from db.queries.feed import (
     get_current_feed_week,
     update_feed_week,
@@ -121,8 +121,8 @@ class FeedDigestState(BaseState):
             await self.send(user, t('feed.week_completed', lang))
             return "done"
 
-        # Проверяем сессию на сегодня
-        today = date.today()
+        # Проверяем сессию на сегодня (МСК)
+        today = moscow_today()
         existing = await get_feed_session(week['id'], today)
 
         if existing:
@@ -565,7 +565,7 @@ class FeedDigestState(BaseState):
                 text += "\n"
 
             # Проверяем, завершён ли дайджест сегодня
-            today_session = await get_feed_session(week['id'], date.today()) if week else None
+            today_session = await get_feed_session(week['id'], moscow_today()) if week else None
             digest_done_today = today_session and today_session.get('status') == 'completed'
 
             text += (

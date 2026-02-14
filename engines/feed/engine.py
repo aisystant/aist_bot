@@ -9,7 +9,7 @@
 5. Завершение недели → статистика
 """
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 import json
 
@@ -22,7 +22,7 @@ from config import (
     FEED_SESSION_DURATION_MIN,
     FEED_SESSION_DURATION_MAX,
 )
-from db.queries.users import get_intern, update_intern
+from db.queries.users import get_intern, update_intern, moscow_today
 from db.queries.feed import (
     create_feed_week,
     get_current_feed_week,
@@ -190,7 +190,7 @@ class FeedEngine:
             return None, t('feed.week_completed', lang)
 
         # Проверяем, есть ли сессия на сегодня
-        today = date.today()
+        today = moscow_today()
         existing = await get_feed_session(week['id'], today)
 
         if existing:
@@ -251,7 +251,7 @@ class FeedEngine:
         if not week:
             return None
 
-        session = await get_feed_session(week['id'], date.today())
+        session = await get_feed_session(week['id'], moscow_today())
         if session and session['id'] == session_id:
             return session.get('content', {})
 
@@ -277,7 +277,7 @@ class FeedEngine:
             return False, t('feed.no_active_week_short', lang)
 
         # Сначала ищем сессию за сегодня
-        today = date.today()
+        today = moscow_today()
         session = await get_feed_session(week['id'], today)
 
         # Если нет за сегодня — ищем незавершённую за предыдущие дни
