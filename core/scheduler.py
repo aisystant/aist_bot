@@ -409,9 +409,38 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Midnight cleanup error: {e}")
 
+    # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
+    if now.minute == 0:
+        try:
+            await _sync_dt_connected_users()
+        except Exception as e:
+            logger.error(f"[Scheduler] DT sync retry error: {e}")
+
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()
+
+
+# ═══════════════════════════════════════════════════════════
+# DIGITAL TWIN SYNC RETRY
+# ═══════════════════════════════════════════════════════════
+
+async def _sync_dt_connected_users():
+    """Проверяет подключённых к ЦД пользователей и досинхронизирует профиль."""
+    from clients.digital_twin import digital_twin
+    from db.queries.users import get_intern
+
+    connected_ids = digital_twin.get_connected_user_ids()
+    if not connected_ids:
+        return
+
+    for user_id in connected_ids:
+        try:
+            intern = await get_intern(user_id)
+            if intern:
+                await digital_twin.sync_profile(user_id, intern)
+        except Exception as e:
+            logger.error(f"[DT Sync] Retry failed for user {user_id}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════

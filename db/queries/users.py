@@ -2,6 +2,7 @@
 Запросы для работы с пользователями (таблица interns).
 """
 
+import asyncio
 import json
 from datetime import datetime, date, timedelta
 from typing import Optional, List
@@ -220,6 +221,16 @@ async def update_intern(chat_id: int, **kwargs):
                 f'UPDATE interns SET {key} = $1, updated_at = NOW() WHERE chat_id = $2',
                 value, chat_id
             )
+
+    # Инкрементальный sync в ЦД (fire-and-forget)
+    try:
+        from clients.digital_twin import digital_twin
+        if digital_twin.is_connected(chat_id):
+            mapped = {k: v for k, v in kwargs.items() if k in digital_twin.PROFILE_DT_MAPPING}
+            if mapped:
+                asyncio.create_task(digital_twin.sync_fields(chat_id, mapped))
+    except Exception:
+        pass  # DT sync — best effort
 
 
 async def update_user_state(chat_id: int, state_name: str) -> None:

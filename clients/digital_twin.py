@@ -484,6 +484,94 @@ class DigitalTwinClient:
         """Получить текущую ступень пользователя."""
         return await self.read("stage", telegram_user_id)
 
+    # =========================================================================
+    # СИНХРОНИЗАЦИЯ ПРОФИЛЯ БОТ → ЦД
+    # =========================================================================
+
+    # Маппинг: поле бота → путь в ЦД (source-of-truth: DP.AISYS.014 § 4.5.1)
+    PROFILE_DT_MAPPING = {
+        'name': '1_declarative/1_1_profile/02_Имя',
+        'occupation': '1_declarative/1_1_profile/01_Занятие',
+        'interests': '1_declarative/1_2_goals/01_Интересы',
+        'goals': '1_declarative/1_2_goals/09_Цели обучения',
+        'role': '1_declarative/1_3_selfeval/06_Роли',
+        'study_duration': '1_declarative/1_3_selfeval/11_Срок обучения',
+        'current_problems': '1_declarative/1_4_context/01_Текущие проблемы',
+        'desires': '1_declarative/1_4_context/02_Желания',
+        'schedule_time': '1_declarative/1_4_context/05_Режим обучения',
+        'feed_schedule_time': '1_declarative/1_4_context/04_Удобное время',
+    }
+
+    @staticmethod
+    def _convert_value(field: str, value: Any) -> Any:
+        """Конвертация значения бота в формат ЦД."""
+        if value is None:
+            return ""
+        if field == 'interests':
+            # JSON array → comma-separated string
+            if isinstance(value, list):
+                return ", ".join(value)
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return ", ".join(parsed)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return str(value)
+        if field == 'study_duration':
+            return str(value)
+        return str(value) if not isinstance(value, str) else value
+
+    async def sync_profile(self, telegram_user_id: int, intern_data: dict) -> int:
+        """Полный перелив профиля бота → ЦД. Возвращает кол-во записанных полей."""
+        if not self.is_connected(telegram_user_id):
+            return 0
+
+        synced = 0
+        for field, dt_path in self.PROFILE_DT_MAPPING.items():
+            value = intern_data.get(field)
+            if value is None or value == '' or value == '[]':
+                continue
+            converted = self._convert_value(field, value)
+            if not converted:
+                continue
+            try:
+                result = await self.write(dt_path, converted, telegram_user_id)
+                if result is not None:
+                    synced += 1
+            except Exception as e:
+                logger.error(f"DT sync field {field} failed: {e}")
+
+        logger.info(f"DT sync: user {telegram_user_id}, {synced}/{len(self.PROFILE_DT_MAPPING)} fields")
+        return synced
+
+    async def sync_fields(self, telegram_user_id: int, fields: dict) -> int:
+        """Инкрементальный sync: только указанные поля. Возвращает кол-во записанных."""
+        if not self.is_connected(telegram_user_id):
+            return 0
+
+        synced = 0
+        for field, value in fields.items():
+            dt_path = self.PROFILE_DT_MAPPING.get(field)
+            if not dt_path:
+                continue
+            converted = self._convert_value(field, value)
+            try:
+                result = await self.write(dt_path, converted, telegram_user_id)
+                if result is not None:
+                    synced += 1
+            except Exception as e:
+                logger.error(f"DT sync field {field} failed: {e}")
+
+        if synced:
+            logger.info(f"DT incremental sync: user {telegram_user_id}, {synced} fields")
+        return synced
+
+    def get_connected_user_ids(self) -> list:
+        """Список ID подключённых пользователей."""
+        return list(self._tokens.keys())
+
 
 # Singleton instance
 digital_twin = DigitalTwinClient()

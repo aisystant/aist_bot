@@ -284,6 +284,16 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
 
     logger.info(f"User {telegram_user_id} connected to Digital Twin")
 
+    # Автоматический перелив профиля бота → ЦД
+    try:
+        from db.queries.users import get_intern
+        intern = await get_intern(telegram_user_id)
+        if intern:
+            synced = await digital_twin.sync_profile(telegram_user_id, intern)
+            logger.info(f"DT initial sync for user {telegram_user_id}: {synced} fields")
+    except Exception as e:
+        logger.error(f"DT initial sync failed for user {telegram_user_id}: {e}")
+
     if _bot_instance:
         try:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
