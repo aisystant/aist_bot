@@ -219,21 +219,43 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 ### 10.5. Keyboard Management Policy
 
-**Два типа — два правила:**
+**Декларативное правило:** каждый стейт объявляет `keyboard_type` на классе. SM engine автоматически чистит Reply-клавиатуру при переходе reply → non-reply (через `_pending_keyboard_cleanup` в `BaseState.send()`).
 
-| Тип | Когда | Очистка |
-|-----|-------|---------|
-| InlineKeyboardMarkup | Меню, действия, навигация, фидбек | `edit_reply_markup()` / `edit_text()` при callback. Stale → fallback toast. |
-| ReplyKeyboardMarkup | ТОЛЬКО skip/yes-no в марафоне | `ReplyKeyboardRemove` на КАЖДОМ пути выхода (handle → return event). |
+**Keyboard Registry (19 стейтов):**
 
-**Правила:**
+| State | keyboard_type | Кнопки |
+|-------|:---:|---|
+| common.start | `none` | Текстовый онбординг |
+| common.mode_select | `inline` | Динамическое меню сервисов |
+| common.settings | `inline` | Настройки (edit_text sub-nav) |
+| common.profile | `inline` | Профиль (edit_text sub-nav) |
+| common.consultation | `none` | Модальный, inline-фидбек |
+| common.plans | `inline` | Day/Week план (edit_text) |
+| common.error | **`reply`** | Повторить / Назад |
+| workshop.marathon.lesson | `inline` | Retry / Back (автопереход) |
+| workshop.marathon.question | **`reply`** | Пропустить тему |
+| workshop.marathon.bonus | **`reply`** | Да / Достаточно |
+| workshop.marathon.task | **`reply`** | Пропустить практику |
+| workshop.assessment.flow | `inline` | Да/Нет, self-check (edit_text) |
+| workshop.assessment.result | `inline` | Марафон / Настройки / Назад |
+| feed.topics | `inline` | Чекбоксы тем |
+| feed.digest | `inline` | Подробнее / Фиксация / Назад |
+| utility.progress | `inline` | 6 секций (edit_text hub) |
+| utility.mydata | `inline` | 3 категории + Why |
+| utility.feedback | `inline` | Баг/Предложение → severity |
 
-1. **Reply-клавиатура**: на каждом пути, где handle() возвращает event (= переход), финальный send() ОБЯЗАН содержать `reply_markup=ReplyKeyboardRemove()`. Стейты: question, bonus, task.
-2. **Callback-переход**: handler, вызывающий go_to()/transition, ОБЯЗАН вызвать `callback.message.edit_reply_markup()` перед переходом.
-3. **Inline sub-навигация** (settings, profile, progress): использовать `edit_text()` — клавиатура заменяется, stale кнопок нет.
-4. **Stale inline кнопки**: допустимы. Fallback handler показывает `fsm.button_expired` toast. НЕ трекать message_id.
-5. **Новый стейт с Reply-клавиатурой**: добавь `reply_markup=ReplyKeyboardRemove()` ко всем send() перед `return <event>` и протестируй все пути перехода.
-6. **keyboards.py**: shared-билдеры кнопок → сюда. Контекстные inline-клавиатуры (1-2 кнопки, зависят от данных) — допустимо inline.
+**SM auto-cleanup:** при переходе `from_state.keyboard_type == "reply"` → `to_state.keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Первый `send()` нового стейта автоматически прикрепляет cleanup.
+
+**Правила (defense-in-depth):**
+
+1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути финальный send() содержит `reply_markup=ReplyKeyboardRemove()` (SM — safety net, ручная очистка — primary).
+2. **Callback-переход**: handler ОБЯЗАН вызвать `callback.message.edit_reply_markup()` перед `go_to()`.
+3. **Inline sub-навигация**: `edit_text()` — клавиатура заменяется, stale кнопок нет.
+4. **Stale inline кнопки**: допустимы. Fallback handler → `fsm.button_expired` toast.
+5. **Новый стейт**: установи `keyboard_type`, обнови эту таблицу.
+6. **keyboards.py**: shared-билдеры → сюда. Контекстные inline (1-2 кнопки) — допустимо inline.
+
+**Процесс:** см. `PROCESSES.md § 5. Keyboard Lifecycle`.
 
 ### 10.6. CJK-строки: outer single quotes
 

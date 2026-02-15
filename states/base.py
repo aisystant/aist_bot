@@ -55,6 +55,16 @@ class BaseState(ABC):
     # Примеры: ["consultation", "notes"]
     allow_global: list[str] = []
 
+    # Тип клавиатуры: "inline" (default), "reply", "none"
+    # SM engine автоматически отправляет ReplyKeyboardRemove при переходе reply → non-reply.
+    # Полная карта: CLAUDE.md § 10.5
+    keyboard_type: str = "inline"
+
+    # Pending keyboard cleanup (class-level, shared across all states).
+    # SM engine записывает сюда ReplyKeyboardRemove при reply→non-reply переходе.
+    # Первый send() нового стейта прикрепляет cleanup автоматически.
+    _pending_keyboard_cleanup: dict = {}
+
     def __init__(self, bot: Bot, db, llm, i18n):
         """
         Args:
@@ -136,6 +146,9 @@ class BaseState(ABC):
         """
         Shortcut для отправки сообщения.
 
+        Если SM engine запланировал keyboard cleanup (reply→non-reply переход),
+        первый send() без явного reply_markup автоматически прикрепит ReplyKeyboardRemove.
+
         Args:
             user: Объект пользователя
             text: Текст сообщения
@@ -149,6 +162,11 @@ class BaseState(ABC):
             getattr(user, 'chat_id', None) or
             (user.get('telegram_id') or user.get('chat_id') if isinstance(user, dict) else None)
         )
+        # Auto-cleanup: SM engine sets pending cleanup on reply→non-reply transition
+        if telegram_id and 'reply_markup' not in kwargs:
+            pending = BaseState._pending_keyboard_cleanup.pop(telegram_id, None)
+            if pending:
+                kwargs['reply_markup'] = pending
         return await self.bot.send_message(telegram_id, text, **kwargs)
 
     async def send_with_keyboard(

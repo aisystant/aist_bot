@@ -24,6 +24,7 @@ class StartState(BaseState):
 
     name = "common.start"
     display_name = {"ru": "Начало", "en": "Start", "es": "Inicio", "fr": "Démarrage"}
+    keyboard_type = "none"
     allow_global = []  # Глобальные команды недоступны на старте
 
     def _get_lang(self, user) -> str:

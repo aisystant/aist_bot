@@ -84,4 +84,29 @@ updated: 2026-02-10
 
 ---
 
-*Последнее обновление: 2026-02-10*
+## 5. Keyboard Lifecycle (управление клавиатурой)
+
+> Тип: внутренний процесс
+> Владелец: Бот (State Machine + BaseState)
+
+**Вход:** Переход между стейтами (SM `_transition()` / `go_to()`)
+
+**Действие:**
+
+1. SM engine проверяет `keyboard_type` у from_state и to_state
+2. Если `reply → non-reply`: записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`
+3. Первый `send()` нового стейта автоматически прикрепляет cleanup (если `reply_markup` не задан явно)
+4. Стейты с `keyboard_type = "reply"` также чистят клавиатуру вручную (defense-in-depth)
+
+**Выход:** Reply-клавиатура удалена при переходе в non-reply стейт. Inline-клавиатуры — self-cleaning через `edit_text()`.
+
+**Типы:** `"inline"` (default, 13 стейтов), `"reply"` (4 стейта), `"none"` (2 стейта).
+
+**При добавлении нового стейта:**
+1. Установить `keyboard_type` в классе
+2. Обновить таблицу в `CLAUDE.md § 10.5`
+3. Если `reply`: добавить `ReplyKeyboardRemove()` к каждому exit-пути в `handle()`
+
+---
+
+*Последнее обновление: 2026-02-15*

@@ -23,6 +23,7 @@ class ErrorState(BaseState):
     name = "common.error"
     display_name = {"ru": "Ошибка", "en": "Error", "es": "Error", "fr": "Erreur"}
     allow_global = []
+    keyboard_type = "reply"
 
     # Тексты кнопок
     RETRY_BUTTONS = ["🔄 Повторить", "🔄 Retry", "🔄 Reintentar", "🔄 Réessayer"]

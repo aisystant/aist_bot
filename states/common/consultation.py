@@ -96,6 +96,7 @@ class ConsultationState(BaseState):
 
     name = "common.consultation"
     display_name = {"ru": "Консультация", "en": "Consultation", "es": "Consulta", "fr": "Consultation"}
+    keyboard_type = "none"
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -240,6 +241,16 @@ class ConsultationState(BaseState):
         - None → остаёмся в стейте (ожидаем текст замечания)
         """
         context = context or {}
+
+        # --- Проверка доступа (подписка/триал) ---
+        chat_id = self._get_chat_id(user)
+        if chat_id:
+            from core.access import access_layer
+            if not await access_layer.has_access(chat_id, 'consultation'):
+                lang = self._get_lang(user)
+                text, kb = await access_layer.get_paywall('consultation', lang)
+                await self.send(user, text, reply_markup=kb)
+                return "done"
 
         # --- Comment mode: ожидаем текст замечания ---
         if context.get('comment_mode'):

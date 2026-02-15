@@ -255,8 +255,17 @@ class StateMachine:
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
 
-        # Сохраняем новый стейт в БД
+        # Keyboard auto-cleanup: reply → non-reply
         chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
+        if (chat_id
+                and getattr(from_state, 'keyboard_type', 'inline') == 'reply'
+                and getattr(to_state, 'keyboard_type', 'inline') != 'reply'):
+            from aiogram.types import ReplyKeyboardRemove
+            from states.base import BaseState
+            BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
+            logger.debug(f"[SM] Keyboard cleanup scheduled: {from_state.name} (reply) → {to_state_name}")
+
+        # Сохраняем новый стейт в БД
         try:
             from db.queries import update_user_state
             if chat_id:
@@ -409,6 +418,15 @@ class StateMachine:
 
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
+
+        # Keyboard auto-cleanup: reply → non-reply
+        if (chat_id and current_state
+                and getattr(current_state, 'keyboard_type', 'inline') == 'reply'
+                and getattr(to_state, 'keyboard_type', 'inline') != 'reply'):
+            from aiogram.types import ReplyKeyboardRemove
+            from states.base import BaseState
+            BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
+            logger.debug(f"[SM] Keyboard cleanup scheduled: {current_state_name} (reply) → {state_name}")
 
         # Сохраняем новый стейт в БД
         try:

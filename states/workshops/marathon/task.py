@@ -34,6 +34,7 @@ class MarathonTaskState(BaseState):
     name = "workshop.marathon.task"
     display_name = {"ru": "Задание", "en": "Task", "es": "Tarea", "fr": "Tâche"}
     allow_global = ["consultation", "notes"]
+    keyboard_type = "reply"
 
     # Тексты кнопок для навигации
     SETTINGS_BUTTONS = ["⚙️ Настройки", "⚙️ Settings", "⚙️ Ajustes", "⚙️ Paramètres"]

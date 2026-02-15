@@ -33,6 +33,7 @@ class MarathonBonusState(BaseState):
 
     name = "workshop.marathon.bonus"
     display_name = {"ru": "Бонусный вопрос", "en": "Bonus Question", "es": "Pregunta extra", "fr": "Question bonus"}
+    keyboard_type = "reply"
     allow_global = ["consultation", "notes"]
 
     # Тексты кнопок
