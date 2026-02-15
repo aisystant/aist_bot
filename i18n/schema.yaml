@@ -332,6 +332,11 @@ buttons:
     en: "⏭ Skip practice"
     max_length: 25
 
+  skip_digest:
+    ru: "Пропустить"
+    en: "Skip"
+    max_length: 20
+
   start_today:
     ru: "🚀 Начать сегодня"
     en: "🚀 Start today"
@@ -2762,6 +2767,10 @@ feed:
   digest_completed_today:
     ru: "Сегодняшний дайджест уже завершён. До завтра!"
     en: "Today's digest is already completed. See you tomorrow!"
+
+  digest_skipped:
+    ru: "Дайджест пропущен. Завтра будет новый!"
+    en: "Digest skipped. A new one will be ready tomorrow!"
 
   daily_digest_ready:
     ru: "Ваш ежедневный дайджест готов!"

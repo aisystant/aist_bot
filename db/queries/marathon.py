@@ -104,10 +104,11 @@ async def cleanup_expired_content():
         )
         logger.info(f"[Marathon] Cleanup expired content: {result}")
 
+        # Feed: expire (не delete) — сохраняем для аналитики
         feed_result = await conn.execute(
-            '''DELETE FROM feed_sessions
-               WHERE status = 'pending' AND session_date < $1''',
+            '''UPDATE feed_sessions SET status = 'expired'
+               WHERE status IN ('pending', 'active') AND session_date < $1''',
             today,
         )
-        if feed_result and feed_result != 'DELETE 0':
-            logger.info(f"[Feed] Cleanup orphaned pre-gen sessions: {feed_result}")
+        if feed_result and feed_result != 'UPDATE 0':
+            logger.info(f"[Feed] Midnight auto-expire: {feed_result}")

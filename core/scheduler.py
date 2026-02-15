@@ -20,7 +20,7 @@ from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.marathon import save_marathon_content, cleanup_expired_content
 from db.queries.users import moscow_now, moscow_today
-from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session
+from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,9 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
     if not week or week.get('status') != FeedWeekStatus.ACTIVE:
         logger.info(f"[Scheduler] Feed: {chat_id} — no active week, skip")
         return
+
+    # Авто-экспайр незакрытых сессий за прошлые дни (замкнутый lifecycle)
+    await expire_old_feed_sessions(chat_id)
 
     # Если сессия на сегодня уже есть — не генерируем повторно
     today = moscow_today()

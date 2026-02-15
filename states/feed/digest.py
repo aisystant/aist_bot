@@ -126,26 +126,22 @@ class FeedDigestState(BaseState):
         existing = await get_feed_session(week['id'], today)
 
         if existing:
-            if existing.get('status') == 'completed':
+            status = existing.get('status')
+
+            # Терминальные статусы: день закрыт
+            if status in ('completed', 'skipped', 'expired'):
                 await self.send(user, f"✅ {t('feed.digest_completed_today', lang)}")
                 await self._show_menu(user, week, digest_completed_today=True)
                 return None
 
             # Pre-generated session: mark as active
-            if existing.get('status') == 'pending':
+            if status == 'pending':
                 await update_feed_session(existing['id'], {'status': 'active'})
                 existing['status'] = 'active'
                 logger.info(f"[Feed] Pre-gen digest delivered to {chat_id}, session {existing['id']}")
 
-            # Показываем существующую сессию (active или только что active из pending)
+            # Показываем существующую сессию (active)
             await self._show_digest(user, existing, week)
-            return None
-
-        # Проверяем незавершённую сессию за прошлые дни
-        incomplete = await get_incomplete_feed_session(week['id'])
-        if incomplete:
-            await self.send(user, t('feed.incomplete_digest', lang))
-            await self._show_digest(user, incomplete, week)
             return None
 
         # Генерируем новый дайджест
@@ -261,10 +257,16 @@ class FeedDigestState(BaseState):
             text=f"✍️ {t('buttons.write_fixation', lang)}",
             callback_data="feed_fixation"
         )])
-        buttons.append([InlineKeyboardButton(
-            text=f"❓ {t('feed.ask_details', lang)}",
-            callback_data="feed_ask_question"
-        )])
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"❓ {t('feed.ask_details', lang)}",
+                callback_data="feed_ask_question"
+            ),
+            InlineKeyboardButton(
+                text=f"⏭ {t('buttons.skip_digest', lang)}",
+                callback_data="feed_skip"
+            ),
+        ])
         buttons.append([InlineKeyboardButton(
             text=f"📋 {t('buttons.topics_menu', lang)}",
             callback_data="feed_whats_next"
@@ -652,6 +654,20 @@ class FeedDigestState(BaseState):
             # Переход к редактированию тем
             await callback.answer()
             return "change_topics"
+
+        elif data == "feed_skip":
+            # Пропустить дайджест (не считается фиксацией, depth не растёт)
+            session_data = self._user_data.get(chat_id, {})
+            session_id = session_data.get('session_id')
+            if session_id:
+                await update_feed_session(session_id, {'status': 'skipped'})
+                logger.info(f"[Feed] User {chat_id} skipped digest session {session_id}")
+            await callback.message.answer(
+                f"⏭ {t('feed.digest_skipped', lang)}",
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+            return None
 
         elif data == "feed_get_digest":
             # Показать дайджест

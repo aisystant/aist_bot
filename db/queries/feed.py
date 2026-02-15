@@ -203,20 +203,31 @@ async def get_feed_session(week_id: int, session_date: date) -> Optional[dict]:
         return None
 
 
-async def get_incomplete_feed_session(week_id: int) -> Optional[dict]:
+async def get_incomplete_feed_session(week_id: int, today_only: bool = True) -> Optional[dict]:
     """Получить незавершённую сессию (status = 'active') для недели.
 
-    Исключает 'pending' (pre-generated, не показана) — это не «незавершённая», а «ещё не начатая».
+    Args:
+        today_only: если True (default), ищет только сегодняшние active сессии.
+            Вчерашние active авто-экспайрятся scheduler'ом / cleanup'ом.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            '''SELECT * FROM feed_sessions
-               WHERE week_id = $1 AND status = 'active'
-               ORDER BY session_date DESC
-               LIMIT 1''',
-            week_id
-        )
+        if today_only:
+            today = moscow_today()
+            row = await conn.fetchrow(
+                '''SELECT * FROM feed_sessions
+                   WHERE week_id = $1 AND status = 'active' AND session_date = $2
+                   LIMIT 1''',
+                week_id, today
+            )
+        else:
+            row = await conn.fetchrow(
+                '''SELECT * FROM feed_sessions
+                   WHERE week_id = $1 AND status = 'active'
+                   ORDER BY session_date DESC
+                   LIMIT 1''',
+                week_id
+            )
 
         if row:
             return {
@@ -231,6 +242,26 @@ async def get_incomplete_feed_session(week_id: int) -> Optional[dict]:
                 'completed_at': row.get('completed_at'),
             }
         return None
+
+
+async def expire_old_feed_sessions(chat_id: int):
+    """Авто-экспайр незакрытых сессий (pending/active) за прошлые дни.
+
+    Вызывается scheduler'ом перед созданием новой сессии.
+    Гарантирует замкнутый lifecycle: каждая сессия → терминальный статус.
+    """
+    today = moscow_today()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            '''UPDATE feed_sessions SET status = 'expired'
+               WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)
+                 AND status IN ('pending', 'active')
+                 AND session_date < $2''',
+            chat_id, today,
+        )
+        if result and result != 'UPDATE 0':
+            logger.info(f"[Feed] Auto-expired old sessions for {chat_id}: {result}")
 
 
 async def delete_feed_sessions(week_id: int, keep_completed: bool = False):
