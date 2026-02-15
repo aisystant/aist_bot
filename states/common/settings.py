@@ -99,7 +99,28 @@ class SettingsState(BaseState):
             f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
         )
 
+        # Статус подписки
+        from core.access import access_layer
+        from db.queries.subscription import get_active_subscription
+        sub = await get_active_subscription(chat_id)
+        in_trial = await access_layer._is_in_trial(chat_id)
+        trial_days = await access_layer.get_trial_days_remaining(chat_id)
+
+        if sub:
+            expires = sub.get('expires_at')
+            date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+            sub_line = t('subscription.status_active', lang, date=date_str)
+        elif in_trial and trial_days > 0:
+            sub_line = t('subscription.status_trial', lang, days=trial_days)
+        else:
+            sub_line = t('subscription.status_expired', lang)
+
+        text += f"⭐ {sub_line}\n"
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐ " + t('subscription.settings_label', lang), callback_data="upd_subscription"),
+            ],
             [
                 InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language"),
             ],
@@ -160,15 +181,10 @@ class SettingsState(BaseState):
             return await self._handle_github_connection(user, callback)
 
         if data == "conn_twin":
-            lang = self._get_lang(user)
-            await callback.message.edit_text(
-                f"🤖 *{t('settings.twin_label', lang)}*\n\n{t('settings.twin_coming_soon', lang)}",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
-                ]),
-            )
-            return None
+            return await self._handle_twin_connection(user, callback)
+
+        if data == "conn_twin_disconnect":
+            return await self._twin_disconnect(user, callback)
 
         if data == "github_select_repo":
             return await self._github_select_repo(user, callback)
@@ -178,6 +194,15 @@ class SettingsState(BaseState):
 
         if data == "github_disconnect":
             return await self._github_disconnect(user, callback)
+
+        if data == "upd_subscription":
+            return await self._show_subscription(user, callback)
+        if data == "sub_why_paid":
+            return await self._show_why_paid(user, callback)
+        if data == "sub_cancel_confirm":
+            return await self._subscription_cancel_confirm(user, callback)
+        if data == "sub_cancel_do":
+            return await self._subscription_cancel_do(user, callback)
 
         if data == "show_resets":
             return await self._show_reset_options(user, callback)
@@ -311,19 +336,8 @@ class SettingsState(BaseState):
         await callback.answer(t('settings.language.changed', new_lang))
 
         # Редактируем текущее сообщение обратно в меню настроек (без нового сообщения)
-        text = (
-            f"⚙️ *{t('settings.title', new_lang)}*\n\n"
-            f"🌐 {t('settings.language_label', new_lang)}: {get_language_name(new_lang)}\n"
-        )
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🌐 " + t('buttons.change_language', new_lang), callback_data="upd_language")],
-            [InlineKeyboardButton(text="🔗 " + t('settings.connections_label', new_lang), callback_data="upd_connections")],
-            [InlineKeyboardButton(text="🔄 " + t('settings.reset_label', new_lang), callback_data="show_resets")],
-            [InlineKeyboardButton(text=t('buttons.back', new_lang), callback_data="settings_back")],
-        ])
-
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        # Re-enter settings to rebuild with subscription status
+        await self.enter(user)
         return None
 
     async def _show_reset_options(self, user, callback: CallbackQuery) -> Optional[str]:
@@ -432,6 +446,130 @@ class SettingsState(BaseState):
         )
         return None
 
+    async def _show_subscription(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус подписки."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from core.access import access_layer
+        from core.pricing import get_current_price
+        from db.queries.subscription import get_active_subscription
+
+        sub = await get_active_subscription(chat_id)
+        in_trial = await access_layer._is_in_trial(chat_id)
+        trial_days = await access_layer.get_trial_days_remaining(chat_id)
+        price = get_current_price()
+
+        buttons = []
+
+        if sub:
+            expires = sub.get('expires_at')
+            date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+            amount = sub.get('stars_amount', price)
+            text = (
+                f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
+                f"{t('subscription.status_active', lang, date=date_str)}\n"
+                f"{t('subscription.price_locked', lang, price=amount)}\n\n"
+                f"{t('subscription.current_price', lang, price=price)}"
+            )
+            buttons.append([InlineKeyboardButton(
+                text=t('subscription.cancel_button', lang),
+                callback_data="sub_cancel_confirm",
+            )])
+        elif in_trial and trial_days > 0:
+            text = (
+                f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
+                f"{t('subscription.trial_active', lang, days=trial_days)}\n\n"
+                f"{t('subscription.current_price', lang, price=price)}"
+            )
+            buttons.append([InlineKeyboardButton(
+                text=t('subscription.subscribe_button', lang, price=price),
+                callback_data="subscribe",
+            )])
+        else:
+            text = (
+                f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
+                f"{t('subscription.status_expired', lang)}\n\n"
+                f"{t('subscription.current_price', lang, price=price)}"
+            )
+            buttons.append([InlineKeyboardButton(
+                text=t('subscription.subscribe_button', lang, price=price),
+                callback_data="subscribe",
+            )])
+
+        buttons.append([InlineKeyboardButton(text="💡 " + t('buttons.why', lang), callback_data="sub_why_paid")])
+        buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _show_why_paid(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем объяснение, почему подписка платная."""
+        lang = self._get_lang(user)
+
+        text = t('subscription.why_paid', lang)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_subscription")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _subscription_cancel_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Подтверждение отмены подписки."""
+        lang = self._get_lang(user)
+
+        text = f"⚠️ {t('subscription.cancel_confirm', lang)}"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t('subscription.cancel_confirm_button', lang), callback_data="sub_cancel_do"),
+                InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_subscription"),
+            ]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _subscription_cancel_do(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Отменить подписку через Telegram API."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.subscription import get_active_subscription, cancel_subscription
+
+        sub = await get_active_subscription(chat_id)
+        if not sub:
+            await callback.answer(t('subscription.status_expired', lang))
+            await self.enter(user)
+            return None
+
+        charge_id = sub.get('telegram_payment_charge_id')
+
+        try:
+            await callback.bot.edit_user_star_subscription(
+                user_id=chat_id,
+                telegram_payment_charge_id=charge_id,
+                is_canceled=True,
+            )
+        except Exception as e:
+            logger.error(f"[Subscription] Cancel API error: {e}")
+
+        await cancel_subscription(chat_id, charge_id)
+
+        expires = sub.get('expires_at')
+        date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+
+        await callback.message.edit_text(
+            t('subscription.cancelled', lang, date=date_str),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+            ]),
+            parse_mode="Markdown",
+        )
+        return None
+
     async def _show_connections(self, user, callback: CallbackQuery) -> Optional[str]:
         """Показываем подключения к сторонним сервисам."""
         lang = self._get_lang(user)
@@ -453,10 +591,14 @@ class SettingsState(BaseState):
         else:
             github_status = t('settings.not_connected', lang)
 
+        from clients.digital_twin import digital_twin
+        twin_connected = digital_twin.is_connected(chat_id)
+        twin_status = "✅ " + t('settings.connected', lang) if twin_connected else t('settings.not_connected', lang)
+
         text = (
             f"🔗 *{t('settings.connections_label', lang)}*\n\n"
             f"🐙 GitHub: {github_status}\n"
-            f"🤖 {t('settings.twin_label', lang)}: {t('settings.coming_soon', lang)}\n"
+            f"🤖 {t('settings.twin_label', lang)}: {twin_status}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -611,6 +753,80 @@ class SettingsState(BaseState):
 
         await callback.message.edit_text(
             f"🐙 GitHub {t('settings.not_connected', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+            ]),
+        )
+        return None
+
+    async def _handle_twin_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус Digital Twin или кнопку подключения."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.digital_twin import digital_twin
+
+        if digital_twin.is_connected(chat_id):
+            lines = [f"🤖 *{t('settings.twin_label', lang)} — {t('settings.connected', lang)}*\n"]
+
+            profile = await digital_twin.get_user_profile(chat_id)
+            if profile and isinstance(profile, dict):
+                degree = profile.get('degree') or t('twin.not_set_m', lang)
+                stage = profile.get('stage') or t('twin.not_set_m', lang)
+                lines.append(f"🎓 {t('twin.degree_label', lang)}: *{degree}*")
+                lines.append(f"📊 {t('twin.stage_label', lang)}: *{stage}*")
+
+            buttons = [
+                [InlineKeyboardButton(
+                    text=t('twin.btn_disconnect', lang),
+                    callback_data="conn_twin_disconnect",
+                )],
+                [InlineKeyboardButton(
+                    text=t('buttons.back', lang),
+                    callback_data="upd_connections",
+                )],
+            ]
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await callback.message.edit_text(
+                "\n".join(lines), parse_mode="Markdown", reply_markup=keyboard
+            )
+        else:
+            try:
+                auth_url, state = digital_twin.get_authorization_url(chat_id)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)],
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+                ])
+                await callback.message.edit_text(
+                    f"🤖 *{t('twin.connect_title', lang)}*\n\n{t('twin.connect_desc', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.error(f"DT OAuth error: {e}")
+                await callback.message.edit_text(
+                    f"🤖 *{t('settings.twin_label', lang)}*\n\n{t('twin.unavailable_short', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                    ]),
+                )
+
+        return None
+
+    async def _twin_disconnect(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Отключаем Digital Twin."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.digital_twin import digital_twin
+
+        if digital_twin.is_connected(chat_id):
+            digital_twin.disconnect(chat_id)
+
+        await callback.message.edit_text(
+            f"🤖 {t('settings.twin_label', lang)}: {t('settings.not_connected', lang)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
             ]),
