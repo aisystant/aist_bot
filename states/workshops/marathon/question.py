@@ -9,7 +9,7 @@
 
 from typing import Optional
 
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -230,7 +230,7 @@ class MarathonQuestionState(BaseState):
             )
 
         # Подтверждение
-        await self.send(user, f"✅ *{t('marathon.topic_completed', lang)}*", parse_mode="Markdown")
+        await self.send(user, f"✅ *{t('marathon.topic_completed', lang)}*", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
 
         # Решаем: бонус или сразу задание
         # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)

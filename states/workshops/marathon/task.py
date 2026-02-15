@@ -10,7 +10,7 @@
 
 from typing import Optional
 
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -262,7 +262,8 @@ class MarathonTaskState(BaseState):
                 f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
                 f"🎉 *{t('marathon.completed', lang)}*\n\n"
                 f"_{t('marathon.completed_hint', lang)}_",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardRemove()
             )
             return "marathon_complete"
 
@@ -272,7 +273,8 @@ class MarathonTaskState(BaseState):
             f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
             f"✅ {t('marathon.day_complete', lang)}\n\n"
             f"_{t('marathon.come_back_tomorrow', lang)}_",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
         )
         return "submitted"  # → common.mode_select
 
