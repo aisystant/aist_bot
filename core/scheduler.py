@@ -47,9 +47,10 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
 
     _scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
     _scheduler.add_job(scheduled_check, 'cron', minute='*')
+    _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
     _scheduler.start()
 
-    logger.info("[Scheduler] Планировщик инициализирован")
+    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive)")
     return _scheduler
 
 
@@ -484,12 +485,17 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Trial expiry notification error: {e}")
 
-    # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент
+    # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
         try:
             await cleanup_expired_content()
         except Exception as e:
             logger.error(f"[Scheduler] Midnight cleanup error: {e}")
+        try:
+            from db.queries.traces import cleanup_old_traces
+            await cleanup_old_traces(days=7)
+        except Exception as e:
+            logger.error(f"[Scheduler] Traces cleanup error: {e}")
 
     # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
     if now.minute == 0:
@@ -501,6 +507,21 @@ async def scheduled_check():
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()
+
+
+# ═══════════════════════════════════════════════════════════
+# NEON KEEP-ALIVE
+# ═══════════════════════════════════════════════════════════
+
+async def _neon_keep_alive():
+    """Пинг Neon каждые 4 минуты — предотвращение idle timeout (cold start)."""
+    try:
+        from db.connection import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval('SELECT 1')
+    except Exception as e:
+        logger.warning(f"[Scheduler] Neon keep-alive failed: {e}")
 
 
 # ═══════════════════════════════════════════════════════════

@@ -23,8 +23,10 @@ async def get_pool() -> asyncpg.Pool:
             _pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 statement_cache_size=0,
+                min_size=2,
+                max_size=10,
             )
-            logger.info("✅ Пул соединений создан")
+            logger.info("✅ Пул соединений создан (min_size=2)")
         except Exception as e:
             logger.error(f"❌ Ошибка создания пула соединений: {e}")
             raise

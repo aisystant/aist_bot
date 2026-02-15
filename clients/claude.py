@@ -57,37 +57,40 @@ class ClaudeClient:
         Returns:
             Сгенерированный текст или None при ошибке
         """
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01"
-            }
+        from core.tracing import span
 
-            payload = {
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": max_tokens,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}]
-            }
+        async with span("claude.api", max_tokens=max_tokens):
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-api-key": self.api_key,
+                    "anthropic-version": "2023-06-01"
+                }
 
-            try:
-                async with session.post(
-                    self.base_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data["content"][0]["text"]
-                    else:
-                        error = await resp.text()
-                        logger.error(f"Claude API error: {error}")
-                        return None
-            except Exception as e:
-                logger.error(f"Claude API exception: {e}")
-                return None
+                payload = {
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": max_tokens,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": user_prompt}]
+                }
+
+                try:
+                    async with session.post(
+                        self.base_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=60)
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return data["content"][0]["text"]
+                        else:
+                            error = await resp.text()
+                            logger.error(f"Claude API error: {error}")
+                            return None
+                except Exception as e:
+                    logger.error(f"Claude API exception: {e}")
+                    return None
 
     async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None) -> str:
         """Генерирует контент для теоретической темы марафона
@@ -131,11 +134,13 @@ class ClaudeClient:
 
         if client:
             try:
+                from core.tracing import span as trace_span
                 tasks = [
                     client.search(q, limit=3)
                     for q in search_keys[:4]
                 ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                async with trace_span("claude.mcp_searches", count=len(tasks)):
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 guides_parts = []
                 knowledge_parts = []

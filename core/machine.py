@@ -220,8 +220,10 @@ class StateMachine:
             return
 
         # Обрабатываем в текущем стейте
+        from core.tracing import span
         try:
-            event = await current_state.handle(user, message)
+            async with span(f"sm.handle.{current_state_name}"):
+                event = await current_state.handle(user, message)
         except Exception as e:
             logger.error(f"Ошибка в стейте {current_state_name}: {e}")
             event = "error"
@@ -242,6 +244,8 @@ class StateMachine:
             to_state_name: Имя нового стейта
             context: Дополнительный контекст
         """
+        from core.tracing import span
+
         to_state = self.get_state(to_state_name)
         if not to_state:
             logger.error(f"Целевой стейт не найден: {to_state_name}")
@@ -250,7 +254,8 @@ class StateMachine:
         logger.info(f"Переход: {from_state.name} -> {to_state_name}")
 
         # Выход из текущего стейта
-        exit_context = await from_state.exit(user)
+        async with span("sm.exit", state=from_state.name):
+            exit_context = await from_state.exit(user)
 
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
@@ -269,7 +274,8 @@ class StateMachine:
         try:
             from db.queries import update_user_state
             if chat_id:
-                await update_user_state(chat_id, to_state_name)
+                async with span("sm.db.update_state"):
+                    await update_user_state(chat_id, to_state_name)
         except Exception as e:
             logger.warning(f"Не удалось сохранить стейт в БД: {e}")
 
@@ -280,7 +286,8 @@ class StateMachine:
         if chat_id:
             try:
                 from db.queries import get_intern
-                fresh_user = await get_intern(chat_id)
+                async with span("sm.db.get_intern"):
+                    fresh_user = await get_intern(chat_id)
                 if fresh_user:
                     logger.debug(f"[SM] Refreshed user data for transition to {to_state_name}")
                 else:
@@ -301,7 +308,8 @@ class StateMachine:
             return
 
         # Вход в новый стейт с актуальными данными
-        event = await to_state.enter(fresh_user, full_context)
+        async with span("sm.enter", state=to_state_name):
+            event = await to_state.enter(fresh_user, full_context)
 
         # Если enter() вернул событие — обрабатываем авто-переход
         if event:

@@ -572,4 +572,30 @@ async def create_tables(pool: asyncpg.Pool):
             FROM interns i
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # ТРЕЙСИНГ ЗАПРОСОВ (для Grafana)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS request_traces (
+                id SERIAL PRIMARY KEY,
+                trace_id TEXT NOT NULL,
+                user_id BIGINT NOT NULL,
+                command TEXT,
+                state TEXT,
+                total_ms REAL NOT NULL,
+                spans JSONB DEFAULT '[]',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_traces_created
+            ON request_traces (created_at DESC)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_traces_user
+            ON request_traces (user_id, created_at DESC)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

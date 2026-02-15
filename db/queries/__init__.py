@@ -82,6 +82,10 @@ from .subscription import (
     get_subscription_history,
 )
 
+from .traces import (
+    cleanup_old_traces,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -145,4 +149,7 @@ __all__ = [
     'save_subscription',
     'cancel_subscription',
     'get_subscription_history',
+
+    # traces
+    'cleanup_old_traces',
 ]

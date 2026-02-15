@@ -51,6 +51,8 @@ class Dispatcher:
         Returns:
             True если обработано через SM, False если нет маппинга.
         """
+        from core.tracing import span
+
         if not self.sm:
             return False
 

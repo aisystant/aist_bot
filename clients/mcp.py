@@ -97,11 +97,18 @@ class MCPClient:
         Returns:
             Результат вызова или None при ошибке (graceful fallback)
         """
+        from core.tracing import span
+
         # Circuit breaker: fail-fast если сервер недоступен
         if self._is_circuit_open():
             logger.debug(f"{self.name}: circuit breaker open, skipping request")
             return None
 
+        async with span(f"mcp.{tool_name}", server=self.name):
+            return await self._call_inner(tool_name, arguments)
+
+    async def _call_inner(self, tool_name: str, arguments: dict) -> Optional[dict]:
+        """Внутренняя реализация вызова MCP (вынесена для трейсинга)."""
         payload = {
             "jsonrpc": "2.0",
             "method": "tools/call",

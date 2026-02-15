@@ -81,7 +81,7 @@ from core.topics import (
 
 # ============= ИНФРАСТРУКТУРА (из core/) =============
 from core.storage import PostgresStorage
-from core.middleware import LoggingMiddleware
+from core.middleware import MaintenanceMiddleware, LoggingMiddleware, TracingMiddleware
 
 # ============= СОСТОЯНИЯ FSM (re-exports для обратной совместимости) =============
 from handlers.onboarding import OnboardingStates
@@ -152,8 +152,12 @@ async def main():
 
     dp = Dispatcher(storage=PostgresStorage())
 
-    # Регистрируем middleware для логирования
+    # Регистрируем middleware (порядок важен: Maintenance → Logging → Tracing)
+    dp.message.middleware(MaintenanceMiddleware())
+    dp.callback_query.middleware(MaintenanceMiddleware())
     dp.message.middleware(LoggingMiddleware())
+    dp.message.middleware(TracingMiddleware())
+    dp.callback_query.middleware(TracingMiddleware())
 
     # === Порядок подключения роутеров (важен!) ===
 
