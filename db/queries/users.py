@@ -197,22 +197,21 @@ async def update_intern(chat_id: int, **kwargs):
                 value = json.dumps(value) if not isinstance(value, str) else value
             
             # Синхронизация bloom <-> complexity
+            if key == 'bloom_level':
+                await conn.execute(
+                    'UPDATE interns SET complexity_level = $1, updated_at = NOW() WHERE chat_id = $2',
+                    value, chat_id
+                )
+                continue
             if key == 'complexity_level':
                 await conn.execute(
-                    'UPDATE interns SET complexity_level = $1, bloom_level = $1, updated_at = NOW() WHERE chat_id = $2',
+                    'UPDATE interns SET complexity_level = $1, updated_at = NOW() WHERE chat_id = $2',
                     value, chat_id
                 )
                 continue
-            if key == 'topics_at_current_complexity':
+            if key in ('topics_at_current_complexity', 'topics_at_current_bloom'):
                 await conn.execute(
-                    'UPDATE interns SET topics_at_current_complexity = $1, topics_at_current_bloom = $1, updated_at = NOW() WHERE chat_id = $2',
-                    value, chat_id
-                )
-                continue
-            if key == 'topics_at_current_bloom':
-                # Синхронизируем оба поля для обратной совместимости с legacy кодом
-                await conn.execute(
-                    'UPDATE interns SET topics_at_current_complexity = $1, topics_at_current_bloom = $1, updated_at = NOW() WHERE chat_id = $2',
+                    'UPDATE interns SET topics_at_current_complexity = $1, updated_at = NOW() WHERE chat_id = $2',
                     value, chat_id
                 )
                 continue
