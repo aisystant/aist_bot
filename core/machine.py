@@ -289,9 +289,14 @@ class StateMachine:
                 logger.warning(f"Не удалось обновить user из БД: {e}")
                 fresh_user = user
 
-        # Тихий возврат из глобального события (консультация, заметки):
+        # Тихий возврат из модального стейта (консультация, заметки, feedback):
         # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта
-        if (full_context.get('consultation_complete') or full_context.get('notes_complete')) and from_state.name != to_state_name:
+        _silent_return = (
+            full_context.get('consultation_complete')
+            or full_context.get('notes_complete')
+            or full_context.get('feedback_complete')
+        )
+        if _silent_return and from_state.name != to_state_name:
             logger.info(f"[SM] Silent return to {to_state_name} (skipping enter)")
             return
 
@@ -303,12 +308,13 @@ class StateMachine:
             next_state = self.get_next_state(to_state_name, event, chat_id)
             if next_state and next_state != to_state_name:
                 logger.info(f"[SM] Auto-transition from {to_state_name} via event '{event}'")
-                # Для модальных стейтов (consultation, notes) — пробрасываем exit-флаг,
+                # Для модальных стейтов — пробрасываем exit-флаг,
                 # чтобы go_to() мог выполнить silent return в предыдущий стейт
                 auto_context = dict(full_context)
                 _MODAL_EXIT_FLAGS = {
                     'common.consultation': 'consultation_complete',
                     'utility.notes': 'notes_complete',
+                    'utility.feedback': 'feedback_complete',
                 }
                 flag = _MODAL_EXIT_FLAGS.get(to_state_name)
                 if flag:
@@ -451,11 +457,16 @@ class StateMachine:
                 logger.warning(f"Не удалось обновить user из БД: {e}")
                 fresh_user = user
 
-        # Тихий возврат из глобального события (консультация, заметки):
+        # Тихий возврат из модального стейта (консультация, заметки, feedback):
         # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта.
         # НО: проверяем только явно переданный context (не exit_context),
         # иначе /learn и другие команды блокируются silent return при выходе из consultation.
-        if context and (context.get('consultation_complete') or context.get('notes_complete')) and current_state_name != state_name:
+        _silent_return = context and (
+            context.get('consultation_complete')
+            or context.get('notes_complete')
+            or context.get('feedback_complete')
+        )
+        if _silent_return and current_state_name != state_name:
             logger.info(f"[SM] Silent return to {state_name} (skipping enter)")
             return
 
@@ -473,6 +484,7 @@ class StateMachine:
                 _MODAL_EXIT_FLAGS = {
                     'common.consultation': 'consultation_complete',
                     'utility.notes': 'notes_complete',
+                    'utility.feedback': 'feedback_complete',
                 }
                 flag = _MODAL_EXIT_FLAGS.get(state_name)
                 if flag:

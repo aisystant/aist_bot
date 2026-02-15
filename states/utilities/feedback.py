@@ -296,7 +296,7 @@ class FeedbackState(BaseState):
         """Очистить step data."""
         chat_id = self._get_chat_id(user)
         await self._clear_step(chat_id)
-        return {}
+        return {'feedback_complete': True}
 
     # === Internal ===
 
