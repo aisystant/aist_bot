@@ -158,11 +158,12 @@ async def cmd_help(message: Message):
     text = (
         f"*{t('help.title', lang)}*\n\n"
         f"{t('help.intro', lang)}\n\n"
+        f"*{t('help.getting_started', lang)}*\n"
+        f"{t('help.mode_hint', lang)}\n"
         f"{t('help.marathon_short', lang)}\n"
         f"{t('help.feed_short', lang)}\n\n"
-        f"{t('help.ai_hint', lang)}\n"
-        f"{t('help.notes_hint', lang)}\n\n"
         f"{t('help.schedule_hint', lang)}\n\n"
+        f"{t('help.ai_hint', lang)}\n\n"
         f"*{t('help.feedback', lang)}:* /feedback {t('help.feedback_or', lang)} !текст"
     )
 
