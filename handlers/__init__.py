@@ -39,8 +39,10 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .strategist import strategist_router
     from .feedback import feedback_router
     from .dev import dev_router
+    from .payments import payments_router
 
     dp.include_router(onboarding_router)
+    dp.include_router(payments_router)
     dp.include_router(commands_router)
     dp.include_router(callbacks_router)
     dp.include_router(settings_router)

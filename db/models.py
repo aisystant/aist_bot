@@ -450,6 +450,42 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # ПОДПИСКИ (Stars Subscription)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                telegram_payment_charge_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                stars_amount INTEGER NOT NULL,
+                started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMP NOT NULL,
+                cancelled_at TIMESTAMP DEFAULT NULL,
+                is_first_recurring BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_subscriptions_chat_id
+            ON subscriptions(chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_subscriptions_active
+            ON subscriptions(chat_id, status)
+        ''')
+
+        # Миграция interns: trial_started_at
+        try:
+            await conn.execute(
+                'ALTER TABLE interns ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMP DEFAULT NULL'
+            )
+        except Exception:
+            pass
+
+        # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

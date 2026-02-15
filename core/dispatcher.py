@@ -57,6 +57,20 @@ class Dispatcher:
         # 1. Ищем в реестре сервисов
         service = registry.resolve_command(command)
         if service:
+            # Проверка доступа (подписка/триал)
+            if service.access_check:
+                chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
+                try:
+                    has_access = await service.access_check(chat_id)
+                    if not has_access:
+                        from core.access import access_layer
+                        lang = (user.get('language') or 'ru') if isinstance(user, dict) else 'ru'
+                        text, kb = await access_layer.get_paywall(service.id, lang)
+                        await self.bot.send_message(chat_id, text, reply_markup=kb)
+                        return True
+                except Exception as e:
+                    logger.warning(f"[Dispatcher] Access check failed for {service.id}: {e}")
+
             target = service.get_entry_state(user)
             logger.info(f"[Dispatcher] route_command (registry): /{command} → {target}")
             await self.sm.go_to(user, target)

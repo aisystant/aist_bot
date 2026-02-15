@@ -264,6 +264,28 @@ ONTOLOGY_RULES_TOPICS = """
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 
+# ============= ПОДПИСКА (Stars Subscription) =============
+
+from datetime import date as _date
+
+# Дата запуска подписки (week 0)
+SUBSCRIPTION_LAUNCH_DATE = _date(2026, 2, 23)
+
+# Ценообразование
+SUBSCRIPTION_BASE_PRICE = 50       # Stars на старте
+SUBSCRIPTION_LINEAR_INCREMENT = 5  # +Stars/нед в первый месяц
+SUBSCRIPTION_LINEAR_WEEKS = 4      # недель линейного роста
+SUBSCRIPTION_WEEKLY_MULTIPLIER = 1.05  # множитель после линейной фазы
+MAX_SUBSCRIPTION_PRICE = 500       # ~1000 руб/мес (бизнес-cap)
+
+# Триал
+FREE_TRIAL_DAYS = 15
+
+# Заблокированные сервисы (без подписки/триала)
+LOCKED_SERVICES = {"feed", "consultation", "notes", "plans"}
+
+# ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
+
 WORK_PRODUCT_CATEGORIES = {
     'diagnosis': 'диагностика',
     'tracker': 'трекер',

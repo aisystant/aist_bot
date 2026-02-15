@@ -115,6 +115,10 @@ def _row_to_dict(row) -> dict:
         # Сброс статистики
         'stats_reset_date': safe_get('stats_reset_date', None),
 
+        # Подписка
+        'trial_started_at': safe_get('trial_started_at', None),
+        'created_at': safe_get('created_at', None),
+
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
         'language': safe_get('language', 'ru'),
@@ -174,6 +178,9 @@ def _get_default_intern(chat_id: int) -> dict:
         'assessment_date': None,
 
         'stats_reset_date': None,
+
+        'trial_started_at': None,
+        'created_at': None,
 
         'onboarding_completed': False,
         'language': 'ru',

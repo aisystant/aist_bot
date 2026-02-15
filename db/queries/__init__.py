@@ -74,6 +74,14 @@ from .marathon import (
     cleanup_expired_content,
 )
 
+from .subscription import (
+    get_active_subscription,
+    is_subscribed,
+    save_subscription,
+    cancel_subscription,
+    get_subscription_history,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -130,4 +138,11 @@ __all__ = [
     'get_marathon_content',
     'mark_content_delivered',
     'cleanup_expired_content',
+
+    # subscription
+    'get_active_subscription',
+    'is_subscribed',
+    'save_subscription',
+    'cancel_subscription',
+    'get_subscription_history',
 ]

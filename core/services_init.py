@@ -16,6 +16,14 @@ from core.services import ServiceDescriptor
 from core.registry import registry
 
 
+def _check_access(service_id: str):
+    """Создать access_check callback для сервиса."""
+    async def check(user_id: int) -> bool:
+        from core.access import access_layer
+        return await access_layer.has_access(user_id, service_id)
+    return check
+
+
 def register_all_services() -> None:
     """Регистрирует все сервисы бота."""
 
@@ -41,6 +49,7 @@ def register_all_services() -> None:
         order=20,
         command="/feed",
         requires_onboarding=True,
+        access_check=_check_access("feed"),
     ))
 
     registry.register(ServiceDescriptor(
@@ -116,6 +125,7 @@ def register_all_services() -> None:
         order=35,
         command="/plan",
         commands=["/rp", "/report"],
+        access_check=_check_access("plans"),
     ))
 
     # --- HIDDEN: в разработке (visible=False, команды работают) ---
