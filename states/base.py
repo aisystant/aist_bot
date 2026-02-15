@@ -186,9 +186,14 @@ class BaseState(ABC):
                     kwargs['reply_markup'] = pending
                     msg = await self.bot.send_message(telegram_id, text, **kwargs)
                     try:
-                        await msg.edit_reply_markup(reply_markup=inline_kb)
+                        await self.bot.edit_message_reply_markup(
+                            chat_id=telegram_id,
+                            message_id=msg.message_id,
+                            reply_markup=inline_kb,
+                        )
+                        logger.info(f"[Keyboard] send+edit OK for chat {telegram_id}")
                     except Exception as e:
-                        logger.warning(f"[Keyboard] edit_reply_markup failed: {e}")
+                        logger.error(f"[Keyboard] edit_reply_markup failed for chat {telegram_id}: {e}")
                     return msg
                 # else: ReplyKeyboardMarkup — replaces old keyboard, cleanup not needed
         return await self.bot.send_message(telegram_id, text, **kwargs)

@@ -79,15 +79,17 @@ class ModeSelectState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 
-        # Показываем меню: send+edit гарантирует удаление стейл Reply-клавиатур
-        # (после рестарта бота _pending_keyboard_cleanup пуст, а ReplyKeyboard
-        # от предыдущей сессии может висеть). mode_select — хаб, сюда все
-        # возвращаются, поэтому cleanup здесь = защита от стейл-клавиатур.
-        msg = await self.send(user, t('menu.main_title', lang), reply_markup=ReplyKeyboardRemove())
-        try:
-            await msg.edit_reply_markup(reply_markup=keyboard)
-        except Exception:
-            pass  # Best effort: если edit не прошёл, меню без inline кнопок
+        # Гарантируем удаление стейл Reply-клавиатур: вставляем cleanup
+        # в pending dict → BaseState.send() применит send+edit автоматически.
+        # Защита от стейл-клавиатур после рестарта бота (dict in-memory → пуст).
+        telegram_id = (
+            user.get('chat_id') if isinstance(user, dict)
+            else getattr(user, 'chat_id', None)
+        )
+        if telegram_id:
+            BaseState._pending_keyboard_cleanup[telegram_id] = ReplyKeyboardRemove()
+
+        await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
