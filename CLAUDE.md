@@ -246,7 +246,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 **SM auto-cleanup:** при переходе `from_state.keyboard_type == "reply"` → `to_state.keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Первый `send()` нового стейта применяет cleanup:
 - **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению.
-- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (Telegram API не совмещает ReplyKeyboardRemove и InlineKeyboard в одном сообщении — `send+edit`, +1 API call только при reply→inline переходе).
+- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (Telegram API не совмещает ReplyKeyboardRemove и InlineKeyboard в одном сообщении — `send+edit`, +1 API call только при reply→inline переходе). **Fallback:** если edit_reply_markup падает, удаляет сообщение-заглушку и отправляет с InlineKeyboard напрямую.
 - **С ReplyKeyboardMarkup:** пропускает cleanup (новая Reply-клавиатура заменяет старую).
 
 **Правила (defense-in-depth):**
@@ -268,7 +268,15 @@ Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `Syntax
 
 Если перевод в schema.yaml уже содержит эмодзи (`"⏳ Генерирую..."`, `"🔍 Ищу..."`), **не добавляй** эмодзи в Python-коде (`f"⏳ {t(key)}"`). Результат — двойная эмодзи. Правило: эмодзи в UI → только в schema.yaml.
 
-### 10.8. Marathon day — только `core.topics.get_marathon_day(intern)`
+### 10.8. YAML schema.yaml: запрет дублирования top-level ключей
+
+`yaml.safe_load()` при дублировании top-level ключа молча затирает первый → ключи пропадают → `t()` возвращает сырые ключи. Проверяй: `grep -n '^[a-z_]*:$' schema.yaml | sort | uniq -d` должен возвращать пустой результат. Аналогично для `translations/*.yaml`.
+
+### 10.9. Back в inline sub-навигации: delete + enter
+
+Кнопка "Назад" из подменю (edit_text) НЕ должна вызывать голый `self.enter(user)` — это отправляет НОВОЕ сообщение, оставляя старое. Паттерн: `callback.message.delete()` → `self.enter(user)`.
+
+### 10.10. Marathon day — только `core.topics.get_marathon_day(intern)`
 
 SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_day(intern)` для расчёта дня марафона. Нельзя реализовывать свою версию — поле `marathon_start_date` + Moscow TZ (МСК) обязательны. Своя реализация использовала `marathon_started_at` + UTC → расхождение на 1 день.
 
