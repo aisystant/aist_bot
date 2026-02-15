@@ -301,4 +301,6 @@ async def progress_back(callback: CallbackQuery):
         await cmd_progress(msg)
     except Exception as e:
         logger.error(f"Ошибка в progress_back: {e}")
-        await callback.message.answer("/progress — посмотреть прогресс")
+        intern = await get_intern(callback.from_user.id)
+        lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+        await callback.message.answer(t('progress.back_hint', lang))

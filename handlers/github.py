@@ -19,6 +19,9 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 
+from db.queries import get_intern
+from i18n import t
+
 logger = logging.getLogger(__name__)
 
 github_router = Router(name="github")
@@ -27,12 +30,20 @@ github_router = Router(name="github")
 _pending_forwards: dict[int, float] = {}
 
 
+def _lang(intern) -> str:
+    if not intern:
+        return 'ru'
+    return intern.get('language', 'ru') or 'ru'
+
+
 @github_router.message(Command("github"))
 async def cmd_github(message: Message):
     """Команда /github — подключение, статус, отключение."""
     from clients.github_oauth import github_oauth
 
     telegram_user_id = message.chat.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
     text = message.text or ""
     parts = text.strip().split(maxsplit=1)
     subcommand = parts[1].lower() if len(parts) > 1 else None
@@ -42,25 +53,25 @@ async def cmd_github(message: Message):
     if subcommand == "disconnect":
         if is_connected:
             await github_oauth.disconnect(telegram_user_id)
-            await message.answer("GitHub отключён.")
+            await message.answer(t('github.disconnected', lang))
         else:
-            await message.answer("GitHub не был подключён.")
+            await message.answer(t('github.not_connected', lang))
         return
 
     if subcommand == "clear":
         if not is_connected:
-            await message.answer("GitHub не подключён. /github")
+            await message.answer(t('github.not_connected_cmd', lang))
             return
         target_repo = await github_oauth.get_target_repo(telegram_user_id)
         if not target_repo:
-            await message.answer("Репозиторий не выбран. /github")
+            await message.answer(t('github.repo_not_selected', lang))
             return
         from clients.github_api import github_notes
         result = await github_notes.clear_notes(telegram_user_id)
         if result:
-            await message.answer("Заметки очищены.")
+            await message.answer(t('github.notes_cleared', lang))
         else:
-            await message.answer("Не удалось очистить заметки.")
+            await message.answer(t('github.notes_clear_error', lang))
         return
 
     if is_connected:
@@ -70,25 +81,24 @@ async def cmd_github(message: Message):
         notes_path = await github_oauth.get_notes_path(telegram_user_id)
 
         status_lines = [
-            f"*GitHub подключён*\n",
-            f"Пользователь: *{login}*",
+            f"*{t('github.connected_title', lang)}*\n",
+            f"{t('github.user_label', lang)}: *{login}*",
         ]
 
         buttons = []
 
         if target_repo:
-            status_lines.append(f"Репо для заметок: `{target_repo}`")
-            status_lines.append(f"Путь: `{notes_path}`")
-            status_lines.append(
-                f"\nОтправьте сообщение с точкой в начале, чтобы записать заметку:"
-            )
-            status_lines.append(f"`.купить книгу по СМ`")
+            status_lines.append(f"{t('github.repo_label', lang)}: `{target_repo}`")
+            status_lines.append(f"{t('github.path_label', lang)}: `{notes_path}`")
+            status_lines.append(f"\n{t('github.note_instruction', lang)}")
+            status_lines.append(t('github.note_example', lang))
         else:
-            status_lines.append("\nРепозиторий для заметок не выбран.")
+            status_lines.append(f"\n{t('github.no_repo', lang)}")
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        text="Выбрать репо", callback_data="github_select_repo"
+                        text=t('github.btn_select_repo', lang),
+                        callback_data="github_select_repo",
                     )
                 ]
             )
@@ -96,7 +106,8 @@ async def cmd_github(message: Message):
         buttons.append(
             [
                 InlineKeyboardButton(
-                    text="Отключить GitHub", callback_data="github_disconnect"
+                    text=t('github.btn_disconnect', lang),
+                    callback_data="github_disconnect",
                 )
             ]
         )
@@ -114,20 +125,18 @@ async def cmd_github(message: Message):
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="Подключить GitHub", url=auth_url)]
+                    [InlineKeyboardButton(text=t('github.btn_connect', lang), url=auth_url)]
                 ]
             )
 
             await message.answer(
-                "*Подключение к GitHub*\n\n"
-                "Нажмите кнопку ниже, чтобы авторизоваться в GitHub.\n\n"
-                "После авторизации вы сможете записывать исчезающие заметки "
-                "прямо из Telegram в свой репозиторий.",
+                f"*{t('github.connect_title', lang)}*\n\n"
+                f"{t('github.connect_desc', lang)}",
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
         except ValueError as e:
-            await message.answer(f"Ошибка конфигурации: {e}")
+            await message.answer(t('github.config_error', lang, error=str(e)))
 
 
 @github_router.callback_query(F.data == "github_select_repo")
@@ -136,21 +145,22 @@ async def callback_github_select_repo(callback: CallbackQuery):
     from clients.github_oauth import github_oauth
 
     telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
 
     if not await github_oauth.is_connected(telegram_user_id):
-        await callback.answer("GitHub не подключён", show_alert=True)
+        await callback.answer(t('github.not_connected_alert', lang), show_alert=True)
         return
 
     await callback.answer()
 
     repos = await github_oauth.get_repos(telegram_user_id, limit=20)
     if not repos:
-        await callback.message.answer("Не удалось получить список репозиториев.")
+        await callback.message.answer(t('github.repos_error', lang))
         return
 
-    # Показываем кнопки для каждого репо
     buttons = []
-    for repo in repos[:10]:  # Ограничиваем 10 кнопками
+    for repo in repos[:10]:
         full_name = repo.get("full_name", "")
         name = repo.get("name", "")
         buttons.append(
@@ -165,8 +175,8 @@ async def callback_github_select_repo(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     await callback.message.answer(
-        "*Выберите репозиторий для заметок:*\n\n"
-        "Заметки будут записываться в файл `inbox/fleeting-notes.md`",
+        f"*{t('github.select_repo_title', lang)}*\n\n"
+        f"{t('github.select_repo_desc', lang)}",
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
@@ -178,21 +188,22 @@ async def callback_github_repo_selected(callback: CallbackQuery):
     from clients.github_oauth import github_oauth
 
     telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
     repo_full_name = callback.data.split(":", 1)[1]
 
     await github_oauth.set_target_repo(telegram_user_id, repo_full_name)
-
     notes_path = await github_oauth.get_notes_path(telegram_user_id)
 
-    await callback.answer("Репозиторий выбран!", show_alert=True)
+    await callback.answer(t('github.repo_selected', lang), show_alert=True)
 
     await callback.message.edit_text(
-        f"*Репозиторий настроен!*\n\n"
-        f"Репо: `{repo_full_name}`\n"
-        f"Путь: `{notes_path}`\n\n"
-        f"Теперь отправляйте сообщения с точкой в начале:\n"
-        f"`.купить книгу по СМ`\n\n"
-        f"Заметка будет записана в `{repo_full_name}/{notes_path}`",
+        f"*{t('github.repo_configured', lang)}*\n\n"
+        f"{t('github.repo_label', lang)}: `{repo_full_name}`\n"
+        f"{t('github.path_label', lang)}: `{notes_path}`\n\n"
+        f"{t('github.repo_configured_desc', lang)}\n"
+        f"{t('github.note_example', lang)}\n\n"
+        f"{t('github.note_will_be_saved', lang, repo=repo_full_name, path=notes_path)}",
         parse_mode="Markdown",
     )
 
@@ -203,17 +214,19 @@ async def callback_github_disconnect(callback: CallbackQuery):
     from clients.github_oauth import github_oauth
 
     telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
 
     if not await github_oauth.is_connected(telegram_user_id):
-        await callback.answer("GitHub уже отключён", show_alert=True)
+        await callback.answer(t('github.already_disconnected', lang), show_alert=True)
         return
 
     await github_oauth.disconnect(telegram_user_id)
-    await callback.answer("GitHub отключён", show_alert=True)
+    await callback.answer(t('github.disconnected_alert', lang), show_alert=True)
 
     await callback.message.edit_text(
-        "*GitHub отключён*\n\n"
-        "Используйте /github чтобы подключиться снова.",
+        f"*{t('github.disconnected', lang)}*\n\n"
+        f"{t('github.reconnect_hint', lang)}",
         parse_mode="Markdown",
     )
 
@@ -232,19 +245,25 @@ async def handle_fleeting_note(message: Message):
 
     telegram_user_id = message.chat.id
 
-    # Проверяем подключение
+    # Проверяем доступ (подписка/триал)
+    from core.access import access_layer
+    if not await access_layer.has_access(telegram_user_id, 'notes'):
+        return
+
     if not await github_oauth.is_connected(telegram_user_id):
         return
     target_repo = await github_oauth.get_target_repo(telegram_user_id)
     if not target_repo:
         return
 
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
     note_text = (message.text or "")[1:].strip()
 
     # Сценарий 2: "." как reply на сообщение
     if not note_text and message.reply_to_message:
         replied = message.reply_to_message
-        note_text = _extract_message_text(replied)
+        note_text = _extract_message_text(replied, lang)
         if not note_text:
             return
 
@@ -257,67 +276,57 @@ async def handle_fleeting_note(message: Message):
     result = await github_notes.append_note(telegram_user_id, note_text)
 
     if result:
-        repo = result["repo"]
-        path = result["path"]
-        url = f"https://github.com/{repo}/blob/main/{path}"
-        await message.answer(f"Записано → {url}")
+        url = f"https://github.com/{result['repo']}/blob/main/{result['path']}"
+        await message.answer(t('github.note_saved', lang, url=url))
     else:
-        await message.answer("Не удалось записать заметку. Проверьте /github")
+        await message.answer(t('github.note_error', lang))
 
 
 @github_router.message(F.forward_date)
 async def handle_forwarded_message(message: Message):
-    """Обработка пересланных сообщений → заметки.
-
-    Срабатывает если перед этим было отправлено "." (в течение 60 сек).
-    """
+    """Обработка пересланных сообщений → заметки."""
     from clients.github_oauth import github_oauth
     from clients.github_api import github_notes
 
     telegram_user_id = message.chat.id
 
-    # Проверяем, что было "." недавно
     pending_time = _pending_forwards.get(telegram_user_id)
     if not pending_time or (time.time() - pending_time) > 3:
-        return  # Не ожидаем пересылку — пропускаем
+        return
 
-    # Очищаем флаг
     del _pending_forwards[telegram_user_id]
 
-    # Проверяем подключение
     if not await github_oauth.is_connected(telegram_user_id):
         return
     target_repo = await github_oauth.get_target_repo(telegram_user_id)
     if not target_repo:
         return
 
-    note_text = _extract_message_text(message)
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+    note_text = _extract_message_text(message, lang)
     if not note_text:
-        await message.answer("Нет текста для записи.")
+        await message.answer(t('github.no_text', lang))
         return
 
     result = await github_notes.append_note(telegram_user_id, note_text)
 
     if result:
-        repo = result["repo"]
-        path = result["path"]
-        url = f"https://github.com/{repo}/blob/main/{path}"
-        await message.answer(f"Записано → {url}")
+        url = f"https://github.com/{result['repo']}/blob/main/{result['path']}"
+        await message.answer(t('github.note_saved', lang, url=url))
     else:
-        await message.answer("Не удалось записать заметку. Проверьте /github")
+        await message.answer(t('github.note_error', lang))
 
 
-def _extract_message_text(message: Message) -> str:
+def _extract_message_text(message: Message, lang: str = 'ru') -> str:
     """Извлекает текст из сообщения (обычного или пересланного)."""
     parts = []
 
-    # Источник пересылки
     if message.forward_from:
-        parts.append(f"[от {message.forward_from.full_name}]")
+        parts.append(t('github.from_user', lang, name=message.forward_from.full_name))
     elif message.forward_sender_name:
-        parts.append(f"[от {message.forward_sender_name}]")
+        parts.append(t('github.from_user', lang, name=message.forward_sender_name))
 
-    # Текст
     if message.text:
         parts.append(message.text)
     elif message.caption:

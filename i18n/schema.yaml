@@ -454,6 +454,11 @@ buttons:
     en: "« Back"
     max_length: 15
 
+  why:
+    ru: "Подробнее"
+    en: "Learn more"
+    max_length: 15
+
   back_to_menu:
     ru: "В меню"
     en: "To menu"
@@ -3315,3 +3320,498 @@ assessment:
   profile_not_tested:
     ru: "не пройдена"
     en: "not taken"
+
+# -----------------------------------------------------------------------------
+# Подписка (subscription) — paywall, платежи, управление
+# -----------------------------------------------------------------------------
+subscription:
+  paywall_text:
+    ru: "⭐ Для доступа к этой функции нужна подписка.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально для вас.\n\n🔒 Ранние подписчики сохраняют свою цену навсегда.\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 15 дней — бесплатно. Затем — {price} Stars/мес."
+    en: "⭐ A subscription is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated for you.\n\n🔒 Early subscribers keep their price locked forever.\n💡 All funds go towards product development and promotion.\n\nFirst 15 days are free. Then — {price} Stars/month."
+
+  subscribe_button:
+    ru: "⭐ Подписаться за {price} Stars/мес"
+    en: "⭐ Subscribe for {price} Stars/mo"
+    max_length: 40
+
+  invoice_title:
+    ru: "AIST Подписка"
+    en: "AIST Subscription"
+    max_length: 32
+
+  invoice_description:
+    ru: "Доступ к Ленте, Консультанту, Заметкам и Планам на 30 дней."
+    en: "Access to Feed, Consultant, Notes, and Plans for 30 days."
+
+  invoice_text:
+    ru: "Нажмите кнопку ниже для оплаты подписки ({price} Stars)."
+    en: "Press the button below to pay for the subscription ({price} Stars)."
+
+  pay_button:
+    ru: "💳 Оплатить {price} Stars"
+    en: "💳 Pay {price} Stars"
+    max_length: 30
+
+  success:
+    ru: "✅ Подписка активирована! Все функции доступны."
+    en: "✅ Subscription activated! All features are now available."
+
+  renewal_success:
+    ru: "✅ Подписка продлена. Спасибо!"
+    en: "✅ Subscription renewed. Thank you!"
+
+  trial_active:
+    ru: "🆓 Пробный период: осталось {days} дн."
+    en: "🆓 Free trial: {days} days left."
+
+  trial_expiring:
+    ru: "⏳ Пробный период заканчивается завтра! Оформите подписку, чтобы сохранить доступ."
+    en: "⏳ Your free trial ends tomorrow! Subscribe to keep access."
+
+  trial_expired:
+    ru: "⌛ Пробный период закончился. Оформите подписку для доступа к Ленте, Консультанту и Заметкам."
+    en: "⌛ Your free trial has ended. Subscribe to access Feed, Consultant, and Notes."
+
+  status_active:
+    ru: "✅ Подписка активна до {date}"
+    en: "✅ Subscription active until {date}"
+
+  status_trial:
+    ru: "🆓 Пробный период ({days} дн. осталось)"
+    en: "🆓 Free trial ({days} days remaining)"
+
+  status_expired:
+    ru: "❌ Подписка не активна"
+    en: "❌ No active subscription"
+
+  cancel_confirm:
+    ru: "Вы уверены, что хотите отменить подписку? Доступ сохранится до конца оплаченного периода."
+    en: "Are you sure you want to cancel? Access continues until the end of the paid period."
+
+  cancelled:
+    ru: "Подписка отменена. Доступ сохранится до {date}."
+    en: "Subscription cancelled. Access continues until {date}."
+
+  cancel_button:
+    ru: "❌ Отменить подписку"
+    en: "❌ Cancel subscription"
+    max_length: 25
+
+  cancel_confirm_button:
+    ru: "Да, отменить"
+    en: "Yes, cancel"
+    max_length: 20
+
+  current_price:
+    ru: "Текущая цена: {price} Stars/мес"
+    en: "Current price: {price} Stars/mo"
+
+  price_locked:
+    ru: "🔒 Ваша цена зафиксирована: {price} Stars/мес"
+    en: "🔒 Your price is locked: {price} Stars/mo"
+
+  why_paid:
+    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка покрывает эти расходы и позволяет улучшать продукт.\n\n🔒 Для ранних подписчиков цена фиксируется навсегда — чем раньше подпишетесь, тем дешевле.\n\n💰 Все средства идут на развитие и популяризацию продукта."
+    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The subscription covers these costs and helps improve the product.\n\n🔒 Early subscribers get their price locked forever — the sooner you subscribe, the cheaper it is.\n\n💰 All funds go towards product development and promotion."
+
+  launch_notification:
+    ru: "🚀 *Важное обновление!*\n\nМы вводим подписку на расширенные функции: Лента, Консультант (?), Заметки (.) и Планы.\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 15 бесплатных дней* — попробуйте всё без ограничений.\n🔒 *Ранние подписчики сохраняют цену навсегда* — подпишитесь сейчас по минимальной цене {price} Stars/мес.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что пока остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
+    en: "🚀 *Important update!*\n\nWe're introducing a subscription for advanced features: Feed, Consultant (?), Notes (.) and Plans.\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 15 free days* — try everything without limits.\n🔒 *Early subscribers keep their price forever* — subscribe now at the minimum price of {price} Stars/mo.\n💰 All funds go towards product development and promotion.\n\n*What remains free for now:* Marathon, Assessment, Progress, Profile, Settings."
+
+  settings_label:
+    ru: "Подписка"
+    en: "Subscription"
+
+# -----------------------------------------------------------------------------
+# GitHub интеграция
+# -----------------------------------------------------------------------------
+github:
+  disconnected:
+    ru: "GitHub отключён."
+    en: "GitHub disconnected."
+  not_connected:
+    ru: "GitHub не был подключён."
+    en: "GitHub was not connected."
+  not_connected_cmd:
+    ru: "GitHub не подключён. /github"
+    en: "GitHub not connected. /github"
+  repo_not_selected:
+    ru: "Репозиторий не выбран. /github"
+    en: "Repository not selected. /github"
+  notes_cleared:
+    ru: "Заметки очищены."
+    en: "Notes cleared."
+  notes_clear_error:
+    ru: "Не удалось очистить заметки."
+    en: "Failed to clear notes."
+  connected_title:
+    ru: "GitHub подключён"
+    en: "GitHub connected"
+  user_label:
+    ru: "Пользователь"
+    en: "User"
+  repo_label:
+    ru: "Репо для заметок"
+    en: "Notes repo"
+  path_label:
+    ru: "Путь"
+    en: "Path"
+  note_instruction:
+    ru: "Отправьте сообщение с точкой в начале, чтобы записать заметку:"
+    en: "Send a message starting with a dot to save a note:"
+  note_example:
+    ru: "`.купить книгу по СМ`"
+    en: "`.buy a book on SM`"
+  no_repo:
+    ru: "Репозиторий для заметок не выбран."
+    en: "Notes repository not selected."
+  btn_select_repo:
+    ru: "Выбрать репо"
+    en: "Select repo"
+  btn_disconnect:
+    ru: "Отключить GitHub"
+    en: "Disconnect GitHub"
+  btn_connect:
+    ru: "Подключить GitHub"
+    en: "Connect GitHub"
+  connect_title:
+    ru: "Подключение к GitHub"
+    en: "Connect to GitHub"
+  connect_desc:
+    ru: "Нажмите кнопку ниже, чтобы авторизоваться в GitHub.\n\nПосле авторизации вы сможете записывать исчезающие заметки прямо из Telegram в свой репозиторий."
+    en: "Press the button below to authorize with GitHub.\n\nAfter authorization, you can save fleeting notes directly from Telegram to your repository."
+  config_error:
+    ru: "Ошибка конфигурации: {error}"
+    en: "Configuration error: {error}"
+  not_connected_alert:
+    ru: "GitHub не подключён"
+    en: "GitHub not connected"
+  repos_error:
+    ru: "Не удалось получить список репозиториев."
+    en: "Failed to get repository list."
+  select_repo_title:
+    ru: "Выберите репозиторий для заметок:"
+    en: "Select a repository for notes:"
+  select_repo_desc:
+    ru: "Заметки будут записываться в файл `inbox/fleeting-notes.md`"
+    en: "Notes will be saved to `inbox/fleeting-notes.md`"
+  repo_selected:
+    ru: "Репозиторий выбран!"
+    en: "Repository selected!"
+  repo_configured:
+    ru: "Репозиторий настроен!"
+    en: "Repository configured!"
+  repo_configured_desc:
+    ru: "Теперь отправляйте сообщения с точкой в начале:"
+    en: "Now send messages starting with a dot:"
+  note_will_be_saved:
+    ru: "Заметка будет записана в `{repo}/{path}`"
+    en: "Note will be saved to `{repo}/{path}`"
+  already_disconnected:
+    ru: "GitHub уже отключён"
+    en: "GitHub already disconnected"
+  disconnected_alert:
+    ru: "GitHub отключён"
+    en: "GitHub disconnected"
+  reconnect_hint:
+    ru: "Используйте /github чтобы подключиться снова."
+    en: "Use /github to connect again."
+  note_saved:
+    ru: "Записано → {url}"
+    en: "Saved → {url}"
+  note_error:
+    ru: "Не удалось записать заметку. Проверьте /github"
+    en: "Failed to save note. Check /github"
+  no_text:
+    ru: "Нет текста для записи."
+    en: "No text to save."
+  from_user:
+    ru: "[от {name}]"
+    en: "[from {name}]"
+
+# -----------------------------------------------------------------------------
+# Стратег интеграция
+# -----------------------------------------------------------------------------
+strategist:
+  truncated:
+    ru: "... (обрезано)"
+    en: "... (truncated)"
+  open_in_github:
+    ru: "Открыть в GitHub"
+    en: "Open in GitHub"
+  github_not_connected:
+    ru: "GitHub не подключён. Подключите через /github"
+    en: "GitHub not connected. Connect via /github"
+  btn_select_repo:
+    ru: "Выбрать репо стратега"
+    en: "Select strategist repo"
+  repo_not_selected:
+    ru: "Репозиторий стратега не выбран."
+    en: "Strategist repository not selected."
+  not_connected_alert:
+    ru: "GitHub не подключён"
+    en: "GitHub not connected"
+  repo_not_selected_alert:
+    ru: "Репо стратега не выбран"
+    en: "Strategist repo not selected"
+  weekplan_not_found:
+    ru: "WeekPlan не найден."
+    en: "WeekPlan not found."
+  dayplan_not_found:
+    ru: "DayPlan на сегодня не найден."
+    en: "Today's DayPlan not found."
+  weekreport_not_found:
+    ru: "WeekReport не найден."
+    en: "WeekReport not found."
+  day_close_instruction:
+    ru: "Закрытие дня запускается локально:"
+    en: "Day close runs locally:"
+  day_close_notification:
+    ru: "После завершения вы получите уведомление."
+    en: "You will receive a notification when complete."
+  repos_error:
+    ru: "Не удалось получить список репозиториев."
+    en: "Failed to get repository list."
+  select_repo_title:
+    ru: "Выберите репозиторий стратега:"
+    en: "Select strategist repository:"
+  repo_selected:
+    ru: "Репозиторий стратега выбран!"
+    en: "Strategist repository selected!"
+  repo_configured:
+    ru: "Репозиторий стратега настроен!"
+    en: "Strategist repository configured!"
+  available_commands:
+    ru: "Доступные команды:\n/rp — WeekPlan (план недели)\n/plan — DayPlan (план дня)\n/report — WeekReport (отчёт недели)"
+    en: "Available commands:\n/rp — WeekPlan (weekly plan)\n/plan — DayPlan (daily plan)\n/report — WeekReport (weekly report)"
+
+# -----------------------------------------------------------------------------
+# Linear интеграция
+# -----------------------------------------------------------------------------
+linear:
+  disconnected:
+    ru: "✅ Linear отключён."
+    en: "✅ Linear disconnected."
+  not_connected:
+    ru: "ℹ️ Linear не был подключён."
+    en: "ℹ️ Linear was not connected."
+  not_connected_desc:
+    ru: "❌ Linear не подключён.\n\nИспользуйте /linear для подключения."
+    en: "❌ Linear not connected.\n\nUse /linear to connect."
+  loading_tasks:
+    ru: "⏳ Загружаю задачи..."
+    en: "⏳ Loading tasks..."
+  tasks_error:
+    ru: "❌ Не удалось получить задачи. Попробуйте переподключиться: /linear disconnect, затем /linear"
+    en: "❌ Failed to get tasks. Try reconnecting: /linear disconnect, then /linear"
+  no_tasks:
+    ru: "📭 У вас нет назначенных задач."
+    en: "📭 You have no assigned tasks."
+  tasks_title:
+    ru: "📋 Ваши задачи в Linear:"
+    en: "📋 Your Linear tasks:"
+  no_title:
+    ru: "Без названия"
+    en: "Untitled"
+  user_fallback:
+    ru: "пользователь"
+    en: "user"
+  btn_my_tasks:
+    ru: "📋 Мои задачи"
+    en: "📋 My tasks"
+  btn_disconnect:
+    ru: "🔌 Отключить Linear"
+    en: "🔌 Disconnect Linear"
+  connected_title:
+    ru: "✅ Linear подключён"
+    en: "✅ Linear connected"
+  authorized_as:
+    ru: "Вы авторизованы как: *{name}*"
+    en: "Authorized as: *{name}*"
+  btn_connect:
+    ru: "🔗 Подключить Linear"
+    en: "🔗 Connect Linear"
+  connect_title:
+    ru: "🔗 Подключение к Linear"
+    en: "🔗 Connect to Linear"
+  connect_desc:
+    ru: "Нажмите кнопку ниже, чтобы авторизоваться в Linear.\n\nПосле авторизации вы сможете видеть свои задачи прямо в боте."
+    en: "Press the button below to authorize with Linear.\n\nAfter authorization, you can see your tasks right in the bot."
+  config_error:
+    ru: "❌ Ошибка конфигурации: {error}\n\nОбратитесь к администратору."
+    en: "❌ Configuration error: {error}\n\nContact the administrator."
+  not_configured:
+    ru: "Linear интеграция не настроена"
+    en: "Linear integration not configured"
+  not_connected_alert:
+    ru: "Linear не подключён"
+    en: "Linear not connected"
+  no_tasks_short:
+    ru: "📋 В Linear пока нет задач."
+    en: "📋 No tasks in Linear yet."
+  tasks_title_short:
+    ru: "📋 Задачи Linear:"
+    en: "📋 Linear tasks:"
+  already_disconnected:
+    ru: "Linear уже отключён"
+    en: "Linear already disconnected"
+  disconnected_alert:
+    ru: "Linear отключён"
+    en: "Linear disconnected"
+  disconnected_title:
+    ru: "🔌 Linear отключён"
+    en: "🔌 Linear disconnected"
+  reconnect_hint:
+    ru: "Используйте /linear чтобы подключиться снова."
+    en: "Use /linear to connect again."
+
+# -----------------------------------------------------------------------------
+# Digital Twin интеграция
+# -----------------------------------------------------------------------------
+twin:
+  disconnected:
+    ru: "Digital Twin отключён."
+    en: "Digital Twin disconnected."
+  not_connected:
+    ru: "Digital Twin не был подключён."
+    en: "Digital Twin was not connected."
+  btn_connect:
+    ru: "Подключить Digital Twin"
+    en: "Connect Digital Twin"
+  connect_title:
+    ru: "Подключение к Digital Twin"
+    en: "Connect to Digital Twin"
+  connect_desc:
+    ru: "Нажмите кнопку ниже, чтобы авторизоваться.\nПосле авторизации вы сможете просматривать и редактировать свой профиль."
+    en: "Press the button below to authorize.\nAfter authorization, you can view and edit your profile."
+  saving_objective:
+    ru: "Сохраняю цель обучения..."
+    en: "Saving learning objective..."
+  objective_updated:
+    ru: "Цель обучения обновлена:\n*{objective}*"
+    en: "Learning objective updated:\n*{objective}*"
+  objective_error:
+    ru: "Не удалось сохранить цель. Digital Twin недоступен."
+    en: "Failed to save objective. Digital Twin unavailable."
+  roles_title:
+    ru: "Ваши роли:"
+    en: "Your roles:"
+  roles_empty:
+    ru: "Роли не заданы или Digital Twin недоступен."
+    en: "No roles set or Digital Twin unavailable."
+  degrees_title:
+    ru: "Степени квалификации:"
+    en: "Qualification degrees:"
+  degrees_error:
+    ru: "Не удалось получить степени. Digital Twin недоступен."
+    en: "Failed to get degrees. Digital Twin unavailable."
+  loading_profile:
+    ru: "Загружаю профиль из Digital Twin..."
+    en: "Loading profile from Digital Twin..."
+  unavailable:
+    ru: "Digital Twin недоступен или профиль не найден.\n\nПопробуйте переподключиться: /twin disconnect, затем /twin"
+    en: "Digital Twin unavailable or profile not found.\n\nTry reconnecting: /twin disconnect, then /twin"
+  unavailable_short:
+    ru: "Digital Twin недоступен. Попробуйте позже."
+    en: "Digital Twin unavailable. Try again later."
+  not_set:
+    ru: "не задана"
+    en: "not set"
+  not_set_plural:
+    ru: "не заданы"
+    en: "not set"
+  not_set_m:
+    ru: "не задан"
+    en: "not set"
+  profile_title:
+    ru: "Ваш Digital Twin"
+    en: "Your Digital Twin"
+  degree_label:
+    ru: "Степень"
+    en: "Degree"
+  stage_label:
+    ru: "Ступень"
+    en: "Stage"
+  objective_label:
+    ru: "Цель обучения"
+    en: "Learning objective"
+  roles_label:
+    ru: "Роли"
+    en: "Roles"
+  time_budget_label:
+    ru: "Бюджет времени"
+    en: "Time budget"
+  hours_per_week:
+    ru: "ч/нед"
+    en: "h/week"
+  btn_update_profile:
+    ru: "Обновить профиль"
+    en: "Update profile"
+  btn_degrees:
+    ru: "Степени"
+    en: "Degrees"
+  btn_disconnect:
+    ru: "Отключить"
+    en: "Disconnect"
+  not_connected_alert:
+    ru: "Digital Twin не подключён"
+    en: "Digital Twin not connected"
+  already_disconnected:
+    ru: "Digital Twin уже отключён"
+    en: "Digital Twin already disconnected"
+  disconnected_alert:
+    ru: "Digital Twin отключён"
+    en: "Digital Twin disconnected"
+  disconnected_desc:
+    ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
+    en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
+
+# -----------------------------------------------------------------------------
+# Дополнительные ключи (settings, progress, onboarding)
+# -----------------------------------------------------------------------------
+shared:
+  timezone_msk:
+    ru: "МСК"
+    en: "MSK"
+
+update:
+  whats_important:
+    ru: "Что сейчас важно:"
+    en: "What's important now:"
+  not_specified_text:
+    ru: "не указано"
+    en: "not specified"
+  what_motivation:
+    ru: "Что для вас по-настоящему важно в жизни?"
+    en: "What is truly important to you in life?"
+  mode_title:
+    ru: "🎯 Выбор режима"
+    en: "🎯 Mode selection"
+  use_mode_command:
+    ru: "Используйте команду /mode для выбора режима работы."
+    en: "Use the /mode command to select a working mode."
+  current_start_date:
+    ru: "Текущая дата старта:"
+    en: "Current start date:"
+  marathon_day_info:
+    ru: "День марафона: {day} из {total}"
+    en: "Marathon day: {day} of {total}"
+  start_date_warning:
+    ru: "Внимание: изменение даты старта влияет на расчёт текущего дня марафона."
+    en: "Warning: changing the start date affects marathon day calculation."
+  select_start_date:
+    ru: "Выберите новую дату старта:"
+    en: "Select a new start date:"
+  not_set:
+    ru: "не задана"
+    en: "not set"
+
+onboarding:
+  restart:
+    ru: "Давайте заново!\n\nКак вас зовут?"
+    en: "Let's start over!\n\nWhat's your name?"
+
+progress:
+  back_hint:
+    ru: "/progress — посмотреть прогресс"
+    en: "/progress — view progress"

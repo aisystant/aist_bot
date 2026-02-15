@@ -10,70 +10,70 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_logger
+from db.queries import get_intern
 from helpers.telegram_format import format_strategy_content
+from i18n import t
 
 logger = get_logger(__name__)
 
 strategist_router = Router(name="strategist")
 
-MAX_MESSAGE_LEN = 4000  # Telegram limit 4096, оставляем запас
+MAX_MESSAGE_LEN = 4000
 
 
-def _truncate(text: str, max_len: int = MAX_MESSAGE_LEN) -> str:
-    """Обрезает текст до лимита Telegram."""
+def _lang(intern) -> str:
+    if not intern:
+        return 'ru'
+    return intern.get('language', 'ru') or 'ru'
+
+
+def _truncate(text: str, lang: str = 'ru', max_len: int = MAX_MESSAGE_LEN) -> str:
     if len(text) <= max_len:
         return text
-    return text[:max_len] + "\n\n... (обрезано)"
+    return text[:max_len] + f"\n\n{t('strategist.truncated', lang)}"
 
 
-def _format(content: str, repo_url: str = None) -> str:
-    """Форматирует контент стратега для Telegram."""
+def _format(content: str, lang: str = 'ru', repo_url: str = None) -> str:
     text = format_strategy_content(content)
-    text = _truncate(text)
+    text = _truncate(text, lang)
     if repo_url:
-        text += f'\n\n<a href="{repo_url}/tree/main/current">Открыть в GitHub</a>'
+        text += f'\n\n<a href="{repo_url}/tree/main/current">{t("strategist.open_in_github", lang)}</a>'
     return text
 
 
-async def _check_strategy_ready_msg(message: Message) -> tuple[bool, int]:
-    """Проверяет подключение GitHub и наличие strategy_repo (для Message)."""
+async def _check_strategy_ready_msg(message: Message, lang: str) -> tuple[bool, int]:
     from clients.github_oauth import github_oauth
-
     telegram_user_id = message.chat.id
 
     if not await github_oauth.is_connected(telegram_user_id):
-        await message.answer("GitHub не подключён. Подключите через /github")
+        await message.answer(t('strategist.github_not_connected', lang))
         return False, telegram_user_id
 
     strategy_repo = await github_oauth.get_strategy_repo(telegram_user_id)
     if not strategy_repo:
         keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="Выбрать репо стратега",
-                    callback_data="strategy_select_repo",
-                )]
-            ]
+            inline_keyboard=[[InlineKeyboardButton(
+                text=t('strategist.btn_select_repo', lang),
+                callback_data="strategy_select_repo",
+            )]]
         )
-        await message.answer("Репозиторий стратега не выбран.", reply_markup=keyboard)
+        await message.answer(t('strategist.repo_not_selected', lang), reply_markup=keyboard)
         return False, telegram_user_id
 
     return True, telegram_user_id
 
 
-async def _check_strategy_ready_cb(callback: CallbackQuery) -> tuple[bool, int]:
-    """Проверяет подключение GitHub и наличие strategy_repo (для Callback)."""
+async def _check_strategy_ready_cb(callback: CallbackQuery, lang: str) -> tuple[bool, int]:
     from clients.github_oauth import github_oauth
-
     telegram_user_id = callback.from_user.id
 
     if not await github_oauth.is_connected(telegram_user_id):
-        await callback.answer("GitHub не подключён", show_alert=True)
+        await callback.answer(t('strategist.not_connected_alert', lang), show_alert=True)
         return False, telegram_user_id
 
     strategy_repo = await github_oauth.get_strategy_repo(telegram_user_id)
     if not strategy_repo:
-        await callback.answer("Репо стратега не выбран", show_alert=True)
+        await callback.answer(t('strategist.repo_not_selected_alert', lang), show_alert=True)
         return False, telegram_user_id
 
     return True, telegram_user_id
@@ -81,152 +81,126 @@ async def _check_strategy_ready_cb(callback: CallbackQuery) -> tuple[bool, int]:
 
 @strategist_router.message(F.text == "/rp")
 async def cmd_rp(message: Message):
-    """Показывает текущий WeekPlan."""
-    ready, user_id = await _check_strategy_ready_msg(message)
+    intern = await get_intern(message.chat.id)
+    lang = _lang(intern)
+    ready, user_id = await _check_strategy_ready_msg(message, lang)
     if not ready:
         return
 
     from clients.github_strategy import github_strategy
-
     content = await github_strategy.get_week_plan(user_id)
     if not content:
-        await message.answer("WeekPlan не найден.")
+        await message.answer(t('strategist.weekplan_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await message.answer(
-        _format(content, repo_url),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.message(F.text == "/plan")
 async def cmd_plan(message: Message):
-    """Показывает DayPlan на сегодня."""
-    ready, user_id = await _check_strategy_ready_msg(message)
+    intern = await get_intern(message.chat.id)
+    lang = _lang(intern)
+    ready, user_id = await _check_strategy_ready_msg(message, lang)
     if not ready:
         return
 
     from clients.github_strategy import github_strategy
-
     content = await github_strategy.get_day_plan(user_id)
     if not content:
-        await message.answer("DayPlan на сегодня не найден.")
+        await message.answer(t('strategist.dayplan_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await message.answer(
-        _format(content, repo_url),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.message(F.text == "/report")
 async def cmd_report(message: Message):
-    """Показывает последний WeekReport."""
-    ready, user_id = await _check_strategy_ready_msg(message)
+    intern = await get_intern(message.chat.id)
+    lang = _lang(intern)
+    ready, user_id = await _check_strategy_ready_msg(message, lang)
     if not ready:
         return
 
     from clients.github_strategy import github_strategy
-
     content = await github_strategy.get_week_report(user_id)
     if not content:
-        await message.answer("WeekReport не найден.")
+        await message.answer(t('strategist.weekreport_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await message.answer(
-        _format(content, repo_url),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
 
 
 # --- Callback-кнопки из уведомлений стратега ---
 
 @strategist_router.callback_query(F.data == "strat_plan")
 async def callback_strat_plan(callback: CallbackQuery):
-    """Кнопка: показать DayPlan."""
-    ready, user_id = await _check_strategy_ready_cb(callback)
+    intern = await get_intern(callback.from_user.id)
+    lang = _lang(intern)
+    ready, user_id = await _check_strategy_ready_cb(callback, lang)
     if not ready:
         return
-
     await callback.answer()
 
     from clients.github_strategy import github_strategy
-
     content = await github_strategy.get_day_plan(user_id)
     if not content:
-        await callback.message.answer("DayPlan на сегодня не найден.")
+        await callback.message.answer(t('strategist.dayplan_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(
-        _format(content, repo_url),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.callback_query(F.data == "strat_rp")
 async def callback_strat_rp(callback: CallbackQuery):
-    """Кнопка: показать WeekPlan."""
-    ready, user_id = await _check_strategy_ready_cb(callback)
+    intern = await get_intern(callback.from_user.id)
+    lang = _lang(intern)
+    ready, user_id = await _check_strategy_ready_cb(callback, lang)
     if not ready:
         return
-
     await callback.answer()
 
     from clients.github_strategy import github_strategy
-
     content = await github_strategy.get_week_plan(user_id)
     if not content:
-        await callback.message.answer("WeekPlan не найден.")
+        await callback.message.answer(t('strategist.weekplan_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(
-        _format(content, repo_url),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.callback_query(F.data == "strat_report")
 async def callback_strat_report(callback: CallbackQuery):
-    """Кнопка: показать WeekReport."""
-    ready, user_id = await _check_strategy_ready_cb(callback)
+    intern = await get_intern(callback.from_user.id)
+    lang = _lang(intern)
+    ready, user_id = await _check_strategy_ready_cb(callback, lang)
     if not ready:
         return
-
     await callback.answer()
 
     from clients.github_strategy import github_strategy
-
     content = await github_strategy.get_week_report(user_id)
     if not content:
-        await callback.message.answer("WeekReport не найден.")
+        await callback.message.answer(t('strategist.weekreport_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(
-        _format(content, repo_url),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.callback_query(F.data == "strat_day_close")
 async def callback_strat_day_close(callback: CallbackQuery):
-    """Кнопка: закрыть день (пока показывает инструкцию)."""
+    intern = await get_intern(callback.from_user.id)
+    lang = _lang(intern)
     await callback.answer()
     await callback.message.answer(
-        "Закрытие дня запускается локально:\n\n"
+        f"{t('strategist.day_close_instruction', lang)}\n\n"
         "<code>~/Github/DS-strategist-agent/scripts/strategist.sh day-close</code>\n\n"
-        "После завершения вы получите уведомление.",
+        f"{t('strategist.day_close_notification', lang)}",
         parse_mode="HTML",
     )
 
@@ -235,58 +209,47 @@ async def callback_strat_day_close(callback: CallbackQuery):
 
 @strategist_router.callback_query(F.data == "strategy_select_repo")
 async def callback_strategy_select_repo(callback: CallbackQuery):
-    """Показывает список репозиториев для выбора strategy_repo."""
     from clients.github_oauth import github_oauth
-
     telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
 
     if not await github_oauth.is_connected(telegram_user_id):
-        await callback.answer("GitHub не подключён", show_alert=True)
+        await callback.answer(t('strategist.not_connected_alert', lang), show_alert=True)
         return
 
     await callback.answer()
 
     repos = await github_oauth.get_repos(telegram_user_id, limit=20)
     if not repos:
-        await callback.message.answer("Не удалось получить список репозиториев.")
+        await callback.message.answer(t('strategist.repos_error', lang))
         return
 
     buttons = []
     for repo in repos:
-        full_name = repo["full_name"]
-        name = repo["name"]
-        buttons.append([
-            InlineKeyboardButton(
-                text=name,
-                callback_data=f"strategy_repo:{full_name}",
-            )
-        ])
+        buttons.append([InlineKeyboardButton(
+            text=repo["name"],
+            callback_data=f"strategy_repo:{repo['full_name']}",
+        )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.answer(
-        "Выберите репозиторий стратега:",
-        reply_markup=keyboard,
-    )
+    await callback.message.answer(t('strategist.select_repo_title', lang), reply_markup=keyboard)
 
 
 @strategist_router.callback_query(F.data.startswith("strategy_repo:"))
 async def callback_strategy_repo_selected(callback: CallbackQuery):
-    """Обработка выбора strategy_repo."""
     from clients.github_oauth import github_oauth
-
     telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
     repo_full_name = callback.data.split(":", 1)[1]
 
     await github_oauth.set_strategy_repo(telegram_user_id, repo_full_name)
-
-    await callback.answer("Репозиторий стратега выбран!", show_alert=True)
+    await callback.answer(t('strategist.repo_selected', lang), show_alert=True)
 
     await callback.message.edit_text(
-        f"<b>Репозиторий стратега настроен!</b>\n\n"
-        f"Репо: <code>{repo_full_name}</code>\n\n"
-        f"Доступные команды:\n"
-        f"/rp — WeekPlan (план недели)\n"
-        f"/plan — DayPlan (план дня)\n"
-        f"/report — WeekReport (отчёт недели)",
+        f"<b>{t('strategist.repo_configured', lang)}</b>\n\n"
+        f"{t('github.repo_label', lang)}: <code>{repo_full_name}</code>\n\n"
+        f"{t('strategist.available_commands', lang)}",
         parse_mode="HTML",
     )

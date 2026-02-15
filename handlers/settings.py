@@ -78,7 +78,7 @@ async def _show_update_screen(message, intern, state):
         f"{t(f'duration.minutes_{study_duration}', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
         f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=14)})\n"
-        f"⏰ {intern.get('schedule_time', '09:00')} (МСК)\n"
+        f"⏰ {intern.get('schedule_time', '09:00')} ({t('shared.timezone_msk', lang)})\n"
         f"🌐 {get_language_name(lang)}\n\n"
         f"*{t('settings.what_to_change', lang)}*",
         parse_mode="Markdown",
@@ -143,7 +143,7 @@ async def cmd_profile(message: Message):
         f"{STUDY_DURATIONS.get(str(study_duration), {}).get('name', '')} {t('profile.per_topic', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
         f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)})\n"
-        f"⏰ {intern.get('schedule_time', '09:00')} (МСК)\n"
+        f"⏰ {intern.get('schedule_time', '09:00')} ({t('shared.timezone_msk', lang)})\n"
         f"{assessment_line}\n\n"
         f"{t('commands.settings', lang)}",
         parse_mode="Markdown"
@@ -261,10 +261,11 @@ async def on_upd_interests(callback: CallbackQuery, state: FSMContext):
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_motivation")
 async def on_upd_motivation(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') if intern else 'ru'
     await callback.answer()
     await callback.message.edit_text(
-        f"💫 *Что сейчас важно:*\n{intern.get('motivation', '') or 'не указано'}\n\n"
-        "Что для вас по-настоящему важно в жизни?",
+        f"💫 *{t('update.whats_important', lang)}*\n{intern.get('motivation', '') or t('update.not_specified_text', lang)}\n\n"
+        f"{t('update.what_motivation', lang)}",
         parse_mode="Markdown"
     )
     await state.set_state(UpdateStates.updating_motivation)
@@ -301,7 +302,7 @@ async def on_upd_schedule(callback: CallbackQuery, state: FSMContext):
     lang = intern.get('language', 'ru')
     await callback.answer()
     await callback.message.edit_text(
-        f"⏰ *{t('update.current_schedule', lang)}:* {intern['schedule_time']} (МСК)\n\n"
+        f"⏰ *{t('update.current_schedule', lang)}:* {intern['schedule_time']} ({t('shared.timezone_msk', lang)})\n\n"
         f"{t('update.when_remind', lang)}",
         parse_mode="Markdown"
     )
@@ -352,9 +353,11 @@ async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
         from engines.mode_selector import cmd_mode
         await cmd_mode(callback.message)
     except ImportError:
+        intern = await get_intern(callback.message.chat.id)
+        lang = intern.get('language', 'ru') if intern else 'ru'
         await callback.message.edit_text(
-            "🎯 *Выбор режима*\n\n"
-            "Используйте команду /mode для выбора режима работы.",
+            f"*{t('update.mode_title', lang)}*\n\n"
+            f"{t('update.use_mode_command', lang)}",
             parse_mode="Markdown"
         )
 
@@ -362,6 +365,7 @@ async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
 async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     from core.topics import get_marathon_day
     intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     start_date = intern.get('marathon_start_date')
     marathon_day = get_marathon_day(intern)
 
@@ -370,14 +374,13 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
             start_date = start_date.date()
         current_date_str = start_date.strftime('%d.%m.%Y')
     else:
-        current_date_str = "не задана"
-
+        current_date_str = t('update.not_set', lang)
     await callback.answer()
     await callback.message.edit_text(
-        f"🗓 *Текущая дата старта:* {current_date_str}\n"
-        f"*День марафона:* {marathon_day} из {MARATHON_DAYS}\n\n"
-        f"⚠️ *Внимание:* изменение даты старта влияет на расчёт текущего дня марафона.\n\n"
-        f"Выберите новую дату старта:",
+        f"🗓 *{t('update.current_start_date', lang)}* {current_date_str}\n"
+        f"*{t('update.marathon_day_info', lang, day=marathon_day, total=MARATHON_DAYS)}*\n\n"
+        f"⚠️ *{t('update.start_date_warning', lang)}*\n\n"
+        f"{t('update.select_start_date', lang)}",
         parse_mode="Markdown",
         reply_markup=kb_marathon_start()
     )

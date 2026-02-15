@@ -264,7 +264,12 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
 
 @onboarding_router.callback_query(OnboardingStates.confirming_profile, F.data == "confirm")
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
-    await update_intern(callback.message.chat.id, onboarding_completed=True)
+    from datetime import datetime, timezone
+    await update_intern(
+        callback.message.chat.id,
+        onboarding_completed=True,
+        trial_started_at=datetime.now(timezone.utc),
+    )
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') or 'ru'
 
@@ -306,5 +311,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
 @onboarding_router.callback_query(OnboardingStates.confirming_profile, F.data == "restart")
 async def on_restart(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.edit_text("Давайте заново!\n\nКак вас зовут?")
+    intern = await get_intern(callback.from_user.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await callback.message.edit_text(t('onboarding.restart', lang))
     await state.set_state(OnboardingStates.waiting_for_name)
