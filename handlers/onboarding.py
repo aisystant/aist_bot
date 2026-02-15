@@ -17,9 +17,9 @@ from aiogram.fsm.state import State, StatesGroup
 from config import STUDY_DURATIONS, MARATHON_DAYS
 from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today
-from i18n import t, detect_language, SUPPORTED_LANGUAGES
+from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
-    kb_study_duration, kb_marathon_start, kb_confirm, kb_learn,
+    kb_study_duration, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ onboarding_router = Router(name="onboarding")
 
 class OnboardingStates(StatesGroup):
     """Онбординг для марафона"""
+    choosing_language = State()          # 0. Язык (для неподдерживаемых языков)
     waiting_for_name = State()           # 1. Имя
     waiting_for_occupation = State()     # 2. Чем занимаешься
     waiting_for_interests = State()      # 3. Интересы/хобби
@@ -110,22 +111,39 @@ async def cmd_start(message: Message, state: FSMContext):
             t('welcome.ask_name', lang)
         )
     else:
-        # Для неизвестных языков — двуязычное (EN + RU)
+        # Для неизвестных языков — показываем выбор языка
         welcome_text = (
             t('welcome.greeting', 'en') + "\n" +
-            t('welcome.intro', 'en') + "\n" +
-            t('welcome.ask_name', 'en') + "\n\n" +
-            "━━━━━━━━━━━━━━━━━━\n\n" +
-            t('welcome.greeting', 'ru') + "\n" +
-            t('welcome.intro', 'ru') + "\n" +
-            t('welcome.ask_name', 'ru')
+            t('welcome.intro', 'en') + "\n\n" +
+            "🌐 *Choose your language:*"
         )
-        lang = 'ru'  # По умолчанию русский
+        await message.answer(welcome_text, reply_markup=kb_language_select(), parse_mode="Markdown")
+        await state.set_state(OnboardingStates.choosing_language)
+        return
 
     # Сохраняем определённый язык для дальнейшего использования
     await state.update_data(lang=lang)
 
     await message.answer(welcome_text)
+    await state.set_state(OnboardingStates.waiting_for_name)
+
+
+@onboarding_router.callback_query(OnboardingStates.choosing_language, F.data.startswith("lang_"))
+async def on_choose_language(callback: CallbackQuery, state: FSMContext):
+    """Выбор языка при онбординге (для неподдерживаемых языков Telegram)."""
+    lang_code = callback.data.replace("lang_", "")
+    if lang_code not in SUPPORTED_LANGUAGES:
+        lang_code = 'en'
+
+    await state.update_data(lang=lang_code)
+    await callback.answer(t('settings.language.changed', lang_code))
+
+    # Продолжаем онбординг — спрашиваем имя
+    await callback.message.edit_text(
+        t('welcome.greeting', lang_code) + "\n" +
+        t('welcome.intro', lang_code) + "\n\n" +
+        t('welcome.ask_name', lang_code)
+    )
     await state.set_state(OnboardingStates.waiting_for_name)
 
 

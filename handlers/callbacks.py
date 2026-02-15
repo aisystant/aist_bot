@@ -229,6 +229,41 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
+async def _is_in_sm_mode_select_state(callback: CallbackQuery) -> bool:
+    """Фильтр: пользователь в common.mode_select стейте SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    if not (dispatcher and dispatcher.is_sm_active):
+        return False
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return False
+    return intern.get('current_state') == "common.mode_select"
+
+
+@callbacks_router.callback_query(
+    F.data.in_({"show_language", "lang_back"}) | F.data.startswith("lang_"),
+    _is_in_sm_mode_select_state
+)
+async def cb_mode_select_language(callback: CallbackQuery, state: FSMContext):
+    """Language callback из главного меню через SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        await callback.answer()
+        return
+
+    logger.info(f"[CB] Mode select language callback '{callback.data}' for chat_id={callback.message.chat.id}")
+    try:
+        await dispatcher.route_callback(intern, callback)
+    except Exception as e:
+        logger.error(f"[CB] Error handling mode_select language callback: {e}")
+        await callback.answer()
+
+
 async def _is_in_sm_profile_or_settings_state(callback: CallbackQuery) -> bool:
     """Фильтр: пользователь в common.profile или common.settings стейте SM."""
     from handlers import get_dispatcher

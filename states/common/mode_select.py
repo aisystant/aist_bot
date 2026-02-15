@@ -12,12 +12,13 @@
 
 from typing import Optional
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from core.registry import registry
 from core import callback_protocol
-from i18n import t
+from i18n import t, SUPPORTED_LANGUAGES
+from db.queries.users import get_intern, update_intern
 
 
 class ModeSelectState(BaseState):
@@ -77,6 +78,12 @@ class ModeSelectState(BaseState):
                     callback_data=callback_protocol.encode("service", s.id),
                 )])
 
+        # Language button — always in English for discoverability by non-native speakers
+        all_buttons.append([InlineKeyboardButton(
+            text="🌐 Language",
+            callback_data="show_language",
+        )])
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 
         await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
@@ -85,3 +92,60 @@ class ModeSelectState(BaseState):
         """Текстовый ввод в главном меню → показываем меню заново."""
         await self.enter(user)
         return None  # Остаёмся в стейте
+
+    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Inline-кнопки в главном меню."""
+        data = callback.data
+
+        if data == "show_language":
+            await callback.answer()
+            return await self._show_language_options(user, callback)
+
+        if data.startswith("lang_"):
+            return await self._save_language(user, callback, data)
+
+        return None
+
+    def _get_language_name(self, code: str) -> str:
+        names = {
+            'ru': '🇷🇺 Русский', 'en': '🇬🇧 English',
+            'es': '🇪🇸 Español', 'fr': '🇫🇷 Français', 'zh': '🇨🇳 中文',
+        }
+        return names.get(code, code)
+
+    async def _show_language_options(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Show language selector."""
+        lang = self._get_lang(user)
+        buttons = [
+            [InlineKeyboardButton(text=self._get_language_name(l), callback_data=f"lang_{l}")]
+            for l in SUPPORTED_LANGUAGES
+        ]
+        buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="lang_back")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.edit_text(t('settings.language.title', lang), reply_markup=keyboard)
+        return None
+
+    async def _save_language(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Save selected language and rebuild menu."""
+        if data == "lang_back":
+            await callback.answer()
+            await self.enter(user)
+            return None
+
+        chat_id = self._get_chat_id(user)
+        new_lang = data.replace("lang_", "")
+        if new_lang not in SUPPORTED_LANGUAGES:
+            new_lang = 'ru'
+
+        await update_intern(chat_id, language=new_lang)
+        if isinstance(user, dict):
+            user['language'] = new_lang
+
+        await callback.answer(t('settings.language.changed', new_lang))
+        await self.enter(user)
+        return None
+
+    def _get_chat_id(self, user) -> int:
+        if isinstance(user, dict):
+            return user.get('chat_id')
+        return getattr(user, 'chat_id', None)

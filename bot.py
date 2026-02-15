@@ -184,6 +184,7 @@ async def main():
         BotCommand(command="feedback", description="Обратная связь"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="language", description="🌐 Language / Сменить язык"),
     ])
 
     # Английский
@@ -198,6 +199,7 @@ async def main():
         BotCommand(command="feedback", description="Feedback"),
         BotCommand(command="help", description="Help"),
         BotCommand(command="settings", description="Settings"),
+        BotCommand(command="language", description="🌐 Change language"),
     ], language_code="en")
 
     # Испанский
@@ -212,6 +214,7 @@ async def main():
         BotCommand(command="feedback", description="Comentarios"),
         BotCommand(command="help", description="Ayuda"),
         BotCommand(command="settings", description="Ajustes"),
+        BotCommand(command="language", description="🌐 Cambiar idioma"),
     ], language_code="es")
 
     # Французский
@@ -226,6 +229,7 @@ async def main():
         BotCommand(command="feedback", description="Retour"),
         BotCommand(command="help", description="Aide"),
         BotCommand(command="settings", description="Paramètres"),
+        BotCommand(command="language", description="🌐 Changer la langue"),
     ], language_code="fr")
 
     # Китайский
@@ -240,6 +244,7 @@ async def main():
         BotCommand(command="feedback", description="反馈"),
         BotCommand(command="help", description="帮助"),
         BotCommand(command="settings", description="设置"),
+        BotCommand(command="language", description="🌐 更改语言"),
     ], language_code="zh")
 
     # Команды разработчика (отдельное меню)
