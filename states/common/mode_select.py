@@ -79,8 +79,15 @@ class ModeSelectState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 
-        # Показываем меню: заголовок + inline keyboard в одном сообщении
-        await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
+        # Показываем меню: send+edit гарантирует удаление стейл Reply-клавиатур
+        # (после рестарта бота _pending_keyboard_cleanup пуст, а ReplyKeyboard
+        # от предыдущей сессии может висеть). mode_select — хаб, сюда все
+        # возвращаются, поэтому cleanup здесь = защита от стейл-клавиатур.
+        msg = await self.send(user, t('menu.main_title', lang), reply_markup=ReplyKeyboardRemove())
+        try:
+            await msg.edit_reply_markup(reply_markup=keyboard)
+        except Exception:
+            pass  # Best effort: если edit не прошёл, меню без inline кнопок
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
