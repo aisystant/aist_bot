@@ -1045,12 +1045,12 @@ progress:
     en: "Streak"
 
   record:
-    ru: "Рекорд"
-    en: "Record"
+    ru: "Макс. без перерыва"
+    en: "Max streak"
 
   activity_line:
-    ru: "Активность"
-    en: "Activity"
+    ru: "Активных дней"
+    en: "Active days"
 
   total_word:
     ru: "всего"
@@ -1065,7 +1065,7 @@ progress:
     en: "Complexity level"
 
   since:
-    ru: "С нами с"
+    ru: "Вы с нами с"
     en: "With us since"
 
   # Кнопки секций

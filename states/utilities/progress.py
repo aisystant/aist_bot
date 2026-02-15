@@ -303,7 +303,7 @@ class ProgressState(BaseState):
         reg_date = cache.get('reg_date', '—')
 
         text = f"<b>{t('progress.title_hub', lang, name=name)}</b>\n\n"
-        text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest}\n"
+        text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest} {t('progress.days', lang)}\n"
         text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
         text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
         text += f"📆 {t('progress.since', lang)}: {reg_date}"
