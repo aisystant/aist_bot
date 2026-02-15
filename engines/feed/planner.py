@@ -512,9 +512,12 @@ async def generate_multi_topic_digest(
             "depth_level": depth_level,
         }
 
-    # Расчёт времени на каждую тему
+    # Расчёт времени на каждую тему с учётом сложности (bloom_level)
     time_per_topic = duration // topics_count
-    words_per_topic = time_per_topic * 100  # ~100 слов в минуту чтения
+    bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
+    bloom_multipliers = {1: 1.0, 2: 1.5, 3: 2.0}
+    multiplier = bloom_multipliers.get(min(bloom_level, 3), 1.0)
+    words_per_topic = int(time_per_topic * 100 * multiplier)
 
     # Получаем контекст из MCP для всех тем — ПАРАЛЛЕЛЬНО
     mcp_context = ""

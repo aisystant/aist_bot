@@ -90,7 +90,9 @@ async def cleanup_expired_content():
     """Удалить невостребованный пре-генерированный контент.
 
     Вызывается в полночь (00:00 MSK).
-    Удаляет все записи со статусом 'pending', созданные до сегодня.
+    Marathon: удаляет pending, созданные до сегодня.
+    Feed: удаляет orphaned pending (UPSERT защищает от дублей внутри одной недели,
+          но не от pending от завершённых/неактивных недель).
     """
     today = moscow_today()
     pool = await get_pool()
@@ -100,4 +102,12 @@ async def cleanup_expired_content():
                WHERE status = 'pending' AND created_at::date < $1''',
             today,
         )
-    logger.info(f"[Marathon] Cleanup expired content: {result}")
+        logger.info(f"[Marathon] Cleanup expired content: {result}")
+
+        feed_result = await conn.execute(
+            '''DELETE FROM feed_sessions
+               WHERE status = 'pending' AND session_date < $1''',
+            today,
+        )
+        if feed_result and feed_result != 'DELETE 0':
+            logger.info(f"[Feed] Cleanup orphaned pre-gen sessions: {feed_result}")

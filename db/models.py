@@ -253,6 +253,34 @@ async def create_tables(pool: asyncpg.Pool):
             except Exception:
                 pass
 
+        # Дедупликация feed_sessions перед добавлением UNIQUE constraint
+        try:
+            await conn.execute('''
+                WITH keep AS (
+                    SELECT DISTINCT ON (week_id, session_date) id
+                    FROM feed_sessions
+                    WHERE session_date IS NOT NULL
+                    ORDER BY week_id, session_date,
+                        CASE WHEN status = 'completed' THEN 0
+                             WHEN status = 'active' THEN 1
+                             ELSE 2 END,
+                        created_at DESC
+                )
+                DELETE FROM feed_sessions
+                WHERE session_date IS NOT NULL
+                  AND id NOT IN (SELECT id FROM keep)
+            ''')
+        except Exception:
+            pass
+
+        try:
+            await conn.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_feed_sessions_week_date
+                ON feed_sessions (week_id, session_date)
+            ''')
+        except Exception:
+            pass
+
         # ═══════════════════════════════════════════════════════════
         # МАРАФОН: ПРЕ-ГЕНЕРИРОВАННЫЙ КОНТЕНТ
         # ═══════════════════════════════════════════════════════════

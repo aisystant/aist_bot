@@ -87,16 +87,36 @@ async def update_feed_week(week_id: int, updates: dict):
 
 async def create_feed_session(week_id: int, day_number: int,
                              topic_title: str, content: dict,
-                             session_date: date) -> dict:
-    """Создать сессию Ленты"""
+                             session_date: date,
+                             status: str = 'active') -> dict | None:
+    """Создать или обновить сессию Ленты (UPSERT).
+
+    UPSERT по (week_id, session_date):
+    - Если сессии нет → INSERT
+    - Если есть pending → UPDATE (перегенерация)
+    - Если есть active/completed → пропуск (не затирает пользовательские данные)
+
+    Returns:
+        dict сессии или None (если active/completed уже существует)
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.fetchrow('''
             INSERT INTO feed_sessions
             (week_id, day_number, topic_title, content, session_date, status)
-            VALUES ($1, $2, $3, $4, $5, 'active')
-            RETURNING id
-        ''', week_id, day_number, topic_title, json.dumps(content), session_date)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (week_id, session_date) DO UPDATE SET
+                content = EXCLUDED.content,
+                day_number = EXCLUDED.day_number,
+                topic_title = EXCLUDED.topic_title,
+                status = EXCLUDED.status,
+                created_at = NOW()
+            WHERE feed_sessions.status = 'pending'
+            RETURNING id, status
+        ''', week_id, day_number, topic_title, json.dumps(content), session_date, status)
+
+        if not result:
+            return None
 
         return {
             'id': result['id'],
@@ -105,7 +125,7 @@ async def create_feed_session(week_id: int, day_number: int,
             'topic_title': topic_title,
             'content': content,
             'session_date': session_date,
-            'status': 'active'
+            'status': result['status']
         }
 
 
@@ -159,7 +179,10 @@ async def get_feed_session(week_id: int, session_date: date) -> Optional[dict]:
             '''SELECT * FROM feed_sessions
                WHERE week_id = $1 AND session_date = $2
                ORDER BY
-                   CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
+                   CASE WHEN status = 'completed' THEN 0
+                        WHEN status = 'active' THEN 1
+                        WHEN status = 'pending' THEN 2
+                        ELSE 3 END,
                    created_at DESC
                LIMIT 1''',
             week_id, session_date
@@ -181,12 +204,15 @@ async def get_feed_session(week_id: int, session_date: date) -> Optional[dict]:
 
 
 async def get_incomplete_feed_session(week_id: int) -> Optional[dict]:
-    """Получить незавершённую сессию (status != 'completed') для недели"""
+    """Получить незавершённую сессию (status = 'active') для недели.
+
+    Исключает 'pending' (pre-generated, не показана) — это не «незавершённая», а «ещё не начатая».
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''SELECT * FROM feed_sessions
-               WHERE week_id = $1 AND status != 'completed'
+               WHERE week_id = $1 AND status = 'active'
                ORDER BY session_date DESC
                LIMIT 1''',
             week_id

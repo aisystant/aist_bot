@@ -19,7 +19,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.marathon import save_marathon_content, cleanup_expired_content
-from db.queries.users import moscow_now
+from db.queries.users import moscow_now, moscow_today
+from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -52,9 +53,19 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     return _scheduler
 
 
-async def send_feed_notification(chat_id: int, bot: Bot):
-    """Отправка уведомления о готовности дайджеста для пользователей в режиме Лента."""
+async def pre_generate_feed_digest(chat_id: int, bot: Bot):
+    """Пре-генерация дайджеста Ленты и отправка уведомления.
+
+    Паттерн аналогичен send_scheduled_topic() для Марафона:
+    1. Validate feed active + week active
+    2. Check: сессия на сегодня уже есть → skip
+    3. Generate: generate_multi_topic_digest()
+    4. Save: create_feed_session(status='pending')
+    5. Send notification: кнопка «Получить дайджест»
+    """
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from engines.feed.planner import generate_multi_topic_digest
+    from config import FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN
 
     intern = await get_intern(chat_id)
     if not intern:
@@ -66,6 +77,66 @@ async def send_feed_notification(chat_id: int, bot: Bot):
     if feed_status != 'active':
         return
 
+    # Проверяем активную неделю
+    week = await get_current_feed_week(chat_id)
+    if not week or week.get('status') != FeedWeekStatus.ACTIVE:
+        logger.info(f"[Scheduler] Feed: {chat_id} — no active week, skip")
+        return
+
+    # Если сессия на сегодня уже есть — не генерируем повторно
+    today = moscow_today()
+    existing = await get_feed_session(week['id'], today)
+    if existing:
+        logger.info(f"[Scheduler] Feed: {chat_id} — session for today exists (status={existing.get('status')}), skip")
+        return
+
+    topics = week.get('accepted_topics', [])
+    if not topics:
+        logger.info(f"[Scheduler] Feed: {chat_id} — no topics selected, skip")
+        return
+
+    depth_level = week.get('current_day', 1)
+    duration = intern.get('feed_duration', FEED_SESSION_DURATION_MAX)
+    if not duration or duration < FEED_SESSION_DURATION_MIN:
+        duration = (FEED_SESSION_DURATION_MIN + FEED_SESSION_DURATION_MAX) // 2
+
+    # ─── Пре-генерация дайджеста ───
+    try:
+        content = await asyncio.wait_for(
+            generate_multi_topic_digest(
+                topics=topics,
+                intern=intern,
+                duration=duration,
+                depth_level=depth_level,
+            ),
+            timeout=120,
+        )
+
+        if not content or not content.get('topics_detail'):
+            logger.error(f"[Scheduler] Feed: digest generation returned empty for {chat_id}")
+            return
+
+        # Сохраняем как pending (не показана пользователю)
+        topics_title = ", ".join(topics)
+        await create_feed_session(
+            week_id=week['id'],
+            day_number=depth_level,
+            topic_title=topics_title,
+            content=content,
+            session_date=today,
+            status='pending',
+        )
+        logger.info(f"[Scheduler] Feed: pre-generated digest for {chat_id} "
+                     f"(topics: {topics_title}, depth: {depth_level})")
+
+    except asyncio.TimeoutError:
+        logger.error(f"[Scheduler] Feed: pre-generation timeout (120s) for {chat_id}")
+        return
+    except Exception as e:
+        logger.error(f"[Scheduler] Feed: pre-generation error for {chat_id}: {e}")
+        return
+
+    # Отправляем уведомление с кнопкой «Получить дайджест»
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")]
     ])
@@ -353,12 +424,14 @@ async def scheduled_check():
         bot = Bot(token=_bot_token)
         me = await bot.get_me()
         logger.info(f"[Scheduler] Bot ID: {bot.id}, username: {me.username}")
-        for chat_id, send_type in scheduled:
+
+        async def _process_user(chat_id: int, send_type: str):
+            """Обработка одного пользователя (marathon + feed)."""
             try:
                 if send_type in ('marathon', 'both'):
                     await send_scheduled_topic(chat_id, bot)
                 if send_type in ('feed', 'both'):
-                    await send_feed_notification(chat_id, bot)
+                    await pre_generate_feed_digest(chat_id, bot)
                 logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
             except Exception as e:
                 error_msg = str(e).lower()
@@ -366,6 +439,15 @@ async def scheduled_check():
                     logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
                 else:
                     logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
+
+        # Параллельная обработка пользователей (max 5 одновременно для API rate limits)
+        sem = asyncio.Semaphore(5)
+
+        async def _bounded(chat_id, send_type):
+            async with sem:
+                await _process_user(chat_id, send_type)
+
+        await asyncio.gather(*[_bounded(cid, st) for cid, st in scheduled])
         await bot.session.close()
 
     # Проверяем напоминания

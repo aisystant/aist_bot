@@ -131,7 +131,13 @@ class FeedDigestState(BaseState):
                 await self._show_menu(user, week, digest_completed_today=True)
                 return None
 
-            # Показываем существующую сессию
+            # Pre-generated session: mark as active
+            if existing.get('status') == 'pending':
+                await update_feed_session(existing['id'], {'status': 'active'})
+                existing['status'] = 'active'
+                logger.info(f"[Feed] Pre-gen digest delivered to {chat_id}, session {existing['id']}")
+
+            # Показываем существующую сессию (active или только что active из pending)
             await self._show_digest(user, existing, week)
             return None
 
@@ -235,7 +241,8 @@ class FeedDigestState(BaseState):
             text += content.get('main_content', t('feed.content_unavailable', lang))
 
         if content.get('reflection_prompt'):
-            text += f"\n\n💭 *{content['reflection_prompt']}*"
+            prompt = content['reflection_prompt'].strip()
+            text = text.rstrip('\n') + f"\n\n💭 *{prompt}*"
 
         # Кнопки
         buttons = []
@@ -326,12 +333,25 @@ class FeedDigestState(BaseState):
 
         text = f"📖 *{title}*\n\n{detail}"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"✍️ {t('buttons.write_fixation', lang)}",
-                callback_data="feed_fixation"
-            )]
-        ])
+        topics_list = content.get('topics_list', [])
+        buttons = []
+
+        # Кнопки оставшихся тем
+        for i, other_td in enumerate(topics_detail):
+            if i != topic_index:
+                other_title = other_td.get('title', topics_list[i] if i < len(topics_list) else '')
+                short_title = other_title[:25]
+                buttons.append([InlineKeyboardButton(
+                    text=f"🔎 {t('feed.more_details', lang)}: {short_title}",
+                    callback_data=f"feed_detail_{i}"
+                )])
+
+        buttons.append([InlineKeyboardButton(
+            text=f"✍️ {t('buttons.write_fixation', lang)}",
+            callback_data="feed_fixation"
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         try:
             await callback.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
