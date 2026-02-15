@@ -40,6 +40,11 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
         aiogram_dispatcher: aiogram Dispatcher (FSM storage)
         bot_token: Telegram bot token
     """
+    # DISABLE_SCHEDULER=true — отключает scheduler (для тестовых инстансов с общей БД)
+    if os.getenv("DISABLE_SCHEDULER", "false").lower() == "true":
+        logger.info("[Scheduler] DISABLE_SCHEDULER=true — планировщик отключён")
+        return None
+
     global _scheduler, _bot_dispatcher, _aiogram_dispatcher, _bot_token
     _bot_dispatcher = bot_dispatcher
     _aiogram_dispatcher = aiogram_dispatcher
