@@ -268,13 +268,13 @@ async def delete_feed_sessions(week_id: int, keep_completed: bool = False):
     """Удалить сессии недели (при смене тем).
 
     Args:
-        keep_completed: если True, сохраняет completed сессии (для дневного лимита).
+        keep_completed: если True, сохраняет терминальные сессии (completed/skipped/expired).
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
         if keep_completed:
             deleted = await conn.execute(
-                "DELETE FROM feed_sessions WHERE week_id = $1 AND status != 'completed'",
+                "DELETE FROM feed_sessions WHERE week_id = $1 AND status NOT IN ('completed', 'skipped', 'expired')",
                 week_id
             )
         else:
