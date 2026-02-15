@@ -219,6 +219,10 @@ class ProfileState(BaseState):
         if data.startswith("bloom_"):
             return await self._save_bloom(user, callback, data)
         if data == "settings_back_to_menu":
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             await self.enter(user)
             return None
 

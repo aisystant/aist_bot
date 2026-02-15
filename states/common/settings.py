@@ -215,10 +215,18 @@ class SettingsState(BaseState):
         if data == "reset_stats_do":
             return await self._stats_reset_do(user, callback)
         if data == "reset_cancel":
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             await self.enter(user)
             return None
 
         if data == "settings_back_to_menu":
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
             await self.enter(user)
             return None
 
