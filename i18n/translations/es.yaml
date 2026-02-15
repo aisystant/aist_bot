@@ -45,6 +45,8 @@ menu:
   language: "Cambiar idioma"
   start: "Reiniciar onboarding"
   help: "Ayuda"
+  main_title: "Elige un servicio:"
+  tools_title: "Herramientas:"
 
 onboarding:
   welcome: "¡Hola! Te ayudaré a convertirte en un estudiante sistemático."
@@ -64,6 +66,7 @@ onboarding:
   ask_time: "¿Cuándo debo recordarte sobre nuevos temas?"
   ask_time_hint: "_Formato: HH:MM (ej. 09:00). Zona horaria: Moscú (UTC+3)_"
   ask_start_date: "¿Cuándo empezamos el maratón?"
+  restart: "¡Empecemos de nuevo!\n\n¿Cómo te llamas?"
 
 duration:
   minutes_5: "⚡ 5 minutos"
@@ -280,6 +283,7 @@ progress:
   topics_at_level: "temas en este nivel"
   total_word: "total"
   weeks_completed: "Semanas completadas"
+  back_hint: "/progress — ver progreso"
 
 modes:
   select: "Seleccionar modo"
@@ -424,6 +428,16 @@ update:
   day_after_tomorrow: "pasado mañana"
   continue_learning_hint: "/learn — continuar aprendiendo"
   update_more: "/update — actualizar algo más"
+  whats_important: "Lo importante ahora:"
+  not_specified_text: "no especificado"
+  what_motivation: "¿Qué es verdaderamente importante para ti en la vida?"
+  mode_title: "🎯 Selección de modo"
+  use_mode_command: "Usa el comando /mode para seleccionar el modo de trabajo."
+  current_start_date: "Fecha de inicio actual:"
+  marathon_day_info: "Día del maratón: {day} de {total}"
+  start_date_warning: "Atención: cambiar la fecha de inicio afecta el cálculo del día del maratón."
+  select_start_date: "Selecciona una nueva fecha de inicio:"
+  not_set: "no establecida"
 
 help:
   title: "Ayuda"
@@ -704,6 +718,7 @@ shared:
   sources_label: "📚 _Fuentes:_"
   question_error: "No se pudo procesar la pregunta. Inténtalo más tarde."
   answer_failed: "Lo siento {name}, no se pudo obtener una respuesta. Intenta reformular tu pregunta o pregunta más tarde."
+  timezone_msk: "MSK"
 
 consultation:
   thinking: "Pensando..."
@@ -759,10 +774,6 @@ mydata:
   digests: "resúmenes"
   fixations: "fijaciones"
   explain_error: "No se pudieron analizar los datos. Inténtalo más tarde."
-
-menu:
-  main_title: "Elige un servicio:"
-  tools_title: "Herramientas:"
 
 mode:
   select_mode: "Selecciona el modo de aprendizaje"
@@ -981,27 +992,3 @@ twin:
   already_disconnected: "Digital Twin ya desconectado"
   disconnected_alert: "Digital Twin desconectado"
   disconnected_desc: "*Digital Twin desconectado*\n\nUsa /twin para conectarte de nuevo."
-
-# -----------------------------------------------------------------------------
-# Configuración, progreso, onboarding (adicional)
-# -----------------------------------------------------------------------------
-shared:
-  timezone_msk: "MSK"
-
-update:
-  whats_important: "Lo importante ahora:"
-  not_specified_text: "no especificado"
-  what_motivation: "¿Qué es verdaderamente importante para ti en la vida?"
-  mode_title: "🎯 Selección de modo"
-  use_mode_command: "Usa el comando /mode para seleccionar el modo de trabajo."
-  current_start_date: "Fecha de inicio actual:"
-  marathon_day_info: "Día del maratón: {day} de {total}"
-  start_date_warning: "Atención: cambiar la fecha de inicio afecta el cálculo del día del maratón."
-  select_start_date: "Selecciona una nueva fecha de inicio:"
-  not_set: "no establecida"
-
-onboarding:
-  restart: "¡Empecemos de nuevo!\n\n¿Cómo te llamas?"
-
-progress:
-  back_hint: "/progress — ver progreso"

@@ -261,10 +261,15 @@ class SettingsState(BaseState):
 
         label_key, prompt_key, current_value = prompts.get(field, ('', '', ''))
 
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+        ])
+
         await callback.message.edit_text(
             f"⏰ *{t(label_key, lang)}:* {current_value}\n\n"
             f"{t(prompt_key, lang)}",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
 
         await self._set_waiting(user, field)

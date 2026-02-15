@@ -45,6 +45,8 @@ menu:
   language: "Changer de langue"
   start: "Recommencer l'inscription"
   help: "Aide"
+  main_title: "Choisis un service :"
+  tools_title: "Outils :"
 
 onboarding:
   welcome: "Bonjour ! Je vais t'aider à devenir un apprenant systématique."
@@ -64,6 +66,7 @@ onboarding:
   ask_time: "Quand dois-je te rappeler les nouveaux sujets ?"
   ask_time_hint: "_Format : HH:MM (ex. 09:00). Fuseau horaire : Moscou (UTC+3)_"
   ask_start_date: "Quand commençons-nous le marathon ?"
+  restart: "Recommençons !\n\nComment vous appelez-vous ?"
 
 duration:
   minutes_5: "⚡ 5 minutes"
@@ -280,6 +283,7 @@ progress:
   topics_at_level: "sujets à ce niveau"
   total_word: "total"
   weeks_completed: "Semaines terminées"
+  back_hint: "/progress — voir le progrès"
 
 modes:
   select: "Sélectionner le mode"
@@ -424,6 +428,16 @@ update:
   day_after_tomorrow: "après-demain"
   continue_learning_hint: "/learn — continuer l'apprentissage"
   update_more: "/update — mettre à jour autre chose"
+  whats_important: "Ce qui est important maintenant :"
+  not_specified_text: "non spécifié"
+  what_motivation: "Qu'est-ce qui est vraiment important pour vous dans la vie ?"
+  mode_title: "🎯 Sélection du mode"
+  use_mode_command: "Utilisez la commande /mode pour sélectionner le mode de travail."
+  current_start_date: "Date de début actuelle :"
+  marathon_day_info: "Jour du marathon : {day} sur {total}"
+  start_date_warning: "Attention : changer la date de début affecte le calcul du jour du marathon."
+  select_start_date: "Choisissez une nouvelle date de début :"
+  not_set: "non définie"
 
 help:
   title: "Aide"
@@ -704,6 +718,7 @@ shared:
   sources_label: "📚 _Sources :_"
   question_error: "Impossible de traiter la question. Réessaie plus tard."
   answer_failed: "Désolé {name}, impossible d'obtenir une réponse. Essaie de reformuler ta question ou demande plus tard."
+  timezone_msk: "MSK"
 
 consultation:
   thinking: "Réflexion..."
@@ -759,10 +774,6 @@ mydata:
   digests: "résumés"
   fixations: "fixations"
   explain_error: "Impossible d'analyser les données. Réessayez plus tard."
-
-menu:
-  main_title: "Choisis un service :"
-  tools_title: "Outils :"
 
 mode:
   select_mode: "Sélectionne le mode d'apprentissage"
@@ -981,27 +992,3 @@ twin:
   already_disconnected: "Digital Twin déjà déconnecté"
   disconnected_alert: "Digital Twin déconnecté"
   disconnected_desc: "*Digital Twin déconnecté*\n\nUtilisez /twin pour vous reconnecter."
-
-# -----------------------------------------------------------------------------
-# Configuration, progrès, onboarding (supplémentaire)
-# -----------------------------------------------------------------------------
-shared:
-  timezone_msk: "MSK"
-
-update:
-  whats_important: "Ce qui est important maintenant :"
-  not_specified_text: "non spécifié"
-  what_motivation: "Qu'est-ce qui est vraiment important pour vous dans la vie ?"
-  mode_title: "🎯 Sélection du mode"
-  use_mode_command: "Utilisez la commande /mode pour sélectionner le mode de travail."
-  current_start_date: "Date de début actuelle :"
-  marathon_day_info: "Jour du marathon : {day} sur {total}"
-  start_date_warning: "Attention : changer la date de début affecte le calcul du jour du marathon."
-  select_start_date: "Choisissez une nouvelle date de début :"
-  not_set: "non définie"
-
-onboarding:
-  restart: "Recommençons !\n\nComment vous appelez-vous ?"
-
-progress:
-  back_hint: "/progress — voir le progrès"

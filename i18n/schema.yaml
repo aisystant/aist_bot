@@ -181,6 +181,13 @@ menu:
     ru: "Справка"
     en: "Help"
 
+  main_title:
+    ru: "Выберите сервис:"
+    en: "Choose a service:"
+  tools_title:
+    ru: "Инструменты:"
+    en: "Tools:"
+
 # -----------------------------------------------------------------------------
 # Онбординг
 # -----------------------------------------------------------------------------
@@ -252,6 +259,10 @@ onboarding:
   ask_start_date:
     ru: "Когда начнём марафон?"
     en: "When shall we start the marathon?"
+
+  restart:
+    ru: "Давайте заново!\n\nКак вас зовут?"
+    en: "Let's start over!\n\nWhat's your name?"
 
 # -----------------------------------------------------------------------------
 # Длительность
@@ -1176,6 +1187,10 @@ progress:
     ru: "не подключён"
     en: "not connected"
 
+  back_hint:
+    ru: "/progress — посмотреть прогресс"
+    en: "/progress — view progress"
+
 # -----------------------------------------------------------------------------
 # Режимы
 # -----------------------------------------------------------------------------
@@ -1672,10 +1687,6 @@ profile:
 # Обновление профиля
 # -----------------------------------------------------------------------------
 update:
-  saved:
-    ru: "Сохранено!"
-    en: "Saved!"
-
   start_date_updated:
     ru: "Дата старта обновлена!"
     en: "Start date updated!"
@@ -1807,6 +1818,37 @@ update:
   update_more:
     ru: "/update — изменить ещё что-то"
     en: "/update — change something else"
+
+  whats_important:
+    ru: "Что сейчас важно:"
+    en: "What's important now:"
+  not_specified_text:
+    ru: "не указано"
+    en: "not specified"
+  what_motivation:
+    ru: "Что для вас по-настоящему важно в жизни?"
+    en: "What is truly important to you in life?"
+  mode_title:
+    ru: "🎯 Выбор режима"
+    en: "🎯 Mode selection"
+  use_mode_command:
+    ru: "Используйте команду /mode для выбора режима работы."
+    en: "Use the /mode command to select a working mode."
+  current_start_date:
+    ru: "Текущая дата старта:"
+    en: "Current start date:"
+  marathon_day_info:
+    ru: "День марафона: {day} из {total}"
+    en: "Marathon day: {day} of {total}"
+  start_date_warning:
+    ru: "Внимание: изменение даты старта влияет на расчёт текущего дня марафона."
+    en: "Warning: changing the start date affects marathon day calculation."
+  select_start_date:
+    ru: "Выберите новую дату старта:"
+    en: "Select a new start date:"
+  not_set:
+    ru: "не задана"
+    en: "not set"
 
 # -----------------------------------------------------------------------------
 # Справка
@@ -3081,17 +3123,6 @@ plans:
     en: "Select a strategist repository."
 
 # -----------------------------------------------------------------------------
-# Меню (генерируемое из реестра)
-# -----------------------------------------------------------------------------
-menu:
-  main_title:
-    ru: "Выберите сервис:"
-    en: "Choose a service:"
-  tools_title:
-    ru: "Инструменты:"
-    en: "Tools:"
-
-# -----------------------------------------------------------------------------
 # Выбор режима
 # -----------------------------------------------------------------------------
 mode:
@@ -3131,6 +3162,10 @@ shared:
   answer_failed:
     ru: "К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
     en: "Sorry {name}, couldn't get an answer. Try rephrasing your question or ask later."
+
+  timezone_msk:
+    ru: "МСК"
+    en: "MSK"
 
 # -----------------------------------------------------------------------------
 # Консультация
@@ -3765,53 +3800,3 @@ twin:
   disconnected_desc:
     ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
     en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
-
-# -----------------------------------------------------------------------------
-# Дополнительные ключи (settings, progress, onboarding)
-# -----------------------------------------------------------------------------
-shared:
-  timezone_msk:
-    ru: "МСК"
-    en: "MSK"
-
-update:
-  whats_important:
-    ru: "Что сейчас важно:"
-    en: "What's important now:"
-  not_specified_text:
-    ru: "не указано"
-    en: "not specified"
-  what_motivation:
-    ru: "Что для вас по-настоящему важно в жизни?"
-    en: "What is truly important to you in life?"
-  mode_title:
-    ru: "🎯 Выбор режима"
-    en: "🎯 Mode selection"
-  use_mode_command:
-    ru: "Используйте команду /mode для выбора режима работы."
-    en: "Use the /mode command to select a working mode."
-  current_start_date:
-    ru: "Текущая дата старта:"
-    en: "Current start date:"
-  marathon_day_info:
-    ru: "День марафона: {day} из {total}"
-    en: "Marathon day: {day} of {total}"
-  start_date_warning:
-    ru: "Внимание: изменение даты старта влияет на расчёт текущего дня марафона."
-    en: "Warning: changing the start date affects marathon day calculation."
-  select_start_date:
-    ru: "Выберите новую дату старта:"
-    en: "Select a new start date:"
-  not_set:
-    ru: "не задана"
-    en: "not set"
-
-onboarding:
-  restart:
-    ru: "Давайте заново!\n\nКак вас зовут?"
-    en: "Let's start over!\n\nWhat's your name?"
-
-progress:
-  back_hint:
-    ru: "/progress — посмотреть прогресс"
-    en: "/progress — view progress"

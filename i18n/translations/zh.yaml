@@ -45,6 +45,8 @@ menu:
   language: "更换语言"
   start: "重新注册"
   help: "帮助"
+  main_title: "选择一项服务："
+  tools_title: "工具："
 
 onboarding:
   welcome: "你好！我将帮助你成为一个系统化的学习者。"
@@ -64,6 +66,7 @@ onboarding:
   ask_time: "什么时候提醒你学习新主题？"
   ask_time_hint: "_格式：HH:MM（例如 09:00）。时区：莫斯科（UTC+3）_"
   ask_start_date: "什么时候开始马拉松？"
+  restart: "让我们重新开始！\n\n您叫什么名字？"
 
 duration:
   minutes_5: "⚡ 5分钟"
@@ -280,6 +283,7 @@ progress:
   topics_at_level: "个主题在此级别"
   total_word: "总计"
   weeks_completed: "已完成周数"
+  back_hint: "/progress — 查看进度"
 
 modes:
   select: "选择模式"
@@ -424,6 +428,16 @@ update:
   day_after_tomorrow: "后天"
   continue_learning_hint: "/learn — 继续学习"
   update_more: "/update — 更新其他"
+  whats_important: "当前重要事项："
+  not_specified_text: "未指定"
+  what_motivation: "对您来说，生活中什么是真正重要的？"
+  mode_title: "🎯 模式选择"
+  use_mode_command: "使用 /mode 命令选择工作模式。"
+  current_start_date: "当前开始日期："
+  marathon_day_info: "马拉松第 {day} 天，共 {total} 天"
+  start_date_warning: "注意：更改开始日期会影响马拉松天数计算。"
+  select_start_date: "选择新的开始日期："
+  not_set: "未设置"
 
 help:
   title: "帮助"
@@ -704,6 +718,7 @@ shared:
   sources_label: "📚 _来源：_"
   question_error: "无法处理问题。请稍后再试。"
   answer_failed: "抱歉{name}，无法获取答案。请尝试换个方式提问或稍后再问。"
+  timezone_msk: "莫斯科时间"
 
 consultation:
   thinking: "思考中..."
@@ -759,10 +774,6 @@ mydata:
   digests: "摘要"
   fixations: "感悟"
   explain_error: "无法分析数据。请稍后再试。"
-
-menu:
-  main_title: "选择一项服务："
-  tools_title: "工具："
 
 mode:
   select_mode: "选择学习模式"
@@ -981,27 +992,3 @@ twin:
   already_disconnected: "Digital Twin已断开连接"
   disconnected_alert: "Digital Twin已断开连接"
   disconnected_desc: "*Digital Twin已断开连接*\n\n使用 /twin 重新连接。"
-
-# -----------------------------------------------------------------------------
-# 设置、进度、引导（补充）
-# -----------------------------------------------------------------------------
-shared:
-  timezone_msk: "莫斯科时间"
-
-update:
-  whats_important: "当前重要事项："
-  not_specified_text: "未指定"
-  what_motivation: "对您来说，生活中什么是真正重要的？"
-  mode_title: "🎯 模式选择"
-  use_mode_command: "使用 /mode 命令选择工作模式。"
-  current_start_date: "当前开始日期："
-  marathon_day_info: "马拉松第 {day} 天，共 {total} 天"
-  start_date_warning: "注意：更改开始日期会影响马拉松天数计算。"
-  select_start_date: "选择新的开始日期："
-  not_set: "未设置"
-
-onboarding:
-  restart: "让我们重新开始！\n\n您叫什么名字？"
-
-progress:
-  back_hint: "/progress — 查看进度"
