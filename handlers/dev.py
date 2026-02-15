@@ -1,5 +1,5 @@
 """
-Команды разработчика: /stats, /usage, /qa, /health.
+Команды разработчика: /stats, /usage, /qa, /health, /latency.
 
 Доступны только для DEVELOPER_CHAT_ID.
 """
@@ -193,5 +193,68 @@ async def cmd_health(message: Message):
         f" | \U0001f7e1 Yellow: {feedback.get('yellow_count', 0)}"
         f" | \U0001f7e2 Green: {feedback.get('green_count', 0)}\n"
     )
+
+    await message.answer(text, parse_mode="HTML")
+
+
+@dev_router.message(Command("latency"))
+async def cmd_latency(message: Message):
+    """/latency — отчёт по латентности с пороговыми значениями."""
+    if not _is_developer(message.chat.id):
+        return
+
+    from db.queries.traces import get_latency_report, classify_command, get_color, THRESHOLDS
+
+    try:
+        report = await get_latency_report(hours=24)
+    except Exception as e:
+        logger.error(f"[Dev] /latency error: {e}")
+        await message.answer("Error fetching latency report.")
+        return
+
+    sep = "\u2500" * 20
+    s = report['summary']
+
+    # Thresholds legend
+    legend = (
+        "\U0001f7e2 nav &lt;1s | heavy &lt;3s | consult &lt;8s\n"
+        "\U0001f7e1 nav &lt;3s | heavy &lt;8s | consult &lt;20s\n"
+        "\U0001f534 above yellow\n"
+    )
+
+    # By command
+    cmd_lines = ""
+    for r in report['by_command']:
+        cat = classify_command(r['command'])
+        color = get_color(r['avg_ms'], cat)
+        cmd_lines += f"  {color} {r['command']}: {r['avg_ms']}ms avg | p95={r['p95_ms']}ms | n={r['count']}\n"
+
+    # Slowest spans
+    span_lines = ""
+    for r in report['slowest_spans'][:6]:
+        span_lines += f"  {r['name']}: {r['avg_ms']}ms avg | max={r['max_ms']}ms\n"
+
+    # Red alerts
+    red_lines = ""
+    if report['red_traces']:
+        for r in report['red_traces']:
+            ms = int(r['total_ms'])
+            red_lines += f"  \U0001f534 {r['command']}: {ms}ms\n"
+    else:
+        red_lines = "  \u2014 none\n"
+
+    text = (
+        f"<b>Latency Report (24h)</b>\n{sep}\n\n"
+        f"<b>Summary</b>\n"
+        f"  Requests: {s['total']} | Avg: {s['avg_ms']}ms | P95: {s['p95_ms']}ms\n"
+        f"  \U0001f534 Red zone: {report['red_count']}\n\n"
+        f"<b>Thresholds</b>\n{legend}\n"
+        f"<b>By command</b>\n{cmd_lines}\n"
+        f"<b>Slowest spans</b>\n{span_lines}\n"
+        f"<b>Red alerts</b>\n{red_lines}"
+    )
+
+    if len(text) > 4000:
+        text = text[:4000] + "\n\n... (truncated)"
 
     await message.answer(text, parse_mode="HTML")

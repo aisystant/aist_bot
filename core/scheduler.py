@@ -493,6 +493,21 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Trial expiry notification error: {e}")
 
+    # 🚨 Latency alert: проверяем каждые 15 минут
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from db.queries.traces import check_latency_alerts
+            alert_text = await check_latency_alerts(minutes=15)
+            if alert_text:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), alert_text, parse_mode="HTML")
+                    logger.info("[Scheduler] Latency alert sent to developer")
+                finally:
+                    await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] Latency alert error: {e}")
+
     # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
         try:
