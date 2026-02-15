@@ -12,7 +12,7 @@
 
 from typing import Optional
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from core.registry import registry
@@ -78,16 +78,6 @@ class ModeSelectState(BaseState):
                 )])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
-
-        # Гарантируем удаление стейл Reply-клавиатур: вставляем cleanup
-        # в pending dict → BaseState.send() применит send+edit автоматически.
-        # Защита от стейл-клавиатур после рестарта бота (dict in-memory → пуст).
-        telegram_id = (
-            user.get('chat_id') if isinstance(user, dict)
-            else getattr(user, 'chat_id', None)
-        )
-        if telegram_id:
-            BaseState._pending_keyboard_cleanup[telegram_id] = ReplyKeyboardRemove()
 
         await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
 

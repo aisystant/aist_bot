@@ -194,6 +194,13 @@ class BaseState(ABC):
                         logger.info(f"[Keyboard] send+edit OK for chat {telegram_id}")
                     except Exception as e:
                         logger.error(f"[Keyboard] edit_reply_markup failed for chat {telegram_id}: {e}")
+                        # Fallback: delete cleanup message, send with inline keyboard
+                        try:
+                            await msg.delete()
+                        except Exception:
+                            pass
+                        kwargs['reply_markup'] = inline_kb
+                        msg = await self.bot.send_message(telegram_id, text, **kwargs)
                     return msg
                 # else: ReplyKeyboardMarkup — replaces old keyboard, cleanup not needed
         return await self.bot.send_message(telegram_id, text, **kwargs)
