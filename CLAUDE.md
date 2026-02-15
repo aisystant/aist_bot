@@ -244,11 +244,14 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 | utility.mydata | `inline` | 3 категории + Why |
 | utility.feedback | `inline` | Баг/Предложение → severity |
 
-**SM auto-cleanup:** при переходе `from_state.keyboard_type == "reply"` → `to_state.keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Первый `send()` нового стейта автоматически прикрепляет cleanup.
+**SM auto-cleanup:** при переходе `from_state.keyboard_type == "reply"` → `to_state.keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Первый `send()` нового стейта применяет cleanup:
+- **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению.
+- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (Telegram API не совмещает ReplyKeyboardRemove и InlineKeyboard в одном сообщении — `send+edit`, +1 API call только при reply→inline переходе).
+- **С ReplyKeyboardMarkup:** пропускает cleanup (новая Reply-клавиатура заменяет старую).
 
 **Правила (defense-in-depth):**
 
-1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути финальный send() содержит `reply_markup=ReplyKeyboardRemove()` (SM — safety net, ручная очистка — primary).
+1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути финальный send() содержит `reply_markup=ReplyKeyboardRemove()` (ручная очистка — primary, SM auto-cleanup — safety net для command-bypass пути).
 2. **Callback-переход**: handler ОБЯЗАН вызвать `callback.message.edit_reply_markup()` перед `go_to()`.
 3. **Inline sub-навигация**: `edit_text()` — клавиатура заменяется, stale кнопок нет.
 4. **Stale inline кнопки**: допустимы. Fallback handler → `fsm.button_expired` toast.

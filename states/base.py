@@ -23,11 +23,14 @@
             return "next_event"  # или None чтобы остаться
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 from aiogram import Bot
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+
+logger = logging.getLogger(__name__)
 
 
 class BaseState(ABC):
@@ -146,8 +149,13 @@ class BaseState(ABC):
         """
         Shortcut для отправки сообщения.
 
-        Если SM engine запланировал keyboard cleanup (reply→non-reply переход),
-        первый send() без явного reply_markup автоматически прикрепит ReplyKeyboardRemove.
+        Keyboard cleanup (reply→non-reply переход):
+        - Без reply_markup: прикрепляет ReplyKeyboardRemove к сообщению.
+        - С InlineKeyboardMarkup: отправляет текст с ReplyKeyboardRemove,
+          затем edit_reply_markup для InlineKeyboard (Telegram API не позволяет
+          совместить ReplyKeyboardRemove и InlineKeyboard в одном сообщении).
+        - С другим reply_markup (ReplyKeyboard): пропускает cleanup (новая
+          Reply-клавиатура заменяет старую).
 
         Args:
             user: Объект пользователя
@@ -163,10 +171,26 @@ class BaseState(ABC):
             (user.get('telegram_id') or user.get('chat_id') if isinstance(user, dict) else None)
         )
         # Auto-cleanup: SM engine sets pending cleanup on reply→non-reply transition
-        if telegram_id and 'reply_markup' not in kwargs:
+        if telegram_id:
             pending = BaseState._pending_keyboard_cleanup.pop(telegram_id, None)
             if pending:
-                kwargs['reply_markup'] = pending
+                reply_markup = kwargs.get('reply_markup')
+                if reply_markup is None:
+                    # Simple case: no markup → attach cleanup directly
+                    kwargs['reply_markup'] = pending
+                elif isinstance(reply_markup, InlineKeyboardMarkup):
+                    # InlineKeyboard doesn't remove ReplyKeyboard — they're independent
+                    # in Telegram API. Send with ReplyKeyboardRemove first, then
+                    # edit to attach InlineKeyboard (1 extra API call, only on transition).
+                    inline_kb = kwargs.pop('reply_markup')
+                    kwargs['reply_markup'] = pending
+                    msg = await self.bot.send_message(telegram_id, text, **kwargs)
+                    try:
+                        await msg.edit_reply_markup(reply_markup=inline_kb)
+                    except Exception as e:
+                        logger.warning(f"[Keyboard] edit_reply_markup failed: {e}")
+                    return msg
+                # else: ReplyKeyboardMarkup — replaces old keyboard, cleanup not needed
         return await self.bot.send_message(telegram_id, text, **kwargs)
 
     async def send_with_keyboard(

@@ -95,8 +95,11 @@ updated: 2026-02-10
 
 1. SM engine проверяет `keyboard_type` у from_state и to_state
 2. Если `reply → non-reply`: записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`
-3. Первый `send()` нового стейта автоматически прикрепляет cleanup (если `reply_markup` не задан явно)
-4. Стейты с `keyboard_type = "reply"` также чистят клавиатуру вручную (defense-in-depth)
+3. Первый `send()` нового стейта применяет cleanup:
+   - Без `reply_markup` → прикрепляет `ReplyKeyboardRemove` к сообщению
+   - С `InlineKeyboardMarkup` → send+edit (отправляет с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard)
+   - С `ReplyKeyboardMarkup` → пропускает cleanup (новая Reply-клавиатура заменяет старую)
+4. Стейты с `keyboard_type = "reply"` также чистят клавиатуру вручную в `handle()` (defense-in-depth для нормального пути; SM auto-cleanup — safety net для command-bypass через `go_to()`)
 
 **Выход:** Reply-клавиатура удалена при переходе в non-reply стейт. Inline-клавиатуры — self-cleaning через `edit_text()`.
 
