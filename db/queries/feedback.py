@@ -14,13 +14,14 @@ def format_user_label(report: dict) -> str:
     """Форматирует имя отправителя: 'Имя (@username)' или fallback на chat_id."""
     name = report.get('user_name') or ''
     tg = report.get('tg_username') or ''
+    cid = report.get('chat_id', '?')
     if name and tg:
         return f"{name} (@{tg})"
     if tg:
         return f"@{tg}"
     if name:
-        return name
-    return f"#{report.get('chat_id', '?')}"
+        return f"{name} (#{cid})"
+    return f"#{cid}"
 
 
 async def save_feedback(
