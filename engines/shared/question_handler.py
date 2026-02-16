@@ -363,11 +363,18 @@ async def handle_question_with_tools(
     has_digital_twin: bool = False,
     personal_claude_md: Optional[str] = None,
     progress_callback: ProgressCallback = None,
+    tier: int = 1,
 ) -> Tuple[str, List[str]]:
-    """Обрабатывает вопрос через Claude tool_use (T2+ путь).
+    """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
     Claude получает tools и САМ решает, когда искать в базе знаний
-    или читать ЦД. Это заменяет ручной pre-search из handle_question().
+    или читать ЦД. System prompt загружается из config/prompts/t{N}_{role}.md.
+
+    Тиры (DP.ARCH.002):
+    - T1 Expert: search_knowledge + search_guides
+    - T2 Mentor: + read_digital_twin + standard CLAUDE.md
+    - T3 Co-thinker: + personal CLAUDE.md
+    - T4 Architect: = T3 (future: + read_file, git_log)
 
     Args:
         question: текст вопроса
@@ -377,6 +384,7 @@ async def handle_question_with_tools(
         has_digital_twin: подключён ли ЦД (определяет набор tools)
         personal_claude_md: персональный CLAUDE.md из GitHub (T3)
         progress_callback: callback для отображения прогресса
+        tier: тир обслуживания (1-4, default 1)
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
@@ -385,8 +393,9 @@ async def handle_question_with_tools(
         get_tools_for_tier,
         execute_tool,
         get_standard_claude_md,
+        load_tier_prompt,
+        fill_tier_prompt,
     )
-    from functools import partial
 
     chat_id = intern.get('chat_id')
     mode = intern.get('mode', 'marathon')
@@ -403,7 +412,6 @@ async def handle_question_with_tools(
     # === ЭТАП 1: Подготовка (0-20%) ===
     await report_progress(ProcessingStage.ANALYZING, 10)
 
-    # Собираем system prompt
     name = intern.get('name', 'пользователь')
     occupation = intern.get('occupation', '')
 
@@ -424,49 +432,47 @@ async def handle_question_with_tools(
     context_info = f"\nТекущая тема изучения: {context_topic}" if context_topic else ""
     occupation_info = f"\nПрофессия/занятие пользователя: {occupation}" if occupation else ""
 
-    # Standard CLAUDE.md (T2+)
-    standard_claude = get_standard_claude_md()
+    # Секции по тиру
     standard_section = ""
-    if standard_claude:
-        standard_section = f"\n\nМЕТОДОЛОГИЯ:\n{standard_claude}"
+    if tier >= 2:
+        standard_claude = get_standard_claude_md()
+        if standard_claude:
+            standard_section = f"\n\nМЕТОДОЛОГИЯ:\n{standard_claude}"
 
-    # Personal CLAUDE.md (T3) — overrides/extends standard
     personal_section = ""
-    if personal_claude_md:
+    if tier >= 3 and personal_claude_md:
         personal_section = f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}"
 
     bot_section = ""
     if bot_context:
-        bot_section = f"""
+        bot_section = (
+            f"\n\nЗНАНИЯ О БОТЕ:\n{bot_context}\n"
+            "Если вопрос касается бота — отвечай ТОЛЬКО на основе информации выше."
+        )
 
-ЗНАНИЯ О БОТЕ:
-{bot_context}
-Если вопрос касается бота — отвечай ТОЛЬКО на основе информации выше."""
+    dynamic_sections = ""  # Reserved for progress/history injection
 
-    system_prompt = f"""Ты — дружелюбный наставник по системному мышлению и личному развитию.
-Отвечаешь на вопросы пользователя {name}.{occupation_info}{context_info}
+    # Загружаем шаблон промпта и подставляем переменные
+    template = load_tier_prompt(tier)
+    system_prompt = fill_tier_prompt(
+        template,
+        name=name,
+        occupation_info=occupation_info,
+        context_info=context_info,
+        dynamic_sections=dynamic_sections,
+        lang_instruction=lang_instruction,
+        lang_reminder=lang_reminder,
+        ontology_rules=ONTOLOGY_RULES,
+        standard_section=standard_section,
+        personal_section=personal_section,
+        bot_section=bot_section,
+    )
 
-{lang_instruction}
-
-ПРАВИЛА:
-1. Используй tools для поиска информации, когда нужен контекст для ответа.
-2. НЕ выдумывай факты — если не нашёл в базе знаний, скажи об этом.
-3. Отвечай кратко и по существу (3-5 абзацев максимум).
-4. Используй простой язык, избегай академического стиля.
-5. Если вопрос не по теме — вежливо перенаправь.
-6. Если у пользователя есть Цифровой Двойник — используй read_digital_twin для персонализации.
-
-{ONTOLOGY_RULES}
-{standard_section}
-{personal_section}
-{bot_section}
-
-{lang_reminder}"""
+    logger.info(f"Consultation T{tier}: prompt {len(system_prompt)} chars for user {telegram_user_id}")
 
     # Подготовка tools и executor
     tools = get_tools_for_tier(has_digital_twin)
 
-    # Привязываем telegram_user_id к executor
     async def tool_executor(tool_name: str, tool_input: dict) -> str:
         return await execute_tool(tool_name, tool_input, telegram_user_id)
 
@@ -475,7 +481,6 @@ async def handle_question_with_tools(
     # === ЭТАП 2-3: Claude с tools (20-95%) ===
     await report_progress(ProcessingStage.GENERATING, 30)
 
-    # Формируем user message
     user_prompts = {
         'ru': f"Вопрос: {question}",
         'en': f"Question: {question}",
@@ -499,7 +504,7 @@ async def handle_question_with_tools(
     if not answer:
         answer = f"К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
 
-    # Сохраняем в историю (sources пусто — Claude сам нашёл, не мы)
+    # Сохраняем в историю
     sources: List[str] = []
     if chat_id:
         try:

@@ -108,6 +108,10 @@ async def main():
     # Инициализация БД
     await init_db()
 
+    # Мониторинг ошибок (после init_db — нужен пул)
+    from core.error_handler import setup_error_handler
+    await setup_error_handler()
+
     # Создаём bot раньше, чтобы передать в State Machine
     bot = Bot(token=BOT_TOKEN)
 
@@ -261,6 +265,7 @@ async def main():
                 BotCommand(command="qa", description="Качество консультаций"),
                 BotCommand(command="health", description="Состояние системы"),
                 BotCommand(command="latency", description="Латентность (светофор)"),
+                BotCommand(command="errors", description="Ошибки (24h)"),
                 BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
@@ -288,6 +293,8 @@ async def main():
     try:
         await dp.start_polling(bot)
     finally:
+        from core.error_handler import shutdown_error_handler
+        await shutdown_error_handler()
         if oauth_runner:
             await stop_oauth_server(oauth_runner)
 
