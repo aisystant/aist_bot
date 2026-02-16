@@ -44,6 +44,9 @@ class StateMachine:
         self._default_state: str = "common.start"
         # История предыдущих стейтов: chat_id -> previous_state_name
         self._previous_states: dict[int, str] = {}
+        # First-contact keyboard verification after bot restart.
+        # Ensures stale reply keyboards are cleaned on first interaction.
+        self._keyboard_verified: set[int] = set()
 
     def load_transitions(self, path: str | Path) -> None:
         """
@@ -208,6 +211,15 @@ class StateMachine:
                 logger.error("Даже дефолтный стейт не найден!")
                 return
 
+        # First-contact after restart: schedule keyboard cleanup for non-reply states.
+        # _pending_keyboard_cleanup is in-memory and lost on restart — this recovers it.
+        if chat_id and chat_id not in self._keyboard_verified:
+            self._keyboard_verified.add(chat_id)
+            if getattr(current_state, 'keyboard_type', 'inline') != 'reply':
+                from aiogram.types import ReplyKeyboardRemove
+                BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
+                logger.debug(f"[SM] First-contact keyboard cleanup for chat_id={chat_id}")
+
         # Проверяем глобальные события
         message_text = message.text or ''
         global_target = self.check_global_event(message_text, current_state_name)
@@ -260,15 +272,15 @@ class StateMachine:
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
 
-        # Keyboard auto-cleanup: reply → non-reply
+        # Keyboard auto-cleanup: always schedule when entering non-reply state.
+        # Handles stale keyboards from: inline→inline gaps, silent returns, bot restarts.
+        # ReplyKeyboardRemove is a no-op in Telegram API when no reply keyboard exists.
         chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
         if (chat_id
-                and getattr(from_state, 'keyboard_type', 'inline') == 'reply'
                 and getattr(to_state, 'keyboard_type', 'inline') != 'reply'):
             from aiogram.types import ReplyKeyboardRemove
-            from states.base import BaseState
             BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
-            logger.debug(f"[SM] Keyboard cleanup scheduled: {from_state.name} (reply) → {to_state_name}")
+            logger.debug(f"[SM] Keyboard cleanup scheduled: {from_state.name} → {to_state_name} (non-reply)")
 
         # Сохраняем новый стейт в БД
         try:
@@ -433,14 +445,13 @@ class StateMachine:
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
 
-        # Keyboard auto-cleanup: reply → non-reply
-        if (chat_id and current_state
-                and getattr(current_state, 'keyboard_type', 'inline') == 'reply'
+        # Keyboard auto-cleanup: always schedule when entering non-reply state.
+        # Symmetric with _transition() — covers go_to() path (commands, dispatcher).
+        if (chat_id
                 and getattr(to_state, 'keyboard_type', 'inline') != 'reply'):
             from aiogram.types import ReplyKeyboardRemove
-            from states.base import BaseState
             BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
-            logger.debug(f"[SM] Keyboard cleanup scheduled: {current_state_name} (reply) → {state_name}")
+            logger.debug(f"[SM] Keyboard cleanup scheduled: {current_state_name} → {state_name} (non-reply)")
 
         # Сохраняем новый стейт в БД
         try:

@@ -59,12 +59,13 @@ class BaseState(ABC):
     allow_global: list[str] = []
 
     # Тип клавиатуры: "inline" (default), "reply", "none"
-    # SM engine автоматически отправляет ReplyKeyboardRemove при переходе reply → non-reply.
+    # SM engine автоматически отправляет ReplyKeyboardRemove при входе в любой non-reply стейт.
     # Полная карта: CLAUDE.md § 10.5
     keyboard_type: str = "inline"
 
     # Pending keyboard cleanup (class-level, shared across all states).
-    # SM engine записывает сюда ReplyKeyboardRemove при reply→non-reply переходе.
+    # SM engine записывает сюда ReplyKeyboardRemove при любом переходе в non-reply стейт
+    # + при первом контакте пользователя после рестарта бота.
     # Первый send() нового стейта прикрепляет cleanup автоматически.
     _pending_keyboard_cleanup: dict = {}
 
