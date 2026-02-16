@@ -138,6 +138,9 @@ class ModeSelectState(BaseState):
             new_lang = 'ru'
 
         await update_intern(chat_id, language=new_lang)
+        # Инвалидация пре-генерированного контента (мог быть на старом языке)
+        from db.queries.marathon import invalidate_user_content
+        await invalidate_user_content(chat_id)
         if isinstance(user, dict):
             user['language'] = new_lang
 

@@ -263,6 +263,12 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         question_content = results[1] if not isinstance(results[1], Exception) else None
         practice_content = results[2] if not isinstance(results[2], Exception) else None
 
+        # Валидация: error fallback возвращает строку ~60 символов вместо None
+        if lesson_content is not None and len(lesson_content) < 200:
+            logger.error(f"[Scheduler] Lesson too short ({len(lesson_content)} chars) for {chat_id}, "
+                         f"topic {topic_index} — likely error fallback, skipping")
+            lesson_content = None
+
         if lesson_content is None:
             logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}: {results[0]}")
             # Без урока уведомление бессмысленно — пропускаем

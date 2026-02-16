@@ -80,7 +80,7 @@ class ClaudeClient:
                         self.base_url,
                         headers=headers,
                         json=payload,
-                        timeout=aiohttp.ClientTimeout(total=30)
+                        timeout=aiohttp.ClientTimeout(total=45)
                     ) as resp:
                         if resp.status == 200:
                             data = await resp.json()
@@ -89,8 +89,11 @@ class ClaudeClient:
                             error = await resp.text()
                             logger.error(f"Claude API error: {error}")
                             return None
+                except asyncio.TimeoutError:
+                    logger.error(f"Claude API timeout (45s)")
+                    return None
                 except Exception as e:
-                    logger.error(f"Claude API exception: {e}")
+                    logger.error(f"Claude API exception: {type(e).__name__}: {e}")
                     return None
 
     async def generate_with_tools(

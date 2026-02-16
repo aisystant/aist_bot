@@ -86,6 +86,18 @@ async def mark_content_delivered(chat_id: int, topic_index: int):
         )
 
 
+async def invalidate_user_content(chat_id: int):
+    """Удалить пре-генерированный контент пользователя (при смене языка и т.п.)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            '''DELETE FROM marathon_content
+               WHERE chat_id = $1 AND status = 'pending' ''',
+            chat_id,
+        )
+        logger.info(f"[Marathon] Invalidated pre-gen content for {chat_id}: {result}")
+
+
 async def cleanup_expired_content():
     """Удалить невостребованный пре-генерированный контент.
 
