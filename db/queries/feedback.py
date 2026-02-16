@@ -10,6 +10,20 @@ from db.connection import get_pool
 logger = get_logger(__name__)
 
 
+def format_user_label(report: dict) -> str:
+    """Форматирует имя отправителя: 'Имя (@username)' или fallback на chat_id."""
+    name = report.get('user_name') or ''
+    tg = report.get('tg_username') or ''
+    cid = report.get('chat_id', '?')
+    if name and tg:
+        return f"{name} (@{tg})"
+    if tg:
+        return f"@{tg}"
+    if name:
+        return f"{name} (#{cid})"
+    return f"#{cid}"
+
+
 async def save_feedback(
     chat_id: int,
     category: str,
@@ -34,11 +48,14 @@ async def get_pending_reports(severity: str, since_hours: int = 24) -> List[dict
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT id, chat_id, category, scenario, severity, message, created_at
-            FROM feedback_reports
-            WHERE status = 'new' AND severity = $1
-              AND created_at >= NOW() - make_interval(hours => $2)
-            ORDER BY created_at
+            SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
+                   f.message, f.created_at,
+                   i.name AS user_name, i.tg_username
+            FROM feedback_reports f
+            LEFT JOIN interns i ON i.chat_id = f.chat_id
+            WHERE f.status = 'new' AND f.severity = $1
+              AND f.created_at >= NOW() - make_interval(hours => $2)
+            ORDER BY f.created_at
         ''', severity, since_hours)
         return [dict(r) for r in rows]
 
@@ -61,17 +78,23 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
     async with pool.acquire() as conn:
         if since_hours:
             rows = await conn.fetch('''
-                SELECT id, chat_id, category, scenario, severity, message, status, created_at
-                FROM feedback_reports
-                WHERE created_at >= NOW() - make_interval(hours => $1)
-                ORDER BY created_at DESC
+                SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
+                       f.message, f.status, f.created_at,
+                       i.name AS user_name, i.tg_username
+                FROM feedback_reports f
+                LEFT JOIN interns i ON i.chat_id = f.chat_id
+                WHERE f.created_at >= NOW() - make_interval(hours => $1)
+                ORDER BY f.created_at DESC
                 LIMIT $2
             ''', since_hours, limit)
         else:
             rows = await conn.fetch('''
-                SELECT id, chat_id, category, scenario, severity, message, status, created_at
-                FROM feedback_reports
-                ORDER BY created_at DESC
+                SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
+                       f.message, f.status, f.created_at,
+                       i.name AS user_name, i.tg_username
+                FROM feedback_reports f
+                LEFT JOIN interns i ON i.chat_id = f.chat_id
+                ORDER BY f.created_at DESC
                 LIMIT $1
             ''', limit)
         return [dict(r) for r in rows]

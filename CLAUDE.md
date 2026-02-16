@@ -219,7 +219,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 ### 10.5. Keyboard Management Policy
 
-**Декларативное правило:** каждый стейт объявляет `keyboard_type` на классе. SM engine автоматически чистит Reply-клавиатуру при переходе reply → non-reply (через `_pending_keyboard_cleanup` в `BaseState.send()`).
+**Декларативное правило:** каждый стейт объявляет `keyboard_type` на классе. SM engine автоматически чистит Reply-клавиатуру при входе в **любой** non-reply стейт (через `_pending_keyboard_cleanup` в `BaseState.send()`). Дополнительно: первый контакт пользователя после рестарта бота тоже планирует cleanup (`_keyboard_verified` в SM).
 
 **Keyboard Registry (19 стейтов):**
 
@@ -244,10 +244,11 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 | utility.mydata | `inline` | 3 категории + Why |
 | utility.feedback | `inline` | Баг/Предложение → severity |
 
-**SM auto-cleanup:** при переходе `from_state.keyboard_type == "reply"` → `to_state.keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Первый `send()` нового стейта применяет cleanup:
-- **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению.
-- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (Telegram API не совмещает ReplyKeyboardRemove и InlineKeyboard в одном сообщении — `send+edit`, +1 API call только при reply→inline переходе). **Fallback:** если edit_reply_markup падает, удаляет сообщение-заглушку и отправляет с InlineKeyboard напрямую.
+**SM auto-cleanup:** при входе в **любой** стейт с `keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Также при первом контакте после рестарта (`_keyboard_verified`). Первый `send()` нового стейта применяет cleanup:
+- **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению (0 extra API calls).
+- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (`send+edit`, +1 API call). **Fallback:** если edit_reply_markup падает, edit_text с InlineKeyboard.
 - **С ReplyKeyboardMarkup:** пропускает cleanup (новая Reply-клавиатура заменяет старую).
+- **Overhead:** ~50ms на переход в non-reply стейт (при наличии InlineKeyboard). `ReplyKeyboardRemove` без активной клавиатуры = no-op в Telegram API.
 
 **Правила (defense-in-depth):**
 

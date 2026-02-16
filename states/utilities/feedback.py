@@ -318,20 +318,38 @@ class FeedbackState(BaseState):
 
         # Красный → немедленное уведомление
         if data['severity'] == 'red' and report_id:
-            await self._notify_developer_red(report_id, data)
+            await self._notify_developer_red(report_id, data, chat_id)
 
         return report_id
 
-    async def _notify_developer_red(self, report_id: int, data: dict):
+    async def _notify_developer_red(self, report_id: int, data: dict, chat_id: int = None):
         """Отправить 🔴 уведомление разработчику."""
         dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
         if not dev_chat_id:
             return
 
+        # Получить имя отправителя
+        user_label = ""
+        if chat_id:
+            try:
+                from db.queries import get_intern
+                from db.queries.feedback import format_user_label
+                intern = await get_intern(chat_id)
+                if intern:
+                    user_label = " | " + format_user_label({
+                        'user_name': intern.get('name', ''),
+                        'tg_username': intern.get('tg_username', ''),
+                        'chat_id': chat_id,
+                    })
+                else:
+                    user_label = f" | #{chat_id}"
+            except Exception:
+                user_label = f" | #{chat_id}"
+
         scenario_label = data.get('scenario', 'other')
         message_preview = data['message'][:200]
         text = (
-            f"\U0001f534 <b>BUG #{report_id}</b> | {scenario_label}\n\n"
+            f"\U0001f534 <b>BUG #{report_id}</b> | {scenario_label}{user_label}\n\n"
             f"\"{message_preview}\""
         )
 

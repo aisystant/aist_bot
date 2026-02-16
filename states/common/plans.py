@@ -9,11 +9,14 @@
 """
 
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
+
+MOSCOW_TZ = timezone(timedelta(hours=3))
 from helpers.telegram_format import format_strategy_content
 from i18n import t
 
@@ -178,6 +181,21 @@ class PlansState(BaseState):
         ])
 
         if not content:
+            # Monday fallback: DayPlan is not generated on Mondays, point to WeekPlan
+            is_monday = datetime.now(MOSCOW_TZ).weekday() == 0
+            if action == "plans_day" and is_monday:
+                monday_button = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=t('plans.week_plan', lang),
+                        callback_data="plans_rp",
+                    )],
+                    [InlineKeyboardButton(
+                        text=t('buttons.back', lang),
+                        callback_data="plans_back_to_hub",
+                    )],
+                ])
+                await self.send(user, t('plans.not_found_day_monday', lang), reply_markup=monday_button)
+                return None
             await self.send(user, t(not_found_key, lang), reply_markup=back_button)
             return None
 

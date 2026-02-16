@@ -925,6 +925,7 @@ strategist:
   repo_not_selected_alert: "Repo del estratega no seleccionado"
   weekplan_not_found: "WeekPlan no encontrado."
   dayplan_not_found: "DayPlan de hoy no encontrado."
+  dayplan_not_found_monday: "Los lunes no se genera plan diario — consulta el plan semanal (/rp)."
   weekreport_not_found: "WeekReport no encontrado."
   day_close_instruction: "El cierre del día se ejecuta localmente:"
   day_close_notification: "Recibirás una notificación al completar."

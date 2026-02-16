@@ -9,8 +9,9 @@ ClaudeClient - асинхронный клиент для генерации к�
 - Интеграцию с MCP для получения контекста
 """
 
-from typing import Optional
+from typing import Optional, List, Dict, Any, Callable, Awaitable
 import asyncio
+import json
 
 import aiohttp
 
@@ -91,6 +92,125 @@ class ClaudeClient:
                 except Exception as e:
                     logger.error(f"Claude API exception: {e}")
                     return None
+
+    async def generate_with_tools(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        tool_executor: Callable[[str, Dict[str, Any]], Awaitable[str]],
+        max_tokens: int = 4000,
+        max_tool_rounds: int = 5,
+    ) -> Optional[str]:
+        """Генерация с поддержкой tool_use (Claude решает когда вызывать tools).
+
+        Реализует цикл: Claude → tool_use → executor → result → Claude → ...
+        до получения финального текстового ответа или исчерпания лимита раундов.
+
+        Args:
+            system_prompt: системный промпт
+            messages: история сообщений [{"role": "user"|"assistant", "content": ...}]
+            tools: определения инструментов в формате Anthropic API
+            tool_executor: async функция (tool_name, tool_input) -> result_str
+            max_tokens: максимальное количество токенов ответа
+            max_tool_rounds: максимум раундов tool_use (защита от бесконечного цикла)
+
+        Returns:
+            Финальный текстовый ответ или None при ошибке
+        """
+        from core.tracing import span
+
+        async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
+            conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
+
+            for round_num in range(max_tool_rounds):
+                async with aiohttp.ClientSession() as session:
+                    headers = {
+                        "Content-Type": "application/json",
+                        "x-api-key": self.api_key,
+                        "anthropic-version": "2023-06-01"
+                    }
+
+                    payload = {
+                        "model": "claude-sonnet-4-20250514",
+                        "max_tokens": max_tokens,
+                        "system": system_prompt,
+                        "messages": conversation,
+                        "tools": tools,
+                    }
+
+                    try:
+                        async with session.post(
+                            self.base_url,
+                            headers=headers,
+                            json=payload,
+                            timeout=aiohttp.ClientTimeout(total=90)
+                        ) as resp:
+                            if resp.status != 200:
+                                error = await resp.text()
+                                logger.error(f"Claude API error (tool_use round {round_num}): {error}")
+                                return None
+
+                            data = await resp.json()
+                    except Exception as e:
+                        logger.error(f"Claude API exception (tool_use round {round_num}): {e}")
+                        return None
+
+                stop_reason = data.get("stop_reason")
+                content_blocks = data.get("content", [])
+
+                # Собираем assistant response для добавления в conversation
+                conversation.append({"role": "assistant", "content": content_blocks})
+
+                if stop_reason == "end_turn":
+                    # Финальный ответ — извлекаем текст
+                    text_parts = []
+                    for block in content_blocks:
+                        if block.get("type") == "text":
+                            text_parts.append(block["text"])
+                    return "\n".join(text_parts) if text_parts else None
+
+                if stop_reason == "tool_use":
+                    # Обрабатываем все tool_use блоки
+                    tool_results = []
+                    for block in content_blocks:
+                        if block.get("type") == "tool_use":
+                            tool_name = block["name"]
+                            tool_input = block["input"]
+                            tool_use_id = block["id"]
+
+                            logger.info(f"Claude tool_use round {round_num}: {tool_name}({json.dumps(tool_input, ensure_ascii=False)[:200]})")
+
+                            try:
+                                result = await tool_executor(tool_name, tool_input)
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": result,
+                                })
+                            except Exception as e:
+                                logger.error(f"Tool executor error ({tool_name}): {e}")
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": f"Error: {str(e)}",
+                                    "is_error": True,
+                                })
+
+                    # Добавляем результаты tools в conversation
+                    conversation.append({"role": "user", "content": tool_results})
+                else:
+                    # Неожиданный stop_reason
+                    logger.warning(f"Claude unexpected stop_reason: {stop_reason}")
+                    text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
+                    return "\n".join(text_parts) if text_parts else None
+
+            logger.warning(f"Claude tool_use: exhausted {max_tool_rounds} rounds")
+            # Возвращаем последний текстовый ответ если есть
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    return block["text"]
+            return None
 
     async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None) -> str:
         """Генерирует контент для теоретической темы марафона
