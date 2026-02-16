@@ -38,7 +38,7 @@ groups:
       en: "Your attention doesn't belong to you: chats, notifications, small tasks constantly distract. The day is spent 'putting out fires', important things are postponed."
       es: "Tu atención no te pertenece: chats, notificaciones, pequeñas tareas distraen constantemente. El día se va en 'apagar fuegos', las cosas importantes se postergan."
       fr: "Votre attention ne vous appartient pas: chats, notifications, petites tâches distraient constamment. La journée se passe à 'éteindre des feux', les choses importantes sont reportées."
-      zh: "你的注意力不属于你：聊天、通知、小任务不断干扰。一天都在"灭火"，重要的事情被推迟。"
+      zh: "你的注意力不属于你：聊天、通知、小任务不断干扰。一天都在\u201C灭火\u201D，重要的事情被推迟。"
 
   - id: deadlock
     emoji: "🧱"
@@ -53,7 +53,7 @@ groups:
       en: "Overall everything is stable, no chaos, but no growth either. 'Groundhog Day': lots of work, but results and income barely change."
       es: "En general todo es estable, no hay caos, pero tampoco crecimiento. 'Día de la marmota': mucho trabajo, pero los resultados e ingresos apenas cambian."
       fr: "Dans l'ensemble tout est stable, pas de chaos, mais pas de croissance non plus. 'Jour de la marmotte': beaucoup de travail, mais les résultats et revenus changent à peine."
-      zh: "总体一切稳定，没有混乱，但也没有增长。"土拨鼠之日"：工作很多，但成果和收入几乎不变。"
+      zh: "总体一切稳定，没有混乱，但也没有增长。\u201C土拨鼠之日\u201D：工作很多，但成果和收入几乎不变。"
 
   - id: turning_point
     emoji: "🔁"
@@ -87,7 +87,7 @@ questions:
       en: "I have many unfinished tasks or projects that 'hang' and cause guilt"
       es: "Tengo muchas tareas o proyectos sin terminar que 'cuelgan' y causan culpa"
       fr: "J'ai beaucoup de tâches ou projets inachevés qui 'pendent' et causent de la culpabilité"
-      zh: "我有很多未完成的任务或项目，它们"悬而未决"并让我感到内疚"
+      zh: "我有很多未完成的任务或项目，它们\u201C悬而未决\u201D并让我感到内疚"
 
   - id: q3
     group: chaos
@@ -114,7 +114,7 @@ questions:
       en: "My life and work are more like 'Groundhog Day': everything is predictable, but there's almost no forward movement"
       es: "Mi vida y trabajo se parecen más al 'Día de la Marmota': todo es predecible, pero casi no hay movimiento hacia adelante"
       fr: "Ma vie et mon travail ressemblent plus au 'Jour de la marmotte': tout est prévisible, mais il n'y a presque pas de mouvement en avant"
-      zh: "我的生活和工作更像是"土拨鼠之日"：一切都可以预见，但几乎没有前进"
+      zh: "我的生活和工作更像是\u201C土拨鼠之日\u201D：一切都可以预见，但几乎没有前进"
 
   - id: q6
     group: deadlock
