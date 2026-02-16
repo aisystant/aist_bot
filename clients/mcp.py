@@ -25,8 +25,8 @@ class MCPClient:
     """
 
     # Настройки таймаутов и retry
-    DEFAULT_TIMEOUT = 15  # секунд (первая попытка)
-    RETRY_TIMEOUT = 10    # секунд (повторная попытка)
+    DEFAULT_TIMEOUT = 8   # секунд (первая попытка)
+    RETRY_TIMEOUT = 5     # секунд (повторная попытка)
     MAX_RETRIES = 1       # количество повторных попыток
 
     # Circuit breaker настройки

@@ -80,7 +80,7 @@ class ClaudeClient:
                         self.base_url,
                         headers=headers,
                         json=payload,
-                        timeout=aiohttp.ClientTimeout(total=60)
+                        timeout=aiohttp.ClientTimeout(total=30)
                     ) as resp:
                         if resp.status == 200:
                             data = await resp.json()
@@ -144,7 +144,7 @@ class ClaudeClient:
                             self.base_url,
                             headers=headers,
                             json=payload,
-                            timeout=aiohttp.ClientTimeout(total=90)
+                            timeout=aiohttp.ClientTimeout(total=45)
                         ) as resp:
                             if resp.status != 200:
                                 error = await resp.text()
