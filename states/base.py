@@ -205,7 +205,17 @@ class BaseState(ABC):
                             )
                         except Exception as e2:
                             logger.warning(f"[Keyboard] edit_text also failed for chat {telegram_id}: {e2}")
-                            # Message stays without inline buttons but reply keyboard is removed
+                            # Both edits failed — send a NEW message with inline keyboard
+                            # so the user is not stuck without buttons
+                            try:
+                                msg = await self.bot.send_message(
+                                    telegram_id, text,
+                                    reply_markup=inline_kb,
+                                    parse_mode=kwargs.get('parse_mode'),
+                                )
+                                logger.info(f"[Keyboard] fallback send OK for chat {telegram_id}")
+                            except Exception as e3:
+                                logger.error(f"[Keyboard] fallback send also failed for chat {telegram_id}: {e3}")
                     return msg
                 # else: ReplyKeyboardMarkup — replaces old keyboard, cleanup not needed
         return await self.bot.send_message(telegram_id, text, **kwargs)
