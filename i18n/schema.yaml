@@ -3150,6 +3150,9 @@ plans:
   not_found_day:
     ru: "DayPlan на сегодня не найден."
     en: "No DayPlan found for today."
+  not_found_day_monday:
+    ru: "В понедельник план дня не формируется — смотрите недельный план."
+    en: "No day plan on Mondays — check the weekly plan."
   not_found_week:
     ru: "WeekPlan не найден."
     en: "WeekPlan not found."
@@ -3636,6 +3639,9 @@ strategist:
   dayplan_not_found:
     ru: "DayPlan на сегодня не найден."
     en: "Today's DayPlan not found."
+  dayplan_not_found_monday:
+    ru: "В понедельник план дня не формируется — смотрите недельный план (/rp)."
+    en: "No day plan on Mondays — check the weekly plan (/rp)."
   weekreport_not_found:
     ru: "WeekReport не найден."
     en: "WeekReport not found."

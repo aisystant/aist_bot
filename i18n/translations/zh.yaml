@@ -925,6 +925,7 @@ strategist:
   repo_not_selected_alert: "未选择策略师仓库"
   weekplan_not_found: "未找到WeekPlan。"
   dayplan_not_found: "未找到今天的DayPlan。"
+  dayplan_not_found_monday: "周一不生成日计划——请查看周计划 (/rp)。"
   weekreport_not_found: "未找到WeekReport。"
   day_close_instruction: "日结在本地运行："
   day_close_notification: "完成后您将收到通知。"

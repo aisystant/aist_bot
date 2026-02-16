@@ -6,10 +6,14 @@
 /report — последний WeekReport
 """
 
+from datetime import datetime, timezone, timedelta
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import get_logger
+
+MOSCOW_TZ = timezone(timedelta(hours=3))
 from db.queries import get_intern
 from helpers.telegram_format import format_strategy_content
 from i18n import t
@@ -108,7 +112,11 @@ async def cmd_plan(message: Message):
     from clients.github_strategy import github_strategy
     content = await github_strategy.get_day_plan(user_id)
     if not content:
-        await message.answer(t('strategist.dayplan_not_found', lang))
+        is_monday = datetime.now(MOSCOW_TZ).weekday() == 0
+        if is_monday:
+            await message.answer(t('strategist.dayplan_not_found_monday', lang))
+        else:
+            await message.answer(t('strategist.dayplan_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
@@ -147,7 +155,11 @@ async def callback_strat_plan(callback: CallbackQuery):
     from clients.github_strategy import github_strategy
     content = await github_strategy.get_day_plan(user_id)
     if not content:
-        await callback.message.answer(t('strategist.dayplan_not_found', lang))
+        is_monday = datetime.now(MOSCOW_TZ).weekday() == 0
+        if is_monday:
+            await callback.message.answer(t('strategist.dayplan_not_found_monday', lang))
+        else:
+            await callback.message.answer(t('strategist.dayplan_not_found', lang))
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
