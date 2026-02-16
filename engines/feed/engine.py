@@ -184,10 +184,14 @@ class FeedEngine:
         if not week:
             return None, t('feed.no_active_week', lang)
 
-        if week['status'] != FeedWeekStatus.ACTIVE:
-            if week['status'] == FeedWeekStatus.PLANNING:
-                return None, t('feed.select_topics_first', lang)
-            return None, t('feed.week_completed', lang)
+        if week['status'] == FeedWeekStatus.PLANNING:
+            return None, t('feed.select_topics_first', lang)
+
+        # Continuous mode: re-activate completed weeks
+        if week['status'] == FeedWeekStatus.COMPLETED:
+            await update_feed_week(week['id'], {'status': FeedWeekStatus.ACTIVE})
+            week['status'] = FeedWeekStatus.ACTIVE
+            logger.info(f"[Feed] Re-activated completed week {week['id']} for engine path")
 
         # Проверяем, есть ли сессия на сегодня
         today = moscow_today()

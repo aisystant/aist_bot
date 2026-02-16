@@ -182,7 +182,7 @@ MARATHON_DAYS = 14  # длительность марафона
 
 # ============= НАСТРОЙКИ ЛЕНТЫ =============
 
-FEED_DAYS_PER_WEEK = 7  # сессий в неделю
+FEED_DAYS_PER_WEEK = 7  # checkpoint глубины (не ограничивает количество дней, continuous mode)
 FEED_SESSION_DURATION_MIN = 5  # минимальная длительность сессии (мин)
 FEED_SESSION_DURATION_MAX = 12  # максимальная длительность сессии (мин)
 FEED_TOPICS_TO_SUGGEST = 5  # сколько тем предлагать на выбор

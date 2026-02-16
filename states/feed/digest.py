@@ -26,7 +26,7 @@ from db.queries.feed import (
 from db.queries.activity import record_active_day, get_activity_stats
 from engines.feed.planner import generate_multi_topic_digest
 from engines.shared import handle_question
-from config import get_logger, FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN, FEED_DAYS_PER_WEEK
+from config import get_logger, FeedWeekStatus, FEED_SESSION_DURATION_MAX, FEED_SESSION_DURATION_MIN
 
 logger = get_logger(__name__)
 
@@ -114,12 +114,15 @@ class FeedDigestState(BaseState):
             await self.send(user, t('feed.no_active_week', lang))
             return "done"
 
-        if week.get('status') != FeedWeekStatus.ACTIVE:
-            if week.get('status') == FeedWeekStatus.PLANNING:
-                await self.send(user, t('feed.select_topics_first', lang))
-                return "change_topics"
-            await self.send(user, t('feed.week_completed', lang))
-            return "done"
+        if week.get('status') == FeedWeekStatus.PLANNING:
+            await self.send(user, t('feed.select_topics_first', lang))
+            return "change_topics"
+
+        # Continuous mode: re-activate completed weeks
+        if week.get('status') == FeedWeekStatus.COMPLETED:
+            await update_feed_week(week['id'], {'status': FeedWeekStatus.ACTIVE})
+            week['status'] = FeedWeekStatus.ACTIVE
+            logger.info(f"[Feed] Re-activated completed week {week['id']} for {chat_id}")
 
         # Проверяем сессию на сегодня (МСК)
         today = moscow_today()
@@ -400,7 +403,11 @@ class FeedDigestState(BaseState):
             [InlineKeyboardButton(
                 text=f"📋 {t('buttons.topics_menu', lang)}",
                 callback_data="feed_topics_menu"
-            )]
+            )],
+            [InlineKeyboardButton(
+                text=f"📜 {t('feed.history_button', lang)}",
+                callback_data="feed_history"
+            )],
         ])
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
@@ -478,22 +485,13 @@ class FeedDigestState(BaseState):
                 reference_id=session_id,
             )
 
-            # Увеличиваем уровень глубины
+            # Увеличиваем уровень глубины (continuous mode — без лимита)
             week_id = data.get('week_id')
-            week_completed = False
             if week_id:
                 week = await get_current_feed_week(chat_id)
                 if week:
                     new_depth = week.get('current_day', 1) + 1
-                    if new_depth > FEED_DAYS_PER_WEEK:
-                        # Неделя завершена
-                        await update_feed_week(week_id, {
-                            'current_day': new_depth,
-                            'status': FeedWeekStatus.COMPLETED,
-                        })
-                        week_completed = True
-                    else:
-                        await update_feed_week(week_id, {'current_day': new_depth})
+                    await update_feed_week(week_id, {'current_day': new_depth})
 
             # Показываем статистику
             stats = await get_activity_stats(chat_id)
@@ -509,29 +507,10 @@ class FeedDigestState(BaseState):
             # Сбрасываем ожидание фиксации
             self._user_data[chat_id]['waiting_fixation'] = False
 
-            if week_completed:
-                # Неделя завершена — предлагаем начать новую
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text=f"📚 {t('feed.start_new_week', lang)}",
-                        callback_data="feed_reset_topics"
-                    )],
-                    [InlineKeyboardButton(
-                        text=f"← {t('buttons.back_to_menu', lang)}",
-                        callback_data="feed_back_to_menu"
-                    )],
-                ])
-                await self.send(
-                    user,
-                    f"🎉 {t('feed.week_completed', lang)}",
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
-                )
-            else:
-                # Показываем меню (дайджест завершён, т.к. фиксация сохранена)
-                week = await get_current_feed_week(chat_id)
-                if week:
-                    await self._show_menu(user, week, digest_completed_today=True)
+            # Показываем меню (дайджест завершён, т.к. фиксация сохранена)
+            week = await get_current_feed_week(chat_id)
+            if week:
+                await self._show_menu(user, week, digest_completed_today=True)
 
             return "fixation_saved"
 
@@ -692,6 +671,26 @@ class FeedDigestState(BaseState):
             await callback.answer()
             return "change_topics"
 
+        elif data == "feed_history":
+            await self._show_history(user)
+            await callback.answer()
+            return None
+
+        elif data.startswith("feed_hist_"):
+            try:
+                session_id = int(data.replace("feed_hist_", ""))
+            except ValueError:
+                await callback.answer()
+                return None
+            await self._show_history_detail(user, session_id)
+            await callback.answer()
+            return None
+
+        elif data == "feed_history_back":
+            await self._show_history(user)
+            await callback.answer()
+            return None
+
         elif data == "feed_back_to_menu":
             await callback.answer()
             return "done"
@@ -720,7 +719,7 @@ class FeedDigestState(BaseState):
 
             text += (
                 f"📅 *{t('marathon.your_statistics', lang)}*\n"
-                f"• {t('modes.day_label', lang).capitalize()}: {current_day}/7\n"
+                f"• {t('feed.depth_level_label', lang)}: {current_day}\n"
                 f"• {t('feed.active_days_label', lang)}: {stats.get('total', 0)}\n"
                 f"• {t('feed.current_streak', lang)}: {stats.get('streak', 0)} {t('progress.days', lang)}"
             )
@@ -771,6 +770,88 @@ class FeedDigestState(BaseState):
         ])
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _show_history(self, user) -> None:
+        """Показывает список прошлых дайджестов."""
+        from db.queries.feed import get_feed_history
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        history = await get_feed_history(chat_id, limit=10)
+
+        if not history:
+            week = await get_current_feed_week(chat_id)
+            if week:
+                await self.send(user, t('feed.no_history', lang))
+                await self._show_menu(user, week)
+            else:
+                await self.send(user, t('feed.no_history', lang))
+            return
+
+        text = f"📜 *{t('feed.history_title', lang)}*\n\n"
+        buttons = []
+
+        for item in history:
+            date_str = item['session_date'].strftime('%d.%m')
+            status_emoji = {'completed': '\u2705', 'expired': '\u23f0', 'skipped': '\u23ed'}.get(item['status'], '\u2753')
+            topic_short = (item.get('topic_title', '') or '')[:30]
+            text += f"{status_emoji} {date_str} — {topic_short}\n"
+
+            buttons.append([InlineKeyboardButton(
+                text=f"{status_emoji} {date_str}: {topic_short}",
+                callback_data=f"feed_hist_{item['id']}"
+            )])
+
+        buttons.append([InlineKeyboardButton(
+            text=f"\u2190 {t('buttons.back', lang)}",
+            callback_data="feed_back_to_menu"
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        try:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard)
+
+    async def _show_history_detail(self, user, session_id: int) -> None:
+        """Показывает полный контент прошлого дайджеста."""
+        from db.queries.feed import get_feed_session_content
+        lang = self._get_lang(user)
+
+        session = await get_feed_session_content(session_id)
+        if not session:
+            await self.send(user, t('errors.try_again', lang))
+            return
+
+        content = session.get('content', {})
+        date_str = session['session_date'].strftime('%d.%m.%Y')
+
+        text = f"📜 *{date_str}* — {session.get('topic_title', '')}\n\n"
+
+        topics_detail = content.get('topics_detail', [])
+        if topics_detail:
+            for td in topics_detail:
+                text += f"*{td.get('title', '')}*\n{td.get('summary', '')}\n\n"
+        elif content.get('main_content'):
+            mc = content['main_content']
+            text += mc[:2000] + ("..." if len(mc) > 2000 else "")
+
+        if session.get('fixation_text'):
+            text += f"\n\n\u270d\ufe0f *{t('feed.your_fixation', lang)}:*\n_{session['fixation_text']}_"
+        elif session.get('status') == 'expired':
+            text += f"\n\n\u23f0 _{t('feed.digest_expired_note', lang)}_"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"\u2190 {t('feed.history_title', lang)}",
+                callback_data="feed_history_back"
+            )]
+        ])
+
+        try:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard)
 
     async def exit(self, user) -> dict:
         """Очищаем временные данные."""
