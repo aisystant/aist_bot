@@ -139,10 +139,17 @@ async def cmd_settings(message: Message, state: FSMContext):
 @commands_router.message(Command("assessment"))
 async def cmd_assessment(message: Message, state: FSMContext):
     """Запуск теста оценки систематичности через Dispatcher."""
+    logger.info(f"[CMD] /test received from chat_id={message.chat.id}")
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
-    intern = await get_intern(message.chat.id)
+    try:
+        intern = await get_intern(message.chat.id)
+    except Exception as e:
+        logger.error(f"[CMD] /test get_intern failed: {e}")
+        await message.answer("⚠️ Ошибка загрузки профиля. Попробуйте позже.")
+        return
+
     if not intern or not intern.get('onboarding_completed'):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
@@ -152,5 +159,6 @@ async def cmd_assessment(message: Message, state: FSMContext):
         await _safe_route(message, state, intern, dispatcher.route_command('assessment', intern))
         return
 
+    logger.warning(f"[CMD] /test: no active SM (dispatcher={bool(dispatcher)})")
     lang = intern.get('language', 'ru') or 'ru'
     await message.answer(t('errors.processing_error', lang))
