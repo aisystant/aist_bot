@@ -496,7 +496,7 @@ async def handle_question_with_tools(
         tools=tools,
         tool_executor=tool_executor,
         max_tokens=4000,
-        max_tool_rounds=5,
+        max_tool_rounds=3,
     )
 
     await report_progress(ProcessingStage.DONE, 100)
