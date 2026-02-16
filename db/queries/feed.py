@@ -44,17 +44,23 @@ async def create_feed_week(chat_id: int, suggested_topics: List[str] = None,
 
 
 async def get_current_feed_week(chat_id: int) -> Optional[dict]:
-    """Получить текущую (активную или в планировании) неделю"""
+    """Получить текущую неделю (active, completed или planning).
+
+    Continuous mode: COMPLETED недели тоже возвращаются для re-activation.
+    Приоритет: ACTIVE > COMPLETED > PLANNING.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
             SELECT * FROM feed_weeks
-            WHERE chat_id = $1 AND status IN ($2, $3)
+            WHERE chat_id = $1 AND status IN ($2, $3, $4)
             ORDER BY
-                CASE WHEN status = $3 THEN 0 ELSE 1 END,
+                CASE WHEN status = $3 THEN 0
+                     WHEN status = $4 THEN 1
+                     ELSE 2 END,
                 created_at DESC
             LIMIT 1
-        ''', chat_id, FeedWeekStatus.PLANNING, FeedWeekStatus.ACTIVE)
+        ''', chat_id, FeedWeekStatus.PLANNING, FeedWeekStatus.ACTIVE, FeedWeekStatus.COMPLETED)
 
         if row:
             return {
@@ -285,17 +291,38 @@ async def delete_feed_sessions(week_id: int, keep_completed: bool = False):
         logger.info(f"Deleted feed sessions for week {week_id} (keep_completed={keep_completed}): {deleted}")
 
 
-async def get_feed_history(chat_id: int, limit: int = 20) -> List[dict]:
-    """Получить историю сессий Ленты"""
+async def get_feed_history(chat_id: int, limit: int = 10) -> List[dict]:
+    """Получить историю сессий Ленты (completed + expired + skipped)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT s.topic_title, s.fixation_text, s.session_date, s.completed_at
+            SELECT s.id, s.topic_title, s.fixation_text, s.session_date,
+                   s.completed_at, s.status, s.day_number
             FROM feed_sessions s
             JOIN feed_weeks w ON s.week_id = w.id
-            WHERE w.chat_id = $1 AND s.status = 'completed'
-            ORDER BY s.completed_at DESC
+            WHERE w.chat_id = $1 AND s.status IN ('completed', 'expired', 'skipped')
+            ORDER BY s.session_date DESC
             LIMIT $2
         ''', chat_id, limit)
 
         return [dict(row) for row in rows]
+
+
+async def get_feed_session_content(session_id: int) -> Optional[dict]:
+    """Получить полный контент сессии (для пересмотра в истории)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT id, content, topic_title, fixation_text, session_date, status FROM feed_sessions WHERE id = $1',
+            session_id
+        )
+        if row:
+            return {
+                'id': row['id'],
+                'content': json.loads(row['content']) if row['content'] else {},
+                'topic_title': row['topic_title'],
+                'fixation_text': row.get('fixation_text', ''),
+                'session_date': row['session_date'],
+                'status': row['status'],
+            }
+        return None

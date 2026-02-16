@@ -2687,6 +2687,30 @@ feed:
     ru: "Уровень глубины"
     en: "Depth level"
 
+  depth_level_label:
+    ru: "Уровень глубины"
+    en: "Depth level"
+
+  history_button:
+    ru: "История дайджестов"
+    en: "Digest History"
+
+  history_title:
+    ru: "История дайджестов"
+    en: "Digest History"
+
+  no_history:
+    ru: "У вас пока нет прошлых дайджестов."
+    en: "You don't have any past digests yet."
+
+  your_fixation:
+    ru: "Ваша фиксация"
+    en: "Your fixation"
+
+  digest_expired_note:
+    ru: "Этот дайджест не был завершён"
+    en: "This digest was not completed"
+
   mode_header:
     ru: "📚 *Режим Лента*"
     en: "📚 *Feed Mode*"
