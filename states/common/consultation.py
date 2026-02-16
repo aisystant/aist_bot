@@ -113,19 +113,25 @@ class ConsultationState(BaseState):
         return getattr(user, 'chat_id', None)
 
     async def _detect_tier(self, user_chat_id: int) -> tuple:
-        """Определяет тир обслуживания: (has_tools, has_github, has_dt).
+        """Определяет тир обслуживания: (tier, has_github, has_dt).
 
-        has_tools: True → tool_use path (T2+)
-        has_github: True → personal CLAUDE.md available (T3)
-        has_dt: True → DT tool available
+        DP.ARCH.002:
+        - T1 Expert: нет GitHub, нет ЦД
+        - T2 Mentor: есть ЦД (без GitHub)
+        - T3 Co-thinker: есть GitHub (+ personal CLAUDE.md)
+        - T4 Architect: reserved (= T3 пока нет tools)
         """
         if not user_chat_id:
-            return False, False, False
+            return 1, False, False
 
         has_github = await github_oauth.is_connected(user_chat_id)
         has_dt = digital_twin.is_connected(user_chat_id)
 
-        return (has_github or has_dt), has_github, has_dt
+        if has_github:
+            return 3, True, has_dt
+        elif has_dt:
+            return 2, False, True
+        return 1, False, False
 
     def _get_mode(self, user) -> str:
         """Получить текущий режим пользователя."""
@@ -333,66 +339,7 @@ class ConsultationState(BaseState):
                 else:
                     await self.send(user, t('consultation.thinking', lang))
 
-                if deep_search:
-                    # --- L3 forced: глубокий поиск ---
-                    context_topic = self._get_current_topic(user)
-                    intern_dict = self._user_to_dict(user)
-                    bot_context = get_self_knowledge(lang)
-
-                    # Refinement: inject previous answer
-                    if is_refinement and previous_answer:
-                        refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
-                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
-                        bot_context += refinement_instruction
-                    else:
-                        # Regular deep search (ИИ prefix)
-                        depth_instruction = {
-                            'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай развёрнутый ответ, используя ВСЕ доступные фрагменты из контекста. Если в контексте есть связи между темами — покажи их. Если есть примеры — приведи. НО НЕ выдумывай то, чего в контексте нет.",
-                            'en': "\n\nDEPTH INSTRUCTION: Give a comprehensive answer using ALL available context fragments. Show connections between topics if present. Cite examples from context. But DO NOT invent what is not in the context.",
-                        }.get(lang, "\n\nDEPTH INSTRUCTION: Use ALL context fragments. Do not invent.")
-                        bot_context += depth_instruction
-
-                    # L1 structured data — inject even in deep search if available
-                    if not is_refinement:
-                        hit = structured_lookup(question, lang)
-                        if hit:
-                            sc = format_structured_context(hit, lang)
-                            if sc:
-                                bot_context = sc + "\n\n" + bot_context
-
-                    # Определяем тир: GitHub/DT → tool_use (T2+), иначе → L3 legacy (T1)
-                    user_chat_id = self._get_chat_id(user)
-                    has_tools, has_github, has_dt = await self._detect_tier(user_chat_id)
-
-                    if has_tools:
-                        from engines.shared import handle_question_with_tools
-                        from engines.shared.consultation_tools import get_personal_claude_md
-
-                        personal_claude = ""
-                        if has_github:
-                            personal_claude = await get_personal_claude_md(user_chat_id)
-
-                        answer, sources = await handle_question_with_tools(
-                            question=question,
-                            intern=intern_dict,
-                            context_topic=context_topic,
-                            bot_context=bot_context,
-                            has_digital_twin=has_dt,
-                            personal_claude_md=personal_claude,
-                        )
-                    else:
-                        from engines.shared import handle_question
-                        answer, sources = await handle_question(
-                            question=question,
-                            intern=intern_dict,
-                            context_topic=context_topic,
-                            bot_context=bot_context,
-                        )
-
-                    response = self._format_response(answer, sources, lang)
-                elif is_bot_q:
+                if is_bot_q and not deep_search:
                     # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
                     answer = await self._answer_bot_question(
                         user, question, lang,
@@ -413,6 +360,7 @@ class ConsultationState(BaseState):
                         except Exception as e:
                             logger.warning(f"L2 save_qa error: {e}")
                 else:
+                    # --- L3: предметный вопрос → tool_use для ВСЕХ тиров (T1-T4) ---
                     context_topic = self._get_current_topic(user)
                     intern_dict = self._user_to_dict(user)
                     bot_context = get_self_knowledge(lang)
@@ -421,39 +369,49 @@ class ConsultationState(BaseState):
                     if structured_context:
                         bot_context = structured_context + "\n\n" + bot_context
 
-                    # Определяем тир: GitHub/DT → tool_use (T2+), иначе → L3 legacy (T1)
+                    # Refinement: inject previous answer
+                    if is_refinement and previous_answer:
+                        refinement_instruction = {
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+                        bot_context += refinement_instruction
+                    elif deep_search:
+                        depth_instruction = {
+                            'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай развёрнутый ответ, используя ВСЕ доступные фрагменты из контекста. Если в контексте есть связи между темами — покажи их. Если есть примеры — приведи. НО НЕ выдумывай то, чего в контексте нет.",
+                            'en': "\n\nDEPTH INSTRUCTION: Give a comprehensive answer using ALL available context fragments. Show connections between topics if present. Cite examples from context. But DO NOT invent what is not in the context.",
+                        }.get(lang, "\n\nDEPTH INSTRUCTION: Use ALL context fragments. Do not invent.")
+                        bot_context += depth_instruction
+
+                    # L1 structured data for deep search
+                    if deep_search and not is_refinement and not structured_context:
+                        hit = structured_lookup(question, lang)
+                        if hit:
+                            sc = format_structured_context(hit, lang)
+                            if sc:
+                                bot_context = sc + "\n\n" + bot_context
+
+                    # Определяем тир (DP.ARCH.002)
                     user_chat_id = self._get_chat_id(user)
-                    has_tools, has_github, has_dt = await self._detect_tier(user_chat_id)
+                    tier, has_github, has_dt = await self._detect_tier(user_chat_id)
 
-                    if has_tools:
-                        # --- T2+/T3: Claude tool_use (DP.ARCH.002) ---
-                        from engines.shared import handle_question_with_tools
-                        from engines.shared.consultation_tools import get_personal_claude_md
+                    from engines.shared import handle_question_with_tools
+                    from engines.shared.consultation_tools import get_personal_claude_md
 
-                        personal_claude = ""
-                        if has_github:
-                            personal_claude = await get_personal_claude_md(user_chat_id)
+                    personal_claude = ""
+                    if has_github:
+                        personal_claude = await get_personal_claude_md(user_chat_id)
 
-                        answer, sources = await handle_question_with_tools(
-                            question=question,
-                            intern=intern_dict,
-                            context_topic=context_topic,
-                            bot_context=bot_context,
-                            has_digital_twin=has_dt,
-                            personal_claude_md=personal_claude,
-                        )
-                        tier = "T3" if has_github else "T2"
-                        logger.info(f"Consultation: {tier} tool_use path for user {user_chat_id}")
-                    else:
-                        # --- T1: L3 legacy (pre-search + Claude) ---
-                        from engines.shared import handle_question
-
-                        answer, sources = await handle_question(
-                            question=question,
-                            intern=intern_dict,
-                            context_topic=context_topic,
-                            bot_context=bot_context,
-                        )
+                    answer, sources = await handle_question_with_tools(
+                        question=question,
+                        intern=intern_dict,
+                        context_topic=context_topic,
+                        bot_context=bot_context,
+                        has_digital_twin=has_dt,
+                        personal_claude_md=personal_claude,
+                        tier=tier,
+                    )
+                    logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
 
                     response = self._format_response(answer, sources, lang)
 

@@ -357,3 +357,75 @@ def invalidate_personal_claude_cache(telegram_user_id: Optional[int] = None):
         _personal_claude_cache.pop(telegram_user_id, None)
     else:
         _personal_claude_cache.clear()
+
+
+# =============================================================================
+# TIER PROMPT LOADER (DP.ARCH.002)
+# =============================================================================
+
+_tier_prompt_cache: Dict[int, str] = {}
+
+_TIER_FILES = {
+    1: "t1_expert.md",
+    2: "t2_mentor.md",
+    3: "t3_cothinker.md",
+    4: "t3_cothinker.md",  # T4 uses T3 prompt until dedicated tools exist
+}
+
+
+def load_tier_prompt(tier: int) -> str:
+    """Загружает шаблон system prompt для указанного тира.
+
+    Промпты хранятся в config/prompts/t{N}_{role}.md.
+    Содержат {placeholders} для подстановки через fill_tier_prompt().
+
+    Args:
+        tier: номер тира (1-4)
+
+    Returns:
+        Шаблон промпта (строка с {placeholders}).
+    """
+    if tier in _tier_prompt_cache:
+        return _tier_prompt_cache[tier]
+
+    from pathlib import Path
+    filename = _TIER_FILES.get(tier, _TIER_FILES[1])
+    path = Path(__file__).parent.parent.parent / "config" / "prompts" / filename
+
+    if path.exists():
+        try:
+            content = path.read_text(encoding="utf-8")
+            _tier_prompt_cache[tier] = content
+            logger.info(f"Tier prompt loaded: T{tier} ({filename}, {len(content)} chars)")
+            return content
+        except Exception as e:
+            logger.warning(f"Failed to read tier prompt {filename}: {e}")
+
+    # Fallback: базовый промпт T1
+    fallback = (
+        "Ты — дружелюбный эксперт по системному мышлению.\n"
+        "Отвечаешь на вопросы пользователя {name}.\n\n"
+        "{lang_instruction}\n\n"
+        "Используй tools для поиска информации.\n"
+        "НЕ выдумывай факты.\n\n"
+        "{lang_reminder}"
+    )
+    logger.warning(f"Tier prompt T{tier} not found at {path}, using fallback")
+    _tier_prompt_cache[tier] = fallback
+    return fallback
+
+
+def fill_tier_prompt(template: str, **kwargs) -> str:
+    """Безопасная подстановка {placeholders} в шаблон промпта.
+
+    В отличие от str.format(), не падает на неизвестных {braces}.
+    """
+    result = template
+    for key, value in kwargs.items():
+        result = result.replace(f"{{{key}}}", str(value))
+    return result
+
+
+def invalidate_tier_prompt_cache():
+    """Сброс кеша tier prompts (для hot reload)."""
+    _tier_prompt_cache.clear()
