@@ -333,9 +333,16 @@ class FeedbackState(BaseState):
         if chat_id:
             try:
                 from db.queries import get_intern
+                from db.queries.feedback import format_user_label
                 intern = await get_intern(chat_id)
-                name = intern.get('name', '') if intern else ''
-                user_label = f" | {name}" if name else f" | #{chat_id}"
+                if intern:
+                    user_label = " | " + format_user_label({
+                        'user_name': intern.get('name', ''),
+                        'tg_username': intern.get('tg_username', ''),
+                        'chat_id': chat_id,
+                    })
+                else:
+                    user_label = f" | #{chat_id}"
             except Exception:
                 user_label = f" | #{chat_id}"
 

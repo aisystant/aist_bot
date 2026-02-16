@@ -706,7 +706,7 @@ async def send_trial_expiry_notifications():
 
 async def send_feedback_daily_digest(dev_chat_id: int):
     """Отправить 🟡 ежедневный дайджест жёлтых отчётов."""
-    from db.queries.feedback import get_pending_reports, mark_notified
+    from db.queries.feedback import get_pending_reports, mark_notified, format_user_label
 
     reports = await get_pending_reports(severity='yellow', since_hours=24)
     if not reports:
@@ -717,8 +717,7 @@ async def send_feedback_daily_digest(dev_chat_id: int):
     for r in reports:
         scenario = r.get('scenario', 'other')
         msg = (r.get('message', '') or '')[:60]
-        user_name = r.get('user_name') or f"#{r['chat_id']}"
-        lines.append(f"\u2022 #{r['id']} | {user_name} | {scenario} | \"{msg}\"")
+        lines.append(f"\u2022 #{r['id']} | {format_user_label(r)} | {scenario} | \"{msg}\"")
     text = "\n".join(lines)
 
     try:
@@ -733,7 +732,7 @@ async def send_feedback_daily_digest(dev_chat_id: int):
 
 async def send_feedback_weekly_digest(dev_chat_id: int):
     """Отправить 🟢 еженедельный дайджест предложений."""
-    from db.queries.feedback import get_pending_reports, mark_notified
+    from db.queries.feedback import get_pending_reports, mark_notified, format_user_label
 
     reports = await get_pending_reports(severity='green', since_hours=168)
     if not reports:
@@ -743,8 +742,7 @@ async def send_feedback_weekly_digest(dev_chat_id: int):
     lines = [f"\U0001f7e2 <b>{len(reports)} предложений за неделю:</b>\n"]
     for r in reports:
         msg = (r.get('message', '') or '')[:60]
-        user_name = r.get('user_name') or f"#{r['chat_id']}"
-        lines.append(f"\u2022 #{r['id']} | {user_name} | \"{msg}\"")
+        lines.append(f"\u2022 #{r['id']} | {format_user_label(r)} | \"{msg}\"")
     text = "\n".join(lines)
 
     try:

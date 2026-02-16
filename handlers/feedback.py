@@ -40,7 +40,7 @@ def _reports_keyboard(active: str = "") -> InlineKeyboardMarkup:
 
 async def _render_reports(since_hours: int = None, period_label: str = "All time") -> str:
     """Формирует HTML-текст отчётов."""
-    from db.queries.feedback import get_all_reports, get_report_stats
+    from db.queries.feedback import get_all_reports, get_report_stats, format_user_label
 
     stats = await get_report_stats()
     reports = await get_all_reports(limit=20, since_hours=since_hours)
@@ -67,8 +67,7 @@ async def _render_reports(since_hours: int = None, period_label: str = "All time
             dt = r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '\u2014'
             msg = (r.get('message') or '')[:80]
             scenario = r.get('scenario', 'other')
-            user_name = r.get('user_name') or f"#{r['chat_id']}"
-            text += f"\n{sev}{st} <b>#{r['id']}</b> | {user_name} | {scenario} | {dt}\n{msg}\n"
+            text += f"\n{sev}{st} <b>#{r['id']}</b> | {format_user_label(r)} | {scenario} | {dt}\n{msg}\n"
 
     if len(text) > 4000:
         text = text[:4000] + "\n\n... (truncated)"

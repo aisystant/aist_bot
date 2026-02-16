@@ -120,6 +120,9 @@ async def create_tables(pool: asyncpg.Pool):
             # Второе напоминание
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS schedule_time_2 TEXT DEFAULT NULL',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_schedule_time TEXT DEFAULT NULL',
+
+            # Telegram username (@handle)
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT NULL',
         ]
         
         for migration in migrations:

@@ -120,6 +120,9 @@ def _row_to_dict(row) -> dict:
         'trial_started_at': safe_get('trial_started_at', None),
         'created_at': safe_get('created_at', None),
 
+        # Telegram
+        'tg_username': safe_get('tg_username', None),
+
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
         'language': safe_get('language', 'ru'),
@@ -183,6 +186,8 @@ def _get_default_intern(chat_id: int) -> dict:
         'trial_started_at': None,
         'created_at': None,
 
+        'tg_username': None,
+
         'onboarding_completed': False,
         'language': 'ru',
     }
@@ -231,6 +236,16 @@ async def update_intern(chat_id: int, **kwargs):
                 asyncio.create_task(digital_twin.sync_fields(chat_id, mapped))
     except Exception:
         pass  # DT sync — best effort
+
+
+async def update_tg_username(chat_id: int, username: str) -> None:
+    """Обновить tg_username если изменился (IS DISTINCT FROM — пишет только при изменении)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE interns SET tg_username = $1 WHERE chat_id = $2 AND tg_username IS DISTINCT FROM $1',
+            username, chat_id,
+        )
 
 
 async def update_user_state(chat_id: int, state_name: str) -> None:

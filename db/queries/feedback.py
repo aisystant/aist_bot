@@ -10,6 +10,19 @@ from db.connection import get_pool
 logger = get_logger(__name__)
 
 
+def format_user_label(report: dict) -> str:
+    """Форматирует имя отправителя: 'Имя (@username)' или fallback на chat_id."""
+    name = report.get('user_name') or ''
+    tg = report.get('tg_username') or ''
+    if name and tg:
+        return f"{name} (@{tg})"
+    if tg:
+        return f"@{tg}"
+    if name:
+        return name
+    return f"#{report.get('chat_id', '?')}"
+
+
 async def save_feedback(
     chat_id: int,
     category: str,
@@ -35,7 +48,8 @@ async def get_pending_reports(severity: str, since_hours: int = 24) -> List[dict
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
-                   f.message, f.created_at, i.name AS user_name
+                   f.message, f.created_at,
+                   i.name AS user_name, i.tg_username
             FROM feedback_reports f
             LEFT JOIN interns i ON i.chat_id = f.chat_id
             WHERE f.status = 'new' AND f.severity = $1
@@ -64,7 +78,8 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
         if since_hours:
             rows = await conn.fetch('''
                 SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
-                       f.message, f.status, f.created_at, i.name AS user_name
+                       f.message, f.status, f.created_at,
+                       i.name AS user_name, i.tg_username
                 FROM feedback_reports f
                 LEFT JOIN interns i ON i.chat_id = f.chat_id
                 WHERE f.created_at >= NOW() - make_interval(hours => $1)
@@ -74,7 +89,8 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
         else:
             rows = await conn.fetch('''
                 SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
-                       f.message, f.status, f.created_at, i.name AS user_name
+                       f.message, f.status, f.created_at,
+                       i.name AS user_name, i.tg_username
                 FROM feedback_reports f
                 LEFT JOIN interns i ON i.chat_id = f.chat_id
                 ORDER BY f.created_at DESC

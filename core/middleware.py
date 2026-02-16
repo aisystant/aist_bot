@@ -5,6 +5,7 @@ LoggingMiddleware — логирование входящих сообщений
 TracingMiddleware — request-scoped трейсинг с записью в Neon.
 """
 
+import asyncio
 import logging
 
 from aiogram import BaseMiddleware
@@ -64,6 +65,14 @@ class LoggingMiddleware(BaseMiddleware):
                        f"user_id={event.from_user.id if event.from_user else None}, "
                        f"text={event.text[:50] if event.text else '[no text]'}, "
                        f"state={current_state}")
+
+            # Fire-and-forget: сохранить/обновить tg_username
+            if event.from_user and event.from_user.username:
+                try:
+                    from db.queries.users import update_tg_username
+                    asyncio.create_task(update_tg_username(event.from_user.id, event.from_user.username))
+                except Exception:
+                    pass
 
         return await handler(event, data)
 
