@@ -601,4 +601,33 @@ async def create_tables(pool: asyncpg.Pool):
             ON request_traces (user_id, created_at DESC)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # МОНИТОРИНГ ОШИБОК
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS error_logs (
+                id SERIAL PRIMARY KEY,
+                error_key TEXT NOT NULL,
+                level TEXT NOT NULL DEFAULT 'ERROR',
+                logger_name TEXT NOT NULL,
+                message TEXT NOT NULL,
+                traceback TEXT,
+                context JSONB DEFAULT '{}',
+                occurrence_count INTEGER DEFAULT 1,
+                first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+                last_seen_at TIMESTAMPTZ DEFAULT NOW(),
+                alerted BOOLEAN DEFAULT FALSE
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_last_seen
+            ON error_logs (last_seen_at DESC)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_alerted
+            ON error_logs (alerted, last_seen_at DESC)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

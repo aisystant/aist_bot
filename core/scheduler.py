@@ -549,6 +549,21 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Latency alert error: {e}")
 
+    # 🚨 Error alert: проверяем каждые 15 минут
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from db.queries.errors import check_error_alerts
+            alert_text = await check_error_alerts(minutes=15)
+            if alert_text:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), alert_text, parse_mode="HTML")
+                    logger.info("[Scheduler] Error alert sent to developer")
+                finally:
+                    await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] Error alert error: {e}")
+
     # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
         try:
@@ -560,6 +575,11 @@ async def scheduled_check():
             await cleanup_old_traces(days=7)
         except Exception as e:
             logger.error(f"[Scheduler] Traces cleanup error: {e}")
+        try:
+            from db.queries.errors import cleanup_old_errors
+            await cleanup_old_errors(days=7)
+        except Exception as e:
+            logger.error(f"[Scheduler] Error logs cleanup error: {e}")
 
     # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
     if now.minute == 0:

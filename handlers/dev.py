@@ -1,5 +1,5 @@
 """
-Команды разработчика: /stats, /usage, /qa, /health, /latency.
+Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors.
 
 Доступны только для DEVELOPER_CHAT_ID.
 """
@@ -252,6 +252,61 @@ async def cmd_latency(message: Message):
         f"<b>By command</b>\n{cmd_lines}\n"
         f"<b>Slowest spans</b>\n{span_lines}\n"
         f"<b>Red alerts</b>\n{red_lines}"
+    )
+
+    if len(text) > 4000:
+        text = text[:4000] + "\n\n... (truncated)"
+
+    await message.answer(text, parse_mode="HTML")
+
+
+@dev_router.message(Command("errors"))
+async def cmd_errors(message: Message):
+    """/errors — отчёт по ошибкам за 24h."""
+    if not _is_developer(message.chat.id):
+        return
+
+    from db.queries.errors import get_error_report
+
+    try:
+        report = await get_error_report(hours=24)
+    except Exception as e:
+        logger.error(f"[Dev] /errors error: {e}")
+        await message.answer("Error fetching error report.")
+        return
+
+    sep = "\u2500" * 20
+    s = report['summary']
+
+    if s['unique_errors'] == 0:
+        await message.answer(
+            f"<b>Error Report (24h)</b>\n{sep}\n\n"
+            f"\U0001f7e2 No errors in the last 24 hours.",
+            parse_mode="HTML"
+        )
+        return
+
+    # By logger
+    logger_lines = ""
+    for r in report['by_logger']:
+        logger_lines += f"  {r['logger_name']}: {r['count']} unique ({r['total_occurrences']} total)\n"
+
+    # Recent errors
+    recent_lines = ""
+    for r in report['recent'][:8]:
+        emoji = "\U0001f534" if r['level'] == 'CRITICAL' else "\U0001f7e1"
+        msg = (r['message'] or '')[:60]
+        count_str = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
+        recent_lines += f"  {emoji} {r['logger_name']}: {msg}{count_str}\n"
+
+    text = (
+        f"<b>Error Report (24h)</b>\n{sep}\n\n"
+        f"<b>Summary</b>\n"
+        f"  Unique errors: {s['unique_errors']}"
+        f" | Total occurrences: {s['total_occurrences']}\n"
+        f"  \U0001f534 Critical: {s['critical_count']}\n\n"
+        f"<b>By source</b>\n{logger_lines}\n"
+        f"<b>Recent</b>\n{recent_lines}"
     )
 
     if len(text) > 4000:
