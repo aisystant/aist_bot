@@ -12,7 +12,7 @@
 
 **НЕ является source-of-truth** — определения в Pack'ах.
 
-**Ветка:** `new-architecture` (State Machine в разработке)
+**Ветки:** `pilot` (разработка) → `new-architecture` (прод). Правило Pilot-First — см. MEMORY.md.
 
 ---
 
