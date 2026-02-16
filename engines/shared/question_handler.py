@@ -361,6 +361,7 @@ async def handle_question_with_tools(
     context_topic: Optional[str] = None,
     bot_context: Optional[str] = None,
     has_digital_twin: bool = False,
+    personal_claude_md: Optional[str] = None,
     progress_callback: ProgressCallback = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (T2+ путь).
@@ -374,6 +375,7 @@ async def handle_question_with_tools(
         context_topic: текущая тема
         bot_context: self-knowledge бота
         has_digital_twin: подключён ли ЦД (определяет набор tools)
+        personal_claude_md: персональный CLAUDE.md из GitHub (T3)
         progress_callback: callback для отображения прогресса
 
     Returns:
@@ -428,6 +430,11 @@ async def handle_question_with_tools(
     if standard_claude:
         standard_section = f"\n\nМЕТОДОЛОГИЯ:\n{standard_claude}"
 
+    # Personal CLAUDE.md (T3) — overrides/extends standard
+    personal_section = ""
+    if personal_claude_md:
+        personal_section = f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}"
+
     bot_section = ""
     if bot_context:
         bot_section = f"""
@@ -451,6 +458,7 @@ async def handle_question_with_tools(
 
 {ONTOLOGY_RULES}
 {standard_section}
+{personal_section}
 {bot_section}
 
 {lang_reminder}"""

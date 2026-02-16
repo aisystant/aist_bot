@@ -30,6 +30,7 @@ from core.self_knowledge import get_self_knowledge, match_faq
 from engines.shared.structured_lookup import structured_lookup, format_structured_context
 from db.queries.qa import save_qa, get_latest_qa_id
 from clients.digital_twin import digital_twin
+from clients.github_oauth import github_oauth
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,21 @@ class ConsultationState(BaseState):
         if isinstance(user, dict):
             return user.get('chat_id')
         return getattr(user, 'chat_id', None)
+
+    async def _detect_tier(self, user_chat_id: int) -> tuple:
+        """Определяет тир обслуживания: (has_tools, has_github, has_dt).
+
+        has_tools: True → tool_use path (T2+)
+        has_github: True → personal CLAUDE.md available (T3)
+        has_dt: True → DT tool available
+        """
+        if not user_chat_id:
+            return False, False, False
+
+        has_github = await github_oauth.is_connected(user_chat_id)
+        has_dt = digital_twin.is_connected(user_chat_id)
+
+        return (has_github or has_dt), has_github, has_dt
 
     def _get_mode(self, user) -> str:
         """Получить текущий режим пользователя."""
@@ -346,18 +362,25 @@ class ConsultationState(BaseState):
                             if sc:
                                 bot_context = sc + "\n\n" + bot_context
 
-                    # Определяем тир: DT → tool_use (T2+), иначе → L3 legacy (T1)
+                    # Определяем тир: GitHub/DT → tool_use (T2+), иначе → L3 legacy (T1)
                     user_chat_id = self._get_chat_id(user)
-                    has_dt = digital_twin.is_connected(user_chat_id) if user_chat_id else False
+                    has_tools, has_github, has_dt = await self._detect_tier(user_chat_id)
 
-                    if has_dt:
+                    if has_tools:
                         from engines.shared import handle_question_with_tools
+                        from engines.shared.consultation_tools import get_personal_claude_md
+
+                        personal_claude = ""
+                        if has_github:
+                            personal_claude = await get_personal_claude_md(user_chat_id)
+
                         answer, sources = await handle_question_with_tools(
                             question=question,
                             intern=intern_dict,
                             context_topic=context_topic,
                             bot_context=bot_context,
-                            has_digital_twin=True,
+                            has_digital_twin=has_dt,
+                            personal_claude_md=personal_claude,
                         )
                     else:
                         from engines.shared import handle_question
@@ -398,22 +421,29 @@ class ConsultationState(BaseState):
                     if structured_context:
                         bot_context = structured_context + "\n\n" + bot_context
 
-                    # Определяем тир: DT подключён → tool_use (T2+), иначе → L3 legacy (T1)
+                    # Определяем тир: GitHub/DT → tool_use (T2+), иначе → L3 legacy (T1)
                     user_chat_id = self._get_chat_id(user)
-                    has_dt = digital_twin.is_connected(user_chat_id) if user_chat_id else False
+                    has_tools, has_github, has_dt = await self._detect_tier(user_chat_id)
 
-                    if has_dt:
-                        # --- T2+: Claude tool_use (DP.ARCH.002) ---
+                    if has_tools:
+                        # --- T2+/T3: Claude tool_use (DP.ARCH.002) ---
                         from engines.shared import handle_question_with_tools
+                        from engines.shared.consultation_tools import get_personal_claude_md
+
+                        personal_claude = ""
+                        if has_github:
+                            personal_claude = await get_personal_claude_md(user_chat_id)
 
                         answer, sources = await handle_question_with_tools(
                             question=question,
                             intern=intern_dict,
                             context_topic=context_topic,
                             bot_context=bot_context,
-                            has_digital_twin=True,
+                            has_digital_twin=has_dt,
+                            personal_claude_md=personal_claude,
                         )
-                        logger.info(f"Consultation: T2+ tool_use path for user {user_chat_id}")
+                        tier = "T3" if has_github else "T2"
+                        logger.info(f"Consultation: {tier} tool_use path for user {user_chat_id}")
                     else:
                         # --- T1: L3 legacy (pre-search + Claude) ---
                         from engines.shared import handle_question

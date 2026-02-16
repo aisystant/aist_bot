@@ -288,3 +288,72 @@ def invalidate_standard_claude_cache():
     """Сброс кеша standard CLAUDE.md (для hot reload)."""
     global _standard_claude_md_cache
     _standard_claude_md_cache = None
+
+
+# =============================================================================
+# PERSONAL CLAUDE.MD LOADER (T3)
+# =============================================================================
+
+# In-memory кеш: telegram_user_id -> (content, timestamp)
+_personal_claude_cache: Dict[int, tuple] = {}
+_PERSONAL_CACHE_TTL = 300  # 5 минут
+
+
+async def get_personal_claude_md(telegram_user_id: int) -> str:
+    """Загружает personal CLAUDE.md из GitHub (T3 Со-мыслитель).
+
+    Читает exocortex/CLAUDE.md из strategy_repo пользователя.
+    Содержит персональную методологию, правила и контекст.
+
+    Кешируется на 5 минут (GitHub API rate limits).
+
+    Returns:
+        Содержимое personal CLAUDE.md или пустая строка.
+    """
+    import time
+
+    # Проверяем кеш
+    cached = _personal_claude_cache.get(telegram_user_id)
+    if cached:
+        content, ts = cached
+        if time.time() - ts < _PERSONAL_CACHE_TTL:
+            return content
+
+    from clients.github_oauth import github_oauth
+    from clients.github_strategy import github_strategy
+
+    strategy_repo = await github_oauth.get_strategy_repo(telegram_user_id)
+    if not strategy_repo:
+        logger.info(f"Personal CLAUDE.md: no strategy_repo for user {telegram_user_id}")
+        _personal_claude_cache[telegram_user_id] = ("", time.time())
+        return ""
+
+    # Читаем exocortex/CLAUDE.md
+    claude_md = await github_strategy.read_file(
+        telegram_user_id, strategy_repo, "exocortex/CLAUDE.md"
+    )
+
+    if not claude_md:
+        logger.info(f"Personal CLAUDE.md: not found in {strategy_repo}/exocortex/")
+        _personal_claude_cache[telegram_user_id] = ("", time.time())
+        return ""
+
+    # Ограничиваем размер (system prompt budget)
+    MAX_PERSONAL_CHARS = 6000
+    if len(claude_md) > MAX_PERSONAL_CHARS:
+        claude_md = claude_md[:MAX_PERSONAL_CHARS] + "\n\n[...усечено...]"
+
+    logger.info(
+        f"Personal CLAUDE.md loaded: {len(claude_md)} chars "
+        f"from {strategy_repo} for user {telegram_user_id}"
+    )
+    _personal_claude_cache[telegram_user_id] = (claude_md, time.time())
+    return claude_md
+
+
+def invalidate_personal_claude_cache(telegram_user_id: Optional[int] = None):
+    """Сброс кеша personal CLAUDE.md."""
+    if telegram_user_id:
+        _personal_claude_cache.pop(telegram_user_id, None)
+    else:
+        _personal_claude_cache.clear()
