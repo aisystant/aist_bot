@@ -410,6 +410,7 @@ class ConsultationState(BaseState):
                         has_digital_twin=has_dt,
                         personal_claude_md=personal_claude,
                         tier=tier,
+                        is_refinement=is_refinement,
                     )
                     logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
 
