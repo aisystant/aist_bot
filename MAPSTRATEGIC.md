@@ -36,8 +36,8 @@ updated: 2026-02-09
 Бот (тонкий клиент)          Агенты              MCP                Хранилище
 ┌──────────────────┐   ┌─────────────────┐   ┌──────────────┐   ┌─────────────┐
 │ Диспетчер        │──▶│ Проводник       │──▶│ guides-mcp   │──▶│ GitHub      │
-│ (команды,        │   │ Стратег         │   │ digital-twin │   │ SurrealDB   │
-│  префиксы,       │   │ Консультант     │   │ user-repos   │   │ Embeddings  │
+│ (команды,        │   │ Стратег         │   │ digital-twin │   │ Neon PG     │
+│  префиксы,       │   │ Консультант     │   │ user-repos   │   │ (pgvector)  │
 │  State Machine)  │   │ ProgressAnalyst │   │ fsm-mcp      │   │             │
 │                  │   │ RhythmKeeper    │   │ pack-MCP'ы   │   │             │
 │ Форматирование   │   │                 │   │              │   │             │
@@ -159,7 +159,7 @@ updated: 2026-02-09
 | **Стратег** | нет | заглушка | отдельный сервис | отдельный сервис |
 | **Прогресс** | utility/progress.py | + digital-twin-mcp | ProgressAnalyst | ProgressAnalyst |
 | **Уведомления** | scheduler в bot.py | scheduler + mode-aware | Агенты по расписанию | RhythmKeeper |
-| **Хранение** | MongoDB | MongoDB + MCP | MCP → SurrealDB | MCP → SurrealDB |
+| **Хранение** | MongoDB | Neon PG + MCP | MCP → Neon PG | MCP → Neon PG |
 
 ---
 
