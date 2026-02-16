@@ -717,7 +717,8 @@ async def send_feedback_daily_digest(dev_chat_id: int):
     for r in reports:
         scenario = r.get('scenario', 'other')
         msg = (r.get('message', '') or '')[:60]
-        lines.append(f"\u2022 #{r['id']} | {scenario} | \"{msg}\"")
+        user_name = r.get('user_name') or f"#{r['chat_id']}"
+        lines.append(f"\u2022 #{r['id']} | {user_name} | {scenario} | \"{msg}\"")
     text = "\n".join(lines)
 
     try:
@@ -742,7 +743,8 @@ async def send_feedback_weekly_digest(dev_chat_id: int):
     lines = [f"\U0001f7e2 <b>{len(reports)} предложений за неделю:</b>\n"]
     for r in reports:
         msg = (r.get('message', '') or '')[:60]
-        lines.append(f"\u2022 #{r['id']} | \"{msg}\"")
+        user_name = r.get('user_name') or f"#{r['chat_id']}"
+        lines.append(f"\u2022 #{r['id']} | {user_name} | \"{msg}\"")
     text = "\n".join(lines)
 
     try:

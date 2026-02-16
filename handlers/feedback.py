@@ -67,7 +67,8 @@ async def _render_reports(since_hours: int = None, period_label: str = "All time
             dt = r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '\u2014'
             msg = (r.get('message') or '')[:80]
             scenario = r.get('scenario', 'other')
-            text += f"\n{sev}{st} <b>#{r['id']}</b> | {scenario} | {dt}\n{msg}\n"
+            user_name = r.get('user_name') or f"#{r['chat_id']}"
+            text += f"\n{sev}{st} <b>#{r['id']}</b> | {user_name} | {scenario} | {dt}\n{msg}\n"
 
     if len(text) > 4000:
         text = text[:4000] + "\n\n... (truncated)"
