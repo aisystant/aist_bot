@@ -29,6 +29,7 @@ from core.registry import registry
 from core.self_knowledge import get_self_knowledge, match_faq
 from engines.shared.structured_lookup import structured_lookup, format_structured_context
 from db.queries.qa import save_qa, get_latest_qa_id
+from clients.digital_twin import digital_twin
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -317,9 +318,7 @@ class ConsultationState(BaseState):
                     await self.send(user, t('consultation.thinking', lang))
 
                 if deep_search:
-                    # --- L3 forced: глубокий поиск через MCP ---
-                    from engines.shared import handle_question
-
+                    # --- L3 forced: глубокий поиск ---
                     context_topic = self._get_current_topic(user)
                     intern_dict = self._user_to_dict(user)
                     bot_context = get_self_knowledge(lang)
@@ -347,12 +346,27 @@ class ConsultationState(BaseState):
                             if sc:
                                 bot_context = sc + "\n\n" + bot_context
 
-                    answer, sources = await handle_question(
-                        question=question,
-                        intern=intern_dict,
-                        context_topic=context_topic,
-                        bot_context=bot_context,
-                    )
+                    # Определяем тир: DT → tool_use (T2+), иначе → L3 legacy (T1)
+                    user_chat_id = self._get_chat_id(user)
+                    has_dt = digital_twin.is_connected(user_chat_id) if user_chat_id else False
+
+                    if has_dt:
+                        from engines.shared import handle_question_with_tools
+                        answer, sources = await handle_question_with_tools(
+                            question=question,
+                            intern=intern_dict,
+                            context_topic=context_topic,
+                            bot_context=bot_context,
+                            has_digital_twin=True,
+                        )
+                    else:
+                        from engines.shared import handle_question
+                        answer, sources = await handle_question(
+                            question=question,
+                            intern=intern_dict,
+                            context_topic=context_topic,
+                            bot_context=bot_context,
+                        )
 
                     response = self._format_response(answer, sources, lang)
                 elif is_bot_q:
@@ -376,9 +390,6 @@ class ConsultationState(BaseState):
                         except Exception as e:
                             logger.warning(f"L2 save_qa error: {e}")
                 else:
-                    # --- L3: доменный путь → MCP + Claude ---
-                    from engines.shared import handle_question
-
                     context_topic = self._get_current_topic(user)
                     intern_dict = self._user_to_dict(user)
                     bot_context = get_self_knowledge(lang)
@@ -387,12 +398,32 @@ class ConsultationState(BaseState):
                     if structured_context:
                         bot_context = structured_context + "\n\n" + bot_context
 
-                    answer, sources = await handle_question(
-                        question=question,
-                        intern=intern_dict,
-                        context_topic=context_topic,
-                        bot_context=bot_context,
-                    )
+                    # Определяем тир: DT подключён → tool_use (T2+), иначе → L3 legacy (T1)
+                    user_chat_id = self._get_chat_id(user)
+                    has_dt = digital_twin.is_connected(user_chat_id) if user_chat_id else False
+
+                    if has_dt:
+                        # --- T2+: Claude tool_use (DP.ARCH.002) ---
+                        from engines.shared import handle_question_with_tools
+
+                        answer, sources = await handle_question_with_tools(
+                            question=question,
+                            intern=intern_dict,
+                            context_topic=context_topic,
+                            bot_context=bot_context,
+                            has_digital_twin=True,
+                        )
+                        logger.info(f"Consultation: T2+ tool_use path for user {user_chat_id}")
+                    else:
+                        # --- T1: L3 legacy (pre-search + Claude) ---
+                        from engines.shared import handle_question
+
+                        answer, sources = await handle_question(
+                            question=question,
+                            intern=intern_dict,
+                            context_topic=context_topic,
+                            bot_context=bot_context,
+                        )
 
                     response = self._format_response(answer, sources, lang)
 

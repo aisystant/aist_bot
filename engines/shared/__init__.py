@@ -17,6 +17,7 @@
 
 from .question_handler import (
     handle_question,
+    handle_question_with_tools,
     search_mcp_context,  # deprecated, use enhanced_search
     generate_answer,
     answer_with_context,
@@ -53,6 +54,7 @@ from .context import (
 __all__ = [
     # Question Handler
     'handle_question',
+    'handle_question_with_tools',
     'search_mcp_context',
     'generate_answer',
     'answer_with_context',

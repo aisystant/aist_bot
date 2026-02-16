@@ -355,6 +355,160 @@ async def generate_answer(
     return answer
 
 
+async def handle_question_with_tools(
+    question: str,
+    intern: dict,
+    context_topic: Optional[str] = None,
+    bot_context: Optional[str] = None,
+    has_digital_twin: bool = False,
+    progress_callback: ProgressCallback = None,
+) -> Tuple[str, List[str]]:
+    """Обрабатывает вопрос через Claude tool_use (T2+ путь).
+
+    Claude получает tools и САМ решает, когда искать в базе знаний
+    или читать ЦД. Это заменяет ручной pre-search из handle_question().
+
+    Args:
+        question: текст вопроса
+        intern: профиль пользователя
+        context_topic: текущая тема
+        bot_context: self-knowledge бота
+        has_digital_twin: подключён ли ЦД (определяет набор tools)
+        progress_callback: callback для отображения прогресса
+
+    Returns:
+        Tuple[answer, sources] - ответ и список источников
+    """
+    from .consultation_tools import (
+        get_tools_for_tier,
+        execute_tool,
+        get_standard_claude_md,
+    )
+    from functools import partial
+
+    chat_id = intern.get('chat_id')
+    mode = intern.get('mode', 'marathon')
+    lang = intern.get('language', 'ru')
+    telegram_user_id = intern.get('chat_id')  # chat_id = telegram_user_id
+
+    async def report_progress(stage: str, percent: int):
+        if progress_callback:
+            try:
+                await progress_callback(stage, percent)
+            except Exception as e:
+                logger.debug(f"Progress callback error: {e}")
+
+    # === ЭТАП 1: Подготовка (0-20%) ===
+    await report_progress(ProcessingStage.ANALYZING, 10)
+
+    # Собираем system prompt
+    name = intern.get('name', 'пользователь')
+    occupation = intern.get('occupation', '')
+
+    lang_instruction = {
+        'ru': "ВАЖНО: Отвечай на русском языке.",
+        'en': "IMPORTANT: Answer in English.",
+        'es': "IMPORTANTE: Responde en español.",
+        'fr': "IMPORTANT: Réponds en français."
+    }.get(lang, "IMPORTANT: Answer in English.")
+
+    lang_reminder = {
+        'ru': "НАПОМИНАНИЕ: Весь ответ должен быть на РУССКОМ языке!",
+        'en': "REMINDER: The entire answer must be in ENGLISH!",
+        'es': "RECORDATORIO: ¡Toda la respuesta debe estar en ESPAÑOL!",
+        'fr': "RAPPEL: Toute la réponse doit être en FRANÇAIS!"
+    }.get(lang, "REMINDER: The entire answer must be in ENGLISH!")
+
+    context_info = f"\nТекущая тема изучения: {context_topic}" if context_topic else ""
+    occupation_info = f"\nПрофессия/занятие пользователя: {occupation}" if occupation else ""
+
+    # Standard CLAUDE.md (T2+)
+    standard_claude = get_standard_claude_md()
+    standard_section = ""
+    if standard_claude:
+        standard_section = f"\n\nМЕТОДОЛОГИЯ:\n{standard_claude}"
+
+    bot_section = ""
+    if bot_context:
+        bot_section = f"""
+
+ЗНАНИЯ О БОТЕ:
+{bot_context}
+Если вопрос касается бота — отвечай ТОЛЬКО на основе информации выше."""
+
+    system_prompt = f"""Ты — дружелюбный наставник по системному мышлению и личному развитию.
+Отвечаешь на вопросы пользователя {name}.{occupation_info}{context_info}
+
+{lang_instruction}
+
+ПРАВИЛА:
+1. Используй tools для поиска информации, когда нужен контекст для ответа.
+2. НЕ выдумывай факты — если не нашёл в базе знаний, скажи об этом.
+3. Отвечай кратко и по существу (3-5 абзацев максимум).
+4. Используй простой язык, избегай академического стиля.
+5. Если вопрос не по теме — вежливо перенаправь.
+6. Если у пользователя есть Цифровой Двойник — используй read_digital_twin для персонализации.
+
+{ONTOLOGY_RULES}
+{standard_section}
+{bot_section}
+
+{lang_reminder}"""
+
+    # Подготовка tools и executor
+    tools = get_tools_for_tier(has_digital_twin)
+
+    # Привязываем telegram_user_id к executor
+    async def tool_executor(tool_name: str, tool_input: dict) -> str:
+        return await execute_tool(tool_name, tool_input, telegram_user_id)
+
+    await report_progress(ProcessingStage.ANALYZING, 20)
+
+    # === ЭТАП 2-3: Claude с tools (20-95%) ===
+    await report_progress(ProcessingStage.GENERATING, 30)
+
+    # Формируем user message
+    user_prompts = {
+        'ru': f"Вопрос: {question}",
+        'en': f"Question: {question}",
+        'es': f"Pregunta: {question}"
+    }
+    user_prompt = user_prompts.get(lang, user_prompts['ru'])
+
+    messages = [{"role": "user", "content": user_prompt}]
+
+    answer = await claude.generate_with_tools(
+        system_prompt=system_prompt,
+        messages=messages,
+        tools=tools,
+        tool_executor=tool_executor,
+        max_tokens=4000,
+        max_tool_rounds=5,
+    )
+
+    await report_progress(ProcessingStage.DONE, 100)
+
+    if not answer:
+        answer = f"К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
+
+    # Сохраняем в историю (sources пусто — Claude сам нашёл, не мы)
+    sources: List[str] = []
+    if chat_id:
+        try:
+            await save_qa(
+                chat_id=chat_id,
+                mode=mode,
+                context_topic=context_topic or '',
+                question=question,
+                answer=answer,
+                mcp_sources=sources
+            )
+        except Exception as e:
+            logger.error(f"Ошибка сохранения Q&A: {e}")
+
+    return answer, sources
+
+
 async def answer_with_context(
     question: str,
     intern: dict,
