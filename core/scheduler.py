@@ -182,7 +182,7 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     с кнопкой «Получить урок» (аналогично Feed-дайджесту).
     """
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress
+    from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress, get_topics_for_day, TOPICS
     from core.knowledge import get_topic_title
 
     intern = await get_intern(chat_id)
@@ -285,6 +285,37 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Pre-generated content for {chat_id}, topic {topic_index} "
                      f"(lesson: ✅, question: {'✅' if question_content else '❌'}, "
                      f"practice: {'✅' if practice_content else '❌'})")
+
+        # ─── Pre-gen для парной темы того же дня (theory→practice) ───
+        completed = set(intern.get('completed_topics', []))
+        same_day_topics = get_topics_for_day(topic['day'])
+        for pair_topic in same_day_topics:
+            pair_idx = next(
+                (i for i, t in enumerate(TOPICS) if t['id'] == pair_topic['id']),
+                None,
+            )
+            if pair_idx is not None and pair_idx != topic_index and pair_idx not in completed:
+                try:
+                    pair_results = await asyncio.wait_for(
+                        asyncio.gather(
+                            claude.generate_content(topic=pair_topic, intern=intern, mcp_client=mcp_knowledge),
+                            claude.generate_question(topic=pair_topic, intern=intern, bloom_level=bloom_level),
+                            claude.generate_practice_intro(topic=pair_topic, intern=intern),
+                            return_exceptions=True,
+                        ),
+                        timeout=120,
+                    )
+                    await save_marathon_content(
+                        chat_id=chat_id,
+                        topic_index=pair_idx,
+                        lesson_content=pair_results[0] if not isinstance(pair_results[0], Exception) else None,
+                        question_content=pair_results[1] if not isinstance(pair_results[1], Exception) else None,
+                        practice_content=pair_results[2] if not isinstance(pair_results[2], Exception) else None,
+                        bloom_level=bloom_level,
+                    )
+                    logger.info(f"[Scheduler] Pre-generated PAIR content for {chat_id}, topic {pair_idx} (day {topic['day']})")
+                except Exception as e:
+                    logger.warning(f"[Scheduler] Pair pre-gen failed for {chat_id}, topic {pair_idx}: {e}")
 
     except asyncio.TimeoutError:
         logger.error(f"[Scheduler] Pre-generation timeout (120s) for {chat_id}, topic {topic_index}")
