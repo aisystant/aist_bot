@@ -165,11 +165,11 @@ async def check_latency_alerts(minutes: int = 15) -> Optional[str]:
     if not red_items:
         return None
 
-    lines = [f"\U0001f6a8 <b>Latency Alert</b> ({len(red_items)} red in {minutes}min)\n"]
+    lines = [f"\U0001f6a8 <b>Алерт: латентность</b> ({len(red_items)} красных за {minutes} мин)\n"]
     for r in red_items[:5]:
         cat = classify_command(r['command'])
         ms = int(r['total_ms'])
-        lines.append(f"  \U0001f534 {r['command']}: <b>{ms}ms</b> ({cat})")
+        lines.append(f"  \U0001f534 {r['command']}: <b>{ms}мс</b> ({cat})")
 
-    lines.append(f"\n\U0001f449 /latency for full report")
+    lines.append(f"\n\U0001f449 /latency — полный отчёт")
     return "\n".join(lines)

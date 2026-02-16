@@ -37,8 +37,8 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
     total_occurrences = sum(r['occurrence_count'] for r in rows)
 
     lines = [
-        f"\u26a0\ufe0f <b>Error Alert</b> "
-        f"({len(rows)} errors, {total_occurrences} occurrences in {minutes}min)\n"
+        f"\u26a0\ufe0f <b>Алерт: ошибки</b> "
+        f"({len(rows)} ошибок, {total_occurrences} случаев за {minutes} мин)\n"
     ]
     for r in rows:
         emoji = "\U0001f534" if r['level'] == 'CRITICAL' else "\U0001f7e1"
@@ -48,7 +48,7 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
         count_str = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
         lines.append(f"  {emoji} {r['logger_name']}: {msg}{count_str}{ctx_str}")
 
-    lines.append(f"\n\U0001f449 /errors for full report")
+    lines.append(f"\n\U0001f449 /errors — полный отчёт")
 
     # Mark as alerted
     ids = [r['id'] for r in rows]

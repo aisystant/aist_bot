@@ -39,7 +39,7 @@ async def cmd_stats(message: Message):
         integrations = await get_integration_stats()
     except Exception as e:
         logger.error(f"[Dev] /stats error: {e}")
-        await message.answer("Error fetching stats.")
+        await message.answer("Ошибка загрузки статистики.")
         return
 
     sep = "\u2500" * 20
@@ -48,26 +48,26 @@ async def cmd_stats(message: Message):
     complexity_str = " | ".join(f"L{r['lvl']}: {r['cnt']}" for r in complexity)
 
     text = (
-        f"<b>User Statistics</b>\n{sep}\n\n"
-        f"<b>Users</b>\n"
-        f"  Total: {s.get('total', 0)} | Onboarded: {s.get('onboarded', 0)}\n"
-        f"  Active today: {s.get('active_today', 0)} | This week: {s.get('active_week', 0)}\n\n"
-        f"<b>Modes</b>\n"
-        f"  \U0001f4da Marathon: {s.get('marathon_active', 0)} active"
-        f" | {s.get('marathon_completed', 0)} done"
-        f" | {s.get('marathon_paused', 0)} paused\n"
-        f"  \U0001f4d6 Feed: {s.get('feed_active', 0)} active\n"
-        f"  \U0001f504 Both: {s.get('both_active', 0)}\n\n"
-        f"<b>Engagement</b>\n"
-        f"  Avg active days: {s.get('avg_active_days', 0)}\n"
-        f"  Avg streak: {s.get('avg_streak', 0)} | Max: {s.get('max_streak', 0)}\n"
-        f"  Avg complexity: {s.get('avg_complexity', 0)}\n\n"
-        f"<b>Complexity</b>: {complexity_str}\n"
-        f"<b>Languages</b>: {lang_str}\n\n"
-        f"<b>Integrations</b>\n"
+        f"<b>Статистика пользователей</b>\n{sep}\n\n"
+        f"<b>Пользователи</b>\n"
+        f"  Всего: {s.get('total', 0)} | Онбординг пройден: {s.get('onboarded', 0)}\n"
+        f"  Активны сегодня: {s.get('active_today', 0)} | За неделю: {s.get('active_week', 0)}\n\n"
+        f"<b>Режимы</b>\n"
+        f"  \U0001f4da Марафон: {s.get('marathon_active', 0)} актив."
+        f" | {s.get('marathon_completed', 0)} завершено"
+        f" | {s.get('marathon_paused', 0)} пауза\n"
+        f"  \U0001f4d6 Лента: {s.get('feed_active', 0)} актив.\n"
+        f"  \U0001f504 Оба: {s.get('both_active', 0)}\n\n"
+        f"<b>Вовлечённость</b>\n"
+        f"  Ср. активных дней: {s.get('avg_active_days', 0)}\n"
+        f"  Ср. серия: {s.get('avg_streak', 0)} | Макс: {s.get('max_streak', 0)}\n"
+        f"  Ср. сложность: {s.get('avg_complexity', 0)}\n\n"
+        f"<b>Сложность</b>: {complexity_str}\n"
+        f"<b>Языки</b>: {lang_str}\n\n"
+        f"<b>Интеграции</b>\n"
         f"  \U0001f4bb GitHub: {integrations.get('github_connected', 0)}\n"
-        f"  \U0001f9ea Assessed: {integrations.get('assessed_users', 0)}"
-        f" ({integrations.get('total_assessments', 0)} tests)\n"
+        f"  \U0001f9ea Тестирование: {integrations.get('assessed_users', 0)}"
+        f" ({integrations.get('total_assessments', 0)} тестов)\n"
     )
 
     await message.answer(text, parse_mode="HTML")
@@ -86,29 +86,29 @@ async def cmd_usage(message: Message):
         schedule = await get_schedule_distribution()
     except Exception as e:
         logger.error(f"[Dev] /usage error: {e}")
-        await message.answer("Error fetching usage.")
+        await message.answer("Ошибка загрузки использования.")
         return
 
     sep = "\u2500" * 20
 
     svc_lines = ""
     for r in services:
-        svc_lines += f"  {r['service_id']}: {r['cnt']} ({r['users']} users)\n"
+        svc_lines += f"  {r['service_id']}: {r['cnt']} ({r['users']} польз.)\n"
 
     sched_lines = ""
     for r in schedule:
-        sched_lines += f"  {r['hour']}: {r['cnt']} users\n"
+        sched_lines += f"  {r['hour']}: {r['cnt']} польз.\n"
 
     text = (
-        f"<b>Service Usage</b>\n{sep}\n\n"
-        f"<b>Top services</b> (total clicks | unique users):\n"
+        f"<b>Использование сервисов</b>\n{sep}\n\n"
+        f"<b>Топ сервисов</b> (всего нажатий | уник. пользователей):\n"
         f"{svc_lines}\n"
-        f"<b>Schedule distribution</b>:\n"
+        f"<b>Расписание (распределение)</b>:\n"
         f"{sched_lines}"
     )
 
     if len(text) > 4000:
-        text = text[:4000] + "\n\n... (truncated)"
+        text = text[:4000] + "\n\n... (обрезано)"
 
     await message.answer(text, parse_mode="HTML")
 
@@ -126,7 +126,7 @@ async def cmd_qa(message: Message):
         topics = await get_qa_top_topics(8)
     except Exception as e:
         logger.error(f"[Dev] /qa error: {e}")
-        await message.answer("Error fetching QA stats.")
+        await message.answer("Ошибка загрузки статистики консультаций.")
         return
 
     sep = "\u2500" * 20
@@ -142,14 +142,14 @@ async def cmd_qa(message: Message):
         topics_str += f"  {r['topic']}: {r['cnt']}\n"
 
     text = (
-        f"<b>Consultation Analytics</b>\n{sep}\n\n"
-        f"<b>Volume</b>\n"
-        f"  Total: {total} | Today: {s.get('today', 0)} | Week: {s.get('this_week', 0)}\n"
-        f"  Unique users: {s.get('unique_users', 0)}\n\n"
-        f"<b>Quality</b>\n"
-        f"  \U0001f44d {helpful} | \U0001f44e {not_helpful} | Rate: {rate}\n"
-        f"  No feedback: {s.get('no_feedback', 0)} | Comments: {s.get('with_comments', 0)}\n\n"
-        f"<b>Top topics</b>:\n"
+        f"<b>Аналитика консультаций</b>\n{sep}\n\n"
+        f"<b>Объём</b>\n"
+        f"  Всего: {total} | Сегодня: {s.get('today', 0)} | За неделю: {s.get('this_week', 0)}\n"
+        f"  Уник. пользователей: {s.get('unique_users', 0)}\n\n"
+        f"<b>Качество</b>\n"
+        f"  \U0001f44d {helpful} | \U0001f44e {not_helpful} | Рейтинг: {rate}\n"
+        f"  Без оценки: {s.get('no_feedback', 0)} | С комментарием: {s.get('with_comments', 0)}\n\n"
+        f"<b>Популярные темы</b>:\n"
         f"{topics_str}"
     )
 
@@ -171,7 +171,7 @@ async def cmd_health(message: Message):
         feedback = await get_report_stats()
     except Exception as e:
         logger.error(f"[Dev] /health error: {e}")
-        await message.answer("Error fetching health.")
+        await message.answer("Ошибка загрузки состояния системы.")
         return
 
     sep = "\u2500" * 20
@@ -182,16 +182,16 @@ async def cmd_health(message: Message):
         table_lines += f"  {r['table']}: {cnt}\n"
 
     text = (
-        f"<b>System Health</b>\n{sep}\n\n"
-        f"<b>Table sizes</b>:\n"
+        f"<b>Состояние системы</b>\n{sep}\n\n"
+        f"<b>Размеры таблиц</b>:\n"
         f"{table_lines}\n"
-        f"<b>Marathon</b>\n"
-        f"  Pending content: {pending}\n\n"
-        f"<b>Feedback</b>\n"
-        f"  \U0001f195 New: {feedback.get('new_count', 0)}"
-        f" | \U0001f534 Red: {feedback.get('red_count', 0)}"
-        f" | \U0001f7e1 Yellow: {feedback.get('yellow_count', 0)}"
-        f" | \U0001f7e2 Green: {feedback.get('green_count', 0)}\n"
+        f"<b>Марафон</b>\n"
+        f"  Ожидает контент: {pending}\n\n"
+        f"<b>Обратная связь</b>\n"
+        f"  \U0001f195 Новые: {feedback.get('new_count', 0)}"
+        f" | \U0001f534 Плохо: {feedback.get('red_count', 0)}"
+        f" | \U0001f7e1 Средне: {feedback.get('yellow_count', 0)}"
+        f" | \U0001f7e2 Хорошо: {feedback.get('green_count', 0)}\n"
     )
 
     await message.answer(text, parse_mode="HTML")
@@ -209,53 +209,53 @@ async def cmd_latency(message: Message):
         report = await get_latency_report(hours=24)
     except Exception as e:
         logger.error(f"[Dev] /latency error: {e}")
-        await message.answer("Error fetching latency report.")
+        await message.answer("Ошибка загрузки отчёта по латентности.")
         return
 
     sep = "\u2500" * 20
     s = report['summary']
 
-    # Thresholds legend
+    # Пороги
     legend = (
-        "\U0001f7e2 nav &lt;1s | heavy &lt;3s | consult &lt;8s\n"
-        "\U0001f7e1 nav &lt;3s | heavy &lt;8s | consult &lt;20s\n"
-        "\U0001f534 above yellow\n"
+        "\U0001f7e2 навиг. &lt;1с | тяжёлые &lt;3с | консульт. &lt;8с\n"
+        "\U0001f7e1 навиг. &lt;3с | тяжёлые &lt;8с | консульт. &lt;20с\n"
+        "\U0001f534 выше жёлтого\n"
     )
 
-    # By command
+    # По командам
     cmd_lines = ""
     for r in report['by_command']:
         cat = classify_command(r['command'])
         color = get_color(r['avg_ms'], cat)
-        cmd_lines += f"  {color} {r['command']}: {r['avg_ms']}ms avg | p95={r['p95_ms']}ms | n={r['count']}\n"
+        cmd_lines += f"  {color} {r['command']}: {r['avg_ms']}мс сред. | p95={r['p95_ms']}мс | n={r['count']}\n"
 
-    # Slowest spans
+    # Самые медленные операции
     span_lines = ""
     for r in report['slowest_spans'][:6]:
-        span_lines += f"  {r['name']}: {r['avg_ms']}ms avg | max={r['max_ms']}ms\n"
+        span_lines += f"  {r['name']}: {r['avg_ms']}мс сред. | макс={r['max_ms']}мс\n"
 
-    # Red alerts
+    # Красная зона
     red_lines = ""
     if report['red_traces']:
         for r in report['red_traces']:
             ms = int(r['total_ms'])
-            red_lines += f"  \U0001f534 {r['command']}: {ms}ms\n"
+            red_lines += f"  \U0001f534 {r['command']}: {ms}мс\n"
     else:
-        red_lines = "  \u2014 none\n"
+        red_lines = "  \u2014 нет\n"
 
     text = (
-        f"<b>Latency Report (24h)</b>\n{sep}\n\n"
-        f"<b>Summary</b>\n"
-        f"  Requests: {s['total']} | Avg: {s['avg_ms']}ms | P95: {s['p95_ms']}ms\n"
-        f"  \U0001f534 Red zone: {report['red_count']}\n\n"
-        f"<b>Thresholds</b>\n{legend}\n"
-        f"<b>By command</b>\n{cmd_lines}\n"
-        f"<b>Slowest spans</b>\n{span_lines}\n"
-        f"<b>Red alerts</b>\n{red_lines}"
+        f"<b>Отчёт по латентности (24ч)</b>\n{sep}\n\n"
+        f"<b>Сводка</b>\n"
+        f"  Запросов: {s['total']} | Среднее: {s['avg_ms']}мс | P95: {s['p95_ms']}мс\n"
+        f"  \U0001f534 Красная зона: {report['red_count']}\n\n"
+        f"<b>Пороги</b>\n{legend}\n"
+        f"<b>По командам</b>\n{cmd_lines}\n"
+        f"<b>Медленные операции</b>\n{span_lines}\n"
+        f"<b>Красная зона</b>\n{red_lines}"
     )
 
     if len(text) > 4000:
-        text = text[:4000] + "\n\n... (truncated)"
+        text = text[:4000] + "\n\n... (обрезано)"
 
     await message.answer(text, parse_mode="HTML")
 
@@ -272,7 +272,7 @@ async def cmd_errors(message: Message):
         report = await get_error_report(hours=24)
     except Exception as e:
         logger.error(f"[Dev] /errors error: {e}")
-        await message.answer("Error fetching error report.")
+        await message.answer("Ошибка загрузки отчёта по ошибкам.")
         return
 
     sep = "\u2500" * 20
@@ -280,18 +280,18 @@ async def cmd_errors(message: Message):
 
     if s['unique_errors'] == 0:
         await message.answer(
-            f"<b>Error Report (24h)</b>\n{sep}\n\n"
-            f"\U0001f7e2 No errors in the last 24 hours.",
+            f"<b>Отчёт по ошибкам (24ч)</b>\n{sep}\n\n"
+            f"\U0001f7e2 Ошибок за последние 24 часа нет.",
             parse_mode="HTML"
         )
         return
 
-    # By logger
+    # По источникам
     logger_lines = ""
     for r in report['by_logger']:
-        logger_lines += f"  {r['logger_name']}: {r['count']} unique ({r['total_occurrences']} total)\n"
+        logger_lines += f"  {r['logger_name']}: {r['count']} уник. ({r['total_occurrences']} всего)\n"
 
-    # Recent errors
+    # Последние ошибки
     recent_lines = ""
     for r in report['recent'][:8]:
         emoji = "\U0001f534" if r['level'] == 'CRITICAL' else "\U0001f7e1"
@@ -300,16 +300,16 @@ async def cmd_errors(message: Message):
         recent_lines += f"  {emoji} {r['logger_name']}: {msg}{count_str}\n"
 
     text = (
-        f"<b>Error Report (24h)</b>\n{sep}\n\n"
-        f"<b>Summary</b>\n"
-        f"  Unique errors: {s['unique_errors']}"
-        f" | Total occurrences: {s['total_occurrences']}\n"
-        f"  \U0001f534 Critical: {s['critical_count']}\n\n"
-        f"<b>By source</b>\n{logger_lines}\n"
-        f"<b>Recent</b>\n{recent_lines}"
+        f"<b>Отчёт по ошибкам (24ч)</b>\n{sep}\n\n"
+        f"<b>Сводка</b>\n"
+        f"  Уник. ошибок: {s['unique_errors']}"
+        f" | Всего случаев: {s['total_occurrences']}\n"
+        f"  \U0001f534 Критических: {s['critical_count']}\n\n"
+        f"<b>По источникам</b>\n{logger_lines}\n"
+        f"<b>Последние</b>\n{recent_lines}"
     )
 
     if len(text) > 4000:
-        text = text[:4000] + "\n\n... (truncated)"
+        text = text[:4000] + "\n\n... (обрезано)"
 
     await message.answer(text, parse_mode="HTML")
