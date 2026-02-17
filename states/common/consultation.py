@@ -58,6 +58,102 @@ _BOT_KEYWORDS_EN = [
 ]
 _BOT_KEYWORDS = _BOT_KEYWORDS_RU + _BOT_KEYWORDS_EN
 
+# --- Meta-question patterns: hardcoded rich answers (instant, no Claude API) ---
+_META_PATTERNS = {
+    'capabilities': {
+        'patterns_ru': [
+            "что ты умеешь", "что ты можешь", "что умеешь", "что можешь",
+            "твои возможности", "твои функции", "что ты делаешь",
+            "что бот умеет", "что бот может", "на что способен",
+        ],
+        'patterns_en': [
+            "what can you do", "what are your capabilities", "your features",
+            "what do you do", "what are you capable of",
+        ],
+        'answer_ru': (
+            "*Что я умею:*\n\n"
+            "*Обучение*\n"
+            "  /learn — Марафон (14 дней) или Лента (гибкие темы)\n"
+            "  /test — тест систематичности (адаптирует контент)\n"
+            "  ?вопрос — консультант по системному мышлению\n\n"
+            "*Организация*\n"
+            "  .текст — сохранить заметку\n"
+            "  /progress — статистика обучения\n"
+            "  /rp /plan /report — рабочие продукты и планы\n\n"
+            "*Настройки*\n"
+            "  /mode — переключить режим\n"
+            "  /settings — язык, профиль, подключения\n"
+            "  /mydata — просмотр данных с ИИ-объяснениями\n\n"
+            "_Начни с_ /mode _для выбора режима._"
+        ),
+        'answer_en': (
+            "*What I can do:*\n\n"
+            "*Learning*\n"
+            "  /learn — Marathon (14 days) or Feed (flexible topics)\n"
+            "  /test — systematicity assessment (adapts content)\n"
+            "  ?question — systems thinking consultant\n\n"
+            "*Organization*\n"
+            "  .text — save a note\n"
+            "  /progress — learning statistics\n"
+            "  /rp /plan /report — work products and plans\n\n"
+            "*Settings*\n"
+            "  /mode — switch mode\n"
+            "  /settings — language, profile, connections\n"
+            "  /mydata — view data with AI explanations\n\n"
+            "_Start with_ /mode _to choose a mode._"
+        ),
+    },
+    'identity': {
+        'patterns_ru': [
+            "кто ты", "кто вы", "представься", "расскажи о себе",
+            "ты кто", "что ты такое", "что это за бот",
+        ],
+        'patterns_en': [
+            "who are you", "what are you", "introduce yourself",
+            "tell me about yourself", "what is this bot",
+        ],
+        'answer_ru': (
+            "*Я — AIST Bot* (@aist\\_me\\_bot)\n\n"
+            "Бот-наставник для систематического обучения. "
+            "Помогаю изучать системное мышление через структурированные программы, "
+            "отвечаю на вопросы, веду заметки и отслеживаю прогресс.\n\n"
+            "*Два режима обучения:*\n"
+            "  /learn → *Марафон* — 14-дневная программа с теорией и практикой\n"
+            "  /learn → *Лента* — выбираешь темы, получаешь дайджесты\n\n"
+            "Задай вопрос: начни с `?` (например: `?Что такое системное мышление?`)\n\n"
+            "_Команда_ /mode _— выбрать режим._"
+        ),
+        'answer_en': (
+            "*I'm AIST Bot* (@aist\\_me\\_bot)\n\n"
+            "A mentor bot for systematic learning. "
+            "I help study systems thinking through structured programs, "
+            "answer questions, keep notes, and track progress.\n\n"
+            "*Two learning modes:*\n"
+            "  /learn → *Marathon* — 14-day program with theory and practice\n"
+            "  /learn → *Feed* — choose topics, receive digests\n\n"
+            "Ask a question: start with `?` (e.g.: `?What is systems thinking?`)\n\n"
+            "_Command_ /mode _— choose a mode._"
+        ),
+    },
+}
+
+
+def _match_meta_question(question: str, lang: str) -> Optional[str]:
+    """Fast pattern match for meta-questions (who are you, what can you do).
+
+    Returns formatted answer or None. ~0ms, no API calls.
+    """
+    q = question.lower().strip().rstrip('?!.))')
+    lang_key = 'en' if lang == 'en' else 'ru'
+
+    for meta_key, meta in _META_PATTERNS.items():
+        patterns = meta.get(f'patterns_{lang_key}', []) + meta.get('patterns_ru', [])
+        for pattern in patterns:
+            if pattern in q:
+                return meta.get(f'answer_{lang_key}', meta.get('answer_ru', ''))
+
+    return None
+
 
 def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> InlineKeyboardMarkup:
     """Собрать inline-клавиатуру с кнопками feedback."""
@@ -327,6 +423,32 @@ class ConsultationState(BaseState):
         if not question:
             await self.send(user, t('consultation.no_question', lang))
             return "answered"
+
+        # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---
+        if not is_refinement:
+            meta_answer = _match_meta_question(question, lang)
+            if meta_answer:
+                logger.info(f"[Consultation] Meta-question match: '{question[:40]}' → instant response")
+                reply_markup = None
+                chat_id_meta = self._get_chat_id(user)
+                if chat_id_meta:
+                    try:
+                        qa_id = await save_qa(
+                            chat_id=chat_id_meta,
+                            mode=self._get_mode(user),
+                            context_topic='',
+                            question=question,
+                            answer=meta_answer,
+                        )
+                        if qa_id:
+                            reply_markup = _build_feedback_keyboard(qa_id, 1, lang)
+                    except Exception as e:
+                        logger.warning(f"Meta FAQ save_qa error: {e}")
+                try:
+                    await self.send(user, meta_answer, parse_mode="Markdown", reply_markup=reply_markup)
+                except Exception:
+                    await self.send(user, meta_answer, reply_markup=reply_markup)
+                return "answered"
 
         # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
         # Refinement: deep search только для доменных вопросов (L3).

@@ -256,6 +256,8 @@ async def expire_old_feed_sessions(chat_id: int):
     Вызывается scheduler'ом перед созданием новой сессии.
     Гарантирует замкнутый lifecycle: каждая сессия → терминальный статус.
     """
+    from .users import moscow_today
+
     today = moscow_today()
     pool = await get_pool()
     async with pool.acquire() as conn:
