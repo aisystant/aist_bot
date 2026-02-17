@@ -735,7 +735,7 @@ consultation:
   sources: "来源"
   returning: "↩️ 返回之前的活动。"
   try_service: "试试"
-  faq_hint: "💡 获取详细回答，请输入：?AI {question}"
+  faq_hint: "💡 想要AI详细回答？点击下方「更详细」👇"
   btn_comment: "反馈"
   btn_helpful: "👍"
   btn_refine: "更详细"

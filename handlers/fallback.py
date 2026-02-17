@@ -29,15 +29,31 @@ def _is_main_router_callback(callback: CallbackQuery) -> bool:
 
 @fallback_router.callback_query(_is_main_router_callback)
 async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
-    """Обработка callback-запросов — делегирование в State Machine."""
+    """Обработка callback-запросов — делегирование в State Machine.
+
+    ВАЖНО: НЕ очищаем FSM state здесь — если callback попал в fallback
+    из-за транзиентной ошибки DB при проверке state-фильтра,
+    очистка state навсегда сломает пользователю текущий flow (онбординг и др.).
+    """
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
     chat_id = callback.message.chat.id
 
+    # Проверяем, есть ли активный FSM state — если да, это транзиентный сбой,
+    # НЕ надо перехватывать callback у FSM-хендлеров
+    current_state = await state.get_state()
+    if current_state is not None:
+        logger.warning(
+            f"[Fallback] Callback '{callback.data}' from user {callback.from_user.id} "
+            f"reached fallback despite active FSM state '{current_state}'. "
+            f"Likely transient DB error during state filter check. NOT clearing state."
+        )
+        await callback.answer(t('errors.try_again', 'ru'), show_alert=False)
+        return
+
     if dispatcher and dispatcher.is_sm_active:
         try:
-            await state.clear()
             intern = await get_intern(chat_id)
             if intern:
                 handled = await dispatcher.route_callback(intern, callback)

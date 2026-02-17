@@ -12,6 +12,7 @@ ClaudeClient - асинхронный клиент для генерации к�
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 import asyncio
 import json
+import time
 
 import aiohttp
 
@@ -41,11 +42,89 @@ logger = get_logger(__name__)
 
 
 class ClaudeClient:
-    """Клиент для работы с Claude API"""
+    """Клиент для работы с Claude API
+
+    Включает:
+    - Singleton aiohttp session (переиспользование TCP-соединений)
+    - Semaphore для ограничения concurrent запросов
+    - Retry с exponential backoff (1 retry)
+    """
+
+    # Ограничение concurrent запросов к Claude API
+    _semaphore = asyncio.Semaphore(10)
+    _session: Optional[aiohttp.ClientSession] = None
 
     def __init__(self):
         self.api_key = ANTHROPIC_API_KEY
         self.base_url = "https://api.anthropic.com/v1/messages"
+
+    @classmethod
+    async def get_session(cls) -> aiohttp.ClientSession:
+        """Singleton aiohttp session для переиспользования TCP-соединений."""
+        if cls._session is None or cls._session.closed:
+            cls._session = aiohttp.ClientSession(
+                headers={
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
+                },
+                timeout=aiohttp.ClientTimeout(total=60),
+            )
+        return cls._session
+
+    @classmethod
+    async def close_session(cls):
+        """Закрытие session при shutdown."""
+        if cls._session and not cls._session.closed:
+            await cls._session.close()
+            cls._session = None
+
+    async def _api_call(self, payload: dict, timeout: float = 45) -> Optional[dict]:
+        """Единый метод API-вызова с retry (1 попытка) и exponential backoff."""
+        session = await self.get_session()
+        headers = {"x-api-key": self.api_key}
+
+        for attempt in range(2):  # max 2 попытки (1 основная + 1 retry)
+            try:
+                async with session.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    elif resp.status == 429:
+                        # Rate limit — backoff и retry
+                        retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
+                        if attempt == 0:
+                            await asyncio.sleep(retry_after)
+                            continue
+                        return None
+                    elif resp.status == 529:
+                        # Overloaded — backoff и retry
+                        logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
+                    else:
+                        error = await resp.text()
+                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        return None
+            except asyncio.TimeoutError:
+                logger.warning(f"Claude API timeout ({timeout}s), attempt {attempt + 1}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                return None
+            except aiohttp.ClientError as e:
+                logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                return None
+        return None
 
     async def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> Optional[str]:
         """Базовый метод генерации текста через Claude API
@@ -61,13 +140,7 @@ class ClaudeClient:
         from core.tracing import span
 
         async with span("claude.api", max_tokens=max_tokens):
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01"
-                }
-
+            async with self._semaphore:
                 payload = {
                     "model": "claude-sonnet-4-20250514",
                     "max_tokens": max_tokens,
@@ -75,23 +148,10 @@ class ClaudeClient:
                     "messages": [{"role": "user", "content": user_prompt}]
                 }
 
-                try:
-                    async with session.post(
-                        self.base_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=60)
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            return data["content"][0]["text"]
-                        else:
-                            error = await resp.text()
-                            logger.error(f"Claude API error: {error}")
-                            return None
-                except Exception as e:
-                    logger.error(f"Claude API exception: {e}")
-                    return None
+                data = await self._api_call(payload)
+                if data:
+                    return data["content"][0]["text"]
+                return None
 
     async def generate_with_tools(
         self,
@@ -124,13 +184,7 @@ class ClaudeClient:
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
 
             for round_num in range(max_tool_rounds):
-                async with aiohttp.ClientSession() as session:
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-api-key": self.api_key,
-                        "anthropic-version": "2023-06-01"
-                    }
-
+                async with self._semaphore:
                     payload = {
                         "model": "claude-sonnet-4-20250514",
                         "max_tokens": max_tokens,
@@ -139,21 +193,9 @@ class ClaudeClient:
                         "tools": tools,
                     }
 
-                    try:
-                        async with session.post(
-                            self.base_url,
-                            headers=headers,
-                            json=payload,
-                            timeout=aiohttp.ClientTimeout(total=90)
-                        ) as resp:
-                            if resp.status != 200:
-                                error = await resp.text()
-                                logger.error(f"Claude API error (tool_use round {round_num}): {error}")
-                                return None
-
-                            data = await resp.json()
-                    except Exception as e:
-                        logger.error(f"Claude API exception (tool_use round {round_num}): {e}")
+                    data = await self._api_call(payload)
+                    if not data:
+                        logger.error(f"Claude API failed (tool_use round {round_num})")
                         return None
 
                 stop_reason = data.get("stop_reason")

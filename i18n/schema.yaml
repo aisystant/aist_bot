@@ -3240,8 +3240,8 @@ consultation:
     en: "Try"
 
   faq_hint:
-    ru: "💡 Для развёрнутого ответа напиши: ?ИИ {question}"
-    en: "💡 For a detailed answer, type: ?AI {question}"
+    ru: "💡 Хочешь развёрнутый ответ от ИИ? Нажми «Подробнее» 👇"
+    en: "💡 Want a detailed AI answer? Tap \"More detail\" below 👇"
 
   btn_helpful:
     ru: "👍"

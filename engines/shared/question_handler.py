@@ -364,6 +364,7 @@ async def handle_question_with_tools(
     personal_claude_md: Optional[str] = None,
     progress_callback: ProgressCallback = None,
     tier: int = 1,
+    is_refinement: bool = False,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
@@ -490,13 +491,16 @@ async def handle_question_with_tools(
 
     messages = [{"role": "user", "content": user_prompt}]
 
+    # Refinement: больше токенов для развёрнутого ответа
+    token_limit = 4000 if is_refinement else 1500
+
     answer = await claude.generate_with_tools(
         system_prompt=system_prompt,
         messages=messages,
         tools=tools,
         tool_executor=tool_executor,
-        max_tokens=4000,
-        max_tool_rounds=5,
+        max_tokens=token_limit,
+        max_tool_rounds=3,
     )
 
     await report_progress(ProcessingStage.DONE, 100)

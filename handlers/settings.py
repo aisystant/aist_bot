@@ -434,6 +434,9 @@ async def on_select_language(callback: CallbackQuery, state: FSMContext):
         new_lang = 'ru'
 
     await update_intern(callback.message.chat.id, language=new_lang)
+    # Инвалидация пре-генерированного контента (мог быть на старом языке)
+    from db.queries.marathon import invalidate_user_content
+    await invalidate_user_content(callback.message.chat.id)
     await callback.answer(t('settings.language.changed', new_lang))
     await callback.message.edit_text(
         t('settings.language.changed', new_lang) + "\n\n" +

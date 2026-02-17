@@ -20,13 +20,15 @@ logger = get_logger(__name__)
 class MCPClient:
     """Универсальный клиент для работы с MCP серверами Aisystant
 
-    Включает circuit breaker: если сервер недоступен, запросы fail-fast
-    без ожидания таймаута. Автоматически восстанавливается через 60 секунд.
+    Включает:
+    - Circuit breaker: если сервер недоступен, запросы fail-fast
+      без ожидания таймаута. Автоматически восстанавливается через 60 секунд.
+    - Singleton aiohttp session (переиспользование TCP-соединений)
     """
 
     # Настройки таймаутов и retry
-    DEFAULT_TIMEOUT = 15  # секунд (первая попытка)
-    RETRY_TIMEOUT = 10    # секунд (повторная попытка)
+    DEFAULT_TIMEOUT = 8   # секунд (первая попытка)
+    RETRY_TIMEOUT = 5     # секунд (повторная попытка)
     MAX_RETRIES = 1       # количество повторных попыток
 
     # Circuit breaker настройки
@@ -35,6 +37,9 @@ class MCPClient:
 
     # Глобальное состояние circuit breaker для каждого сервера
     _circuit_state: dict = {}  # url -> {"failures": int, "last_failure": timestamp, "open": bool}
+
+    # Singleton session
+    _session: Optional[aiohttp.ClientSession] = None
 
     def __init__(self, url: str, name: str = "MCP"):
         """
@@ -49,6 +54,22 @@ class MCPClient:
         # Инициализируем circuit breaker для этого URL
         if url not in MCPClient._circuit_state:
             MCPClient._circuit_state[url] = {"failures": 0, "last_failure": 0, "open": False}
+
+    @classmethod
+    async def get_session(cls) -> aiohttp.ClientSession:
+        """Singleton aiohttp session для переиспользования TCP-соединений."""
+        if cls._session is None or cls._session.closed:
+            cls._session = aiohttp.ClientSession(
+                headers={"Content-Type": "application/json"},
+            )
+        return cls._session
+
+    @classmethod
+    async def close_session(cls):
+        """Закрытие session при shutdown."""
+        if cls._session and not cls._session.closed:
+            await cls._session.close()
+            cls._session = None
 
     def _next_id(self) -> int:
         self._request_id += 1
@@ -122,18 +143,17 @@ class MCPClient:
         logger.debug(f"{self.name}: вызов {tool_name} с аргументами {arguments}")
 
         last_error = None
+        session = await self.get_session()
         for attempt in range(self.MAX_RETRIES + 1):
             # Используем разные таймауты для первой и повторных попыток
             timeout = self.DEFAULT_TIMEOUT if attempt == 0 else self.RETRY_TIMEOUT
 
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        self.base_url,
-                        headers={"Content-Type": "application/json"},
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=timeout)
-                    ) as resp:
+                async with session.post(
+                    self.base_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=timeout)
+                ) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             if "result" in data:

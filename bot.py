@@ -293,6 +293,13 @@ async def main():
     try:
         await dp.start_polling(bot)
     finally:
+        # Закрываем singleton sessions (Claude + MCP)
+        from clients.claude import ClaudeClient
+        from clients.mcp import MCPClient
+        await ClaudeClient.close_session()
+        await MCPClient.close_session()
+        logger.info("🔒 HTTP sessions закрыты")
+
         from core.error_handler import shutdown_error_handler
         await shutdown_error_handler()
         if oauth_runner:

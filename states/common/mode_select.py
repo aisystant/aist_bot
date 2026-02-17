@@ -86,7 +86,7 @@ class ModeSelectState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
 
-        await self.send(user, t('menu.main_title', lang), reply_markup=keyboard)
+        await self.send(user, "👋", reply_markup=keyboard)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
@@ -138,6 +138,9 @@ class ModeSelectState(BaseState):
             new_lang = 'ru'
 
         await update_intern(chat_id, language=new_lang)
+        # Инвалидация пре-генерированного контента (мог быть на старом языке)
+        from db.queries.marathon import invalidate_user_content
+        await invalidate_user_content(chat_id)
         if isinstance(user, dict):
             user['language'] = new_lang
 

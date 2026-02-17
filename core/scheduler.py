@@ -263,6 +263,12 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         question_content = results[1] if not isinstance(results[1], Exception) else None
         practice_content = results[2] if not isinstance(results[2], Exception) else None
 
+        # Валидация: error fallback возвращает строку ~60 символов вместо None
+        if lesson_content is not None and len(lesson_content) < 200:
+            logger.error(f"[Scheduler] Lesson too short ({len(lesson_content)} chars) for {chat_id}, "
+                         f"topic {topic_index} — likely error fallback, skipping")
+            lesson_content = None
+
         if lesson_content is None:
             logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}: {results[0]}")
             # Без урока уведомление бессмысленно — пропускаем
@@ -488,10 +494,10 @@ async def scheduled_check():
                 if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
                     logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
                 else:
-                    logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
+                    logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
-        # Параллельная обработка пользователей (max 5 одновременно для API rate limits)
-        sem = asyncio.Semaphore(5)
+        # Параллельная обработка пользователей (max 20 одновременно)
+        sem = asyncio.Semaphore(20)
 
         async def _bounded(chat_id, send_type):
             async with sem:

@@ -9,6 +9,7 @@ import asyncio
 import logging
 
 from aiogram import BaseMiddleware
+from aiogram.enums import ChatAction
 from aiogram.types import Message, CallbackQuery, TelegramObject
 
 from core.tracing import start_trace, finish_trace
@@ -66,6 +67,12 @@ class LoggingMiddleware(BaseMiddleware):
                        f"text={event.text[:50] if event.text else '[no text]'}, "
                        f"state={current_state}")
 
+            # Typing indicator — мгновенная обратная связь пользователю
+            try:
+                await event.bot.send_chat_action(chat_id=event.chat.id, action=ChatAction.TYPING)
+            except Exception:
+                pass
+
             # Fire-and-forget: сохранить/обновить tg_username
             if event.from_user and event.from_user.username:
                 try:
@@ -73,6 +80,15 @@ class LoggingMiddleware(BaseMiddleware):
                     asyncio.create_task(update_tg_username(event.from_user.id, event.from_user.username))
                 except Exception:
                     pass
+
+        elif isinstance(event, CallbackQuery) and event.message:
+            # Typing для callbacks (кнопки «Подробнее», навигация)
+            try:
+                await event.bot.send_chat_action(
+                    chat_id=event.message.chat.id, action=ChatAction.TYPING
+                )
+            except Exception:
+                pass
 
         return await handler(event, data)
 

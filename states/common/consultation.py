@@ -19,9 +19,11 @@ Progressive Refinement:
 Триггер: сообщение начинается с "?"
 """
 
+import asyncio
 import logging
 from typing import Optional
 
+from aiogram.enums import ChatAction
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
@@ -99,6 +101,19 @@ class ConsultationState(BaseState):
     name = "common.consultation"
     display_name = {"ru": "Консультация", "en": "Consultation", "es": "Consulta", "fr": "Consultation"}
     keyboard_type = "none"
+
+    def _keep_typing(self, chat_id: int) -> asyncio.Task:
+        """Фоновая задача: продлевает typing indicator каждые 4 сек."""
+        async def _loop():
+            try:
+                while True:
+                    await asyncio.sleep(4)
+                    await self.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+        return asyncio.create_task(_loop())
 
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
@@ -314,6 +329,7 @@ class ConsultationState(BaseState):
                     deep_search = True
                     break
 
+        typing_task = None
         try:
             # --- L1: Structured Lookup (YAML данные марафона из RAM, ~0ms) ---
             # Проверяем ДО FAQ: если есть точные данные марафона — FAQ не нужен
@@ -324,20 +340,43 @@ class ConsultationState(BaseState):
             faq_answer = None if (deep_search or structured_hit) else match_faq(question, lang)
             if faq_answer:
                 response = self._format_response(faq_answer, [], lang)
-                # Hint: предложить глубокий поиск
-                hint = t('consultation.faq_hint', lang).format(question=question)
+                # Hint + кнопка «Подробнее» для глубокого поиска через ИИ
+                hint = t('consultation.faq_hint', lang)
                 response += f"\n\n{hint}"
-                # FAQ — без кнопок feedback (мгновенный ответ)
+                # Сохраняем FAQ в qa_log для кнопки refine
+                reply_markup = None
+                chat_id_faq = self._get_chat_id(user)
+                if chat_id_faq:
+                    try:
+                        qa_id = await save_qa(
+                            chat_id=chat_id_faq,
+                            mode=self._get_mode(user),
+                            context_topic='',
+                            question=question,
+                            answer=faq_answer,
+                        )
+                        if qa_id:
+                            reply_markup = InlineKeyboardMarkup(inline_keyboard=[[
+                                InlineKeyboardButton(
+                                    text=t('consultation.btn_refine', lang),
+                                    callback_data=f"qa_refine_{qa_id}"
+                                )
+                            ]])
+                    except Exception as e:
+                        logger.warning(f"FAQ save_qa error: {e}")
                 try:
-                    await self.send(user, response, parse_mode="Markdown")
+                    await self.send(user, response, parse_mode="Markdown", reply_markup=reply_markup)
                 except Exception:
-                    await self.send(user, response)
+                    await self.send(user, response, reply_markup=reply_markup)
             else:
                 # Показываем индикатор обработки
                 if is_refinement:
                     await self.send(user, t('consultation.refine_thinking', lang))
                 else:
                     await self.send(user, t('consultation.thinking', lang))
+
+                # Продлеваем typing на время тяжёлой операции (>5 сек)
+                typing_task = self._keep_typing(chat_id)
 
                 if is_bot_q and not deep_search:
                     # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
@@ -410,10 +449,13 @@ class ConsultationState(BaseState):
                         has_digital_twin=has_dt,
                         personal_claude_md=personal_claude,
                         tier=tier,
+                        is_refinement=is_refinement,
                     )
                     logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
 
                     response = self._format_response(answer, sources, lang)
+
+                typing_task.cancel()
 
                 # Добавляем deep link если вопрос относится к сервису
                 service_id = self._detect_service_intent(question)
@@ -437,6 +479,8 @@ class ConsultationState(BaseState):
                     await self.send(user, response, reply_markup=reply_markup)
 
         except Exception as e:
+            if typing_task:
+                typing_task.cancel()
             logger.error(f"Consultation error: {e}", exc_info=True)
             await self.send(user, t('consultation.error', lang))
 

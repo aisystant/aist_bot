@@ -217,7 +217,11 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 Формат заметок и логика вставки в `clients/github_api.py` должны соответствовать структуре `fleeting-notes.md`.
 При изменении структуры файла (шапка, описание, разделители) — обновить `_find_insert_position`.
 
-### 10.5. Keyboard Management Policy
+### 10.5. Naive datetime для TIMESTAMP колонок
+
+**Правило:** Все колонки в DB (кроме `error_logs` и `request_traces`) используют `TIMESTAMP` (naive). При записи — только `datetime.utcnow()`, **НЕ** `datetime.now(timezone.utc)`. asyncpg с `statement_cache_size=0` (Neon) не может кодировать aware datetime в naive колонку → `DataError`.
+
+### 10.6. Keyboard Management Policy
 
 **Декларативное правило:** каждый стейт объявляет `keyboard_type` на классе. SM engine автоматически чистит Reply-клавиатуру при входе в **любой** non-reply стейт (через `_pending_keyboard_cleanup` в `BaseState.send()`). Дополнительно: первый контакт пользователя после рестарта бота тоже планирует cleanup (`_keyboard_verified` в SM).
 
@@ -246,7 +250,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 **SM auto-cleanup:** при входе в **любой** стейт с `keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Также при первом контакте после рестарта (`_keyboard_verified`). Первый `send()` нового стейта применяет cleanup:
 - **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению (0 extra API calls).
-- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (`send+edit`, +1 API call). **Fallback:** если edit_reply_markup падает, edit_text с InlineKeyboard.
+- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (`send+edit`, +1 API call). **Fallback (3 ступени):** edit_reply_markup → edit_text → delete + новое сообщение с InlineKeyboard. **Известный баг Telegram API:** edit на сообщение с ReplyKeyboardRemove может падать с "message can't be edited" — поэтому финальный fallback обязателен.
 - **С ReplyKeyboardMarkup:** пропускает cleanup (новая Reply-клавиатура заменяет старую).
 - **Overhead:** ~50ms на переход в non-reply стейт (при наличии InlineKeyboard). `ReplyKeyboardRemove` без активной клавиатуры = no-op в Telegram API.
 

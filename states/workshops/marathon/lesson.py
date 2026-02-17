@@ -203,7 +203,7 @@ class MarathonLessonState(BaseState):
         # ─── Попытка загрузить пре-генерированный контент из БД ───
         pre_generated = await get_marathon_content(chat_id, topic_index)
 
-        if pre_generated and pre_generated.get('lesson_content'):
+        if pre_generated and pre_generated.get('lesson_content') and len(pre_generated['lesson_content']) > 200:
             # Контент готов — показываем мгновенно
             content = pre_generated['lesson_content']
             await mark_content_delivered(chat_id, topic_index)
