@@ -570,15 +570,18 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
-            # Определяем round: считаем сколько helpful=False для этого вопроса
-            # Простой подход: round = 2 при первом refine, 3 при втором
+            # Определяем round: считаем записи с тем же вопросом в текущей сессии
+            # (в пределах 5 мин от текущего Q&A, чтобы старые тесты не раздували счётчик)
             from db.queries.qa import get_qa_history
             history = await get_qa_history(chat_id, limit=10)
-            same_question_unhelpful = sum(
+            qa_time = qa['created_at']
+            same_question_recent = sum(
                 1 for h in history
-                if h['question'] == qa['question'] and h.get('id') != qa_id
+                if h['question'] == qa['question']
+                and h.get('id') != qa_id
+                and abs((h['created_at'] - qa_time).total_seconds()) < 300
             )
-            refinement_round = min(same_question_unhelpful + 2, 3)
+            refinement_round = min(same_question_recent + 2, 3)
 
             # Re-enter consultation с refinement контекстом
             dispatcher = get_dispatcher()
