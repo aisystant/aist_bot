@@ -235,9 +235,22 @@ class ConsultationState(BaseState):
         refinement_block = ""
         if previous_answer:
             refinement_block = {
-                'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный ответ. Раскрой аспекты, которые не были затронуты.",
-                'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-            }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+                'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь уже видел этот текст, НЕ ПОВТОРЯЙ его):\n{previous_answer[:800]}\n\nНапиши ДРУГОЙ, более развёрнутый ответ. Раскрой аспекты, которые не были затронуты выше. Приведи конкретные примеры использования.",
+                'en': f"\n\nPREVIOUS ANSWER (user already saw this, DO NOT repeat it):\n{previous_answer[:800]}\n\nWrite a DIFFERENT, more detailed answer. Cover aspects not addressed above. Give concrete usage examples.",
+            }.get(lang, f"\n\nPREVIOUS ANSWER (DO NOT repeat):\n{previous_answer[:800]}\n\nGive a different, more detailed answer.")
+
+        if previous_answer:
+            length_instruction = {
+                'ru': "ОГРАНИЧЕНИЕ ДЛИНЫ: максимум 400 слов. Дай развёрнутый ответ с примерами и деталями.",
+                'en': "LENGTH LIMIT: max 400 words. Give a detailed answer with examples.",
+            }.get(lang, "LENGTH LIMIT: max 400 words. Give a detailed answer with examples.")
+            max_tokens = 1600
+        else:
+            length_instruction = {
+                'ru': "ЖЁСТКОЕ ОГРАНИЧЕНИЕ ДЛИНЫ: максимум 150 слов. Ответ — 3-5 коротких абзацев. Если информации много — выбери самое важное, остальное пропусти. Пользователь может нажать 🔍 для подробностей.",
+                'en': "STRICT LENGTH LIMIT: max 150 words. 3-5 short paragraphs. Pick the most important info, user can tap 🔍 for details.",
+            }.get(lang, "STRICT LENGTH LIMIT: max 150 words. 3-5 short paragraphs.")
+            max_tokens = 800
 
         system_prompt = f"""Ты — AIST Bot, дружелюбный бот-наставник.
 Отвечаешь на вопрос пользователя {name} о себе (о боте).
@@ -247,7 +260,7 @@ class ConsultationState(BaseState):
 ЗНАНИЯ О БОТЕ:
 {self_knowledge}
 
-ЖЁСТКОЕ ОГРАНИЧЕНИЕ ДЛИНЫ: максимум 150 слов. Ответ — 3-5 коротких абзацев. Если информации много — выбери самое важное, остальное пропусти. Пользователь может нажать 🔍 для подробностей.
+{length_instruction}
 
 ПРАВИЛА:
 1. Используй информацию из знаний о боте — не выдумывай функции
@@ -258,7 +271,7 @@ class ConsultationState(BaseState):
 {ONTOLOGY_RULES}"""
 
         user_prompt = f"Вопрос: {question}" if lang == 'ru' else f"Question: {question}"
-        answer = await claude.generate(system_prompt, user_prompt, max_tokens=800)
+        answer = await claude.generate(system_prompt, user_prompt, max_tokens=max_tokens)
         return answer or t('consultation.error', lang)
 
     async def enter(self, user, context: dict = None) -> Optional[str]:

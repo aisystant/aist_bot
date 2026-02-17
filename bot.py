@@ -12,7 +12,12 @@ GitHub: https://github.com/aisystant/aist_track_bot
 import asyncio
 import logging
 import os
+import sys
+import warnings
 from datetime import datetime, timedelta, timezone
+
+# Подавить Pydantic warning из aiogram (model_custom_emoji_id protected namespace)
+warnings.filterwarnings("ignore", message=".*model_custom_emoji_id.*protected namespace.*")
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeChat
@@ -43,7 +48,8 @@ if not DATABASE_URL:
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
 

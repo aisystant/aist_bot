@@ -468,6 +468,8 @@ help:
   marathon_short: "马拉松 — 14天带任务的课程"
   notes_hint: "笔记 — 以`.`开头"
   schedule_hint: "在 /settings 中设置时间——内容将准时推送。"
+  getting_started: "🚀 从哪里开始"
+  mode_hint: "通过 /mode 选择模式："
 
 reminders:
   title: "提醒"
@@ -867,6 +869,7 @@ plans:
   github_not_connected: "要查看计划，请在 /settings -> 连接 中连接GitHub。"
   not_found_day: "未找到今天的DayPlan。"
   not_found_report: "未找到WeekReport。"
+  not_found_day_monday: "周一不生成每日计划——请查看周计划。"
   not_found_week: "未找到WeekPlan。"
   repo_not_selected: "请选择策略师仓库。"
   title: "计划"
