@@ -337,7 +337,7 @@ class ConsultationState(BaseState):
             structured_context = format_structured_context(structured_hit, lang) if structured_hit else ""
 
             # --- L0: FAQ-матч (только если L1 не нашёл структурированных данных) ---
-            faq_answer = None if (deep_search or structured_hit) else match_faq(question, lang)
+            faq_answer = None if (deep_search or structured_hit or is_refinement) else match_faq(question, lang)
             if faq_answer:
                 response = self._format_response(faq_answer, [], lang)
                 # Hint + кнопка «Подробнее» для глубокого поиска через ИИ
