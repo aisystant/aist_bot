@@ -55,11 +55,7 @@ _allowed = os.getenv("ALLOWED_TESTERS", "")
 ALLOWED_TESTERS: set[int] = {int(x.strip()) for x in _allowed.split(",") if x.strip().isdigit()}
 
 # ============= ЛОГИРОВАНИЕ =============
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# logging.basicConfig() вызывается в bot.py (единая точка конфигурации)
 
 def get_logger(name: str) -> logging.Logger:
     """Получить логгер для модуля"""

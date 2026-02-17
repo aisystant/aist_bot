@@ -468,6 +468,8 @@ help:
   marathon_short: "Maratón — programa de 14 días con tareas"
   notes_hint: "Notas — comienza con `.`"
   schedule_hint: "Establece la hora en /settings — el contenido llegará sin espera."
+  getting_started: "🚀 Por dónde empezar"
+  mode_hint: "Elige un modo con /mode:"
 
 reminders:
   title: "Recordatorio"
@@ -867,6 +869,7 @@ plans:
   github_not_connected: "Para ver los planes, conecta GitHub en /settings -> Conexiones."
   not_found_day: "No se encontró DayPlan para hoy."
   not_found_report: "No se encontró WeekReport."
+  not_found_day_monday: "Los lunes no se genera el plan del día — consulta el plan semanal."
   not_found_week: "No se encontró WeekPlan."
   repo_not_selected: "Selecciona el repositorio del estratega."
   title: "Planes"
