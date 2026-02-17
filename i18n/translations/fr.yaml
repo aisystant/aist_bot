@@ -735,7 +735,7 @@ consultation:
   sources: "Sources"
   returning: "↩️ Retour à l'activité précédente."
   try_service: "Essayer"
-  faq_hint: "💡 Pour une réponse détaillée, écris : ?IA {question}"
+  faq_hint: "💡 Tu veux une réponse détaillée de l'IA ? Appuie sur « Plus de détails » 👇"
   btn_comment: "Retour d'expérience"
   btn_helpful: "👍"
   btn_refine: "Plus de détails"

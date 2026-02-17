@@ -340,14 +340,34 @@ class ConsultationState(BaseState):
             faq_answer = None if (deep_search or structured_hit) else match_faq(question, lang)
             if faq_answer:
                 response = self._format_response(faq_answer, [], lang)
-                # Hint: предложить глубокий поиск
-                hint = t('consultation.faq_hint', lang).format(question=question)
+                # Hint + кнопка «Подробнее» для глубокого поиска через ИИ
+                hint = t('consultation.faq_hint', lang)
                 response += f"\n\n{hint}"
-                # FAQ — без кнопок feedback (мгновенный ответ)
+                # Сохраняем FAQ в qa_log для кнопки refine
+                reply_markup = None
+                chat_id_faq = self._get_chat_id(user)
+                if chat_id_faq:
+                    try:
+                        qa_id = await save_qa(
+                            chat_id=chat_id_faq,
+                            mode=self._get_mode(user),
+                            context_topic='',
+                            question=question,
+                            answer=faq_answer,
+                        )
+                        if qa_id:
+                            reply_markup = InlineKeyboardMarkup(inline_keyboard=[[
+                                InlineKeyboardButton(
+                                    text=t('consultation.btn_refine', lang),
+                                    callback_data=f"qa_refine_{qa_id}"
+                                )
+                            ]])
+                    except Exception as e:
+                        logger.warning(f"FAQ save_qa error: {e}")
                 try:
-                    await self.send(user, response, parse_mode="Markdown")
+                    await self.send(user, response, parse_mode="Markdown", reply_markup=reply_markup)
                 except Exception:
-                    await self.send(user, response)
+                    await self.send(user, response, reply_markup=reply_markup)
             else:
                 # Показываем индикатор обработки
                 if is_refinement:
