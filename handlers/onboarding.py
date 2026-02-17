@@ -282,54 +282,62 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
 
 @onboarding_router.callback_query(OnboardingStates.confirming_profile, F.data == "confirm")
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
-    from datetime import datetime, timezone
-    await update_intern(
-        callback.message.chat.id,
-        onboarding_completed=True,
-        trial_started_at=datetime.now(timezone.utc),
-    )
-    intern = await get_intern(callback.message.chat.id)
-    lang = intern.get('language', 'ru') or 'ru'
-
-    from core.topics import get_marathon_day
-    marathon_day = get_marathon_day(intern)
-    start_date = intern.get('marathon_start_date')
-
-    await callback.answer(t('update.saved', lang))
-
-    # Определяем, когда старт
-    if start_date:
-        today = moscow_today()
+    chat_id = callback.message.chat.id
+    try:
         from datetime import datetime
-        if isinstance(start_date, datetime):
-            start_date = start_date.date()
-        if start_date > today:
-            start_msg = f"🗓 *{t('profile.marathon_will_start', lang, date=start_date.strftime('%d.%m.%Y'))}*"
-            can_start_now = False
-        else:
-            start_msg = f"🗓 *{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}*"
-            can_start_now = True
-    else:
-        start_msg = f"🗓 {t('profile.date_not_set', lang)}"
-        can_start_now = False
+        await update_intern(
+            chat_id,
+            onboarding_completed=True,
+            trial_started_at=datetime.utcnow(),  # naive UTC — DB column is TIMESTAMP (not TIMESTAMPTZ)
+        )
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') or 'ru'
 
-    # Приветственное сообщение для марафона
-    await callback.message.edit_text(
-        f"🎉 *{t('welcome.marathon_welcome', lang, name=intern['name'])}*\n\n"
-        f"{t('welcome.marathon_intro', lang)}\n"
-        f"📅 {t('welcome.marathon_days_info', lang, days=MARATHON_DAYS)}\n"
-        f"⏱ {t('welcome.marathon_duration_info', lang, minutes=intern['study_duration'])}\n"
-        f"⏰ {t('welcome.marathon_reminders_info', lang, time=intern['schedule_time'])}\n\n"
-        f"{start_msg}",
-        parse_mode="Markdown",
-        reply_markup=kb_learn(lang)
-    )
-    await state.clear()
+        from core.topics import get_marathon_day
+        marathon_day = get_marathon_day(intern)
+        start_date = intern.get('marathon_start_date')
+
+        await callback.answer(t('update.saved', lang))
+
+        # Определяем, когда старт
+        if start_date:
+            today = moscow_today()
+            from datetime import datetime
+            if isinstance(start_date, datetime):
+                start_date = start_date.date()
+            if start_date > today:
+                start_msg = f"🗓 *{t('profile.marathon_will_start', lang, date=start_date.strftime('%d.%m.%Y'))}*"
+            else:
+                start_msg = f"🗓 *{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}*"
+        else:
+            start_msg = f"🗓 {t('profile.date_not_set', lang)}"
+
+        # Приветственное сообщение для марафона
+        await callback.message.edit_text(
+            f"🎉 *{t('welcome.marathon_welcome', lang, name=intern['name'])}*\n\n"
+            f"{t('welcome.marathon_intro', lang)}\n"
+            f"📅 {t('welcome.marathon_days_info', lang, days=MARATHON_DAYS)}\n"
+            f"⏱ {t('welcome.marathon_duration_info', lang, minutes=intern['study_duration'])}\n"
+            f"⏰ {t('welcome.marathon_reminders_info', lang, time=intern['schedule_time'])}\n\n"
+            f"{start_msg}",
+            parse_mode="Markdown",
+            reply_markup=kb_learn(lang)
+        )
+        await state.clear()
+    except Exception as e:
+        logger.error(f"[Onboarding] Error confirming profile for {chat_id}: {e}")
+        lang = await get_lang(state)
+        await callback.answer(t('errors.try_again', lang), show_alert=True)
 
 @onboarding_router.callback_query(OnboardingStates.confirming_profile, F.data == "restart")
 async def on_restart(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    intern = await get_intern(callback.from_user.id)
-    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
-    await callback.message.edit_text(t('onboarding.restart', lang))
-    await state.set_state(OnboardingStates.waiting_for_name)
+    chat_id = callback.message.chat.id
+    try:
+        await callback.answer()
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+        await callback.message.edit_text(t('onboarding.restart', lang))
+        await state.set_state(OnboardingStates.waiting_for_name)
+    except Exception as e:
+        logger.error(f"[Onboarding] Error restarting profile for {chat_id}: {e}")
+        await callback.answer(t('errors.try_again', 'ru'), show_alert=True)

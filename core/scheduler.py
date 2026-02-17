@@ -494,7 +494,7 @@ async def scheduled_check():
                 if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
                     logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
                 else:
-                    logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}")
+                    logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
         # Параллельная обработка пользователей (max 5 одновременно для API rate limits)
         sem = asyncio.Semaphore(5)

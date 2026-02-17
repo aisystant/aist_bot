@@ -6,7 +6,7 @@ Grandfathering: Telegram auto-renews по исходной цене.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -95,14 +95,14 @@ async def on_successful_payment(message: Message):
         amount = payment.total_amount
         is_first = getattr(payment, 'is_first_recurring', False)
 
-        # Дата окончания подписки
+        # Дата окончания подписки (naive UTC — DB column is TIMESTAMP, not TIMESTAMPTZ)
         expiration_ts = getattr(payment, 'subscription_expiration_date', None)
         if expiration_ts:
-            expires_at = datetime.fromtimestamp(expiration_ts, tz=timezone.utc)
+            expires_at = datetime.utcfromtimestamp(expiration_ts)
         else:
             # Fallback: 30 дней от сейчас
             from datetime import timedelta
-            expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+            expires_at = datetime.utcnow() + timedelta(days=30)
 
         await save_subscription(
             chat_id=chat_id,
