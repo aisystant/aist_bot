@@ -365,6 +365,7 @@ async def handle_question_with_tools(
     progress_callback: ProgressCallback = None,
     tier: int = 1,
     is_refinement: bool = False,
+    conversation_messages: Optional[List[Dict]] = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
@@ -386,6 +387,8 @@ async def handle_question_with_tools(
         personal_claude_md: персональный CLAUDE.md из GitHub (T3)
         progress_callback: callback для отображения прогресса
         tier: тир обслуживания (1-4, default 1)
+        conversation_messages: multi-turn conversation history
+            (list of {role, content} dicts from persistent session)
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
@@ -489,7 +492,12 @@ async def handle_question_with_tools(
     }
     user_prompt = user_prompts.get(lang, user_prompts['ru'])
 
-    messages = [{"role": "user", "content": user_prompt}]
+    # Multi-turn: используем conversation history если есть
+    if conversation_messages:
+        messages = conversation_messages
+        logger.info(f"Consultation: multi-turn with {len(messages)} messages")
+    else:
+        messages = [{"role": "user", "content": user_prompt}]
 
     # Refinement: больше токенов для развёрнутого ответа
     token_limit = 4000 if is_refinement else 1500

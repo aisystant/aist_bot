@@ -3285,6 +3285,24 @@ consultation:
     es: "✅ ¡Gracias! Su comentario ha sido registrado."
     fr: "✅ Merci ! Votre commentaire a été enregistré."
 
+  btn_end_session:
+    ru: "↩️ Завершить"
+    en: "↩️ End session"
+    es: "↩️ Finalizar"
+    fr: "↩️ Terminer"
+
+  session_ended:
+    ru: "↩️ Консультация завершена. Возвращаюсь к предыдущему занятию."
+    en: "↩️ Consultation ended. Returning to previous activity."
+    es: "↩️ Consulta finalizada. Volviendo a la actividad anterior."
+    fr: "↩️ Consultation terminée. Retour à l'activité précédente."
+
+  session_hint:
+    ru: "Задайте вопрос или нажмите «Завершить» для выхода."
+    en: "Ask a question or tap \"End session\" to exit."
+    es: "Haga una pregunta o toque \"Finalizar\" para salir."
+    fr: "Posez une question ou appuyez sur « Terminer » pour quitter."
+
 # -----------------------------------------------------------------------------
 # Оценка (assessment) — только UI-ключи, вопросы в YAML
 # -----------------------------------------------------------------------------

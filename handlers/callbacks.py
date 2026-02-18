@@ -618,6 +618,29 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             else:
                 await callback.message.answer(t('consultation.error', lang))
 
+        elif data == "qa_end_session":
+            # --- Завершить сессию консультации ---
+            await callback.answer()
+
+            # Убираем кнопки
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+
+            # Resolve previous state and go_to it
+            dispatcher = get_dispatcher()
+            if dispatcher and dispatcher.is_sm_active:
+                current_state_name = intern.get('current_state', '')
+                if current_state_name == 'common.consultation':
+                    await state.clear()
+                    # Resolve _previous via SM
+                    prev_state = dispatcher.sm._previous_states.get(chat_id, 'common.mode_select')
+                    await dispatcher.go_to(intern, prev_state)
+                else:
+                    # Пользователь уже вышел из consultation
+                    await callback.message.answer(t('consultation.session_ended', lang))
+
         else:
             await callback.answer()
 

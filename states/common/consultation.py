@@ -13,14 +13,20 @@ Progressive Refinement:
 - 🔍 → повторный запрос с deep_search + previous_answer в контексте
 - Максимум 3 раунда (initial + 2 refinements)
 
-Вызывается из любого стейта, где allow_global содержит "consultation".
-После ответа возвращается в предыдущий стейт.
+Persistent Session:
+- После ответа бот остаётся в стейте (enter() → None)
+- Текст без "?" трактуется как follow-up вопрос
+- Claude получает conversation history (последние 3-5 пар)
+- Выход: кнопка "Завершить" / таймаут 5 мин / глобальная команда
 
+Вызывается из любого стейта, где allow_global содержит "consultation".
 Триггер: сообщение начинается с "?"
 """
 
 import asyncio
+import json
 import logging
+import time
 from typing import Optional
 
 from aiogram.enums import ChatAction
@@ -39,6 +45,13 @@ logger = logging.getLogger(__name__)
 
 # Максимум раундов уточнения (1 = initial, 2 = first refine, 3 = max)
 MAX_REFINEMENT_ROUNDS = 3
+
+# Persistent session: максимум пар (user/assistant) в истории
+MAX_HISTORY_PAIRS = 5
+# Максимум символов на одну запись истории (обрезка длинных ответов)
+MAX_HISTORY_ENTRY_CHARS = 800
+# Таймаут неактивности (секунды) — авто-выход из консультации
+SESSION_TIMEOUT_SEC = 300  # 5 минут
 
 
 # Ключевые слова для классификации «вопрос о боте»
@@ -156,7 +169,7 @@ def _match_meta_question(question: str, lang: str) -> Optional[str]:
 
 
 def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> InlineKeyboardMarkup:
-    """Собрать inline-клавиатуру с кнопками feedback."""
+    """Собрать inline-клавиатуру с кнопками feedback + завершить сессию."""
     row1 = [
         InlineKeyboardButton(
             text=t('consultation.btn_helpful', lang),
@@ -177,6 +190,10 @@ def _build_feedback_keyboard(qa_id: int, refinement_round: int, lang: str) -> In
         InlineKeyboardButton(
             text=t('consultation.btn_comment', lang),
             callback_data=f"qa_comment_{qa_id}"
+        ),
+        InlineKeyboardButton(
+            text=t('consultation.btn_end_session', lang),
+            callback_data="qa_end_session"
         ),
     ]
 
@@ -370,6 +387,53 @@ class ConsultationState(BaseState):
         answer = await claude.generate(system_prompt, user_prompt, max_tokens=max_tokens)
         return answer or t('consultation.error', lang)
 
+    async def _load_session_context(self, user) -> dict:
+        """Загрузить consultation session context из current_context в DB."""
+        raw = user.get('current_context') if isinstance(user, dict) else getattr(user, 'current_context', None)
+        if isinstance(raw, str):
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return raw or {}
+
+    async def _save_session_context(self, chat_id: int, ctx: dict):
+        """Сохранить consultation session context в DB."""
+        from db.queries.users import update_intern
+        await update_intern(chat_id, current_context=ctx)
+
+    def _append_history(self, ctx: dict, question: str, answer: str) -> dict:
+        """Добавить пару (вопрос, ответ) в conversation history."""
+        history = ctx.get('consultation_history', [])
+        history.append({
+            'q': question[:MAX_HISTORY_ENTRY_CHARS],
+            'a': answer[:MAX_HISTORY_ENTRY_CHARS],
+        })
+        # Оставляем последние MAX_HISTORY_PAIRS пар
+        if len(history) > MAX_HISTORY_PAIRS:
+            history = history[-MAX_HISTORY_PAIRS:]
+        ctx['consultation_history'] = history
+        ctx['consultation_last_activity'] = time.time()
+        return ctx
+
+    def _build_history_messages(self, ctx: dict, current_question: str) -> list:
+        """Собрать messages[] для Claude из conversation history."""
+        messages = []
+        history = ctx.get('consultation_history', [])
+        for pair in history:
+            messages.append({"role": "user", "content": pair['q']})
+            messages.append({"role": "assistant", "content": pair['a']})
+        # Текущий вопрос — последнее user-сообщение
+        messages.append({"role": "user", "content": current_question})
+        return messages
+
+    def _clear_session(self, ctx: dict) -> dict:
+        """Очистить consultation session данные из context."""
+        ctx.pop('consultation_history', None)
+        ctx.pop('consultation_last_activity', None)
+        ctx.pop('qa_comment_id', None)
+        return ctx
+
     async def enter(self, user, context: dict = None) -> Optional[str]:
         """
         Обрабатываем вопрос пользователя.
@@ -384,8 +448,8 @@ class ConsultationState(BaseState):
         - comment_qa_id: ID записи для замечания
 
         Returns:
-        - "answered" → возврат в предыдущий стейт
-        - None → остаёмся в стейте (ожидаем текст замечания)
+        - None → остаёмся в стейте (persistent session)
+        - "done" → доступ запрещён → возврат
         """
         context = context or {}
 
@@ -406,11 +470,9 @@ class ConsultationState(BaseState):
             # Сохраняем qa_id в current_context для handle()
             chat_id = self._get_chat_id(user)
             if chat_id and qa_id:
-                from db.queries.users import update_intern
-                import json
-                ctx = json.loads(user.get('current_context', '{}')) if isinstance(user.get('current_context'), str) else (user.get('current_context') or {})
+                ctx = await self._load_session_context(user)
                 ctx['qa_comment_id'] = qa_id
-                await update_intern(chat_id, current_context=ctx)
+                await self._save_session_context(chat_id, ctx)
             await self.send(user, t('consultation.comment_prompt', lang))
             return None  # Остаёмся в стейте, ждём текст
 
@@ -422,7 +484,11 @@ class ConsultationState(BaseState):
 
         if not question:
             await self.send(user, t('consultation.no_question', lang))
-            return "answered"
+            return None  # Остаёмся — ждём вопрос
+
+        # Загружаем session context для history
+        session_ctx = await self._load_session_context(user)
+        _answer_for_history = ""  # Трекинг ответа для записи в history
 
         # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---
         if not is_refinement:
@@ -448,7 +514,11 @@ class ConsultationState(BaseState):
                     await self.send(user, meta_answer, parse_mode="Markdown", reply_markup=reply_markup)
                 except Exception:
                     await self.send(user, meta_answer, reply_markup=reply_markup)
-                return "answered"
+                # Сохраняем в history + остаёмся в стейте
+                self._append_history(session_ctx, question, meta_answer)
+                await self._save_session_context(chat_id, session_ctx)
+                logger.info(f"[Consultation] Persistent session: staying after meta-answer")
+                return None
 
         # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
         # Refinement: deep search только для доменных вопросов (L3).
@@ -474,6 +544,7 @@ class ConsultationState(BaseState):
             # --- L0: FAQ-матч (только если L1 не нашёл структурированных данных) ---
             faq_answer = None if (deep_search or structured_hit or is_refinement) else match_faq(question, lang)
             if faq_answer:
+                _answer_for_history = faq_answer
                 response = self._format_response(faq_answer, [], lang)
                 # Hint + кнопка «Подробнее» для глубокого поиска через ИИ
                 hint = t('consultation.faq_hint', lang)
@@ -519,6 +590,7 @@ class ConsultationState(BaseState):
                         user, question, lang,
                         previous_answer=previous_answer if is_refinement else None,
                     )
+                    _answer_for_history = answer
                     response = self._format_response(answer, [], lang)
                     # Сохраняем Q&A для кнопок feedback
                     chat_id_l2 = self._get_chat_id(user)
@@ -576,6 +648,9 @@ class ConsultationState(BaseState):
                     if has_github:
                         personal_claude = await get_personal_claude_md(user_chat_id)
 
+                    # Conversation history → multi-turn messages
+                    history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
+
                     answer, sources = await handle_question_with_tools(
                         question=question,
                         intern=intern_dict,
@@ -585,8 +660,10 @@ class ConsultationState(BaseState):
                         personal_claude_md=personal_claude,
                         tier=tier,
                         is_refinement=is_refinement,
+                        conversation_messages=history_messages,
                     )
                     logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
+                    _answer_for_history = answer
 
                     response = self._format_response(answer, sources, lang)
 
@@ -618,9 +695,19 @@ class ConsultationState(BaseState):
                 typing_task.cancel()
             logger.error(f"Consultation error: {e}", exc_info=True)
             await self.send(user, t('consultation.error', lang))
+            return None
 
-        # Автоматический возврат в предыдущий стейт
-        return "answered"
+        # Сохраняем ответ в conversation history
+        try:
+            if question and _answer_for_history:
+                self._append_history(session_ctx, question, _answer_for_history)
+                await self._save_session_context(chat_id, session_ctx)
+                logger.info(f"[Consultation] History saved, {len(session_ctx.get('consultation_history', []))} pairs")
+        except Exception as e:
+            logger.warning(f"Consultation history save error: {e}")
+
+        # Persistent session: остаёмся в стейте
+        return None
 
     def _format_response(self, answer: str, sources: list, lang: str) -> str:
         """Форматируем ответ с источниками."""
@@ -637,47 +724,75 @@ class ConsultationState(BaseState):
         Обрабатываем followup вопросы и замечания.
 
         Returns:
-        - "followup" → обрабатываем ещё один вопрос
-        - "done" → возврат в предыдущий стейт
+        - "followup" → обрабатываем ещё один вопрос (→ _same)
+        - "done" → возврат в предыдущий стейт (→ _previous)
+        - None → остаёмся (ожидаем текст замечания)
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
 
         # --- Проверяем: ожидаем ли замечание? ---
-        import json
-        ctx = json.loads(user.get('current_context', '{}')) if isinstance(user.get('current_context'), str) else (user.get('current_context') or {})
+        ctx = await self._load_session_context(user)
         qa_comment_id = ctx.get('qa_comment_id')
 
         if qa_comment_id and text and not text.startswith('?'):
             # Сохраняем замечание
             from db.queries.qa import update_qa_comment
-            from db.queries.users import update_intern
             try:
                 await update_qa_comment(qa_comment_id, text)
                 # Очищаем флаг
                 del ctx['qa_comment_id']
-                chat_id = self._get_chat_id(user)
                 if chat_id:
-                    await update_intern(chat_id, current_context=ctx)
+                    await self._save_session_context(chat_id, ctx)
                 await self.send(user, t('consultation.comment_saved', lang))
             except Exception as e:
                 logger.error(f"Comment save error: {e}")
                 await self.send(user, t('consultation.error', lang))
+            return None  # Остаёмся в сессии после замечания
+
+        # --- Проверка таймаута (5 мин неактивности) ---
+        last_activity = ctx.get('consultation_last_activity', 0)
+        if last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC:
+            logger.info(f"[Consultation] Session timeout for chat {chat_id}")
+            await self._end_session(user, ctx, lang)
             return "done"
 
-        # Если это ещё один вопрос
+        # --- Вопрос с "?" → явный новый вопрос ---
         if text.startswith('?'):
             question = text[1:].strip()
             if question:
                 await self.enter(user, context={'question': question})
                 return "followup"
 
-        # Любое другое сообщение — возврат
-        await self.send(user, t('consultation.returning', lang))
-        return "done"
+        # --- Текст без "?" (≥3 символов) → follow-up вопрос ---
+        if len(text) >= 3:
+            await self.enter(user, context={'question': text})
+            return "followup"
+
+        # Слишком короткий текст — подсказка
+        await self.send(user, t('consultation.session_hint', lang))
+        return None
+
+    async def _end_session(self, user, ctx: dict, lang: str):
+        """Завершить consultation session: очистка history, прощание."""
+        chat_id = self._get_chat_id(user)
+        self._clear_session(ctx)
+        if chat_id:
+            await self._save_session_context(chat_id, ctx)
+        await self.send(user, t('consultation.session_ended', lang))
+        logger.info(f"[Consultation] Session ended for chat {chat_id}")
 
     async def exit(self, user) -> dict:
-        """Передаём контекст обратно."""
+        """Передаём контекст обратно + очищаем session history."""
+        chat_id = self._get_chat_id(user)
+        if chat_id:
+            try:
+                ctx = await self._load_session_context(user)
+                self._clear_session(ctx)
+                await self._save_session_context(chat_id, ctx)
+            except Exception as e:
+                logger.warning(f"Consultation exit cleanup error: {e}")
         return {
             "consultation_complete": True
         }
