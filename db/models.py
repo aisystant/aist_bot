@@ -123,6 +123,9 @@ async def create_tables(pool: asyncpg.Pool):
 
             # Telegram username (@handle)
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT NULL',
+
+            # DT connection persistence (DP.D.028)
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_connected_at TIMESTAMP DEFAULT NULL',
         ]
         
         for migration in migrations:
@@ -545,8 +548,8 @@ async def create_tables(pool: asyncpg.Pool):
                 -- Systematicity
                 i.active_days_total, i.active_days_streak, i.longest_streak,
                 i.last_active_date,
-                -- Timestamps
-                i.created_at, i.updated_at,
+                -- Timestamps / DT
+                i.created_at, i.updated_at, i.dt_connected_at,
                 -- Aggregates: answers
                 (SELECT COUNT(*) FROM answers a
                  WHERE a.chat_id = i.chat_id AND a.answer_type = 'theory_answer')

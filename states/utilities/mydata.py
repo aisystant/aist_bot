@@ -132,6 +132,14 @@ class MyDataState(BaseState):
     def _format_value(self, value) -> str:
         if value is None:
             return "—"
+        # JSON arrays stored as TEXT (e.g. interests)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return ", ".join(str(v) for v in parsed) if parsed else "—"
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
         if isinstance(value, list):
             return ", ".join(str(v) for v in value) if value else "—"
         if hasattr(value, 'strftime'):
@@ -143,8 +151,27 @@ class MyDataState(BaseState):
         return await get_knowledge_profile(chat_id)
 
     async def _detect_tier(self, chat_id: int) -> int:
-        """Определить текущий тир пользователя: T1/T2/T3 (T4 не в боте)."""
-        # T3: DT подключён
+        """Определить текущий тир пользователя: T1/T2/T3 (T4 не в боте).
+
+        Проверка:
+        1. T3: DT подключён (persistent DB flag + in-memory fallback)
+        2. T2: подписка или триал
+        3. T1: default
+        """
+        # T3: persistent check (survives redeploy)
+        try:
+            from db import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT dt_connected_at FROM interns WHERE chat_id = $1', chat_id,
+                )
+                if row and row['dt_connected_at'] is not None:
+                    return 3
+        except Exception:
+            pass
+
+        # T3: in-memory fallback (current session, before DB is updated)
         try:
             from clients.digital_twin import digital_twin
             if digital_twin.is_connected(chat_id):
@@ -211,7 +238,7 @@ class MyDataState(BaseState):
                 ),
             ],
             [InlineKeyboardButton(
-                text=f"← {t('buttons.back', lang)}",
+                text=t('buttons.back', lang),
                 callback_data="mydata_back",
             )],
         ])
@@ -277,6 +304,10 @@ class MyDataState(BaseState):
 
         if data == "mydata_sec_privacy":
             await self._show_privacy(user, callback)
+            return None
+
+        if data == "mydata_privacy_details":
+            await self._show_privacy_details(user, callback)
             return None
 
         if data == "mydata_sec_tiers":
@@ -590,8 +621,14 @@ class MyDataState(BaseState):
             if tier >= 2:
                 interests = profile.get('interests')
                 if interests:
+                    # Parse JSON TEXT → list
+                    if isinstance(interests, str):
+                        try:
+                            interests = json.loads(interests)
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            pass
                     if isinstance(interests, list):
-                        interests = ', '.join(interests[:3])
+                        interests = ', '.join(str(i) for i in interests[:3])
                     text += f"   → interests: {interests}\n"
                 goals = profile.get('goals', '')
                 if goals:
@@ -625,13 +662,48 @@ class MyDataState(BaseState):
     # ═══ Section: Privacy ══════════════════════════════════════════════
 
     async def _show_privacy(self, user, callback: CallbackQuery) -> None:
+        """Показать приватность: что собираем на ТЕКУЩЕМ тире + кнопка «Подробнее»."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        tier = await self._detect_tier(chat_id)
+        tier_name = TIER_NAMES.get(lang, TIER_NAMES['en']).get(tier, f'T{tier}')
+
+        text = f"*🔒 {t('mydata.sec_privacy', lang)}*\n\n"
+        text += t('mydata.privacy_your_tier', lang, tier=tier_name) + "\n"
+        text += t('mydata.privacy_t1', lang)
+
+        if tier >= 2:
+            text += t('mydata.privacy_t2_extra', lang)
+
+        if tier >= 3:
+            text += t('mydata.privacy_t3_extra', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"📋 {t('mydata.privacy_details_btn', lang)}",
+                callback_data="mydata_privacy_details",
+            )],
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+            )],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _show_privacy_details(self, user, callback: CallbackQuery) -> None:
+        """Полная политика приватности."""
         lang = self._get_lang(user)
         text = f"*🔒 {t('mydata.sec_privacy', lang)}*\n\n"
         text += t('mydata.privacy_text', lang)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_sec_privacy",
             )],
         ])
 

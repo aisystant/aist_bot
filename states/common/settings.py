@@ -840,6 +840,14 @@ class SettingsState(BaseState):
 
         if digital_twin.is_connected(chat_id):
             digital_twin.disconnect(chat_id)
+        # Clear persistent flag
+        try:
+            from db import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', chat_id)
+        except Exception:
+            pass
 
         await callback.message.edit_text(
             f"🤖 {t('settings.twin_label', lang)}: {t('settings.not_connected', lang)}",

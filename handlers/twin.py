@@ -65,6 +65,14 @@ async def cmd_twin(message: Message):
     if subcommand == "disconnect":
         if is_connected:
             digital_twin.disconnect(telegram_user_id)
+            # Clear persistent flag
+            try:
+                from db import get_pool
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', telegram_user_id)
+            except Exception:
+                pass
             await message.answer(t('twin.disconnected', lang))
         else:
             await message.answer(t('twin.not_connected', lang))
@@ -192,6 +200,14 @@ async def callback_twin_disconnect(callback: CallbackQuery):
         return
 
     digital_twin.disconnect(telegram_user_id)
+    # Clear persistent flag
+    try:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', telegram_user_id)
+    except Exception:
+        pass
     await callback.answer(t('twin.disconnected_alert', lang), show_alert=True)
     await callback.message.edit_text(
         t('twin.disconnected_desc', lang),

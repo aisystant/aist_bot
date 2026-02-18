@@ -3060,11 +3060,11 @@ mydata:
     ru: "Как улучшить?"
     en: "How to improve?"
   back_to_hub:
-    ru: "← Обзор"
-    en: "← Overview"
+    ru: "Обзор"
+    en: "Overview"
   back_to_metrics:
-    ru: "← Метрики"
-    en: "← Metrics"
+    ru: "Метрики"
+    en: "Metrics"
 
   # ── Metric labels ──
   streak:
@@ -3113,6 +3113,39 @@ mydata:
     en: "Not connected. Use /twin"
 
   # ── Privacy ──
+  privacy_your_tier:
+    ru: "На твоём уровне ({tier}) собираем:"
+    en: "At your tier ({tier}) we collect:"
+  privacy_t1:
+    ru: |
+      • Профиль (имя, профессия, язык, уровень опыта, режим)
+      • Прогресс марафона (ответы, рабочие продукты)
+      • Активность (дни, серия, последний вход)
+    en: |
+      • Profile (name, occupation, language, experience level, mode)
+      • Marathon progress (answers, work products)
+      • Activity (days, streak, last active)
+  privacy_t2_extra:
+    ru: |
+      • Интересы, цели, мотивация, роль, домен
+      • Лента (дайджесты, фиксации, темы)
+      • Консультации (вопросы и ответы)
+      • Сессии (длительность, время)
+      • Подписка (статус, дата)
+    en: |
+      • Interests, goals, motivation, role, domain
+      • Feed (digests, fixations, topics)
+      • Consultations (questions and answers)
+      • Sessions (duration, time)
+      • Subscription (status, date)
+  privacy_t3_extra:
+    ru: |
+      • Цифровой Двойник (самооценка, индикаторы, роли, проблемы, цель)
+    en: |
+      • Digital Twin (self-assessment, indicators, roles, problems, objective)
+  privacy_details_btn:
+    ru: "Подробнее"
+    en: "More details"
   privacy_text:
     ru: |
       *Что мы собираем:*
@@ -3210,8 +3243,8 @@ mydata:
     ru: "Текст не совпал. Удаление отменено."
     en: "Text did not match. Deletion cancelled."
   cancel_delete:
-    ru: "← Отмена"
-    en: "← Cancel"
+    ru: "Отмена"
+    en: "Cancel"
   delete_done_title:
     ru: "Данные удалены"
     en: "Data deleted"
