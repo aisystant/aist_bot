@@ -298,6 +298,14 @@ Scheduler (`core/scheduler.py`) **НЕ ИМЕЕТ ПРАВА** менять по
 
 SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_day(intern)` для расчёта дня марафона. Нельзя реализовывать свою версию — поле `marathon_start_date` + Moscow TZ (МСК) обязательны. Своя реализация использовала `marathon_started_at` + UTC → расхождение на 1 день.
 
+### 10.12. dict.get() с None-значением в JSONB
+
+`session.get('content', {})` возвращает `None` (не `{}`), когда ключ `content` существует со значением `None`. **Паттерн:** `session.get('content') or {}`. Всегда использовать `or {}` / `or []` при доступе к JSONB-полям, которые могут быть `None`.
+
+### 10.13. delete_webhook при старте (Railway)
+
+При редеплое Railway старый инстанс ещё polling, а новый уже стартует → `TelegramConflictError`. **Обязательно:** `await bot.delete_webhook(drop_pending_updates=False)` перед `dp.start_polling(bot)`.
+
 ---
 
 ## SOTA: Context Engineering (DP.SOTA.002)
