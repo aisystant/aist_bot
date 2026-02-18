@@ -630,4 +630,21 @@ async def create_tables(pool: asyncpg.Pool):
             ON error_logs (alerted, last_seen_at DESC)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # КЕШ КОНТЕНТА (экономия Claude API на повторной генерации)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS content_cache (
+                cache_key TEXT PRIMARY KEY,
+                content_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_content_cache_expires
+            ON content_cache (expires_at)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

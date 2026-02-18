@@ -513,8 +513,18 @@ class ClaudeClient:
         Returns:
             Dict с ключами: intro, task, work_product, examples (все на языке пользователя)
         """
+        from db.queries.cache import cache_get, cache_set
+
         # Получаем локализованные промпты из единого модуля
         lang = intern.get('language', 'ru')
+        topic_id = topic.get('id', '')
+
+        # Проверяем кеш (practice не зависит от пользователя, только от языка)
+        cache_key = f"practice:{topic_id}:{lang}" if topic_id else None
+        if cache_key:
+            cached = await cache_get(cache_key)
+            if cached:
+                return self._parse_practice_response(cached, topic)
         lp = get_practice_prompts(lang)
 
         task_ru = topic.get('task', '')
@@ -561,6 +571,10 @@ Translate and adapt everything to the target language."""
                 'work_product': work_product_ru,
                 'examples': wp_examples_text
             }
+
+        # Сохраняем в кеш
+        if cache_key:
+            await cache_set(cache_key, 'practice', result)
 
         # Парсим ответ
         parsed = {
@@ -609,6 +623,38 @@ Translate and adapt everything to the target language."""
 
         return parsed
 
+    @staticmethod
+    def _parse_practice_response(raw: str, topic: dict) -> dict:
+        """Парсим INTRO/TASK/WORK_PRODUCT/EXAMPLES из сырого ответа Claude."""
+        parsed = {
+            'intro': '',
+            'task': topic.get('task', ''),
+            'work_product': topic.get('work_product', ''),
+            'examples': "\n".join(f"• {ex}" for ex in (topic.get('wp_examples', []) or []))
+        }
+        try:
+            lines = raw.split('\n')
+            current_key = None
+            current_value = []
+            for line in lines:
+                for prefix, key in [('INTRO:', 'intro'), ('TASK:', 'task'),
+                                     ('WORK_PRODUCT:', 'work_product'), ('EXAMPLES:', 'examples')]:
+                    if line.startswith(prefix):
+                        if current_key and current_value:
+                            parsed[current_key] = '\n'.join(current_value).strip()
+                        current_key = key
+                        current_value = [line[len(prefix):].strip()]
+                        break
+                else:
+                    if current_key:
+                        current_value.append(line)
+            if current_key and current_value:
+                parsed[current_key] = '\n'.join(current_value).strip()
+        except Exception as e:
+            logger.warning(f"Error parsing practice intro: {e}")
+            parsed['intro'] = raw
+        return parsed
+
     async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
         """Генерирует вопрос по теме с учётом уровня сложности и метаданных темы
 
@@ -626,6 +672,8 @@ Translate and adapt everything to the target language."""
         Returns:
             Сгенерированный вопрос
         """
+        from db.queries.cache import cache_get, cache_set
+
         # Получаем язык пользователя
         lang = intern.get('language', 'ru')
 
@@ -637,8 +685,15 @@ Translate and adapt everything to the target language."""
         occupation = intern.get('occupation', '') or 'работа'
         study_duration = intern.get('study_duration', 15)
 
-        # Пробуем загрузить метаданные темы
+        # Проверяем кеш (question зависит от bloom level + occupation + language)
         topic_id = topic.get('id', '')
+        cache_key = f"question:{topic_id}:{level}:{lang}:{occupation}" if topic_id else None
+        if cache_key:
+            cached = await cache_get(cache_key)
+            if cached:
+                return cached
+
+        # Пробуем загрузить метаданные темы
         metadata = load_topic_metadata(topic_id) if topic_id else None
 
         # Получаем настройки вопросов из метаданных
@@ -687,6 +742,8 @@ Translate and adapt everything to the target language."""
 {qp['output_only_question']}"""
 
         result = await self.generate(system_prompt, user_prompt)
+        if result and cache_key:
+            await cache_set(cache_key, 'question', result)
         return result or qp['error_generation']
 
 
