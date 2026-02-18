@@ -260,6 +260,7 @@ async def main():
                 BotCommand(command="health", description="Состояние системы"),
                 BotCommand(command="latency", description="Латентность (светофор)"),
                 BotCommand(command="errors", description="Ошибки (24h)"),
+                BotCommand(command="analytics", description="Сводная аналитика"),
                 BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
