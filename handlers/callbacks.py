@@ -550,6 +550,21 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
+            # Persistent session: если в консультации — подсказка + кнопка "Завершить"
+            current_state_name = intern.get('current_state', '')
+            if current_state_name == 'common.consultation':
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                end_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text=t('consultation.btn_end_session', lang),
+                        callback_data="qa_end_session"
+                    )
+                ]])
+                await callback.message.answer(
+                    t('consultation.session_hint', lang),
+                    reply_markup=end_kb,
+                )
+
         elif data.startswith("qa_refine_"):
             # --- 🔍 Подробнее ---
             qa_id = int(data.split("_")[-1])

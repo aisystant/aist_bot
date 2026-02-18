@@ -745,7 +745,15 @@ class ConsultationState(BaseState):
                 del ctx['qa_comment_id']
                 if chat_id:
                     await self._save_session_context(chat_id, ctx)
-                await self.send(user, t('consultation.comment_saved', lang))
+                # Подтверждение + подсказка с кнопкой "Завершить"
+                end_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text=t('consultation.btn_end_session', lang),
+                        callback_data="qa_end_session"
+                    )
+                ]])
+                msg = t('consultation.comment_saved', lang) + "\n\n" + t('consultation.session_hint', lang)
+                await self.send(user, msg, reply_markup=end_kb)
             except Exception as e:
                 logger.error(f"Comment save error: {e}")
                 await self.send(user, t('consultation.error', lang))
