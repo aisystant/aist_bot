@@ -422,7 +422,10 @@ def get_example_rules(intern: dict, marathon_day: int) -> str:
 
 def get_personalization_prompt(intern: dict, marathon_day: int = 1) -> str:
     """Генерирует промпт для персонализации на основе упрощённого профиля"""
-    duration = STUDY_DURATIONS.get(str(intern['study_duration']), {"words": 1500})
+    from config import calc_words
+    study_dur = intern.get('study_duration', 15)
+    bloom = intern.get('complexity_level', 1) or 1
+    words = calc_words(study_dur, bloom)
 
     interests = ', '.join(intern['interests']) if intern['interests'] else 'не указаны'
     occupation = intern.get('occupation', '') or 'не указано'
@@ -438,12 +441,12 @@ def get_personalization_prompt(intern: dict, marathon_day: int = 1) -> str:
 - Интересы/хобби: {interests}
 - Что важно в жизни: {motivation}
 - Что хочет изменить: {goals}
-- Время на изучение: {intern['study_duration']} минут (~{duration.get('words', 1500)} слов)
+- Время на изучение: {intern['study_duration']} минут (~{words} слов)
 
 ИНСТРУКЦИИ ПО ПЕРСОНАЛИЗАЦИИ:
 1. Показывай, как тема помогает достичь того, что стажер хочет изменить: "{goals}"
 2. Добавляй мотивационный блок, опираясь на ценности стажера: "{motivation}"
-3. Объём текста должен быть рассчитан на {intern['study_duration']} минут чтения (~{duration.get('words', 1500)} слов)
+3. Объём текста должен быть рассчитан на {intern['study_duration']} минут чтения (~{words} слов)
 4. Пиши простым языком, избегай академического стиля
 {example_rules}"""
 

@@ -363,8 +363,10 @@ class ClaudeClient:
         Returns:
             Сгенерированный контент или сообщение об ошибке
         """
-        duration = STUDY_DURATIONS.get(str(intern['study_duration']), {"words": 1500})
-        words = duration.get('words', 1500)
+        from config import calc_words, BLOOM_INSTRUCTION
+        study_dur = intern.get('study_duration', 15)
+        bloom = intern.get('complexity_level', 1) or 1
+        words = calc_words(study_dur, bloom)
 
         # Пробуем загрузить метаданные темы для точных поисковых запросов
         topic_id = topic.get('id', '')
@@ -457,6 +459,7 @@ class ClaudeClient:
         elif mcp_context:
             context_instruction = lp['use_context']
 
+        bloom_instr = BLOOM_INSTRUCTION.get(min(bloom, 3), BLOOM_INSTRUCTION[1])
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
 {get_personalization_prompt(intern)}
 
@@ -464,6 +467,8 @@ class ClaudeClient:
 
 {lp['create_text']}
 {lp['engaging']}
+
+СТИЛЬ ИЗЛОЖЕНИЯ: {bloom_instr}
 
 {lp['forbidden_header']}
 {lp['forbidden_questions']}

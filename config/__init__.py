@@ -53,6 +53,12 @@ from .settings import (
     EXPERIENCE_LEVELS,
     STUDY_DURATIONS,
 
+    # Content Budget Model (DP.D.027)
+    WPM_BASE,
+    BLOOM_MULTIPLIER,
+    BLOOM_INSTRUCTION,
+    calc_words,
+
     # Сложность (бывш. Bloom)
     COMPLEXITY_LEVELS,
     BLOOM_LEVELS,
@@ -111,6 +117,10 @@ __all__ = [
     'LEARNING_STYLES',
     'EXPERIENCE_LEVELS',
     'STUDY_DURATIONS',
+    'WPM_BASE',
+    'BLOOM_MULTIPLIER',
+    'BLOOM_INSTRUCTION',
+    'calc_words',
     'COMPLEXITY_LEVELS',
     'BLOOM_LEVELS',
     'COMPLEXITY_AUTO_UPGRADE_AFTER',
