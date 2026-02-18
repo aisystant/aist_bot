@@ -52,6 +52,7 @@ _GITHUB_RAW_URL = (
 # Кеш
 _scenarios: list[dict] = []
 _faq: list[dict] = []
+_troubleshooting: list[dict] = []
 _identity: dict = {}
 _integrations: str = ""
 _loaded: bool = False
@@ -104,7 +105,7 @@ def _fetch_content() -> Optional[str]:
 
 def _parse_pack() -> None:
     """Загрузить самознание: L0 проекция → fallback Pack markdown (lazy, один раз)."""
-    global _scenarios, _faq, _identity, _integrations, _loaded
+    global _scenarios, _faq, _troubleshooting, _identity, _integrations, _loaded
 
     if _loaded:
         return
@@ -121,11 +122,14 @@ def _parse_pack() -> None:
         _identity.update(_parse_identity(identity_text))
         _scenarios.extend(_parse_scenarios_table_from_text(scenarios_text))
         _faq.extend(_parse_faq_table_from_text(faq_text))
+        troubleshooting_text = projection.get('troubleshooting', '')
+        if troubleshooting_text:
+            _troubleshooting.extend(_parse_faq_table_from_text(troubleshooting_text))
         _integrations = projection.get('integrations', '')
 
         logger.info(
             f"Self-knowledge loaded from projection: "
-            f"{len(_scenarios)} scenarios, {len(_faq)} FAQ items"
+            f"{len(_scenarios)} scenarios, {len(_faq)} FAQ, {len(_troubleshooting)} troubleshooting"
         )
         return
 
@@ -138,10 +142,11 @@ def _parse_pack() -> None:
     _identity.update(_parse_identity_from_pack(content))
     _scenarios.extend(_parse_scenarios_table(content))
     _faq.extend(_parse_faq_table(content))
+    _troubleshooting.extend(_parse_troubleshooting_table(content))
 
     logger.info(
         f"Self-knowledge loaded from Pack fallback: "
-        f"{len(_scenarios)} scenarios, {len(_faq)} FAQ items"
+        f"{len(_scenarios)} scenarios, {len(_faq)} FAQ, {len(_troubleshooting)} troubleshooting"
     )
 
 
@@ -235,7 +240,15 @@ def _parse_scenarios_table(content: str) -> list[dict]:
 
 def _parse_faq_table(content: str) -> list[dict]:
     """Извлечь FAQ из полного Pack markdown (fallback)."""
-    match = re.search(r'##### FAQ\s*\n(.*?)(?=\n### |\n## |\Z)', content, re.DOTALL)
+    match = re.search(r'##### FAQ\s*\n(.*?)(?=\n##### |\n### |\n## |\Z)', content, re.DOTALL)
+    if not match:
+        return []
+    return _parse_faq_from_rows(_parse_md_table(match.group(1)))
+
+
+def _parse_troubleshooting_table(content: str) -> list[dict]:
+    """Извлечь Troubleshooting из полного Pack markdown."""
+    match = re.search(r'##### Troubleshooting.*?\n(.*?)(?=\n### |\n## |\Z)', content, re.DOTALL)
     if not match:
         return []
     return _parse_faq_from_rows(_parse_md_table(match.group(1)))
@@ -334,6 +347,16 @@ def get_self_knowledge(lang: str = 'ru') -> str:
                 lines.append(f"\nВ: {q}" if is_ru else f"\nQ: {q}")
                 lines.append(f"О: {a}" if is_ru else f"A: {a}")
 
+    # --- Troubleshooting ---
+    if _troubleshooting:
+        lines.append("\n## Решение проблем" if is_ru else "\n## Troubleshooting")
+        for item in _troubleshooting:
+            q = item.get(f'question_{lang}') or item.get('question_ru', '')
+            a = item.get(f'answer_{lang}') or item.get('answer_ru', '')
+            if q and a:
+                lines.append(f"\nПроблема: {q}" if is_ru else f"\nProblem: {q}")
+                lines.append(f"Решение: {a}" if is_ru else f"Solution: {a}")
+
     # --- Интеграции (технический стек) ---
     if _integrations:
         lines.append("\n## Интеграции" if is_ru else "\n## Integrations")
@@ -356,7 +379,8 @@ def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
     best_item = None
     best_score = 0
 
-    for item in _faq:
+    # Поиск и по FAQ, и по Troubleshooting (обе таблицы с одинаковой структурой)
+    for item in _faq + _troubleshooting:
         keywords = item.get('keywords', [])
         if not keywords:
             continue
@@ -382,10 +406,11 @@ def get_scenario_names(lang: str = 'ru') -> list[str]:
 
 def invalidate_cache():
     """Сбросить кеш (для ежедневного обновления или тестов)."""
-    global _loaded, _scenarios, _faq, _identity, _integrations, _cache
+    global _loaded, _scenarios, _faq, _troubleshooting, _identity, _integrations, _cache
     _loaded = False
     _scenarios = []
     _faq = []
+    _troubleshooting = []
     _identity = {}
     _integrations = ""
     _cache = {}
