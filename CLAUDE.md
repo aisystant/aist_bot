@@ -177,7 +177,16 @@ aist_bot/
 
 ---
 
-## 9. Частые ошибки
+## 9. Claude API — правила
+
+- **Streaming SSE** (`_api_call_streaming`) для `generate()`. Non-streaming (`_api_call`) — только для `generate_with_tools()`.
+- **Inactivity timeout** вместо total: `sock_read = max(15, max_tokens / 200)`. Total timeout (45s) не масштабируется с длиной вывода.
+- **Adaptive max_tokens** в `generate_content`: `min(words × 1.5, 4096)`. Не hardcode 4000.
+- **Scheduler retry**: при фейле пре-генерации → `_schedule_retry()` ставит one-off job на +30 мин (APScheduler `date` trigger, dedup по job_id).
+
+---
+
+## 10. Частые ошибки
 
 | Неправильно | Правильно |
 |-------------|-----------|
