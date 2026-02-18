@@ -275,8 +275,9 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             )
         return
 
-    if topic_index is not None and topic_index != intern['current_topic_index']:
-        await update_intern(chat_id, current_topic_index=topic_index)
+    # НЕ обновляем current_topic_index здесь — scheduler только пре-генерирует контент.
+    # current_topic_index обновляется в lesson.py при реальном взаимодействии пользователя.
+    # Иначе при простое scheduler продвигает индекс каждый день → пользователь видит урок 12 вместо 1.
 
     # ─── Пре-генерация контента (урок + вопрос + практика) ───
     from clients import claude, mcp_knowledge

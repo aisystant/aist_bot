@@ -279,8 +279,9 @@ class MarathonLessonState(BaseState):
         full = header + content
         if len(full) > 4000:
             await self.send(user, header, parse_mode="Markdown")
-            for i in range(0, len(content), 4000):
-                await self.send(user, content[i:i+4000])
+            parts = [content[i:i+4000] for i in range(0, len(content), 4000)]
+            for part in parts:
+                await self.send(user, part, parse_mode="Markdown")
         else:
             await self.send(user, full, parse_mode="Markdown")
 
