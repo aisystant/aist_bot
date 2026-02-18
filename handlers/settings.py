@@ -19,7 +19,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import STUDY_DURATIONS, MARATHON_DAYS
 from db.queries import get_intern, update_intern
-from db.queries.users import moscow_today
+from db.queries.users import moscow_today, find_best_slot, get_slot_load
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
     kb_update_profile, kb_study_duration, kb_bloom_level,
@@ -539,9 +539,19 @@ async def on_save_schedule(message: Message, state: FSMContext):
         return
 
     normalized_time = f"{h:02d}:{m:02d}"
-    await update_intern(message.chat.id, schedule_time=normalized_time)
+
+    # Auto-stagger: если слот перегружен — сдвигаем на ближайший свободный
+    actual_time, was_shifted = await find_best_slot(normalized_time)
+    await update_intern(message.chat.id, schedule_time=actual_time)
+
+    shift_note = ""
+    if was_shifted:
+        counts = await get_slot_load(normalized_time, window_minutes=0)
+        count = counts.get(normalized_time, 0)
+        shift_note = f"\n⏰ {t('update.schedule_shifted', lang, requested=normalized_time, count=count)}"
+
     await message.answer(
-        f"✅ {t('update.schedule_changed', lang)}: *{normalized_time}*\n\n"
+        f"✅ {t('update.schedule_changed', lang)}: *{actual_time}*{shift_note}\n\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.settings', lang)}",
         parse_mode="Markdown"

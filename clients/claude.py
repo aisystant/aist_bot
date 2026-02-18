@@ -51,7 +51,7 @@ class ClaudeClient:
     """
 
     # Ограничение concurrent запросов к Claude API
-    _semaphore = asyncio.Semaphore(10)
+    _semaphore = asyncio.Semaphore(20)
     _session: Optional[aiohttp.ClientSession] = None
 
     def __init__(self):

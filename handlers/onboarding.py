@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import STUDY_DURATIONS, MARATHON_DAYS
 from db.queries import get_intern, update_intern
-from db.queries.users import moscow_today
+from db.queries.users import moscow_today, find_best_slot
 from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
     kb_study_duration, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
@@ -232,11 +232,21 @@ async def on_schedule(message: Message, state: FSMContext):
 
     # Нормализуем формат времени (с ведущими нулями)
     normalized_time = f"{h:02d}:{m:02d}"
-    await update_intern(message.chat.id, schedule_time=normalized_time)
+
+    # Auto-stagger: если слот перегружен — сдвигаем на ближайший свободный
+    actual_time, was_shifted = await find_best_slot(normalized_time)
+    await update_intern(message.chat.id, schedule_time=actual_time)
+
+    shift_note = ""
+    if was_shifted:
+        from db.queries.users import get_slot_load
+        counts = await get_slot_load(normalized_time, window_minutes=0)
+        count = counts.get(normalized_time, 0)
+        shift_note = f"\n\n⏰ {t('update.schedule_shifted', lang, requested=normalized_time, count=count)}"
 
     await message.answer(
         f"🗓 *{t('onboarding.ask_start_date', lang)}*\n\n" +
-        t('modes.marathon_desc', lang),
+        t('modes.marathon_desc', lang) + shift_note,
         parse_mode="Markdown",
         reply_markup=kb_marathon_start(lang)
     )

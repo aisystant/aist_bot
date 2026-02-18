@@ -421,6 +421,7 @@ update:
   goals_changed: "Metas actualizadas"
   duration_changed: "Duración cambiada"
   schedule_changed: "Horario cambiado"
+  schedule_shifted: "La hora {requested} está ocupada ({count} pers.). Se asignó la más cercana disponible"
   difficulty_changed: "Dificultad cambiada"
   marathon_start_changed: "¡Fecha de inicio del maratón cambiada!"
   new_date: "Nueva fecha"

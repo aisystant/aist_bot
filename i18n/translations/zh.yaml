@@ -421,6 +421,7 @@ update:
   goals_changed: "目标已更新"
   duration_changed: "时长已更改"
   schedule_changed: "时间表已更改"
+  schedule_shifted: "时间 {requested} 已满（{count} 人）。已分配最近的可用时间"
   difficulty_changed: "难度已更改"
   marathon_start_changed: "马拉松开始日期已更改！"
   new_date: "新日期"

@@ -545,8 +545,9 @@ async def scheduled_check():
                 else:
                     logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
-        # Параллельная обработка пользователей (max 20 одновременно)
-        sem = asyncio.Semaphore(20)
+        # Параллельная обработка пользователей (max 40 одновременно)
+        # Telegram rate limit: 30 msg/sec, но Claude генерация (5-10с) stagger-ит сообщения
+        sem = asyncio.Semaphore(40)
 
         async def _bounded(chat_id, send_type):
             async with sem:

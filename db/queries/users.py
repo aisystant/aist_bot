@@ -331,6 +331,80 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
         return result
 
 
+# --- Slot management (auto-stagger) ---
+
+MAX_USERS_PER_SLOT = 50
+
+
+async def get_slot_load(target_time: str, window_minutes: int = 5) -> dict[str, int]:
+    """Подсчитать количество пользователей на каждом минутном слоте вокруг target_time.
+
+    Returns:
+        dict вида {"09:00": 42, "09:01": 3, "09:02": 0, ...}
+    """
+    h, m = map(int, target_time.split(":"))
+    slots = []
+    for delta in range(-window_minutes, window_minutes + 1):
+        total_min = h * 60 + m + delta
+        if total_min < 0:
+            total_min += 24 * 60
+        elif total_min >= 24 * 60:
+            total_min -= 24 * 60
+        sh, sm = divmod(total_min, 60)
+        slots.append(f"{sh:02d}:{sm:02d}")
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT schedule_time, COUNT(*) as cnt
+               FROM interns
+               WHERE schedule_time = ANY($1)
+                 AND onboarding_completed = TRUE
+               GROUP BY schedule_time''',
+            slots
+        )
+    counts = {s: 0 for s in slots}
+    for row in rows:
+        counts[row['schedule_time']] = row['cnt']
+    return counts
+
+
+async def find_best_slot(target_time: str) -> tuple[str, bool]:
+    """Найти оптимальный слот для пользователя.
+
+    Если целевой слот не перегружен — вернуть его.
+    Иначе — ближайший слот с наименьшей нагрузкой в окне ±5 мин.
+
+    Returns:
+        (slot_time, was_shifted) — время слота и был ли сдвиг
+    """
+    counts = await get_slot_load(target_time)
+    target_count = counts.get(target_time, 0)
+
+    if target_count < MAX_USERS_PER_SLOT:
+        return target_time, False
+
+    # Сортируем по расстоянию от целевого, потом по загрузке
+    h, m = map(int, target_time.split(":"))
+    target_total = h * 60 + m
+
+    def sort_key(slot: str) -> tuple[int, int]:
+        sh, sm = map(int, slot.split(":"))
+        dist = abs((sh * 60 + sm) - target_total)
+        if dist > 720:  # Обработка перехода через полночь
+            dist = 1440 - dist
+        return (dist, counts[slot])
+
+    candidates = sorted(counts.keys(), key=sort_key)
+    for slot in candidates:
+        if counts[slot] < MAX_USERS_PER_SLOT:
+            return slot, slot != target_time
+
+    # Все слоты заполнены — берём наименее загруженный
+    best = min(counts.keys(), key=lambda s: counts[s])
+    return best, best != target_time
+
+
 def get_topics_today(intern: dict) -> int:
     """Получить количество тем, пройденных сегодня"""
     today = moscow_today()

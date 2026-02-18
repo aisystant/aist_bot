@@ -1792,6 +1792,10 @@ update:
     ru: "Расписание изменено"
     en: "Schedule changed"
 
+  schedule_shifted:
+    ru: "Время {requested} загружено ({count} чел.). Назначено ближайшее свободное"
+    en: "Time {requested} is busy ({count} people). Assigned nearest available"
+
   difficulty_changed:
     ru: "Сложность изменена"
     en: "Difficulty changed"
