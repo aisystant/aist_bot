@@ -217,7 +217,7 @@ class FeedDigestState(BaseState):
 
         # Формируем заголовок
         if topics_list:
-            topics_str = ", ".join(topics_list)
+            topics_str = ", ".join(f"*{tp}*" for tp in topics_list)
             text = t('feed.digest_header', lang, topics=topics_str) + "\n"
         else:
             topic = session.get('topic_title', t('feed.topics_of_day', lang))
@@ -240,8 +240,11 @@ class FeedDigestState(BaseState):
                 summary = td.get('summary', '')
                 text += f"*{title}*\n{summary}\n\n"
         elif topics_detail and len(topics_detail) == 1:
-            # Single topic: показываем summary + detail сразу
+            # Single topic: показываем title + summary + detail сразу
             td = topics_detail[0]
+            title = td.get('title', '')
+            if title:
+                text += f"*{title}*\n"
             text += f"{td.get('summary', '')}\n\n{td.get('detail', '')}"
         else:
             # Backward compat: старый формат main_content
@@ -390,7 +393,7 @@ class FeedDigestState(BaseState):
         if topics:
             text += f"{t('feed.your_topics_label', lang)}\n"
             for i, topic in enumerate(topics, 1):
-                text += f"{i}. {topic}\n"
+                text += f"{i}. *{topic}*\n"
         else:
             text += f"{t('feed.no_topics', lang)}\n"
 
@@ -761,7 +764,7 @@ class FeedDigestState(BaseState):
         if topics:
             text += f"{t('feed.your_topics_label', lang)}\n"
             for i, topic in enumerate(topics, 1):
-                text += f"{i}. {topic}\n"
+                text += f"{i}. *{topic}*\n"
             text += f"\n{t('feed.topics_deepen_daily', lang)}"
         else:
             text += f"{t('feed.no_topics', lang)}"

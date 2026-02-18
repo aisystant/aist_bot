@@ -445,6 +445,16 @@ buttons:
     en: "Get practice"
     max_length: 25
 
+  next_question:
+    ru: "Далее → Вопрос"
+    en: "Next → Question"
+    max_length: 25
+
+  next_bonus:
+    ru: "Далее → Бонус"
+    en: "Next → Bonus"
+    max_length: 25
+
   progress:
     ru: "Мой прогресс"
     en: "My progress"

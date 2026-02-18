@@ -287,8 +287,15 @@ class MarathonLessonState(BaseState):
 
         logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
 
-        # Автопереход к вопросу (без кнопки «Получить вопрос»)
-        return "lesson_shown"
+        # Кнопка «Далее → Вопрос» вместо автоперехода
+        next_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"💭 {t('buttons.next_question', lang)}",
+                callback_data="marathon_next_question"
+            )]
+        ])
+        await self.send(user, f"💭 {t('buttons.next_question', lang)}", reply_markup=next_keyboard)
+        return None  # ждём клик
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
@@ -320,12 +327,15 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.question_processed', lang))
             return None
 
-        # Готов к вопросу
+        # Текстовое сообщение тоже переводит к вопросу
         return "lesson_shown"
 
     async def handle_callback(self, user, callback) -> Optional[str]:
         """Обработка inline-кнопок."""
         await callback.answer()
+
+        if callback.data == "marathon_next_question":
+            return "lesson_shown"
 
         if callback.data == "marathon_retry_lesson":
             await self.enter(user)

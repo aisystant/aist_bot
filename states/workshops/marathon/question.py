@@ -240,7 +240,15 @@ class MarathonQuestionState(BaseState):
         # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)
         # Уровень 1 → сразу задание, уровни 2-3 → предложить бонус
         if original_bloom_level >= 2:
-            return "correct"  # → bonus (автопереход)
+            # Кнопка «Далее → Бонус» вместо автоперехода
+            bonus_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"⭐ {t('buttons.next_bonus', lang)}",
+                    callback_data="marathon_next_bonus"
+                )]
+            ])
+            await self.send(user, f"⭐ {t('buttons.next_bonus', lang)}", reply_markup=bonus_keyboard)
+            return None  # ждём клик
         else:
             # Показываем кнопку «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -257,10 +265,13 @@ class MarathonQuestionState(BaseState):
             return None  # ждём клик
 
     async def handle_callback(self, user, callback) -> Optional[str]:
-        """Обработка inline-кнопки «Получить практику»."""
+        """Обработка inline-кнопок."""
         if callback.data == "marathon_get_practice":
             await callback.answer()
             return "correct_level_1"  # SM перейдёт в task
+        if callback.data == "marathon_next_bonus":
+            await callback.answer()
+            return "correct"  # SM перейдёт в bonus
         return None
 
     async def exit(self, user) -> dict:
