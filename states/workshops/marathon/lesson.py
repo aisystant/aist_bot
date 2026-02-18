@@ -246,14 +246,25 @@ class MarathonLessonState(BaseState):
                     return
 
             except Exception as e:
-                logger.error(f"Error generating content for user {chat_id}: {e}")
+                logger.error(f"Error generating content for user {chat_id}: {e}", exc_info=True)
+                retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"🔄 {t('buttons.try_again', lang)}",
+                        callback_data="marathon_retry_lesson"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"← {t('buttons.back_to_menu', lang)}",
+                        callback_data="marathon_back_menu"
+                    )],
+                ])
                 await self.send(
                     user,
                     f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
                     f"_{t('errors.try_again_later', lang)}_",
+                    reply_markup=retry_keyboard,
                     parse_mode="Markdown"
                 )
-                return "come_back"
+                return
 
         # ─── Показываем урок ───
         topic_title = get_topic_title(topic, lang)

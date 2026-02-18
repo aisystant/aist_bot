@@ -184,6 +184,14 @@ class FeedDigestState(BaseState):
                 session_date=today,
             )
 
+            # create_feed_session returns None if active/completed session already exists (race condition)
+            if not session:
+                session = await get_feed_session(week['id'], today)
+                if not session:
+                    logger.error(f"[Feed] No session after create for user {chat_id}, week {week['id']}")
+                    await self.send(user, t('errors.try_again', lang))
+                    return None
+
             # Показываем дайджест
             await self._show_digest(user, session, week)
             return None
