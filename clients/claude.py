@@ -19,6 +19,8 @@ import aiohttp
 from config import (
     get_logger,
     ANTHROPIC_API_KEY,
+    CLAUDE_MODEL_SONNET,
+    CLAUDE_MODEL_HAIKU,
     STUDY_DURATIONS,
     BLOOM_LEVELS,
     COMPLEXITY_LEVELS,
@@ -203,7 +205,13 @@ class ClaudeClient:
                 return None
         return None
 
-    async def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> Optional[str]:
+    async def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 4000,
+        model: str = None,
+    ) -> Optional[str]:
         """Базовый метод генерации текста через Claude API (streaming).
 
         Uses streaming with inactivity timeout — no more total timeout
@@ -213,11 +221,14 @@ class ClaudeClient:
             system_prompt: системный промпт
             user_prompt: пользовательский промпт
             max_tokens: максимальное количество токенов ответа
+            model: модель Claude (default: CLAUDE_MODEL_SONNET)
 
         Returns:
             Сгенерированный текст или None при ошибке
         """
         from core.tracing import span
+
+        model = model or CLAUDE_MODEL_SONNET
 
         # Adaptive inactivity timeout: larger outputs → more patience per chunk
         # ~200 tok/s streaming speed, 15s minimum, scales gently with output size
@@ -226,7 +237,7 @@ class ClaudeClient:
         async with span("claude.api", max_tokens=max_tokens):
             async with self._semaphore:
                 payload = {
-                    "model": "claude-sonnet-4-20250514",
+                    "model": model,
                     "max_tokens": max_tokens,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": user_prompt}]
@@ -244,6 +255,7 @@ class ClaudeClient:
         tool_executor: Callable[[str, Dict[str, Any]], Awaitable[str]],
         max_tokens: int = 4000,
         max_tool_rounds: int = 5,
+        model: str = None,
     ) -> Optional[str]:
         """Генерация с поддержкой tool_use (Claude решает когда вызывать tools).
 
@@ -263,13 +275,15 @@ class ClaudeClient:
         """
         from core.tracing import span
 
+        model = model or CLAUDE_MODEL_SONNET
+
         async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
 
             for round_num in range(max_tool_rounds):
                 async with self._semaphore:
                     payload = {
-                        "model": "claude-sonnet-4-20250514",
+                        "model": model,
                         "max_tokens": max_tokens,
                         "system": system_prompt,
                         "messages": conversation,

@@ -9,6 +9,8 @@ from .settings import (
     # Токены
     BOT_TOKEN,
     ANTHROPIC_API_KEY,
+    CLAUDE_MODEL_SONNET,
+    CLAUDE_MODEL_HAIKU,
     DATABASE_URL,
     KNOWLEDGE_MCP_URL,
     DIGITAL_TWIN_MCP_URL,

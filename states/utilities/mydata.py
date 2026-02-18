@@ -368,10 +368,12 @@ class MyDataState(BaseState):
 4. НЕ придумывай данные, которых нет в контексте"""
 
         from clients import claude
+        from config import CLAUDE_MODEL_HAIKU
         try:
             answer = await claude.generate(
                 system_prompt=system_prompt,
                 user_prompt=f"Объясни мои данные в категории «{cat_label}»",
+                max_tokens=1000, model=CLAUDE_MODEL_HAIKU,
             )
         except Exception as e:
             logger.error(f"MyData explain error: {e}")

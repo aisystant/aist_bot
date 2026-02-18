@@ -387,7 +387,9 @@ class ConsultationState(BaseState):
 {ONTOLOGY_RULES}"""
 
         user_prompt = f"Вопрос: {question}" if lang == 'ru' else f"Question: {question}"
-        answer = await claude.generate(system_prompt, user_prompt, max_tokens=max_tokens)
+        # Bot FAQ (L2) — простая задача, Haiku достаточно
+        from config import CLAUDE_MODEL_HAIKU
+        answer = await claude.generate(system_prompt, user_prompt, max_tokens=max_tokens, model=CLAUDE_MODEL_HAIKU)
         return answer or t('consultation.error', lang)
 
     async def _load_session_context(self, user) -> dict:

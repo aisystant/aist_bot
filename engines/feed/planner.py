@@ -401,7 +401,11 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
     ...
 ]"""
 
-    response = await claude.generate(system_prompt, "Персонализируй обоснования тем.")
+    from config import CLAUDE_MODEL_HAIKU
+    response = await claude.generate(
+        system_prompt, "Персонализируй обоснования тем.",
+        max_tokens=1000, model=CLAUDE_MODEL_HAIKU,
+    )
 
     # 3. Парсим ответ Claude
     personalized = _parse_why_response(response, selected)
