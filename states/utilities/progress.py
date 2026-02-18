@@ -69,6 +69,7 @@ class ProgressState(BaseState):
         from db.queries.answers import (
             get_weekly_marathon_stats, get_weekly_feed_stats,
             get_total_stats, get_work_products_by_day,
+            get_theory_count_at_level,
         )
         from db.queries.activity import get_activity_stats, get_activity_calendar
         from db.queries.qa import get_user_qa_stats
@@ -206,11 +207,15 @@ class ProgressState(BaseState):
                 weekday_counts[wd] = weekday_counts.get(wd, 0) + 1
         most_active_wd = max(weekday_counts, key=weekday_counts.get) if weekday_counts else None
 
+        # SOTA.012: вычисляем из answers (Event Sourcing), не из мутируемого счётчика
+        complexity_level = intern.get('complexity_level', 1)
+        topics_at_level = await get_theory_count_at_level(chat_id, complexity_level)
+
         return {
             'name': self._get_user_name(intern),
             'reg_date': reg_date_str,
-            'complexity_level': intern.get('complexity_level', 1),
-            'topics_at_current_complexity': intern.get('topics_at_current_complexity', 0),
+            'complexity_level': complexity_level,
+            'topics_at_current_complexity': topics_at_level,
             # Activity
             'streak': activity_stats.get('streak', 0),
             'longest_streak': activity_stats.get('longest_streak', 0),

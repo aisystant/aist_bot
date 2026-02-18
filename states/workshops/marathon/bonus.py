@@ -201,7 +201,8 @@ class MarathonBonusState(BaseState):
                     chat_id=chat_id,
                     topic_index=theory_index,
                     answer=f"[BONUS] {text}",
-                    answer_type="bonus_answer"
+                    answer_type="bonus_answer",
+                    complexity_level=self._get_bloom_level(user)
                 )
 
             # FIX: Удаляем Reply Keyboard при переходе к практике

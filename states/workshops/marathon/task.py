@@ -57,6 +57,12 @@ class MarathonTaskState(BaseState):
             return user.get('current_topic_index', 0)
         return getattr(user, 'current_topic_index', 0)
 
+    def _get_bloom_level(self, user) -> int:
+        """Получить уровень сложности."""
+        if isinstance(user, dict):
+            return user.get('complexity_level', 1) or user.get('bloom_level', 1) or 1
+        return getattr(user, 'complexity_level', 1) or getattr(user, 'bloom_level', 1) or 1
+
     def _get_completed_topics(self, user) -> list:
         """Получить список завершённых тем."""
         if isinstance(user, dict):
@@ -230,12 +236,14 @@ class MarathonTaskState(BaseState):
 
         # Сохраняем рабочий продукт
         topic_index = self._get_current_topic_index(user)
+        bloom_level = self._get_bloom_level(user)
         if chat_id:
             await save_answer(
                 chat_id=chat_id,
                 topic_index=topic_index,
                 answer=f"[РП] {text}",
-                answer_type="work_product"
+                answer_type="work_product",
+                complexity_level=bloom_level
             )
 
         # Обновляем прогресс

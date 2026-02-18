@@ -329,7 +329,7 @@ async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
 @settings_router.callback_query(UpdateStates.updating_bloom_level, F.data.startswith("bloom_"))
 async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
     level = int(callback.data.replace("bloom_", ""))
-    await update_intern(callback.message.chat.id, bloom_level=level, topics_at_current_bloom=0)
+    await update_intern(callback.message.chat.id, bloom_level=level)
 
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'

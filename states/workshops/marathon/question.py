@@ -14,6 +14,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer
+from db.queries.answers import get_theory_count_at_level
 from db.queries.marathon import get_marathon_content
 from core.knowledge import get_topic
 from clients import claude
@@ -196,20 +197,22 @@ class MarathonQuestionState(BaseState):
 
         # Сохраняем ответ
         topic_index = self._get_current_topic_index(user)
+        bloom_level = self._get_bloom_level(user)
         if chat_id:
             await save_answer(
                 chat_id=chat_id,
                 topic_index=topic_index,
                 answer=text,
-                answer_type="theory_answer"
+                answer_type="theory_answer",
+                complexity_level=bloom_level
             )
 
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]
-        topics_at_bloom = self._get_topics_at_bloom(user) + 1
+        # SOTA.012: вычисляем из answers (Event Sourcing), не из мутируемого счётчика
+        topics_at_bloom = await get_theory_count_at_level(chat_id, bloom_level) if chat_id else 0
         # Сохраняем ИСХОДНЫЙ уровень для решения о бонусе
-        original_bloom_level = self._get_bloom_level(user)
-        bloom_level = original_bloom_level
+        original_bloom_level = bloom_level
 
         # Автоповышение уровня
         if topics_at_bloom >= BLOOM_AUTO_UPGRADE_AFTER and bloom_level < 3:

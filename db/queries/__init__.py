@@ -24,6 +24,7 @@ from .answers import (
     get_answers,
     get_weekly_work_products,
     get_answers_count_by_type,
+    get_theory_count_at_level,
 )
 
 from .activity import (

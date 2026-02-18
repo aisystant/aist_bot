@@ -386,7 +386,7 @@ class ProfileState(BaseState):
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
         level = int(data.replace("bloom_", ""))
-        await update_intern(chat_id, bloom_level=level, topics_at_current_bloom=0)
+        await update_intern(chat_id, bloom_level=level)
         await callback.message.edit_text(
             f"✅ {t('update.difficulty_changed', lang)}: *{t(f'bloom.level_{level}_short', lang)}*\n\n"
             f"{t(f'bloom.level_{level}_desc', lang)}",
