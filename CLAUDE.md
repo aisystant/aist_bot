@@ -183,6 +183,11 @@ aist_bot/
 - **Inactivity timeout** вместо total: `sock_read = max(15, max_tokens / 200)`. Total timeout (45s) не масштабируется с длиной вывода.
 - **Adaptive max_tokens** в `generate_content`: `min(words × 1.5, 4096)`. Не hardcode 4000.
 - **Scheduler retry**: при фейле пре-генерации → `_schedule_retry()` ставит one-off job на +30 мин (APScheduler `date` trigger, dedup по job_id).
+- **Content Budget Model (DP.D.027)** — 3 независимые оси генерации контента:
+  - **Ось 1 (Длина):** `words = duration × WPM_BASE(60) × BLOOM_MULTIPLIER[bloom]` (множители: 1→1.0, 2→1.3, 3→1.7). Функция: `config.calc_words()`.
+  - **Ось 2 (Глубина):** `BLOOM_INSTRUCTION[bloom]` — отдельная инструкция в system prompt, управляющая стилем (доступный → профессиональный → экспертный).
+  - **Ось 3 (Персонализация):** профиль пользователя + assessment state + DT (tier context).
+  - **Правило:** Длина и глубина НЕ ДОЛЖНЫ смешиваться. Bloom влияет на объём через множитель (Ось 1) И на стиль через инструкцию (Ось 2) — раздельно.
 
 ---
 
