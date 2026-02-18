@@ -290,7 +290,11 @@ Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `Syntax
 
 Кнопка "Назад" из подменю (edit_text) НЕ должна вызывать голый `self.enter(user)` — это отправляет НОВОЕ сообщение, оставляя старое. Паттерн: `callback.message.delete()` → `self.enter(user)`.
 
-### 10.10. Marathon day — только `core.topics.get_marathon_day(intern)`
+### 10.10. Scheduler = read-only для user state
+
+Scheduler (`core/scheduler.py`) **НЕ ИМЕЕТ ПРАВА** менять поля прогресса пользователя: `current_topic_index`, `completed_topics`, `bloom_level`. Эти поля — собственность FSM states (lesson/question/task). Scheduler может читать состояние и генерировать контент, но запись в прогресс — только при реальном взаимодействии.
+
+### 10.11. Marathon day — только `core.topics.get_marathon_day(intern)`
 
 SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_day(intern)` для расчёта дня марафона. Нельзя реализовывать свою версию — поле `marathon_start_date` + Moscow TZ (МСК) обязательны. Своя реализация использовала `marathon_started_at` + UTC → расхождение на 1 день.
 
