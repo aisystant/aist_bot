@@ -286,6 +286,9 @@ class ConsultationState(BaseState):
             'completed_topics': getattr(user, 'completed_topics', []),
             'current_topic_index': getattr(user, 'current_topic_index', 0),
             'complexity_level': getattr(user, 'complexity_level', 1),
+            'interests': getattr(user, 'interests', []),
+            'goals': getattr(user, 'goals', ''),
+            'assessment_state': getattr(user, 'assessment_state', None),
         }
 
     def _is_bot_question(self, question: str) -> bool:
