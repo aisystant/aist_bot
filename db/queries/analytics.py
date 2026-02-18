@@ -23,19 +23,28 @@ async def get_analytics_report(hours: int = 24) -> dict:
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        users = await _get_user_metrics(conn)
-        sessions = await _get_session_metrics(conn, hours)
-        quality = await _get_quality_metrics(conn, hours)
-        retention = await _get_retention_metrics(conn)
-        trends = await _get_trend_metrics(conn)
+        users = await _safe(conn, _get_user_metrics, conn)
+        sessions = await _safe(conn, _get_session_metrics, conn, hours)
+        quality = await _safe(conn, _get_quality_metrics, conn, hours)
+        retention = await _safe(conn, _get_retention_metrics, conn)
+        trends = await _safe(conn, _get_trend_metrics, conn)
 
     return {
-        'users': users,
-        'sessions': sessions,
-        'quality': quality,
-        'retention': retention,
-        'trends': trends,
+        'users': users or {'dau': 0, 'wau': 0, 'mau': 0, 'total': 0, 'new_today': 0, 'new_week': 0},
+        'sessions': sessions or {'count': 0, 'avg_duration_sec': 0, 'avg_requests': 0, 'entry_points': []},
+        'quality': quality or {'total_requests': 0, 'avg_ms': 0, 'p95_ms': 0, 'red_zone': 0, 'qa_total': 0, 'qa_helpful_rate': 0},
+        'retention': retention or {'d1': 0, 'd7': 0, 'd30': 0},
+        'trends': trends or {'dau_this_week': 0, 'dau_last_week': 0, 'dau_change_pct': 0, 'sessions_this_week': 0, 'sessions_last_week': 0, 'sessions_change_pct': 0},
     }
+
+
+async def _safe(conn, fn, *args):
+    """Обёртка: если подзапрос падает, возвращаем None (не ломаем весь отчёт)."""
+    try:
+        return await fn(*args)
+    except Exception as e:
+        logger.warning(f"[Analytics] {fn.__name__} failed: {e}")
+        return None
 
 
 async def _get_user_metrics(conn) -> dict:
@@ -131,13 +140,13 @@ async def _get_retention_metrics(conn) -> dict:
                 SELECT chat_id, created_at::date as cohort_date
                 FROM interns
                 WHERE onboarding_completed = TRUE
-                  AND created_at < NOW() - ($1 || ' days')::INTERVAL
+                  AND created_at < NOW() - make_interval(days := $1)
             ),
             retained AS (
                 SELECT DISTINCT c.chat_id
                 FROM cohort c
                 JOIN activity_log a ON c.chat_id = a.chat_id
-                  AND a.activity_date = c.cohort_date + $1::INTEGER
+                  AND a.activity_date = c.cohort_date + $1
             )
             SELECT
                 (SELECT COUNT(*) FROM cohort) as cohort_size,
