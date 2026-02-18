@@ -42,7 +42,8 @@ _COMPLEXITY_GUIDANCE = {
 def _build_user_profile(intern: dict, lang: str) -> str:
     """Собрать секцию профиля пользователя для system prompt.
 
-    Включает: уровень сложности, интересы, цели, состояние.
+    Включает: уровень сложности, интересы, цели, состояние,
+    текущие проблемы, желания, роль, срок обучения.
     Возвращает пустую строку если данных нет.
     """
     parts = []
@@ -67,6 +68,26 @@ def _build_user_profile(intern: dict, lang: str) -> str:
     goals = intern.get('goals', '')
     if goals:
         parts.append(f"Цели: {goals[:200]}")
+
+    # Роль
+    role = intern.get('role', '')
+    if role:
+        parts.append(f"Роль: {role[:200]}")
+
+    # Текущие проблемы
+    current_problems = intern.get('current_problems', '')
+    if current_problems:
+        parts.append(f"Текущие проблемы: {current_problems[:300]}")
+
+    # Желания
+    desires = intern.get('desires', '')
+    if desires:
+        parts.append(f"Желания: {desires[:200]}")
+
+    # Срок обучения
+    study_duration = intern.get('study_duration', '')
+    if study_duration:
+        parts.append(f"Срок обучения: {study_duration}")
 
     # Состояние (из теста)
     assessment = intern.get('assessment_state')
@@ -457,7 +478,6 @@ async def handle_question_with_tools(
     from .consultation_tools import (
         get_tools_for_tier,
         execute_tool,
-        get_standard_claude_md,
         load_tier_prompt,
         fill_tier_prompt,
     )
@@ -497,28 +517,15 @@ async def handle_question_with_tools(
     context_info = f"\nТекущая тема изучения: {context_topic}" if context_topic else ""
     occupation_info = f"\nПрофессия/занятие пользователя: {occupation}" if occupation else ""
 
-    # Секции по тиру
-    standard_section = ""
-    if tier >= 2:
-        standard_claude = get_standard_claude_md()
-        if standard_claude:
-            standard_section = f"\n\nМЕТОДОЛОГИЯ:\n{standard_claude}"
-
-    personal_section = ""
-    if tier >= 3 and personal_claude_md:
-        personal_section = f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}"
-
-    bot_section = ""
-    if bot_context:
-        bot_section = (
-            f"\n\nЗНАНИЯ О БОТЕ:\n{bot_context}\n"
-            "Если вопрос касается бота — отвечай ТОЛЬКО на основе информации выше."
-        )
-
-    dynamic_sections = ""  # Reserved for progress/history injection
-
-    # Профиль пользователя: уровень + интересы + цели
-    user_profile = _build_user_profile(intern, lang)
+    # Context Pipeline: collectors по тиру (параллельно)
+    from .context_pipeline import assemble_context
+    sections = await assemble_context(
+        tier=tier,
+        intern=intern,
+        lang=lang,
+        bot_context=bot_context or "",
+        personal_claude_md=personal_claude_md or "",
+    )
 
     # Загружаем шаблон промпта и подставляем переменные
     template = load_tier_prompt(tier)
@@ -527,14 +534,10 @@ async def handle_question_with_tools(
         name=name,
         occupation_info=occupation_info,
         context_info=context_info,
-        dynamic_sections=dynamic_sections,
-        user_profile=user_profile,
         lang_instruction=lang_instruction,
         lang_reminder=lang_reminder,
         ontology_rules=ONTOLOGY_RULES,
-        standard_section=standard_section,
-        personal_section=personal_section,
-        bot_section=bot_section,
+        **sections,
     )
 
     logger.info(f"Consultation T{tier}: prompt {len(system_prompt)} chars for user {telegram_user_id}")
