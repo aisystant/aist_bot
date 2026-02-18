@@ -135,6 +135,26 @@ async def cmd_settings(message: Message, state: FSMContext):
     await _show_update_screen(message, intern, state)
 
 
+@commands_router.message(Command("mydata"))
+async def cmd_mydata(message: Message, state: FSMContext):
+    """Персональный дата-центр через Dispatcher → utility.mydata."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(message.chat.id)
+    if not intern or not intern.get('onboarding_completed'):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('profile.first_start', lang))
+        return
+
+    if dispatcher and dispatcher.is_sm_active:
+        await _safe_route(message, state, intern, dispatcher.route_command('mydata', intern))
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    await message.answer(t('errors.processing_error', lang))
+
+
 @commands_router.message(Command("test"))
 @commands_router.message(Command("assessment"))
 async def cmd_assessment(message: Message, state: FSMContext):
