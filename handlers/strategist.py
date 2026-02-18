@@ -24,6 +24,30 @@ strategist_router = Router(name="strategist")
 
 MAX_MESSAGE_LEN = 4000
 
+# Навигация между планами (для strat_* callbacks из уведомлений)
+_STRAT_NAV = {
+    "strat_plan": [
+        ("plans.week_plan", "strat_rp"),
+        ("plans.week_report", "strat_report"),
+    ],
+    "strat_rp": [
+        ("plans.day_plan", "strat_plan"),
+        ("plans.week_report", "strat_report"),
+    ],
+    "strat_report": [
+        ("plans.day_plan", "strat_plan"),
+        ("plans.week_plan", "strat_rp"),
+    ],
+}
+
+
+def _nav_keyboard(current: str, lang: str) -> InlineKeyboardMarkup:
+    """Кнопки навигации: два других плана."""
+    buttons = []
+    for label_key, cb_data in _STRAT_NAV.get(current, []):
+        buttons.append([InlineKeyboardButton(text=t(label_key, lang), callback_data=cb_data)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def _lang(intern) -> str:
     if not intern:
@@ -154,16 +178,18 @@ async def callback_strat_plan(callback: CallbackQuery):
 
     from clients.github_strategy import github_strategy
     content = await github_strategy.get_day_plan(user_id)
+    kb = _nav_keyboard("strat_plan", lang)
     if not content:
         is_monday = datetime.now(MOSCOW_TZ).weekday() == 0
         if is_monday:
-            await callback.message.answer(t('strategist.dayplan_not_found_monday', lang))
+            await callback.message.answer(t('strategist.dayplan_not_found_monday', lang), reply_markup=kb)
         else:
-            await callback.message.answer(t('strategist.dayplan_not_found', lang))
+            await callback.message.answer(t('strategist.dayplan_not_found', lang), reply_markup=kb)
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
+    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML",
+                                  disable_web_page_preview=True, reply_markup=kb)
 
 
 @strategist_router.callback_query(F.data == "strat_rp")
@@ -177,12 +203,14 @@ async def callback_strat_rp(callback: CallbackQuery):
 
     from clients.github_strategy import github_strategy
     content = await github_strategy.get_week_plan(user_id)
+    kb = _nav_keyboard("strat_rp", lang)
     if not content:
-        await callback.message.answer(t('strategist.weekplan_not_found', lang))
+        await callback.message.answer(t('strategist.weekplan_not_found', lang), reply_markup=kb)
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
+    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML",
+                                  disable_web_page_preview=True, reply_markup=kb)
 
 
 @strategist_router.callback_query(F.data == "strat_report")
@@ -196,12 +224,14 @@ async def callback_strat_report(callback: CallbackQuery):
 
     from clients.github_strategy import github_strategy
     content = await github_strategy.get_week_report(user_id)
+    kb = _nav_keyboard("strat_report", lang)
     if not content:
-        await callback.message.answer(t('strategist.weekreport_not_found', lang))
+        await callback.message.answer(t('strategist.weekreport_not_found', lang), reply_markup=kb)
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
+    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML",
+                                  disable_web_page_preview=True, reply_markup=kb)
 
 
 @strategist_router.callback_query(F.data == "strat_day_close")
