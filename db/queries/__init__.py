@@ -66,6 +66,7 @@ from .github import (
 
 from .profile import (
     get_knowledge_profile,
+    delete_all_user_data,
 )
 
 from .marathon import (
@@ -137,6 +138,7 @@ __all__ = [
 
     # profile
     'get_knowledge_profile',
+    'delete_all_user_data',
 
     # marathon content
     'save_marathon_content',

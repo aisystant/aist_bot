@@ -259,7 +259,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 | feed.topics | `inline` | Чекбоксы тем |
 | feed.digest | `inline` | Подробнее / Фиксация / Назад |
 | utility.progress | `inline` | 6 секций (edit_text hub) |
-| utility.mydata | `inline` | 3 категории + Why |
+| utility.mydata | `inline` | Hub (5 секций) + delete confirm (text input) |
 | utility.feedback | `inline` | Баг/Предложение → severity |
 
 **SM auto-cleanup:** при входе в **любой** стейт с `keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Также при первом контакте после рестарта (`_keyboard_verified`). Первый `send()` нового стейта применяет cleanup:

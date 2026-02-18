@@ -184,10 +184,11 @@ states:
       error: _previous
 
   utility.mydata:
-    description: "Мои данные — просмотр и объяснение (/mydata)"
+    description: "Мои данные — персональный дата-центр (/mydata)"
     events:
       back: _previous
       settings: common.settings
+      deleted: common.start
     allow_global: [consultation, notes]
 
   utility.feedback:
