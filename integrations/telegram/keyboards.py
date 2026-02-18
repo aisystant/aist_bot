@@ -98,6 +98,53 @@ def kb_skip_topic(lang: str = 'ru') -> InlineKeyboardMarkup:
     ])
 
 
+def kb_slot_suggestions(target_time: str, slots: dict[str, int], lang: str = 'ru') -> InlineKeyboardMarkup:
+    """Кнопки с ближайшими свободными слотами при перегрузке.
+
+    Args:
+        target_time: запрошенное время (HH:MM)
+        slots: dict {time_str: user_count} — нагрузка на слотах вокруг target_time
+        lang: язык пользователя
+    """
+    from db.queries.users import MAX_USERS_PER_SLOT
+
+    # Сортируем по расстоянию от целевого, потом по загрузке
+    h, m = map(int, target_time.split(":"))
+    target_total = h * 60 + m
+
+    def sort_key(slot: str) -> tuple:
+        sh, sm = map(int, slot.split(":"))
+        dist = abs((sh * 60 + sm) - target_total)
+        if dist > 720:
+            dist = 1440 - dist
+        return (dist, slots[slot])
+
+    available = [s for s in sorted(slots.keys(), key=sort_key)
+                 if slots[s] < MAX_USERS_PER_SLOT and s != target_time][:3]
+
+    buttons = []
+    for slot in available:
+        count = slots[slot]
+        buttons.append([InlineKeyboardButton(
+            text=f"🟢 {slot} ({count} чел.)",
+            callback_data=f"slot_{slot}"
+        )])
+
+    # Кнопка «оставить как есть»
+    keep_labels = {
+        'ru': 'Оставить', 'en': 'Keep', 'es': 'Mantener',
+        'fr': 'Garder', 'zh': '保留',
+    }
+    keep = keep_labels.get(lang, 'Keep')
+    target_count = slots.get(target_time, 0)
+    buttons.append([InlineKeyboardButton(
+        text=f"🟡 {keep} {target_time} ({target_count} чел.)",
+        callback_data=f"slot_{target_time}"
+    )])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура для выбора даты старта марафона"""
     from db.queries.users import moscow_today
