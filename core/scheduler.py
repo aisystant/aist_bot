@@ -32,6 +32,44 @@ _bot_dispatcher = None      # core.dispatcher.Dispatcher (for SM routing)
 _bot_token: str = None
 
 
+_RETRY_DELAY_MINUTES = 30
+
+
+def _schedule_retry(chat_id: int, content_type: str):
+    """Schedule a one-off retry for failed pre-generation (+30 min)."""
+    if not _scheduler:
+        return
+    job_id = f"retry_{content_type}_{chat_id}"
+    if _scheduler.get_job(job_id):
+        logger.info(f"[Scheduler] Retry already pending for {chat_id} ({content_type}), skip")
+        return
+    run_at = moscow_now() + timedelta(minutes=_RETRY_DELAY_MINUTES)
+    _scheduler.add_job(
+        _execute_retry,
+        'date',
+        run_date=run_at,
+        id=job_id,
+        args=[chat_id, content_type],
+        replace_existing=True,
+    )
+    logger.info(f"[Scheduler] Retry scheduled for {chat_id} ({content_type}) at +{_RETRY_DELAY_MINUTES}min")
+
+
+async def _execute_retry(chat_id: int, content_type: str):
+    """Execute a single retry for failed pre-generation."""
+    bot = Bot(token=_bot_token)
+    try:
+        if content_type == 'marathon':
+            await send_scheduled_topic(chat_id, bot)
+        elif content_type == 'feed':
+            await pre_generate_feed_digest(chat_id, bot)
+        logger.info(f"[Scheduler] Retry successful for {chat_id} ({content_type})")
+    except Exception as e:
+        logger.error(f"[Scheduler] Retry failed for {chat_id} ({content_type}): {e}")
+    finally:
+        await bot.session.close()
+
+
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
     """Инициализировать и вернуть планировщик.
 
@@ -133,6 +171,7 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 
         if not content or not content.get('topics_detail'):
             logger.error(f"[Scheduler] Feed: digest generation returned empty for {chat_id}")
+            _schedule_retry(chat_id, 'feed')
             return
 
         # Сохраняем как pending (не показана пользователю)
@@ -150,9 +189,11 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 
     except asyncio.TimeoutError:
         logger.error(f"[Scheduler] Feed: pre-generation timeout (120s) for {chat_id}")
+        _schedule_retry(chat_id, 'feed')
         return
     except Exception as e:
         logger.error(f"[Scheduler] Feed: pre-generation error for {chat_id}: {e}")
+        _schedule_retry(chat_id, 'feed')
         return
 
     # Отправляем уведомление с кнопкой «Получить дайджест»
@@ -271,7 +312,7 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
         if lesson_content is None:
             logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}: {results[0]}")
-            # Без урока уведомление бессмысленно — пропускаем
+            _schedule_retry(chat_id, 'marathon')
             return
 
         if isinstance(results[1], Exception):
@@ -325,9 +366,11 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
     except asyncio.TimeoutError:
         logger.error(f"[Scheduler] Pre-generation timeout (120s) for {chat_id}, topic {topic_index}")
+        _schedule_retry(chat_id, 'marathon')
         return
     except Exception as e:
         logger.error(f"[Scheduler] Pre-generation error for {chat_id}: {e}")
+        _schedule_retry(chat_id, 'marathon')
         return
 
     # Планируем напоминания (+1ч и +3ч)
