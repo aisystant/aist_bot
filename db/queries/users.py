@@ -279,6 +279,24 @@ def derive_mode(marathon_status: str, feed_status: str) -> str:
     return 'marathon'
 
 
+async def get_marathon_users_at_time(hour: int, minute: int) -> list:
+    """Получить chat_id пользователей марафона, запланированных на указанное время.
+
+    Используется для пре-генерации контента за N часов до доставки.
+    """
+    pool = await get_pool()
+    time_str = f"{hour:02d}:{minute:02d}"
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT chat_id FROM interns
+               WHERE schedule_time = $1
+                 AND marathon_status = 'active'
+                 AND onboarding_completed = TRUE''',
+            time_str
+        )
+    return [row['chat_id'] for row in rows]
+
+
 async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
     """Получить пользователей для отправки по расписанию.
 
