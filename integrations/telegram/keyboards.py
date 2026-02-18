@@ -11,13 +11,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 
 
-def moscow_today():
-    """Получить текущую дату по Москве"""
-    from datetime import datetime, timezone
-    MOSCOW_TZ = timezone(timedelta(hours=3))
-    return datetime.now(MOSCOW_TZ).date()
-
-
 # ============= КЛАВИАТУРЫ ОНБОРДИНГА =============
 
 def kb_experience(lang: str = 'ru') -> InlineKeyboardMarkup:
@@ -107,6 +100,7 @@ def kb_skip_topic(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура для выбора даты старта марафона"""
+    from db.queries.users import moscow_today
     today = moscow_today()
     tomorrow = today + timedelta(days=1)
     day_after = today + timedelta(days=2)

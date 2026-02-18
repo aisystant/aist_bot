@@ -760,8 +760,8 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
             await message.answer(f"✅ {intro_msg}")
             return
 
-        # Получаем контент сессии
-        content = session.get('content', {})
+        # Получаем контент сессии (content может быть None в JSONB → or {} защищает)
+        content = session.get('content') or {}
         topics_list = content.get('topics_list', [])
         depth_level = content.get('depth_level', session.get('day_number', 1))
 

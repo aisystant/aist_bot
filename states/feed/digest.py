@@ -210,7 +210,7 @@ class FeedDigestState(BaseState):
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
-        content = session.get('content', {})
+        content = session.get('content') or {}
         topics_list = content.get('topics_list', [])
         topics_detail = content.get('topics_detail', [])
         depth_level = content.get('depth_level', session.get('day_number', 1))

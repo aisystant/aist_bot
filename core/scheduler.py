@@ -32,30 +32,34 @@ _bot_dispatcher = None      # core.dispatcher.Dispatcher (for SM routing)
 _bot_token: str = None
 
 
-_RETRY_DELAY_MINUTES = 30
+_RETRY_DELAYS_MINUTES = [30, 60]  # exponential backoff: 30min, then 60min
 
 
-def _schedule_retry(chat_id: int, content_type: str):
-    """Schedule a one-off retry for failed pre-generation (+30 min)."""
+def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
+    """Schedule a one-off retry for failed pre-generation with exponential backoff."""
     if not _scheduler:
+        return
+    if attempt >= len(_RETRY_DELAYS_MINUTES):
+        logger.warning(f"[Scheduler] Max retries ({len(_RETRY_DELAYS_MINUTES)}) exhausted for {chat_id} ({content_type})")
         return
     job_id = f"retry_{content_type}_{chat_id}"
     if _scheduler.get_job(job_id):
         logger.info(f"[Scheduler] Retry already pending for {chat_id} ({content_type}), skip")
         return
-    run_at = moscow_now() + timedelta(minutes=_RETRY_DELAY_MINUTES)
+    delay = _RETRY_DELAYS_MINUTES[attempt]
+    run_at = moscow_now() + timedelta(minutes=delay)
     _scheduler.add_job(
         _execute_retry,
         'date',
         run_date=run_at,
         id=job_id,
-        args=[chat_id, content_type],
+        args=[chat_id, content_type, attempt],
         replace_existing=True,
     )
-    logger.info(f"[Scheduler] Retry scheduled for {chat_id} ({content_type}) at +{_RETRY_DELAY_MINUTES}min")
+    logger.info(f"[Scheduler] Retry #{attempt+1} scheduled for {chat_id} ({content_type}) at +{delay}min")
 
 
-async def _execute_retry(chat_id: int, content_type: str):
+async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
     """Execute a single retry for failed pre-generation."""
     bot = Bot(token=_bot_token)
     try:
@@ -63,9 +67,10 @@ async def _execute_retry(chat_id: int, content_type: str):
             await send_scheduled_topic(chat_id, bot)
         elif content_type == 'feed':
             await pre_generate_feed_digest(chat_id, bot)
-        logger.info(f"[Scheduler] Retry successful for {chat_id} ({content_type})")
+        logger.info(f"[Scheduler] Retry #{attempt+1} successful for {chat_id} ({content_type})")
     except Exception as e:
-        logger.error(f"[Scheduler] Retry failed for {chat_id} ({content_type}): {e}")
+        logger.error(f"[Scheduler] Retry #{attempt+1} failed for {chat_id} ({content_type}): {e}")
+        _schedule_retry(chat_id, content_type, attempt + 1)
     finally:
         await bot.session.close()
 
