@@ -313,3 +313,74 @@ async def cmd_errors(message: Message):
         text = text[:4000] + "\n\n... (обрезано)"
 
     await message.answer(text, parse_mode="HTML")
+
+
+@dev_router.message(Command("analytics"))
+async def cmd_analytics(message: Message):
+    """/analytics — сводная аналитика IWE (users, sessions, quality, retention, trends)."""
+    if not _is_developer(message.chat.id):
+        return
+
+    from db.queries.analytics import get_analytics_report
+
+    try:
+        report = await get_analytics_report(hours=24)
+    except Exception as e:
+        logger.error(f"[Dev] /analytics error: {e}")
+        await message.answer("Ошибка загрузки аналитики.")
+        return
+
+    text = _format_analytics(report)
+    await message.answer(text, parse_mode="HTML")
+
+
+def _format_analytics(report: dict) -> str:
+    """Форматирование аналитического отчёта в HTML."""
+    sep = "\u2500" * 20
+    u = report['users']
+    s = report['sessions']
+    q = report['quality']
+    r = report['retention']
+    tr = report['trends']
+
+    # Trends arrows
+    dau_arrow = "\u2197\ufe0f" if tr['dau_change_pct'] > 0 else ("\u2198\ufe0f" if tr['dau_change_pct'] < 0 else "\u2794")
+    sess_arrow = "\u2197\ufe0f" if tr['sessions_change_pct'] > 0 else ("\u2198\ufe0f" if tr['sessions_change_pct'] < 0 else "\u2794")
+
+    # Entry points
+    entry_str = ""
+    for ep in s.get('entry_points', [])[:3]:
+        entry_str += f"{ep['point']} ({ep['count']}), "
+    entry_str = entry_str.rstrip(", ") or "\u2014"
+
+    # Duration formatting
+    avg_min = s['avg_duration_sec'] // 60
+    avg_sec = s['avg_duration_sec'] % 60
+
+    # Latency color
+    lat_emoji = "\U0001f7e2" if q['avg_ms'] < 3000 else ("\U0001f7e1" if q['avg_ms'] < 8000 else "\U0001f534")
+
+    text = (
+        f"<b>Аналитика IWE</b>\n{sep}\n\n"
+        f"<b>\U0001f465 Пользователи</b>\n"
+        f"  DAU: {u['dau']} | WAU: {u['wau']} | MAU: {u['mau']}\n"
+        f"  Всего: {u['total']} | Новых сегодня: {u['new_today']} | за неделю: {u['new_week']}\n\n"
+        f"<b>\U0001f4f1 Сессии (24ч)</b>\n"
+        f"  Всего: {s['count']} | Средняя: {avg_min}м {avg_sec}с\n"
+        f"  Средний запросов/сессия: {s['avg_requests']}\n"
+        f"  Entry points: {entry_str}\n\n"
+        f"<b>\u26a1 Качество (24ч)</b>\n"
+        f"  {lat_emoji} Avg latency: {q['avg_ms']}ms | P95: {q['p95_ms']}ms\n"
+        f"  Red-zone (>8s): {q['red_zone']} запросов\n"
+        f"  QA helpful: {q['qa_helpful_rate']}% ({q['qa_total']} консультаций)\n\n"
+        f"<b>\U0001f4c8 Retention</b>\n"
+        f"  D1: {r['d1']}% | D7: {r['d7']}% | D30: {r['d30']}%\n\n"
+        f"<b>\U0001f525 Тренды (vs прошлая неделя)</b>\n"
+        f"  {dau_arrow} DAU: {tr['dau_change_pct']:+d}% ({tr['dau_last_week']}\u2192{tr['dau_this_week']})\n"
+        f"  {sess_arrow} Sessions: {tr['sessions_change_pct']:+d}% ({tr['sessions_last_week']}\u2192{tr['sessions_this_week']})\n"
+    )
+
+    if len(text) > 4000:
+        text = text[:4000] + "\n\n... (обрезано)"
+
+    return text

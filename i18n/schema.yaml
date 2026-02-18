@@ -2024,6 +2024,13 @@ errors:
     es: "Se produjo un error al procesar tu mensaje."
     fr: "Une erreur s'est produite lors du traitement de votre message."
 
+  auto_recovery:
+    ru: "Извините, произошла ошибка. Я вернул вас в главное меню."
+    en: "Sorry, an error occurred. I've returned you to the main menu."
+    es: "Lo siento, se produjo un error. Te he devuelto al menú principal."
+    fr: "Désolé, une erreur s'est produite. Je vous ai ramené au menu principal."
+    description: "Автоматическое восстановление застрявших пользователей (L1 Наладчик)"
+
 # -----------------------------------------------------------------------------
 # FSM fallback-сообщения
 # -----------------------------------------------------------------------------

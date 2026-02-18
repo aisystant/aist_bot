@@ -647,4 +647,31 @@ async def create_tables(pool: asyncpg.Pool):
             ON content_cache (expires_at)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # СЕССИИ ПОЛЬЗОВАТЕЛЕЙ (аналитика: длина, частота, entry/exit)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                ended_at TIMESTAMPTZ,
+                duration_seconds INTEGER,
+                request_count INTEGER DEFAULT 1,
+                commands JSONB DEFAULT '[]',
+                entry_point TEXT,
+                exit_point TEXT
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_chat_id
+            ON user_sessions (chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_started
+            ON user_sessions (started_at DESC)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")
