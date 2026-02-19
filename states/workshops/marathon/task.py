@@ -23,6 +23,7 @@ from core.topics import get_marathon_day
 from config import CLAUDE_MODEL_HAIKU
 from clients import claude
 from config import get_logger, DAILY_TOPICS_LIMIT
+from config.settings import EVALUATION_ENABLED, WP_VALIDATION_ENABLED
 
 logger = get_logger(__name__)
 
@@ -248,9 +249,27 @@ class MarathonTaskState(BaseState):
             )
             return None
 
-        # Сохраняем рабочий продукт
+        # ─── Валидация формулировки РП (DS-evaluator-agent) ───
         topic_index = self._get_current_topic_index(user)
         bloom_level = self._get_bloom_level(user)
+
+        if WP_VALIDATION_ENABLED and lang == 'ru':
+            try:
+                from core.wp_validator import validate_formulation, get_wp_hint
+                validation = await validate_formulation(text)
+                if not validation["valid"]:
+                    hint = get_wp_hint(
+                        bloom_level=bloom_level,
+                        text=text,
+                        suggestion=validation.get("suggestion", ""),
+                        lang=lang,
+                    )
+                    await self.send(user, hint, parse_mode="Markdown")
+                    return None  # остаёмся в стейте, ждём переформулировку
+            except Exception as e:
+                logger.warning(f"WP validation error for user {chat_id}: {e}")
+
+        # Сохраняем рабочий продукт
         if chat_id:
             await save_answer(
                 chat_id=chat_id,
@@ -259,6 +278,29 @@ class MarathonTaskState(BaseState):
                 answer_type="work_product",
                 complexity_level=bloom_level
             )
+
+        # ─── Оценка рабочего продукта + фиксация (DS-evaluator-agent) ───
+        if EVALUATION_ENABLED:
+            topic = get_topic(topic_index)
+            if topic:
+                try:
+                    from core.evaluator import evaluate_and_fixate
+                    intern = self._user_to_intern_dict(user)
+                    evaluation = await evaluate_and_fixate(
+                        answer_text=text,
+                        topic=topic,
+                        bloom_level=bloom_level,
+                        intern=intern,
+                        telegram_user_id=chat_id,
+                    )
+                    if evaluation and evaluation.get("feedback"):
+                        await self.send(
+                            user,
+                            evaluation["feedback"],
+                            parse_mode="Markdown",
+                        )
+                except Exception as e:
+                    logger.warning(f"Evaluation failed for user {chat_id}: {e}")
 
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]

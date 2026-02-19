@@ -350,6 +350,17 @@ PLATFORM_URLS = {
     "guides": "https://docs.system-school.ru/ru/",
 }
 
+# ============= EVALUATOR (DS-evaluator-agent) =============
+
+# Включить проверку ответов (Claude Haiku ~1-2 сек на оценку)
+EVALUATION_ENABLED = os.getenv("EVALUATION_ENABLED", "true").lower() == "true"
+
+# Включить валидацию формулировки РП
+WP_VALIDATION_ENABLED = os.getenv("WP_VALIDATION_ENABLED", "true").lower() == "true"
+
+# Включить запись фиксаций в fleeting-notes (для GitHub-пользователей)
+FIXATION_ENABLED = os.getenv("FIXATION_ENABLED", "true").lower() == "true"
+
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 
 WORK_PRODUCT_CATEGORIES = {

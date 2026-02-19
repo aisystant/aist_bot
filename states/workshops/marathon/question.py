@@ -20,6 +20,7 @@ from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic
 from clients import claude
 from config import get_logger
+from config.settings import EVALUATION_ENABLED
 
 logger = get_logger(__name__)
 
@@ -210,6 +211,29 @@ class MarathonQuestionState(BaseState):
                 answer_type="theory_answer",
                 complexity_level=bloom_level
             )
+
+        # ─── Оценка ответа (DS-evaluator-agent) ───
+        if EVALUATION_ENABLED:
+            topic = get_topic(topic_index)
+            if topic:
+                try:
+                    from core.evaluator import evaluate_and_fixate
+                    intern = self._user_to_intern_dict(user)
+                    evaluation = await evaluate_and_fixate(
+                        answer_text=text,
+                        topic=topic,
+                        bloom_level=bloom_level,
+                        intern=intern,
+                        telegram_user_id=chat_id,
+                    )
+                    if evaluation and evaluation.get("feedback"):
+                        await self.send(
+                            user,
+                            evaluation["feedback"],
+                            parse_mode="Markdown",
+                        )
+                except Exception as e:
+                    logger.warning(f"Evaluation failed for user {chat_id}: {e}")
 
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]
