@@ -202,6 +202,39 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
     return True
 
 
+async def pregen_next_for_user(chat_id: int, intern: dict, current_topic_index: int):
+    """Look-ahead: пре-генерация следующей темы после текущей (fire-and-forget).
+
+    Вызывается из lesson.py / task.py после доставки контента пользователю.
+    Если следующая тема уже пре-генерирована — пропускаем.
+    Rule 10.19: Look-ahead pre-gen при доставке контента.
+    """
+    from core.topics import get_available_topics
+
+    try:
+        available = get_available_topics(intern)
+        # Найти следующие темы после текущей
+        next_topics = [
+            (idx, topic) for idx, topic in available
+            if idx > current_topic_index
+        ][:2]  # максимум 2 look-ahead
+
+        if not next_topics:
+            return
+
+        for next_idx, _ in next_topics:
+            existing = await get_marathon_content(chat_id, next_idx)
+            if existing and existing.get('lesson_content') and len(existing['lesson_content']) > 200:
+                continue  # уже есть
+            success = await _generate_and_save_content(chat_id, intern, next_idx)
+            if success:
+                logger.info(f"[LookAhead] Pre-generated topic {next_idx} for {chat_id}")
+            break  # генерируем только одну тему за раз (не блокировать API)
+
+    except Exception as e:
+        logger.warning(f"[LookAhead] Failed for {chat_id}: {e}")
+
+
 async def pre_generate_upcoming():
     """Пре-генерация контента марафона за PREGEN_HOURS_AHEAD часов до доставки.
 

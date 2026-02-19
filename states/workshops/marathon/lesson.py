@@ -19,7 +19,7 @@ from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day as canonical_get_marathon_day
 from clients import claude, mcp_knowledge
-from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY
+from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY, CLAUDE_MODEL_HAIKU
 
 logger = get_logger(__name__)
 
@@ -217,11 +217,13 @@ class MarathonLessonState(BaseState):
                 intern = self._user_to_intern_dict(user)
                 logger.info(f"Generating content on-the-fly for topic {topic_index}, day {topic_day}, user {chat_id}")
                 try:
+                    # Rule 10.20: Haiku for on-the-fly (3-5s vs 15-19s Sonnet)
                     content = await asyncio.wait_for(
                         claude.generate_content(
                             topic=topic,
                             intern=intern,
-                            mcp_client=mcp_knowledge
+                            mcp_client=mcp_knowledge,
+                            model=CLAUDE_MODEL_HAIKU,
                         ),
                         timeout=CONTENT_GENERATION_TIMEOUT
                     )
@@ -301,6 +303,13 @@ class MarathonLessonState(BaseState):
                 await self.send(user, part, reply_markup=kb)
 
         logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
+
+        # Rule 10.19: Look-ahead — pre-gen next topic in background
+        intern_dict = self._user_to_intern_dict(user)
+        asyncio.create_task(
+            _pregen_next_topic_bg(chat_id, intern_dict, topic_index)
+        )
+
         return None  # ждём клик
 
     async def handle(self, user, message: Message) -> Optional[str]:
@@ -358,3 +367,12 @@ class MarathonLessonState(BaseState):
             "topic_index": self._get_current_topic_index(user),
             "marathon_day": self._get_marathon_day(user)
         }
+
+
+async def _pregen_next_topic_bg(chat_id: int, intern: dict, current_topic_index: int):
+    """Background task: look-ahead pre-gen для следующей темы (Rule 10.19)."""
+    try:
+        from core.scheduler import pregen_next_for_user
+        await pregen_next_for_user(chat_id, intern, current_topic_index)
+    except Exception as e:
+        logger.warning(f"[LookAhead] Background pre-gen failed for {chat_id}: {e}")

@@ -352,7 +352,7 @@ class ClaudeClient:
                     return block["text"]
             return None
 
-    async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None) -> str:
+    async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None, model=None) -> str:
         """Генерирует контент для теоретической темы марафона
 
         Args:
@@ -505,13 +505,13 @@ class ClaudeClient:
         # 500w → 750tok, 1000w → 1500tok, 2500w → 3750tok
         max_tokens = min(int(words * 1.5), 4096)
 
-        result = await self.generate(system_prompt, user_prompt, max_tokens=max_tokens)
+        result = await self.generate(system_prompt, user_prompt, max_tokens=max_tokens, model=model)
         if result:
             return result
         # Локализованное сообщение об ошибке из единого модуля
         return lp.get('error_generation', "Failed to generate content.")
 
-    async def generate_practice_intro(self, topic: dict, intern: dict) -> dict:
+    async def generate_practice_intro(self, topic: dict, intern: dict, model=None) -> dict:
         """Генерирует полное описание практического задания на языке пользователя
 
         Args:
@@ -571,7 +571,7 @@ Examples:
 
 Translate and adapt everything to the target language."""
 
-        result = await self.generate(system_prompt, user_prompt)
+        result = await self.generate(system_prompt, user_prompt, model=model)
 
         if not result:
             # Fallback: возвращаем оригинал на русском

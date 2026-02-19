@@ -346,7 +346,19 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 При добавлении новой константы в `config/settings.py` — **ОБЯЗАТЕЛЬНО** добавить её в оба места в `config/__init__.py`: блок `from .settings import (...)` И список `__all__`. Без этого — `ImportError` crash loop на деплое (IDE не ловит, потому что `from config.settings import X` работает, а `from config import X` — нет).
 
-### 10.18. PostgreSQL Views: DROP + CREATE, не REPLACE
+### 10.18. Scheduler Log Noise — подавлен
+
+apscheduler INFO-логи (`Running job`, `executed successfully`) подавлены до WARNING в `bot.py`. FSM `get_state`/`set_state` переведены на DEBUG. Для отладки scheduler — временно вернуть INFO.
+
+### 10.19. Look-Ahead Pre-Gen
+
+После доставки урока/практики `_pregen_next_topic_bg()` генерирует следующую тему в фоне (`asyncio.create_task`, fire-and-forget). Покрывает случай: пользователь пришёл до scheduled delivery.
+
+### 10.20. Haiku On-The-Fly Fallback
+
+При cache miss lesson.py и task.py используют `model=CLAUDE_MODEL_HAIKU` (3-5s вместо 15-19s Sonnet). Pre-gen scheduler и look-ahead всегда Sonnet (default). Worst case latency <5s.
+
+### 10.21. PostgreSQL Views: DROP + CREATE, не REPLACE
 
 `CREATE OR REPLACE VIEW` **запрещён**. PostgreSQL не позволяет менять порядок или имена колонок через REPLACE — бот падает в crash loop при старте. Всегда: `DROP VIEW IF EXISTS` + `CREATE VIEW`. View stateless — данные не теряются.
 

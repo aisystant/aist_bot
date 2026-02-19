@@ -8,6 +8,7 @@
   - marathon_complete → common.mode_select (марафон завершён)
 """
 
+import asyncio
 from typing import Optional
 
 from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
@@ -18,6 +19,7 @@ from db.queries import update_intern, save_answer, moscow_today
 from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
+from config import CLAUDE_MODEL_HAIKU
 from clients import claude
 from config import get_logger, DAILY_TOPICS_LIMIT
 
@@ -130,9 +132,11 @@ class MarathonTaskState(BaseState):
             try:
                 intern = self._user_to_intern_dict(user)
                 logger.info(f"Generating practice on-the-fly for topic {topic_index}, user {chat_id}, lang {lang}")
+                # Rule 10.20: Haiku for on-the-fly (3-5s vs 14s Sonnet)
                 practice_data = await claude.generate_practice_intro(
                     topic=topic,
-                    intern=intern
+                    intern=intern,
+                    model=CLAUDE_MODEL_HAIKU,
                 )
                 # Сохраняем в БД для повторного использования
                 await save_marathon_content(chat_id, topic_index, practice_content=practice_data)
@@ -206,6 +210,12 @@ class MarathonTaskState(BaseState):
             logger.warning(f"Markdown parse failed for task (user {chat_id}), sending without formatting")
             await self.send(user, message, reply_markup=keyboard)
         logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
+
+        # Rule 10.19: Look-ahead — pre-gen next topic in background
+        intern_dict = self._user_to_intern_dict(user)
+        asyncio.create_task(
+            _pregen_next_topic_bg(chat_id, intern_dict, topic_index)
+        )
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
@@ -300,3 +310,12 @@ class MarathonTaskState(BaseState):
             "day_completed": True,
             "topics_completed": len(self._get_completed_topics(user))
         }
+
+
+async def _pregen_next_topic_bg(chat_id: int, intern: dict, current_topic_index: int):
+    """Background task: look-ahead pre-gen для следующей темы (Rule 10.19)."""
+    try:
+        from core.scheduler import pregen_next_for_user
+        await pregen_next_for_user(chat_id, intern, current_topic_index)
+    except Exception as e:
+        logger.warning(f"[LookAhead] Background pre-gen failed for {chat_id}: {e}")

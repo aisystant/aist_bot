@@ -46,7 +46,7 @@ class PostgresStorage(BaseStorage):
             state_str = state
         else:
             state_str = state.state
-        logger.info(f"[FSM] set_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={state_str}")
+        logger.debug(f"[FSM] set_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={state_str}")
 
         async def _do():
             async with (await get_pool()).acquire() as conn:
@@ -66,7 +66,7 @@ class PostgresStorage(BaseStorage):
                     'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
                 )
                 result = row['state'] if row else None
-                logger.info(f"[FSM] get_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={result}")
+                logger.debug(f"[FSM] get_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={result}")
                 return result
 
         return await _retry_db(_do, f"get_state(chat_id={key.chat_id})")
