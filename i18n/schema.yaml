@@ -4083,6 +4083,9 @@ twin:
   btn_disconnect:
     ru: "Отключить"
     en: "Disconnect"
+  reconnect_needed:
+    ru: "Сессия ЦД истекла после обновления бота. Переподключитесь: /twin"
+    en: "DT session expired after bot update. Reconnect: /twin"
   not_connected_alert:
     ru: "Digital Twin не подключён"
     en: "Digital Twin not connected"
