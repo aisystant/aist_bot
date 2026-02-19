@@ -19,10 +19,13 @@ import aiohttp
 from config import (
     get_logger,
     ANTHROPIC_API_KEY,
+    CLAUDE_MODEL_SONNET,
+    CLAUDE_MODEL_HAIKU,
     STUDY_DURATIONS,
     BLOOM_LEVELS,
     COMPLEXITY_LEVELS,
     ONTOLOGY_RULES,
+    TELEGRAM_MARKDOWN_RULES,
 )
 from core.helpers import (
     get_personalization_prompt,
@@ -51,7 +54,7 @@ class ClaudeClient:
     """
 
     # Ограничение concurrent запросов к Claude API
-    _semaphore = asyncio.Semaphore(10)
+    _semaphore = asyncio.Semaphore(20)
     _session: Optional[aiohttp.ClientSession] = None
 
     def __init__(self):
@@ -79,11 +82,15 @@ class ClaudeClient:
             cls._session = None
 
     async def _api_call(self, payload: dict, timeout: float = 45) -> Optional[dict]:
-        """Единый метод API-вызова с retry (1 попытка) и exponential backoff."""
+        """Non-streaming API call (used by generate_with_tools).
+
+        For text generation prefer _api_call_streaming() which uses
+        inactivity timeout instead of total timeout.
+        """
         session = await self.get_session()
         headers = {"x-api-key": self.api_key}
 
-        for attempt in range(2):  # max 2 попытки (1 основная + 1 retry)
+        for attempt in range(2):
             try:
                 async with session.post(
                     self.base_url,
@@ -94,7 +101,6 @@ class ClaudeClient:
                     if resp.status == 200:
                         return await resp.json()
                     elif resp.status == 429:
-                        # Rate limit — backoff и retry
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
                         if attempt == 0:
@@ -102,7 +108,6 @@ class ClaudeClient:
                             continue
                         return None
                     elif resp.status == 529:
-                        # Overloaded — backoff и retry
                         logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
@@ -126,32 +131,122 @@ class ClaudeClient:
                 return None
         return None
 
-    async def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 4000) -> Optional[str]:
-        """Базовый метод генерации текста через Claude API
+    async def _api_call_streaming(self, payload: dict, inactivity_timeout: float = 15) -> Optional[str]:
+        """Streaming API call with inactivity timeout.
+
+        Uses SSE streaming — fails only when no data arrives for
+        inactivity_timeout seconds (instead of a fixed total timeout
+        that breaks on long outputs).
+        """
+        session = await self.get_session()
+        headers = {"x-api-key": self.api_key}
+        payload = {**payload, "stream": True}
+
+        for attempt in range(2):
+            try:
+                async with session.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(
+                        total=300,  # safety cap
+                        sock_connect=10,
+                        sock_read=inactivity_timeout,
+                    ),
+                ) as resp:
+                    if resp.status == 200:
+                        text_parts = []
+                        while True:
+                            line = await resp.content.readline()
+                            if not line:
+                                break
+                            decoded = line.decode('utf-8').strip()
+                            if not decoded.startswith('data: '):
+                                continue
+                            data_str = decoded[6:]
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                event = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            if event.get('type') == 'content_block_delta':
+                                delta = event.get('delta', {})
+                                if delta.get('type') == 'text_delta':
+                                    text_parts.append(delta['text'])
+                        return ''.join(text_parts) if text_parts else None
+                    elif resp.status == 429:
+                        retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
+                        if attempt == 0:
+                            await asyncio.sleep(retry_after)
+                            continue
+                        return None
+                    elif resp.status == 529:
+                        logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
+                    else:
+                        error = await resp.text()
+                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        return None
+            except asyncio.TimeoutError:
+                logger.warning(f"Claude API inactivity timeout ({inactivity_timeout}s), attempt {attempt + 1}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                return None
+            except aiohttp.ClientError as e:
+                logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                return None
+        return None
+
+    async def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 4000,
+        model: str = None,
+    ) -> Optional[str]:
+        """Базовый метод генерации текста через Claude API (streaming).
+
+        Uses streaming with inactivity timeout — no more total timeout
+        failures on long outputs. Inactivity timeout scales with max_tokens.
 
         Args:
             system_prompt: системный промпт
             user_prompt: пользовательский промпт
             max_tokens: максимальное количество токенов ответа
+            model: модель Claude (default: CLAUDE_MODEL_SONNET)
 
         Returns:
             Сгенерированный текст или None при ошибке
         """
         from core.tracing import span
 
+        model = model or CLAUDE_MODEL_SONNET
+
+        # Adaptive inactivity timeout: larger outputs → more patience per chunk
+        # ~200 tok/s streaming speed, 15s minimum, scales gently with output size
+        inactivity_timeout = max(15, max_tokens / 200)
+
         async with span("claude.api", max_tokens=max_tokens):
             async with self._semaphore:
                 payload = {
-                    "model": "claude-sonnet-4-20250514",
+                    "model": model,
                     "max_tokens": max_tokens,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": user_prompt}]
                 }
 
-                data = await self._api_call(payload)
-                if data:
-                    return data["content"][0]["text"]
-                return None
+                return await self._api_call_streaming(
+                    payload, inactivity_timeout=inactivity_timeout
+                )
 
     async def generate_with_tools(
         self,
@@ -161,6 +256,7 @@ class ClaudeClient:
         tool_executor: Callable[[str, Dict[str, Any]], Awaitable[str]],
         max_tokens: int = 4000,
         max_tool_rounds: int = 5,
+        model: str = None,
     ) -> Optional[str]:
         """Генерация с поддержкой tool_use (Claude решает когда вызывать tools).
 
@@ -180,13 +276,15 @@ class ClaudeClient:
         """
         from core.tracing import span
 
+        model = model or CLAUDE_MODEL_SONNET
+
         async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
 
             for round_num in range(max_tool_rounds):
                 async with self._semaphore:
                     payload = {
-                        "model": "claude-sonnet-4-20250514",
+                        "model": model,
                         "max_tokens": max_tokens,
                         "system": system_prompt,
                         "messages": conversation,
@@ -266,8 +364,10 @@ class ClaudeClient:
         Returns:
             Сгенерированный контент или сообщение об ошибке
         """
-        duration = STUDY_DURATIONS.get(str(intern['study_duration']), {"words": 1500})
-        words = duration.get('words', 1500)
+        from config import calc_words, BLOOM_INSTRUCTION
+        study_dur = intern.get('study_duration', 15)
+        bloom = intern.get('complexity_level', 1) or 1
+        words = calc_words(study_dur, bloom)
 
         # Пробуем загрузить метаданные темы для точных поисковых запросов
         topic_id = topic.get('id', '')
@@ -360,6 +460,7 @@ class ClaudeClient:
         elif mcp_context:
             context_instruction = lp['use_context']
 
+        bloom_instr = BLOOM_INSTRUCTION.get(min(bloom, 3), BLOOM_INSTRUCTION[1])
         system_prompt = f"""Ты — персональный наставник по системному мышлению и личному развитию.
 {get_personalization_prompt(intern)}
 
@@ -368,6 +469,8 @@ class ClaudeClient:
 {lp['create_text']}
 {lp['engaging']}
 
+СТИЛЬ ИЗЛОЖЕНИЯ: {bloom_instr}
+
 {lp['forbidden_header']}
 {lp['forbidden_questions']}
 {lp['forbidden_headers']}
@@ -375,7 +478,9 @@ class ClaudeClient:
 {lp['question_later']}
 {context_instruction}
 
-{ONTOLOGY_RULES}"""
+{ONTOLOGY_RULES}
+
+{TELEGRAM_MARKDOWN_RULES}"""
 
         pain_point = topic.get('pain_point', '')
         key_insight = topic.get('key_insight', '')
@@ -396,7 +501,11 @@ class ClaudeClient:
 {lp['start_with']}
 {lp['use_context'] if mcp_context else ""}"""""
 
-        result = await self.generate(system_prompt, user_prompt)
+        # Adaptive max_tokens: scale with study_duration words
+        # 500w → 750tok, 1000w → 1500tok, 2500w → 3750tok
+        max_tokens = min(int(words * 1.5), 4096)
+
+        result = await self.generate(system_prompt, user_prompt, max_tokens=max_tokens)
         if result:
             return result
         # Локализованное сообщение об ошибке из единого модуля
@@ -412,8 +521,18 @@ class ClaudeClient:
         Returns:
             Dict с ключами: intro, task, work_product, examples (все на языке пользователя)
         """
+        from db.queries.cache import cache_get, cache_set
+
         # Получаем локализованные промпты из единого модуля
         lang = intern.get('language', 'ru')
+        topic_id = topic.get('id', '')
+
+        # Проверяем кеш (practice не зависит от пользователя, только от языка)
+        cache_key = f"practice:{topic_id}:{lang}" if topic_id else None
+        if cache_key:
+            cached = await cache_get(cache_key)
+            if cached:
+                return self._parse_practice_response(cached, topic)
         lp = get_practice_prompts(lang)
 
         task_ru = topic.get('task', '')
@@ -437,7 +556,9 @@ TASK: (переведённое задание)
 WORK_PRODUCT: (рабочий продукт)
 EXAMPLES: (примеры, каждый с новой строки начиная с •)
 
-{ONTOLOGY_RULES}"""
+{ONTOLOGY_RULES}
+
+{TELEGRAM_MARKDOWN_RULES}"""
 
         user_prompt = f"""{lp['task_header']}: {topic.get('title')}
 Concept: {topic.get('main_concept')}
@@ -460,6 +581,10 @@ Translate and adapt everything to the target language."""
                 'work_product': work_product_ru,
                 'examples': wp_examples_text
             }
+
+        # Сохраняем в кеш
+        if cache_key:
+            await cache_set(cache_key, 'practice', result)
 
         # Парсим ответ
         parsed = {
@@ -508,6 +633,38 @@ Translate and adapt everything to the target language."""
 
         return parsed
 
+    @staticmethod
+    def _parse_practice_response(raw: str, topic: dict) -> dict:
+        """Парсим INTRO/TASK/WORK_PRODUCT/EXAMPLES из сырого ответа Claude."""
+        parsed = {
+            'intro': '',
+            'task': topic.get('task', ''),
+            'work_product': topic.get('work_product', ''),
+            'examples': "\n".join(f"• {ex}" for ex in (topic.get('wp_examples', []) or []))
+        }
+        try:
+            lines = raw.split('\n')
+            current_key = None
+            current_value = []
+            for line in lines:
+                for prefix, key in [('INTRO:', 'intro'), ('TASK:', 'task'),
+                                     ('WORK_PRODUCT:', 'work_product'), ('EXAMPLES:', 'examples')]:
+                    if line.startswith(prefix):
+                        if current_key and current_value:
+                            parsed[current_key] = '\n'.join(current_value).strip()
+                        current_key = key
+                        current_value = [line[len(prefix):].strip()]
+                        break
+                else:
+                    if current_key:
+                        current_value.append(line)
+            if current_key and current_value:
+                parsed[current_key] = '\n'.join(current_value).strip()
+        except Exception as e:
+            logger.warning(f"Error parsing practice intro: {e}")
+            parsed['intro'] = raw
+        return parsed
+
     async def generate_question(self, topic: dict, intern: dict, bloom_level: int = None) -> str:
         """Генерирует вопрос по теме с учётом уровня сложности и метаданных темы
 
@@ -525,6 +682,8 @@ Translate and adapt everything to the target language."""
         Returns:
             Сгенерированный вопрос
         """
+        from db.queries.cache import cache_get, cache_set
+
         # Получаем язык пользователя
         lang = intern.get('language', 'ru')
 
@@ -536,8 +695,15 @@ Translate and adapt everything to the target language."""
         occupation = intern.get('occupation', '') or 'работа'
         study_duration = intern.get('study_duration', 15)
 
-        # Пробуем загрузить метаданные темы
+        # Проверяем кеш (question зависит от bloom level + occupation + language)
         topic_id = topic.get('id', '')
+        cache_key = f"question:{topic_id}:{level}:{lang}:{occupation}" if topic_id else None
+        if cache_key:
+            cached = await cache_get(cache_key)
+            if cached:
+                return cached
+
+        # Пробуем загрузить метаданные темы
         metadata = load_topic_metadata(topic_id) if topic_id else None
 
         # Получаем настройки вопросов из метаданных
@@ -578,7 +744,9 @@ Translate and adapt everything to the target language."""
 {question_type_hint}
 {templates_hint}
 
-{ONTOLOGY_RULES}"""
+{ONTOLOGY_RULES}
+
+{TELEGRAM_MARKDOWN_RULES}"""
 
         user_prompt = f"""{qp['topic']}: {topic_title}
 {qp['concept']}: {topic.get('main_concept', '')}
@@ -586,6 +754,8 @@ Translate and adapt everything to the target language."""
 {qp['output_only_question']}"""
 
         result = await self.generate(system_prompt, user_prompt)
+        if result and cache_key:
+            await cache_set(cache_key, 'question', result)
         return result or qp['error_generation']
 
 

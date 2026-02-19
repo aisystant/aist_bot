@@ -1,8 +1,10 @@
 """
 Стейт: Мои данные (/mydata).
 
-Показывает пользователю все его данные из БД (категоризированно)
-и объясняет почему данные такие через Claude L2.
+Персональный дата-центр пользователя: метрики, прозрачность алгоритмов,
+приватность, управление данными, тир-прогрессия.
+
+Ref: DP.D.028 (User Data Tiers), DP.ARCH.002 (Service Tiers).
 
 Вход: по команде /mydata или через меню
 Выход: _previous
@@ -19,27 +21,31 @@ from i18n import t
 
 logger = logging.getLogger(__name__)
 
-# Категории данных: ключ → поля из user_knowledge_profile VIEW
-CATEGORIES = {
-    'profile': [
-        'name', 'occupation', 'role', 'domain',
-        'interests', 'goals', 'motivation', 'language', 'experience_level',
-    ],
+# ─── Tier detection helpers ────────────────────────────────────────────────
+
+TIER_NAMES = {
+    'ru': {1: 'T1 — Старт', 2: 'T2 — Обучение', 3: 'T3 — Персонализация', 4: 'T4 — Создание'},
+    'en': {1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation'},
+}
+
+TIER_EMOJI = {1: '🟢', 2: '📘', 3: '🧬', 4: '🚀'}
+
+# ─── Categories by tier ────────────────────────────────────────────────────
+
+CATEGORIES_T1 = {
+    'profile': ['name', 'occupation', 'language', 'experience_level', 'mode'],
+    'activity': ['active_days_total', 'active_days_streak', 'longest_streak', 'last_active_date'],
+    'marathon': ['theory_answers_count', 'work_products_count', 'qa_count'],
+}
+
+CATEGORIES_T2_EXTRA = {
+    'profile': ['role', 'domain', 'interests', 'goals', 'motivation', 'study_duration', 'schedule_time'],
     'learning': [
-        'mode', 'marathon_status', 'feed_status',
-        'current_topic_index', 'complexity_level',
-        'assessment_state', 'assessment_date',
+        'marathon_status', 'feed_status', 'current_topic_index',
+        'complexity_level', 'assessment_state', 'assessment_date',
     ],
-    'activity': [
-        'active_days_total', 'active_days_streak', 'longest_streak',
-        'last_active_date',
-    ],
-    'marathon': [
-        'theory_answers_count', 'work_products_count', 'qa_count',
-    ],
-    'feed': [
-        'total_digests', 'total_fixations', 'current_feed_topics',
-    ],
+    'feed': ['total_digests', 'total_fixations', 'current_feed_topics'],
+    'consultations': ['qa_count'],
 }
 
 # Человекочитаемые названия полей
@@ -48,133 +54,61 @@ FIELD_LABELS = {
         'name': 'Имя', 'occupation': 'Профессия', 'role': 'Роль',
         'domain': 'Домен', 'interests': 'Интересы', 'goals': 'Цели',
         'motivation': 'Мотивация', 'language': 'Язык',
-        'experience_level': 'Уровень опыта',
-        'mode': 'Режим', 'marathon_status': 'Статус марафона',
-        'feed_status': 'Статус ленты',
+        'experience_level': 'Уровень опыта', 'mode': 'Режим',
+        'study_duration': 'Время занятий', 'schedule_time': 'Расписание',
+        'marathon_status': 'Статус марафона', 'feed_status': 'Статус ленты',
         'current_topic_index': 'Текущая тема (индекс)',
         'complexity_level': 'Уровень сложности',
-        'assessment_state': 'Результат теста',
-        'assessment_date': 'Дата теста',
+        'assessment_state': 'Результат теста', 'assessment_date': 'Дата теста',
         'active_days_total': 'Всего активных дней',
-        'active_days_streak': 'Текущая серия',
-        'longest_streak': 'Максимальная серия',
+        'active_days_streak': 'Текущая серия', 'longest_streak': 'Макс. серия',
         'last_active_date': 'Последняя активность',
         'theory_answers_count': 'Ответов на теорию',
-        'work_products_count': 'Рабочих продуктов',
-        'qa_count': 'Вопросов консультанту',
-        'total_digests': 'Дайджестов',
-        'total_fixations': 'Фиксаций',
+        'work_products_count': 'Рабочих продуктов', 'qa_count': 'Вопросов консультанту',
+        'total_digests': 'Дайджестов', 'total_fixations': 'Фиксаций',
         'current_feed_topics': 'Текущие темы',
     },
     'en': {
         'name': 'Name', 'occupation': 'Occupation', 'role': 'Role',
         'domain': 'Domain', 'interests': 'Interests', 'goals': 'Goals',
         'motivation': 'Motivation', 'language': 'Language',
-        'experience_level': 'Experience level',
-        'mode': 'Mode', 'marathon_status': 'Marathon status',
-        'feed_status': 'Feed status',
+        'experience_level': 'Experience level', 'mode': 'Mode',
+        'study_duration': 'Study duration', 'schedule_time': 'Schedule',
+        'marathon_status': 'Marathon status', 'feed_status': 'Feed status',
         'current_topic_index': 'Current topic (index)',
         'complexity_level': 'Complexity level',
-        'assessment_state': 'Assessment result',
-        'assessment_date': 'Assessment date',
+        'assessment_state': 'Assessment result', 'assessment_date': 'Assessment date',
         'active_days_total': 'Total active days',
-        'active_days_streak': 'Current streak',
-        'longest_streak': 'Longest streak',
+        'active_days_streak': 'Current streak', 'longest_streak': 'Longest streak',
         'last_active_date': 'Last active date',
         'theory_answers_count': 'Theory answers',
-        'work_products_count': 'Work products',
-        'qa_count': 'Consultant questions',
-        'total_digests': 'Digests',
-        'total_fixations': 'Fixations',
+        'work_products_count': 'Work products', 'qa_count': 'Consultant questions',
+        'total_digests': 'Digests', 'total_fixations': 'Fixations',
         'current_feed_topics': 'Current topics',
-    },
-    'es': {
-        'name': 'Nombre', 'occupation': 'Profesión', 'role': 'Rol',
-        'domain': 'Dominio', 'interests': 'Intereses', 'goals': 'Objetivos',
-        'motivation': 'Motivación', 'language': 'Idioma',
-        'experience_level': 'Nivel de experiencia',
-        'mode': 'Modo', 'marathon_status': 'Estado del maratón',
-        'feed_status': 'Estado del feed',
-        'current_topic_index': 'Tema actual (índice)',
-        'complexity_level': 'Nivel de complejidad',
-        'assessment_state': 'Resultado del test',
-        'assessment_date': 'Fecha del test',
-        'active_days_total': 'Días activos totales',
-        'active_days_streak': 'Racha actual',
-        'longest_streak': 'Racha más larga',
-        'last_active_date': 'Última actividad',
-        'theory_answers_count': 'Respuestas de teoría',
-        'work_products_count': 'Productos de trabajo',
-        'qa_count': 'Preguntas al consultor',
-        'total_digests': 'Resúmenes',
-        'total_fixations': 'Fijaciones',
-        'current_feed_topics': 'Temas actuales',
-    },
-    'fr': {
-        'name': 'Nom', 'occupation': 'Profession', 'role': 'Rôle',
-        'domain': 'Domaine', 'interests': 'Intérêts', 'goals': 'Objectifs',
-        'motivation': 'Motivation', 'language': 'Langue',
-        'experience_level': "Niveau d'expérience",
-        'mode': 'Mode', 'marathon_status': 'Statut du marathon',
-        'feed_status': 'Statut du feed',
-        'current_topic_index': 'Sujet actuel (index)',
-        'complexity_level': 'Niveau de complexité',
-        'assessment_state': 'Résultat du test',
-        'assessment_date': 'Date du test',
-        'active_days_total': 'Jours actifs totaux',
-        'active_days_streak': 'Série actuelle',
-        'longest_streak': 'Plus longue série',
-        'last_active_date': 'Dernière activité',
-        'theory_answers_count': 'Réponses théoriques',
-        'work_products_count': 'Produits de travail',
-        'qa_count': 'Questions au consultant',
-        'total_digests': 'Résumés',
-        'total_fixations': 'Fixations',
-        'current_feed_topics': 'Sujets actuels',
-    },
-    'zh': {
-        'name': '姓名', 'occupation': '职业', 'role': '角色',
-        'domain': '领域', 'interests': '兴趣', 'goals': '目标',
-        'motivation': '动机', 'language': '语言',
-        'experience_level': '经验水平',
-        'mode': '模式', 'marathon_status': '马拉松状态',
-        'feed_status': '信息流状态',
-        'current_topic_index': '当前主题（索引）',
-        'complexity_level': '难度级别',
-        'assessment_state': '测试结果',
-        'assessment_date': '测试日期',
-        'active_days_total': '总活跃天数',
-        'active_days_streak': '当前连续天数',
-        'longest_streak': '最长连续天数',
-        'last_active_date': '最后活跃日期',
-        'theory_answers_count': '理论回答数',
-        'work_products_count': '工作成果数',
-        'qa_count': '咨询问题数',
-        'total_digests': '摘要数',
-        'total_fixations': '固定数',
-        'current_feed_topics': '当前主题',
     },
 }
 
 
 class MyDataState(BaseState):
     """
-    Стейт просмотра и объяснения данных пользователя.
+    Персональный дата-центр пользователя.
 
-    enter() → сводка по категориям
-    handle_callback("mydata_cat_*") → детали категории
-    handle_callback("mydata_why_*") → Claude объясняет данные
+    Хаб → 5 секций:
+      📊 Мои метрики — данные по категориям (tier-aware)
+      🎯 Как это работает — прозрачность алгоритмов
+      🔒 Приватность — протокол хранения
+      🗑 Управление данными — удаление
+      🏆 Мой уровень — тир-прогрессия
     """
 
     name = "utility.mydata"
     display_name = {
-        "ru": "Мои данные",
-        "en": "My Data",
-        "es": "Mis datos",
-        "fr": "Mes données",
-        "zh": "我的数据"
+        "ru": "Мои данные", "en": "My Data",
+        "es": "Mis datos", "fr": "Mes données", "zh": "我的数据",
     }
     allow_global = ["consultation", "notes"]
+
+    # ─── Helpers ────────────────────────────────────────────────────────
 
     def _get_lang(self, user) -> str:
         if isinstance(user, dict):
@@ -192,14 +126,20 @@ class MyDataState(BaseState):
         return getattr(user, 'name', '') or ''
 
     def _field_label(self, field: str, lang: str) -> str:
-        """Человекочитаемое название поля."""
         labels = FIELD_LABELS.get(lang, FIELD_LABELS['en'])
         return labels.get(field, field)
 
     def _format_value(self, value) -> str:
-        """Форматировать значение для отображения."""
         if value is None:
             return "—"
+        # JSON arrays stored as TEXT (e.g. interests)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return ", ".join(str(v) for v in parsed) if parsed else "—"
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
         if isinstance(value, list):
             return ", ".join(str(v) for v in value) if value else "—"
         if hasattr(value, 'strftime'):
@@ -210,24 +150,233 @@ class MyDataState(BaseState):
         from db.queries.profile import get_knowledge_profile
         return await get_knowledge_profile(chat_id)
 
+    async def _detect_tier(self, chat_id: int) -> int:
+        """Определить текущий тир пользователя: T1/T2/T3 (T4 не в боте).
+
+        Проверка:
+        1. T3: DT подключён (persistent DB flag + in-memory fallback)
+        2. T2: подписка или триал
+        3. T1: default
+        """
+        # T3: persistent check (survives redeploy)
+        try:
+            from db import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT dt_connected_at FROM interns WHERE chat_id = $1', chat_id,
+                )
+                if row and row['dt_connected_at'] is not None:
+                    return 3
+        except Exception:
+            pass
+
+        # T3: in-memory fallback (current session, before DB is updated)
+        try:
+            from clients.digital_twin import digital_twin
+            if digital_twin.is_connected(chat_id):
+                return 3
+        except Exception:
+            pass
+
+        # T2: подписка или триал
+        from core.access import access_layer
+        if await access_layer.has_access(chat_id, "consultation"):
+            return 2
+
+        return 1
+
+    def _get_categories_for_tier(self, tier: int) -> dict:
+        """Собрать категории данных для тира."""
+        categories = {}
+        # T1 — базовые
+        for cat, fields in CATEGORIES_T1.items():
+            categories[cat] = list(fields)
+        # T2+ — расширенные
+        if tier >= 2:
+            for cat, fields in CATEGORIES_T2_EXTRA.items():
+                if cat in categories:
+                    categories[cat].extend(fields)
+                else:
+                    categories[cat] = list(fields)
+        return categories
+
+    # ─── Entry: Hub ────────────────────────────────────────────────────
+
     async def enter(self, user, context: dict = None) -> None:
-        """Показать сводку данных по категориям."""
+        """Показать хаб дата-центра."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
+        tier = await self._detect_tier(chat_id)
+        tier_name = TIER_NAMES.get(lang, TIER_NAMES['en']).get(tier, f'T{tier}')
 
+        text = f"*{t('mydata.title', lang)}*\n"
+        text += f"{t('mydata.summary', lang)}\n\n"
+        text += f"{TIER_EMOJI[tier]} {t('mydata.your_tier', lang)}: *{tier_name}*\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"📊 {t('mydata.sec_metrics', lang)}",
+                callback_data="mydata_sec_metrics",
+            )],
+            [InlineKeyboardButton(
+                text=f"🎯 {t('mydata.sec_how', lang)}",
+                callback_data="mydata_sec_how",
+            )],
+            [InlineKeyboardButton(
+                text=f"🔒 {t('mydata.sec_privacy', lang)}",
+                callback_data="mydata_sec_privacy",
+            )],
+            [
+                InlineKeyboardButton(
+                    text=f"🏆 {t('mydata.sec_tiers', lang)}",
+                    callback_data="mydata_sec_tiers",
+                ),
+                InlineKeyboardButton(
+                    text=f"🗑 {t('mydata.sec_manage', lang)}",
+                    callback_data="mydata_sec_manage",
+                ),
+            ],
+            [InlineKeyboardButton(
+                text=t('buttons.back', lang),
+                callback_data="mydata_back",
+            )],
+        ])
+
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    # ─── Text input (for delete confirmation) ──────────────────────────
+
+    async def handle(self, user, message: Message) -> Optional[str]:
+        """Обработка текстового ввода — только для подтверждения удаления."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+
+        # Проверяем, ожидаем ли подтверждение удаления
+        context = await self._get_context(chat_id)
+        if not context or not context.get('awaiting_delete'):
+            return None
+
+        text = (message.text or '').strip()
+        expected_name = context.get('delete_confirm_name', '')
+        expected = f"{t('mydata.delete_keyword', lang)} {expected_name}"
+
+        if text == expected:
+            await self._execute_delete(user, chat_id, lang)
+            return "deleted"
+        else:
+            # Не совпало
+            await self.send(
+                user,
+                t('mydata.delete_mismatch', lang),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"← {t('mydata.back_to_hub', lang)}",
+                        callback_data="mydata_hub",
+                    )],
+                ]),
+            )
+            await self._clear_context(chat_id)
+            return None
+
+    # ─── Callback routing ──────────────────────────────────────────────
+
+    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
+        data = callback.data
+        await callback.answer()
+
+        if data == "mydata_back":
+            return "back"
+
+        if data == "mydata_hub":
+            await callback.message.delete()
+            await self.enter(user)
+            return None
+
+        # ── Sections ──
+        if data == "mydata_sec_metrics":
+            await self._show_metrics_hub(user, callback)
+            return None
+
+        if data == "mydata_sec_how":
+            await self._show_how_it_works(user, callback)
+            return None
+
+        if data == "mydata_sec_privacy":
+            await self._show_privacy(user, callback)
+            return None
+
+        if data == "mydata_privacy_details":
+            await self._show_privacy_details(user, callback)
+            return None
+
+        if data == "mydata_sec_tiers":
+            await self._show_tier_progression(user, callback)
+            return None
+
+        if data == "mydata_sec_manage":
+            await self._show_manage(user, callback)
+            return None
+
+        # ── Metrics categories ──
+        if data.startswith("mydata_cat_"):
+            category = data.replace("mydata_cat_", "")
+            await self._show_category(user, category, callback)
+            return None
+
+        # ── AI explanations (T2+) ──
+        if data.startswith("mydata_why_"):
+            category = data.replace("mydata_why_", "")
+            await self._explain_category(user, category, "why")
+            return None
+
+        if data.startswith("mydata_improve_"):
+            category = data.replace("mydata_improve_", "")
+            await self._explain_category(user, category, "improve")
+            return None
+
+        # ── Manage: delete actions ──
+        if data == "mydata_reset_stats":
+            await self._reset_stats(user)
+            return None
+
+        if data == "mydata_clear_qa":
+            await self._clear_qa(user)
+            return None
+
+        if data == "mydata_disconnect_github":
+            await self._disconnect_github(user)
+            return None
+
+        if data == "mydata_delete_all":
+            await self._start_delete_flow(user, callback)
+            return None
+
+        if data == "mydata_cancel_delete":
+            chat_id = self._get_chat_id(user)
+            await self._clear_context(chat_id)
+            await callback.message.delete()
+            await self.enter(user)
+            return None
+
+        return None
+
+    # ═══ Section: Metrics Hub ══════════════════════════════════════════
+
+    async def _show_metrics_hub(self, user, callback: CallbackQuery) -> None:
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        tier = await self._detect_tier(chat_id)
         profile = await self._get_profile(chat_id)
+
         if not profile:
             await self.send(user, t('mydata.no_data', lang))
             return
 
-        text = f"*{t('mydata.title', lang)}*\n{t('mydata.summary', lang)}\n\n"
+        text = f"*📊 {t('mydata.sec_metrics', lang)}*\n\n"
 
-        # Краткая сводка по категориям
+        # Краткая сводка
         text += f"👤 {t('mydata.cat_profile', lang)}: {profile.get('name', '—')}, {profile.get('occupation', '—')}\n"
-
-        mode = profile.get('mode', '—')
-        complexity = profile.get('complexity_level', 1)
-        text += f"📚 {t('mydata.cat_learning', lang)}: {mode}, {t('mydata.complexity', lang)} {complexity}\n"
 
         streak = profile.get('active_days_streak', 0)
         total = profile.get('active_days_total', 0)
@@ -237,153 +386,211 @@ class MyDataState(BaseState):
         theory = profile.get('theory_answers_count', 0)
         text += f"🏃 {t('mydata.cat_marathon', lang)}: {wp} {t('mydata.wp', lang)}, {theory} {t('mydata.answers', lang)}\n"
 
-        digests = profile.get('total_digests', 0)
-        fixations = profile.get('total_fixations', 0)
-        text += f"📖 {t('mydata.cat_feed', lang)}: {digests} {t('mydata.digests', lang)}, {fixations} {t('mydata.fixations', lang)}"
+        if tier >= 2:
+            digests = profile.get('total_digests', 0)
+            fixations = profile.get('total_fixations', 0)
+            text += f"📖 {t('mydata.cat_feed', lang)}: {digests} {t('mydata.digests', lang)}, {fixations} {t('mydata.fixations', lang)}\n"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            qa = profile.get('qa_count', 0)
+            text += f"💬 {t('mydata.cat_consultations', lang)}: {qa}\n"
+
+        # Кнопки категорий
+        buttons = [
             [
                 InlineKeyboardButton(text=f"👤 {t('mydata.cat_profile', lang)}", callback_data="mydata_cat_profile"),
-                InlineKeyboardButton(text=f"📚 {t('mydata.cat_learning', lang)}", callback_data="mydata_cat_learning"),
-            ],
-            [
                 InlineKeyboardButton(text=f"🔥 {t('mydata.cat_activity', lang)}", callback_data="mydata_cat_activity"),
-                InlineKeyboardButton(text=f"⚙️ {t('buttons.settings', lang)}", callback_data="mydata_settings"),
             ],
-            [
-                InlineKeyboardButton(text=f"← {t('buttons.back', lang)}", callback_data="mydata_back"),
-            ],
-        ])
+            [InlineKeyboardButton(text=f"🏃 {t('mydata.cat_marathon', lang)}", callback_data="mydata_cat_marathon")],
+        ]
 
-        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        if tier >= 2:
+            buttons[1].append(
+                InlineKeyboardButton(text=f"📖 {t('mydata.cat_feed', lang)}", callback_data="mydata_cat_feed")
+            )
+            buttons.append([
+                InlineKeyboardButton(text=f"📚 {t('mydata.cat_learning', lang)}", callback_data="mydata_cat_learning"),
+                InlineKeyboardButton(text=f"💬 {t('mydata.cat_consultations', lang)}", callback_data="mydata_cat_consultations"),
+            ])
 
-    async def handle(self, user, message: Message) -> Optional[str]:
-        """Текстовый ввод не обрабатывается."""
-        return None
+        buttons.append([InlineKeyboardButton(
+            text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+        )])
 
-    async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Обработка inline-кнопок."""
-        data = callback.data
-        await callback.answer()
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(
+                user, text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown",
+            )
 
-        if data == "mydata_back":
-            return "back"
+    # ═══ Section: Category detail ══════════════════════════════════════
 
-        if data == "mydata_settings":
-            return "settings"
-
-        if data == "mydata_overview":
-            await self.enter(user)
-            return None
-
-        # Категория: mydata_cat_<category>
-        if data.startswith("mydata_cat_"):
-            category = data.replace("mydata_cat_", "")
-            if category in CATEGORIES:
-                await self._show_category(user, category)
-            return None
-
-        # Почему: mydata_why_<category>
-        if data.startswith("mydata_why_"):
-            category = data.replace("mydata_why_", "")
-            if category in CATEGORIES:
-                await self._explain_category(user, category)
-            return None
-
-        return None
-
-    async def _show_category(self, user, category: str) -> None:
-        """Показать детали одной категории."""
+    async def _show_category(self, user, category: str, callback: CallbackQuery) -> None:
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
+        tier = await self._detect_tier(chat_id)
         profile = await self._get_profile(chat_id)
 
         if not profile:
             await self.send(user, t('mydata.no_data', lang))
             return
 
-        cat_label = t(f'mydata.cat_{category}', lang)
-        fields = CATEGORIES[category]
+        categories = self._get_categories_for_tier(tier)
+        fields = categories.get(category, [])
 
+        # DT fields for T3 profile
+        dt_data = None
+        if tier >= 3 and category == 'profile':
+            dt_data = await self._get_dt_profile(chat_id)
+
+        cat_label = t(f'mydata.cat_{category}', lang)
         text = f"*{cat_label}*\n\n"
+
         for field in fields:
             label = self._field_label(field, lang)
             value = self._format_value(profile.get(field))
             text += f"• {label}: {value}\n"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"❓ {t('mydata.why_button', lang)}",
-                callback_data=f"mydata_why_{category}",
-            )],
-            [InlineKeyboardButton(
-                text=f"← {t('mydata.back_to_overview', lang)}",
-                callback_data="mydata_overview",
-            )],
-        ])
+        # DT data for T3+
+        if dt_data:
+            text += f"\n*{t('mydata.dt_section', lang)}*\n"
+            for key, value in dt_data.items():
+                text += f"• {key}: {self._format_value(value)}\n"
 
-        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        # Buttons: Why + Improve (T2+) or just back
+        buttons = []
+        if tier >= 2:
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"❓ {t('mydata.why_button', lang)}",
+                    callback_data=f"mydata_why_{category}",
+                ),
+                InlineKeyboardButton(
+                    text=f"📈 {t('mydata.improve_button', lang)}",
+                    callback_data=f"mydata_improve_{category}",
+                ),
+            ])
+        buttons.append([InlineKeyboardButton(
+            text=f"← {t('mydata.back_to_metrics', lang)}",
+            callback_data="mydata_sec_metrics",
+        )])
 
-    async def _explain_category(self, user, category: str) -> None:
-        """Claude L2 объясняет почему данные такие."""
+        try:
+            await callback.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(
+                user, text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown",
+            )
+
+    async def _get_dt_profile(self, chat_id: int) -> Optional[dict]:
+        """Получить данные из ЦД для T3+."""
+        try:
+            from clients.digital_twin import digital_twin
+            if not digital_twin.is_connected(chat_id):
+                return None
+            profile = await digital_twin.get_user_profile(chat_id)
+            if not profile:
+                return None
+            # Извлечь ключевые поля
+            result = {}
+            if profile.get('degree'):
+                result['Degree'] = profile['degree']
+            if profile.get('stage'):
+                result['Stage'] = profile['stage']
+            indicators = profile.get('indicators', {})
+            pref = indicators.get('IND.1.PREF', {})
+            if pref.get('objective'):
+                result['Objective'] = pref['objective']
+            if pref.get('role_set'):
+                result['Roles'] = ', '.join(pref['role_set'])
+            if pref.get('weekly_time_budget'):
+                result['Time Budget'] = f"{pref['weekly_time_budget']}h/week"
+            return result  # {} = connected but empty profile
+        except Exception as e:
+            logger.warning(f"DT profile fetch failed: {e}")
+            return None
+
+    # ═══ Section: AI Explanation ════════════════════════════════════════
+
+    async def _explain_category(self, user, category: str, mode: str) -> None:
+        """Claude L2 объясняет 'почему' или 'как улучшить'."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
-        profile = await self._get_profile(chat_id)
+        tier = await self._detect_tier(chat_id)
 
+        # T2+ gate
+        if tier < 2:
+            from core.access import access_layer
+            text, keyboard = await access_layer.get_paywall("consultation", lang)
+            await self.send(user, text, reply_markup=keyboard)
+            return
+
+        profile = await self._get_profile(chat_id)
         if not profile:
             await self.send(user, t('mydata.no_data', lang))
             return
 
-        # Показать "Анализирую..."
         await self.send(user, f"⏳ {t('mydata.why_thinking', lang)}")
 
-        # Собрать данные категории
-        fields = CATEGORIES[category]
+        categories = self._get_categories_for_tier(tier)
+        fields = categories.get(category, [])
         cat_data = {f: self._format_value(profile.get(f)) for f in fields}
         cat_label = t(f'mydata.cat_{category}', lang)
 
         lang_instruction = {
             'ru': "Отвечай на русском. Будь дружелюбным и конкретным.",
             'en': "Answer in English. Be friendly and specific.",
-            'es': "Responde en español. Sé amigable y específico.",
-            'fr': "Réponds en français. Sois amical et précis.",
-            'zh': "请用中文回答。保持友好和具体。",
         }.get(lang, "Answer in English.")
 
+        if mode == "why":
+            task = f"""Объясни в 3-5 предложениях, откуда берутся эти данные.
+Свяжи числа с действиями пользователя.
+Если данные пустые — объясни, что нужно сделать чтобы они появились.
+НЕ придумывай данные, которых нет в контексте."""
+        else:  # improve
+            task = f"""Дай 3-4 конкретных совета, как улучшить эти показатели.
+Привяжи каждый совет к конкретному действию в боте (команда, кнопка).
+Если показатель уже хороший — похвали и предложи следующий уровень.
+НЕ давай общих советов типа 'занимайся больше'."""
+
         system_prompt = f"""Ты — AIST Bot, бот-наставник для систематического обучения.
-Пользователь смотрит свои данные в категории «{cat_label}» и хочет понять, ПОЧЕМУ они именно такие.
+Пользователь смотрит свои данные в категории «{cat_label}».
 
 {lang_instruction}
 
-ДАННЫЕ ПОЛЬЗОВАТЕЛЯ (категория «{cat_label}»):
+ДАННЫЕ ПОЛЬЗОВАТЕЛЯ:
 {json.dumps(cat_data, ensure_ascii=False, indent=2)}
 
-ПОЛНЫЙ КОНТЕКСТ (все категории):
-{json.dumps({f: self._format_value(profile.get(f)) for f in sum(CATEGORIES.values(), []) if profile.get(f) is not None}, ensure_ascii=False, indent=2)}
-
-ИНСТРУКЦИИ:
-1. Объясни в 3-5 предложениях, откуда берутся эти данные
-2. Свяжи числа с действиями пользователя (пример: «4 рабочих продукта = 3 дня марафона + 1 дополнительный РП за день 3»)
-3. Если данные пустые — объясни, что нужно сделать чтобы они появились
-4. НЕ придумывай данные, которых нет в контексте"""
+ЗАДАНИЕ:
+{task}"""
 
         from clients import claude
+        from config import CLAUDE_MODEL_HAIKU
         try:
             answer = await claude.generate(
                 system_prompt=system_prompt,
-                user_prompt=f"Объясни мои данные в категории «{cat_label}»",
+                user_prompt=f"{'Объясни' if mode == 'why' else 'Как улучшить'} мои данные в категории «{cat_label}»",
+                max_tokens=1000, model=CLAUDE_MODEL_HAIKU,
             )
         except Exception as e:
             logger.error(f"MyData explain error: {e}")
-            answer = None
-
-        if not answer:
-            answer = t('mydata.explain_error', lang) if t('mydata.explain_error', lang) != 'mydata.explain_error' else "—"
+            answer = t('mydata.explain_error', lang)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"← {t('mydata.back_to_overview', lang)}",
-                callback_data="mydata_overview",
+                text=f"← {t('mydata.back_to_metrics', lang)}",
+                callback_data="mydata_sec_metrics",
             )],
         ])
 
@@ -391,3 +598,391 @@ class MyDataState(BaseState):
             await self.send(user, answer, reply_markup=keyboard, parse_mode="Markdown")
         except Exception:
             await self.send(user, answer, reply_markup=keyboard)
+
+    # ═══ Section: How it works ═════════════════════════════════════════
+
+    async def _show_how_it_works(self, user, callback: CallbackQuery) -> None:
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        tier = await self._detect_tier(chat_id)
+        profile = await self._get_profile(chat_id)
+
+        text = f"*🎯 {t('mydata.sec_how', lang)}*\n\n"
+        text += t('mydata.how_intro', lang) + "\n\n"
+
+        # Показать что попадает в промпт Claude (конкретные данные пользователя)
+        text += f"*{t('mydata.how_prompt_title', lang)}*\n"
+
+        if profile:
+            text += f"1. 📋 {t('mydata.how_profile', lang)}:\n"
+            text += f"   → occupation: {profile.get('occupation', '—')}\n"
+            text += f"   → complexity: {profile.get('complexity_level', 1)}\n"
+
+            if tier >= 2:
+                interests = profile.get('interests')
+                if interests:
+                    # Parse JSON TEXT → list
+                    if isinstance(interests, str):
+                        try:
+                            interests = json.loads(interests)
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            pass
+                    if isinstance(interests, list):
+                        interests = ', '.join(str(i) for i in interests[:3])
+                    text += f"   → interests: {interests}\n"
+                goals = profile.get('goals', '')
+                if goals:
+                    text += f"   → goals: {str(goals)[:60]}\n"
+
+            if tier >= 3:
+                text += f"\n2. 🧬 {t('mydata.how_dt', lang)}:\n"
+                dt = await self._get_dt_profile(chat_id)
+                if dt is None:
+                    text += f"   → {t('mydata.dt_not_connected', lang)}\n"
+                elif dt:
+                    for k, v in dt.items():
+                        text += f"   → {k}: {v}\n"
+                else:
+                    text += f"   → {t('mydata.dt_empty_profile', lang)}\n"
+
+        text += f"\n*{t('mydata.how_not_sent', lang)}*\n"
+        text += t('mydata.how_not_sent_list', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+            )],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    # ═══ Section: Privacy ══════════════════════════════════════════════
+
+    async def _show_privacy(self, user, callback: CallbackQuery) -> None:
+        """Показать приватность: что собираем на ТЕКУЩЕМ тире + кнопка «Подробнее»."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        tier = await self._detect_tier(chat_id)
+        tier_name = TIER_NAMES.get(lang, TIER_NAMES['en']).get(tier, f'T{tier}')
+
+        text = f"*🔒 {t('mydata.sec_privacy', lang)}*\n\n"
+        text += t('mydata.privacy_your_tier', lang, tier=tier_name) + "\n"
+        text += t('mydata.privacy_t1', lang)
+
+        if tier >= 2:
+            text += t('mydata.privacy_t2_extra', lang)
+
+        if tier >= 3:
+            text += t('mydata.privacy_t3_extra', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"📋 {t('mydata.privacy_details_btn', lang)}",
+                callback_data="mydata_privacy_details",
+            )],
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+            )],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _show_privacy_details(self, user, callback: CallbackQuery) -> None:
+        """Полная политика приватности."""
+        lang = self._get_lang(user)
+        text = f"*🔒 {t('mydata.sec_privacy', lang)}*\n\n"
+        text += t('mydata.privacy_text', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_sec_privacy",
+            )],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    # ═══ Section: Tier Progression ═════════════════════════════════════
+
+    async def _show_tier_progression(self, user, callback: CallbackQuery) -> None:
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        current_tier = await self._detect_tier(chat_id)
+        tier_names = TIER_NAMES.get(lang, TIER_NAMES['en'])
+
+        text = f"*🏆 {t('mydata.sec_tiers', lang)}*\n\n"
+
+        tiers_info = {
+            'ru': {
+                1: ('Бесплатно. Марафон, базовый профиль.', 'Зарегистрироваться в боте'),
+                2: ('Подписка. Лента, консультации, заметки, планы.', 'Оформить подписку Telegram Stars'),
+                3: ('ЦД подключён. Персонализация, полный профиль.', 'Подключить Цифровой Двойник (/twin)'),
+                4: ('Локальный экзокортекс. Claude Code, агенты, личная база знаний.', 'Установить Claude Code + fork шаблона'),
+            },
+            'en': {
+                1: ('Free. Marathon, basic profile.', 'Register in the bot'),
+                2: ('Subscription. Feed, consultations, notes, plans.', 'Subscribe via Telegram Stars'),
+                3: ('DT connected. Personalization, full profile.', 'Connect Digital Twin (/twin)'),
+                4: ('Local exocortex. Claude Code, agents, personal knowledge base.', 'Install Claude Code + fork template'),
+            },
+        }
+
+        info = tiers_info.get(lang, tiers_info['en'])
+
+        for tier_num in range(1, 5):
+            emoji = TIER_EMOJI[tier_num]
+            name = tier_names[tier_num]
+            desc, how = info[tier_num]
+
+            if tier_num == current_tier:
+                text += f"→ *{emoji} {name}* ← {t('mydata.current_tier', lang)}\n"
+                text += f"  {desc}\n\n"
+            elif tier_num < current_tier:
+                text += f"✅ {emoji} {name}\n"
+                text += f"  {desc}\n\n"
+            else:
+                text += f"🔒 {emoji} {name}\n"
+                text += f"  {desc}\n"
+                text += f"  _{t('mydata.how_to_unlock', lang)}: {how}_\n\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+            )],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    # ═══ Section: Manage Data ══════════════════════════════════════════
+
+    async def _show_manage(self, user, callback: CallbackQuery) -> None:
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        text = f"*🗑 {t('mydata.sec_manage', lang)}*\n\n"
+        text += t('mydata.manage_intro', lang)
+
+        buttons = [
+            [InlineKeyboardButton(
+                text=t('mydata.btn_reset_stats', lang),
+                callback_data="mydata_reset_stats",
+            )],
+            [InlineKeyboardButton(
+                text=t('mydata.btn_clear_qa', lang),
+                callback_data="mydata_clear_qa",
+            )],
+        ]
+
+        # GitHub disconnect (if connected)
+        try:
+            from db.queries.github import get_github_connection
+            gh = await get_github_connection(chat_id)
+            if gh:
+                buttons.append([InlineKeyboardButton(
+                    text=t('mydata.btn_disconnect_github', lang),
+                    callback_data="mydata_disconnect_github",
+                )])
+        except Exception:
+            pass
+
+        buttons.append([InlineKeyboardButton(
+            text=f"⚠️ {t('mydata.btn_delete_all', lang)}",
+            callback_data="mydata_delete_all",
+        )])
+        buttons.append([InlineKeyboardButton(
+            text=f"← {t('mydata.back_to_hub', lang)}",
+            callback_data="mydata_hub",
+        )])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(
+                user, text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown",
+            )
+
+    # ─── Manage: individual actions ────────────────────────────────────
+
+    async def _reset_stats(self, user) -> None:
+        """Сбросить streak и active_days."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                '''UPDATE interns SET
+                    active_days_total = 0, active_days_streak = 0,
+                    longest_streak = 0, last_active_date = NULL
+                   WHERE chat_id = $1''',
+                chat_id,
+            )
+        await self.send(
+            user, f"✅ {t('mydata.stats_reset_done', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    async def _clear_qa(self, user) -> None:
+        """Очистить историю Q&A."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                'DELETE FROM qa_history WHERE chat_id = $1', chat_id,
+            )
+        count = int(result.split()[-1]) if result else 0
+        await self.send(
+            user, f"✅ {t('mydata.qa_cleared', lang)} ({count})",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    async def _disconnect_github(self, user) -> None:
+        """Отключить GitHub OAuth."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        from db.queries.github import delete_github_connection
+        await delete_github_connection(chat_id)
+        await self.send(
+            user, f"✅ {t('mydata.github_disconnected', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    # ─── Manage: Full delete flow ──────────────────────────────────────
+
+    async def _start_delete_flow(self, user, callback: CallbackQuery) -> None:
+        """Начать процедуру полного удаления данных."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        profile = await self._get_profile(chat_id)
+
+        name = (profile or {}).get('name', '')
+        if not name:
+            # Fallback: tg username или chat_id
+            tg_username = (profile or {}).get('tg_username', '')
+            name = tg_username if tg_username else str(chat_id)
+
+        keyword = t('mydata.delete_keyword', lang)
+        confirm_text = f"{keyword} {name}"
+
+        text = f"⚠️ *{t('mydata.delete_warning_title', lang)}*\n\n"
+        text += t('mydata.delete_warning_body', lang) + "\n\n"
+        text += f"_{t('mydata.delete_instruction', lang)}_:\n\n"
+        text += f"`{confirm_text}`"
+
+        # Сохраняем контекст ожидания подтверждения
+        await self._save_context(chat_id, {
+            'awaiting_delete': True,
+            'delete_confirm_name': name,
+        })
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.cancel_delete', lang)}",
+                callback_data="mydata_cancel_delete",
+            )],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _execute_delete(self, user, chat_id: int, lang: str) -> None:
+        """Выполнить каскадное удаление всех данных."""
+        from db.queries.profile import delete_all_user_data
+
+        # DT disconnect
+        try:
+            from clients.digital_twin import digital_twin
+            if digital_twin.is_connected(chat_id):
+                digital_twin.disconnect(chat_id)
+        except Exception:
+            pass
+
+        result = await delete_all_user_data(chat_id)
+        total = sum(result.values())
+
+        text = f"✅ *{t('mydata.delete_done_title', lang)}*\n\n"
+        text += t('mydata.delete_done_body', lang, count=total) + "\n"
+        text += t('mydata.delete_done_restart', lang)
+
+        await self.send(user, text, parse_mode="Markdown")
+
+    # ─── Context persistence (via fsm_states.data) ─────────────────────
+
+    async def _get_context(self, chat_id: int) -> Optional[dict]:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT data FROM fsm_states WHERE chat_id = $1', chat_id,
+            )
+            if row and row['data']:
+                try:
+                    data = json.loads(row['data'])
+                    return data.get('mydata_context')
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return None
+
+    async def _save_context(self, chat_id: int, ctx: dict) -> None:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT data FROM fsm_states WHERE chat_id = $1', chat_id,
+            )
+            data = {}
+            if row and row['data']:
+                try:
+                    data = json.loads(row['data'])
+                except (json.JSONDecodeError, TypeError):
+                    data = {}
+            data['mydata_context'] = ctx
+            await conn.execute(
+                'UPDATE fsm_states SET data = $1 WHERE chat_id = $2',
+                json.dumps(data), chat_id,
+            )
+
+    async def _clear_context(self, chat_id: int) -> None:
+        await self._save_context(chat_id, {})

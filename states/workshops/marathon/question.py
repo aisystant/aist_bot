@@ -14,7 +14,8 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer
-from db.queries.marathon import get_marathon_content
+from db.queries.answers import get_theory_count_at_level
+from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic
 from clients import claude
 from config import get_logger
@@ -132,6 +133,9 @@ class MarathonQuestionState(BaseState):
                     intern=intern,
                     bloom_level=bloom_level
                 )
+                # Сохраняем в БД для повторного использования
+                await save_marathon_content(chat_id, topic_index, question_content=question)
+                logger.info(f"Cached on-the-fly question for user {chat_id}, topic {topic_index}")
             except Exception as e:
                 logger.error(f"Error generating question for user {chat_id}: {e}")
                 await self.send(
@@ -156,7 +160,11 @@ class MarathonQuestionState(BaseState):
             one_time_keyboard=True
         )
 
-        await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
+        try:
+            await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception:
+            logger.warning(f"Markdown parse failed for question (user {chat_id}), sending without formatting")
+            await self.send(user, header + question + footer, reply_markup=keyboard)
         logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
 
     async def handle(self, user, message: Message) -> Optional[str]:
@@ -196,20 +204,22 @@ class MarathonQuestionState(BaseState):
 
         # Сохраняем ответ
         topic_index = self._get_current_topic_index(user)
+        bloom_level = self._get_bloom_level(user)
         if chat_id:
             await save_answer(
                 chat_id=chat_id,
                 topic_index=topic_index,
                 answer=text,
-                answer_type="theory_answer"
+                answer_type="theory_answer",
+                complexity_level=bloom_level
             )
 
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]
-        topics_at_bloom = self._get_topics_at_bloom(user) + 1
+        # SOTA.012: вычисляем из answers (Event Sourcing), не из мутируемого счётчика
+        topics_at_bloom = await get_theory_count_at_level(chat_id, bloom_level) if chat_id else 0
         # Сохраняем ИСХОДНЫЙ уровень для решения о бонусе
-        original_bloom_level = self._get_bloom_level(user)
-        bloom_level = original_bloom_level
+        original_bloom_level = bloom_level
 
         # Автоповышение уровня
         if topics_at_bloom >= BLOOM_AUTO_UPGRADE_AFTER and bloom_level < 3:
@@ -230,34 +240,41 @@ class MarathonQuestionState(BaseState):
                 topics_at_current_complexity=topics_at_bloom
             )
 
-        # Подтверждение
+        # Подтверждение + кнопка навигации (убираем reply keyboard)
         await self.send(user, f"✅ *{t('marathon.topic_completed', lang)}*", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
 
         # Решаем: бонус или сразу задание
         # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)
         # Уровень 1 → сразу задание, уровни 2-3 → предложить бонус
         if original_bloom_level >= 2:
-            return "correct"  # → bonus (автопереход)
+            # Кнопка «Далее → Бонус»
+            bonus_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"⭐ {t('buttons.next_bonus', lang)}",
+                    callback_data="marathon_next_bonus"
+                )]
+            ])
+            await self.send(user, "👇", reply_markup=bonus_keyboard)
+            return None  # ждём клик
         else:
-            # Показываем кнопку «Получить практику»
+            # Кнопка «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.get_practice', lang)}",
                     callback_data="marathon_get_practice"
                 )]
             ])
-            await self.send(
-                user,
-                f"✏️ {t('buttons.get_practice', lang)}",
-                reply_markup=practice_keyboard
-            )
+            await self.send(user, "👇", reply_markup=practice_keyboard)
             return None  # ждём клик
 
     async def handle_callback(self, user, callback) -> Optional[str]:
-        """Обработка inline-кнопки «Получить практику»."""
+        """Обработка inline-кнопок."""
         if callback.data == "marathon_get_practice":
             await callback.answer()
             return "correct_level_1"  # SM перейдёт в task
+        if callback.data == "marathon_next_bonus":
+            await callback.answer()
+            return "correct"  # SM перейдёт в bonus
         return None
 
     async def exit(self, user) -> dict:

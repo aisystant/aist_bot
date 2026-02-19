@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "bdc23ce67ac2b6ca78b720ba87c2c42213eabf6d42376b564f6a3182b3bd1661"
-  synced_at: "2026-02-17T04:59:30Z"
+  source_hash: "a56ab77bd0dbb120eb18b71c8e753262c47855a49194e4476ca033bac0b335a5"
+  synced_at: "2026-02-19T04:34:08Z"
   generator: "DS-synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -34,7 +34,7 @@ scenarios: |
   | 3 | Марафон | `/learn` (mode=marathon) | ✅ | 14-дневная программа: каждый день теория → вопрос на понимание → бонусный вопрос → практическое задание. Прогресс сохраняется | 14-day program: daily theory → comprehension question → bonus question → practical task. Progress is saved |
   | 4 | Лента | `/feed` | ✅ | Гибкий режим: выбираешь до 3 тем, получаешь ежедневные дайджесты с углублением | Flexible mode: choose up to 3 topics, receive daily digests with increasing depth |
   | 5 | Тест систематичности | `/test` (`/assessment`) | ✅ | Data-driven тест: 12 вопросов → состояние (Хаос/Тупик/Поворот) → адаптация контента Марафона и Ленты через DP.M.004 (стиль, bloom_level, тематика) | Data-driven assessment: 12 questions → state (Chaos/Deadlock/Turning Point) → content adaptation for Marathon and Feed via DP.M.004 (style, bloom_level, topics) |
-  | 6 | Консультация | `?вопрос` | ✅ | Задать вопрос консультанту из любого места в боте. Ответ на основе базы знаний и MCP | Ask the consultant a question from anywhere in the bot. Answer based on knowledge base and MCP |
+  | 6 | Консультация | `?вопрос` | ✅ | Задать вопрос консультанту из любого места в боте. Persistent session: после первого ответа можно задавать follow-up вопросы без «?». Claude получает историю диалога (до 5 пар). Выход: кнопка «Завершить» / таймаут 5 мин / глобальная команда. Ответ на основе базы знаний и MCP | Ask the consultant a question from anywhere in the bot. Persistent session: after the first answer you can ask follow-up questions without `?`. Claude receives conversation history (up to 5 pairs). Exit: "End session" button / 5 min timeout / global command. Answer based on knowledge base and MCP |
   | 7 | Заметки | `.текст` | ✅ | Три способа: `.текст` (прямая), `.` + reply, `.` + forward. Заметки сохраняются для анализа | Three ways: `.text` (direct), `.` + reply, `.` + forward. Notes are saved for analysis |
   | 8 | Прогресс | `/progress` | ✅ | Статистика обучения: пройденные темы, текущий день марафона, выполненные задания | Learning stats: completed topics, current marathon day, completed tasks |
   | 9 | Планы (Стратег) | `/rp`, `/plan`, `/report` | ✅ | Интеграция со Стратегом: список рабочих продуктов, план на неделю, отчёт | Strategist integration: work products list, weekly plan, report |
@@ -45,6 +45,8 @@ scenarios: |
   | 14 | Язык | `/language` | ✅ | Быстрая смена языка интерфейса (ru, en, es, fr) | Quick interface language change (ru, en, es, fr) |
   | 15 | Цифровой двойник | `/twin` | 🚧 | Подключение и синхронизация с персональным цифровым двойником. Настройки → Подключения → Цифровой двойник. При согласии 10 полей профиля переливаются в ЦД | Connect and sync with personal digital twin. Settings → Connections → Digital Twin. With consent, 10 profile fields transfer to DT |
   | 16 | Экспорт | `/export` | 📋 | Экспорт данных пользователя | Export user data |
+  | 17 | Аналитика (dev) | `/analytics` | ✅ | Сводная аналитика IWE: DAU/WAU/MAU, сессии, latency, retention D1/D7/D30, тренды. Только для разработчика | IWE summary analytics: DAU/WAU/MAU, sessions, latency, retention D1/D7/D30, trends. Dev-only |
+  | 18 | L1 Unstick | — (auto) | ✅ | Автоматическое восстановление застрявших пользователей: 3+ ошибки за 5 мин или stuck в state >60 мин → сброс FSM → mode_select + извинение. Scheduler каждые 5 мин | Automatic recovery of stuck users: 3+ errors in 5 min or stuck in state >60 min → FSM reset → mode_select + apology. Scheduler every 5 min |
 
 faq: |
   
@@ -56,7 +58,7 @@ faq: |
   | 4 | Как сменить язык? | How to change the language? | язык, language, english | Открой `/settings` и выбери нужный язык. Доступны: русский, английский, испанский, французский. | Open `/settings` and select the desired language. Available: Russian, English, Spanish, French. |
   | 5 | Как создать заметку? | How to create a note? | замет, note, запис | Три способа: 1) `.текст` — точка и текст. 2) Ответь на сообщение с точкой. 3) Перешли сообщение и добавь точку. | Three ways: 1) `.text` — dot and text. 2) Reply to a message with a dot. 3) Forward a message and add a dot. |
   | 6 | Как пройти тест? | How to take the test? | тест, оценк, assessment, уров, влия | Используй `/test` — 12 вопросов определят твоё состояние (Хаос, Тупик или Поворот). После теста бот адаптирует контент: стиль уроков, сложность вопросов и темы Ленты подстраиваются под твоё состояние. Повторный тест через 2-4 недели покажет прогресс. | Use `/test` — 12 questions identify your state (Chaos, Deadlock, or Turning Point). After the test, the bot adapts content: lesson style, question difficulty, and Feed topics adjust to your state. Retake after 2-4 weeks to see progress. |
-  | 7 | Как задать вопрос? | How to ask a question? | помощ, помог, help, вопрос | Начни сообщение с `?` и напиши вопрос. Например: `?Что такое системное мышление?` Консультант доступен из любого места. | Start with `?` and type your question. Example: `?What is systems thinking?` The consultant is available from anywhere. |
+  | 7 | Как задать вопрос? | How to ask a question? | помощ, помог, help, вопрос, сесси, session | Начни сообщение с `?` и напиши вопрос. Например: `?Что такое системное мышление?` После ответа ты останешься в режиме консультации — можно задавать уточняющие вопросы без `?`. Консультант помнит контекст (до 5 вопросов). Для выхода нажми «Завершить» или подожди 5 минут. | Start with `?` and type your question. Example: `?What is systems thinking?` After the answer you stay in consultation mode — you can ask follow-up questions without `?`. The consultant remembers context (up to 5 questions). To exit, tap "End session" or wait 5 minutes. |
   | 8 | Как работать с планами? | How to work with plans? | план, рп, plan, report | Используй `/rp` для списка рабочих продуктов, `/plan` для плана на неделю, `/report` для отчёта. Интегрировано со Стратегом. | Use `/rp` for work products, `/plan` for weekly plan, `/report` for a report. Integrated with the Strategist. |
   | 9 | Кто ты? | Who are you? | кто ты, кто вы, who are you, what are you | Я — AIST Bot, бот-наставник для систематического обучения. Помогаю изучать системное мышление через марафон (`/learn`) или ленту, веду заметки, отслеживаю прогресс. Начни с `/mode` для выбора режима. | I'm AIST Bot, a mentor bot for systematic learning. I help study systems thinking through marathon (`/learn`) or feed, keep notes, and track progress. Start with `/mode` to choose a mode. |
   | 10 | Что ты умеешь? | What can you do? | умеешь, можешь, умеет, capabilities, what can | Обучение: `/learn` (Марафон 14 дней или Лента), `/test` (тест систематичности), `?вопрос` (консультант). Организация: `.текст` (заметки), `/progress` (статистика), `/rp` `/plan` `/report` (планы). Настройки: `/mode` (режим), `/settings` (язык, профиль). | Learning: `/learn` (14-day Marathon or Feed), `/test` (assessment), `?question` (consultant). Organization: `.text` (notes), `/progress` (stats), `/rp` `/plan` `/report` (plans). Settings: `/mode` (mode), `/settings` (language, profile). |
@@ -68,7 +70,18 @@ integrations: |
   
   | Система | Интерфейс | Текущий статус |
   |---------|-----------|----------------|
-  | Claude API (Sonnet/Haiku) | `clients/claude.py` | Active |
+  | Claude API (Sonnet + Haiku, model routing) | `clients/claude.py` | Active |
+  
+  #### 6.3.1. Model Routing (Route-by-Complexity)
+  
+  Бот использует два Claude-модели с роутингом по сложности задачи:
+  
+  | Модель | Задачи | Критерий |
+  |--------|--------|----------|
+  | **Haiku** | Feed «почему это важно», FAQ L1/L2, /mydata | Структурированный вывод, latency-critical |
+  | **Sonnet** | Уроки, практика, вопросы, консультации L3, tool_use | Креативный/аналитический вывод |
+  
+  **Принцип:** дешёвая модель для структурированных задач, мощная — для creative reasoning. Вызывающий код передаёт `model=CLAUDE_MODEL_HAIKU` явно; default = Sonnet. Экономия: ~40% стоимости API при сохранении качества ответов.
   | knowledge-mcp v3.1 (CF Workers AI, bge-m3) | `clients/mcp.py`, `core/knowledge.py` | Active |
   | PostgreSQL (Neon.com, asyncpg) | `db/`, asyncpg pool | Active |
   | aiogram 3.x | Telegram Bot Framework | Active |

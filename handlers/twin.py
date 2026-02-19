@@ -65,6 +65,14 @@ async def cmd_twin(message: Message):
     if subcommand == "disconnect":
         if is_connected:
             digital_twin.disconnect(telegram_user_id)
+            # Clear persistent flag
+            try:
+                from db import get_pool
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', telegram_user_id)
+            except Exception:
+                pass
             await message.answer(t('twin.disconnected', lang))
         else:
             await message.answer(t('twin.not_connected', lang))
@@ -139,7 +147,27 @@ async def callback_twin_profile(callback: CallbackQuery):
     intern = await get_intern(telegram_user_id)
     lang = _lang(intern)
 
-    if not digital_twin.is_connected(telegram_user_id):
+    # Persistent check: dt_connected_at survives redeploy
+    connected = digital_twin.is_connected(telegram_user_id)
+    if not connected:
+        try:
+            from db import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT dt_connected_at FROM interns WHERE chat_id = $1',
+                    telegram_user_id,
+                )
+                if row and row['dt_connected_at'] is not None:
+                    # DT was connected but tokens lost after redeploy
+                    await callback.answer()
+                    await callback.message.answer(
+                        t('twin.reconnect_needed', lang),
+                        parse_mode="Markdown",
+                    )
+                    return
+        except Exception:
+            pass
         await callback.answer(t('twin.not_connected_alert', lang), show_alert=True)
         return
 
@@ -150,7 +178,14 @@ async def callback_twin_profile(callback: CallbackQuery):
         await callback.message.answer(t('twin.unavailable_short', lang))
         return
 
-    await callback.message.answer(_profile_text(profile, lang), parse_mode="Markdown")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees")],
+        [InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect")],
+    ])
+
+    await callback.message.answer(
+        _profile_text(profile, lang), parse_mode="Markdown", reply_markup=keyboard,
+    )
 
 
 @twin_router.callback_query(F.data == "twin_degrees")
@@ -192,6 +227,14 @@ async def callback_twin_disconnect(callback: CallbackQuery):
         return
 
     digital_twin.disconnect(telegram_user_id)
+    # Clear persistent flag
+    try:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', telegram_user_id)
+    except Exception:
+        pass
     await callback.answer(t('twin.disconnected_alert', lang), show_alert=True)
     await callback.message.edit_text(
         t('twin.disconnected_desc', lang),

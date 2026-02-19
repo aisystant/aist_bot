@@ -18,8 +18,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
-from db.queries.marathon import save_marathon_content, cleanup_expired_content
-from db.queries.users import moscow_now, moscow_today
+from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content
+from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
 
@@ -30,6 +30,49 @@ _scheduler: Optional[AsyncIOScheduler] = None
 _aiogram_dispatcher = None  # aiogram Dispatcher (for FSM storage access)
 _bot_dispatcher = None      # core.dispatcher.Dispatcher (for SM routing)
 _bot_token: str = None
+
+
+_RETRY_DELAYS_MINUTES = [30, 60]  # exponential backoff: 30min, then 60min
+
+
+def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
+    """Schedule a one-off retry for failed pre-generation with exponential backoff."""
+    if not _scheduler:
+        return
+    if attempt >= len(_RETRY_DELAYS_MINUTES):
+        logger.warning(f"[Scheduler] Max retries ({len(_RETRY_DELAYS_MINUTES)}) exhausted for {chat_id} ({content_type})")
+        return
+    job_id = f"retry_{content_type}_{chat_id}"
+    if _scheduler.get_job(job_id):
+        logger.info(f"[Scheduler] Retry already pending for {chat_id} ({content_type}), skip")
+        return
+    delay = _RETRY_DELAYS_MINUTES[attempt]
+    run_at = moscow_now() + timedelta(minutes=delay)
+    _scheduler.add_job(
+        _execute_retry,
+        'date',
+        run_date=run_at,
+        id=job_id,
+        args=[chat_id, content_type, attempt],
+        replace_existing=True,
+    )
+    logger.info(f"[Scheduler] Retry #{attempt+1} scheduled for {chat_id} ({content_type}) at +{delay}min")
+
+
+async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
+    """Execute a single retry for failed pre-generation."""
+    bot = Bot(token=_bot_token)
+    try:
+        if content_type == 'marathon':
+            await send_scheduled_topic(chat_id, bot)
+        elif content_type == 'feed':
+            await pre_generate_feed_digest(chat_id, bot)
+        logger.info(f"[Scheduler] Retry #{attempt+1} successful for {chat_id} ({content_type})")
+    except Exception as e:
+        logger.error(f"[Scheduler] Retry #{attempt+1} failed for {chat_id} ({content_type}): {e}")
+        _schedule_retry(chat_id, content_type, attempt + 1)
+    finally:
+        await bot.session.close()
 
 
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
@@ -52,11 +95,162 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
 
     _scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
     _scheduler.add_job(scheduled_check, 'cron', minute='*')
+    _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*')  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
     _scheduler.start()
 
-    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive)")
+    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen)")
     return _scheduler
+
+
+PREGEN_HOURS_AHEAD = 3
+
+
+async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: int) -> bool:
+    """Сгенерировать урок+вопрос+практику и сохранить в marathon_content.
+
+    Извлечённая логика из send_scheduled_topic() — используется и для пре-генерации,
+    и как fallback при доставке.
+
+    Returns:
+        True если урок успешно сгенерирован и сохранён.
+    """
+    from clients import claude, mcp_knowledge
+    from core.topics import get_topic, get_topics_for_day, TOPICS
+
+    topic = get_topic(topic_index)
+    if not topic:
+        return False
+
+    bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
+
+    # Генерируем все 3 типа параллельно
+    lesson_task = claude.generate_content(
+        topic=topic, intern=intern, mcp_client=mcp_knowledge
+    )
+    question_task = claude.generate_question(
+        topic=topic, intern=intern, bloom_level=bloom_level
+    )
+    practice_task = claude.generate_practice_intro(
+        topic=topic, intern=intern
+    )
+
+    results = await asyncio.wait_for(
+        asyncio.gather(lesson_task, question_task, practice_task, return_exceptions=True),
+        timeout=120,
+    )
+
+    lesson_content = results[0] if not isinstance(results[0], Exception) else None
+    question_content = results[1] if not isinstance(results[1], Exception) else None
+    practice_content = results[2] if not isinstance(results[2], Exception) else None
+
+    # Валидация: error fallback возвращает строку ~60 символов вместо None
+    if lesson_content is not None and len(lesson_content) < 200:
+        logger.error(f"[PreGen] Lesson too short ({len(lesson_content)} chars) for {chat_id}, "
+                     f"topic {topic_index} — likely error fallback")
+        lesson_content = None
+
+    if lesson_content is None:
+        return False
+
+    if isinstance(results[1], Exception):
+        logger.warning(f"[PreGen] Question generation failed for {chat_id}: {results[1]}")
+    if isinstance(results[2], Exception):
+        logger.warning(f"[PreGen] Practice generation failed for {chat_id}: {results[2]}")
+
+    # Сохраняем в БД
+    await save_marathon_content(
+        chat_id=chat_id,
+        topic_index=topic_index,
+        lesson_content=lesson_content,
+        question_content=question_content,
+        practice_content=practice_content,
+        bloom_level=bloom_level,
+    )
+
+    # Pre-gen для парной темы того же дня (theory→practice)
+    completed = set(intern.get('completed_topics', []))
+    same_day_topics = get_topics_for_day(topic['day'])
+    for pair_topic in same_day_topics:
+        pair_idx = next(
+            (i for i, t_item in enumerate(TOPICS) if t_item['id'] == pair_topic['id']),
+            None,
+        )
+        if pair_idx is not None and pair_idx != topic_index and pair_idx not in completed:
+            try:
+                pair_results = await asyncio.wait_for(
+                    asyncio.gather(
+                        claude.generate_content(topic=pair_topic, intern=intern, mcp_client=mcp_knowledge),
+                        claude.generate_question(topic=pair_topic, intern=intern, bloom_level=bloom_level),
+                        claude.generate_practice_intro(topic=pair_topic, intern=intern),
+                        return_exceptions=True,
+                    ),
+                    timeout=120,
+                )
+                await save_marathon_content(
+                    chat_id=chat_id,
+                    topic_index=pair_idx,
+                    lesson_content=pair_results[0] if not isinstance(pair_results[0], Exception) else None,
+                    question_content=pair_results[1] if not isinstance(pair_results[1], Exception) else None,
+                    practice_content=pair_results[2] if not isinstance(pair_results[2], Exception) else None,
+                    bloom_level=bloom_level,
+                )
+                logger.info(f"[PreGen] Pair content saved for {chat_id}, topic {pair_idx} (day {topic['day']})")
+            except Exception as e:
+                logger.warning(f"[PreGen] Pair pre-gen failed for {chat_id}, topic {pair_idx}: {e}")
+
+    return True
+
+
+async def pre_generate_upcoming():
+    """Пре-генерация контента марафона за PREGEN_HOURS_AHEAD часов до доставки.
+
+    Запускается каждую минуту. Находит пользователей, чьё schedule_time наступит
+    через 3 часа, и генерирует контент заранее — чтобы в момент доставки
+    не нагружать Claude API.
+    """
+    now = moscow_now()
+    target = now + timedelta(hours=PREGEN_HOURS_AHEAD)
+
+    users = await get_marathon_users_at_time(target.hour, target.minute)
+    if not users:
+        return
+
+    from core.topics import get_next_topic_index
+
+    logger.info(f"[PreGen] Found {len(users)} marathon users for {target.hour:02d}:{target.minute:02d} "
+                f"(delivery in {PREGEN_HOURS_AHEAD}h)")
+
+    sem = asyncio.Semaphore(20)
+
+    async def _pregen_one(chat_id: int):
+        async with sem:
+            try:
+                intern = await get_intern(chat_id)
+                if not intern or intern.get('marathon_status') != 'active':
+                    return
+
+                topic_index = get_next_topic_index(intern)
+                if topic_index is None:
+                    return
+
+                # Уже пре-генерирован?
+                existing = await get_marathon_content(chat_id, topic_index)
+                if existing and existing.get('status') == 'pending':
+                    return
+
+                success = await _generate_and_save_content(chat_id, intern, topic_index)
+                if success:
+                    logger.info(f"[PreGen] Content ready for {chat_id}, topic {topic_index}")
+                else:
+                    _schedule_retry(chat_id, 'marathon')
+            except asyncio.TimeoutError:
+                logger.error(f"[PreGen] Timeout for {chat_id}")
+                _schedule_retry(chat_id, 'marathon')
+            except Exception as e:
+                logger.error(f"[PreGen] Error for {chat_id}: {e}")
+
+    await asyncio.gather(*[_pregen_one(cid) for cid in users])
 
 
 async def pre_generate_feed_digest(chat_id: int, bot: Bot):
@@ -133,6 +327,7 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 
         if not content or not content.get('topics_detail'):
             logger.error(f"[Scheduler] Feed: digest generation returned empty for {chat_id}")
+            _schedule_retry(chat_id, 'feed')
             return
 
         # Сохраняем как pending (не показана пользователю)
@@ -150,9 +345,11 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 
     except asyncio.TimeoutError:
         logger.error(f"[Scheduler] Feed: pre-generation timeout (120s) for {chat_id}")
+        _schedule_retry(chat_id, 'feed')
         return
     except Exception as e:
         logger.error(f"[Scheduler] Feed: pre-generation error for {chat_id}: {e}")
+        _schedule_retry(chat_id, 'feed')
         return
 
     # Отправляем уведомление с кнопкой «Получить дайджест»
@@ -178,11 +375,11 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 async def send_scheduled_topic(chat_id: int, bot: Bot):
     """Отправка уведомления о готовности урока марафона по расписанию.
 
-    Вместо прямой генерации контента — отправляем уведомление
-    с кнопкой «Получить урок» (аналогично Feed-дайджесту).
+    Проверяет, пре-генерирован ли контент (за 3ч через pre_generate_upcoming).
+    Если да — сразу уведомление. Если нет — fallback на генерацию сейчас.
     """
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress, get_topics_for_day, TOPICS
+    from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress
     from core.knowledge import get_topic_title
 
     intern = await get_intern(chat_id)
@@ -234,101 +431,30 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             )
         return
 
-    if topic_index is not None and topic_index != intern['current_topic_index']:
-        await update_intern(chat_id, current_topic_index=topic_index)
+    # НЕ обновляем current_topic_index здесь — scheduler только пре-генерирует контент.
+    # current_topic_index обновляется в lesson.py при реальном взаимодействии пользователя.
 
-    # ─── Пре-генерация контента (урок + вопрос + практика) ───
-    from clients import claude, mcp_knowledge
-
-    bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
-
-    try:
-        # Генерируем все 3 типа параллельно
-        lesson_task = claude.generate_content(
-            topic=topic, intern=intern, mcp_client=mcp_knowledge
-        )
-        question_task = claude.generate_question(
-            topic=topic, intern=intern, bloom_level=bloom_level
-        )
-        practice_task = claude.generate_practice_intro(
-            topic=topic, intern=intern
-        )
-
-        results = await asyncio.wait_for(
-            asyncio.gather(lesson_task, question_task, practice_task, return_exceptions=True),
-            timeout=120,
-        )
-
-        lesson_content = results[0] if not isinstance(results[0], Exception) else None
-        question_content = results[1] if not isinstance(results[1], Exception) else None
-        practice_content = results[2] if not isinstance(results[2], Exception) else None
-
-        # Валидация: error fallback возвращает строку ~60 символов вместо None
-        if lesson_content is not None and len(lesson_content) < 200:
-            logger.error(f"[Scheduler] Lesson too short ({len(lesson_content)} chars) for {chat_id}, "
-                         f"topic {topic_index} — likely error fallback, skipping")
-            lesson_content = None
-
-        if lesson_content is None:
-            logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}: {results[0]}")
-            # Без урока уведомление бессмысленно — пропускаем
+    # ─── Проверяем: контент уже пре-генерирован (за 3h)? ───
+    existing = await get_marathon_content(chat_id, topic_index)
+    if existing and existing.get('status') == 'pending' and existing.get('lesson_content'):
+        logger.info(f"[Scheduler] Pre-generated content found for {chat_id}, topic {topic_index} — skip generation")
+    else:
+        # Fallback: генерируем сейчас (контент не был пре-генерирован)
+        try:
+            success = await _generate_and_save_content(chat_id, intern, topic_index)
+            if not success:
+                logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}")
+                _schedule_retry(chat_id, 'marathon')
+                return
+            logger.info(f"[Scheduler] On-demand generation for {chat_id}, topic {topic_index}")
+        except asyncio.TimeoutError:
+            logger.error(f"[Scheduler] Pre-generation timeout (120s) for {chat_id}, topic {topic_index}")
+            _schedule_retry(chat_id, 'marathon')
             return
-
-        if isinstance(results[1], Exception):
-            logger.warning(f"[Scheduler] Question generation failed for {chat_id}: {results[1]}")
-        if isinstance(results[2], Exception):
-            logger.warning(f"[Scheduler] Practice generation failed for {chat_id}: {results[2]}")
-
-        # Сохраняем в БД
-        await save_marathon_content(
-            chat_id=chat_id,
-            topic_index=topic_index,
-            lesson_content=lesson_content,
-            question_content=question_content,
-            practice_content=practice_content,
-            bloom_level=bloom_level,
-        )
-        logger.info(f"[Scheduler] Pre-generated content for {chat_id}, topic {topic_index} "
-                     f"(lesson: ✅, question: {'✅' if question_content else '❌'}, "
-                     f"practice: {'✅' if practice_content else '❌'})")
-
-        # ─── Pre-gen для парной темы того же дня (theory→practice) ───
-        completed = set(intern.get('completed_topics', []))
-        same_day_topics = get_topics_for_day(topic['day'])
-        for pair_topic in same_day_topics:
-            pair_idx = next(
-                (i for i, t in enumerate(TOPICS) if t['id'] == pair_topic['id']),
-                None,
-            )
-            if pair_idx is not None and pair_idx != topic_index and pair_idx not in completed:
-                try:
-                    pair_results = await asyncio.wait_for(
-                        asyncio.gather(
-                            claude.generate_content(topic=pair_topic, intern=intern, mcp_client=mcp_knowledge),
-                            claude.generate_question(topic=pair_topic, intern=intern, bloom_level=bloom_level),
-                            claude.generate_practice_intro(topic=pair_topic, intern=intern),
-                            return_exceptions=True,
-                        ),
-                        timeout=120,
-                    )
-                    await save_marathon_content(
-                        chat_id=chat_id,
-                        topic_index=pair_idx,
-                        lesson_content=pair_results[0] if not isinstance(pair_results[0], Exception) else None,
-                        question_content=pair_results[1] if not isinstance(pair_results[1], Exception) else None,
-                        practice_content=pair_results[2] if not isinstance(pair_results[2], Exception) else None,
-                        bloom_level=bloom_level,
-                    )
-                    logger.info(f"[Scheduler] Pre-generated PAIR content for {chat_id}, topic {pair_idx} (day {topic['day']})")
-                except Exception as e:
-                    logger.warning(f"[Scheduler] Pair pre-gen failed for {chat_id}, topic {pair_idx}: {e}")
-
-    except asyncio.TimeoutError:
-        logger.error(f"[Scheduler] Pre-generation timeout (120s) for {chat_id}, topic {topic_index}")
-        return
-    except Exception as e:
-        logger.error(f"[Scheduler] Pre-generation error for {chat_id}: {e}")
-        return
+        except Exception as e:
+            logger.error(f"[Scheduler] Pre-generation error for {chat_id}: {e}")
+            _schedule_retry(chat_id, 'marathon')
+            return
 
     # Планируем напоминания (+1ч и +3ч)
     await schedule_reminders(chat_id, intern)
@@ -496,8 +622,9 @@ async def scheduled_check():
                 else:
                     logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
-        # Параллельная обработка пользователей (max 20 одновременно)
-        sem = asyncio.Semaphore(20)
+        # Параллельная обработка пользователей (max 40 одновременно)
+        # Telegram rate limit: 30 msg/sec, но Claude генерация (5-10с) stagger-ит сообщения
+        sem = asyncio.Semaphore(40)
 
         async def _bounded(chat_id, send_type):
             async with sem:
@@ -586,6 +713,26 @@ async def scheduled_check():
             await cleanup_old_errors(days=7)
         except Exception as e:
             logger.error(f"[Scheduler] Error logs cleanup error: {e}")
+        try:
+            from db.queries.cache import cache_cleanup
+            await cache_cleanup()
+        except Exception as e:
+            logger.error(f"[Scheduler] Cache cleanup error: {e}")
+
+        # Финализация устаревших сессий
+        try:
+            from db.queries.sessions import finalize_stale_sessions
+            await finalize_stale_sessions()
+        except Exception as e:
+            logger.error(f"[Scheduler] Session cleanup error: {e}")
+
+    # 🔧 Unstick: проверяем застрявших пользователей каждые 5 минут
+    if now.minute % 5 == 0:
+        try:
+            from core.unstick import check_and_recover_users
+            await check_and_recover_users()
+        except Exception as e:
+            logger.error(f"[Scheduler] Unstick check error: {e}")
 
     # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
     if now.minute == 0:

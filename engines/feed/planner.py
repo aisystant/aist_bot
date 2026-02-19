@@ -401,7 +401,11 @@ async def suggest_weekly_topics(intern: dict) -> List[Dict]:
     ...
 ]"""
 
-    response = await claude.generate(system_prompt, "Персонализируй обоснования тем.")
+    from config import CLAUDE_MODEL_HAIKU
+    response = await claude.generate(
+        system_prompt, "Персонализируй обоснования тем.",
+        max_tokens=1000, model=CLAUDE_MODEL_HAIKU,
+    )
 
     # 3. Парсим ответ Claude
     personalized = _parse_why_response(response, selected)
@@ -512,12 +516,12 @@ async def generate_multi_topic_digest(
             "depth_level": depth_level,
         }
 
-    # Расчёт времени на каждую тему с учётом сложности (bloom_level)
+    # Content Budget Model (DP.D.027): words = time × WPM_BASE × BLOOM_MULTIPLIER
+    from config import calc_words, BLOOM_INSTRUCTION
     time_per_topic = duration // topics_count
     bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
-    bloom_multipliers = {1: 1.0, 2: 1.5, 3: 2.0}
-    multiplier = bloom_multipliers.get(min(bloom_level, 3), 1.0)
-    words_per_topic = int(time_per_topic * 100 * multiplier)
+    words_per_topic = calc_words(time_per_topic, bloom_level)
+    bloom_instr = BLOOM_INSTRUCTION.get(min(bloom_level, 3), BLOOM_INSTRUCTION[1])
 
     # Получаем контекст из MCP для всех тем — ПАРАЛЛЕЛЬНО
     mcp_context = ""
@@ -599,6 +603,8 @@ async def generate_multi_topic_digest(
 
 УРОВЕНЬ ГЛУБИНЫ: {depth_level} — {depth_desc}
 (С каждым днём одни и те же темы раскрываются глубже)
+
+СТИЛЬ ИЗЛОЖЕНИЯ: {bloom_instr}
 
 ФОРМАТ:
 1. Краткое введение (intro) — 1-2 предложения, зацепи внимание
@@ -726,8 +732,11 @@ async def generate_topic_content(
     except Exception as e:
         logger.error(f"MCP search error: {e}")
 
-    # Рассчитываем объём текста
-    words = session_duration * 100  # ~100 слов в минуту чтения
+    # Content Budget Model (DP.D.027): words = time × WPM_BASE × BLOOM_MULTIPLIER
+    from config import calc_words, BLOOM_INSTRUCTION
+    bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
+    words = calc_words(session_duration, bloom_level)
+    bloom_instr = BLOOM_INSTRUCTION.get(min(bloom_level, 3), BLOOM_INSTRUCTION[1])
 
     # Определяем язык ответа
     lang = intern.get('language', 'ru')
@@ -750,10 +759,12 @@ async def generate_topic_content(
     system_prompt = f"""Ты — персональный наставник по системному мышлению.
 {lang_instruction}
 
-Создай микро-урок на тему "{topic.get('title')}" для {name}.
+Создай материал на тему "{topic.get('title')}" для {name}.
 
 ПРОФИЛЬ:
 - Занятие: {occupation or 'не указано'}
+
+СТИЛЬ ИЗЛОЖЕНИЯ: {bloom_instr}
 
 ФОРМАТ:
 1. Краткое введение (1-2 предложения) — зацепи внимание

@@ -14,7 +14,6 @@ import logging
 import os
 import sys
 import warnings
-from datetime import datetime, timedelta, timezone
 
 # Подавить Pydantic warning из aiogram (model_custom_emoji_id protected namespace)
 warnings.filterwarnings("ignore", message=".*model_custom_emoji_id.*protected namespace.*")
@@ -52,17 +51,6 @@ logging.basicConfig(
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
-
-# Московское время (UTC+3)
-MOSCOW_TZ = timezone(timedelta(hours=3))
-
-def moscow_now() -> datetime:
-    """Получить текущее время по Москве"""
-    return datetime.now(MOSCOW_TZ)
-
-def moscow_today():
-    """Получить текущую дату по Москве"""
-    return moscow_now().date()
 
 # ============= КОНСТАНТЫ (из config) =============
 from config import (
@@ -272,6 +260,7 @@ async def main():
                 BotCommand(command="health", description="Состояние системы"),
                 BotCommand(command="latency", description="Латентность (светофор)"),
                 BotCommand(command="errors", description="Ошибки (24h)"),
+                BotCommand(command="analytics", description="Сводная аналитика"),
                 BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
@@ -295,6 +284,9 @@ async def main():
         logger.error(f"⚠️ Ошибка запуска OAuth сервера: {e}")
 
     logger.info("🚀 Бот запущен с PostgreSQL!")
+
+    # Снимаем webhook/polling предыдущего инстанса (устраняет TelegramConflictError при редеплое)
+    await bot.delete_webhook(drop_pending_updates=False)
 
     try:
         await dp.start_polling(bot)

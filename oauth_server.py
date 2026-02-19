@@ -284,6 +284,18 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
 
     logger.info(f"User {telegram_user_id} connected to Digital Twin")
 
+    # Persist DT connection in DB (for tier detection after redeploy)
+    try:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                'UPDATE interns SET dt_connected_at = NOW() WHERE chat_id = $1',
+                telegram_user_id,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to persist DT connection for {telegram_user_id}: {e}")
+
     # Автоматический перелив профиля бота → ЦД
     try:
         from db.queries.users import get_intern

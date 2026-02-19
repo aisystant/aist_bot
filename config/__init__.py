@@ -9,6 +9,8 @@ from .settings import (
     # Токены
     BOT_TOKEN,
     ANTHROPIC_API_KEY,
+    CLAUDE_MODEL_SONNET,
+    CLAUDE_MODEL_HAIKU,
     DATABASE_URL,
     KNOWLEDGE_MCP_URL,
     DIGITAL_TWIN_MCP_URL,
@@ -50,6 +52,12 @@ from .settings import (
     LEARNING_STYLES,
     EXPERIENCE_LEVELS,
     STUDY_DURATIONS,
+
+    # Content Budget Model (DP.D.027)
+    WPM_BASE,
+    BLOOM_MULTIPLIER,
+    BLOOM_INSTRUCTION,
+    calc_words,
 
     # Сложность (бывш. Bloom)
     COMPLEXITY_LEVELS,
@@ -109,6 +117,10 @@ __all__ = [
     'LEARNING_STYLES',
     'EXPERIENCE_LEVELS',
     'STUDY_DURATIONS',
+    'WPM_BASE',
+    'BLOOM_MULTIPLIER',
+    'BLOOM_INSTRUCTION',
+    'calc_words',
     'COMPLEXITY_LEVELS',
     'BLOOM_LEVELS',
     'COMPLEXITY_AUTO_UPGRADE_AFTER',

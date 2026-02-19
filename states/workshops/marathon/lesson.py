@@ -12,8 +12,9 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
+from helpers.message_split import prepare_markdown_parts
 from db.queries import get_intern, update_intern
-from db.queries.marathon import get_marathon_content, mark_content_delivered
+from db.queries.marathon import get_marathon_content, mark_content_delivered, save_marathon_content
 from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day as canonical_get_marathon_day
@@ -224,6 +225,9 @@ class MarathonLessonState(BaseState):
                         ),
                         timeout=CONTENT_GENERATION_TIMEOUT
                     )
+                    # Сохраняем в БД для повторного использования
+                    await save_marathon_content(chat_id, topic_index, lesson_content=content)
+                    logger.info(f"Cached on-the-fly lesson for user {chat_id}, topic {topic_index}")
                 except asyncio.TimeoutError:
                     logger.error(f"Content generation timeout ({CONTENT_GENERATION_TIMEOUT}s) for user {chat_id}")
                     retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -246,14 +250,25 @@ class MarathonLessonState(BaseState):
                     return
 
             except Exception as e:
-                logger.error(f"Error generating content for user {chat_id}: {e}")
+                logger.error(f"Error generating content for user {chat_id}: {e}", exc_info=True)
+                retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"🔄 {t('buttons.try_again', lang)}",
+                        callback_data="marathon_retry_lesson"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"← {t('buttons.back_to_menu', lang)}",
+                        callback_data="marathon_back_menu"
+                    )],
+                ])
                 await self.send(
                     user,
                     f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
                     f"_{t('errors.try_again_later', lang)}_",
+                    reply_markup=retry_keyboard,
                     parse_mode="Markdown"
                 )
-                return "come_back"
+                return
 
         # ─── Показываем урок ───
         topic_title = get_topic_title(topic, lang)
@@ -265,18 +280,28 @@ class MarathonLessonState(BaseState):
             f"⏱ {t('marathon.minutes', lang, minutes=study_duration)}\n\n"
         )
 
+        # Кнопка «Далее → Вопрос» — прикрепляем к последнему сообщению урока
+        next_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"💭 {t('buttons.next_question', lang)}",
+                callback_data="marathon_next_question"
+            )]
+        ])
+
         full = header + content
-        if len(full) > 4000:
-            await self.send(user, header, parse_mode="Markdown")
-            for i in range(0, len(content), 4000):
-                await self.send(user, content[i:i+4000])
-        else:
-            await self.send(user, full, parse_mode="Markdown")
+        parts = prepare_markdown_parts(full)
+        for i, part in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            kb = next_keyboard if is_last else None
+            try:
+                await self.send(user, part, parse_mode="Markdown", reply_markup=kb)
+            except Exception:
+                # Rule 10.2: Markdown fallback for Claude content
+                logger.warning(f"Markdown parse failed for lesson part {i+1}/{len(parts)}, sending without formatting")
+                await self.send(user, part, reply_markup=kb)
 
         logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
-
-        # Автопереход к вопросу (без кнопки «Получить вопрос»)
-        return "lesson_shown"
+        return None  # ждём клик
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
@@ -308,12 +333,15 @@ class MarathonLessonState(BaseState):
             await self.send(user, t('marathon.question_processed', lang))
             return None
 
-        # Готов к вопросу
+        # Текстовое сообщение тоже переводит к вопросу
         return "lesson_shown"
 
     async def handle_callback(self, user, callback) -> Optional[str]:
         """Обработка inline-кнопок."""
         await callback.answer()
+
+        if callback.data == "marathon_next_question":
+            return "lesson_shown"
 
         if callback.data == "marathon_retry_lesson":
             await self.enter(user)

@@ -139,21 +139,25 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
     logger.info(f"[CB] Marathon callback '{data}' for chat_id={chat_id}")
 
     try:
-        await callback.answer()
-        try:
-            await callback.message.edit_reply_markup()
-        except Exception:
-            pass
-        await state.clear()
+        # Direct entry callbacks — route via go_to (from menu / mode_select)
+        if data in ("marathon_get_lesson", "marathon_get_question", "marathon_get_practice"):
+            await callback.answer()
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+            await state.clear()
 
-        if data == "marathon_get_lesson":
-            await dispatcher.go_to(intern, "workshop.marathon.lesson")
-        elif data == "marathon_get_question":
-            await dispatcher.go_to(intern, "workshop.marathon.question")
-        elif data == "marathon_get_practice":
-            await dispatcher.go_to(intern, "workshop.marathon.task")
+            state_map = {
+                "marathon_get_lesson": "workshop.marathon.lesson",
+                "marathon_get_question": "workshop.marathon.question",
+                "marathon_get_practice": "workshop.marathon.task",
+            }
+            await dispatcher.go_to(intern, state_map[data])
         else:
-            logger.warning(f"[CB] Unknown marathon callback: {data}")
+            # In-state callbacks (next_question, next_bonus, retry, back, etc.)
+            # Route to SM — state's handle_callback will answer() and process
+            await dispatcher.route_callback(intern, callback)
 
     except Exception as e:
         logger.error(f"[CB] Error handling marathon callback: {e}")
@@ -550,6 +554,21 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
 
+            # Persistent session: если в консультации — подсказка + кнопка "Завершить"
+            current_state_name = intern.get('current_state', '')
+            if current_state_name == 'common.consultation':
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                end_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text=t('consultation.btn_end_session', lang),
+                        callback_data="qa_end_session"
+                    )
+                ]])
+                await callback.message.answer(
+                    t('consultation.session_hint', lang),
+                    reply_markup=end_kb,
+                )
+
         elif data.startswith("qa_refine_"):
             # --- 🔍 Подробнее ---
             qa_id = int(data.split("_")[-1])
@@ -617,6 +636,29 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
                 })
             else:
                 await callback.message.answer(t('consultation.error', lang))
+
+        elif data == "qa_end_session":
+            # --- Завершить сессию консультации ---
+            await callback.answer()
+
+            # Убираем кнопки
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+
+            # Resolve previous state and go_to it
+            dispatcher = get_dispatcher()
+            if dispatcher and dispatcher.is_sm_active:
+                current_state_name = intern.get('current_state', '')
+                if current_state_name == 'common.consultation':
+                    await state.clear()
+                    # Resolve _previous via SM
+                    prev_state = dispatcher.sm._previous_states.get(chat_id, 'common.mode_select')
+                    await dispatcher.go_to(intern, prev_state)
+                else:
+                    # Пользователь уже вышел из consultation
+                    await callback.message.answer(t('consultation.session_ended', lang))
 
         else:
             await callback.answer()

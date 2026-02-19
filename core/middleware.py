@@ -139,3 +139,10 @@ class TracingMiddleware(BaseMiddleware):
                 await finish_trace(trace)
             except Exception as e:
                 logger.warning(f"[TracingMiddleware] Failed to finish trace: {e}")
+            # Session tracking (fire-and-forget, не блокирует запрос)
+            if user_id:
+                try:
+                    from db.queries.sessions import get_or_create_session
+                    asyncio.create_task(get_or_create_session(user_id, command))
+                except Exception:
+                    pass

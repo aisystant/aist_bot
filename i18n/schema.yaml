@@ -445,6 +445,16 @@ buttons:
     en: "Get practice"
     max_length: 25
 
+  next_question:
+    ru: "Далее → Вопрос"
+    en: "Next → Question"
+    max_length: 25
+
+  next_bonus:
+    ru: "Далее → Бонус"
+    en: "Next → Bonus"
+    max_length: 25
+
   progress:
     ru: "Мой прогресс"
     en: "My progress"
@@ -1792,6 +1802,10 @@ update:
     ru: "Расписание изменено"
     en: "Schedule changed"
 
+  schedule_shifted:
+    ru: "Время {requested} загружено ({count} чел.). Назначено ближайшее свободное"
+    en: "Time {requested} is busy ({count} people). Assigned nearest available"
+
   difficulty_changed:
     ru: "Сложность изменена"
     en: "Difficulty changed"
@@ -2009,6 +2023,13 @@ errors:
     en: "An error occurred while processing your message."
     es: "Se produjo un error al procesar tu mensaje."
     fr: "Une erreur s'est produite lors du traitement de votre message."
+
+  auto_recovery:
+    ru: "Извините, произошла ошибка. Я вернул вас в главное меню."
+    en: "Sorry, an error occurred. I've returned you to the main menu."
+    es: "Lo siento, se produjo un error. Te he devuelto al menú principal."
+    fr: "Désolé, une erreur s'est produite. Je vous ai ramené au menu principal."
+    description: "Автоматическое восстановление застрявших пользователей (L1 Наладчик)"
 
 # -----------------------------------------------------------------------------
 # FSM fallback-сообщения
@@ -2982,8 +3003,36 @@ mydata:
     ru: "📊 Мои данные"
     en: "📊 My Data"
   summary:
-    ru: "Вот что я знаю о тебе:"
-    en: "Here's what I know about you:"
+    ru: "Персональный дата-центр — все данные о тебе в одном месте."
+    en: "Personal data center — all your data in one place."
+  your_tier:
+    ru: "Твой уровень"
+    en: "Your tier"
+  current_tier:
+    ru: "ты здесь"
+    en: "you are here"
+  how_to_unlock:
+    ru: "Как получить"
+    en: "How to unlock"
+
+  # ── Section titles ──
+  sec_metrics:
+    ru: "Мои метрики"
+    en: "My Metrics"
+  sec_how:
+    ru: "Как это работает"
+    en: "How it works"
+  sec_privacy:
+    ru: "Приватность"
+    en: "Privacy"
+  sec_tiers:
+    ru: "Мой уровень"
+    en: "My Tier"
+  sec_manage:
+    ru: "Управление"
+    en: "Manage"
+
+  # ── Category names ──
   cat_profile:
     ru: "Профиль"
     en: "Profile"
@@ -2999,21 +3048,25 @@ mydata:
   cat_feed:
     ru: "Лента"
     en: "Feed"
+  cat_consultations:
+    ru: "Консультации"
+    en: "Consultations"
+
+  # ── Buttons ──
   why_button:
     ru: "Почему?"
     en: "Why?"
-  why_thinking:
-    ru: "Анализирую данные..."
-    en: "Analyzing data..."
-  no_data:
-    ru: "Данных пока нет."
-    en: "No data yet."
-  back_to_overview:
-    ru: "← Обзор"
-    en: "← Overview"
-  complexity:
-    ru: "сложность"
-    en: "complexity"
+  improve_button:
+    ru: "Как улучшить?"
+    en: "How to improve?"
+  back_to_hub:
+    ru: "Обзор"
+    en: "Overview"
+  back_to_metrics:
+    ru: "Метрики"
+    en: "Metrics"
+
+  # ── Metric labels ──
   streak:
     ru: "серия"
     en: "streak"
@@ -3032,6 +3085,186 @@ mydata:
   fixations:
     ru: "фиксаций"
     en: "fixations"
+
+  # ── How it works ──
+  how_intro:
+    ru: "Твои данные используются только для персонализации обучения. Вот что попадает в контекст Claude при генерации контента:"
+    en: "Your data is used only to personalize learning. Here's what goes into Claude's context when generating content:"
+  how_prompt_title:
+    ru: "Что получает Claude:"
+    en: "What Claude receives:"
+  how_profile:
+    ru: "Профиль бота"
+    en: "Bot profile"
+  how_dt:
+    ru: "Данные Цифрового Двойника (T3)"
+    en: "Digital Twin data (T3)"
+  how_not_sent:
+    ru: "Claude НЕ получает:"
+    en: "Claude does NOT receive:"
+  how_not_sent_list:
+    ru: "chat\\_id, streak, историю ответов, данные сессий, GitHub токены"
+    en: "chat\\_id, streak, answer history, session data, GitHub tokens"
+  dt_section:
+    ru: "Цифровой Двойник"
+    en: "Digital Twin"
+  dt_not_connected:
+    ru: "Не подключён. Используй /twin"
+    en: "Not connected. Use /twin"
+  dt_empty_profile:
+    ru: "Подключён ✓ Профиль пока не заполнен. Используй /twin для настройки"
+    en: "Connected ✓ Profile not filled yet. Use /twin to set up"
+
+  # ── Privacy ──
+  privacy_your_tier:
+    ru: "На твоём уровне ({tier}) собираем:"
+    en: "At your tier ({tier}) we collect:"
+  privacy_t1:
+    ru: |
+      • Профиль (имя, профессия, язык, уровень опыта, режим)
+      • Прогресс марафона (ответы, рабочие продукты)
+      • Активность (дни, серия, последний вход)
+    en: |
+      • Profile (name, occupation, language, experience level, mode)
+      • Marathon progress (answers, work products)
+      • Activity (days, streak, last active)
+  privacy_t2_extra:
+    ru: |
+      • Интересы, цели, мотивация, роль, домен
+      • Лента (дайджесты, фиксации, темы)
+      • Консультации (вопросы и ответы)
+      • Сессии (длительность, время)
+      • Подписка (статус, дата)
+    en: |
+      • Interests, goals, motivation, role, domain
+      • Feed (digests, fixations, topics)
+      • Consultations (questions and answers)
+      • Sessions (duration, time)
+      • Subscription (status, date)
+  privacy_t3_extra:
+    ru: |
+      • Цифровой Двойник (самооценка, индикаторы, роли, проблемы, цель)
+    en: |
+      • Digital Twin (self-assessment, indicators, roles, problems, objective)
+  privacy_details_btn:
+    ru: "Подробнее"
+    en: "More details"
+  privacy_text:
+    ru: |
+      *Что мы собираем:*
+      • Профиль (имя, профессия, интересы, цели)
+      • Прогресс (ответы, фиксации, пройденные темы)
+      • Активность (дни, streak, время сессий)
+      • Консультации (вопросы и ответы)
+      • Техническое (ID чата, язык, состояние FSM)
+
+      *Где хранятся:*
+      PostgreSQL на Neon.com (EU, шифрование at rest)
+
+      *Кому передаём:*
+      Никому. Данные не передаются третьим лицам.
+      • Claude API (Anthropic): профиль + текст вопроса. Anthropic не использует данные API для обучения моделей.
+      • GitHub API: только при добровольном OAuth, только для записи заметок.
+      • Агрегированная аналитика (DAU/MAU): без идентификации пользователя.
+
+      *Что НЕ собираем:*
+      IP-адреса, геолокацию, данные других приложений, финансовые данные (кроме статуса подписки).
+    en: |
+      *What we collect:*
+      • Profile (name, occupation, interests, goals)
+      • Progress (answers, fixations, completed topics)
+      • Activity (days, streak, session time)
+      • Consultations (questions and answers)
+      • Technical (chat ID, language, FSM state)
+
+      *Where stored:*
+      PostgreSQL on Neon.com (EU, encryption at rest)
+
+      *Who we share with:*
+      Nobody. Data is never shared with third parties.
+      • Claude API (Anthropic): profile + question text. Anthropic does not use API data for training.
+      • GitHub API: only with voluntary OAuth, only for writing notes.
+      • Aggregated analytics (DAU/MAU): no user identification.
+
+      *What we do NOT collect:*
+      IP addresses, geolocation, other app data, financial data (except subscription status).
+
+  # ── Data management ──
+  manage_intro:
+    ru: "Ты полностью контролируешь свои данные. Выбери действие:"
+    en: "You have full control over your data. Choose an action:"
+  btn_reset_stats:
+    ru: "🔄 Сбросить статистику (streak, дни)"
+    en: "🔄 Reset statistics (streak, days)"
+  btn_clear_qa:
+    ru: "💬 Очистить историю Q&A"
+    en: "💬 Clear Q&A history"
+  btn_disconnect_github:
+    ru: "🔗 Отключить GitHub"
+    en: "🔗 Disconnect GitHub"
+  btn_delete_all:
+    ru: "Удалить все данные"
+    en: "Delete all data"
+  stats_reset_done:
+    ru: "Статистика сброшена."
+    en: "Statistics reset."
+  qa_cleared:
+    ru: "История Q&A очищена."
+    en: "Q&A history cleared."
+  github_disconnected:
+    ru: "GitHub отключён."
+    en: "GitHub disconnected."
+
+  # ── Delete flow ──
+  delete_keyword:
+    ru: "Удалить."
+    en: "Delete."
+  delete_warning_title:
+    ru: "Удаление всех данных"
+    en: "Delete all data"
+  delete_warning_body:
+    ru: |
+      Будут безвозвратно удалены:
+      • Профиль и настройки
+      • Все ответы и фиксации
+      • История консультаций
+      • Статистика активности
+      • Подключения (GitHub, ЦД)
+      • Подписка
+    en: |
+      The following will be permanently deleted:
+      • Profile and settings
+      • All answers and fixations
+      • Consultation history
+      • Activity statistics
+      • Connections (GitHub, DT)
+      • Subscription
+  delete_instruction:
+    ru: "Для подтверждения напишите"
+    en: "To confirm, type"
+  delete_mismatch:
+    ru: "Текст не совпал. Удаление отменено."
+    en: "Text did not match. Deletion cancelled."
+  cancel_delete:
+    ru: "Отмена"
+    en: "Cancel"
+  delete_done_title:
+    ru: "Данные удалены"
+    en: "Data deleted"
+  delete_done_body:
+    ru: "Все данные удалены ({count} записей из всех таблиц)."
+    en: "All data deleted ({count} records from all tables)."
+  delete_done_restart:
+    ru: "Бот больше не хранит информацию о тебе. Начни заново командой /start."
+    en: "The bot no longer stores your information. Start fresh with /start."
+
+  # ── Misc ──
+  why_thinking:
+    ru: "Анализирую данные..."
+    en: "Analyzing data..."
+  no_data:
+    ru: "Данных пока нет."
+    en: "No data yet."
   explain_error:
     ru: "Не удалось проанализировать данные. Попробуйте позже."
     en: "Could not analyze data. Please try again later."
@@ -3284,6 +3517,24 @@ consultation:
     en: "✅ Thanks! Your feedback has been recorded."
     es: "✅ ¡Gracias! Su comentario ha sido registrado."
     fr: "✅ Merci ! Votre commentaire a été enregistré."
+
+  btn_end_session:
+    ru: "↩️ Завершить"
+    en: "↩️ End session"
+    es: "↩️ Finalizar"
+    fr: "↩️ Terminer"
+
+  session_ended:
+    ru: "↩️ Консультация завершена. Возвращаюсь к предыдущему занятию."
+    en: "↩️ Consultation ended. Returning to previous activity."
+    es: "↩️ Consulta finalizada. Volviendo a la actividad anterior."
+    fr: "↩️ Consultation terminée. Retour à l'activité précédente."
+
+  session_hint:
+    ru: "Задайте вопрос или нажмите «Завершить» для выхода."
+    en: "Ask a question or tap \"End session\" to exit."
+    es: "Haga una pregunta o toque \"Finalizar\" para salir."
+    fr: "Posez une question ou appuyez sur « Terminer » pour quitter."
 
 # -----------------------------------------------------------------------------
 # Оценка (assessment) — только UI-ключи, вопросы в YAML
@@ -3835,6 +4086,9 @@ twin:
   btn_disconnect:
     ru: "Отключить"
     en: "Disconnect"
+  reconnect_needed:
+    ru: "Сессия ЦД истекла после обновления бота. Переподключитесь: /twin"
+    en: "DT session expired after bot update. Reconnect: /twin"
   not_connected_alert:
     ru: "Digital Twin не подключён"
     en: "Digital Twin not connected"
@@ -3847,3 +4101,25 @@ twin:
   disconnected_desc:
     ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
     en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
+
+# -----------------------------------------------------------------------------
+# Сброс прогресса (авто-детект при /start)
+# -----------------------------------------------------------------------------
+reset:
+  old_data_detected:
+    ru: "👋 Обнаружены данные от предыдущего бота ({completed} пройденных тем).\n\nХотите начать с чистого листа или продолжить с текущим прогрессом?"
+    en: "👋 Data from a previous bot detected ({completed} completed topics).\n\nWould you like to start fresh or continue with your current progress?"
+
+  fresh_start_btn:
+    ru: "🔄 Начать заново"
+    en: "🔄 Start fresh"
+    max_length: 25
+
+  continue_btn:
+    ru: "▶️ Продолжить"
+    en: "▶️ Continue"
+    max_length: 20
+
+  done:
+    ru: "✅ Прогресс сброшен! Профиль сохранён. Начинаем заново."
+    en: "✅ Progress reset! Profile preserved. Starting fresh."

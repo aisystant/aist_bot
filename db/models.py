@@ -123,6 +123,9 @@ async def create_tables(pool: asyncpg.Pool):
 
             # Telegram username (@handle)
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT NULL',
+
+            # DT connection persistence (DP.D.028)
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_connected_at TIMESTAMP DEFAULT NULL',
         ]
         
         for migration in migrations:
@@ -530,9 +533,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         # ═══════════════════════════════════════════════════════════
         # АГРЕГИРОВАННЫЙ ПРОФИЛЬ ЗНАНИЙ (VIEW)
+        # PG не позволяет менять порядок/имена колонок через REPLACE →
+        # всегда DROP + CREATE (view stateless, данные не теряются)
         # ═══════════════════════════════════════════════════════════
+        await conn.execute('DROP VIEW IF EXISTS user_knowledge_profile')
         await conn.execute('''
-            CREATE OR REPLACE VIEW user_knowledge_profile AS
+            CREATE VIEW user_knowledge_profile AS
             SELECT
                 i.chat_id,
                 i.name, i.occupation, i.role, i.domain,
@@ -545,8 +551,8 @@ async def create_tables(pool: asyncpg.Pool):
                 -- Systematicity
                 i.active_days_total, i.active_days_streak, i.longest_streak,
                 i.last_active_date,
-                -- Timestamps
-                i.created_at, i.updated_at,
+                -- Timestamps / DT
+                i.created_at, i.updated_at, i.dt_connected_at,
                 -- Aggregates: answers
                 (SELECT COUNT(*) FROM answers a
                  WHERE a.chat_id = i.chat_id AND a.answer_type = 'theory_answer')
@@ -628,6 +634,50 @@ async def create_tables(pool: asyncpg.Pool):
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_alerted
             ON error_logs (alerted, last_seen_at DESC)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # КЕШ КОНТЕНТА (экономия Claude API на повторной генерации)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS content_cache (
+                cache_key TEXT PRIMARY KEY,
+                content_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                expires_at TIMESTAMPTZ NOT NULL
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_content_cache_expires
+            ON content_cache (expires_at)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # СЕССИИ ПОЛЬЗОВАТЕЛЕЙ (аналитика: длина, частота, entry/exit)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                ended_at TIMESTAMPTZ,
+                duration_seconds INTEGER,
+                request_count INTEGER DEFAULT 1,
+                commands JSONB DEFAULT '[]',
+                entry_point TEXT,
+                exit_point TEXT
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_chat_id
+            ON user_sessions (chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_started
+            ON user_sessions (started_at DESC)
         ''')
 
     logger.info("✅ Все таблицы созданы/обновлены")

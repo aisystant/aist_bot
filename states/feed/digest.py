@@ -13,6 +13,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from i18n import t
+from helpers.message_split import prepare_markdown_parts
 from db.queries.users import get_intern, update_intern, moscow_today
 from db.queries.feed import (
     get_current_feed_week,
@@ -184,6 +185,14 @@ class FeedDigestState(BaseState):
                 session_date=today,
             )
 
+            # create_feed_session returns None if active/completed session already exists (race condition)
+            if not session:
+                session = await get_feed_session(week['id'], today)
+                if not session:
+                    logger.error(f"[Feed] No session after create for user {chat_id}, week {week['id']}")
+                    await self.send(user, t('errors.try_again', lang))
+                    return None
+
             # Показываем дайджест
             await self._show_digest(user, session, week)
             return None
@@ -202,14 +211,14 @@ class FeedDigestState(BaseState):
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
-        content = session.get('content', {})
+        content = session.get('content') or {}
         topics_list = content.get('topics_list', [])
         topics_detail = content.get('topics_detail', [])
         depth_level = content.get('depth_level', session.get('day_number', 1))
 
         # Формируем заголовок
         if topics_list:
-            topics_str = ", ".join(topics_list)
+            topics_str = ", ".join(f"*{tp}*" for tp in topics_list)
             text = t('feed.digest_header', lang, topics=topics_str) + "\n"
         else:
             topic = session.get('topic_title', t('feed.topics_of_day', lang))
@@ -232,8 +241,11 @@ class FeedDigestState(BaseState):
                 summary = td.get('summary', '')
                 text += f"*{title}*\n{summary}\n\n"
         elif topics_detail and len(topics_detail) == 1:
-            # Single topic: показываем summary + detail сразу
+            # Single topic: показываем title + summary + detail сразу
             td = topics_detail[0]
+            title = td.get('title', '')
+            if title:
+                text += f"*{title}*\n"
             text += f"{td.get('summary', '')}\n\n{td.get('detail', '')}"
         else:
             # Backward compat: старый формат main_content
@@ -284,29 +296,17 @@ class FeedDigestState(BaseState):
             'week_id': week['id'],
         }
 
-        # Отправляем (разбиваем длинные сообщения)
-        # Fallback: если Markdown не парсится (Claude-контент с незакрытыми сущностями) → отправляем без parse_mode
-        try:
-            if len(text) > 4000:
-                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-                for i, part in enumerate(parts):
-                    if i == len(parts) - 1:
-                        await self.send(user, part, reply_markup=keyboard, parse_mode="Markdown")
-                    else:
-                        await self.send(user, part, parse_mode="Markdown")
-            else:
-                await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
-        except Exception as md_err:
-            logger.warning(f"Markdown parse failed for digest (user {chat_id}), sending without formatting: {md_err}")
-            if len(text) > 4000:
-                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-                for i, part in enumerate(parts):
-                    if i == len(parts) - 1:
-                        await self.send(user, part, reply_markup=keyboard)
-                    else:
-                        await self.send(user, part)
-            else:
-                await self.send(user, text, reply_markup=keyboard)
+        # Отправляем (разбиваем длинные сообщения по абзацам)
+        # Rule 10.2: Markdown fallback per part
+        parts = prepare_markdown_parts(text)
+        for i, part in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            kb = keyboard if is_last else None
+            try:
+                await self.send(user, part, reply_markup=kb, parse_mode="Markdown")
+            except Exception:
+                logger.warning(f"Markdown parse failed for digest part {i+1}/{len(parts)} (user {chat_id}), sending without formatting")
+                await self.send(user, part, reply_markup=kb)
 
     async def _show_topic_detail(self, user, topic_index: int, callback: CallbackQuery) -> None:
         """Показывает развёрнутый текст по конкретной теме."""
@@ -382,7 +382,7 @@ class FeedDigestState(BaseState):
         if topics:
             text += f"{t('feed.your_topics_label', lang)}\n"
             for i, topic in enumerate(topics, 1):
-                text += f"{i}. {topic}\n"
+                text += f"{i}. *{topic}*\n"
         else:
             text += f"{t('feed.no_topics', lang)}\n"
 
@@ -753,7 +753,7 @@ class FeedDigestState(BaseState):
         if topics:
             text += f"{t('feed.your_topics_label', lang)}\n"
             for i, topic in enumerate(topics, 1):
-                text += f"{i}. {topic}\n"
+                text += f"{i}. *{topic}*\n"
             text += f"\n{t('feed.topics_deepen_daily', lang)}"
         else:
             text += f"{t('feed.no_topics', lang)}"

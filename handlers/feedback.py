@@ -14,6 +14,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
+from helpers.message_split import truncate_safe
+
 from db.queries import get_intern
 from i18n import t
 
@@ -69,8 +71,7 @@ async def _render_reports(since_hours: int = None, period_label: str = "All time
             scenario = r.get('scenario', 'other')
             text += f"\n{sev}{st} <b>#{r['id']}</b> | {format_user_label(r)} | {scenario} | {dt}\n{msg}\n"
 
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n... (truncated)"
+    text = truncate_safe(text, suffix="\n\n... (truncated)")
 
     return text
 

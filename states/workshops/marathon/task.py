@@ -15,7 +15,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer, moscow_today
-from db.queries.marathon import get_marathon_content
+from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
 from clients import claude
@@ -56,6 +56,12 @@ class MarathonTaskState(BaseState):
         if isinstance(user, dict):
             return user.get('current_topic_index', 0)
         return getattr(user, 'current_topic_index', 0)
+
+    def _get_bloom_level(self, user) -> int:
+        """Получить уровень сложности."""
+        if isinstance(user, dict):
+            return user.get('complexity_level', 1) or user.get('bloom_level', 1) or 1
+        return getattr(user, 'complexity_level', 1) or getattr(user, 'bloom_level', 1) or 1
 
     def _get_completed_topics(self, user) -> list:
         """Получить список завершённых тем."""
@@ -128,6 +134,9 @@ class MarathonTaskState(BaseState):
                     topic=topic,
                     intern=intern
                 )
+                # Сохраняем в БД для повторного использования
+                await save_marathon_content(chat_id, topic_index, practice_content=practice_data)
+                logger.info(f"Cached on-the-fly practice for user {chat_id}, topic {topic_index}")
             except Exception as e:
                 logger.error(f"Error generating practice intro for user {chat_id}: {e}")
                 # Fallback: показываем задание без введения
@@ -191,7 +200,11 @@ class MarathonTaskState(BaseState):
             one_time_keyboard=True
         )
 
-        await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
+        try:
+            await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception:
+            logger.warning(f"Markdown parse failed for task (user {chat_id}), sending without formatting")
+            await self.send(user, message, reply_markup=keyboard)
         logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
 
     async def handle(self, user, message: Message) -> Optional[str]:
@@ -230,12 +243,14 @@ class MarathonTaskState(BaseState):
 
         # Сохраняем рабочий продукт
         topic_index = self._get_current_topic_index(user)
+        bloom_level = self._get_bloom_level(user)
         if chat_id:
             await save_answer(
                 chat_id=chat_id,
                 topic_index=topic_index,
                 answer=f"[РП] {text}",
-                answer_type="work_product"
+                answer_type="work_product",
+                complexity_level=bloom_level
             )
 
         # Обновляем прогресс

@@ -146,13 +146,16 @@ class MarathonBonusState(BaseState):
                 )
 
                 # Показываем вопрос
-                await self.send(
-                    user,
+                bonus_text = (
                     f"🚀 *{t('marathon.bonus_question', lang)}* ({t(f'bloom.level_{next_level}_short', lang)})\n\n"
                     f"{question}\n\n"
-                    f"_{t('marathon.write_answer', lang)}_",
-                    parse_mode="Markdown"
+                    f"_{t('marathon.write_answer', lang)}_"
                 )
+                try:
+                    await self.send(user, bonus_text, parse_mode="Markdown")
+                except Exception:
+                    logger.warning(f"Markdown parse failed for bonus (user {chat_id}), sending without formatting")
+                    await self.send(user, bonus_text)
 
                 logger.info(f"Bonus question sent to user {chat_id}, waiting for answer")
                 return None  # Остаёмся в стейте, ждём ответ
@@ -169,20 +172,15 @@ class MarathonBonusState(BaseState):
 
         # Пользователь отказался
         if self._is_no_button(text, lang):
-            # FIX: Удаляем Reply Keyboard при переходе к практике
-            await self.send_remove_keyboard(user, t('marathon.loading_practice', lang))
-            # Показываем кнопку «Получить практику»
+            # Удаляем Reply Keyboard и показываем кнопку «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.get_practice', lang)}",
                     callback_data="marathon_get_practice"
                 )]
             ])
-            await self.send(
-                user,
-                f"✏️ {t('buttons.get_practice', lang)}",
-                reply_markup=practice_keyboard
-            )
+            await self.send_remove_keyboard(user, t('marathon.loading_practice', lang))
+            await self.send(user, "👇", reply_markup=practice_keyboard)
             return None  # ждём клик
 
         # Настройки — переход в настройки
@@ -201,7 +199,8 @@ class MarathonBonusState(BaseState):
                     chat_id=chat_id,
                     topic_index=theory_index,
                     answer=f"[BONUS] {text}",
-                    answer_type="bonus_answer"
+                    answer_type="bonus_answer",
+                    complexity_level=self._get_bloom_level(user)
                 )
 
             # FIX: Удаляем Reply Keyboard при переходе к практике
@@ -212,18 +211,14 @@ class MarathonBonusState(BaseState):
                 parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove()
             )
-            # Показываем кнопку «Получить практику»
+            # Кнопка «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.get_practice', lang)}",
                     callback_data="marathon_get_practice"
                 )]
             ])
-            await self.send(
-                user,
-                f"✏️ {t('buttons.get_practice', lang)}",
-                reply_markup=practice_keyboard
-            )
+            await self.send(user, "👇", reply_markup=practice_keyboard)
             return None  # ждём клик
 
         # Слишком короткий ответ — показываем ожидание

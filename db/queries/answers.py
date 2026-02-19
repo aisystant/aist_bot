@@ -365,6 +365,26 @@ async def get_total_stats(chat_id: int) -> dict:
     }
 
 
+async def get_theory_count_at_level(chat_id: int, complexity_level: int) -> int:
+    """
+    Вычислить количество theory_answer на заданном уровне сложности.
+
+    Источник истины для topics_at_current_complexity (вместо мутируемого счётчика).
+    SOTA.012: View, не копия — считаем из журнала событий (answers), не храним.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        count = await conn.fetchval('''
+            SELECT COUNT(*)
+            FROM answers
+            WHERE chat_id = $1
+              AND answer_type = 'theory_answer'
+              AND mode = 'marathon'
+              AND complexity_level = $2
+        ''', chat_id, complexity_level)
+    return count or 0
+
+
 async def reset_user_stats(chat_id: int) -> None:
     """
     Сбросить статистику пользователя.

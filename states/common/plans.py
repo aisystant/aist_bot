@@ -18,11 +18,10 @@ from states.base import BaseState
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 from helpers.telegram_format import format_strategy_content
+from helpers.message_split import truncate_safe
 from i18n import t
 
 logger = logging.getLogger(__name__)
-
-MAX_MESSAGE_LEN = 4000  # Telegram limit 4096, запас
 
 
 class PlansState(BaseState):
@@ -52,9 +51,7 @@ class PlansState(BaseState):
         return getattr(user, 'chat_id', None)
 
     def _truncate(self, text: str) -> str:
-        if len(text) <= MAX_MESSAGE_LEN:
-            return text
-        return text[:MAX_MESSAGE_LEN] + "\n\n... (обрезано)"
+        return truncate_safe(text)
 
     def _format_content(self, content: str, repo_url: str = None) -> str:
         text = format_strategy_content(content)
@@ -173,34 +170,46 @@ class PlansState(BaseState):
             content = await github_strategy.get_week_report(chat_id)
             not_found_key = 'plans.not_found_report'
 
-        back_button = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('buttons.back', lang),
-                callback_data="plans_back_to_hub",
-            )],
-        ])
+        # Кнопки: два других плана + назад
+        all_actions = {
+            "plans_day": ("plans.day_plan", "plans_day"),
+            "plans_rp": ("plans.week_plan", "plans_rp"),
+            "plans_report": ("plans.week_report", "plans_report"),
+        }
+        nav_buttons = []
+        for key, (label_key, cb_data) in all_actions.items():
+            if key != action:
+                nav_buttons.append([InlineKeyboardButton(
+                    text=t(label_key, lang), callback_data=cb_data,
+                )])
+        nav_buttons.append([InlineKeyboardButton(
+            text=t('buttons.back', lang), callback_data="plans_back_to_hub",
+        )])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
 
         if not content:
             # Monday fallback: DayPlan is not generated on Mondays, point to WeekPlan
             is_monday = datetime.now(MOSCOW_TZ).weekday() == 0
             if action == "plans_day" and is_monday:
-                monday_button = InlineKeyboardMarkup(inline_keyboard=[
+                monday_buttons = [
                     [InlineKeyboardButton(
-                        text=t('plans.week_plan', lang),
-                        callback_data="plans_rp",
+                        text=t('plans.week_plan', lang), callback_data="plans_rp",
                     )],
                     [InlineKeyboardButton(
-                        text=t('buttons.back', lang),
-                        callback_data="plans_back_to_hub",
+                        text=t('plans.week_report', lang), callback_data="plans_report",
                     )],
-                ])
-                await self.send(user, t('plans.not_found_day_monday', lang), reply_markup=monday_button)
+                    [InlineKeyboardButton(
+                        text=t('buttons.back', lang), callback_data="plans_back_to_hub",
+                    )],
+                ]
+                await self.send(user, t('plans.not_found_day_monday', lang),
+                                reply_markup=InlineKeyboardMarkup(inline_keyboard=monday_buttons))
                 return None
-            await self.send(user, t(not_found_key, lang), reply_markup=back_button)
+            await self.send(user, t(not_found_key, lang), reply_markup=keyboard)
             return None
 
         repo_url = await github_strategy.get_strategy_repo_url(chat_id)
         text = self._format_content(content, repo_url)
 
-        await self.send(user, text, parse_mode="HTML", reply_markup=back_button)
+        await self.send(user, text, parse_mode="HTML", reply_markup=keyboard)
         return None

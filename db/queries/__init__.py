@@ -24,6 +24,7 @@ from .answers import (
     get_answers,
     get_weekly_work_products,
     get_answers_count_by_type,
+    get_theory_count_at_level,
 )
 
 from .activity import (
@@ -65,6 +66,8 @@ from .github import (
 
 from .profile import (
     get_knowledge_profile,
+    delete_all_user_data,
+    reset_learning_data,
 )
 
 from .marathon import (
@@ -136,6 +139,8 @@ __all__ = [
 
     # profile
     'get_knowledge_profile',
+    'delete_all_user_data',
+    'reset_learning_data',
 
     # marathon content
     'save_marathon_content',

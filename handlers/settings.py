@@ -19,11 +19,11 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import STUDY_DURATIONS, MARATHON_DAYS
 from db.queries import get_intern, update_intern
-from db.queries.users import moscow_today
+from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
     kb_update_profile, kb_study_duration, kb_bloom_level,
-    kb_marathon_start, kb_language_select,
+    kb_marathon_start, kb_language_select, kb_slot_suggestions,
 )
 
 logger = logging.getLogger(__name__)
@@ -329,7 +329,7 @@ async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
 @settings_router.callback_query(UpdateStates.updating_bloom_level, F.data.startswith("bloom_"))
 async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
     level = int(callback.data.replace("bloom_", ""))
-    await update_intern(callback.message.chat.id, bloom_level=level, topics_at_current_bloom=0)
+    await update_intern(callback.message.chat.id, bloom_level=level)
 
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -539,9 +539,41 @@ async def on_save_schedule(message: Message, state: FSMContext):
         return
 
     normalized_time = f"{h:02d}:{m:02d}"
+
+    # Проверяем загрузку слота
+    counts = await get_slot_load(normalized_time)
+    target_count = counts.get(normalized_time, 0)
+
+    if target_count >= MAX_USERS_PER_SLOT:
+        # Слот перегружен — показываем варианты
+        await message.answer(
+            f"⏰ {t('update.schedule_shifted', lang, requested=normalized_time, count=target_count)}:",
+            reply_markup=kb_slot_suggestions(normalized_time, counts, lang)
+        )
+        return  # Остаёмся в updating_schedule, ждём callback
+
+    # Слот свободен — сохраняем
     await update_intern(message.chat.id, schedule_time=normalized_time)
     await message.answer(
         f"✅ {t('update.schedule_changed', lang)}: *{normalized_time}*\n\n"
+        f"{t('commands.learn', lang)}\n"
+        f"{t('commands.settings', lang)}",
+        parse_mode="Markdown"
+    )
+    await state.clear()
+
+
+@settings_router.callback_query(UpdateStates.updating_schedule, F.data.startswith("slot_"))
+async def on_settings_slot_selected(callback: CallbackQuery, state: FSMContext):
+    """Пользователь выбрал слот из предложенных вариантов (настройки)."""
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru')
+    selected_time = callback.data.replace("slot_", "")
+    await callback.answer()
+
+    await update_intern(callback.message.chat.id, schedule_time=selected_time)
+    await callback.message.edit_text(
+        f"✅ {t('update.schedule_changed', lang)}: *{selected_time}*\n\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.settings', lang)}",
         parse_mode="Markdown"

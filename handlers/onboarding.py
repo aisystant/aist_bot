@@ -9,17 +9,18 @@ import logging
 from datetime import timedelta
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import STUDY_DURATIONS, MARATHON_DAYS
 from db.queries import get_intern, update_intern
-from db.queries.users import moscow_today
+from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
 from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
     kb_study_duration, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
+    kb_slot_suggestions,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,20 @@ async def get_lang(state: FSMContext, intern: dict = None) -> str:
     return 'ru'
 
 
+# ============= ВСПОМОГАТЕЛЬНЫЕ (RESET) =============
+
+def _has_learning_data(intern: dict) -> bool:
+    """Есть ли у пользователя учебные данные (марафон или лента)."""
+    completed = intern.get('completed_topics', [])
+    if completed and len(completed) > 0:
+        return True
+    if intern.get('marathon_status') not in ('not_started', None):
+        return True
+    if intern.get('feed_status') not in ('not_started', None):
+        return True
+    return False
+
+
 # ============= ХЕНДЛЕРЫ =============
 
 @onboarding_router.message(CommandStart())
@@ -64,6 +79,29 @@ async def cmd_start(message: Message, state: FSMContext):
     if intern['onboarding_completed']:
         # Очищаем legacy FSM state
         await state.clear()
+
+        # Проверяем наличие старых учебных данных → предлагаем сброс (одноразово)
+        ctx = intern.get('current_context', {})
+        reset_offered = ctx.get('reset_offered', False)
+        if not reset_offered and _has_learning_data(intern):
+            lang = intern.get('language', 'ru')
+            completed_count = len(intern.get('completed_topics', []))
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('reset.fresh_start_btn', lang),
+                    callback_data="reset_all_progress",
+                )],
+                [InlineKeyboardButton(
+                    text=t('reset.continue_btn', lang),
+                    callback_data="reset_skip",
+                )],
+            ])
+            await message.answer(
+                t('reset.old_data_detected', lang, completed=completed_count),
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
+            return
 
         # Если SM активна — переводим в mode_select через Dispatcher
         from handlers import get_dispatcher
@@ -232,8 +270,21 @@ async def on_schedule(message: Message, state: FSMContext):
 
     # Нормализуем формат времени (с ведущими нулями)
     normalized_time = f"{h:02d}:{m:02d}"
-    await update_intern(message.chat.id, schedule_time=normalized_time)
 
+    # Проверяем загрузку слота
+    counts = await get_slot_load(normalized_time)
+    target_count = counts.get(normalized_time, 0)
+
+    if target_count >= MAX_USERS_PER_SLOT:
+        # Слот перегружен — показываем варианты
+        await message.answer(
+            f"⏰ {t('update.schedule_shifted', lang, requested=normalized_time, count=target_count)}:",
+            reply_markup=kb_slot_suggestions(normalized_time, counts, lang)
+        )
+        return  # Остаёмся в waiting_for_schedule, ждём callback
+
+    # Слот свободен — сохраняем и идём дальше
+    await update_intern(message.chat.id, schedule_time=normalized_time)
     await message.answer(
         f"🗓 *{t('onboarding.ask_start_date', lang)}*\n\n" +
         t('modes.marathon_desc', lang),
@@ -241,6 +292,25 @@ async def on_schedule(message: Message, state: FSMContext):
         reply_markup=kb_marathon_start(lang)
     )
     await state.set_state(OnboardingStates.waiting_for_start_date)
+
+
+@onboarding_router.callback_query(OnboardingStates.waiting_for_schedule, F.data.startswith("slot_"))
+async def on_slot_selected(callback: CallbackQuery, state: FSMContext):
+    """Пользователь выбрал слот из предложенных вариантов."""
+    lang = await get_lang(state)
+    selected_time = callback.data.replace("slot_", "")
+    await callback.answer()
+
+    await update_intern(callback.message.chat.id, schedule_time=selected_time)
+    await callback.message.edit_text(
+        f"✅ {t('update.schedule_changed', lang)}: *{selected_time}*\n\n"
+        f"🗓 *{t('onboarding.ask_start_date', lang)}*\n\n" +
+        t('modes.marathon_desc', lang),
+        parse_mode="Markdown",
+        reply_markup=kb_marathon_start(lang)
+    )
+    await state.set_state(OnboardingStates.waiting_for_start_date)
+
 
 @onboarding_router.callback_query(OnboardingStates.waiting_for_start_date, F.data.startswith("start_"))
 async def on_start_date(callback: CallbackQuery, state: FSMContext):
@@ -341,3 +411,60 @@ async def on_restart(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"[Onboarding] Error restarting profile for {chat_id}: {e}")
         await callback.answer(t('errors.try_again', 'ru'), show_alert=True)
+
+
+# ============= СБРОС ПРОГРЕССА (авто-детект при /start) =============
+
+@onboarding_router.callback_query(F.data == "reset_all_progress")
+async def on_reset_all_progress(callback: CallbackQuery, state: FSMContext):
+    """Полный сброс учебных данных с сохранением профиля."""
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    try:
+        from db.queries.profile import reset_learning_data
+        result = await reset_learning_data(chat_id)
+        total = sum(result.values())
+        logger.info(f"[Reset] Full learning reset for {chat_id}: {total} rows affected")
+
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru')
+
+        await callback.message.edit_text(
+            t('reset.done', lang),
+            parse_mode="Markdown",
+        )
+
+        # Переводим в mode_select
+        from handlers import get_dispatcher
+        dispatcher = get_dispatcher()
+        if dispatcher and dispatcher.is_sm_active:
+            await dispatcher.route_command('mode', intern)
+    except Exception as e:
+        logger.error(f"[Reset] Error resetting {chat_id}: {e}")
+        await callback.message.edit_text(t('errors.try_again', 'ru'))
+
+
+@onboarding_router.callback_query(F.data == "reset_skip")
+async def on_reset_skip(callback: CallbackQuery, state: FSMContext):
+    """Пользователь решил продолжить с текущим прогрессом."""
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    # Ставим флаг, чтобы не предлагать снова
+    intern = await get_intern(chat_id)
+    ctx = intern.get('current_context', {})
+    ctx['reset_offered'] = True
+    await update_intern(chat_id, current_context=ctx)
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    intern = await get_intern(chat_id)
+
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.route_command('mode', intern)

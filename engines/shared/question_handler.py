@@ -28,6 +28,85 @@ from .context import (
 logger = get_logger(__name__)
 
 
+# Маппинг complexity_level → стиль ответа
+_COMPLEXITY_GUIDANCE = {
+    1: {"ru": "Объясняй через простые аналогии и бытовые примеры. Избегай терминов.", "en": "Use simple analogies and everyday examples. Avoid jargon."},
+    2: {"ru": "Используй базовую терминологию с пояснениями. Приводи практические примеры.", "en": "Use basic terminology with explanations. Give practical examples."},
+    3: {"ru": "Предполагай знакомство с основами. Используй точную терминологию.", "en": "Assume basic knowledge. Use precise terminology."},
+    4: {"ru": "Обсуждай на уровне практика: trade-offs, связи между концепциями, edge cases.", "en": "Discuss at practitioner level: trade-offs, concept connections, edge cases."},
+    5: {"ru": "Глубокий экспертный уровень: архитектурные решения, мета-анализ, SOTA подходы.", "en": "Expert level: architectural decisions, meta-analysis, SOTA approaches."},
+    6: {"ru": "Мастерский уровень: системное мышление второго порядка, создание фреймворков.", "en": "Mastery level: second-order systems thinking, framework creation."},
+}
+
+
+def _build_user_profile(intern: dict, lang: str) -> str:
+    """Собрать секцию профиля пользователя для system prompt.
+
+    Включает: уровень сложности, интересы, цели, состояние,
+    текущие проблемы, желания, роль, срок обучения.
+    Возвращает пустую строку если данных нет.
+    """
+    parts = []
+
+    # Уровень сложности → стиль ответа
+    complexity = intern.get('complexity_level', intern.get('bloom_level', 1)) or 1
+    guidance = _COMPLEXITY_GUIDANCE.get(min(complexity, 6), _COMPLEXITY_GUIDANCE[1])
+    lang_key = 'en' if lang == 'en' else 'ru'
+    parts.append(f"Уровень пользователя: {complexity}/6. {guidance[lang_key]}")
+
+    # Интересы
+    interests = intern.get('interests', [])
+    if interests:
+        if isinstance(interests, list):
+            interests_str = ", ".join(interests[:5])
+        else:
+            interests_str = str(interests)[:200]
+        if interests_str:
+            parts.append(f"Интересы: {interests_str}")
+
+    # Цели
+    goals = intern.get('goals', '')
+    if goals:
+        parts.append(f"Цели: {goals[:200]}")
+
+    # Роль
+    role = intern.get('role', '')
+    if role:
+        parts.append(f"Роль: {role[:200]}")
+
+    # Текущие проблемы
+    current_problems = intern.get('current_problems', '')
+    if current_problems:
+        parts.append(f"Текущие проблемы: {current_problems[:300]}")
+
+    # Желания
+    desires = intern.get('desires', '')
+    if desires:
+        parts.append(f"Желания: {desires[:200]}")
+
+    # Срок обучения
+    study_duration = intern.get('study_duration', '')
+    if study_duration:
+        parts.append(f"Срок обучения: {study_duration}")
+
+    # Состояние (из теста)
+    assessment = intern.get('assessment_state')
+    if assessment:
+        state_labels = {
+            'chaos': 'Хаос (начало пути)',
+            'deadlock': 'Тупик (нужен сдвиг)',
+            'turning_point': 'Поворот (готов к изменениям)',
+        }
+        label = state_labels.get(assessment, assessment)
+        parts.append(f"Состояние: {label}")
+
+    if not parts:
+        return ""
+
+    header = "ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ" if lang != 'en' else "USER PROFILE"
+    return f"\n{header}:\n" + "\n".join(f"- {p}" for p in parts)
+
+
 # Типы для progress callback
 ProgressCallback = Callable[[str, int], Awaitable[None]]
 """Callback для отображения прогресса: (stage_name, percent) -> None"""
@@ -285,6 +364,9 @@ async def generate_answer(
     if occupation:
         occupation_info = f"\nПрофессия/занятие пользователя: {occupation}"
 
+    # Профиль пользователя: уровень + интересы + цели
+    user_profile_info = _build_user_profile(intern, lang)
+
     # Добавляем дополнения из динамического контекста
     dynamic_sections = ""
     if dynamic_context:
@@ -322,7 +404,7 @@ async def generate_answer(
 
     system_prompt = f"""Ты — дружелюбный наставник по системному мышлению и личному развитию.
 Отвечаешь на вопросы пользователя {name}.{occupation_info}{context_info}{dynamic_sections}
-
+{user_profile_info}
 {lang_instruction}
 
 ПРАВИЛА (в порядке приоритета):
@@ -365,6 +447,7 @@ async def handle_question_with_tools(
     progress_callback: ProgressCallback = None,
     tier: int = 1,
     is_refinement: bool = False,
+    conversation_messages: Optional[List[Dict]] = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
@@ -386,6 +469,8 @@ async def handle_question_with_tools(
         personal_claude_md: персональный CLAUDE.md из GitHub (T3)
         progress_callback: callback для отображения прогресса
         tier: тир обслуживания (1-4, default 1)
+        conversation_messages: multi-turn conversation history
+            (list of {role, content} dicts from persistent session)
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
@@ -393,7 +478,6 @@ async def handle_question_with_tools(
     from .consultation_tools import (
         get_tools_for_tier,
         execute_tool,
-        get_standard_claude_md,
         load_tier_prompt,
         fill_tier_prompt,
     )
@@ -433,25 +517,15 @@ async def handle_question_with_tools(
     context_info = f"\nТекущая тема изучения: {context_topic}" if context_topic else ""
     occupation_info = f"\nПрофессия/занятие пользователя: {occupation}" if occupation else ""
 
-    # Секции по тиру
-    standard_section = ""
-    if tier >= 2:
-        standard_claude = get_standard_claude_md()
-        if standard_claude:
-            standard_section = f"\n\nМЕТОДОЛОГИЯ:\n{standard_claude}"
-
-    personal_section = ""
-    if tier >= 3 and personal_claude_md:
-        personal_section = f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}"
-
-    bot_section = ""
-    if bot_context:
-        bot_section = (
-            f"\n\nЗНАНИЯ О БОТЕ:\n{bot_context}\n"
-            "Если вопрос касается бота — отвечай ТОЛЬКО на основе информации выше."
-        )
-
-    dynamic_sections = ""  # Reserved for progress/history injection
+    # Context Pipeline: collectors по тиру (параллельно)
+    from .context_pipeline import assemble_context
+    sections = await assemble_context(
+        tier=tier,
+        intern=intern,
+        lang=lang,
+        bot_context=bot_context or "",
+        personal_claude_md=personal_claude_md or "",
+    )
 
     # Загружаем шаблон промпта и подставляем переменные
     template = load_tier_prompt(tier)
@@ -460,13 +534,10 @@ async def handle_question_with_tools(
         name=name,
         occupation_info=occupation_info,
         context_info=context_info,
-        dynamic_sections=dynamic_sections,
         lang_instruction=lang_instruction,
         lang_reminder=lang_reminder,
         ontology_rules=ONTOLOGY_RULES,
-        standard_section=standard_section,
-        personal_section=personal_section,
-        bot_section=bot_section,
+        **sections,
     )
 
     logger.info(f"Consultation T{tier}: prompt {len(system_prompt)} chars for user {telegram_user_id}")
@@ -489,7 +560,12 @@ async def handle_question_with_tools(
     }
     user_prompt = user_prompts.get(lang, user_prompts['ru'])
 
-    messages = [{"role": "user", "content": user_prompt}]
+    # Multi-turn: используем conversation history если есть
+    if conversation_messages:
+        messages = conversation_messages
+        logger.info(f"Consultation: multi-turn with {len(messages)} messages")
+    else:
+        messages = [{"role": "user", "content": user_prompt}]
 
     # Refinement: больше токенов для развёрнутого ответа
     token_limit = 4000 if is_refinement else 1500
