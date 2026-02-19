@@ -50,6 +50,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
+# Rule 10.18: Suppress scheduler heartbeat noise (Running/executed ~4 lines/min)
+logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ============= КОНСТАНТЫ (из config) =============
@@ -262,6 +265,7 @@ async def main():
                 BotCommand(command="errors", description="Ошибки (24h)"),
                 BotCommand(command="analytics", description="Сводная аналитика"),
                 BotCommand(command="reports", description="Баг-репорты"),
+                BotCommand(command="reset", description="Сброс тестера: /reset <id>"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
             ], scope=BotCommandScopeChat(chat_id=int(dev_chat_id)))

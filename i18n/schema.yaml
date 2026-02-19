@@ -3199,6 +3199,9 @@ mydata:
   btn_clear_qa:
     ru: "💬 Очистить историю Q&A"
     en: "💬 Clear Q&A history"
+  btn_reset_learning:
+    ru: "📚 Сбросить прогресс обучения"
+    en: "📚 Reset learning progress"
   btn_disconnect_github:
     ru: "🔗 Отключить GitHub"
     en: "🔗 Disconnect GitHub"
@@ -3211,6 +3214,9 @@ mydata:
   qa_cleared:
     ru: "История Q&A очищена."
     en: "Q&A history cleared."
+  learning_reset_done:
+    ru: "Прогресс обучения сброшен. Профиль сохранён."
+    en: "Learning progress reset. Profile preserved."
   github_disconnected:
     ru: "GitHub отключён."
     en: "GitHub disconnected."

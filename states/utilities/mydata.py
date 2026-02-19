@@ -344,6 +344,10 @@ class MyDataState(BaseState):
             await self._clear_qa(user)
             return None
 
+        if data == "mydata_reset_learning":
+            await self._reset_learning(user)
+            return None
+
         if data == "mydata_disconnect_github":
             await self._disconnect_github(user)
             return None
@@ -790,6 +794,10 @@ class MyDataState(BaseState):
                 text=t('mydata.btn_clear_qa', lang),
                 callback_data="mydata_clear_qa",
             )],
+            [InlineKeyboardButton(
+                text=t('mydata.btn_reset_learning', lang),
+                callback_data="mydata_reset_learning",
+            )],
         ]
 
         # GitHub disconnect (if connected)
@@ -863,6 +871,22 @@ class MyDataState(BaseState):
         count = int(result.split()[-1]) if result else 0
         await self.send(
             user, f"✅ {t('mydata.qa_cleared', lang)} ({count})",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    async def _reset_learning(self, user) -> None:
+        """Сбросить весь учебный прогресс (марафон, лента, ответы). Профиль сохраняется."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        from db.queries.profile import reset_learning_data
+        result = await reset_learning_data(chat_id)
+        total = sum(result.values())
+        await self.send(
+            user, f"✅ {t('mydata.learning_reset_done', lang)} ({total})",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
