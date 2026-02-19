@@ -265,7 +265,7 @@ async def main():
                 BotCommand(command="errors", description="Ошибки (24h)"),
                 BotCommand(command="analytics", description="Сводная аналитика"),
                 BotCommand(command="reports", description="Баг-репорты"),
-                BotCommand(command="reset", description="Сброс тестера: /reset <id>"),
+                BotCommand(command="reset", description="Full wipe тестера → ре-онбординг"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
             ], scope=BotCommandScopeChat(chat_id=int(dev_chat_id)))

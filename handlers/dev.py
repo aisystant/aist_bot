@@ -386,7 +386,7 @@ def _format_analytics(report: dict) -> str:
 
 @dev_router.message(Command("reset"))
 async def cmd_reset(message: Message):
-    """/reset <chat_id> — сброс учебных данных тестера (профиль сохраняется)."""
+    """/reset <chat_id> — полный wipe тестера (удаляет ВСЁ, включая профиль → повторный онбординг)."""
     if not _is_developer(message.chat.id):
         return
 
@@ -394,8 +394,9 @@ async def cmd_reset(message: Message):
     if len(args) < 2:
         await message.answer(
             "<b>Использование:</b> /reset &lt;chat_id&gt;\n\n"
-            "Сбрасывает учебные данные (марафон, лента, ответы, активность).\n"
-            "Профиль (имя, язык, подписка) сохраняется.",
+            "Полный wipe: удаляет ВСЕ данные пользователя (профиль, прогресс, подписки).\n"
+            "При следующем /start тестер проходит онбординг заново.\n\n"
+            "<i>Для мягкого сброса (только прогресс) — пользователь сам через /mydata.</i>",
             parse_mode="HTML",
         )
         return
@@ -412,17 +413,18 @@ async def cmd_reset(message: Message):
         await message.answer(f"Пользователь {target_id} не найден.")
         return
 
-    from db.queries.profile import reset_learning_data
-    result = await reset_learning_data(target_id)
+    from db.queries.profile import delete_all_user_data
+    result = await delete_all_user_data(target_id)
     total = sum(result.values())
 
     name = intern.get('name', '—')
     details = " | ".join(f"{k}: {v}" for k, v in result.items() if v > 0)
 
     await message.answer(
-        f"<b>Сброс выполнен</b>\n\n"
+        f"<b>Полный wipe выполнен</b>\n\n"
         f"Пользователь: {name} ({target_id})\n"
         f"Удалено строк: {total}\n"
-        f"Детали: {details or 'нет данных для сброса'}",
+        f"Детали: {details or 'нет данных'}\n\n"
+        f"При следующем /start — онбординг заново.",
         parse_mode="HTML",
     )
