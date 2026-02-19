@@ -12,7 +12,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
-from helpers.message_split import prepare_markdown_parts
+from helpers.message_split import prepare_html_parts
 from db.queries import get_intern, update_intern
 from db.queries.marathon import get_marathon_content, mark_content_delivered, save_marathon_content
 from db.queries.users import moscow_today, get_topics_today
@@ -291,16 +291,11 @@ class MarathonLessonState(BaseState):
         ])
 
         full = header + content
-        parts = prepare_markdown_parts(full)
+        parts = prepare_html_parts(full)
         for i, part in enumerate(parts):
             is_last = (i == len(parts) - 1)
             kb = next_keyboard if is_last else None
-            try:
-                await self.send(user, part, parse_mode="Markdown", reply_markup=kb)
-            except Exception:
-                # Rule 10.2: Markdown fallback for Claude content
-                logger.warning(f"Markdown parse failed for lesson part {i+1}/{len(parts)}, sending without formatting")
-                await self.send(user, part, reply_markup=kb)
+            await self.send(user, part, parse_mode="HTML", reply_markup=kb)
 
         logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
 

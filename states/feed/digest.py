@@ -13,7 +13,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from i18n import t
-from helpers.message_split import prepare_markdown_parts
+from helpers.message_split import prepare_html_parts
 from db.queries.users import get_intern, update_intern, moscow_today
 from db.queries.feed import (
     get_current_feed_week,
@@ -298,15 +298,11 @@ class FeedDigestState(BaseState):
 
         # Отправляем (разбиваем длинные сообщения по абзацам)
         # Rule 10.2: Markdown fallback per part
-        parts = prepare_markdown_parts(text)
+        parts = prepare_html_parts(text)
         for i, part in enumerate(parts):
             is_last = (i == len(parts) - 1)
             kb = keyboard if is_last else None
-            try:
-                await self.send(user, part, reply_markup=kb, parse_mode="Markdown")
-            except Exception:
-                logger.warning(f"Markdown parse failed for digest part {i+1}/{len(parts)} (user {chat_id}), sending without formatting")
-                await self.send(user, part, reply_markup=kb)
+            await self.send(user, part, reply_markup=kb, parse_mode="HTML")
 
     async def _show_topic_detail(self, user, topic_index: int, callback: CallbackQuery) -> None:
         """Показывает развёрнутый текст по конкретной теме."""

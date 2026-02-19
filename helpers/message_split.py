@@ -4,8 +4,8 @@ Markdown-aware message splitting for Telegram.
 Telegram limit: 4096 chars per message. This module splits long text
 by paragraphs/lines, never breaking inside Markdown entities.
 
-For LLM-generated content, use prepare_markdown_parts() which also
-sanitizes Markdown entities (defense-in-depth).
+For LLM-generated content, use prepare_html_parts() which converts
+Markdown → HTML (deterministic, crash-proof parse_mode="HTML").
 """
 
 import re
@@ -19,28 +19,38 @@ MAX_TG_LEN = 4000  # 4096 limit, 96 chars margin for safety
 _CODE_BLOCK_NL = "\x00CB\x00"
 
 
-def prepare_markdown_parts(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
-    """Split + sanitize LLM content for safe Telegram delivery.
+def prepare_html_parts(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
+    """Convert Markdown → HTML, then split into Telegram-safe chunks.
 
-    Three-pass defense:
-    1. sanitize_markdown(text)    — fix Claude's malformed Markdown
-    2. split_markdown_safe(text)  — split by paragraphs (code-block-aware)
-    3. sanitize_markdown(chunk)   — fix split artifacts per chunk
+    Pipeline:
+    1. md_to_html(text)               — convert full text to safe HTML
+    2. split_message_safe(html_text)  — split by paragraphs (pre-block-aware)
 
-    Use this for all HIGH-risk callsites (LLM-generated content).
+    HTML parse_mode is deterministic: invalid markup shows as plain text,
+    never crashes with TelegramBadRequest. Use with parse_mode="HTML".
     """
-    from helpers.markdown_sanitizer import sanitize_markdown
+    from helpers.markdown_to_html import md_to_html
 
-    clean = sanitize_markdown(text)
-    parts = split_markdown_safe(clean, max_len)
-    return [sanitize_markdown(p) for p in parts]
+    html = md_to_html(text)
+    return split_message_safe(html, max_len)
 
 
-def split_markdown_safe(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
-    """Split text into chunks that respect Markdown entity boundaries.
+def prepare_markdown_parts(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
+    """Legacy wrapper — calls prepare_html_parts().
+
+    Kept for backward compatibility during migration.
+    Callers should switch to prepare_html_parts() + parse_mode="HTML".
+    """
+    return prepare_html_parts(text, max_len)
+
+
+def split_message_safe(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
+    """Split text into chunks by paragraphs, protecting code blocks.
+
+    Works with both raw Markdown (``` blocks) and HTML (<pre> blocks).
 
     Strategy:
-    1. Protect code blocks from being split by \n\n
+    1. Protect code blocks from being split by \\n\\n
     2. Split by double newlines (paragraphs)
     3. If a paragraph exceeds max_len, split by single newlines (lines)
     4. If a line exceeds max_len, hard-split at max_len (last resort)
@@ -51,7 +61,7 @@ def split_markdown_safe(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
     if len(text) <= max_len:
         return [text]
 
-    # Protect code blocks: replace \n\n inside ``` regions with placeholder
+    # Protect code blocks: replace \n\n inside ``` and <pre> regions
     protected = _protect_code_blocks(text)
 
     paragraphs = protected.split('\n\n')
@@ -77,7 +87,7 @@ def split_markdown_safe(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
 
         # Code block paragraph — keep atomic even if over max_len
         # (better to send a slightly oversized message than break code)
-        if _CODE_BLOCK_NL in para or '```' in para:
+        if _CODE_BLOCK_NL in para or '```' in para or '<pre>' in para:
             chunks.append(para)
             continue
 
@@ -111,12 +121,21 @@ def split_markdown_safe(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
     return result if result else [text[:max_len]]
 
 
+# Keep old name as alias for backward compatibility
+split_markdown_safe = split_message_safe
+
+
 def _protect_code_blocks(text: str) -> str:
-    """Replace \\n\\n inside ``` code blocks with placeholder to keep them atomic."""
+    """Replace \\n\\n inside code blocks with placeholder to keep them atomic.
+
+    Handles both Markdown (```) and HTML (<pre>) code blocks.
+    """
     def _replace_nl(match: re.Match) -> str:
         return match.group(0).replace('\n\n', _CODE_BLOCK_NL)
 
-    return re.sub(r'```[\s\S]*?```', _replace_nl, text)
+    text = re.sub(r'```[\s\S]*?```', _replace_nl, text)
+    text = re.sub(r'<pre>[\s\S]*?</pre>', _replace_nl, text)
+    return text
 
 
 def _hard_split(text: str, max_len: int) -> list[str]:

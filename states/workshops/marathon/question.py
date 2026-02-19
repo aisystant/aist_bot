@@ -13,6 +13,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 
 from states.base import BaseState
 from i18n import t
+from helpers.markdown_to_html import md_to_html
 from db.queries import update_intern, save_answer
 from db.queries.answers import get_theory_count_at_level
 from db.queries.marathon import get_marathon_content, save_marathon_content
@@ -160,11 +161,7 @@ class MarathonQuestionState(BaseState):
             one_time_keyboard=True
         )
 
-        try:
-            await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
-        except Exception:
-            logger.warning(f"Markdown parse failed for question (user {chat_id}), sending without formatting")
-            await self.send(user, header + question + footer, reply_markup=keyboard)
+        await self.send(user, md_to_html(header + question + footer), parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
 
     async def handle(self, user, message: Message) -> Optional[str]:

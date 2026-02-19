@@ -40,7 +40,7 @@ from db.queries.qa import save_qa, get_latest_qa_id
 from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
 from i18n import t
-from helpers.markdown_sanitizer import sanitize_markdown
+from helpers.markdown_to_html import md_to_html
 
 logger = logging.getLogger(__name__)
 
@@ -516,10 +516,7 @@ class ConsultationState(BaseState):
                             reply_markup = _build_feedback_keyboard(qa_id, 1, lang)
                     except Exception as e:
                         logger.warning(f"Meta FAQ save_qa error: {e}")
-                try:
-                    await self.send(user, sanitize_markdown(meta_answer), parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception:
-                    await self.send(user, meta_answer, reply_markup=reply_markup)
+                await self.send(user, md_to_html(meta_answer), parse_mode="HTML", reply_markup=reply_markup)
                 # Сохраняем в history + остаёмся в стейте
                 self._append_history(session_ctx, question, meta_answer)
                 await self._save_session_context(chat_id, session_ctx)
@@ -576,10 +573,7 @@ class ConsultationState(BaseState):
                             ]])
                     except Exception as e:
                         logger.warning(f"FAQ save_qa error: {e}")
-                try:
-                    await self.send(user, sanitize_markdown(response), parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception:
-                    await self.send(user, response, reply_markup=reply_markup)
+                await self.send(user, md_to_html(response), parse_mode="HTML", reply_markup=reply_markup)
             else:
                 # Показываем индикатор обработки
                 if is_refinement:
@@ -690,11 +684,7 @@ class ConsultationState(BaseState):
                 if qa_id:
                     reply_markup = _build_feedback_keyboard(qa_id, refinement_round, lang)
 
-                try:
-                    await self.send(user, sanitize_markdown(response), parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception as send_err:
-                    logger.warning(f"Consultation markdown error, falling back to plain text: {send_err}")
-                    await self.send(user, response, reply_markup=reply_markup)
+                await self.send(user, md_to_html(response), parse_mode="HTML", reply_markup=reply_markup)
 
         except Exception as e:
             if typing_task:
