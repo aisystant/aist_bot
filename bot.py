@@ -109,8 +109,9 @@ async def main():
     from core.error_handler import setup_error_handler
     await setup_error_handler()
 
-    # Создаём bot раньше, чтобы передать в State Machine
-    bot = Bot(token=BOT_TOKEN)
+    # Создаём bot с transport-layer Markdown→HTML intercept
+    from core.safe_bot import SafeBot
+    bot = SafeBot(token=BOT_TOKEN)
 
     # Инициализация State Machine (если включён флаг)
     state_machine = None
