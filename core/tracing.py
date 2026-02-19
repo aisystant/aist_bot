@@ -20,6 +20,7 @@
         result = await claude.generate(...)
 """
 
+import asyncio
 import json
 import time
 import uuid
@@ -119,31 +120,31 @@ async def finish_trace(trace: Trace) -> None:
         f"user={trace.user_id} state={trace.state} | {spans_summary}"
     )
 
-    # Записываем в БД (fire-and-forget, ошибки не блокируют запрос)
-    try:
-        await _save_trace_to_db(trace)
-    except Exception as e:
-        logger.warning(f"[TRACE] Failed to save trace: {e}")
+    # Записываем в БД (true fire-and-forget: не ждём DB write)
+    asyncio.create_task(_save_trace_to_db(trace))
 
 
 async def _save_trace_to_db(trace: Trace) -> None:
-    """Записать trace в таблицу request_traces."""
-    from db.connection import acquire
+    """Записать trace в таблицу request_traces (fire-and-forget task)."""
+    try:
+        from db.connection import acquire
 
-    spans_json = json.dumps([
-        {"name": s.name, "duration_ms": round(s.duration_ms, 1), **s.metadata}
-        for s in trace.spans
-    ])
+        spans_json = json.dumps([
+            {"name": s.name, "duration_ms": round(s.duration_ms, 1), **s.metadata}
+            for s in trace.spans
+        ])
 
-    async with await acquire() as conn:
-        await conn.execute(
-            """INSERT INTO request_traces
-               (trace_id, user_id, command, state, total_ms, spans, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
-            trace.trace_id,
-            trace.user_id,
-            trace.command[:100],
-            trace.state,
-            round(trace.total_ms, 1),
-            spans_json,
-        )
+        async with await acquire() as conn:
+            await conn.execute(
+                """INSERT INTO request_traces
+                   (trace_id, user_id, command, state, total_ms, spans, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
+                trace.trace_id,
+                trace.user_id,
+                trace.command[:100],
+                trace.state,
+                round(trace.total_ms, 1),
+                spans_json,
+            )
+    except Exception as e:
+        logger.warning(f"[TRACE] Failed to save trace: {e}")

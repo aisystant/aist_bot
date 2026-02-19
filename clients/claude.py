@@ -206,6 +206,129 @@ class ClaudeClient:
                 return None
         return None
 
+    async def _api_call_streaming_full(self, payload: dict, inactivity_timeout: float = 15) -> Optional[dict]:
+        """Streaming API call returning full response dict (like _api_call).
+
+        Handles both text and tool_use content blocks via SSE.
+        Uses inactivity timeout instead of total timeout — no more
+        failures on long tool_use chains.
+
+        Returns:
+            dict {"stop_reason": str, "content": list} or None on error
+        """
+        session = await self.get_session()
+        headers = {"x-api-key": self.api_key}
+        payload = {**payload, "stream": True}
+
+        for attempt in range(2):
+            try:
+                async with session.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(
+                        total=300,
+                        sock_connect=10,
+                        sock_read=inactivity_timeout,
+                    ),
+                ) as resp:
+                    if resp.status == 200:
+                        content_blocks = []
+                        current_block = None
+                        stop_reason = None
+                        input_json_parts = []
+
+                        while True:
+                            line = await resp.content.readline()
+                            if not line:
+                                break
+                            decoded = line.decode('utf-8').strip()
+                            if not decoded.startswith('data: '):
+                                continue
+                            data_str = decoded[6:]
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                event = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+
+                            event_type = event.get('type')
+
+                            if event_type == 'content_block_start':
+                                block = event.get('content_block', {})
+                                if block.get('type') == 'text':
+                                    current_block = {"type": "text", "text": ""}
+                                elif block.get('type') == 'tool_use':
+                                    current_block = {
+                                        "type": "tool_use",
+                                        "id": block.get("id", ""),
+                                        "name": block.get("name", ""),
+                                        "input": {},
+                                    }
+                                    input_json_parts = []
+
+                            elif event_type == 'content_block_delta':
+                                delta = event.get('delta', {})
+                                if delta.get('type') == 'text_delta' and current_block and current_block['type'] == 'text':
+                                    current_block['text'] += delta.get('text', '')
+                                elif delta.get('type') == 'input_json_delta' and current_block and current_block['type'] == 'tool_use':
+                                    input_json_parts.append(delta.get('partial_json', ''))
+
+                            elif event_type == 'content_block_stop':
+                                if current_block:
+                                    if current_block['type'] == 'tool_use' and input_json_parts:
+                                        try:
+                                            current_block['input'] = json.loads(''.join(input_json_parts))
+                                        except json.JSONDecodeError:
+                                            current_block['input'] = {}
+                                    content_blocks.append(current_block)
+                                    current_block = None
+                                    input_json_parts = []
+
+                            elif event_type == 'message_delta':
+                                delta = event.get('delta', {})
+                                if 'stop_reason' in delta:
+                                    stop_reason = delta['stop_reason']
+
+                        if content_blocks:
+                            return {
+                                "stop_reason": stop_reason or "end_turn",
+                                "content": content_blocks,
+                            }
+                        return None
+
+                    elif resp.status == 429:
+                        retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
+                        if attempt == 0:
+                            await asyncio.sleep(retry_after)
+                            continue
+                        return None
+                    elif resp.status == 529:
+                        logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
+                    else:
+                        error = await resp.text()
+                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        return None
+            except asyncio.TimeoutError:
+                logger.warning(f"Claude API inactivity timeout ({inactivity_timeout}s), attempt {attempt + 1}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                return None
+            except aiohttp.ClientError as e:
+                logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                return None
+        return None
+
     async def generate(
         self,
         system_prompt: str,
@@ -278,6 +401,9 @@ class ClaudeClient:
 
         model = model or CLAUDE_MODEL_SONNET
 
+        # Adaptive inactivity timeout for streaming
+        inactivity_timeout = max(15, max_tokens / 200)
+
         async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
 
@@ -291,7 +417,9 @@ class ClaudeClient:
                         "tools": tools,
                     }
 
-                    data = await self._api_call(payload)
+                    data = await self._api_call_streaming_full(
+                        payload, inactivity_timeout=inactivity_timeout
+                    )
                     if not data:
                         logger.error(f"Claude API failed (tool_use round {round_num})")
                         return None
