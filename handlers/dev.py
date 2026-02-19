@@ -382,3 +382,47 @@ def _format_analytics(report: dict) -> str:
     text = truncate_safe(text)
 
     return text
+
+
+@dev_router.message(Command("reset"))
+async def cmd_reset(message: Message):
+    """/reset <chat_id> — сброс учебных данных тестера (профиль сохраняется)."""
+    if not _is_developer(message.chat.id):
+        return
+
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "<b>Использование:</b> /reset &lt;chat_id&gt;\n\n"
+            "Сбрасывает учебные данные (марафон, лента, ответы, активность).\n"
+            "Профиль (имя, язык, подписка) сохраняется.",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        target_id = int(args[1])
+    except ValueError:
+        await message.answer("chat_id должен быть числом.")
+        return
+
+    from db.queries import get_intern
+    intern = await get_intern(target_id)
+    if not intern:
+        await message.answer(f"Пользователь {target_id} не найден.")
+        return
+
+    from db.queries.profile import reset_learning_data
+    result = await reset_learning_data(target_id)
+    total = sum(result.values())
+
+    name = intern.get('name', '—')
+    details = " | ".join(f"{k}: {v}" for k, v in result.items() if v > 0)
+
+    await message.answer(
+        f"<b>Сброс выполнен</b>\n\n"
+        f"Пользователь: {name} ({target_id})\n"
+        f"Удалено строк: {total}\n"
+        f"Детали: {details or 'нет данных для сброса'}",
+        parse_mode="HTML",
+    )
