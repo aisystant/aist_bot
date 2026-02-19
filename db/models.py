@@ -636,6 +636,22 @@ async def create_tables(pool: asyncpg.Pool):
             ON error_logs (alerted, last_seen_at DESC)
         ''')
 
+        # Classifier columns (WP-45 Phase 2: DP.RUNBOOK.001 classification)
+        for col, typedef in [
+            ('category', 'TEXT'),
+            ('severity', 'TEXT'),
+            ('suggested_action', 'TEXT'),
+            ('escalated', 'BOOLEAN DEFAULT FALSE'),
+        ]:
+            await conn.execute(f'''
+                ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
+            ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_category
+            ON error_logs (category, last_seen_at DESC)
+        ''')
+
         # ═══════════════════════════════════════════════════════════
         # КЕШ КОНТЕНТА (экономия Claude API на повторной генерации)
         # ═══════════════════════════════════════════════════════════

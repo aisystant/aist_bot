@@ -740,7 +740,7 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Latency alert error: {e}")
 
-    # 🚨 Error alert: проверяем каждые 15 минут
+    # 🚨 Error alert: проверяем каждые 15 минут (enhanced with classifier, WP-45)
     if now.minute % 15 == 0 and dev_chat_id:
         try:
             from db.queries.errors import check_error_alerts
@@ -754,6 +754,21 @@ async def scheduled_check():
                     await bot.session.close()
         except Exception as e:
             logger.error(f"[Scheduler] Error alert error: {e}")
+
+    # 🚨 L4 Escalation: L3/L4/unknown ошибки → отдельный алерт (WP-45)
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from core.error_classifier import check_escalation
+            escalation_text = await check_escalation()
+            if escalation_text:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), escalation_text, parse_mode="HTML")
+                    logger.info("[Scheduler] Escalation alert sent to developer")
+                finally:
+                    await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] Escalation check error: {e}")
 
     # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
@@ -791,6 +806,14 @@ async def scheduled_check():
             await check_and_recover_users()
         except Exception as e:
             logger.error(f"[Scheduler] Unstick check error: {e}")
+
+    # 🏷️ Error classifier: классифицируем новые ошибки каждые 5 мин (WP-45)
+    if now.minute % 5 == 0:
+        try:
+            from core.error_classifier import classify_unprocessed
+            await classify_unprocessed()
+        except Exception as e:
+            logger.error(f"[Scheduler] Error classifier error: {e}")
 
     # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
     if now.minute == 0:

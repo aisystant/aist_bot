@@ -364,6 +364,18 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 
 ---
 
+## 11. Error Classification (WP-45, DP.RUNBOOK.001)
+
+**Модуль:** `core/error_classifier.py` — классифицирует `error_logs` по 6 категориям RUNBOOK (fsm, db, claude_api, telegram_api, mcp, scheduler) + severity (L1-L4).
+
+**Порядок паттернов:** специфичные (MCP, Claude, TG) → generic (DB). First match wins. При добавлении нового паттерна — проверяй, не перекрывает ли generic (тест: 13 cases в комментарии к WP-45 коммиту).
+
+**Scheduler:** classify_unprocessed() каждые 5 мин + check_escalation() каждые 15 мин.
+
+**Grafana:** dashboard JSON в `monitoring/grafana-dashboard.json` (PostgreSQL datasource → Neon).
+
+---
+
 ## SOTA: Context Engineering (DP.SOTA.002)
 
 > Бот — surface view над Pack и DDT. Контекст бота = проекция, не копия.
