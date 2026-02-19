@@ -533,9 +533,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         # ═══════════════════════════════════════════════════════════
         # АГРЕГИРОВАННЫЙ ПРОФИЛЬ ЗНАНИЙ (VIEW)
+        # PG не позволяет менять порядок/имена колонок через REPLACE →
+        # всегда DROP + CREATE (view stateless, данные не теряются)
         # ═══════════════════════════════════════════════════════════
+        await conn.execute('DROP VIEW IF EXISTS user_knowledge_profile')
         await conn.execute('''
-            CREATE OR REPLACE VIEW user_knowledge_profile AS
+            CREATE VIEW user_knowledge_profile AS
             SELECT
                 i.chat_id,
                 i.name, i.occupation, i.role, i.domain,

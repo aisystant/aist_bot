@@ -342,6 +342,10 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 **Зачем:** рассредоточение нагрузки на scheduler pre-generation. Без staggering — все 50 users = 50 concurrent Claude API вызовов в одну минуту.
 
+### 10.17. PostgreSQL Views: DROP + CREATE, не REPLACE
+
+`CREATE OR REPLACE VIEW` **запрещён**. PostgreSQL не позволяет менять порядок или имена колонок через REPLACE — бот падает в crash loop при старте. Всегда: `DROP VIEW IF EXISTS` + `CREATE VIEW`. View stateless — данные не теряются.
+
 ---
 
 ## SOTA: Context Engineering (DP.SOTA.002)
