@@ -342,7 +342,11 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 **Зачем:** рассредоточение нагрузки на scheduler pre-generation. Без staggering — все 50 users = 50 concurrent Claude API вызовов в одну минуту.
 
-### 10.17. PostgreSQL Views: DROP + CREATE, не REPLACE
+### 10.17. config/__init__.py — barrel file sync
+
+При добавлении новой константы в `config/settings.py` — **ОБЯЗАТЕЛЬНО** добавить её в оба места в `config/__init__.py`: блок `from .settings import (...)` И список `__all__`. Без этого — `ImportError` crash loop на деплое (IDE не ловит, потому что `from config.settings import X` работает, а `from config import X` — нет).
+
+### 10.18. PostgreSQL Views: DROP + CREATE, не REPLACE
 
 `CREATE OR REPLACE VIEW` **запрещён**. PostgreSQL не позволяет менять порядок или имена колонок через REPLACE — бот падает в crash loop при старте. Всегда: `DROP VIEW IF EXISTS` + `CREATE VIEW`. View stateless — данные не теряются.
 
