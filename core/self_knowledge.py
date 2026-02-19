@@ -55,6 +55,7 @@ _faq: list[dict] = []
 _troubleshooting: list[dict] = []
 _identity: dict = {}
 _integrations: str = ""
+_platform: str = ""
 _loaded: bool = False
 _cache: dict[str, str] = {}
 
@@ -105,7 +106,7 @@ def _fetch_content() -> Optional[str]:
 
 def _parse_pack() -> None:
     """Загрузить самознание: L0 проекция → fallback Pack markdown (lazy, один раз)."""
-    global _scenarios, _faq, _troubleshooting, _identity, _integrations, _loaded
+    global _scenarios, _faq, _troubleshooting, _identity, _integrations, _platform, _loaded
 
     if _loaded:
         return
@@ -126,6 +127,7 @@ def _parse_pack() -> None:
         if troubleshooting_text:
             _troubleshooting.extend(_parse_faq_table_from_text(troubleshooting_text))
         _integrations = projection.get('integrations', '')
+        _platform = projection.get('platform', '')
 
         logger.info(
             f"Self-knowledge loaded from projection: "
@@ -337,6 +339,19 @@ def get_self_knowledge(lang: str = 'ru') -> str:
         if desc:
             lines.append(desc)
 
+    # --- Платформа (уровни, подписка, рост) ---
+    if _platform:
+        if is_ru:
+            # Extract Russian section (between ru header and en header)
+            marker_en = "## Platform Model (en)"
+            idx = _platform.find(marker_en)
+            platform_text = _platform[:idx].strip() if idx > 0 else _platform.strip()
+        else:
+            marker_en = "## Platform Model (en)"
+            idx = _platform.find(marker_en)
+            platform_text = _platform[idx:].strip() if idx > 0 else _platform.strip()
+        lines.append(f"\n{platform_text}")
+
     # --- FAQ ---
     if _faq:
         lines.append("\n## Частые вопросы" if is_ru else "\n## FAQ")
@@ -434,11 +449,12 @@ def get_scenario_names(lang: str = 'ru') -> list[str]:
 
 def invalidate_cache():
     """Сбросить кеш (для ежедневного обновления или тестов)."""
-    global _loaded, _scenarios, _faq, _troubleshooting, _identity, _integrations, _cache
+    global _loaded, _scenarios, _faq, _troubleshooting, _identity, _integrations, _platform, _cache
     _loaded = False
     _scenarios = []
     _faq = []
     _troubleshooting = []
     _identity = {}
     _integrations = ""
+    _platform = ""
     _cache = {}
