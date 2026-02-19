@@ -326,6 +326,18 @@ FREE_TRIAL_DAYS = 15
 # Заблокированные сервисы (без подписки/триала)
 LOCKED_SERVICES = {"feed", "consultation", "notes", "plans"}
 
+# ============= ПЛАТФОРМА (DP.ARCH.002 § 12.9) =============
+
+PLATFORM_URLS = {
+    "site": "https://system-school.ru/",
+    "subscription": "https://system-school.ru/open-endedness",
+    "schedule": "https://system-school.ru/list",
+    "lr": "https://system-school.ru/programs/intro",
+    "rr": "https://system-school.ru/programs/orgdev",
+    "ir": "https://system-school.ru/programs/research",
+    "guides": "https://docs.system-school.ru/ru/",
+}
+
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 
 WORK_PRODUCT_CATEGORIES = {

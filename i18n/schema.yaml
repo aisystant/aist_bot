@@ -2432,8 +2432,25 @@ marathon:
     en: "🎉 Congratulations! Marathon completed! Use /feed for Feed mode."
 
   completed_hint:
-    ru: "Вы можете продолжить обучение в режиме Лента (/feed) или посмотреть продвинутые программы в Мастерской."
-    en: "You can continue learning in Feed mode (/feed) or check advanced programs in the Workshop."
+    ru: "Вы можете продолжить обучение в режиме Лента или перейти к полным программам."
+    en: "You can continue learning in Feed mode or move to full programs."
+
+  completed_next_step:
+    ru: "Марафон — это знакомство. Следующий шаг — полная программа *Личное развитие*, где вы освоите все практики систематического ученика."
+    en: "The Marathon was an introduction. Next step — the full *Personal Development* program, where you'll master all practices of a systematic learner."
+    description: "C1 conversion message after marathon completion"
+
+  btn_program_lr:
+    ru: "📚 Программа «Личное развитие»"
+    en: "📚 Personal Development Program"
+    description: "Button linking to ЛР program landing page"
+    max_length: 40
+
+  btn_continue_feed:
+    ru: "📰 Продолжить в Ленте"
+    en: "📰 Continue in Feed"
+    description: "Button to switch to feed mode after marathon"
+    max_length: 30
 
   come_back_tomorrow:
     ru: "Возвращайтесь завтра за новыми темами!"

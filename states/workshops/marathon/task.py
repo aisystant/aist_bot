@@ -11,7 +11,7 @@
 import asyncio
 from typing import Optional
 
-from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
@@ -279,14 +279,28 @@ class MarathonTaskState(BaseState):
         marathon_completed = len(completed) >= total_topics or len(completed) >= 28
 
         if marathon_completed:
-            # Марафон полностью завершён
+            # Марафон полностью завершён — C1 конверсия в программы
+            from config.settings import PLATFORM_URLS
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_program_lr', lang),
+                    url=PLATFORM_URLS['lr'],
+                )],
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_continue_feed', lang),
+                    callback_data="mode_feed",
+                )],
+            ])
+
             await self.send(
                 user,
                 f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
                 f"🎉 *{t('marathon.completed', lang)}*\n\n"
+                f"{t('marathon.completed_next_step', lang)}\n\n"
                 f"_{t('marathon.completed_hint', lang)}_",
                 parse_mode="Markdown",
-                reply_markup=ReplyKeyboardRemove()
+                reply_markup=keyboard,
             )
             return "marathon_complete"
 

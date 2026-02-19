@@ -362,6 +362,34 @@ def get_self_knowledge(lang: str = 'ru') -> str:
         lines.append("\n## Интеграции" if is_ru else "\n## Integrations")
         lines.append(_integrations.strip())
 
+    # --- Программы (DP.ARCH.002 § 12 — конверсионная воронка C2) ---
+    from config.settings import PLATFORM_URLS
+
+    if is_ru:
+        lines.append("\n## Программы обучения")
+        lines.append(
+            "Если пользователь спрашивает «что дальше», «как продолжить», "
+            "«хочу углубиться» или завершил марафон — рекомендуй программы:\n"
+            f"1. *Личное развитие (ЛР)* — вводная программа, подходит всем: {PLATFORM_URLS['lr']}\n"
+            f"2. *Рабочее развитие (РР)* — для менеджеров и инженеров: {PLATFORM_URLS['rr']}\n"
+            f"3. *Исследовательское развитие (ИР)* — для исследователей: {PLATFORM_URLS['ir']}\n"
+            f"\nРасписание событий: {PLATFORM_URLS['schedule']}\n"
+            f"Руководства (бесплатно): {PLATFORM_URLS['guides']}\n"
+            "\nНачинай рекомендацию с ЛР — это точка входа для большинства."
+        )
+    else:
+        lines.append("\n## Learning Programs")
+        lines.append(
+            "If user asks 'what's next', 'how to continue', "
+            "'want to go deeper' or completed the marathon — recommend programs:\n"
+            f"1. *Personal Development (ЛР)* — intro program, fits everyone: {PLATFORM_URLS['lr']}\n"
+            f"2. *Professional Development (РР)* — for managers and engineers: {PLATFORM_URLS['rr']}\n"
+            f"3. *Research Development (ИР)* — for researchers: {PLATFORM_URLS['ir']}\n"
+            f"\nEvent schedule: {PLATFORM_URLS['schedule']}\n"
+            f"Guides (free): {PLATFORM_URLS['guides']}\n"
+            "\nStart recommendation with ЛР — it's the entry point for most people."
+        )
+
     result = "\n".join(lines)
     _cache[lang] = result
     return result

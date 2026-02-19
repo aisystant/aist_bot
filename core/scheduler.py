@@ -446,8 +446,21 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         total = get_total_topics()
         completed_count = len(intern['completed_topics'])
         if completed_count >= total:
-            # Марафон пройден
+            # Марафон пройден — C1 конверсия в программы (DP.ARCH.002 § 12)
+            from config.settings import PLATFORM_URLS
+
             progress = get_lessons_tasks_progress(intern['completed_topics'])
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_program_lr', lang),
+                    url=PLATFORM_URLS['lr'],
+                )],
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_continue_feed', lang),
+                    callback_data="mode_feed",
+                )],
+            ])
 
             await bot.send_message(
                 chat_id,
@@ -456,11 +469,9 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
                 f"📊 *{t('marathon.your_statistics', lang)}:*\n"
                 f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
                 f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
-                f"{t('marathon.now_practicing_learner', lang)}:\n"
-                f"{t('marathon.practices_list', lang)}\n\n"
-                f"{t('marathon.want_continue', lang)}\n"
-                f"{t('marathon.workshop_full_link', lang)}",
-                parse_mode="Markdown"
+                f"{t('marathon.completed_next_step', lang)}",
+                parse_mode="Markdown",
+                reply_markup=keyboard,
             )
         return
 
