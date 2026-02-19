@@ -15,7 +15,7 @@ from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer
 from db.queries.answers import get_theory_count_at_level
-from db.queries.marathon import get_marathon_content
+from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic
 from clients import claude
 from config import get_logger
@@ -133,6 +133,9 @@ class MarathonQuestionState(BaseState):
                     intern=intern,
                     bloom_level=bloom_level
                 )
+                # Сохраняем в БД для повторного использования
+                await save_marathon_content(chat_id, topic_index, question_content=question)
+                logger.info(f"Cached on-the-fly question for user {chat_id}, topic {topic_index}")
             except Exception as e:
                 logger.error(f"Error generating question for user {chat_id}: {e}")
                 await self.send(
@@ -233,35 +236,31 @@ class MarathonQuestionState(BaseState):
                 topics_at_current_complexity=topics_at_bloom
             )
 
-        # Подтверждение
+        # Подтверждение + кнопка навигации (убираем reply keyboard)
         await self.send(user, f"✅ *{t('marathon.topic_completed', lang)}*", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
 
         # Решаем: бонус или сразу задание
         # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)
         # Уровень 1 → сразу задание, уровни 2-3 → предложить бонус
         if original_bloom_level >= 2:
-            # Кнопка «Далее → Бонус» вместо автоперехода
+            # Кнопка «Далее → Бонус»
             bonus_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"⭐ {t('buttons.next_bonus', lang)}",
                     callback_data="marathon_next_bonus"
                 )]
             ])
-            await self.send(user, f"⭐ {t('buttons.next_bonus', lang)}", reply_markup=bonus_keyboard)
+            await self.send(user, "👇", reply_markup=bonus_keyboard)
             return None  # ждём клик
         else:
-            # Показываем кнопку «Получить практику»
+            # Кнопка «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.get_practice', lang)}",
                     callback_data="marathon_get_practice"
                 )]
             ])
-            await self.send(
-                user,
-                f"✏️ {t('buttons.get_practice', lang)}",
-                reply_markup=practice_keyboard
-            )
+            await self.send(user, "👇", reply_markup=practice_keyboard)
             return None  # ждём клик
 
     async def handle_callback(self, user, callback) -> Optional[str]:

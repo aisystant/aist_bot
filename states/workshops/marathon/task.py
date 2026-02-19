@@ -15,7 +15,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from db.queries import update_intern, save_answer, moscow_today
-from db.queries.marathon import get_marathon_content
+from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
 from clients import claude
@@ -134,6 +134,9 @@ class MarathonTaskState(BaseState):
                     topic=topic,
                     intern=intern
                 )
+                # Сохраняем в БД для повторного использования
+                await save_marathon_content(chat_id, topic_index, practice_content=practice_data)
+                logger.info(f"Cached on-the-fly practice for user {chat_id}, topic {topic_index}")
             except Exception as e:
                 logger.error(f"Error generating practice intro for user {chat_id}: {e}")
                 # Fallback: показываем задание без введения

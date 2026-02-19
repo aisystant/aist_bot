@@ -169,20 +169,15 @@ class MarathonBonusState(BaseState):
 
         # Пользователь отказался
         if self._is_no_button(text, lang):
-            # FIX: Удаляем Reply Keyboard при переходе к практике
-            await self.send_remove_keyboard(user, t('marathon.loading_practice', lang))
-            # Показываем кнопку «Получить практику»
+            # Удаляем Reply Keyboard и показываем кнопку «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.get_practice', lang)}",
                     callback_data="marathon_get_practice"
                 )]
             ])
-            await self.send(
-                user,
-                f"✏️ {t('buttons.get_practice', lang)}",
-                reply_markup=practice_keyboard
-            )
+            await self.send_remove_keyboard(user, t('marathon.loading_practice', lang))
+            await self.send(user, "👇", reply_markup=practice_keyboard)
             return None  # ждём клик
 
         # Настройки — переход в настройки
@@ -213,18 +208,14 @@ class MarathonBonusState(BaseState):
                 parse_mode="Markdown",
                 reply_markup=ReplyKeyboardRemove()
             )
-            # Показываем кнопку «Получить практику»
+            # Кнопка «Получить практику»
             practice_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"✏️ {t('buttons.get_practice', lang)}",
                     callback_data="marathon_get_practice"
                 )]
             ])
-            await self.send(
-                user,
-                f"✏️ {t('buttons.get_practice', lang)}",
-                reply_markup=practice_keyboard
-            )
+            await self.send(user, "👇", reply_markup=practice_keyboard)
             return None  # ждём клик
 
         # Слишком короткий ответ — показываем ожидание

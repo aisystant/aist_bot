@@ -139,21 +139,25 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
     logger.info(f"[CB] Marathon callback '{data}' for chat_id={chat_id}")
 
     try:
-        await callback.answer()
-        try:
-            await callback.message.edit_reply_markup()
-        except Exception:
-            pass
-        await state.clear()
+        # Direct entry callbacks — route via go_to (from menu / mode_select)
+        if data in ("marathon_get_lesson", "marathon_get_question", "marathon_get_practice"):
+            await callback.answer()
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+            await state.clear()
 
-        if data == "marathon_get_lesson":
-            await dispatcher.go_to(intern, "workshop.marathon.lesson")
-        elif data == "marathon_get_question":
-            await dispatcher.go_to(intern, "workshop.marathon.question")
-        elif data == "marathon_get_practice":
-            await dispatcher.go_to(intern, "workshop.marathon.task")
+            state_map = {
+                "marathon_get_lesson": "workshop.marathon.lesson",
+                "marathon_get_question": "workshop.marathon.question",
+                "marathon_get_practice": "workshop.marathon.task",
+            }
+            await dispatcher.go_to(intern, state_map[data])
         else:
-            logger.warning(f"[CB] Unknown marathon callback: {data}")
+            # In-state callbacks (next_question, next_bonus, retry, back, etc.)
+            # Route to SM — state's handle_callback will answer() and process
+            await dispatcher.route_callback(intern, callback)
 
     except Exception as e:
         logger.error(f"[CB] Error handling marathon callback: {e}")
