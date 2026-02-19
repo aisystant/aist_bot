@@ -35,7 +35,7 @@ GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-produc
 
 # ============= L2 AUTO-FIX (WP-45 Phase 3) =============
 GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
-AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "TserenTserenov/DS-IT-systems")
+AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "aisystant/aist_bot")
 AUTOFIX_BRANCH_BASE = os.getenv("AUTOFIX_BRANCH_BASE", "new-architecture")
 AUTOFIX_BOT_DIR = "aist_bot_newarchitecture"
 AUTOFIX_MAX_FILES = 3
