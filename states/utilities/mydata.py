@@ -516,7 +516,7 @@ class MyDataState(BaseState):
                 result['Roles'] = ', '.join(pref['role_set'])
             if pref.get('weekly_time_budget'):
                 result['Time Budget'] = f"{pref['weekly_time_budget']}h/week"
-            return result if result else None
+            return result  # {} = connected but empty profile
         except Exception as e:
             logger.warning(f"DT profile fetch failed: {e}")
             return None
@@ -637,11 +637,13 @@ class MyDataState(BaseState):
             if tier >= 3:
                 text += f"\n2. 🧬 {t('mydata.how_dt', lang)}:\n"
                 dt = await self._get_dt_profile(chat_id)
-                if dt:
+                if dt is None:
+                    text += f"   → {t('mydata.dt_not_connected', lang)}\n"
+                elif dt:
                     for k, v in dt.items():
                         text += f"   → {k}: {v}\n"
                 else:
-                    text += f"   → {t('mydata.dt_not_connected', lang)}\n"
+                    text += f"   → {t('mydata.dt_empty_profile', lang)}\n"
 
         text += f"\n*{t('mydata.how_not_sent', lang)}*\n"
         text += t('mydata.how_not_sent_list', lang)

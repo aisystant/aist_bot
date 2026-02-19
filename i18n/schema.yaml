@@ -3111,6 +3111,9 @@ mydata:
   dt_not_connected:
     ru: "Не подключён. Используй /twin"
     en: "Not connected. Use /twin"
+  dt_empty_profile:
+    ru: "Подключён ✓ Профиль пока не заполнен. Используй /twin для настройки"
+    en: "Connected ✓ Profile not filled yet. Use /twin to set up"
 
   # ── Privacy ──
   privacy_your_tier:
