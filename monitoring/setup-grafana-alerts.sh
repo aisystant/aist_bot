@@ -134,6 +134,7 @@ create_rule() {
   "noDataState": "OK",
   "execErrState": "Alerting",
   "for": "${FOR_DURATION}",
+  "condition": "B",
   "labels": {
     "bot": "aist",
     "severity": "${SEVERITY}"
