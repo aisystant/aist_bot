@@ -641,6 +641,15 @@ class ConsultationState(BaseState):
                     user_chat_id = self._get_chat_id(user)
                     tier, has_github, has_dt = await self._detect_tier(user_chat_id)
 
+                    # Proactive DT injection: detect personal query → fetch DT data
+                    if has_dt:
+                        from engines.shared.personal_detector import detect_personal_query, fetch_dt_context
+                        dt_paths = detect_personal_query(question)
+                        if dt_paths:
+                            dt_context = await fetch_dt_context(user_chat_id, dt_paths)
+                            if dt_context:
+                                bot_context = dt_context + "\n\n" + bot_context
+
                     from engines.shared import handle_question_with_tools
                     from engines.shared.consultation_tools import get_personal_claude_md
 
