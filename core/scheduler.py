@@ -718,6 +718,13 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Milestone notification error: {e}")
 
+    # 📅 Event notifications (12:00 MSK daily — C7, DP.ARCH.002 § 12.7)
+    if now.hour == 12 and now.minute == 0:
+        try:
+            await send_event_notifications()
+        except Exception as e:
+            logger.error(f"[Scheduler] Event notification error: {e}")
+
     # 🚨 Latency alert: проверяем каждые 15 минут
     if now.minute % 15 == 0 and dev_chat_id:
         try:
@@ -1024,6 +1031,84 @@ async def send_milestone_notifications():
 
     if total_sent > 0:
         logger.info(f"[Scheduler] Milestone notifications: {total_sent} sent")
+
+
+# ═══════════════════════════════════════════════════════════
+# EVENT NOTIFICATIONS (DP.ARCH.002 § 12.7, C7)
+# ═══════════════════════════════════════════════════════════
+
+async def send_event_notifications():
+    """Уведомить всех активных пользователей о приближающихся событиях (C7)."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from config.conversion import get_upcoming_events
+    from db.queries.conversion import log_conversion_event, was_milestone_sent
+    from db.connection import get_pool
+
+    today = moscow_today()
+    events = get_upcoming_events(today)
+    if not events:
+        return
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT chat_id, language FROM interns
+               WHERE onboarding_completed = TRUE'''
+        )
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for event in events:
+            event_name = event.get("name_ru", "")
+            event_url = event.get("url", "")
+            days_until = event.get("days_until", 0)
+            event_date = event["date"].strftime("%d.%m")
+            milestone_key = f"event:{event_name[:40]}"
+
+            for row in rows:
+                chat_id = row['chat_id']
+                lang = row.get('language', 'ru') or 'ru'
+
+                # Dedup: не отправляли ли уже C7 для этого события
+                if await was_milestone_sent(chat_id, milestone_key):
+                    continue
+
+                name = event.get(f"name_{lang}", event_name)
+                if lang == 'ru':
+                    text = (
+                        f"📅 *Событие через {days_until} дн. ({event_date})*\n\n"
+                        f"*{name}*\n\n"
+                        f"Зарегистрироваться можно по ссылке ниже."
+                    )
+                else:
+                    text = (
+                        f"📅 *Event in {days_until} days ({event_date})*\n\n"
+                        f"*{name}*\n\n"
+                        f"Register using the link below."
+                    )
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="📅 " + ("Зарегистрироваться" if lang == 'ru' else "Register"),
+                        url=event_url,
+                    )]
+                ])
+
+                try:
+                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+                    await log_conversion_event(chat_id, 'C7', milestone_key)
+                    total_sent += 1
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                        logger.error(f"[Scheduler] Event notification error for {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+    if total_sent > 0:
+        logger.info(f"[Scheduler] Event notifications: {total_sent} sent for {len(events)} events")
 
 
 # ═══════════════════════════════════════════════════════════

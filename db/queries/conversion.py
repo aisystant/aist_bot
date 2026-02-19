@@ -39,18 +39,31 @@ async def log_conversion_event(
         )
 
 
-async def was_milestone_sent(chat_id: int, milestone: str) -> bool:
-    """Проверить, было ли milestone-уведомление уже отправлено."""
+async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = None) -> bool:
+    """Проверить, было ли уведомление уже отправлено.
+
+    Args:
+        trigger_type: если None — ищет по любому trigger_type.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchval(
-            '''SELECT 1 FROM conversion_events
-               WHERE chat_id = $1
-                 AND trigger_type = 'C3'
-                 AND milestone = $2
-               LIMIT 1''',
-            chat_id, milestone,
-        )
+        if trigger_type:
+            row = await conn.fetchval(
+                '''SELECT 1 FROM conversion_events
+                   WHERE chat_id = $1
+                     AND trigger_type = $2
+                     AND milestone = $3
+                   LIMIT 1''',
+                chat_id, trigger_type, milestone,
+            )
+        else:
+            row = await conn.fetchval(
+                '''SELECT 1 FROM conversion_events
+                   WHERE chat_id = $1
+                     AND milestone = $2
+                   LIMIT 1''',
+                chat_id, milestone,
+            )
         return row is not None
 
 

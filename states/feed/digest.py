@@ -287,6 +287,16 @@ class FeedDigestState(BaseState):
             callback_data="feed_whats_next"
         )])
 
+        # C5: Topic → Program hint (DP.ARCH.002 § 12.7)
+        from config.conversion import PROGRAM_NAMES
+        from config.settings import PLATFORM_URLS
+        program_key = "lr"
+        program_name = PROGRAM_NAMES[program_key].get(lang, PROGRAM_NAMES[program_key]["ru"])
+        buttons.append([InlineKeyboardButton(
+            text=f"📚 {program_name}",
+            url=PLATFORM_URLS[program_key],
+        )])
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         # Сохраняем состояние

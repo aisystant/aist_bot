@@ -650,6 +650,23 @@ class ConsultationState(BaseState):
                             if dt_context:
                                 bot_context = dt_context + "\n\n" + bot_context
 
+                    # C6: Goal → Program matching (DP.ARCH.002 § 12.8)
+                    user_goals = intern_dict.get('goals', '') or ''
+                    user_interests = intern_dict.get('interests', '') or ''
+                    if user_goals or user_interests:
+                        from config.conversion import match_goals_to_program, PROGRAM_NAMES
+                        from config.settings import PLATFORM_URLS
+                        matched_program = match_goals_to_program(user_goals, user_interests)
+                        if matched_program:
+                            pname = PROGRAM_NAMES[matched_program].get(lang, PROGRAM_NAMES[matched_program]["ru"])
+                            purl = PLATFORM_URLS[matched_program]
+                            goal_hint = {
+                                'ru': f"\n\nПЕРСОНАЛЬНАЯ РЕКОМЕНДАЦИЯ: На основе целей пользователя лучше всего подходит программа «{pname}»: {purl}. Упомяни это, если вопрос про развитие, обучение или «что дальше».",
+                                'en': f"\n\nPERSONAL RECOMMENDATION: Based on user goals, the best-fit program is «{pname}»: {purl}. Mention this if the question is about development, learning, or 'what's next'.",
+                            }.get(lang, '')
+                            if goal_hint:
+                                bot_context += goal_hint
+
                     from engines.shared import handle_question_with_tools
                     from engines.shared.consultation_tools import get_personal_claude_md
 
