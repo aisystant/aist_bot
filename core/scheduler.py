@@ -770,6 +770,20 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Escalation check error: {e}")
 
+    # 🔧 L2 Auto-Fix: detect errors → Claude diagnosis → TG approval (WP-45 Phase 3)
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from core.autofix import run_autofix_cycle
+            bot = Bot(token=_bot_token)
+            try:
+                proposals = await run_autofix_cycle(bot, dev_chat_id)
+                if proposals > 0:
+                    logger.info(f"[Scheduler] AutoFix: {proposals} proposals sent")
+            finally:
+                await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] AutoFix cycle error: {e}")
+
     # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
         try:
@@ -786,6 +800,11 @@ async def scheduled_check():
             await cleanup_old_errors(days=7)
         except Exception as e:
             logger.error(f"[Scheduler] Error logs cleanup error: {e}")
+        try:
+            from db.queries.autofix import cleanup_old_fixes
+            await cleanup_old_fixes(days=30)
+        except Exception as e:
+            logger.error(f"[Scheduler] AutoFix cleanup error: {e}")
         try:
             from db.queries.cache import cache_cleanup
             await cache_cleanup()

@@ -1,5 +1,5 @@
 """
-Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors.
+Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, autofix callbacks.
 
 Доступны только для DEVELOPER_CHAT_ID.
 """
@@ -7,8 +7,8 @@
 import logging
 import os
 
-from aiogram import Router
-from aiogram.types import Message
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 
 from helpers.message_split import truncate_safe
@@ -428,3 +428,49 @@ async def cmd_reset(message: Message):
         f"При следующем /start — онбординг заново.",
         parse_mode="HTML",
     )
+
+
+# ═══════════════════════════════════════════════════════════
+# L2 AUTO-FIX: approve/reject callbacks (WP-45 Phase 3)
+# ═══════════════════════════════════════════════════════════
+
+@dev_router.callback_query(F.data.startswith("autofix_"))
+async def cb_autofix(callback: CallbackQuery):
+    """Handle auto-fix approval/rejection via inline buttons."""
+    if not _is_developer(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+
+    data = callback.data
+
+    if data.startswith("autofix_approve_"):
+        fix_id = int(data.split("_")[-1])
+        await callback.answer("\u2699\ufe0f Applying fix...")
+
+        from core.autofix import apply_fix
+        pr_url = await apply_fix(fix_id)
+
+        if pr_url:
+            await callback.message.edit_text(
+                f"\u2705 <b>Fix #{fix_id} applied</b>\n\n"
+                f"PR: {pr_url}",
+                parse_mode="HTML",
+            )
+        else:
+            await callback.message.edit_text(
+                f"\u26a0\ufe0f <b>Fix #{fix_id} failed</b>\n\n"
+                f"Check logs: <code>[AutoFix]</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("autofix_reject_"):
+        fix_id = int(data.split("_")[-1])
+        await callback.answer("Fix rejected")
+
+        from core.autofix import reject_fix
+        await reject_fix(fix_id)
+
+        await callback.message.edit_text(
+            f"\u274c <b>Fix #{fix_id} rejected</b>",
+            parse_mode="HTML",
+        )

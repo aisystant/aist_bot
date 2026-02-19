@@ -33,6 +33,18 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
 
+# ============= L2 AUTO-FIX (WP-45 Phase 3) =============
+GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
+AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "TserenTserenov/DS-IT-systems")
+AUTOFIX_BRANCH_BASE = os.getenv("AUTOFIX_BRANCH_BASE", "new-architecture")
+AUTOFIX_BOT_DIR = "aist_bot_newarchitecture"
+AUTOFIX_MAX_FILES = 3
+AUTOFIX_MAX_PROPOSALS = 3  # per 15-min cycle
+AUTOFIX_PROTECTED = frozenset({
+    "db/models.py", "core/scheduler.py", "bot.py",
+    "config/settings.py", "config/__init__.py",
+})
+
 def validate_env():
     """Проверка наличия обязательных переменных окружения"""
     if not BOT_TOKEN:

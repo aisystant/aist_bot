@@ -653,6 +653,32 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # L2 AUTO-FIX: предложения исправлений с подтверждением (WP-45)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS pending_fixes (
+                id SERIAL PRIMARY KEY,
+                error_log_id INTEGER NOT NULL,
+                error_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                diagnosis TEXT NOT NULL,
+                archgate_eval TEXT NOT NULL,
+                proposed_diff TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                pr_url TEXT,
+                branch_name TEXT,
+                tg_message_id BIGINT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_error_key_active
+            ON pending_fixes (error_key) WHERE status IN ('pending', 'approved')
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # КЕШ КОНТЕНТА (экономия Claude API на повторной генерации)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
