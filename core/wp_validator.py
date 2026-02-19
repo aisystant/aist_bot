@@ -193,11 +193,11 @@ def get_wp_hint(bloom_level: int, text: str, suggestion: str = "", lang: str = "
 
     if lang != "ru":
         # Для не-русских языков — упрощённая подсказка
-        return f"Try naming the result (artifact). For example: *{example}*"
+        return f"Next time, try naming the result (artifact). For example: *{example}*"
 
     if bl == 1:
         return (
-            f"Попробуй назвать *результат*. "
+            f"Попробуй в будущем назвать *результат*. "
             f"Например: *{example}* или *Таблица целей*. "
             f"Что именно получится в итоге?"
         )
@@ -205,11 +205,11 @@ def get_wp_hint(bloom_level: int, text: str, suggestion: str = "", lang: str = "
         return (
             f"Рабочий продукт — это *артефакт*, который можно показать. "
             f"«{text}» звучит как действие. "
-            f"Попробуй: что именно будет создано? Например: *{example}*"
+            f"Попробуй в будущем написать: *{example}*"
         )
     else:
         return (
             f"По правилу РАБОЧИЙ ПРОДУКТ ≠ ДЕЙСТВИЕ: "
             f"РП формулируется существительным. "
-            f"«{text}» — это процесс. Артефакт: *{example}*"
+            f"«{text}» — это процесс. Попробуй в будущем: *{example}*"
         )
