@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ─── Tier detection helpers ────────────────────────────────────────────────
 
 TIER_NAMES = {
-    'ru': {1: 'T1 — Старт', 2: 'T2 — Обучение', 3: 'T3 — Персонализация', 4: 'T4 — Создание'},
+    'ru': {1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание'},
     'en': {1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation'},
 }
 
