@@ -58,7 +58,7 @@ EOF
 RESULT=$(curl -s -w "\n%{http_code}" -X POST "${API}/v1/provisioning/contact-points" \
   -H "${AUTH}" -H "${CT}" -d "${CONTACT_POINT}")
 HTTP_CODE=$(echo "$RESULT" | tail -1)
-BODY=$(echo "$RESULT" | head -n -1)
+BODY=$(echo "$RESULT" | sed '$d')
 
 if [ "$HTTP_CODE" = "202" ] || [ "$HTTP_CODE" = "200" ]; then
   echo "  ✅ Contact point created"
@@ -92,7 +92,7 @@ EOF
 RESULT=$(curl -s -w "\n%{http_code}" -X PUT "${API}/v1/provisioning/policies" \
   -H "${AUTH}" -H "${CT}" -d "${POLICY}")
 HTTP_CODE=$(echo "$RESULT" | tail -1)
-BODY=$(echo "$RESULT" | head -n -1)
+BODY=$(echo "$RESULT" | sed '$d')
 
 if [ "$HTTP_CODE" = "202" ] || [ "$HTTP_CODE" = "200" ]; then
   echo "  ✅ Notification policy updated"
@@ -106,7 +106,7 @@ FOLDER=$(curl -s -w "\n%{http_code}" -X POST "${API}/folders" \
   -H "${AUTH}" -H "${CT}" \
   -d '{"uid":"aist-bot-alerts","title":"Aist Bot Alerts"}')
 HTTP_CODE=$(echo "$FOLDER" | tail -1)
-FOLDER_BODY=$(echo "$FOLDER" | head -n -1)
+FOLDER_BODY=$(echo "$FOLDER" | sed '$d')
 
 if [ "$HTTP_CODE" = "200" ]; then
   echo "  ✅ Folder created"
@@ -181,7 +181,7 @@ EOF
     "${API}/v1/provisioning/alert-rules" \
     -H "${AUTH}" -H "${CT}" -d "${RULE}")
   HTTP_CODE=$(echo "$RESULT" | tail -1)
-  BODY=$(echo "$RESULT" | head -n -1)
+  BODY=$(echo "$RESULT" | sed '$d')
 
   if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
     echo "  ✅ ${NAME}"
