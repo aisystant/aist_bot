@@ -87,6 +87,9 @@ from .settings import (
     # Онтологические правила
     ONTOLOGY_RULES,
     ONTOLOGY_RULES_TOPICS,
+
+    # Markdown sanitizer
+    TELEGRAM_MARKDOWN_RULES,
 )
 
 __all__ = [
@@ -138,4 +141,5 @@ __all__ = [
     'WORK_PRODUCT_CATEGORIES',
     'ONTOLOGY_RULES',
     'ONTOLOGY_RULES_TOPICS',
+    'TELEGRAM_MARKDOWN_RULES',
 ]
