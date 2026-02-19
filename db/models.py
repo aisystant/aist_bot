@@ -680,4 +680,28 @@ async def create_tables(pool: asyncpg.Pool):
             ON user_sessions (started_at DESC)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # КОНВЕРСИОННЫЕ СОБЫТИЯ (DP.ARCH.002 § 12.8)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS conversion_events (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                milestone TEXT,
+                shown_at TIMESTAMPTZ DEFAULT NOW(),
+                action TEXT DEFAULT 'shown'
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_conversion_chat_id
+            ON conversion_events (chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_conversion_trigger
+            ON conversion_events (trigger_type, milestone)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

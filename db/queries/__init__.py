@@ -89,6 +89,13 @@ from .traces import (
     cleanup_old_traces,
 )
 
+from .conversion import (
+    log_conversion_event,
+    was_milestone_sent,
+    is_cooldown_active,
+    get_milestone_eligible_users,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -157,4 +164,10 @@ __all__ = [
 
     # traces
     'cleanup_old_traces',
+
+    # conversion
+    'log_conversion_event',
+    'was_milestone_sent',
+    'is_cooldown_active',
+    'get_milestone_eligible_users',
 ]

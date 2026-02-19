@@ -711,6 +711,13 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Trial expiry notification error: {e}")
 
+    # 🎯 Milestone notifications (11:00 MSK daily — C3, DP.ARCH.002 § 12.5)
+    if now.hour == 11 and now.minute == 0:
+        try:
+            await send_milestone_notifications()
+        except Exception as e:
+            logger.error(f"[Scheduler] Milestone notification error: {e}")
+
     # 🚨 Latency alert: проверяем каждые 15 минут
     if now.minute % 15 == 0 and dev_chat_id:
         try:
@@ -915,6 +922,108 @@ async def send_trial_expiry_notifications():
                         logger.error(f"[Scheduler] Trial notification error for {chat_id}: {e}")
     finally:
         await bot.session.close()
+
+
+# ═══════════════════════════════════════════════════════════
+# MILESTONE NOTIFICATIONS (DP.ARCH.002 § 12.5, C3)
+# ═══════════════════════════════════════════════════════════
+
+async def send_milestone_notifications():
+    """Отправить milestone-уведомления (C3): 7/14/30/60/90 дней."""
+    import json
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from db.queries.conversion import (
+        get_milestone_eligible_users, log_conversion_event, MILESTONE_DAYS,
+    )
+    from config.settings import PLATFORM_URLS
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for day in MILESTONE_DAYS:
+            milestone = f"day_{day}"
+            users = await get_milestone_eligible_users(day)
+
+            for user in users:
+                chat_id = user['chat_id']
+                lang = user.get('language', 'ru') or 'ru'
+
+                try:
+                    completed = json.loads(user.get('completed_topics', '[]') or '[]')
+                except (json.JSONDecodeError, TypeError):
+                    completed = []
+                topics_count = len(completed)
+                active_days = user.get('active_days_total', 0) or 0
+                streak = user.get('longest_streak', 0) or 0
+                bloom = user.get('complexity_level', 1) or 1
+
+                # Базовое сообщение
+                text = t(f'milestones.day_{day}', lang,
+                         topics=topics_count,
+                         active_days=active_days,
+                         streak=streak,
+                         bloom=bloom,
+                         marathon_status='')
+
+                # Специальные вставки для day_7 и day_14
+                if day == 7:
+                    trial_text = t('milestones.day_7_trial', lang)
+                    text += trial_text
+
+                if day == 14:
+                    marathon_done = user.get('marathon_status') == 'completed'
+                    if marathon_done:
+                        ms = t('milestones.day_14_marathon_done', lang)
+                    else:
+                        ms = t('milestones.day_14_marathon_progress', lang,
+                               completed=topics_count)
+                    text = text.replace('{marathon_status}', ms)
+
+                # Кнопки: day_30 и ниже → предложить ЛР, day_60 → twin
+                keyboard = None
+                if day in (30, 90):
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=t('milestones.btn_program', lang),
+                            url=PLATFORM_URLS['lr'],
+                        )]
+                    ])
+                elif day == 60:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=t('milestones.btn_twin', lang),
+                            callback_data="cmd_twin",
+                        )]
+                    ])
+                elif day == 14:
+                    marathon_done = user.get('marathon_status') == 'completed'
+                    if marathon_done:
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text=t('milestones.btn_program', lang),
+                                url=PLATFORM_URLS['lr'],
+                            )]
+                        ])
+
+                try:
+                    await bot.send_message(
+                        chat_id, text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                    )
+                    await log_conversion_event(chat_id, 'C3', milestone)
+                    total_sent += 1
+                    logger.info(f"[Scheduler] Milestone {milestone} sent to {chat_id}")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                        logger.error(f"[Scheduler] Milestone {milestone} error for {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+    if total_sent > 0:
+        logger.info(f"[Scheduler] Milestone notifications: {total_sent} sent")
 
 
 # ═══════════════════════════════════════════════════════════

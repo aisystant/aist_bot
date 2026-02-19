@@ -3942,6 +3942,52 @@ strategist:
     en: "Available commands:\n/rp — WeekPlan (weekly plan)\n/plan — DayPlan (daily plan)\n/report — WeekReport (weekly report)"
 
 # -----------------------------------------------------------------------------
+# Milestones — конверсионные уведомления (DP.ARCH.002 § 12.5, C3)
+# -----------------------------------------------------------------------------
+milestones:
+  day_7:
+    ru: "🎯 *Неделя с нами!*\n\nВы изучили {topics} тем и провели {active_days} активных дней.\n\nЭто отличный старт — продолжайте в том же темпе!"
+    en: "🎯 *One week with us!*\n\nYou've studied {topics} topics and had {active_days} active days.\n\nGreat start — keep up the pace!"
+
+  day_7_trial:
+    ru: "\n\n💡 Напоминаем: первые 15 дней — бесплатный период. После него доступ к Ленте и консультациям сохранится по подписке."
+    en: "\n\n💡 Reminder: the first 15 days are a free trial. After that, Feed and consultations stay available with a subscription."
+
+  day_14:
+    ru: "🏃 *Две недели обучения!*\n\n{marathon_status}\n\nВы входите в число самых активных учеников."
+    en: "🏃 *Two weeks of learning!*\n\n{marathon_status}\n\nYou're among our most active learners."
+
+  day_14_marathon_done:
+    ru: "Марафон пройден — отличный результат! Следующий шаг — программа *Личное развитие*."
+    en: "Marathon completed — great result! Next step — the *Personal Development* program."
+
+  day_14_marathon_progress:
+    ru: "Марафон в процессе — {completed}/28 тем. Продолжайте!"
+    en: "Marathon in progress — {completed}/28 topics. Keep going!"
+
+  day_30:
+    ru: "📅 *Месяц с нами!*\n\n{active_days} активных дней, {topics} тем изучено, серия: {streak} дней подряд.\n\nДля глубокого освоения материала рекомендуем полную программу *Личное развитие*."
+    en: "📅 *One month with us!*\n\n{active_days} active days, {topics} topics studied, streak: {streak} days in a row.\n\nFor deeper mastery, we recommend the full *Personal Development* program."
+
+  day_60:
+    ru: "🌟 *Два месяца обучения!*\n\nВы изучили {topics} тем на уровне сложности {bloom}.\n\nСледующий шаг для роста — заполните «Цифровой двойник» (/twin), чтобы получить персонализированные рекомендации."
+    en: "🌟 *Two months of learning!*\n\nYou've studied {topics} topics at complexity level {bloom}.\n\nNext growth step — fill in your Digital Twin (/twin) for personalized recommendations."
+
+  day_90:
+    ru: "🏆 *Три месяца! Вы — систематический ученик.*\n\n{active_days} активных дней, серия: {streak} дней, уровень: {bloom}.\n\nВы готовы к следующему уровню — полному экзокортексу с ИИ-ассистентами и ведением заметок."
+    en: "🏆 *Three months! You're a systematic learner.*\n\n{active_days} active days, streak: {streak} days, level: {bloom}.\n\nYou're ready for the next level — a full exocortex with AI assistants and note-taking."
+
+  btn_program:
+    ru: "📚 Узнать о программе ЛР"
+    en: "📚 Learn about PD program"
+    max_length: 40
+
+  btn_twin:
+    ru: "🧬 Заполнить Цифровой двойник"
+    en: "🧬 Fill Digital Twin"
+    max_length: 40
+
+# -----------------------------------------------------------------------------
 # Linear интеграция
 # -----------------------------------------------------------------------------
 linear:
