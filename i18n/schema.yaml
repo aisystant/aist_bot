@@ -4101,3 +4101,25 @@ twin:
   disconnected_desc:
     ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
     en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
+
+# -----------------------------------------------------------------------------
+# Сброс прогресса (авто-детект при /start)
+# -----------------------------------------------------------------------------
+reset:
+  old_data_detected:
+    ru: "👋 Обнаружены данные от предыдущего бота ({completed} пройденных тем).\n\nХотите начать с чистого листа или продолжить с текущим прогрессом?"
+    en: "👋 Data from a previous bot detected ({completed} completed topics).\n\nWould you like to start fresh or continue with your current progress?"
+
+  fresh_start_btn:
+    ru: "🔄 Начать заново"
+    en: "🔄 Start fresh"
+    max_length: 25
+
+  continue_btn:
+    ru: "▶️ Продолжить"
+    en: "▶️ Continue"
+    max_length: 20
+
+  done:
+    ru: "✅ Прогресс сброшен! Профиль сохранён. Начинаем заново."
+    en: "✅ Progress reset! Profile preserved. Starting fresh."

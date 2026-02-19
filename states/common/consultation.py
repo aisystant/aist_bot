@@ -40,6 +40,7 @@ from db.queries.qa import save_qa, get_latest_qa_id
 from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
 from i18n import t
+from helpers.markdown_sanitizer import sanitize_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -516,7 +517,7 @@ class ConsultationState(BaseState):
                     except Exception as e:
                         logger.warning(f"Meta FAQ save_qa error: {e}")
                 try:
-                    await self.send(user, meta_answer, parse_mode="Markdown", reply_markup=reply_markup)
+                    await self.send(user, sanitize_markdown(meta_answer), parse_mode="Markdown", reply_markup=reply_markup)
                 except Exception:
                     await self.send(user, meta_answer, reply_markup=reply_markup)
                 # Сохраняем в history + остаёмся в стейте
@@ -576,7 +577,7 @@ class ConsultationState(BaseState):
                     except Exception as e:
                         logger.warning(f"FAQ save_qa error: {e}")
                 try:
-                    await self.send(user, response, parse_mode="Markdown", reply_markup=reply_markup)
+                    await self.send(user, sanitize_markdown(response), parse_mode="Markdown", reply_markup=reply_markup)
                 except Exception:
                     await self.send(user, response, reply_markup=reply_markup)
             else:
@@ -690,7 +691,7 @@ class ConsultationState(BaseState):
                     reply_markup = _build_feedback_keyboard(qa_id, refinement_round, lang)
 
                 try:
-                    await self.send(user, response, parse_mode="Markdown", reply_markup=reply_markup)
+                    await self.send(user, sanitize_markdown(response), parse_mode="Markdown", reply_markup=reply_markup)
                 except Exception as send_err:
                     logger.warning(f"Consultation markdown error, falling back to plain text: {send_err}")
                     await self.send(user, response, reply_markup=reply_markup)

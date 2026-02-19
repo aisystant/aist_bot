@@ -16,6 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import get_logger
 from i18n import t
+from helpers.message_split import prepare_markdown_parts
 from .engine import FeedEngine
 from db.queries.users import get_intern
 from engines.shared import handle_question
@@ -801,17 +802,16 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
         await state.set_state(FeedStates.reading_content)
         await state.update_data(session_id=session['id'])
 
-        # Разбиваем длинные сообщения
-        if len(text) > 4000:
-            # Отправляем частями
-            parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-            for i, part in enumerate(parts):
-                if i == len(parts) - 1:
-                    await message.answer(part, reply_markup=keyboard, parse_mode="Markdown")
-                else:
-                    await message.answer(part, parse_mode="Markdown")
-        else:
-            await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+        # Разбиваем длинные сообщения (по абзацам, не mid-entity)
+        parts = prepare_markdown_parts(text)
+        for i, part in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            kb = keyboard if is_last else None
+            try:
+                await message.answer(part, reply_markup=kb, parse_mode="Markdown")
+            except Exception:
+                logger.warning(f"Markdown parse failed for feed part {i+1}/{len(parts)}, sending without formatting")
+                await message.answer(part, reply_markup=kb)
 
         logger.info("show_today_session: дайджест показан")
 

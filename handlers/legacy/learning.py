@@ -30,6 +30,7 @@ from integrations.telegram.keyboards import (
 )
 from clients.mcp import mcp_knowledge
 from clients.claude import ClaudeClient
+from helpers.message_split import prepare_markdown_parts
 
 logger = logging.getLogger(__name__)
 
@@ -697,12 +698,12 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     )
 
     full = header + content
-    if len(full) > 4000:
-        await bot.send_message(chat_id, header, parse_mode="Markdown")
-        for i in range(0, len(content), 4000):
-            await bot.send_message(chat_id, content[i:i+4000])
-    else:
-        await bot.send_message(chat_id, full, parse_mode="Markdown")
+    parts = prepare_markdown_parts(full)
+    for part in parts:
+        try:
+            await bot.send_message(chat_id, part, parse_mode="Markdown")
+        except Exception:
+            await bot.send_message(chat_id, part)
 
     if state:
         await state.set_state(LearningStates.waiting_for_answer)
@@ -765,11 +766,12 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     content += examples_text
 
     full = header + content
-    if len(full) > 4000:
-        await bot.send_message(chat_id, header, parse_mode="Markdown")
-        await bot.send_message(chat_id, content, parse_mode="Markdown")
-    else:
-        await bot.send_message(chat_id, full, parse_mode="Markdown")
+    parts = prepare_markdown_parts(full)
+    for part in parts:
+        try:
+            await bot.send_message(chat_id, part, parse_mode="Markdown")
+        except Exception:
+            await bot.send_message(chat_id, part)
 
     if state:
         await state.set_state(LearningStates.waiting_for_work_product)

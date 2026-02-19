@@ -9,7 +9,7 @@ import logging
 from datetime import timedelta
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -56,6 +56,20 @@ async def get_lang(state: FSMContext, intern: dict = None) -> str:
     return 'ru'
 
 
+# ============= ВСПОМОГАТЕЛЬНЫЕ (RESET) =============
+
+def _has_learning_data(intern: dict) -> bool:
+    """Есть ли у пользователя учебные данные (марафон или лента)."""
+    completed = intern.get('completed_topics', [])
+    if completed and len(completed) > 0:
+        return True
+    if intern.get('marathon_status') not in ('not_started', None):
+        return True
+    if intern.get('feed_status') not in ('not_started', None):
+        return True
+    return False
+
+
 # ============= ХЕНДЛЕРЫ =============
 
 @onboarding_router.message(CommandStart())
@@ -65,6 +79,29 @@ async def cmd_start(message: Message, state: FSMContext):
     if intern['onboarding_completed']:
         # Очищаем legacy FSM state
         await state.clear()
+
+        # Проверяем наличие старых учебных данных → предлагаем сброс (одноразово)
+        ctx = intern.get('current_context', {})
+        reset_offered = ctx.get('reset_offered', False)
+        if not reset_offered and _has_learning_data(intern):
+            lang = intern.get('language', 'ru')
+            completed_count = len(intern.get('completed_topics', []))
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('reset.fresh_start_btn', lang),
+                    callback_data="reset_all_progress",
+                )],
+                [InlineKeyboardButton(
+                    text=t('reset.continue_btn', lang),
+                    callback_data="reset_skip",
+                )],
+            ])
+            await message.answer(
+                t('reset.old_data_detected', lang, completed=completed_count),
+                reply_markup=keyboard,
+                parse_mode="Markdown",
+            )
+            return
 
         # Если SM активна — переводим в mode_select через Dispatcher
         from handlers import get_dispatcher
@@ -374,3 +411,60 @@ async def on_restart(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"[Onboarding] Error restarting profile for {chat_id}: {e}")
         await callback.answer(t('errors.try_again', 'ru'), show_alert=True)
+
+
+# ============= СБРОС ПРОГРЕССА (авто-детект при /start) =============
+
+@onboarding_router.callback_query(F.data == "reset_all_progress")
+async def on_reset_all_progress(callback: CallbackQuery, state: FSMContext):
+    """Полный сброс учебных данных с сохранением профиля."""
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    try:
+        from db.queries.profile import reset_learning_data
+        result = await reset_learning_data(chat_id)
+        total = sum(result.values())
+        logger.info(f"[Reset] Full learning reset for {chat_id}: {total} rows affected")
+
+        intern = await get_intern(chat_id)
+        lang = intern.get('language', 'ru')
+
+        await callback.message.edit_text(
+            t('reset.done', lang),
+            parse_mode="Markdown",
+        )
+
+        # Переводим в mode_select
+        from handlers import get_dispatcher
+        dispatcher = get_dispatcher()
+        if dispatcher and dispatcher.is_sm_active:
+            await dispatcher.route_command('mode', intern)
+    except Exception as e:
+        logger.error(f"[Reset] Error resetting {chat_id}: {e}")
+        await callback.message.edit_text(t('errors.try_again', 'ru'))
+
+
+@onboarding_router.callback_query(F.data == "reset_skip")
+async def on_reset_skip(callback: CallbackQuery, state: FSMContext):
+    """Пользователь решил продолжить с текущим прогрессом."""
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    # Ставим флаг, чтобы не предлагать снова
+    intern = await get_intern(chat_id)
+    ctx = intern.get('current_context', {})
+    ctx['reset_offered'] = True
+    await update_intern(chat_id, current_context=ctx)
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    intern = await get_intern(chat_id)
+
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.route_command('mode', intern)

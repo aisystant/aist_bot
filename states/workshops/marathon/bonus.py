@@ -146,13 +146,16 @@ class MarathonBonusState(BaseState):
                 )
 
                 # Показываем вопрос
-                await self.send(
-                    user,
+                bonus_text = (
                     f"🚀 *{t('marathon.bonus_question', lang)}* ({t(f'bloom.level_{next_level}_short', lang)})\n\n"
                     f"{question}\n\n"
-                    f"_{t('marathon.write_answer', lang)}_",
-                    parse_mode="Markdown"
+                    f"_{t('marathon.write_answer', lang)}_"
                 )
+                try:
+                    await self.send(user, bonus_text, parse_mode="Markdown")
+                except Exception:
+                    logger.warning(f"Markdown parse failed for bonus (user {chat_id}), sending without formatting")
+                    await self.send(user, bonus_text)
 
                 logger.info(f"Bonus question sent to user {chat_id}, waiting for answer")
                 return None  # Остаёмся в стейте, ждём ответ

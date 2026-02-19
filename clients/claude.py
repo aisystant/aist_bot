@@ -25,6 +25,7 @@ from config import (
     BLOOM_LEVELS,
     COMPLEXITY_LEVELS,
     ONTOLOGY_RULES,
+    TELEGRAM_MARKDOWN_RULES,
 )
 from core.helpers import (
     get_personalization_prompt,
@@ -477,7 +478,9 @@ class ClaudeClient:
 {lp['question_later']}
 {context_instruction}
 
-{ONTOLOGY_RULES}"""
+{ONTOLOGY_RULES}
+
+{TELEGRAM_MARKDOWN_RULES}"""
 
         pain_point = topic.get('pain_point', '')
         key_insight = topic.get('key_insight', '')
@@ -553,7 +556,9 @@ TASK: (переведённое задание)
 WORK_PRODUCT: (рабочий продукт)
 EXAMPLES: (примеры, каждый с новой строки начиная с •)
 
-{ONTOLOGY_RULES}"""
+{ONTOLOGY_RULES}
+
+{TELEGRAM_MARKDOWN_RULES}"""
 
         user_prompt = f"""{lp['task_header']}: {topic.get('title')}
 Concept: {topic.get('main_concept')}
@@ -739,7 +744,9 @@ Translate and adapt everything to the target language."""
 {question_type_hint}
 {templates_hint}
 
-{ONTOLOGY_RULES}"""
+{ONTOLOGY_RULES}
+
+{TELEGRAM_MARKDOWN_RULES}"""
 
         user_prompt = f"""{qp['topic']}: {topic_title}
 {qp['concept']}: {topic.get('main_concept', '')}

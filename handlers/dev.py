@@ -11,6 +11,8 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 
+from helpers.message_split import truncate_safe
+
 logger = logging.getLogger(__name__)
 
 dev_router = Router(name="dev")
@@ -107,8 +109,7 @@ async def cmd_usage(message: Message):
         f"{sched_lines}"
     )
 
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n... (обрезано)"
+    text = truncate_safe(text)
 
     await message.answer(text, parse_mode="HTML")
 
@@ -254,8 +255,7 @@ async def cmd_latency(message: Message):
         f"<b>Красная зона</b>\n{red_lines}"
     )
 
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n... (обрезано)"
+    text = truncate_safe(text)
 
     await message.answer(text, parse_mode="HTML")
 
@@ -309,8 +309,7 @@ async def cmd_errors(message: Message):
         f"<b>Последние</b>\n{recent_lines}"
     )
 
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n... (обрезано)"
+    text = truncate_safe(text)
 
     await message.answer(text, parse_mode="HTML")
 
@@ -380,7 +379,6 @@ def _format_analytics(report: dict) -> str:
         f"  {sess_arrow} Sessions: {tr['sessions_change_pct']:+d}% ({tr['sessions_last_week']}\u2192{tr['sessions_this_week']})\n"
     )
 
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n... (обрезано)"
+    text = truncate_safe(text)
 
     return text

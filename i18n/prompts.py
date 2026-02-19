@@ -26,10 +26,11 @@ def get_content_prompts(lang: str, study_duration: int, words: int) -> Dict[str,
     Returns:
         Словарь с локализованными строками промпта
     """
+    max_chars = words * 6  # ~6 chars per word (Russian average incl. spaces)
     prompts = {
         'ru': {
             'lang_instruction': "ВАЖНО: Пиши ВСЁ на русском языке.",
-            'create_text': f"Создай текст на {study_duration} минут чтения (~{words} слов). Без заголовков, только абзацы.",
+            'create_text': f"Создай текст на {study_duration} минут чтения (~{words} слов, не более {max_chars} символов). Без заголовков, только абзацы.",
             'engaging': "Текст должен быть вовлекающим, с примерами из жизни читателя.",
             'forbidden_header': "СТРОГО ЗАПРЕЩЕНО:",
             'forbidden_questions': "- Добавлять вопросы в любом месте текста",
@@ -50,7 +51,7 @@ def get_content_prompts(lang: str, study_duration: int, words: int) -> Dict[str,
         },
         'en': {
             'lang_instruction': "IMPORTANT: Write EVERYTHING in English.",
-            'create_text': f"Create a text for {study_duration} minutes of reading (~{words} words). No headings, only paragraphs.",
+            'create_text': f"Create a text for {study_duration} minutes of reading (~{words} words, max {max_chars} characters). No headings, only paragraphs.",
             'engaging': "The text should be engaging, with examples from the reader's life.",
             'forbidden_header': "STRICTLY FORBIDDEN:",
             'forbidden_questions': "- Adding questions anywhere in the text",
@@ -71,7 +72,7 @@ def get_content_prompts(lang: str, study_duration: int, words: int) -> Dict[str,
         },
         'es': {
             'lang_instruction': "IMPORTANTE: Escribe TODO en español.",
-            'create_text': f"Crea un texto para {study_duration} minutos de lectura (~{words} palabras). Sin títulos, solo párrafos.",
+            'create_text': f"Crea un texto para {study_duration} minutos de lectura (~{words} palabras, máximo {max_chars} caracteres). Sin títulos, solo párrafos.",
             'engaging': "El texto debe ser atractivo, con ejemplos de la vida del lector.",
             'forbidden_header': "ESTRICTAMENTE PROHIBIDO:",
             'forbidden_questions': "- Agregar preguntas en cualquier parte del texto",
@@ -92,7 +93,7 @@ def get_content_prompts(lang: str, study_duration: int, words: int) -> Dict[str,
         },
         'fr': {
             'lang_instruction': "IMPORTANT: Écris TOUT en français.",
-            'create_text': f"Crée un texte pour {study_duration} minutes de lecture (~{words} mots). Sans titres, seulement des paragraphes.",
+            'create_text': f"Crée un texte pour {study_duration} minutes de lecture (~{words} mots, maximum {max_chars} caractères). Sans titres, seulement des paragraphes.",
             'engaging': "Le texte doit être engageant, avec des exemples de la vie du lecteur.",
             'forbidden_header': "STRICTEMENT INTERDIT:",
             'forbidden_questions': "- Ajouter des questions n'importe où dans le texte",
@@ -113,7 +114,7 @@ def get_content_prompts(lang: str, study_duration: int, words: int) -> Dict[str,
         },
         'zh': {
             'lang_instruction': "重要：请用中文书写所有内容。",
-            'create_text': f"创建一篇{study_duration}分钟阅读量的文本（约{words}字）。不要标题，只用段落。",
+            'create_text': f"创建一篇{study_duration}分钟阅读量的文本（约{words}字，不超过{max_chars}字符）。不要标题，只用段落。",
             'engaging': "文本应具有吸引力，包含与读者生活相关的例子。",
             'forbidden_header': "严格禁止：",
             'forbidden_questions': "- 在文本任何位置添加问题",

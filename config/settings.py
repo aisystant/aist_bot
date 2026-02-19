@@ -155,6 +155,18 @@ def calc_words(duration_minutes: int, bloom_level: int = 1) -> int:
     return int(duration_minutes * WPM_BASE * BLOOM_MULTIPLIER.get(bl, 1.0))
 
 
+# Telegram Markdown v1 formatting rules for Claude prompts
+TELEGRAM_MARKDOWN_RULES = (
+    "ПРАВИЛА ФОРМАТИРОВАНИЯ (Telegram Markdown):\n"
+    "- Используй *жирный* (одинарная звёздочка) для ключевых терминов.\n"
+    "- НЕ используй ** (двойную звёздочку).\n"
+    "- НЕ используй вложенное форматирование (*_текст_*).\n"
+    "- Код: `inline` или тройные обратные кавычки для блоков.\n"
+    "- Ссылки: [текст](URL) — убедись что скобки закрыты.\n"
+    "- Всегда закрывай форматирование: каждый * и _ должен иметь пару."
+)
+
+
 # ============= УРОВНИ СЛОЖНОСТИ (бывш. Bloom) =============
 
 COMPLEXITY_LEVELS = {

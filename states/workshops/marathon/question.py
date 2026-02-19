@@ -160,7 +160,11 @@ class MarathonQuestionState(BaseState):
             one_time_keyboard=True
         )
 
-        await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
+        try:
+            await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception:
+            logger.warning(f"Markdown parse failed for question (user {chat_id}), sending without formatting")
+            await self.send(user, header + question + footer, reply_markup=keyboard)
         logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
 
     async def handle(self, user, message: Message) -> Optional[str]:

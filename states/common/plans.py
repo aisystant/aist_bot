@@ -18,11 +18,10 @@ from states.base import BaseState
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 from helpers.telegram_format import format_strategy_content
+from helpers.message_split import truncate_safe
 from i18n import t
 
 logger = logging.getLogger(__name__)
-
-MAX_MESSAGE_LEN = 4000  # Telegram limit 4096, запас
 
 
 class PlansState(BaseState):
@@ -52,9 +51,7 @@ class PlansState(BaseState):
         return getattr(user, 'chat_id', None)
 
     def _truncate(self, text: str) -> str:
-        if len(text) <= MAX_MESSAGE_LEN:
-            return text
-        return text[:MAX_MESSAGE_LEN] + "\n\n... (обрезано)"
+        return truncate_safe(text)
 
     def _format_content(self, content: str, repo_url: str = None) -> str:
         text = format_strategy_content(content)

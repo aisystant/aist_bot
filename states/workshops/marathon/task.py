@@ -200,7 +200,11 @@ class MarathonTaskState(BaseState):
             one_time_keyboard=True
         )
 
-        await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
+        try:
+            await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception:
+            logger.warning(f"Markdown parse failed for task (user {chat_id}), sending without formatting")
+            await self.send(user, message, reply_markup=keyboard)
         logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
 
     async def handle(self, user, message: Message) -> Optional[str]:

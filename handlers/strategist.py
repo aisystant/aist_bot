@@ -16,13 +16,12 @@ from config import get_logger
 MOSCOW_TZ = timezone(timedelta(hours=3))
 from db.queries import get_intern
 from helpers.telegram_format import format_strategy_content
+from helpers.message_split import truncate_safe
 from i18n import t
 
 logger = get_logger(__name__)
 
 strategist_router = Router(name="strategist")
-
-MAX_MESSAGE_LEN = 4000
 
 # Навигация между планами (для strat_* callbacks из уведомлений)
 _STRAT_NAV = {
@@ -55,10 +54,8 @@ def _lang(intern) -> str:
     return intern.get('language', 'ru') or 'ru'
 
 
-def _truncate(text: str, lang: str = 'ru', max_len: int = MAX_MESSAGE_LEN) -> str:
-    if len(text) <= max_len:
-        return text
-    return text[:max_len] + f"\n\n{t('strategist.truncated', lang)}"
+def _truncate(text: str, lang: str = 'ru') -> str:
+    return truncate_safe(text, suffix=f"\n\n{t('strategist.truncated', lang)}")
 
 
 def _format(content: str, lang: str = 'ru', repo_url: str = None) -> str:

@@ -13,6 +13,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from i18n import t
+from helpers.message_split import prepare_markdown_parts
 from db.queries.users import get_intern, update_intern, moscow_today
 from db.queries.feed import (
     get_current_feed_week,
@@ -295,29 +296,17 @@ class FeedDigestState(BaseState):
             'week_id': week['id'],
         }
 
-        # Отправляем (разбиваем длинные сообщения)
-        # Fallback: если Markdown не парсится (Claude-контент с незакрытыми сущностями) → отправляем без parse_mode
-        try:
-            if len(text) > 4000:
-                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-                for i, part in enumerate(parts):
-                    if i == len(parts) - 1:
-                        await self.send(user, part, reply_markup=keyboard, parse_mode="Markdown")
-                    else:
-                        await self.send(user, part, parse_mode="Markdown")
-            else:
-                await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
-        except Exception as md_err:
-            logger.warning(f"Markdown parse failed for digest (user {chat_id}), sending without formatting: {md_err}")
-            if len(text) > 4000:
-                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-                for i, part in enumerate(parts):
-                    if i == len(parts) - 1:
-                        await self.send(user, part, reply_markup=keyboard)
-                    else:
-                        await self.send(user, part)
-            else:
-                await self.send(user, text, reply_markup=keyboard)
+        # Отправляем (разбиваем длинные сообщения по абзацам)
+        # Rule 10.2: Markdown fallback per part
+        parts = prepare_markdown_parts(text)
+        for i, part in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            kb = keyboard if is_last else None
+            try:
+                await self.send(user, part, reply_markup=kb, parse_mode="Markdown")
+            except Exception:
+                logger.warning(f"Markdown parse failed for digest part {i+1}/{len(parts)} (user {chat_id}), sending without formatting")
+                await self.send(user, part, reply_markup=kb)
 
     async def _show_topic_detail(self, user, topic_index: int, callback: CallbackQuery) -> None:
         """Показывает развёрнутый текст по конкретной теме."""
