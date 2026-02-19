@@ -341,15 +341,12 @@ def get_self_knowledge(lang: str = 'ru') -> str:
 
     # --- Платформа (уровни, подписка, рост) ---
     if _platform:
+        marker_en = "[EN]"
+        idx = _platform.find(marker_en)
         if is_ru:
-            # Extract Russian section (between ru header and en header)
-            marker_en = "## Platform Model (en)"
-            idx = _platform.find(marker_en)
             platform_text = _platform[:idx].strip() if idx > 0 else _platform.strip()
         else:
-            marker_en = "## Platform Model (en)"
-            idx = _platform.find(marker_en)
-            platform_text = _platform[idx:].strip() if idx > 0 else _platform.strip()
+            platform_text = _platform[idx + len(marker_en):].strip() if idx > 0 else _platform.strip()
         lines.append(f"\n{platform_text}")
 
     # --- FAQ ---
