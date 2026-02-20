@@ -297,28 +297,33 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Аккаунт клуба не привязан.")
         return
 
-    category_id = account.get("blog_category_id")
     username = account["discourse_username"]
+    cached_cat_id = account.get("blog_category_id")
 
-    if not category_id:
-        # Lazy re-discovery: блог не был найден при connect, пробуем снова
-        blog = await discourse.find_user_blog(username)
-        if blog:
-            category_id = blog.get("id")
-            blog_slug = blog.get("slug")
+    # Всегда свежий поиск блога (кеш мог устареть)
+    blog = await discourse.find_user_blog(username)
+    if blog and blog.get("id"):
+        category_id = blog["id"]
+        if category_id != cached_cat_id:
+            logger.info(f"Blog category updated: {cached_cat_id} → {category_id}")
             await link_discourse_account(
                 chat_id=callback.from_user.id,
                 discourse_username=username,
                 blog_category_id=category_id,
-                blog_category_slug=blog_slug,
+                blog_category_slug=blog.get("slug"),
             )
-        else:
-            await callback.message.answer(
-                "Блог не найден в клубе. Публикация невозможна.\n\n"
-                "Убедись, что у тебя есть персональный блог на systemsworld.club "
-                "и попробуй переподключить: /club disconnect → /club connect username"
-            )
-            return
+    elif cached_cat_id:
+        category_id = cached_cat_id
+        logger.warning(f"Fresh discovery failed, using cached category_id={cached_cat_id}")
+    else:
+        await callback.message.answer(
+            "Блог не найден в клубе. Публикация невозможна.\n\n"
+            "Убедись, что у тебя есть персональный блог на systemsworld.club "
+            "и попробуй переподключить: /club disconnect → /club connect username"
+        )
+        return
+
+    logger.info(f"Publishing to category={category_id}, user={username}")
 
     try:
         result = await discourse.create_topic(
@@ -346,7 +351,20 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         logger.error(f"Discourse publish error: {e}")
-        await callback.message.answer(f"Ошибка публикации: {e}")
+        err_str = str(e)
+        hint = ""
+        if "403" in err_str or "not permitted" in err_str.lower() or "не разрешено" in err_str.lower():
+            hint = (
+                "\n\nВозможные причины:\n"
+                "1. API-ключ должен быть типа «All Users» (Admin > API > Keys)\n"
+                "2. Категория блога должна разрешать Create "
+                "(Admin > Categories > blogs > Security)\n"
+                "3. Попробуй /club disconnect → /club connect username"
+            )
+        await callback.message.answer(
+            f"Ошибка публикации: {e}\n"
+            f"(category={category_id}, user={username}){hint}"
+        )
 
 
 @discourse_router.callback_query(lambda c: c.data == "club_publish_start")

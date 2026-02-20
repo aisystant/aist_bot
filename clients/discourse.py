@@ -254,14 +254,33 @@ class DiscourseClient:
         if tags:
             payload["tags"] = tags
 
+        logger.info(
+            f"Discourse create_topic: category={category_id}, "
+            f"user={username}, title={title[:50]!r}"
+        )
+
         url = f"{self.base_url}/posts.json"
         async with session.post(url, json=payload, headers=self._headers(username)) as resp:
-            data = await resp.json()
+            try:
+                data = await resp.json()
+            except Exception:
+                text = await resp.text()
+                logger.error(
+                    f"Discourse create_topic non-JSON {resp.status}: {text[:500]}"
+                )
+                raise DiscourseError(f"HTTP {resp.status}: ответ не JSON")
+
             if resp.status >= 400:
                 errors = data.get("errors", [])
+                error_type = data.get("error_type", "unknown")
                 error_msg = "; ".join(errors) if errors else str(data)
-                logger.error(f"Discourse create_topic error {resp.status}: {error_msg}")
-                raise DiscourseError(f"Ошибка публикации: {error_msg}")
+                logger.error(
+                    f"Discourse create_topic error {resp.status} ({error_type}): "
+                    f"{error_msg} [category={category_id}, user={username}]"
+                )
+                raise DiscourseError(
+                    f"HTTP {resp.status} ({error_type}): {error_msg}"
+                )
             logger.info(
                 f"Discourse topic created: id={data.get('topic_id')}, "
                 f"user={username}, category={category_id}"
