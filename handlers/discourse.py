@@ -3,12 +3,13 @@
 
 Команды:
 - /club — подключение/статус/мои публикации
-- /club connect <username> — привязать аккаунт
+- /club connect <URL или username> — привязать аккаунт
 - /club disconnect — отвязать
 - /club publish — опубликовать пост
 - /club posts — мои публикации
 """
 
+import re
 import logging
 
 from aiogram import Router
@@ -43,10 +44,52 @@ def _lang(intern) -> str:
     return intern.get('language', 'ru') or 'ru'
 
 
+# ── Helpers ───────────────────────────────────────────────
+
+def _parse_blog_input(text: str) -> tuple[str | None, int | None]:
+    """Parse blog URL or text → (username_guess, category_id).
+
+    Accepts:
+    - URL: https://systemsworld.club/c/blogs/tseren-tserenov/37
+    - "username 37"
+    - Plain username
+    """
+    text = text.strip()
+
+    # URL: /c/parent_slug/child_slug/ID
+    m = re.search(r'systemsworld\.club/c/[^/]+/([^/]+)/(\d+)', text)
+    if m:
+        return m.group(1), int(m.group(2))
+
+    # URL: /c/slug/ID (no child slug)
+    m = re.search(r'systemsworld\.club/c/[^/]+/(\d+)', text)
+    if m:
+        return None, int(m.group(1))
+
+    # "username 37"
+    parts = text.split()
+    if len(parts) == 2 and parts[1].isdigit():
+        return parts[0].lstrip('@'), int(parts[1])
+
+    # Plain username
+    if parts and not text.startswith('http'):
+        return parts[0].lstrip('@'), None
+
+    return None, None
+
+
+_CONNECT_PROMPT = (
+    "Пришли *ссылку на свой блог* в клубе.\n\n"
+    "Зайди на systemsworld.club → свой блог → скопируй URL.\n\n"
+    "Пример: `https://systemsworld.club/c/blogs/username/37`"
+)
+
+
 # ── FSM States ─────────────────────────────────────────────
 
 class ClubStates(StatesGroup):
-    waiting_username = State()
+    waiting_connect_input = State()   # URL, "username ID", or username
+    waiting_blog_url = State()        # URL after username verified
     waiting_post_title = State()
     waiting_post_content = State()
     confirm_publish = State()
@@ -85,26 +128,43 @@ async def cmd_club(message: Message, state: FSMContext):
             await message.answer("Аккаунт клуба не привязан.")
         return
 
-    # /club connect <username>
+    # /club connect [URL | username | username ID]
     if subcommand == "connect":
         if arg:
-            await _connect_account(message, state, arg)
-        else:
-            await message.answer(
-                "Введи свой *username* в клубе:\n\n"
-                "`/club connect username`\n\n"
-                "Username можно найти в настройках профиля клуба, рядом с фото.\n"
-                "Или просто напиши username — я жду.",
-                parse_mode="Markdown",
-            )
-            await state.set_state(ClubStates.waiting_username)
+            username, category_id = _parse_blog_input(arg)
+            if username and category_id:
+                # Full info — verify and save
+                await _connect_full(message, username, category_id)
+                return
+            elif username:
+                # Only username — verify, then ask for URL
+                user = await discourse.get_user(username)
+                if not user:
+                    await message.answer(
+                        f"Пользователь `{username}` не найден в клубе.",
+                        parse_mode="Markdown",
+                    )
+                    return
+                await state.update_data(discourse_username=username)
+                await message.answer(
+                    f"*{username}* найден.\n\n"
+                    "Теперь пришли ссылку на свой блог в клубе.\n\n"
+                    "Пример: `https://systemsworld.club/c/blogs/username/37`",
+                    parse_mode="Markdown",
+                )
+                await state.set_state(ClubStates.waiting_blog_url)
+                return
+
+        # No arg or couldn't parse — ask for URL
+        await message.answer(_CONNECT_PROMPT, parse_mode="Markdown")
+        await state.set_state(ClubStates.waiting_connect_input)
         return
 
     # /club publish
     if subcommand == "publish":
         if not account:
             await message.answer(
-                "Сначала подключи аккаунт клуба:\n`/club connect username`",
+                "Сначала подключи аккаунт клуба:\n`/club connect`",
                 parse_mode="Markdown",
             )
             return
@@ -118,7 +178,7 @@ async def cmd_club(message: Message, state: FSMContext):
     # /club posts
     if subcommand == "posts":
         if not account:
-            await message.answer("Аккаунт клуба не привязан. /club connect username")
+            await message.answer("Аккаунт клуба не привязан. /club connect")
             return
         posts = await get_published_posts(telegram_user_id)
         if not posts:
@@ -158,8 +218,7 @@ async def cmd_club(message: Message, state: FSMContext):
         await message.answer(
             "*Подключение к systemsworld.club*\n\n"
             "Привяжи свой аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
-            "Username — твоё имя в клубе.\n"
-            "Найти его можно в настройках профиля клуба, рядом с фото.",
+            "Для подключения нужна ссылка на твой блог в клубе.",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
@@ -167,53 +226,122 @@ async def cmd_club(message: Message, state: FSMContext):
 
 # ── Connect flow ───────────────────────────────────────────
 
-@discourse_router.message(ClubStates.waiting_username)
-async def on_username_input(message: Message, state: FSMContext):
-    """Получили username — проверяем и подключаем."""
-    username = (message.text or "").strip().lstrip("@")
-    if not username:
-        await message.answer("Введи username.")
-        return
-    await _connect_account(message, state, username)
-
-
-async def _connect_account(message: Message, state: FSMContext, username: str):
-    """Проверить username в Discourse и привязать."""
+@discourse_router.message(ClubStates.waiting_connect_input)
+async def on_connect_input(message: Message, state: FSMContext):
+    """URL, 'username ID', or plain username."""
     from clients.discourse import discourse
 
-    await state.clear()
+    text = (message.text or "").strip()
+    if not text or text.lower() in ("отмена", "cancel"):
+        await state.clear()
+        await message.answer("Подключение отменено.")
+        return
 
-    # 1. Проверить пользователя
-    user = await discourse.get_user(username)
-    if not user:
+    username, category_id = _parse_blog_input(text)
+
+    if username and category_id:
+        await state.clear()
+        await _connect_full(message, username, category_id)
+        return
+
+    if username:
+        # Verify username, ask for blog URL
+        user = await discourse.get_user(username)
+        if not user:
+            await message.answer(
+                f"Пользователь `{username}` не найден в клубе.",
+                parse_mode="Markdown",
+            )
+            return
+        await state.update_data(discourse_username=username)
         await message.answer(
-            f"Пользователь `{username}` не найден в клубе.\n"
-            "Проверь правильность написания.",
+            f"*{username}* найден.\n\n"
+            "Теперь пришли ссылку на свой блог.\n\n"
+            "Пример: `https://systemsworld.club/c/blogs/username/37`",
+            parse_mode="Markdown",
+        )
+        await state.set_state(ClubStates.waiting_blog_url)
+        return
+
+    await message.answer(
+        "Не удалось распознать.\n\n" + _CONNECT_PROMPT,
+        parse_mode="Markdown",
+    )
+
+
+@discourse_router.message(ClubStates.waiting_blog_url)
+async def on_blog_url_input(message: Message, state: FSMContext):
+    """URL блога после того как username уже определён."""
+    text = (message.text or "").strip()
+    if not text or text.lower() in ("отмена", "cancel"):
+        await state.clear()
+        await message.answer("Подключение отменено.")
+        return
+
+    _, category_id = _parse_blog_input(text)
+
+    # Принимаем и просто число
+    if category_id is None and text.isdigit():
+        category_id = int(text)
+
+    if not category_id:
+        await message.answer(
+            "Не удалось определить категорию из ссылки.\n\n"
+            "Пришли URL блога или просто номер категории.\n"
+            "Пример: `https://systemsworld.club/c/blogs/username/37`",
             parse_mode="Markdown",
         )
         return
 
-    # 2. Найти подкатегорию блога
-    blog = await discourse.find_user_blog(username)
-    blog_cat_id = blog.get("id") if blog else None
-    blog_slug = blog.get("slug") if blog else None
+    data = await state.get_data()
+    username = data.get("discourse_username")
+    await state.clear()
 
-    # 3. Сохранить
+    if not username:
+        await message.answer("Данные потеряны. Начни заново: /club connect")
+        return
+
+    await _connect_full(message, username, category_id)
+
+
+async def _connect_full(message: Message, username: str, category_id: int):
+    """Verify username + category and save. Max 2 API calls."""
+    from clients.discourse import discourse
+
+    # 1. Verify username
+    user = await discourse.get_user(username)
+    if not user:
+        await message.answer(
+            f"Пользователь `{username}` не найден в клубе.\nПроверь написание.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # 2. Verify category
+    cat = await discourse.get_category(category_id)
+    if not cat:
+        await message.answer(
+            f"Категория {category_id} не найдена в клубе. Проверь ссылку.",
+        )
+        return
+
+    # 3. Save
+    cat_slug = cat.get("slug", "")
+    cat_name = cat.get("name", f"#{category_id}")
     await link_discourse_account(
         chat_id=message.chat.id,
         discourse_username=username,
-        blog_category_id=blog_cat_id,
-        blog_category_slug=blog_slug,
+        blog_category_id=category_id,
+        blog_category_slug=cat_slug,
     )
-
-    blog_info = f"\nБлог найден: категория {blog_cat_id}" if blog_cat_id else "\nБлог не найден (публикация в общий раздел)."
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Опубликовать", callback_data="club_publish_start")],
-    ]) if blog_cat_id else None
+    ])
 
     await message.answer(
-        f"Аккаунт подключён: `{username}`{blog_info}",
+        f"Аккаунт подключён: `{username}`\n"
+        f"Блог: *{cat_name}* (категория {category_id})",
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
@@ -290,7 +418,7 @@ async def on_post_content(message: Message, state: FSMContext):
 
 @discourse_router.callback_query(lambda c: c.data == "club_publish_confirm")
 async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение — публикуем."""
+    """Подтверждение — публикуем. Используем cached category_id."""
     from clients.discourse import discourse
 
     await callback.answer()
@@ -309,28 +437,12 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
         return
 
     username = account["discourse_username"]
-    cached_cat_id = account.get("blog_category_id")
+    category_id = account.get("blog_category_id")
 
-    # Всегда свежий поиск блога (кеш мог устареть)
-    blog = await discourse.find_user_blog(username)
-    if blog and blog.get("id"):
-        category_id = blog["id"]
-        if category_id != cached_cat_id:
-            logger.info(f"Blog category updated: {cached_cat_id} → {category_id}")
-            await link_discourse_account(
-                chat_id=callback.from_user.id,
-                discourse_username=username,
-                blog_category_id=category_id,
-                blog_category_slug=blog.get("slug"),
-            )
-    elif cached_cat_id:
-        category_id = cached_cat_id
-        logger.warning(f"Fresh discovery failed, using cached category_id={cached_cat_id}")
-    else:
+    if not category_id:
         await callback.message.answer(
-            "Блог не найден в клубе. Публикация невозможна.\n\n"
-            "Убедись, что у тебя есть персональный блог на systemsworld.club "
-            "и попробуй переподключить: /club disconnect → /club connect username"
+            "Блог не указан. Переподключись:\n"
+            "/club disconnect → /club connect"
         )
         return
 
@@ -364,13 +476,13 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Discourse publish error: {e}")
         err_str = str(e)
         hint = ""
-        if "403" in err_str or "not permitted" in err_str.lower() or "не разрешено" in err_str.lower():
+        if "403" in err_str or "not permitted" in err_str.lower():
             hint = (
                 "\n\nВозможные причины:\n"
                 "1. API-ключ должен быть типа «All Users» (Admin > API > Keys)\n"
                 "2. Категория блога должна разрешать Create "
                 "(Admin > Categories > blogs > Security)\n"
-                "3. Попробуй /club disconnect → /club connect username"
+                "3. Попробуй /club disconnect → /club connect"
             )
         await callback.message.answer(
             f"Ошибка публикации: {e}\n"
@@ -392,7 +504,7 @@ async def on_club_publish_start(callback: CallbackQuery, state: FSMContext):
     account = await get_discourse_account(callback.from_user.id)
     if not account:
         await callback.message.answer(
-            "Аккаунт клуба не привязан.\n`/club connect username`",
+            "Аккаунт клуба не привязан.\n`/club connect`",
             parse_mode="Markdown",
         )
         return
@@ -452,9 +564,5 @@ async def on_club_connect_start(callback: CallbackQuery, state: FSMContext):
     if not discourse:
         await callback.message.answer("Интеграция с клубом не настроена.")
         return
-    await callback.message.answer(
-        "Введи свой *username* в клубе:\n\n"
-        "Username можно найти в настройках профиля клуба, рядом с фото.",
-        parse_mode="Markdown",
-    )
-    await state.set_state(ClubStates.waiting_username)
+    await callback.message.answer(_CONNECT_PROMPT, parse_mode="Markdown")
+    await state.set_state(ClubStates.waiting_connect_input)

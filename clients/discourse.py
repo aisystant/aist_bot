@@ -71,6 +71,17 @@ class DiscourseClient:
 
     # ── Categories ─────────────────────────────────────────
 
+    async def get_category(self, category_id: int) -> dict | None:
+        """Получить категорию по ID (scope: categories:show). 1 запрос."""
+        session = await self._get_session()
+        url = f"{self.base_url}/c/{category_id}/show.json"
+        async with session.get(url, headers=self._headers()) as resp:
+            if resp.status >= 400:
+                logger.error(f"Discourse get_category {category_id} error {resp.status}")
+                return None
+            data = await resp.json()
+            return data.get("category")
+
     async def find_user_blog(self, username: str) -> dict | None:
         """Найти подкатегорию блога пользователя.
 
