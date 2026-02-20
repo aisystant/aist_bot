@@ -201,6 +201,7 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"{t('commands.notes', lang)}\n"
         f"{t('commands.consultation', lang)}\n"
         f"{t('commands.github', lang)}\n"
+        f"{t('commands.club', lang)}\n"
         f"{t('commands.feedback', lang)}"
     )
 

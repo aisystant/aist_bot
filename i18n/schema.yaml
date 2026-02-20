@@ -129,6 +129,9 @@ commands:
   github:
     ru: "/github — подключение GitHub"
     en: "/github — GitHub integration"
+  club:
+    ru: "/club — публикация в клубе"
+    en: "/club — club publishing"
   feedback:
     ru: "/feedback — обратная связь (!текст — быстро)"
     en: "/feedback — feedback (!text — quick)"

@@ -350,6 +350,12 @@ PLATFORM_URLS = {
     "guides": "https://docs.system-school.ru/ru/",
 }
 
+# ============= DISCOURSE (systemsworld.club) =============
+
+DISCOURSE_API_URL = os.getenv("DISCOURSE_API_URL", "")
+DISCOURSE_API_KEY = os.getenv("DISCOURSE_API_KEY", "")
+DISCOURSE_BLOGS_CATEGORY_ID = int(os.getenv("DISCOURSE_BLOGS_CATEGORY_ID", "36"))
+
 # ============= EVALUATOR (DS-evaluator-agent) =============
 
 # Включить проверку ответов (Claude Haiku ~1-2 сек на оценку)

@@ -97,9 +97,11 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(scheduled_check, 'cron', minute='*')
     _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*')  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
+    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='*/5')  # Discourse: scheduled posts
+    _scheduler.add_job(_discourse_check_comments, 'cron', minute='*/15')  # Discourse: comment polling
     _scheduler.start()
 
-    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen)")
+    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse)")
     return _scheduler
 
 
@@ -1218,5 +1220,110 @@ async def send_feedback_weekly_digest(dev_chat_id: int):
         logger.info(f"[Scheduler] Sent feedback weekly digest: {len(reports)} reports")
     except Exception as e:
         logger.error(f"[Scheduler] Feedback weekly digest error: {e}")
+    finally:
+        await bot.session.close()
+
+
+# ═══════════════════════════════════════════════════════════
+# DISCOURSE: запланированные публикации + мониторинг комментариев (WP-53)
+# ═══════════════════════════════════════════════════════════
+
+async def _discourse_scheduled_publish():
+    """Публиковать запланированные посты (каждые 5 минут)."""
+    from clients.discourse import discourse
+    if not discourse:
+        return
+
+    from db.queries.discourse import (
+        get_pending_publications, mark_publication_done, mark_publication_failed,
+        save_published_post,
+    )
+
+    pubs = await get_pending_publications()
+    if not pubs:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        for pub in pubs:
+            try:
+                result = await discourse.create_topic(
+                    category_id=pub["category_id"],
+                    title=pub["title"],
+                    raw=pub["raw"],
+                    username=pub["discourse_username"],
+                )
+                topic_id = result.get("topic_id")
+                post_id = result.get("id")
+
+                await mark_publication_done(pub["id"], topic_id)
+                await save_published_post(
+                    chat_id=pub["chat_id"],
+                    discourse_topic_id=topic_id,
+                    discourse_post_id=post_id,
+                    title=pub["title"],
+                    category_id=pub["category_id"],
+                )
+
+                # Уведомить пользователя
+                slug = result.get("topic_slug", "")
+                url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+                await bot.send_message(
+                    pub["chat_id"],
+                    f"Запланированный пост опубликован!\n\n{url}",
+                )
+                logger.info(f"[Discourse] Scheduled post published: topic_id={topic_id}")
+            except Exception as e:
+                logger.error(f"[Discourse] Scheduled publish error for pub_id={pub['id']}: {e}")
+                await mark_publication_failed(pub["id"])
+    finally:
+        await bot.session.close()
+
+
+async def _discourse_check_comments():
+    """Проверить новые комментарии к опубликованным постам (каждые 15 минут)."""
+    from clients.discourse import discourse
+    if not discourse:
+        return
+
+    from db.queries.discourse import get_posts_for_comment_check, update_post_comments_count
+
+    posts = await get_posts_for_comment_check()
+    if not posts:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        for post in posts:
+            try:
+                topic = await discourse.get_topic(post["discourse_topic_id"])
+                if not topic:
+                    continue
+
+                new_count = topic.get("posts_count", 1)
+                old_count = post.get("posts_count", 1)
+
+                if new_count > old_count:
+                    # Есть новые комментарии
+                    await update_post_comments_count(post["discourse_topic_id"], new_count)
+
+                    diff = new_count - old_count
+                    slug = topic.get("slug", "")
+                    topic_id = post["discourse_topic_id"]
+                    url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+                    title = post.get("title", "")
+
+                    word = "комментарий" if diff == 1 else "комментариев" if diff > 4 else "комментария"
+                    await bot.send_message(
+                        post["chat_id"],
+                        f"Новый {word} ({diff}) к посту *{title}*\n\n{url}",
+                        parse_mode="Markdown",
+                    )
+                    logger.info(f"[Discourse] New comments for topic {topic_id}: {old_count} -> {new_count}")
+                elif new_count == old_count:
+                    # Обновить last_checked_at
+                    await update_post_comments_count(post["discourse_topic_id"], new_count)
+            except Exception as e:
+                logger.error(f"[Discourse] Comment check error for topic {post.get('discourse_topic_id')}: {e}")
     finally:
         await bot.session.close()

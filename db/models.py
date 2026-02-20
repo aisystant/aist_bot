@@ -746,4 +746,63 @@ async def create_tables(pool: asyncpg.Pool):
             ON conversion_events (trigger_type, milestone)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # DISCOURSE: АККАУНТЫ И ПУБЛИКАЦИИ (WP-53)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS discourse_accounts (
+                chat_id BIGINT PRIMARY KEY REFERENCES interns(chat_id),
+                discourse_username TEXT NOT NULL,
+                blog_category_id INTEGER,
+                blog_category_slug TEXT,
+                connected_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS published_posts (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                discourse_topic_id INTEGER NOT NULL,
+                discourse_post_id INTEGER,
+                title TEXT NOT NULL,
+                source_file TEXT,
+                category_id INTEGER,
+                posts_count INTEGER DEFAULT 1,
+                last_checked_at TIMESTAMP DEFAULT NOW(),
+                published_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_published_posts_topic
+            ON published_posts (discourse_topic_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_published_posts_chat
+            ON published_posts (chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_publications (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                title TEXT NOT NULL,
+                raw TEXT NOT NULL,
+                category_id INTEGER NOT NULL,
+                tags TEXT DEFAULT '[]',
+                schedule_time TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'pending',
+                discourse_topic_id INTEGER,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_scheduled_pubs_pending
+            ON scheduled_publications (status, schedule_time)
+            WHERE status = 'pending'
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")
