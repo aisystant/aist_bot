@@ -121,7 +121,7 @@ async def fetch_github_file(file_path: str) -> Optional[tuple[str, str]]:
     Uses GITHUB_BOT_PAT (bot-level PAT, not user OAuth).
     Returns (content, sha) or None.
     """
-    full_path = f"{AUTOFIX_BOT_DIR}/{file_path}"
+    full_path = f"{AUTOFIX_BOT_DIR}/{file_path}" if AUTOFIX_BOT_DIR else file_path
     url = f"{_GH_API}/repos/{AUTOFIX_REPO}/contents/{full_path}"
     headers = {**_GH_HEADERS, "Authorization": f"Bearer {GITHUB_BOT_PAT}"}
 
@@ -403,7 +403,7 @@ async def apply_fix(fix_id: int) -> Optional[str]:
                         return None
 
             # 3. Fetch current file content + SHA
-            full_path = f"{AUTOFIX_BOT_DIR}/{file_path}"
+            full_path = f"{AUTOFIX_BOT_DIR}/{file_path}" if AUTOFIX_BOT_DIR else file_path
             async with session.get(
                 f"{_GH_API}/repos/{AUTOFIX_REPO}/contents/{full_path}",
                 headers=headers,

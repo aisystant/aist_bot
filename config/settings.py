@@ -37,7 +37,7 @@ GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-produc
 GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
 AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "aisystant/aist_bot")
 AUTOFIX_BRANCH_BASE = os.getenv("AUTOFIX_BRANCH_BASE", "new-architecture")
-AUTOFIX_BOT_DIR = "aist_bot_newarchitecture"
+AUTOFIX_BOT_DIR = ""  # repo root = code root (no subdirectory)
 AUTOFIX_MAX_FILES = 3
 AUTOFIX_MAX_PROPOSALS = 3  # per 15-min cycle
 AUTOFIX_PROTECTED = frozenset({
