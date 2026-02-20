@@ -116,8 +116,9 @@ def _row_to_dict(row) -> dict:
         # Сброс статистики
         'stats_reset_date': safe_get('stats_reset_date', None),
 
-        # Подписка
+        # Подписка / DT
         'trial_started_at': safe_get('trial_started_at', None),
+        'dt_connected_at': safe_get('dt_connected_at', None),
         'created_at': safe_get('created_at', None),
 
         # Telegram
