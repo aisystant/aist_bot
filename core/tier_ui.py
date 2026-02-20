@@ -97,8 +97,8 @@ async def send_tier_keyboard(message: Message, user: dict, text: str = None) -> 
     if text:
         await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        # Telegram requires a message to attach keyboard
-        await message.answer("⌨️", reply_markup=keyboard)
+        # Telegram requires a message to attach keyboard — use "👇"
+        await message.answer("👇", reply_markup=keyboard)
 
     # Sync hamburger menu commands for this user
     await sync_menu_commands(message.bot, user['chat_id'], tier, lang)

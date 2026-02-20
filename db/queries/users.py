@@ -185,6 +185,7 @@ def _get_default_intern(chat_id: int) -> dict:
         'stats_reset_date': None,
 
         'trial_started_at': None,
+        'dt_connected_at': None,
         'created_at': None,
 
         'tg_username': None,
