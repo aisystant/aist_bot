@@ -90,17 +90,22 @@ class DiscourseClient:
             f"blogs_parent_category_id={self.blogs_category_id}"
         )
 
-        # 2. Искать в /site.json
+        # 2. Искать через /categories.json (scope: categories:list)
         session = await self._get_session()
         try:
-            url = f"{self.base_url}/site.json"
+            url = f"{self.base_url}/categories.json?include_subcategories=true"
             async with session.get(url, headers=self._headers()) as resp:
                 if resp.status >= 400:
-                    logger.error(f"/site.json returned {resp.status}")
+                    logger.error(f"/categories.json returned {resp.status}")
                     return None
                 data = await resp.json()
 
-            all_cats = data.get("categories", [])
+            # Flatten: top-level + subcategory_list из каждого parent
+            all_cats = []
+            for cat in data.get("category_list", {}).get("categories", []):
+                all_cats.append(cat)
+                for sub in cat.get("subcategory_list", []):
+                    all_cats.append(sub)
             blog_children = [
                 c for c in all_cats
                 if c.get("parent_category_id") == self.blogs_category_id
@@ -168,7 +173,7 @@ class DiscourseClient:
                     return cat
 
         except Exception as e:
-            logger.error(f"find_user_blog /site.json error: {e}")
+            logger.error(f"find_user_blog /categories.json error: {e}")
 
         logger.warning(
             f"Blog not found for '{username}' "
