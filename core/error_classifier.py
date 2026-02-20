@@ -72,6 +72,9 @@ PATTERNS: list[dict] = [
 
     # --- Telegram API (§ 3.4) ---
     {"category": "telegram_api", "severity": "L1",
+     "pattern": r"(?i)ConflictError|conflict.*polling|Failed to fetch updates",
+     "action": "Transient: Railway redeploy (auto-resolve)"},
+    {"category": "telegram_api", "severity": "L1",
      "pattern": r"(?i)RetryAfter|flood.?control",
      "action": "Задержка N секунд (auto: aiogram)"},
     {"category": "telegram_api", "severity": "L1",
