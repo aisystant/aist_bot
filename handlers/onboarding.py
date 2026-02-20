@@ -107,7 +107,12 @@ async def cmd_start(message: Message, state: FSMContext):
         from handlers import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher and dispatcher.is_sm_active:
-            # Send tier-based ReplyKeyboard + sync menu commands (WP-52)
+            # SM first: mode_select sends "👋" with InlineKeyboard
+            # (SM auto-cleanup removes any existing ReplyKeyboard)
+            await dispatcher.route_command('mode', intern)
+
+            # THEN send tier-based ReplyKeyboard AFTER SM
+            # (must be last — SM auto-cleanup would kill it otherwise)
             from core.tier_ui import build_reply_keyboard, sync_menu_commands
             from core.tier_detector import detect_ui_tier
             lang = intern.get('language', 'ru') or 'ru'
@@ -118,7 +123,6 @@ async def cmd_start(message: Message, state: FSMContext):
                 reply_markup=keyboard,
             )
             await sync_menu_commands(message.bot, message.chat.id, tier, lang)
-            await dispatcher.route_command('mode', intern)
             return
 
         lang = intern.get('language', 'ru')
