@@ -386,38 +386,13 @@ class DigitalTwinClient:
     # МЕТАМОДЕЛЬ (справочники) — не требуют user auth
     # =========================================================================
 
-    async def get_degrees(self, telegram_user_id: Optional[int] = None) -> Optional[List[Dict]]:
-        """Получить все степени квалификации."""
-        return await self._call("get_degrees", {}, telegram_user_id)
+    async def get_degrees(self, telegram_user_id: Optional[int] = None) -> Optional[str]:
+        """Получить все степени квалификации (markdown из метамодели)."""
+        return await self._call("describe_by_path", {"path": "degrees"}, telegram_user_id)
 
-    async def get_stages(self, degree: str = "Student", telegram_user_id: Optional[int] = None) -> Optional[List[Dict]]:
-        """Получить ступени внутри степени."""
-        return await self._call("get_stages", {"degree": degree}, telegram_user_id)
-
-    async def get_indicator_groups(self, telegram_user_id: Optional[int] = None) -> Optional[List[Dict]]:
-        """Получить группы индикаторов."""
-        return await self._call("get_indicator_groups", {}, telegram_user_id)
-
-    async def get_indicators(self, group: Optional[str] = None, for_prompts: Optional[bool] = None, telegram_user_id: Optional[int] = None) -> Optional[List[Dict]]:
-        """Получить индикаторы метамодели."""
-        args: Dict[str, Any] = {}
-        if group:
-            args["group"] = group
-        if for_prompts is not None:
-            args["for_prompts"] = for_prompts
-        return await self._call("get_indicators", args, telegram_user_id)
-
-    async def get_indicator(self, code: str, telegram_user_id: Optional[int] = None) -> Optional[Dict]:
-        """Получить один индикатор по коду."""
-        return await self._call("get_indicator", {"code": code}, telegram_user_id)
-
-    async def get_stage_thresholds(self, indicator_code: str, telegram_user_id: Optional[int] = None) -> Optional[List[Dict]]:
-        """Получить пороги ступеней для индикатора."""
-        return await self._call("get_stage_thresholds", {"indicator_code": indicator_code}, telegram_user_id)
-
-    async def validate_value(self, indicator_code: str, value: Any, telegram_user_id: Optional[int] = None) -> Optional[Dict]:
-        """Валидация значения индикатора."""
-        return await self._call("validate_value", {"indicator_code": indicator_code, "value": value}, telegram_user_id)
+    async def describe(self, path: str, telegram_user_id: Optional[int] = None) -> Optional[str]:
+        """Описание метамодели по пути (degrees, stages, категории индикаторов)."""
+        return await self._call("describe_by_path", {"path": path}, telegram_user_id)
 
     # =========================================================================
     # ДАННЫЕ ПОЛЬЗОВАТЕЛЯ (требуют auth)

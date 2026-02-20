@@ -145,12 +145,12 @@ async def cmd_twin(message: Message):
     if subcommand == "degrees":
         degrees = await digital_twin.get_degrees(telegram_user_id)
         if degrees:
-            lines = [f"*{t('twin.degrees_title', lang)}*\n"]
-            for d in degrees:
-                name = d.get("name", d.get("code", "?"))
-                desc = d.get("description", "")
-                lines.append(f"- *{name}*{f' — {desc}' if desc else ''}")
-            await message.answer("\n".join(lines), parse_mode="Markdown")
+            # describe_by_path возвращает markdown-текст
+            text = degrees if isinstance(degrees, str) else str(degrees)
+            # Ограничить длину для TG (4096 символов)
+            if len(text) > 4000:
+                text = text[:4000] + "\n..."
+            await message.answer(text, parse_mode="Markdown")
         else:
             await message.answer(t('twin.degrees_error', lang))
         return
@@ -237,12 +237,10 @@ async def callback_twin_degrees(callback: CallbackQuery):
 
     degrees = await digital_twin.get_degrees(telegram_user_id)
     if degrees:
-        lines = [f"*{t('twin.degrees_title', lang)}*\n"]
-        for d in degrees:
-            name = d.get("name", d.get("code", "?"))
-            desc = d.get("description", "")
-            lines.append(f"- *{name}*{f' — {desc}' if desc else ''}")
-        await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+        text = degrees if isinstance(degrees, str) else str(degrees)
+        if len(text) > 4000:
+            text = text[:4000] + "\n..."
+        await callback.message.answer(text, parse_mode="Markdown")
     else:
         await callback.message.answer(t('twin.degrees_error', lang))
 

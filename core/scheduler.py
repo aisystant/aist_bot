@@ -1082,7 +1082,9 @@ async def send_milestone_notifications():
                     logger.info(f"[Scheduler] Milestone {milestone} sent to {chat_id}")
                 except Exception as e:
                     error_msg = str(e).lower()
-                    if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                    if any(x in error_msg for x in ('blocked', 'deactivated', 'chat not found')):
+                        logger.warning(f"[Scheduler] Milestone {milestone}: user {chat_id} unavailable, skipping")
+                    else:
                         logger.error(f"[Scheduler] Milestone {milestone} error for {chat_id}: {e}")
     finally:
         await bot.session.close()

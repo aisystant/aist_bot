@@ -51,12 +51,12 @@ async def _get_user_metrics(conn) -> dict:
     """DAU/WAU/MAU + новые пользователи."""
     row = await conn.fetchrow('''
         SELECT
-            COUNT(*) FILTER (WHERE last_active_date = CURRENT_DATE) as dau,
-            COUNT(*) FILTER (WHERE last_active_date >= CURRENT_DATE - 6) as wau,
-            COUNT(*) FILTER (WHERE last_active_date >= CURRENT_DATE - 29) as mau,
+            COUNT(*) FILTER (WHERE last_active_date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) as dau,
+            COUNT(*) FILTER (WHERE last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6) as wau,
+            COUNT(*) FILTER (WHERE last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 29) as mau,
             COUNT(*) as total,
-            COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE) as new_today,
-            COUNT(*) FILTER (WHERE created_at::date >= CURRENT_DATE - 6) as new_week
+            COUNT(*) FILTER (WHERE created_at::date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) as new_today,
+            COUNT(*) FILTER (WHERE created_at::date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6) as new_week
         FROM interns
         WHERE onboarding_completed = TRUE
     ''')
@@ -167,13 +167,13 @@ async def _get_trend_metrics(conn) -> dict:
             SELECT
                 COUNT(DISTINCT chat_id) as dau_avg
             FROM activity_log
-            WHERE activity_date >= CURRENT_DATE - 6
+            WHERE activity_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6
         ),
         last_week AS (
             SELECT
                 COUNT(DISTINCT chat_id) as dau_avg
             FROM activity_log
-            WHERE activity_date BETWEEN CURRENT_DATE - 13 AND CURRENT_DATE - 7
+            WHERE activity_date BETWEEN (NOW() AT TIME ZONE 'Europe/Moscow')::date - 13 AND (NOW() AT TIME ZONE 'Europe/Moscow')::date - 7
         )
         SELECT
             tw.dau_avg as this_week_dau,

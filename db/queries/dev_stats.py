@@ -20,8 +20,8 @@ async def get_user_stats() -> dict:
             SELECT
                 COUNT(*) AS total,
                 COUNT(*) FILTER (WHERE onboarding_completed = TRUE) AS onboarded,
-                COUNT(*) FILTER (WHERE last_active_date = CURRENT_DATE) AS active_today,
-                COUNT(*) FILTER (WHERE last_active_date >= CURRENT_DATE - INTERVAL '7 days') AS active_week,
+                COUNT(*) FILTER (WHERE last_active_date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) AS active_today,
+                COUNT(*) FILTER (WHERE last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - INTERVAL '7 days') AS active_week,
                 COUNT(*) FILTER (WHERE marathon_status = 'active') AS marathon_active,
                 COUNT(*) FILTER (WHERE marathon_status = 'completed') AS marathon_completed,
                 COUNT(*) FILTER (WHERE marathon_status = 'paused') AS marathon_paused,
@@ -126,8 +126,8 @@ async def get_qa_stats() -> dict:
                 COUNT(*) FILTER (WHERE helpful IS NULL) AS no_feedback,
                 COUNT(*) FILTER (WHERE user_comment IS NOT NULL AND user_comment != '') AS with_comments,
                 COUNT(DISTINCT chat_id) AS unique_users,
-                COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS today,
-                COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days') AS this_week
+                COUNT(*) FILTER (WHERE created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date) AS today,
+                COUNT(*) FILTER (WHERE created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - INTERVAL '7 days') AS this_week
             FROM qa_history
         ''')
         return dict(row) if row else {}
