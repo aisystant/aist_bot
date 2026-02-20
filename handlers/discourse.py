@@ -93,6 +93,7 @@ async def cmd_club(message: Message, state: FSMContext):
             await message.answer(
                 "Введи свой *username* в клубе:\n\n"
                 "`/club connect username`\n\n"
+                "Username можно найти в настройках профиля клуба, рядом с фото.\n"
                 "Или просто напиши username — я жду.",
                 parse_mode="Markdown",
             )
@@ -151,7 +152,8 @@ async def cmd_club(message: Message, state: FSMContext):
             "*Подключение к systemsworld.club*\n\n"
             "Привяжи свой аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
             "`/club connect username`\n\n"
-            "Username — твоё имя пользователя в клубе.",
+            "Username — твоё имя в клубе.\n"
+            "Найти его можно в настройках профиля клуба, рядом с фото.",
             parse_mode="Markdown",
         )
 
@@ -299,9 +301,24 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
     username = account["discourse_username"]
 
     if not category_id:
-        # Fallback на общий blogs
-        from clients.discourse import discourse as dc
-        category_id = dc.blogs_category_id if dc else 36
+        # Lazy re-discovery: блог не был найден при connect, пробуем снова
+        blog = await discourse.find_user_blog(username)
+        if blog:
+            category_id = blog.get("id")
+            blog_slug = blog.get("slug")
+            await link_discourse_account(
+                chat_id=callback.from_user.id,
+                discourse_username=username,
+                blog_category_id=category_id,
+                blog_category_slug=blog_slug,
+            )
+        else:
+            await callback.message.answer(
+                "Блог не найден в клубе. Публикация невозможна.\n\n"
+                "Убедись, что у тебя есть персональный блог на systemsworld.club "
+                "и попробуй переподключить: /club disconnect → /club connect username"
+            )
+            return
 
     try:
         result = await discourse.create_topic(

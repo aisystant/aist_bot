@@ -71,45 +71,70 @@ class DiscourseClient:
     # ── Categories ─────────────────────────────────────────
 
     async def list_blog_subcategories(self) -> list[dict]:
-        """Список подкатегорий /c/blogs/ (блоги пользователей)."""
-        session = await self._get_session()
-        url = f"{self.base_url}/c/{self.blogs_category_id}/show.json"
-        async with session.get(url, headers=self._headers()) as resp:
-            if resp.status >= 400:
-                logger.error(f"Discourse list_blog_subcategories error {resp.status}")
-                return []
-            data = await resp.json()
-            cat = data.get("category", {})
-            # Subcategory list may be embedded or referenced by IDs
-            subcategory_list = cat.get("subcategory_list", [])
-            if subcategory_list:
-                return subcategory_list
-            # Fallback: fetch via site.json
-            return await self._fetch_subcategories_via_site()
+        """Список подкатегорий /c/blogs/ (блоги пользователей).
 
-    async def _fetch_subcategories_via_site(self) -> list[dict]:
-        """Fallback: получить подкатегории через /site.json."""
+        Использует /site.json — плоский список всех категорий,
+        фильтрует по parent_category_id.
+        """
         session = await self._get_session()
         url = f"{self.base_url}/site.json"
         async with session.get(url, headers=self._headers()) as resp:
             if resp.status >= 400:
+                text = await resp.text()
+                logger.error(f"Discourse site.json error {resp.status}: {text[:200]}")
                 return []
             data = await resp.json()
             categories = data.get("categories", [])
-            return [
+            result = [
                 c for c in categories
                 if c.get("parent_category_id") == self.blogs_category_id
             ]
+            logger.info(
+                f"Discourse blog subcategories: {len(result)} found "
+                f"(total: {len(categories)}, parent_id={self.blogs_category_id})"
+            )
+            return result
 
     async def find_user_blog(self, username: str) -> dict | None:
-        """Найти подкатегорию блога пользователя по username/slug."""
+        """Найти подкатегорию блога пользователя по username/slug.
+
+        Стратегии поиска:
+        1. Точное совпадение slug == username
+        2. Username содержится в slug или name
+        3. Поиск по Discourse user_id в slug вида blogs-user-{id}
+        """
         subcategories = await self.list_blog_subcategories()
         username_lower = username.lower()
+
+        # 1. Точное совпадение slug
+        for cat in subcategories:
+            if cat.get("slug", "").lower() == username_lower:
+                logger.info(f"Discourse blog found by exact slug: {cat.get('slug')} (id={cat.get('id')})")
+                return cat
+
+        # 2. Username в slug или name
         for cat in subcategories:
             slug = cat.get("slug", "").lower()
             name = cat.get("name", "").lower()
             if username_lower in slug or username_lower in name:
+                logger.info(f"Discourse blog found by partial match: {cat.get('slug')} (id={cat.get('id')})")
                 return cat
+
+        # 3. Поиск через Discourse user profile (blogs-user-{id} pattern)
+        user = await self.get_user(username)
+        if user:
+            user_id = user.get("id")
+            if user_id:
+                for cat in subcategories:
+                    slug = cat.get("slug", "").lower()
+                    if slug == f"blogs-user-{user_id}":
+                        logger.info(f"Discourse blog found by user_id: {cat.get('slug')} (id={cat.get('id')})")
+                        return cat
+
+        logger.warning(
+            f"Discourse blog not found for '{username}'. "
+            f"Subcategories: {[c.get('slug') for c in subcategories[:10]]}"
+        )
         return None
 
     # ── Topics ─────────────────────────────────────────────

@@ -345,6 +345,36 @@ async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
     )
     await state.clear()
 
+@settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_club")
+async def on_upd_club(callback: CallbackQuery, state: FSMContext):
+    """Показать статус подключения к клубу."""
+    await state.clear()
+    await callback.answer()
+    from db.queries.discourse import get_discourse_account
+    account = await get_discourse_account(callback.message.chat.id)
+    if account:
+        username = account["discourse_username"]
+        cat_id = account.get("blog_category_id") or "не найден"
+        await callback.message.edit_text(
+            f"*🏛 Клуб подключён*\n\n"
+            f"Username: `{username}`\n"
+            f"Блог: категория {cat_id}\n\n"
+            f"/club — управление\n"
+            f"/club publish — опубликовать пост\n"
+            f"/club posts — мои публикации\n"
+            f"/club disconnect — отвязать",
+            parse_mode="Markdown",
+        )
+    else:
+        await callback.message.edit_text(
+            "*🏛 Подключение к systemsworld.club*\n\n"
+            "Привяжи аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
+            "`/club connect username`\n\n"
+            "Username — твоё имя в клубе.\n"
+            "Найти его можно в настройках профиля клуба, рядом с фото.",
+            parse_mode="Markdown",
+        )
+
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_mode")
 async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
     """Переход к выбору режима (Марафон/Лента)."""
