@@ -73,27 +73,64 @@ class DiscourseClient:
     async def list_blog_subcategories(self) -> list[dict]:
         """Список подкатегорий /c/blogs/ (блоги пользователей).
 
-        Использует /site.json — плоский список всех категорий,
-        фильтрует по parent_category_id.
+        Стратегия:
+        1. /categories.json?include_subcategories=true — явный список
+        2. /site.json fallback — плоский список всех категорий
         """
         session = await self._get_session()
-        url = f"{self.base_url}/site.json"
-        async with session.get(url, headers=self._headers()) as resp:
-            if resp.status >= 400:
-                text = await resp.text()
-                logger.error(f"Discourse site.json error {resp.status}: {text[:200]}")
-                return []
-            data = await resp.json()
-            categories = data.get("categories", [])
-            result = [
-                c for c in categories
-                if c.get("parent_category_id") == self.blogs_category_id
-            ]
-            logger.info(
-                f"Discourse blog subcategories: {len(result)} found "
-                f"(total: {len(categories)}, parent_id={self.blogs_category_id})"
-            )
-            return result
+
+        # Strategy 1: /categories.json (более надёжный для подкатегорий)
+        try:
+            url = f"{self.base_url}/categories.json"
+            async with session.get(
+                url,
+                headers=self._headers(),
+                params={"include_subcategories": "true"},
+            ) as resp:
+                if resp.status < 400:
+                    data = await resp.json()
+                    cats = data.get("category_list", {}).get("categories", [])
+                    for cat in cats:
+                        if cat.get("id") == self.blogs_category_id:
+                            subs = cat.get("subcategory_list", [])
+                            if subs:
+                                logger.info(
+                                    f"Discourse: {len(subs)} blog subcategories "
+                                    f"via /categories.json"
+                                )
+                                return subs
+                            break
+                    # Не нашли parent или subcategory_list пуст — fallback
+                    logger.info(
+                        f"Discourse: /categories.json returned {len(cats)} cats, "
+                        f"no subcategory_list for parent {self.blogs_category_id}"
+                    )
+        except Exception as e:
+            logger.warning(f"Discourse /categories.json error: {e}")
+
+        # Strategy 2: /site.json — плоский список всех категорий
+        try:
+            url = f"{self.base_url}/site.json"
+            async with session.get(url, headers=self._headers()) as resp:
+                if resp.status >= 400:
+                    text = await resp.text()
+                    logger.error(f"Discourse site.json error {resp.status}: {text[:200]}")
+                    return []
+                data = await resp.json()
+                categories = data.get("categories", [])
+                result = [
+                    c for c in categories
+                    if c.get("parent_category_id") == self.blogs_category_id
+                ]
+                logger.info(
+                    f"Discourse: {len(result)} blog subcategories via /site.json "
+                    f"(total: {len(categories)}, parent_id={self.blogs_category_id})"
+                )
+                return result
+        except Exception as e:
+            logger.error(f"Discourse /site.json error: {e}")
+
+        return []
 
     async def find_user_blog(self, username: str) -> dict | None:
         """Найти подкатегорию блога пользователя по username/slug.

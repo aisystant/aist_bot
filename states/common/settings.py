@@ -860,6 +860,23 @@ class SettingsState(BaseState):
         if account:
             username = account["discourse_username"]
             cat_id = account.get("blog_category_id")
+
+            # Авто-ре-дискавери блога если не найден ранее
+            if not cat_id:
+                from clients.discourse import discourse
+                if discourse:
+                    blog = await discourse.find_user_blog(username)
+                    if blog:
+                        cat_id = blog.get("id")
+                        blog_slug = blog.get("slug")
+                        from db.queries.discourse import link_discourse_account
+                        await link_discourse_account(
+                            chat_id=chat_id,
+                            discourse_username=username,
+                            blog_category_id=cat_id,
+                            blog_category_slug=blog_slug,
+                        )
+
             posts = await get_published_posts(chat_id)
 
             lines = [f"🏛 *Клуб — подключён*\n"]

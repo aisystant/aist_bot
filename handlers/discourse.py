@@ -349,6 +349,32 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"Ошибка публикации: {e}")
 
 
+@discourse_router.callback_query(lambda c: c.data == "club_publish_start")
+async def on_club_publish_start(callback: CallbackQuery, state: FSMContext):
+    """Начать публикацию из экрана подключений (/settings)."""
+    from clients.discourse import discourse
+
+    await callback.answer()
+
+    if not discourse:
+        await callback.message.answer("Интеграция с клубом не настроена.")
+        return
+
+    account = await get_discourse_account(callback.from_user.id)
+    if not account:
+        await callback.message.answer(
+            "Аккаунт клуба не привязан.\n`/club connect username`",
+            parse_mode="Markdown",
+        )
+        return
+
+    await callback.message.answer(
+        "Введи *заголовок* поста для публикации в блог:",
+        parse_mode="Markdown",
+    )
+    await state.set_state(ClubStates.waiting_post_title)
+
+
 @discourse_router.callback_query(lambda c: c.data == "club_publish_cancel")
 async def on_publish_cancel(callback: CallbackQuery, state: FSMContext):
     """Отмена публикации."""
