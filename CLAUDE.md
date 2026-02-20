@@ -328,10 +328,12 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 | Ключ | Формат | Где используется |
 |------|--------|------------------|
-| `practice:{topic_id}:{lang}` | Практическое введение | `generate_practice_intro()` |
+| `practice:{topic_id}:{lang}:{chat_id}` | Практическое введение (per-user) | `generate_practice_intro()` |
 | `question:{topic_id}:{bloom}:{lang}:{occupation}` | Вопросы | `generate_question()` |
 
-**Экономия:** ~33% API-вызовов при пре-генерации (одинаковые темы для разных пользователей одного уровня). `cache_cleanup()` запускается из scheduler ежедневно.
+**Правило:** Персонализированный контент (содержит имя, профессию, цели пользователя) ОБЯЗАН кэшироваться per-user (`:{chat_id}`). Глобальный кэш допустим только для контента без персонализации.
+
+`cache_cleanup()` запускается из scheduler ежедневно.
 
 ### 10.16. Slot suggestion при перегрузке (≥50 users)
 

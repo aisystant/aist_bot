@@ -655,8 +655,9 @@ class ClaudeClient:
         lang = intern.get('language', 'ru')
         topic_id = topic.get('id', '')
 
-        # Проверяем кеш (practice не зависит от пользователя, только от языка)
-        cache_key = f"practice:{topic_id}:{lang}" if topic_id else None
+        # Кеш per-user: practice персонализирована (имя, профессия, цели)
+        chat_id = intern.get('chat_id', '')
+        cache_key = f"practice:{topic_id}:{lang}:{chat_id}" if topic_id and chat_id else None
         if cache_key:
             cached = await cache_get(cache_key)
             if cached:
