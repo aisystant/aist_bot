@@ -186,6 +186,12 @@ class SettingsState(BaseState):
         if data == "conn_twin_disconnect":
             return await self._twin_disconnect(user, callback)
 
+        if data == "conn_club":
+            return await self._handle_club_connection(user, callback)
+
+        if data == "conn_club_disconnect":
+            return await self._club_disconnect(user, callback)
+
         if data == "github_select_repo":
             return await self._github_select_repo(user, callback)
 
@@ -611,15 +617,27 @@ class SettingsState(BaseState):
         twin_connected = digital_twin.is_connected(chat_id)
         twin_status = "✅ " + t('settings.connected', lang) if twin_connected else t('settings.not_connected', lang)
 
+        # Проверяем Club подключение
+        from db.queries.discourse import get_discourse_account
+        club_account = await get_discourse_account(chat_id)
+        if club_account:
+            club_username = club_account.get('discourse_username', '')
+            club_cat = club_account.get('blog_category_id')
+            club_status = f"✅ @{club_username}" + (f" (блог {club_cat})" if club_cat else "")
+        else:
+            club_status = t('settings.not_connected', lang)
+
         text = (
             f"🔗 *{t('settings.connections_label', lang)}*\n\n"
             f"🐙 GitHub: {github_status}\n"
             f"🤖 {t('settings.twin_label', lang)}: {twin_status}\n"
+            f"🏛 Клуб: {club_status}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github")],
             [InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin")],
+            [InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club")],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
         ])
 
@@ -829,6 +847,78 @@ class SettingsState(BaseState):
                     ]),
                 )
 
+        return None
+
+    async def _handle_club_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус Club или инструкцию подключения."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.discourse import get_discourse_account, get_published_posts
+        account = await get_discourse_account(chat_id)
+
+        if account:
+            username = account["discourse_username"]
+            cat_id = account.get("blog_category_id")
+            posts = await get_published_posts(chat_id)
+
+            lines = [f"🏛 *Клуб — подключён*\n"]
+            lines.append(f"Username: *{username}*")
+            if cat_id:
+                lines.append(f"Блог: категория {cat_id}")
+            else:
+                lines.append("Блог: не найден")
+            lines.append(f"Публикаций: {len(posts)}")
+
+            buttons = [
+                [InlineKeyboardButton(text="📝 Опубликовать", callback_data="club_publish_start")],
+                [InlineKeyboardButton(text="🔌 Отключить", callback_data="conn_club_disconnect")],
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ]
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await callback.message.edit_text(
+                "\n".join(lines), parse_mode="Markdown", reply_markup=keyboard
+            )
+        else:
+            from clients.discourse import discourse
+            if not discourse:
+                await callback.message.edit_text(
+                    "🏛 *Клуб*\n\nИнтеграция не настроена.",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                    ]),
+                )
+            else:
+                await callback.message.edit_text(
+                    "🏛 *Подключение к systemsworld.club*\n\n"
+                    "Привяжи аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
+                    "`/club connect username`\n\n"
+                    "Username — твоё имя в клубе.\n"
+                    "Найти его можно в настройках профиля клуба, рядом с фото.",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                    ]),
+                )
+
+        return None
+
+    async def _club_disconnect(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Отключаем Club."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.discourse import unlink_discourse_account
+        await unlink_discourse_account(chat_id)
+
+        await callback.message.edit_text(
+            "🏛 Клуб: " + t('settings.not_connected', lang),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+            ]),
+        )
         return None
 
     async def _twin_disconnect(self, user, callback: CallbackQuery) -> Optional[str]:
