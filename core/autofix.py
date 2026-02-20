@@ -495,14 +495,20 @@ async def run_autofix_cycle(bot: Bot, dev_chat_id: str) -> int:
     Returns number of proposals sent.
     """
     if not GITHUB_BOT_PAT:
+        logger.warning("[AutoFix] GITHUB_BOT_PAT not set — skipping")
         return 0
+
+    logger.info("[AutoFix] Cycle started, searching for L2 errors...")
 
     errors = await get_l2_fixable_errors(
         minutes=15, min_count=3, limit=AUTOFIX_MAX_PROPOSALS
     )
 
     if not errors:
+        logger.info("[AutoFix] No fixable L2 errors found")
         return 0
+
+    logger.info(f"[AutoFix] Found {len(errors)} L2 errors to diagnose")
 
     proposals_sent = 0
 
