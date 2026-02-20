@@ -74,58 +74,55 @@ class DiscourseClient:
     async def find_user_blog(self, username: str) -> dict | None:
         """Найти подкатегорию блога пользователя.
 
-        Стратегии (в порядке приоритета):
-        0. Redirect: GET /c/blogs/{slug} → Discourse редиректит на /c/blogs/{slug}/{id}
-        1. JSON с ID: GET /c/blogs/{slug}/{id}.json → category_id из topics
+        Discourse slugs блогов: blogs-user-{discourse_user_id} (НЕ username!).
+        URL вида /c/blogs/tseren-tserenov/37 работает в браузере только потому,
+        что Discourse ищет по ID (37), а slug в URL — декоративный.
+
+        Стратегия: GET /site.json → найти категорию по slug blogs-user-{id}
+        или по name, содержащему username.
         """
-        slug = username.lower()
-
-        # Strategy 0: Follow redirect to extract ID from final URL
-        # /c/blogs/tseren-tserenov → 301 → /c/blogs/tseren-tserenov/37
-        cat_id = await self._find_blog_by_redirect(slug)
-        if cat_id:
-            logger.info(f"Blog found by redirect: {slug} (id={cat_id})")
-            return {"id": cat_id, "slug": slug}
-
-        # Strategy 1: blogs-user-{discourse_id} pattern
+        # 1. Получить Discourse user ID
         user = await self.get_user(username)
-        if user and user.get("id"):
-            alt_slug = f"blogs-user-{user['id']}"
-            cat_id = await self._find_blog_by_redirect(alt_slug)
-            if cat_id:
-                logger.info(f"Blog found by user_id redirect: {alt_slug} (id={cat_id})")
-                return {"id": cat_id, "slug": alt_slug}
+        discourse_user_id = user.get("id") if user else None
 
-        logger.warning(f"Blog not found for '{username}'")
-        return None
-
-    async def _find_blog_by_redirect(self, slug: str) -> int | None:
-        """Найти ID блога через redirect: /c/blogs/{slug} → /c/blogs/{slug}/{id}.
-
-        Discourse при доступе к /c/blogs/{slug} (без .json!) делает 301-редирект
-        на /c/blogs/{slug}/{id}. Из финального URL извлекаем ID.
-        Примечание: /c/blogs/{slug}.json → 404, поэтому обращаемся БЕЗ .json.
-        """
+        # 2. Искать в /site.json
         session = await self._get_session()
-        url = f"{self.base_url}/c/blogs/{slug}"
-
         try:
+            url = f"{self.base_url}/site.json"
             async with session.get(url, headers=self._headers()) as resp:
-                if resp.status != 200:
-                    logger.debug(f"Blog redirect {resp.status} for {slug}")
+                if resp.status >= 400:
+                    logger.error(f"/site.json returned {resp.status}")
                     return None
+                data = await resp.json()
 
-                # Извлечь ID из финального URL после redirect
-                # Pattern: /c/blogs/{slug}/{id} или /c/blogs/{slug}/{id}.json
-                final_url = str(resp.url)
-                m = re.search(r'/(\d+)(?:\.json)?(?:[?#]|$)', final_url)
-                if m:
-                    return int(m.group(1))
+            username_lower = username.lower()
+            for cat in data.get("categories", []):
+                if cat.get("parent_category_id") != self.blogs_category_id:
+                    continue
 
-                logger.debug(f"Blog redirect URL has no ID: {final_url}")
+                slug = cat.get("slug", "").lower()
+
+                # Match by blogs-user-{discourse_id} — самый надёжный
+                if discourse_user_id and slug == f"blogs-user-{discourse_user_id}":
+                    logger.info(
+                        f"Blog found by slug pattern: {slug} "
+                        f"(id={cat.get('id')}, user_id={discourse_user_id})"
+                    )
+                    return cat
+
+                # Match by username in name (fallback)
+                name = cat.get("name", "").lower()
+                if username_lower in name:
+                    logger.info(
+                        f"Blog found by name match: {cat.get('name')} "
+                        f"(id={cat.get('id')}, slug={slug})"
+                    )
+                    return cat
+
         except Exception as e:
-            logger.debug(f"Blog redirect error for {slug}: {e}")
+            logger.error(f"find_user_blog /site.json error: {e}")
 
+        logger.warning(f"Blog not found for '{username}' (user_id={discourse_user_id})")
         return None
 
     # ── Topics ─────────────────────────────────────────────
