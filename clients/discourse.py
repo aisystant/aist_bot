@@ -93,30 +93,35 @@ class DiscourseClient:
         # 2. Искать через /categories.json (scope: categories:list)
         session = await self._get_session()
         try:
-            url = f"{self.base_url}/categories.json?include_subcategories=true"
-            async with session.get(url, headers=self._headers()) as resp:
-                if resp.status >= 400:
-                    logger.error(f"/categories.json returned {resp.status}")
-                    return None
-                data = await resp.json()
-
-            # Flatten: top-level + subcategory_list из каждого parent
+            # Запрос подкатегорий блогов напрямую (parent_category_id фильтрует)
             all_cats = []
-            for cat in data.get("category_list", {}).get("categories", []):
-                all_cats.append(cat)
-                for sub in cat.get("subcategory_list", []):
-                    all_cats.append(sub)
-            blog_children = [
-                c for c in all_cats
-                if c.get("parent_category_id") == self.blogs_category_id
-            ]
+            for page in range(5):  # max 5 страниц (≈150 категорий)
+                url = (
+                    f"{self.base_url}/categories.json"
+                    f"?parent_category_id={self.blogs_category_id}&page={page}"
+                )
+                async with session.get(url, headers=self._headers()) as resp:
+                    if resp.status >= 400:
+                        logger.error(f"/categories.json page={page} returned {resp.status}")
+                        break
+                    data = await resp.json()
+                cats_page = data.get("category_list", {}).get("categories", [])
+                if not cats_page:
+                    break
+                all_cats.extend(cats_page)
+                logger.info(
+                    f"find_user_blog: page {page}: {len(cats_page)} categories"
+                )
+                if len(cats_page) < 30:  # последняя страница
+                    break
+            # all_cats уже отфильтрованы по parent_category_id
+            blog_children = all_cats
             logger.info(
-                f"find_user_blog: {len(all_cats)} total categories, "
-                f"{len(blog_children)} children of parent {self.blogs_category_id}"
+                f"find_user_blog: {len(blog_children)} blog subcategories found"
             )
             if blog_children:
                 logger.info(
-                    f"find_user_blog: blog children slugs = "
+                    f"find_user_blog: first 10 slugs = "
                     f"{[c.get('slug') for c in blog_children[:10]]}"
                 )
 
@@ -146,31 +151,10 @@ class DiscourseClient:
                     )
                     return cat
 
-            # Strategy 3: global slug search (если parent_category_id неверный)
-            if target_slug:
-                for cat in all_cats:
-                    if cat.get("slug", "").lower() == target_slug:
-                        logger.info(
-                            f"Blog found by GLOBAL slug: {target_slug} "
-                            f"(id={cat.get('id')}, "
-                            f"actual_parent={cat.get('parent_category_id')}, "
-                            f"configured_parent={self.blogs_category_id})"
-                        )
-                        return cat
-
-            # Strategy 4: global name search
-            for cat in all_cats:
-                if cat.get("parent_category_id") is None:
-                    continue  # skip top-level
-                name = cat.get("name", "").lower()
-                name_norm = re.sub(r"[-_.]", " ", name)
-                slug = cat.get("slug", "")
-                if slug.startswith("blogs-user-") and username_norm in name_norm:
-                    logger.info(
-                        f"Blog found by GLOBAL name: {cat.get('name')} "
-                        f"(id={cat.get('id')}, slug={slug})"
-                    )
-                    return cat
+            logger.warning(
+                f"No match among {len(blog_children)} subcategories "
+                f"(target_slug={target_slug}, username_norm={username_norm!r})"
+            )
 
         except Exception as e:
             logger.error(f"find_user_blog /categories.json error: {e}")
