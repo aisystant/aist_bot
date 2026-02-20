@@ -107,6 +107,17 @@ async def cmd_start(message: Message, state: FSMContext):
         from handlers import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher and dispatcher.is_sm_active:
+            # Send tier-based ReplyKeyboard + sync menu commands (WP-52)
+            from core.tier_ui import build_reply_keyboard, sync_menu_commands
+            from core.tier_detector import detect_ui_tier
+            lang = intern.get('language', 'ru') or 'ru'
+            tier = detect_ui_tier(intern)
+            keyboard = build_reply_keyboard(tier, lang)
+            await message.answer(
+                t('welcome.returning', lang, name=intern['name']),
+                reply_markup=keyboard,
+            )
+            await sync_menu_commands(message.bot, message.chat.id, tier, lang)
             await dispatcher.route_command('mode', intern)
             return
 
