@@ -895,12 +895,11 @@ class SettingsState(BaseState):
                 await callback.message.edit_text(
                     "🏛 *Подключение к systemsworld.club*\n\n"
                     "Привяжи аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
-                    "`/club connect username`\n\n"
-                    "Username — твоё имя в клубе.\n"
-                    "Найти его можно в настройках профиля клуба, рядом с фото.",
+                    "Для подключения нужна ссылка на твой блог в клубе.",
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                        [InlineKeyboardButton(text="Подключить", callback_data="club_connect_start")],
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
                     ]),
                 )
 

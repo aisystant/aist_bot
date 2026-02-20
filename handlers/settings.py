@@ -369,9 +369,8 @@ async def on_upd_club(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             "*🏛 Подключение к systemsworld.club*\n\n"
             "Привяжи аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
-            "`/club connect username`\n\n"
-            "Username — твоё имя в клубе.\n"
-            "Найти его можно в настройках профиля клуба, рядом с фото.",
+            "Для подключения пришли ссылку на свой блог:\n"
+            "`/club connect https://systemsworld.club/c/blogs/username/37`",
             parse_mode="Markdown",
         )
 
