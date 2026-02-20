@@ -137,10 +137,16 @@ class ClaudeClient:
         Uses SSE streaming — fails only when no data arrives for
         inactivity_timeout seconds (instead of a fixed total timeout
         that breaks on long outputs).
+
+        On timeout: preserves already-received text and returns it
+        (partial content is better than no content).
         """
         session = await self.get_session()
         headers = {"x-api-key": self.api_key}
         payload = {**payload, "stream": True}
+
+        # Accumulate text across retry attempts — don't lose partial content
+        collected_text: list[str] = []
 
         for attempt in range(2):
             try:
@@ -155,7 +161,6 @@ class ClaudeClient:
                     ),
                 ) as resp:
                     if resp.status == 200:
-                        text_parts = []
                         while True:
                             line = await resp.content.readline()
                             if not line:
@@ -173,8 +178,8 @@ class ClaudeClient:
                             if event.get('type') == 'content_block_delta':
                                 delta = event.get('delta', {})
                                 if delta.get('type') == 'text_delta':
-                                    text_parts.append(delta['text'])
-                        return ''.join(text_parts) if text_parts else None
+                                    collected_text.append(delta['text'])
+                        return ''.join(collected_text) if collected_text else None
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
@@ -193,16 +198,36 @@ class ClaudeClient:
                         logger.error(f"Claude API error {resp.status}: {error[:200]}")
                         return None
             except asyncio.TimeoutError:
-                logger.warning(f"Claude API inactivity timeout ({inactivity_timeout}s), attempt {attempt + 1}")
+                partial_len = len(collected_text)
+                logger.warning(
+                    f"Claude API inactivity timeout ({inactivity_timeout}s), "
+                    f"attempt {attempt + 1}, collected {partial_len} chunks"
+                )
                 if attempt == 0:
+                    # Retry with 2x timeout — network may have recovered
+                    inactivity_timeout = inactivity_timeout * 2
                     await asyncio.sleep(1)
                     continue
+                # Both attempts failed — return partial content if we have it
+                if collected_text:
+                    partial = ''.join(collected_text)
+                    logger.warning(
+                        f"Returning partial streaming response ({len(partial)} chars)"
+                    )
+                    return partial
                 return None
             except aiohttp.ClientError as e:
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
                     continue
+                # Return partial content on connection error too
+                if collected_text:
+                    partial = ''.join(collected_text)
+                    logger.warning(
+                        f"Returning partial response after connection error ({len(partial)} chars)"
+                    )
+                    return partial
                 return None
         return None
 
@@ -213,12 +238,21 @@ class ClaudeClient:
         Uses inactivity timeout instead of total timeout — no more
         failures on long tool_use chains.
 
+        On timeout: preserves already-received blocks and returns them
+        (partial content is better than no content).
+
         Returns:
             dict {"stop_reason": str, "content": list} or None on error
         """
         session = await self.get_session()
         headers = {"x-api-key": self.api_key}
         payload = {**payload, "stream": True}
+
+        # Accumulate across retry attempts
+        content_blocks: list[dict] = []
+        current_block: Optional[dict] = None
+        stop_reason: Optional[str] = None
+        input_json_parts: list[str] = []
 
         for attempt in range(2):
             try:
@@ -233,11 +267,6 @@ class ClaudeClient:
                     ),
                 ) as resp:
                     if resp.status == 200:
-                        content_blocks = []
-                        current_block = None
-                        stop_reason = None
-                        input_json_parts = []
-
                         while True:
                             line = await resp.content.readline()
                             if not line:
@@ -316,16 +345,40 @@ class ClaudeClient:
                         logger.error(f"Claude API error {resp.status}: {error[:200]}")
                         return None
             except asyncio.TimeoutError:
-                logger.warning(f"Claude API inactivity timeout ({inactivity_timeout}s), attempt {attempt + 1}")
+                # Flush current_block into content_blocks if partially received
+                if current_block and current_block.get('type') == 'text' and current_block.get('text'):
+                    content_blocks.append(current_block)
+                    current_block = None
+
+                partial_count = len(content_blocks)
+                logger.warning(
+                    f"Claude API inactivity timeout ({inactivity_timeout}s), "
+                    f"attempt {attempt + 1}, collected {partial_count} blocks"
+                )
                 if attempt == 0:
+                    inactivity_timeout = inactivity_timeout * 2
                     await asyncio.sleep(1)
                     continue
+                # Return partial blocks if we have text content
+                if content_blocks:
+                    logger.warning(
+                        f"Returning partial streaming_full response ({partial_count} blocks)"
+                    )
+                    return {
+                        "stop_reason": "timeout_partial",
+                        "content": content_blocks,
+                    }
                 return None
             except aiohttp.ClientError as e:
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
                     continue
+                if content_blocks:
+                    return {
+                        "stop_reason": "error_partial",
+                        "content": content_blocks,
+                    }
                 return None
         return None
 
