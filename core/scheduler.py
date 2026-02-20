@@ -784,6 +784,20 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] AutoFix cycle error: {e}")
 
+    # 🚨 L3 Health Check: каскадные ошибки → Railway restart (WP-45 Phase 4)
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from core.health_check import run_l3_health_check
+            bot = Bot(token=_bot_token)
+            try:
+                restarted = await run_l3_health_check(bot, dev_chat_id)
+                if restarted:
+                    logger.warning("[Scheduler] L3: Railway restart triggered")
+            finally:
+                await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] L3 health check error: {e}")
+
     # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
         try:
