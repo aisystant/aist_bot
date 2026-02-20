@@ -136,25 +136,32 @@ async def cmd_club(message: Message, state: FSMContext):
         username = account["discourse_username"]
         posts = await get_published_posts(telegram_user_id)
         cat_id = account.get("blog_category_id") or "?"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Опубликовать", callback_data="club_publish_start")],
+            [
+                InlineKeyboardButton(text="Мои публикации", callback_data="club_posts"),
+                InlineKeyboardButton(text="Отвязать", callback_data="club_disconnect"),
+            ],
+        ])
         await message.answer(
             f"*Клуб подключён*\n\n"
             f"Username: `{username}`\n"
             f"Блог: категория {cat_id}\n"
-            f"Публикаций: {len(posts)}\n\n"
-            f"Команды:\n"
-            f"/club publish — опубликовать пост\n"
-            f"/club posts — мои публикации\n"
-            f"/club disconnect — отвязать",
+            f"Публикаций: {len(posts)}",
             parse_mode="Markdown",
+            reply_markup=keyboard,
         )
     else:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Подключить аккаунт", callback_data="club_connect_start")],
+        ])
         await message.answer(
             "*Подключение к systemsworld.club*\n\n"
             "Привяжи свой аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
-            "`/club connect username`\n\n"
             "Username — твоё имя в клубе.\n"
             "Найти его можно в настройках профиля клуба, рядом с фото.",
             parse_mode="Markdown",
+            reply_markup=keyboard,
         )
 
 
@@ -399,3 +406,51 @@ async def on_publish_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
     await callback.message.answer("Публикация отменена.")
+
+
+@discourse_router.callback_query(lambda c: c.data == "club_posts")
+async def on_club_posts(callback: CallbackQuery):
+    """Мои публикации (из кнопки)."""
+    await callback.answer()
+    account = await get_discourse_account(callback.from_user.id)
+    if not account:
+        await callback.message.answer("Аккаунт клуба не привязан.")
+        return
+    posts = await get_published_posts(callback.from_user.id)
+    if not posts:
+        await callback.message.answer("Ещё нет опубликованных постов.")
+        return
+    lines = ["*Мои публикации:*\n"]
+    for p in posts[:20]:
+        url = f"https://systemsworld.club/t/{p['discourse_topic_id']}"
+        lines.append(f"- [{p['title']}]({url})")
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+
+
+@discourse_router.callback_query(lambda c: c.data == "club_disconnect")
+async def on_club_disconnect(callback: CallbackQuery):
+    """Отвязать аккаунт клуба (из кнопки)."""
+    await callback.answer()
+    account = await get_discourse_account(callback.from_user.id)
+    if account:
+        await unlink_discourse_account(callback.from_user.id)
+        await callback.message.answer("Аккаунт клуба отвязан.")
+    else:
+        await callback.message.answer("Аккаунт клуба не привязан.")
+
+
+@discourse_router.callback_query(lambda c: c.data == "club_connect_start")
+async def on_club_connect_start(callback: CallbackQuery, state: FSMContext):
+    """Начать подключение аккаунта (из кнопки)."""
+    from clients.discourse import discourse
+
+    await callback.answer()
+    if not discourse:
+        await callback.message.answer("Интеграция с клубом не настроена.")
+        return
+    await callback.message.answer(
+        "Введи свой *username* в клубе:\n\n"
+        "Username можно найти в настройках профиля клуба, рядом с фото.",
+        parse_mode="Markdown",
+    )
+    await state.set_state(ClubStates.waiting_username)

@@ -84,6 +84,11 @@ class DiscourseClient:
         # 1. Получить Discourse user ID
         user = await self.get_user(username)
         discourse_user_id = user.get("id") if user else None
+        logger.info(
+            f"find_user_blog: username={username}, "
+            f"discourse_user_id={discourse_user_id}, "
+            f"blogs_parent_category_id={self.blogs_category_id}"
+        )
 
         # 2. Искать в /site.json
         session = await self._get_session()
@@ -95,11 +100,23 @@ class DiscourseClient:
                     return None
                 data = await resp.json()
 
-            username_lower = username.lower()
-            for cat in data.get("categories", []):
-                if cat.get("parent_category_id") != self.blogs_category_id:
-                    continue
+            all_cats = data.get("categories", [])
+            blog_children = [
+                c for c in all_cats
+                if c.get("parent_category_id") == self.blogs_category_id
+            ]
+            logger.info(
+                f"find_user_blog: {len(all_cats)} total categories, "
+                f"{len(blog_children)} children of parent {self.blogs_category_id}"
+            )
+            if blog_children:
+                logger.info(
+                    f"find_user_blog: blog children slugs = "
+                    f"{[c.get('slug') for c in blog_children[:10]]}"
+                )
 
+            username_lower = username.lower()
+            for cat in blog_children:
                 slug = cat.get("slug", "").lower()
 
                 # Match by blogs-user-{discourse_id} — самый надёжный
@@ -122,7 +139,11 @@ class DiscourseClient:
         except Exception as e:
             logger.error(f"find_user_blog /site.json error: {e}")
 
-        logger.warning(f"Blog not found for '{username}' (user_id={discourse_user_id})")
+        logger.warning(
+            f"Blog not found for '{username}' "
+            f"(user_id={discourse_user_id}, "
+            f"blogs_parent={self.blogs_category_id})"
+        )
         return None
 
     # ── Topics ─────────────────────────────────────────────
