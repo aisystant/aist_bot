@@ -208,10 +208,14 @@ async def _connect_account(message: Message, state: FSMContext, username: str):
 
     blog_info = f"\nБлог найден: категория {blog_cat_id}" if blog_cat_id else "\nБлог не найден (публикация в общий раздел)."
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Опубликовать", callback_data="club_publish_start")],
+    ]) if blog_cat_id else None
+
     await message.answer(
-        f"Аккаунт подключён: `{username}`{blog_info}\n\n"
-        f"Теперь можешь публиковать: /club publish",
+        f"Аккаунт подключён: `{username}`{blog_info}",
         parse_mode="Markdown",
+        reply_markup=keyboard,
     )
 
 

@@ -116,25 +116,36 @@ class DiscourseClient:
                 )
 
             username_lower = username.lower()
+            target_slug = f"blogs-user-{discourse_user_id}" if discourse_user_id else None
+
+            # Strategy 1: children of configured parent
             for cat in blog_children:
                 slug = cat.get("slug", "").lower()
-
-                # Match by blogs-user-{discourse_id} — самый надёжный
-                if discourse_user_id and slug == f"blogs-user-{discourse_user_id}":
+                if target_slug and slug == target_slug:
                     logger.info(
-                        f"Blog found by slug pattern: {slug} "
+                        f"Blog found by parent+slug: {slug} "
                         f"(id={cat.get('id')}, user_id={discourse_user_id})"
                     )
                     return cat
-
-                # Match by username in name (fallback)
                 name = cat.get("name", "").lower()
                 if username_lower in name:
                     logger.info(
-                        f"Blog found by name match: {cat.get('name')} "
+                        f"Blog found by parent+name: {cat.get('name')} "
                         f"(id={cat.get('id')}, slug={slug})"
                     )
                     return cat
+
+            # Strategy 2: global slug search (если parent_category_id неверный)
+            if target_slug:
+                for cat in all_cats:
+                    if cat.get("slug", "").lower() == target_slug:
+                        logger.info(
+                            f"Blog found by GLOBAL slug: {target_slug} "
+                            f"(id={cat.get('id')}, "
+                            f"actual_parent={cat.get('parent_category_id')}, "
+                            f"configured_parent={self.blogs_category_id})"
+                        )
+                        return cat
 
         except Exception as e:
             logger.error(f"find_user_blog /site.json error: {e}")
