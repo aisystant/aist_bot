@@ -264,8 +264,11 @@ class MarathonTaskState(BaseState):
                         suggestion=validation.get("suggestion", ""),
                         lang=lang,
                     )
-                    await self.send(user, hint, parse_mode="Markdown")
-                    return None  # остаёмся в стейте, ждём переформулировку
+                    try:
+                        await self.send(user, hint, parse_mode="Markdown")
+                    except Exception:
+                        await self.send(user, hint)
+                    # не блокируем — принимаем ответ, hint как совет
             except Exception as e:
                 logger.warning(f"WP validation error for user {chat_id}: {e}")
 
