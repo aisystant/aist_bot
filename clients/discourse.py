@@ -117,8 +117,10 @@ class DiscourseClient:
 
             username_lower = username.lower()
             target_slug = f"blogs-user-{discourse_user_id}" if discourse_user_id else None
+            # Нормализация: "tseren-tserenov" → "tseren tserenov"
+            username_norm = re.sub(r"[-_.]", " ", username_lower)
 
-            # Strategy 1: children of configured parent
+            # Strategy 1: children of configured parent — slug match
             for cat in blog_children:
                 slug = cat.get("slug", "").lower()
                 if target_slug and slug == target_slug:
@@ -127,15 +129,19 @@ class DiscourseClient:
                         f"(id={cat.get('id')}, user_id={discourse_user_id})"
                     )
                     return cat
+
+            # Strategy 2: children of configured parent — name match
+            for cat in blog_children:
                 name = cat.get("name", "").lower()
-                if username_lower in name:
+                name_norm = re.sub(r"[-_.]", " ", name)
+                if username_norm in name_norm:
                     logger.info(
                         f"Blog found by parent+name: {cat.get('name')} "
-                        f"(id={cat.get('id')}, slug={slug})"
+                        f"(id={cat.get('id')}, slug={cat.get('slug')})"
                     )
                     return cat
 
-            # Strategy 2: global slug search (если parent_category_id неверный)
+            # Strategy 3: global slug search (если parent_category_id неверный)
             if target_slug:
                 for cat in all_cats:
                     if cat.get("slug", "").lower() == target_slug:
@@ -146,6 +152,20 @@ class DiscourseClient:
                             f"configured_parent={self.blogs_category_id})"
                         )
                         return cat
+
+            # Strategy 4: global name search
+            for cat in all_cats:
+                if cat.get("parent_category_id") is None:
+                    continue  # skip top-level
+                name = cat.get("name", "").lower()
+                name_norm = re.sub(r"[-_.]", " ", name)
+                slug = cat.get("slug", "")
+                if slug.startswith("blogs-user-") and username_norm in name_norm:
+                    logger.info(
+                        f"Blog found by GLOBAL name: {cat.get('name')} "
+                        f"(id={cat.get('id')}, slug={slug})"
+                    )
+                    return cat
 
         except Exception as e:
             logger.error(f"find_user_blog /site.json error: {e}")
