@@ -1,5 +1,5 @@
 """
-Pytest fixtures для E2E тестирования AIST Track Bot.
+Pytest fixtures для E2E тестирования AIST_me_bot.
 
 ВАЖНО: Этот файл решает проблему совместимости Telethon с pytest-asyncio.
 Telethon требует один и тот же event loop, но pytest-asyncio создаёт новый loop

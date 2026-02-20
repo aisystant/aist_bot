@@ -1,4 +1,4 @@
-# CLAUDE.md — AIST Track Bot (new-architecture)
+# CLAUDE.md — AIST_me_bot (new-architecture)
 
 > **Общие инструкции:** см. `/Users/tserentserenov/Github/CLAUDE.md`
 >
@@ -375,6 +375,38 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 **Scheduler:** classify_unprocessed() каждые 5 мин + check_escalation() каждые 15 мин.
 
 **Grafana:** dashboard JSON в `monitoring/grafana-dashboard.json` (PostgreSQL datasource → Neon).
+
+---
+
+## 12. Progressive UI per Tier (WP-52 v4)
+
+**Файлы:** `core/tier_config.py`, `core/tier_detector.py`, `core/tier_ui.py`, `handlers/reply_keyboard.py`
+
+**Дизайн-документ:** `DS-my-strategy/inbox/WP-52-progressive-ui-tiers.md`
+**Pack-сущность:** DP.ARCH.002 § 13
+
+**Два слоя ReplyKeyboard:**
+1. **mode_select KB** (2×2) — при возврате в главное меню, tier-dependent
+2. **SM-contextual KB** — внутри reply-стейтов: Row 1 = действия, Row 2 = `[🏠 Меню] [⚙️]`
+
+**mode_select layouts:**
+
+```
+T1: [📚 Марафон] [🧪 Тест]     / [📊 Мой прогресс] [⚙️]
+T2: [📖 Лента]   [📚 Марафон]  / [📊 Мой прогресс] [⚙️]
+T3: [📖 Лента]   [🤖 Twin]     / [📊 Мои данные]   [⚙️]
+T4: [📋 Мой план] [🤖 Twin]    / [📊 Мои данные]   [⚙️]
+```
+
+**Tier detection (behavioral):** T1=default, T2=marathon_completed, T3=marathon+DT, T5=DEVELOPER_CHAT_ID
+
+**Правила:**
+- ⚙️ = universal settings (Language first, Profile link)
+- SM НЕ удаляет KB, а ЗАМЕНЯЕТ на контекстную
+- «Мой прогресс» (T1-T2) → «Мои данные» (T3+)
+- T5 = dev-commands + settings + help (НЕ наследует T4)
+- Menu ☰ per-user через `BotCommandScopeChat`
+- Все команды работают на любом тире (видимость ≠ доступность)
 
 ---
 

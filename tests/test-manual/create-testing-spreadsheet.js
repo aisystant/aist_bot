@@ -1,5 +1,5 @@
 /**
- * Google Apps Script для создания таблицы тестирования AIST Track Bot
+ * Google Apps Script для создания таблицы тестирования AIST_me_bot
  *
  * Инструкция:
  * 1. Откройте Google Sheets → Расширения → Apps Script
