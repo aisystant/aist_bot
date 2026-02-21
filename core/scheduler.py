@@ -727,6 +727,20 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Event notification error: {e}")
 
+    # 🔍 Schedule integrity check: 08:00 MSK daily — detect silent delivery failures
+    if now.hour == 8 and now.minute == 0 and dev_chat_id:
+        try:
+            alert = await _check_schedule_integrity(now)
+            if alert:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), alert, parse_mode="HTML")
+                    logger.warning(f"[Scheduler] Schedule integrity alert sent")
+                finally:
+                    await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] Schedule integrity check error: {e}")
+
     # 🚨 Latency alert: проверяем каждые 15 минут
     if now.minute % 15 == 0 and dev_chat_id:
         try:
@@ -860,6 +874,62 @@ async def scheduled_check():
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()
+
+
+# ═══════════════════════════════════════════════════════════
+# SCHEDULE INTEGRITY CHECK
+# ═══════════════════════════════════════════════════════════
+
+async def _check_schedule_integrity(now) -> Optional[str]:
+    """Daily integrity check: detect users with broken schedule data.
+
+    Checks:
+    1. Non-zero-padded schedule_time/feed_schedule_time (e.g. '7:30' instead of '07:30')
+    2. Active marathon/feed users whose delivery time already passed today but got nothing
+    3. Contradictory states (e.g. marathon_status='not_started' but completed_topics > 0)
+    """
+    from db.connection import get_pool
+
+    pool = await get_pool()
+    issues = []
+
+    async with pool.acquire() as conn:
+        # 1. Non-zero-padded times
+        bad_times = await conn.fetch('''
+            SELECT chat_id, tg_username, schedule_time, feed_schedule_time
+            FROM interns
+            WHERE onboarding_completed = TRUE
+              AND (schedule_time ~ '^[0-9]:' OR feed_schedule_time ~ '^[0-9]:')
+        ''')
+        if bad_times:
+            for r in bad_times:
+                issues.append(f"⚠️ {r['tg_username'] or r['chat_id']}: "
+                              f"schedule={r['schedule_time']}, feed={r['feed_schedule_time']} (no leading zero)")
+            # Auto-fix
+            await conn.execute("UPDATE interns SET schedule_time = LPAD(schedule_time, 5, '0') WHERE schedule_time ~ '^[0-9]:'")
+            await conn.execute("UPDATE interns SET feed_schedule_time = LPAD(feed_schedule_time, 5, '0') WHERE feed_schedule_time ~ '^[0-9]:'")
+
+        # 2. Contradictory states: has progress but status = 'not_started'
+        contradictions = await conn.fetch('''
+            SELECT chat_id, tg_username, marathon_status, feed_status,
+                   current_topic_index, completed_topics, marathon_start_date
+            FROM interns
+            WHERE onboarding_completed = TRUE
+              AND (
+                (marathon_status = 'not_started' AND marathon_start_date IS NOT NULL)
+                OR (marathon_status = 'not_started' AND current_topic_index > 0)
+              )
+        ''')
+        for r in contradictions:
+            issues.append(f"🔴 {r['tg_username'] or r['chat_id']}: "
+                          f"marathon_status={r['marathon_status']} but "
+                          f"start_date={r['marathon_start_date']}, topic_index={r['current_topic_index']}")
+
+    if not issues:
+        return None
+
+    header = f"🔍 <b>Schedule Integrity ({now.strftime('%d.%m %H:%M')})</b>\n\n"
+    return header + "\n".join(issues[:20])  # cap at 20 issues
 
 
 # ═══════════════════════════════════════════════════════════

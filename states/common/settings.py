@@ -299,16 +299,20 @@ class SettingsState(BaseState):
 
         if field == 'schedule_marathon':
             if re.match(time_pattern, text):
-                await update_intern(chat_id, schedule_time=text)
-                await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{text}*", parse_mode="Markdown")
+                h, m = text.split(':')
+                normalized = f"{int(h):02d}:{int(m):02d}"
+                await update_intern(chat_id, schedule_time=normalized)
+                await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{normalized}*", parse_mode="Markdown")
             else:
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None
 
         elif field == 'schedule_feed':
             if re.match(time_pattern, text):
-                await update_intern(chat_id, feed_schedule_time=text)
-                await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{text}*", parse_mode="Markdown")
+                h, m = text.split(':')
+                normalized = f"{int(h):02d}:{int(m):02d}"
+                await update_intern(chat_id, feed_schedule_time=normalized)
+                await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{normalized}*", parse_mode="Markdown")
             else:
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None

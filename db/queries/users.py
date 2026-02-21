@@ -200,12 +200,16 @@ async def update_intern(chat_id: int, **kwargs):
     if not kwargs:
         return
 
-    # Normalize: resolve aliases, serialize JSON
+    # Normalize: resolve aliases, serialize JSON, zero-pad schedule times
     columns = {}
     for key, value in kwargs.items():
         # JSON-поля
         if key in ['interests', 'completed_topics', 'current_context']:
             value = json.dumps(value) if not isinstance(value, str) else value
+
+        # Zero-pad schedule times: "7:30" → "07:30"
+        if key in ('schedule_time', 'feed_schedule_time', 'schedule_time_2') and value:
+            value = value.zfill(5) if isinstance(value, str) and len(value) == 4 else value
 
         # Синхронизация bloom <-> complexity (aliases → canonical column)
         if key in ('bloom_level', 'complexity_level'):

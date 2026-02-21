@@ -277,16 +277,20 @@ class ProfileState(BaseState):
         elif field == 'schedule_marathon':
             import re
             if re.match(r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$', text):
-                await update_intern(chat_id, schedule_time=text)
-                await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{text}*", parse_mode="Markdown")
+                h, m = text.split(':')
+                normalized = f"{int(h):02d}:{int(m):02d}"
+                await update_intern(chat_id, schedule_time=normalized)
+                await self.send(user, f"✅ {t('settings.schedule_marathon', lang)}: *{normalized}*", parse_mode="Markdown")
             else:
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None
         elif field == 'schedule_feed':
             import re
             if re.match(r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$', text):
-                await update_intern(chat_id, feed_schedule_time=text)
-                await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{text}*", parse_mode="Markdown")
+                h, m = text.split(':')
+                normalized = f"{int(h):02d}:{int(m):02d}"
+                await update_intern(chat_id, feed_schedule_time=normalized)
+                await self.send(user, f"✅ {t('settings.schedule_feed', lang)}: *{normalized}*", parse_mode="Markdown")
             else:
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None
