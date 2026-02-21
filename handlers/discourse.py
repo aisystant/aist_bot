@@ -451,7 +451,7 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     if not title or not content:
-        await callback.message.answer("Данные потеряны. Попробуй /club publish заново.")
+        await callback.message.answer("Данные потеряны. Попробуй /club → Опубликовать.")
         return
 
     account = await get_discourse_account(callback.from_user.id)
@@ -465,7 +465,7 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
     if not category_id:
         await callback.message.answer(
             "Блог не указан. Переподключись:\n"
-            "/club disconnect → /club connect"
+            "/club → Отвязать → /club → Подключить"
         )
         return
 
@@ -505,7 +505,7 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
                 "1. API-ключ должен быть типа «All Users» (Admin > API > Keys)\n"
                 "2. Категория блога должна разрешать Create "
                 "(Admin > Categories > blogs > Security)\n"
-                "3. Попробуй /club disconnect → /club connect"
+                "3. Попробуй /club → Отвязать → /club → Подключить"
             )
         await callback.message.answer(
             f"Ошибка публикации: {e}\n"
@@ -519,6 +519,12 @@ async def on_club_publish_start(callback: CallbackQuery, state: FSMContext):
     from clients.discourse import discourse
 
     await callback.answer()
+
+    # Убираем кнопки из /club-меню → предотвращаем повторные нажатия во время скана
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     if not discourse:
         await callback.message.answer("Интеграция с клубом не настроена.")
@@ -601,7 +607,7 @@ async def _show_schedule(message_or_cb, chat_id: int):
     queue = await get_scheduled_count(chat_id)
 
     if not schedule:
-        text = "График публикаций пуст.\n\nДобавь посты: `/club publish`"
+        text = "График публикаций пуст.\n\nДобавь посты: /club → Опубликовать"
         if hasattr(message_or_cb, "answer"):
             await message_or_cb.answer(text, parse_mode="Markdown")
         else:
@@ -772,11 +778,18 @@ async def _show_publish_options(message: Message, state: FSMContext, chat_id: in
 async def on_publish_manual(callback: CallbackQuery, state: FSMContext):
     """Ручной ввод поста (как раньше)."""
     await callback.answer()
+
+    # Убираем кнопки из списка постов → предотвращаем race с _show_publish_options
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await state.set_state(ClubStates.waiting_post_title)
     await callback.message.answer(
         "Введи *заголовок* поста для публикации в блог:",
         parse_mode="Markdown",
     )
-    await state.set_state(ClubStates.waiting_post_title)
 
 
 @discourse_router.callback_query(lambda c: c.data and c.data.startswith("club_smart_pub:"))
@@ -786,12 +799,19 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
     from clients.github_content import github_content, strip_frontmatter, update_frontmatter_field
 
     await callback.answer()
+
+    # Убираем кнопки из списка постов → предотвращаем повторные нажатия
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
     idx = int(callback.data.split(":")[1])
     data = await state.get_data()
     ready_posts = data.get("ready_posts", [])
 
     if idx >= len(ready_posts):
-        await callback.message.answer("Данные устарели. Попробуй /club publish заново.")
+        await callback.message.answer("Данные устарели. Попробуй /club → Опубликовать.")
         return
 
     post = ready_posts[idx]
@@ -803,7 +823,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
     category_id = account.get("blog_category_id")
     username = account["discourse_username"]
     if not category_id:
-        await callback.message.answer("Блог не указан. /club disconnect → /club connect")
+        await callback.message.answer("Блог не указан. /club → Отвязать → /club → Подключить")
         return
 
     # Прочитать контент из GitHub
