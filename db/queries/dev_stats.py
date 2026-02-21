@@ -178,3 +178,78 @@ async def get_pending_content_count() -> int:
             "SELECT COUNT(*) AS cnt FROM marathon_content WHERE status = 'pending'"
         )
         return row['cnt'] if row else 0
+
+
+# === /delivery — отчёт о доставке марафона ===
+
+async def get_delivery_report() -> dict:
+    """Отчёт: кто из активных участников марафона получил урок сегодня."""
+    from datetime import datetime, timezone, timedelta
+    MOSCOW_TZ = timezone(timedelta(hours=3))
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        now_msk = datetime.now(MOSCOW_TZ)
+        today_str = now_msk.strftime('%H:%M')
+
+        # Active marathon users
+        active = await conn.fetch('''
+            SELECT i.chat_id, i.tg_username, i.schedule_time
+            FROM interns i
+            WHERE i.marathon_status = 'active'
+              AND i.onboarding_completed = TRUE
+            ORDER BY i.schedule_time
+        ''')
+
+        # Today's marathon_content per user (latest status)
+        content_today = await conn.fetch('''
+            SELECT DISTINCT ON (mc.chat_id)
+                mc.chat_id, mc.status, mc.created_at
+            FROM marathon_content mc
+            WHERE mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+            ORDER BY mc.chat_id, mc.created_at DESC
+        ''')
+        content_map = {r['chat_id']: r for r in content_today}
+
+        users = []
+        counts = {'delivered': 0, 'pending': 0, 'not_yet': 0, 'missed': 0}
+
+        for u in active:
+            chat_id = u['chat_id']
+            sched = u['schedule_time'] or '09:00'
+            entry = {
+                'chat_id': chat_id,
+                'username': u['tg_username'],
+                'schedule': sched,
+            }
+
+            c = content_map.get(chat_id)
+            if c:
+                created_msk = c['created_at'] + timedelta(hours=3) if c['created_at'].tzinfo is None else c['created_at'].astimezone(MOSCOW_TZ)
+                entry['time'] = created_msk.strftime('%H:%M')
+                entry['status'] = c['status']  # 'pending' or 'delivered'
+                counts[c['status']] = counts.get(c['status'], 0) + 1
+            else:
+                # No content today — either not yet or missed
+                try:
+                    h, m = map(int, sched.split(':'))
+                    sched_dt = now_msk.replace(hour=h, minute=m, second=0)
+                    if now_msk < sched_dt:
+                        entry['status'] = 'not_yet'
+                        counts['not_yet'] += 1
+                    else:
+                        entry['status'] = 'missed'
+                        counts['missed'] += 1
+                except ValueError:
+                    entry['status'] = 'missed'
+                    counts['missed'] += 1
+
+            users.append(entry)
+
+        return {
+            'users': users,
+            'summary': {
+                'active': len(active),
+                **counts,
+            },
+        }

@@ -430,6 +430,63 @@ async def cmd_reset(message: Message):
     )
 
 
+@dev_router.message(Command("delivery"))
+async def cmd_delivery(message: Message):
+    """/delivery — отчёт о доставке уроков марафона за сегодня."""
+    if not _is_developer(message.chat.id):
+        return
+
+    from db.queries.dev_stats import get_delivery_report
+
+    try:
+        report = await get_delivery_report()
+    except Exception as e:
+        logger.error(f"[Dev] /delivery error: {e}")
+        await message.answer("Ошибка загрузки отчёта о доставке.")
+        return
+
+    sep = "\u2500" * 20
+
+    # Per-user lines
+    user_lines = ""
+    for u in report['users']:
+        status = u['status']
+        if status == 'delivered':
+            emoji = "\U0001f7e2"
+            label = f"доставлено {u['time']}"
+        elif status == 'pending':
+            emoji = "\U0001f7e1"
+            label = f"ожидает клика ({u['time']})"
+        elif status == 'not_yet':
+            emoji = "\u23f3"
+            label = f"ждёт {u['schedule']}"
+        elif status == 'missed':
+            emoji = "\U0001f534"
+            label = f"ПРОПУСК (план {u['schedule']})"
+        else:
+            emoji = "\u2753"
+            label = status
+
+        name = u.get('username') or str(u.get('chat_id', '?'))
+        user_lines += f"  {emoji} @{name}: {label}\n"
+
+    s = report['summary']
+
+    text = (
+        f"<b>Доставка марафона</b>\n{sep}\n\n"
+        f"<b>Сводка</b>\n"
+        f"  Активных: {s['active']}\n"
+        f"  \U0001f7e2 Доставлено: {s['delivered']}\n"
+        f"  \U0001f7e1 Ожидает клика: {s['pending']}\n"
+        f"  \u23f3 Время не наступило: {s['not_yet']}\n"
+        f"  \U0001f534 Пропущено: {s['missed']}\n\n"
+        f"<b>Пользователи</b>\n{user_lines}"
+    )
+
+    text = truncate_safe(text)
+    await message.answer(text, parse_mode="HTML")
+
+
 # ═══════════════════════════════════════════════════════════
 # L2 AUTO-FIX: approve/reject callbacks (WP-45 Phase 3)
 # ═══════════════════════════════════════════════════════════
