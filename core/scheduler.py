@@ -505,6 +505,9 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     # Планируем напоминания (+1ч и +3ч)
     await schedule_reminders(chat_id, intern)
 
+    # Определяем: catch-up (урок с прошлого дня) или обычный
+    is_catchup = topic['day'] < marathon_day
+
     # Отправляем уведомление с кнопкой «Получить урок»
     topic_title = get_topic_title(topic, lang)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -514,15 +517,26 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         )]
     ])
 
-    await bot.send_message(
-        chat_id,
-        f"*{t('reminders.marathon_lesson_ready', lang)}*\n"
-        f"📚 {topic_title}\n\n"
-        f"{t('reminders.marathon_lesson_cta', lang)}",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
+    if is_catchup:
+        await bot.send_message(
+            chat_id,
+            f"*{t('reminders.marathon_catchup_ready', lang)}*\n"
+            f"📚 {topic_title}\n\n"
+            f"{t('reminders.marathon_catchup_cta', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"[Scheduler] Sent CATCH-UP notification to {chat_id}, topic: {topic_title} (day {topic['day']} < marathon_day {marathon_day})")
+    else:
+        await bot.send_message(
+            chat_id,
+            f"*{t('reminders.marathon_lesson_ready', lang)}*\n"
+            f"📚 {topic_title}\n\n"
+            f"{t('reminders.marathon_lesson_cta', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
 
 
 async def schedule_reminders(chat_id: int, intern: dict):

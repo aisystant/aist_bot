@@ -1629,6 +1629,30 @@ reminders:
     ru: "Нажмите кнопку, чтобы начать."
     en: "Press the button to start."
 
+  marathon_catchup_ready:
+    ru: "📚 У вас есть непройденный урок с прошлого дня!"
+    en: "📚 You have an unfinished lesson from yesterday!"
+
+  marathon_catchup_cta:
+    ru: "Пройдите его сегодня, чтобы не отстать."
+    en: "Complete it today to stay on track."
+
+  marathon_catchup_offer:
+    ru: "Хотите получить ещё и сегодняшний урок? Нагнать можно только 1 день."
+    en: "Want to also get today's lesson? You can catch up by 1 day max."
+
+  marathon_catchup_btn:
+    ru: "Да, получить сегодняшний урок"
+    en: "Yes, get today's lesson"
+
+  marathon_catchup_skip:
+    ru: "Нет, достаточно на сегодня"
+    en: "No, enough for today"
+
+  marathon_catchup_generating:
+    ru: "Генерирую сегодняшний урок..."
+    en: "Generating today's lesson..."
+
 # -----------------------------------------------------------------------------
 # Профиль
 # -----------------------------------------------------------------------------

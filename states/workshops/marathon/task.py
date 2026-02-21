@@ -350,6 +350,42 @@ class MarathonTaskState(BaseState):
             return "marathon_complete"
 
         # День завершён (практика = последняя тема дня)
+        # Проверяем: была ли это тема с прошлого дня (catch-up)?
+        topic = get_topic(topic_index)
+        marathon_day = self._get_marathon_day(user)
+        topic_day = topic.get('day', marathon_day) if topic else marathon_day
+        is_catchup = topic_day < marathon_day
+
+        if is_catchup:
+            # Проверяем: есть ли темы на сегодня (marathon_day)?
+            from core.topics import TOPICS
+            today_uncompleted = [
+                i for i, t_topic in enumerate(TOPICS)
+                if t_topic.get('day') == marathon_day and i not in set(completed)
+            ]
+
+            if today_uncompleted and topics_today < 4:
+                # Предлагаем сегодняшний урок
+                catchup_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"📚 {t('reminders.marathon_catchup_btn', lang)}",
+                        callback_data="marathon_catchup_today"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"✋ {t('reminders.marathon_catchup_skip', lang)}",
+                        callback_data="marathon_catchup_no"
+                    )],
+                ])
+                await self.send(
+                    user,
+                    f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
+                    f"✅ {t('marathon.day_complete', lang)}\n\n"
+                    f"{t('reminders.marathon_catchup_offer', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=catchup_keyboard
+                )
+                return "submitted"  # → common.mode_select (buttons stay)
+
         await self.send(
             user,
             f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
