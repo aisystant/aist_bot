@@ -212,7 +212,7 @@ async def get_delivery_report() -> dict:
         content_map = {r['chat_id']: r for r in content_today}
 
         users = []
-        counts = {'delivered': 0, 'pending': 0, 'not_yet': 0, 'missed': 0}
+        counts = {'sent_read': 0, 'sent_unread': 0, 'not_yet': 0, 'missed': 0}
 
         for u in active:
             chat_id = u['chat_id']
@@ -227,8 +227,13 @@ async def get_delivery_report() -> dict:
             if c:
                 created_msk = c['created_at'] + timedelta(hours=3) if c['created_at'].tzinfo is None else c['created_at'].astimezone(MOSCOW_TZ)
                 entry['time'] = created_msk.strftime('%H:%M')
-                entry['status'] = c['status']  # 'pending' or 'delivered'
-                counts[c['status']] = counts.get(c['status'], 0) + 1
+                # DB: 'delivered' = user opened lesson, 'pending' = sent but not opened yet
+                if c['status'] == 'delivered':
+                    entry['status'] = 'sent_read'
+                    counts['sent_read'] += 1
+                else:
+                    entry['status'] = 'sent_unread'
+                    counts['sent_unread'] += 1
             else:
                 # No content today — either not yet or missed
                 try:
@@ -250,6 +255,7 @@ async def get_delivery_report() -> dict:
             'users': users,
             'summary': {
                 'active': len(active),
+                'sent': counts['sent_read'] + counts['sent_unread'],
                 **counts,
             },
         }

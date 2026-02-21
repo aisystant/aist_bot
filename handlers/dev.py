@@ -451,12 +451,12 @@ async def cmd_delivery(message: Message):
     user_lines = ""
     for u in report['users']:
         status = u['status']
-        if status == 'delivered':
+        if status == 'sent_read':
             emoji = "\U0001f7e2"
-            label = f"доставлено {u['time']}"
-        elif status == 'pending':
+            label = f"прочитано ({u['time']})"
+        elif status == 'sent_unread':
             emoji = "\U0001f7e1"
-            label = f"ожидает клика ({u['time']})"
+            label = f"отправлено, не открыт ({u['time']})"
         elif status == 'not_yet':
             emoji = "\u23f3"
             label = f"ждёт {u['schedule']}"
@@ -476,8 +476,7 @@ async def cmd_delivery(message: Message):
         f"<b>Доставка марафона</b>\n{sep}\n\n"
         f"<b>Сводка</b>\n"
         f"  Активных: {s['active']}\n"
-        f"  \U0001f7e2 Доставлено: {s['delivered']}\n"
-        f"  \U0001f7e1 Ожидает клика: {s['pending']}\n"
+        f"  \U0001f7e2 Отправлено: {s['sent']} (прочитано: {s['sent_read']})\n"
         f"  \u23f3 Время не наступило: {s['not_yet']}\n"
         f"  \U0001f534 Пропущено: {s['missed']}\n\n"
         f"<b>Пользователи</b>\n{user_lines}"
