@@ -135,18 +135,37 @@ commands:
   feedback:
     ru: "/feedback — обратная связь (!текст — быстро)"
     en: "/feedback — feedback (!text — quick)"
+  twin:
+    ru: "/twin — профиль развития (цифровой двойник)"
+    en: "/twin — development profile (digital twin)"
+  rp:
+    ru: "/rp — рабочие продукты недели"
+    en: "/rp — weekly work products"
+  report:
+    ru: "/report — отчёт дня / недели"
+    en: "/report — day / week report"
+  bug_report:
+    ru: "! — баг-репорт (!текст — быстро)"
+    en: "! — bug report (!text — quick)"
 
   section_main:
     ru: "Основные"
     en: "Main"
-
+  section_planning:
+    ru: "Планирование"
+    en: "Planning"
+  section_profile:
+    ru: "Профиль и данные"
+    en: "Profile & data"
+  section_club:
+    ru: "Клуб"
+    en: "Club"
   section_settings:
-    ru: "Настройки и профиль"
-    en: "Settings & profile"
-
-  section_special:
-    ru: "Специальные"
-    en: "Special"
+    ru: "Настройки"
+    en: "Settings"
+  section_quick:
+    ru: "Быстрые команды"
+    en: "Quick commands"
 
 # -----------------------------------------------------------------------------
 # Меню (короткие описания для кнопок Telegram)
