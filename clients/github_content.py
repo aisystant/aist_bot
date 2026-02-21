@@ -175,7 +175,7 @@ def strip_frontmatter(content: str) -> str:
 
 import os
 
-_gh_token = os.getenv("GITHUB_TOKEN", "")
+_gh_token = os.getenv("GITHUB_BOT_PAT", "")
 _gh_repo = os.getenv("GITHUB_KNOWLEDGE_REPO", "")
 
 github_content = GitHubContentClient(_gh_token, _gh_repo) if _gh_token and _gh_repo else None

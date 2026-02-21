@@ -360,7 +360,7 @@ DISCOURSE_BLOGS_CATEGORY_ID = int(os.getenv("DISCOURSE_BLOGS_CATEGORY_ID", "36")
 
 # ============= PUBLISHER (R21, WP-53 Phase 3) =============
 
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_TOKEN = GITHUB_BOT_PAT or ""  # reuse L2 Auto-Fix PAT
 GITHUB_KNOWLEDGE_REPO = os.getenv("GITHUB_KNOWLEDGE_REPO", "")  # "owner/repo"
 PUBLISHER_DAYS = os.getenv("PUBLISHER_DAYS", "mon,wed,fri")  # Дни публикации
 PUBLISHER_TIME = os.getenv("PUBLISHER_TIME", "10:00")  # Время публикации (МСК)

@@ -792,7 +792,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
     # Прочитать контент из GitHub
     if not github_content:
-        await callback.message.answer("GitHub не настроен (GITHUB_TOKEN).")
+        await callback.message.answer("GitHub не настроен (GITHUB_BOT_PAT).")
         return
 
     file_result = await github_content.read_file(post["path"])
