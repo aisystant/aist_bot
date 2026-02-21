@@ -189,7 +189,11 @@ async def cmd_club(message: Message, state: FSMContext):
             )
             return
         # Показать ready-посты из индекса как кнопки
-        await _show_publish_options(message, state, telegram_user_id)
+        try:
+            await _show_publish_options(message, state, telegram_user_id)
+        except Exception as e:
+            logger.error(f"show_publish_options error: {e}")
+            await message.answer(f"Ошибка загрузки постов: {e}")
         return
 
     # /club posts
@@ -529,7 +533,11 @@ async def on_club_publish_start(callback: CallbackQuery, state: FSMContext):
         return
 
     # Smart publish: показать ready-посты из индекса
-    await _show_publish_options(callback.message, state, callback.from_user.id)
+    try:
+        await _show_publish_options(callback.message, state, callback.from_user.id)
+    except Exception as e:
+        logger.error(f"show_publish_options error: {e}")
+        await callback.message.answer(f"Ошибка загрузки постов: {e}")
 
 
 @discourse_router.callback_query(lambda c: c.data == "club_publish_cancel")
@@ -627,7 +635,11 @@ async def _show_schedule(message_or_cb, chat_id: int):
 async def on_club_schedule(callback: CallbackQuery):
     """Показать график (из кнопки)."""
     await callback.answer()
-    await _show_schedule(callback, callback.from_user.id)
+    try:
+        await _show_schedule(callback.message, callback.from_user.id)
+    except Exception as e:
+        logger.error(f"show_schedule error: {e}")
+        await callback.message.answer(f"Ошибка загрузки графика: {e}")
 
 
 @discourse_router.callback_query(lambda c: c.data and c.data.startswith("club_sched_cancel:"))
@@ -637,7 +649,7 @@ async def on_schedule_cancel_item(callback: CallbackQuery):
     pub_id = int(callback.data.split(":")[1])
     await cancel_scheduled_publication(pub_id)
     await callback.message.answer("Публикация удалена из графика.")
-    await _show_schedule(callback, callback.from_user.id)
+    await _show_schedule(callback.message, callback.from_user.id)
 
 
 @discourse_router.callback_query(lambda c: c.data == "club_main")
@@ -680,45 +692,49 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
     if not github_content:
         return []
 
-    published_files = await get_all_published_source_files(chat_id)
-    published_titles = await get_all_published_titles_lower(chat_id)
-    scheduled_titles = await get_all_scheduled_source_files(chat_id)
+    try:
+        published_files = await get_all_published_source_files(chat_id)
+        published_titles = await get_all_published_titles_lower(chat_id)
+        scheduled_titles = await get_all_scheduled_source_files(chat_id)
 
-    current_year = datetime.now().year
-    candidates = []
+        current_year = datetime.now().year
+        candidates = []
 
-    for year in [current_year, current_year - 1]:
-        files = await github_content.list_files(f"docs/{year}")
-        for f in files:
-            if f["name"] == "README.md":
-                continue
-            result = await github_content.read_file(f["path"])
-            if not result:
-                continue
-            content, sha = result
-            fm = parse_frontmatter(content)
-            if fm.get("type") != "post":
-                continue
-            if fm.get("status") != "ready":
-                continue
-            if fm.get("target") != "club":
-                continue
-            title = fm.get("title", f["name"])
-            if f["path"] in published_files:
-                continue
-            if title.lower() in published_titles:
-                continue
-            if title.lower() in scheduled_titles:
-                continue
-            candidates.append({
-                "path": f["path"],
-                "sha": sha,
-                "title": title,
-                "tags": fm.get("tags", []),
-                "content": content,
-            })
+        for year in [current_year, current_year - 1]:
+            files = await github_content.list_files(f"docs/{year}")
+            for f in files:
+                if f["name"] == "README.md":
+                    continue
+                result = await github_content.read_file(f["path"])
+                if not result:
+                    continue
+                content, sha = result
+                fm = parse_frontmatter(content)
+                if fm.get("type") != "post":
+                    continue
+                if fm.get("status") != "ready":
+                    continue
+                if fm.get("target") != "club":
+                    continue
+                title = fm.get("title", f["name"])
+                if f["path"] in published_files:
+                    continue
+                if title.lower() in published_titles:
+                    continue
+                if title.lower() in scheduled_titles:
+                    continue
+                candidates.append({
+                    "path": f["path"],
+                    "sha": sha,
+                    "title": title,
+                    "tags": fm.get("tags", []),
+                    "content": content,
+                })
 
-    return candidates
+        return candidates
+    except Exception as e:
+        logger.error(f"Scan ready posts error: {e}")
+        return []
 
 
 async def _show_publish_options(message: Message, state: FSMContext, chat_id: int):
