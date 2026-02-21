@@ -3,8 +3,11 @@
 # =============================================================================
 
 welcome:
-  greeting: "¡Hola!"
-  intro: "Te ayudaré a convertirte en un estudiante sistemático."
+  greeting: "¡Hola! 👋"
+  intro: "Soy un bot de aprendizaje sistemático. Te ayudaré a dominar las habilidades de autoaprendizaje en 14 días."
+  intro_marathon: "🏃 *Maratón (14 días)*\n• 2 temas por día: lección + práctica\n• ¿Te lo perdiste? Puedes recuperar, pero solo 1 día\n• El test de sistematicidad determinará tu estilo — el bot adapta el contenido\n• Este es el Nivel 1 — la base"
+  intro_tiers: "📈 *¿Qué sigue?*\nEl bot es parte del Entorno de Trabajo Inteligente (IWE), como un IDE, pero para desarrollar el pensamiento. Después del maratón se desbloquean:\n• Feed personalizado y consultor IA\n• Gemelo Digital — el bot aprende tu contexto\n• Conexión con el club systemsworld.club\n• Creación de conocimiento y trabajo con agentes IA"
+  intro_start: "¡Empecemos! La configuración toma 1 minuto."
   ask_name: "¿Cómo te llamas?"
   returning: "¡Bienvenido de nuevo, {name}!"
   current_mode: "Modo"
@@ -14,6 +17,7 @@ welcome:
   marathon_days_info: "{days} días — 2 temas por día (teoría + práctica)"
   marathon_duration_info: "{minutes} minutos por tema"
   marathon_reminders_info: "Recordatorios diarios a las {time}"
+  marathon_personalize_hint: "💡 _¿Quieres lecciones personalizadas? Cuéntame sobre ti en /profile — y el contenido se adaptará a ti._"
 
 commands:
   learn: "/learn — obtener tema"

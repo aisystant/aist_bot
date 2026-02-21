@@ -102,67 +102,14 @@ def test_1_3_name_input(bot_client: BotTestClient, test_user_data):
     ))
 
     if responses:
-        # Проверяем, что бот запрашивает следующую информацию
-        # или подтверждает получение имени
+        # Slim onboarding: после имени → сразу выбор длительности
         response = responses[0]
         assert (
-            response.has_text('занят') or
-            response.has_text('occupation') or
-            response.has_text('работа') or
-            response.has_text('интерес') or
+            response.has_text('минут') or
+            response.has_text('minutes') or
+            response.has_text('duration') or
             response.has_text(test_user_data['name'])  # Бот повторил имя
         ), f"Неожиданный ответ после имени: {response.text[:200]}"
-
-
-@pytest.mark.onboarding
-def test_1_4_occupation_input(bot_client: BotTestClient, test_user_data):
-    """
-    Сценарий 1.4: Ввод занятия
-
-    Шаги:
-    1. Отправить занятие
-    2. Проверить переход к интересам
-    """
-    responses = run_async(bot_client.send_and_wait(
-        test_user_data['occupation'],
-        timeout=10
-    ))
-
-    if responses:
-        response = responses[0]
-        # Проверяем переход к следующему шагу
-        assert (
-            response.has_text('интерес') or
-            response.has_text('interest') or
-            response.has_text('мотив') or
-            response.has_text('цел')
-        ), f"Неожиданный ответ после занятия: {response.text[:200]}"
-
-
-@pytest.mark.onboarding
-def test_1_5_interests_input(bot_client: BotTestClient, test_user_data):
-    """
-    Сценарий 1.5: Ввод интересов
-
-    Шаги:
-    1. Отправить интересы
-    2. Проверить переход к следующему шагу
-    """
-    responses = run_async(bot_client.send_and_wait(
-        test_user_data['interests'],
-        timeout=10
-    ))
-
-    if responses:
-        response = responses[0]
-        # Проверяем переход
-        assert (
-            response.has_text('мотив') or
-            response.has_text('цел') or
-            response.has_text('goal') or
-            response.has_text('режим') or
-            response.has_text('mode')
-        ), f"Неожиданный ответ после интересов: {response.text[:200]}"
 
 
 @pytest.mark.onboarding
