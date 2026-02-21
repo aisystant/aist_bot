@@ -204,7 +204,8 @@ updated: 2026-02-09
 
 | Идея | Источник | Фаза |
 |------|----------|------|
-| Интеграция с systemsworld.club — публикация постов из бота | заметка 14 фев 09:22 | Phase 2+ |
+| ~~Интеграция с systemsworld.club~~ ✅ WP-53 Phase 1-3 done (21 фев) | заметка 14 фев 09:22 | ✅ Done |
+| **Мультиплатформенная публикация** — Content Adapter Layer: source post → Claude API adapts per platform (Twitter thread/280, LinkedIn prof tone, TG channel concise, VK long-read) → direct platform APIs. target в frontmatter = список платформ. АрхГейт: 8.3/10 (Вариант C). НЕ использовать Postiz/n8n (6.5/10 — тяжёлые middlemen). | сессия WP-53, 21 фев | Phase 3 |
 | Стратег в боте — диалог + запись в DS-my-strategy | заметка 14 фев 09:22 | Phase 2 |
 | Питч для инвесторов (развитие бота) | заметка 14 фев 09:22 | Phase 3 |
 | **MCP-сервер Railway** — обёртка Railway API для логов, деплоев, метрик. Claude Code получает логи как tool (Context Engineering). Паттерн переносим на любой PaaS → генеративность для шаблона экзокортекса (T3). ArchGate: выигрывает по эволюционируемости, масштабируемости, генеративности, современности vs прямой CLI | сессия 16 фев, ArchGate-оценка | Phase 2 |
