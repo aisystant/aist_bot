@@ -461,6 +461,47 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # АВТО-ТРИАЖ FEEDBACK (feedback_triage)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS feedback_triage (
+                id SERIAL PRIMARY KEY,
+                qa_id INTEGER NOT NULL REFERENCES qa_history(id),
+                chat_id BIGINT NOT NULL,
+                question TEXT NOT NULL,
+                answer_snippet TEXT,
+
+                -- LLM-классификация
+                category TEXT NOT NULL DEFAULT 'unknown',
+                severity TEXT NOT NULL DEFAULT 'low',
+                cluster TEXT DEFAULT NULL,
+                reason TEXT DEFAULT NULL,
+
+                -- Метаданные
+                has_comment BOOLEAN DEFAULT FALSE,
+                user_comment TEXT DEFAULT NULL,
+                status TEXT DEFAULT 'new',
+                created_at TIMESTAMP DEFAULT NOW(),
+                notified_at TIMESTAMP DEFAULT NULL
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_feedback_triage_severity_status
+            ON feedback_triage(severity, status)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_feedback_triage_category
+            ON feedback_triage(category)
+        ''')
+
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_triage_qa_id
+            ON feedback_triage(qa_id)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # ИСПОЛЬЗОВАНИЕ СЕРВИСОВ (аналитика)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
@@ -636,6 +677,48 @@ async def create_tables(pool: asyncpg.Pool):
             ON error_logs (alerted, last_seen_at DESC)
         ''')
 
+        # Classifier columns (WP-45 Phase 2: DP.RUNBOOK.001 classification)
+        for col, typedef in [
+            ('category', 'TEXT'),
+            ('severity', 'TEXT'),
+            ('suggested_action', 'TEXT'),
+            ('escalated', 'BOOLEAN DEFAULT FALSE'),
+        ]:
+            await conn.execute(f'''
+                ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
+            ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_category
+            ON error_logs (category, last_seen_at DESC)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # L2 AUTO-FIX: предложения исправлений с подтверждением (WP-45)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS pending_fixes (
+                id SERIAL PRIMARY KEY,
+                error_log_id INTEGER NOT NULL,
+                error_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                diagnosis TEXT NOT NULL,
+                archgate_eval TEXT NOT NULL,
+                proposed_diff TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                pr_url TEXT,
+                branch_name TEXT,
+                tg_message_id BIGINT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_error_key_active
+            ON pending_fixes (error_key) WHERE status IN ('pending', 'approved')
+        ''')
+
         # ═══════════════════════════════════════════════════════════
         # КЕШ КОНТЕНТА (экономия Claude API на повторной генерации)
         # ═══════════════════════════════════════════════════════════
@@ -679,5 +762,97 @@ async def create_tables(pool: asyncpg.Pool):
             CREATE INDEX IF NOT EXISTS idx_sessions_started
             ON user_sessions (started_at DESC)
         ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # КОНВЕРСИОННЫЕ СОБЫТИЯ (DP.ARCH.002 § 12.8)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS conversion_events (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                milestone TEXT,
+                shown_at TIMESTAMPTZ DEFAULT NOW(),
+                action TEXT DEFAULT 'shown'
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_conversion_chat_id
+            ON conversion_events (chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_conversion_trigger
+            ON conversion_events (trigger_type, milestone)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # DISCOURSE: АККАУНТЫ И ПУБЛИКАЦИИ (WP-53)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS discourse_accounts (
+                chat_id BIGINT PRIMARY KEY REFERENCES interns(chat_id),
+                discourse_username TEXT NOT NULL,
+                blog_category_id INTEGER,
+                blog_category_slug TEXT,
+                connected_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS published_posts (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                discourse_topic_id INTEGER NOT NULL,
+                discourse_post_id INTEGER,
+                title TEXT NOT NULL,
+                source_file TEXT,
+                category_id INTEGER,
+                posts_count INTEGER DEFAULT 1,
+                last_checked_at TIMESTAMP DEFAULT NOW(),
+                published_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_published_posts_topic
+            ON published_posts (discourse_topic_id)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_published_posts_chat
+            ON published_posts (chat_id)
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_publications (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                title TEXT NOT NULL,
+                raw TEXT NOT NULL,
+                category_id INTEGER NOT NULL,
+                tags TEXT DEFAULT '[]',
+                schedule_time TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'pending',
+                discourse_topic_id INTEGER,
+                source_file TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_scheduled_pubs_pending
+            ON scheduled_publications (status, schedule_time)
+            WHERE status = 'pending'
+        ''')
+
+        # Migration: source_file for smart publisher (WP-53 Phase 3)
+        try:
+            await conn.execute(
+                'ALTER TABLE scheduled_publications ADD COLUMN IF NOT EXISTS source_file TEXT'
+            )
+        except Exception:
+            pass
 
     logger.info("✅ Все таблицы созданы/обновлены")

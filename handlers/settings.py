@@ -183,25 +183,39 @@ async def cb_help_all_commands(callback: CallbackQuery):
 
     text = (
         f"*{t('help.commands_title', lang)}*\n\n"
+
         f"*{t('commands.section_main', lang)}*\n"
         f"{t('commands.start', lang)}\n"
         f"{t('commands.mode', lang)}\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.feed', lang)}\n"
         f"{t('commands.progress', lang)}\n"
-        f"{t('commands.test', lang)}\n"
+        f"{t('commands.test', lang)}\n\n"
+
+        f"*{t('commands.section_planning', lang)}*\n"
         f"{t('commands.plan', lang)}\n"
-        f"{t('commands.mydata', lang)}\n\n"
-        f"*{t('commands.section_settings', lang)}*\n"
+        f"{t('commands.rp', lang)}\n"
+        f"{t('commands.report', lang)}\n\n"
+
+        f"*{t('commands.section_profile', lang)}*\n"
         f"{t('commands.profile', lang)}\n"
+        f"{t('commands.twin', lang)}\n"
+        f"{t('commands.mydata', lang)}\n\n"
+
+        f"*{t('commands.section_club', lang)}*\n"
+        f"{t('commands.club', lang)}\n"
+        f"{t('commands.github', lang)}\n\n"
+
+        f"*{t('commands.section_settings', lang)}*\n"
         f"{t('commands.settings', lang)}\n"
         f"{t('commands.help', lang)}\n"
         f"{t('commands.language', lang)}\n\n"
-        f"*{t('commands.section_special', lang)}*\n"
+
+        f"*{t('commands.section_quick', lang)}*\n"
         f"{t('commands.notes', lang)}\n"
         f"{t('commands.consultation', lang)}\n"
-        f"{t('commands.github', lang)}\n"
-        f"{t('commands.feedback', lang)}"
+        f"{t('commands.feedback', lang)}\n"
+        f"{t('commands.bug_report', lang)}"
     )
 
     await callback.message.edit_text(text, parse_mode="Markdown")
@@ -343,6 +357,35 @@ async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     await state.clear()
+
+@settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_club")
+async def on_upd_club(callback: CallbackQuery, state: FSMContext):
+    """Показать статус подключения к клубу."""
+    await state.clear()
+    await callback.answer()
+    from db.queries.discourse import get_discourse_account
+    account = await get_discourse_account(callback.message.chat.id)
+    if account:
+        username = account["discourse_username"]
+        cat_id = account.get("blog_category_id") or "не найден"
+        await callback.message.edit_text(
+            f"*🏛 Клуб подключён*\n\n"
+            f"Username: `{username}`\n"
+            f"Блог: категория {cat_id}\n\n"
+            f"/club — управление\n"
+            f"/club publish — опубликовать пост\n"
+            f"/club posts — мои публикации\n"
+            f"/club disconnect — отвязать",
+            parse_mode="Markdown",
+        )
+    else:
+        await callback.message.edit_text(
+            "*🏛 Подключение к systemsworld.club*\n\n"
+            "Привяжи аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
+            "Для подключения пришли ссылку на свой блог:\n"
+            "`/club connect https://systemsworld.club/c/blogs/username/37`",
+            parse_mode="Markdown",
+        )
 
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_mode")
 async def on_upd_mode(callback: CallbackQuery, state: FSMContext):

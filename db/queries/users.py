@@ -116,8 +116,9 @@ def _row_to_dict(row) -> dict:
         # Сброс статистики
         'stats_reset_date': safe_get('stats_reset_date', None),
 
-        # Подписка
+        # Подписка / DT
         'trial_started_at': safe_get('trial_started_at', None),
+        'dt_connected_at': safe_get('dt_connected_at', None),
         'created_at': safe_get('created_at', None),
 
         # Telegram
@@ -184,6 +185,7 @@ def _get_default_intern(chat_id: int) -> dict:
         'stats_reset_date': None,
 
         'trial_started_at': None,
+        'dt_connected_at': None,
         'created_at': None,
 
         'tg_username': None,
@@ -194,38 +196,47 @@ def _get_default_intern(chat_id: int) -> dict:
 
 
 async def update_intern(chat_id: int, **kwargs):
-    """Обновить данные пользователя"""
+    """Обновить данные пользователя (single batched UPDATE)."""
+    if not kwargs:
+        return
+
+    # Normalize: resolve aliases, serialize JSON, zero-pad schedule times
+    columns = {}
+    for key, value in kwargs.items():
+        # JSON-поля
+        if key in ['interests', 'completed_topics', 'current_context']:
+            value = json.dumps(value) if not isinstance(value, str) else value
+
+        # Zero-pad schedule times: "7:30" → "07:30"
+        if key in ('schedule_time', 'feed_schedule_time', 'schedule_time_2') and value:
+            value = value.zfill(5) if isinstance(value, str) and len(value) == 4 else value
+
+        # Синхронизация bloom <-> complexity (aliases → canonical column)
+        if key in ('bloom_level', 'complexity_level'):
+            columns['complexity_level'] = value
+            continue
+        if key in ('topics_at_current_complexity', 'topics_at_current_bloom'):
+            columns['topics_at_current_complexity'] = value
+            continue
+
+        columns[key] = value
+
+    if not columns:
+        return
+
+    # Single UPDATE: SET col1=$2, col2=$3, ... WHERE chat_id=$1
+    set_parts = []
+    params = [chat_id]  # $1
+    for i, (col, val) in enumerate(columns.items(), start=2):
+        set_parts.append(f"{col} = ${i}")
+        params.append(val)
+    set_parts.append("updated_at = NOW()")
+
+    query = f"UPDATE interns SET {', '.join(set_parts)} WHERE chat_id = $1"
+
     pool = await get_pool()
     async with pool.acquire() as conn:
-        for key, value in kwargs.items():
-            # JSON-поля
-            if key in ['interests', 'completed_topics', 'current_context']:
-                value = json.dumps(value) if not isinstance(value, str) else value
-            
-            # Синхронизация bloom <-> complexity
-            if key == 'bloom_level':
-                await conn.execute(
-                    'UPDATE interns SET complexity_level = $1, updated_at = NOW() WHERE chat_id = $2',
-                    value, chat_id
-                )
-                continue
-            if key == 'complexity_level':
-                await conn.execute(
-                    'UPDATE interns SET complexity_level = $1, updated_at = NOW() WHERE chat_id = $2',
-                    value, chat_id
-                )
-                continue
-            if key in ('topics_at_current_complexity', 'topics_at_current_bloom'):
-                await conn.execute(
-                    'UPDATE interns SET topics_at_current_complexity = $1, updated_at = NOW() WHERE chat_id = $2',
-                    value, chat_id
-                )
-                continue
-            
-            await conn.execute(
-                f'UPDATE interns SET {key} = $1, updated_at = NOW() WHERE chat_id = $2',
-                value, chat_id
-            )
+        await conn.execute(query, *params)
 
     # Инкрементальный sync в ЦД (fire-and-forget)
     try:

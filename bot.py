@@ -50,6 +50,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
+# Rule 10.18: Suppress scheduler heartbeat noise (Running/executed ~4 lines/min)
+logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ============= КОНСТАНТЫ (из config) =============
@@ -106,8 +109,9 @@ async def main():
     from core.error_handler import setup_error_handler
     await setup_error_handler()
 
-    # Создаём bot раньше, чтобы передать в State Machine
-    bot = Bot(token=BOT_TOKEN)
+    # Создаём bot с transport-layer Markdown→HTML intercept
+    from core.safe_bot import SafeBot
+    bot = SafeBot(token=BOT_TOKEN)
 
     # Инициализация State Machine (если включён флаг)
     state_machine = None
@@ -186,6 +190,7 @@ async def main():
         BotCommand(command="feedback", description="Обратная связь"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="club", description="Публикация в клуб"),
         BotCommand(command="language", description="🌐 Language / Сменить язык"),
     ])
 
@@ -201,6 +206,7 @@ async def main():
         BotCommand(command="feedback", description="Feedback"),
         BotCommand(command="help", description="Help"),
         BotCommand(command="settings", description="Settings"),
+        BotCommand(command="club", description="Publish to club"),
         BotCommand(command="language", description="🌐 Change language"),
     ], language_code="en")
 
@@ -216,6 +222,7 @@ async def main():
         BotCommand(command="feedback", description="Comentarios"),
         BotCommand(command="help", description="Ayuda"),
         BotCommand(command="settings", description="Ajustes"),
+        BotCommand(command="club", description="Publicar en el club"),
         BotCommand(command="language", description="🌐 Cambiar idioma"),
     ], language_code="es")
 
@@ -231,6 +238,7 @@ async def main():
         BotCommand(command="feedback", description="Retour"),
         BotCommand(command="help", description="Aide"),
         BotCommand(command="settings", description="Paramètres"),
+        BotCommand(command="club", description="Publier dans le club"),
         BotCommand(command="language", description="🌐 Changer la langue"),
     ], language_code="fr")
 
@@ -246,6 +254,7 @@ async def main():
         BotCommand(command="feedback", description="反馈"),
         BotCommand(command="help", description="帮助"),
         BotCommand(command="settings", description="设置"),
+        BotCommand(command="club", description="发布到俱乐部"),
         BotCommand(command="language", description="🌐 更改语言"),
     ], language_code="zh")
 
@@ -261,7 +270,9 @@ async def main():
                 BotCommand(command="latency", description="Латентность (светофор)"),
                 BotCommand(command="errors", description="Ошибки (24h)"),
                 BotCommand(command="analytics", description="Сводная аналитика"),
+                BotCommand(command="delivery", description="Доставка уроков марафона"),
                 BotCommand(command="reports", description="Баг-репорты"),
+                BotCommand(command="reset", description="Full wipe тестера → ре-онбординг"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
             ], scope=BotCommandScopeChat(chat_id=int(dev_chat_id)))

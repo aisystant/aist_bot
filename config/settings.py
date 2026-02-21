@@ -33,6 +33,18 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
 
+# ============= L2 AUTO-FIX (WP-45 Phase 3) =============
+GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
+AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "aisystant/aist_bot")
+AUTOFIX_BRANCH_BASE = os.getenv("AUTOFIX_BRANCH_BASE", "new-architecture")
+AUTOFIX_BOT_DIR = ""  # repo root = code root (no subdirectory)
+AUTOFIX_MAX_FILES = 3
+AUTOFIX_MAX_PROPOSALS = 3  # per 15-min cycle
+AUTOFIX_PROTECTED = frozenset({
+    "db/models.py", "core/scheduler.py", "bot.py",
+    "config/settings.py", "config/__init__.py",
+})
+
 def validate_env():
     """Проверка наличия обязательных переменных окружения"""
     if not BOT_TOKEN:
@@ -265,9 +277,11 @@ ONTOLOGY_RULES = """
    КОРРЕКТНО: набор практик, метод обучения, процесс развития, подход к целеполаганию, набор описаний (или экзокортекс, если речь о конкретной системе).
 
 2) РАБОЧИЙ ПРОДУКТ — материально зафиксированный артефакт (можно увидеть, передать, хранить).
-   Формулируется СУЩЕСТВИТЕЛЬНЫМ.
+   Формулируется СУЩЕСТВИТЕЛЬНЫМ, обозначающим ДОКУМЕНТ, ВЕЩЬ или СИСТЕМУ В ОПРЕДЕЛЁННОМ СОСТОЯНИИ.
    ЗАПРЕЩЕНО как РП: «сделать», «внедрить», «улучшить», «повысить».
-   КОРРЕКТНО: чек-лист, схема, текст поста, таблица, список.
+   ЗАПРЕЩЕНО начинать с отглагольных существительных-процессов: «анализ», «исследование», «обзор», «диагностика», «сравнение».
+   КОРРЕКТНО: чек-лист, схема, текст поста, таблица, список, описание, план, реестр, набор правил.
+   Тест: можно ли это распечатать и передать другому человеку?
 
 3) ЦЕЛЬ — изменение состояния системы, а НЕ средство и НЕ действие.
    ИИ, CRM, методологии — это СРЕДСТВА, не цели.
@@ -325,6 +339,43 @@ FREE_TRIAL_DAYS = 15
 
 # Заблокированные сервисы (без подписки/триала)
 LOCKED_SERVICES = {"feed", "consultation", "notes", "plans"}
+
+# ============= ПЛАТФОРМА (DP.ARCH.002 § 12.9) =============
+
+PLATFORM_URLS = {
+    "site": "https://system-school.ru/",
+    "subscription": "https://system-school.ru/open-endedness",
+    "schedule": "https://system-school.ru/list",
+    "lr": "https://system-school.ru/programs/intro",
+    "rr": "https://system-school.ru/programs/orgdev",
+    "ir": "https://system-school.ru/programs/research",
+    "guides": "https://docs.system-school.ru/ru/",
+}
+
+# ============= DISCOURSE (systemsworld.club) =============
+
+DISCOURSE_API_URL = os.getenv("DISCOURSE_API_URL", "")
+DISCOURSE_API_KEY = os.getenv("DISCOURSE_API_KEY", "")
+DISCOURSE_BLOGS_CATEGORY_ID = int(os.getenv("DISCOURSE_BLOGS_CATEGORY_ID", "36"))
+
+# ============= PUBLISHER (R21, WP-53 Phase 3) =============
+
+GITHUB_TOKEN = GITHUB_BOT_PAT or ""  # reuse L2 Auto-Fix PAT
+GITHUB_KNOWLEDGE_REPO = os.getenv("GITHUB_KNOWLEDGE_REPO", "")  # "owner/repo"
+PUBLISHER_DAYS = os.getenv("PUBLISHER_DAYS", "mon,wed,fri")  # Дни публикации
+PUBLISHER_TIME = os.getenv("PUBLISHER_TIME", "10:00")  # Время публикации (МСК)
+PUBLISHER_MIN_QUEUE = int(os.getenv("PUBLISHER_MIN_QUEUE", "2"))  # Мин. очередь
+
+# ============= EVALUATOR (DS-evaluator-agent) =============
+
+# Включить проверку ответов (Claude Haiku ~1-2 сек на оценку)
+EVALUATION_ENABLED = os.getenv("EVALUATION_ENABLED", "true").lower() == "true"
+
+# Включить валидацию формулировки РП
+WP_VALIDATION_ENABLED = os.getenv("WP_VALIDATION_ENABLED", "true").lower() == "true"
+
+# Включить запись фиксаций в fleeting-notes (для GitHub-пользователей)
+FIXATION_ENABLED = os.getenv("FIXATION_ENABLED", "true").lower() == "true"
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 

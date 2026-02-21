@@ -1,4 +1,4 @@
-# Онтология AIST Track Bot
+# Онтология AIST_me_bot
 
 > **Тип:** Downstream-instrument
 > **Upstream:** PACK-personal, PACK-ecosystem

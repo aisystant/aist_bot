@@ -55,6 +55,7 @@ _faq: list[dict] = []
 _troubleshooting: list[dict] = []
 _identity: dict = {}
 _integrations: str = ""
+_platform: str = ""
 _loaded: bool = False
 _cache: dict[str, str] = {}
 
@@ -105,7 +106,7 @@ def _fetch_content() -> Optional[str]:
 
 def _parse_pack() -> None:
     """Загрузить самознание: L0 проекция → fallback Pack markdown (lazy, один раз)."""
-    global _scenarios, _faq, _troubleshooting, _identity, _integrations, _loaded
+    global _scenarios, _faq, _troubleshooting, _identity, _integrations, _platform, _loaded
 
     if _loaded:
         return
@@ -126,6 +127,7 @@ def _parse_pack() -> None:
         if troubleshooting_text:
             _troubleshooting.extend(_parse_faq_table_from_text(troubleshooting_text))
         _integrations = projection.get('integrations', '')
+        _platform = projection.get('platform', '')
 
         logger.info(
             f"Self-knowledge loaded from projection: "
@@ -337,6 +339,16 @@ def get_self_knowledge(lang: str = 'ru') -> str:
         if desc:
             lines.append(desc)
 
+    # --- Платформа (уровни, подписка, рост) ---
+    if _platform:
+        marker_en = "[EN]"
+        idx = _platform.find(marker_en)
+        if is_ru:
+            platform_text = _platform[:idx].strip() if idx > 0 else _platform.strip()
+        else:
+            platform_text = _platform[idx + len(marker_en):].strip() if idx > 0 else _platform.strip()
+        lines.append(f"\n{platform_text}")
+
     # --- FAQ ---
     if _faq:
         lines.append("\n## Частые вопросы" if is_ru else "\n## FAQ")
@@ -361,6 +373,34 @@ def get_self_knowledge(lang: str = 'ru') -> str:
     if _integrations:
         lines.append("\n## Интеграции" if is_ru else "\n## Integrations")
         lines.append(_integrations.strip())
+
+    # --- Программы (DP.ARCH.002 § 12 — конверсионная воронка C2) ---
+    from config.settings import PLATFORM_URLS
+
+    if is_ru:
+        lines.append("\n## Программы обучения")
+        lines.append(
+            "Если пользователь спрашивает «что дальше», «как продолжить», "
+            "«хочу углубиться» или завершил марафон — рекомендуй программы:\n"
+            f"1. *Личное развитие (ЛР)* — вводная программа, подходит всем: {PLATFORM_URLS['lr']}\n"
+            f"2. *Рабочее развитие (РР)* — для менеджеров и инженеров: {PLATFORM_URLS['rr']}\n"
+            f"3. *Исследовательское развитие (ИР)* — для исследователей: {PLATFORM_URLS['ir']}\n"
+            f"\nРасписание событий: {PLATFORM_URLS['schedule']}\n"
+            f"Руководства (бесплатно): {PLATFORM_URLS['guides']}\n"
+            "\nНачинай рекомендацию с ЛР — это точка входа для большинства."
+        )
+    else:
+        lines.append("\n## Learning Programs")
+        lines.append(
+            "If user asks 'what's next', 'how to continue', "
+            "'want to go deeper' or completed the marathon — recommend programs:\n"
+            f"1. *Personal Development (ЛР)* — intro program, fits everyone: {PLATFORM_URLS['lr']}\n"
+            f"2. *Professional Development (РР)* — for managers and engineers: {PLATFORM_URLS['rr']}\n"
+            f"3. *Research Development (ИР)* — for researchers: {PLATFORM_URLS['ir']}\n"
+            f"\nEvent schedule: {PLATFORM_URLS['schedule']}\n"
+            f"Guides (free): {PLATFORM_URLS['guides']}\n"
+            "\nStart recommendation with ЛР — it's the entry point for most people."
+        )
 
     result = "\n".join(lines)
     _cache[lang] = result
@@ -406,11 +446,12 @@ def get_scenario_names(lang: str = 'ru') -> list[str]:
 
 def invalidate_cache():
     """Сбросить кеш (для ежедневного обновления или тестов)."""
-    global _loaded, _scenarios, _faq, _troubleshooting, _identity, _integrations, _cache
+    global _loaded, _scenarios, _faq, _troubleshooting, _identity, _integrations, _platform, _cache
     _loaded = False
     _scenarios = []
     _faq = []
     _troubleshooting = []
     _identity = {}
     _integrations = ""
+    _platform = ""
     _cache = {}

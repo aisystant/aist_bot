@@ -4,6 +4,7 @@
 Роутят callback queries в Dispatcher / State Machine.
 """
 
+import asyncio
 import logging
 
 from aiogram import Router, F
@@ -140,7 +141,8 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
 
     try:
         # Direct entry callbacks — route via go_to (from menu / mode_select)
-        if data in ("marathon_get_lesson", "marathon_get_question", "marathon_get_practice"):
+        if data in ("marathon_get_lesson", "marathon_get_question", "marathon_get_practice",
+                     "marathon_catchup_today"):
             await callback.answer()
             try:
                 await callback.message.edit_reply_markup()
@@ -148,12 +150,33 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
                 pass
             await state.clear()
 
-            state_map = {
-                "marathon_get_lesson": "workshop.marathon.lesson",
-                "marathon_get_question": "workshop.marathon.question",
-                "marathon_get_practice": "workshop.marathon.task",
-            }
-            await dispatcher.go_to(intern, state_map[data])
+            if data == "marathon_catchup_today":
+                # Catch-up: user wants today's lesson after completing yesterday's
+                lang = intern.get('language', 'ru') or 'ru'
+                await callback.message.answer(
+                    f"⏳ {t('reminders.marathon_catchup_generating', lang)}"
+                )
+                await dispatcher.go_to(intern, "workshop.marathon.lesson")
+            else:
+                state_map = {
+                    "marathon_get_lesson": "workshop.marathon.lesson",
+                    "marathon_get_question": "workshop.marathon.question",
+                    "marathon_get_practice": "workshop.marathon.task",
+                }
+                await dispatcher.go_to(intern, state_map[data])
+
+        elif data == "marathon_catchup_no":
+            # User declines catch-up
+            await callback.answer()
+            try:
+                await callback.message.edit_reply_markup()
+            except Exception:
+                pass
+            lang = intern.get('language', 'ru') or 'ru'
+            await callback.message.answer(
+                f"_{t('marathon.come_back_tomorrow', lang)}_",
+                parse_mode="Markdown"
+            )
         else:
             # In-state callbacks (next_question, next_bonus, retry, back, etc.)
             # Route to SM — state's handle_callback will answer() and process
@@ -576,6 +599,10 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
 
             # Записываем что ответ не помог
             await update_qa_helpful(qa_id, False)
+
+            # Auto-triage (fire-and-forget)
+            from core.feedback_triage import triage_feedback
+            asyncio.create_task(triage_feedback(qa_id, "not_helpful"))
 
             # Загружаем оригинальный Q&A
             qa = await get_qa_by_id(qa_id)

@@ -129,21 +129,43 @@ commands:
   github:
     ru: "/github — подключение GitHub"
     en: "/github — GitHub integration"
+  club:
+    ru: "/club — публикация в клубе"
+    en: "/club — club publishing"
   feedback:
     ru: "/feedback — обратная связь (!текст — быстро)"
     en: "/feedback — feedback (!text — quick)"
+  twin:
+    ru: "/twin — профиль развития (цифровой двойник)"
+    en: "/twin — development profile (digital twin)"
+  rp:
+    ru: "/rp — рабочие продукты недели"
+    en: "/rp — weekly work products"
+  report:
+    ru: "/report — отчёт дня / недели"
+    en: "/report — day / week report"
+  bug_report:
+    ru: "! — баг-репорт (!текст — быстро)"
+    en: "! — bug report (!text — quick)"
 
   section_main:
     ru: "Основные"
     en: "Main"
-
+  section_planning:
+    ru: "Планирование"
+    en: "Planning"
+  section_profile:
+    ru: "Профиль и данные"
+    en: "Profile & data"
+  section_club:
+    ru: "Клуб"
+    en: "Club"
   section_settings:
-    ru: "Настройки и профиль"
-    en: "Settings & profile"
-
-  section_special:
-    ru: "Специальные"
-    en: "Special"
+    ru: "Настройки"
+    en: "Settings"
+  section_quick:
+    ru: "Быстрые команды"
+    en: "Quick commands"
 
 # -----------------------------------------------------------------------------
 # Меню (короткие описания для кнопок Telegram)
@@ -1626,6 +1648,30 @@ reminders:
     ru: "Нажмите кнопку, чтобы начать."
     en: "Press the button to start."
 
+  marathon_catchup_ready:
+    ru: "📚 У вас есть непройденный урок с прошлого дня!"
+    en: "📚 You have an unfinished lesson from yesterday!"
+
+  marathon_catchup_cta:
+    ru: "Пройдите его сегодня, чтобы не отстать."
+    en: "Complete it today to stay on track."
+
+  marathon_catchup_offer:
+    ru: "Хотите получить ещё и сегодняшний урок? Нагнать можно только 1 день."
+    en: "Want to also get today's lesson? You can catch up by 1 day max."
+
+  marathon_catchup_btn:
+    ru: "Да, получить сегодняшний урок"
+    en: "Yes, get today's lesson"
+
+  marathon_catchup_skip:
+    ru: "Нет, достаточно на сегодня"
+    en: "No, enough for today"
+
+  marathon_catchup_generating:
+    ru: "Генерирую сегодняшний урок..."
+    en: "Generating today's lesson..."
+
 # -----------------------------------------------------------------------------
 # Профиль
 # -----------------------------------------------------------------------------
@@ -1930,8 +1976,8 @@ help:
     en: "📝 *Notes* — start with `.` (`.buy a book on SM`)"
 
   schedule_hint:
-    ru: "⏰ Установите время в /settings — урок придёт точно в срок.\nИли нажмите «Получить тему» в любой момент."
-    en: "⏰ Set time in /settings — lesson arrives on schedule.\nOr tap «Get topic» anytime."
+    ru: "⏰ Установите время в /settings — контент придёт по расписанию.\nИли нажмите «Получить тему» в любой момент."
+    en: "⏰ Set time in /settings — content arrives on schedule.\nOr tap «Get topic» anytime."
 
   ai_questions:
     ru: "В обоих режимах работает функция вопроса к ИИ. Начните сообщение с ? чтобы задать вопрос."
@@ -2432,8 +2478,25 @@ marathon:
     en: "🎉 Congratulations! Marathon completed! Use /feed for Feed mode."
 
   completed_hint:
-    ru: "Вы можете продолжить обучение в режиме Лента (/feed) или посмотреть продвинутые программы в Мастерской."
-    en: "You can continue learning in Feed mode (/feed) or check advanced programs in the Workshop."
+    ru: "Вы можете продолжить обучение в режиме Лента или перейти к полным программам."
+    en: "You can continue learning in Feed mode or move to full programs."
+
+  completed_next_step:
+    ru: "Марафон — это знакомство. Следующий шаг — полная программа *Личное развитие*, где вы освоите все практики систематического ученика."
+    en: "The Marathon was an introduction. Next step — the full *Personal Development* program, where you'll master all practices of a systematic learner."
+    description: "C1 conversion message after marathon completion"
+
+  btn_program_lr:
+    ru: "📚 Программа «Личное развитие»"
+    en: "📚 Personal Development Program"
+    description: "Button linking to ЛР program landing page"
+    max_length: 40
+
+  btn_continue_feed:
+    ru: "📰 Продолжить в Ленте"
+    en: "📰 Continue in Feed"
+    description: "Button to switch to feed mode after marathon"
+    max_length: 30
 
   come_back_tomorrow:
     ru: "Возвращайтесь завтра за новыми темами!"
@@ -3199,6 +3262,9 @@ mydata:
   btn_clear_qa:
     ru: "💬 Очистить историю Q&A"
     en: "💬 Clear Q&A history"
+  btn_reset_learning:
+    ru: "📚 Сбросить прогресс обучения"
+    en: "📚 Reset learning progress"
   btn_disconnect_github:
     ru: "🔗 Отключить GitHub"
     en: "🔗 Disconnect GitHub"
@@ -3211,6 +3277,9 @@ mydata:
   qa_cleared:
     ru: "История Q&A очищена."
     en: "Q&A history cleared."
+  learning_reset_done:
+    ru: "Прогресс обучения сброшен. Профиль сохранён."
+    en: "Learning progress reset. Profile preserved."
   github_disconnected:
     ru: "GitHub отключён."
     en: "GitHub disconnected."
@@ -3917,6 +3986,52 @@ strategist:
   available_commands:
     ru: "Доступные команды:\n/rp — WeekPlan (план недели)\n/plan — DayPlan (план дня)\n/report — WeekReport (отчёт недели)"
     en: "Available commands:\n/rp — WeekPlan (weekly plan)\n/plan — DayPlan (daily plan)\n/report — WeekReport (weekly report)"
+
+# -----------------------------------------------------------------------------
+# Milestones — конверсионные уведомления (DP.ARCH.002 § 12.5, C3)
+# -----------------------------------------------------------------------------
+milestones:
+  day_7:
+    ru: "🎯 *Неделя с нами!*\n\nВы изучили {topics} тем и провели {active_days} активных дней.\n\nЭто отличный старт — продолжайте в том же темпе!"
+    en: "🎯 *One week with us!*\n\nYou've studied {topics} topics and had {active_days} active days.\n\nGreat start — keep up the pace!"
+
+  day_7_trial:
+    ru: "\n\n💡 Напоминаем: первые 15 дней — бесплатный период. После него доступ к Ленте и консультациям сохранится по подписке."
+    en: "\n\n💡 Reminder: the first 15 days are a free trial. After that, Feed and consultations stay available with a subscription."
+
+  day_14:
+    ru: "🏃 *Две недели обучения!*\n\n{marathon_status}\n\nВы входите в число самых активных учеников."
+    en: "🏃 *Two weeks of learning!*\n\n{marathon_status}\n\nYou're among our most active learners."
+
+  day_14_marathon_done:
+    ru: "Марафон пройден — отличный результат! Следующий шаг — программа *Личное развитие*."
+    en: "Marathon completed — great result! Next step — the *Personal Development* program."
+
+  day_14_marathon_progress:
+    ru: "Марафон в процессе — {completed}/28 тем. Продолжайте!"
+    en: "Marathon in progress — {completed}/28 topics. Keep going!"
+
+  day_30:
+    ru: "📅 *Месяц с нами!*\n\n{active_days} активных дней, {topics} тем изучено, серия: {streak} дней подряд.\n\nДля глубокого освоения материала рекомендуем полную программу *Личное развитие*."
+    en: "📅 *One month with us!*\n\n{active_days} active days, {topics} topics studied, streak: {streak} days in a row.\n\nFor deeper mastery, we recommend the full *Personal Development* program."
+
+  day_60:
+    ru: "🌟 *Два месяца обучения!*\n\nВы изучили {topics} тем на уровне сложности {bloom}.\n\nСледующий шаг для роста — заполните «Цифровой двойник» (/twin), чтобы получить персонализированные рекомендации."
+    en: "🌟 *Two months of learning!*\n\nYou've studied {topics} topics at complexity level {bloom}.\n\nNext growth step — fill in your Digital Twin (/twin) for personalized recommendations."
+
+  day_90:
+    ru: "🏆 *Три месяца! Вы — систематический ученик.*\n\n{active_days} активных дней, серия: {streak} дней, уровень: {bloom}.\n\nВы готовы к следующему уровню — полному экзокортексу с ИИ-ассистентами и ведением заметок."
+    en: "🏆 *Three months! You're a systematic learner.*\n\n{active_days} active days, streak: {streak} days, level: {bloom}.\n\nYou're ready for the next level — a full exocortex with AI assistants and note-taking."
+
+  btn_program:
+    ru: "📚 Узнать о программе ЛР"
+    en: "📚 Learn about PD program"
+    max_length: 40
+
+  btn_twin:
+    ru: "🧬 Заполнить Цифровой двойник"
+    en: "🧬 Fill Digital Twin"
+    max_length: 40
 
 # -----------------------------------------------------------------------------
 # Linear интеграция

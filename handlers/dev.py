@@ -1,5 +1,5 @@
 """
-Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors.
+Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, autofix callbacks.
 
 Доступны только для DEVELOPER_CHAT_ID.
 """
@@ -7,8 +7,8 @@
 import logging
 import os
 
-from aiogram import Router
-from aiogram.types import Message
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 
 from helpers.message_split import truncate_safe
@@ -382,3 +382,151 @@ def _format_analytics(report: dict) -> str:
     text = truncate_safe(text)
 
     return text
+
+
+@dev_router.message(Command("reset"))
+async def cmd_reset(message: Message):
+    """/reset <chat_id> — полный wipe тестера (удаляет ВСЁ, включая профиль → повторный онбординг)."""
+    if not _is_developer(message.chat.id):
+        return
+
+    args = message.text.strip().split()
+    if len(args) < 2:
+        await message.answer(
+            "<b>Использование:</b> /reset &lt;chat_id&gt;\n\n"
+            "Полный wipe: удаляет ВСЕ данные пользователя (профиль, прогресс, подписки).\n"
+            "При следующем /start тестер проходит онбординг заново.\n\n"
+            "<i>Для мягкого сброса (только прогресс) — пользователь сам через /mydata.</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        target_id = int(args[1])
+    except ValueError:
+        await message.answer("chat_id должен быть числом.")
+        return
+
+    from db.queries import get_intern
+    intern = await get_intern(target_id)
+    if not intern:
+        await message.answer(f"Пользователь {target_id} не найден.")
+        return
+
+    from db.queries.profile import delete_all_user_data
+    result = await delete_all_user_data(target_id)
+    total = sum(result.values())
+
+    name = intern.get('name', '—')
+    details = " | ".join(f"{k}: {v}" for k, v in result.items() if v > 0)
+
+    await message.answer(
+        f"<b>Полный wipe выполнен</b>\n\n"
+        f"Пользователь: {name} ({target_id})\n"
+        f"Удалено строк: {total}\n"
+        f"Детали: {details or 'нет данных'}\n\n"
+        f"При следующем /start — онбординг заново.",
+        parse_mode="HTML",
+    )
+
+
+@dev_router.message(Command("delivery"))
+async def cmd_delivery(message: Message):
+    """/delivery — отчёт о доставке уроков марафона за сегодня."""
+    if not _is_developer(message.chat.id):
+        return
+
+    from db.queries.dev_stats import get_delivery_report
+
+    try:
+        report = await get_delivery_report()
+    except Exception as e:
+        logger.error(f"[Dev] /delivery error: {e}")
+        await message.answer("Ошибка загрузки отчёта о доставке.")
+        return
+
+    sep = "\u2500" * 20
+
+    # Per-user lines
+    user_lines = ""
+    for u in report['users']:
+        status = u['status']
+        if status == 'sent_read':
+            emoji = "\U0001f7e2"
+            label = f"прочитано ({u['time']})"
+        elif status == 'sent_unread':
+            emoji = "\U0001f7e1"
+            label = f"отправлено, не открыт ({u['time']})"
+        elif status == 'not_yet':
+            emoji = "\u23f3"
+            label = f"ждёт {u['schedule']}"
+        elif status == 'missed':
+            emoji = "\U0001f534"
+            label = f"ПРОПУСК (план {u['schedule']})"
+        else:
+            emoji = "\u2753"
+            label = status
+
+        name = u.get('username') or str(u.get('chat_id', '?'))
+        user_lines += f"  {emoji} @{name}: {label}\n"
+
+    s = report['summary']
+
+    text = (
+        f"<b>Доставка марафона</b>\n{sep}\n\n"
+        f"<b>Сводка</b>\n"
+        f"  Активных: {s['active']}\n"
+        f"  \U0001f7e2 Отправлено: {s['sent']} (прочитано: {s['sent_read']})\n"
+        f"  \u23f3 Время не наступило: {s['not_yet']}\n"
+        f"  \U0001f534 Пропущено: {s['missed']}\n\n"
+        f"<b>Пользователи</b>\n{user_lines}"
+    )
+
+    text = truncate_safe(text)
+    await message.answer(text, parse_mode="HTML")
+
+
+# ═══════════════════════════════════════════════════════════
+# L2 AUTO-FIX: approve/reject callbacks (WP-45 Phase 3)
+# ═══════════════════════════════════════════════════════════
+
+@dev_router.callback_query(F.data.startswith("autofix_"))
+async def cb_autofix(callback: CallbackQuery):
+    """Handle auto-fix approval/rejection via inline buttons."""
+    if not _is_developer(callback.from_user.id):
+        await callback.answer("Access denied", show_alert=True)
+        return
+
+    data = callback.data
+
+    if data.startswith("autofix_approve_"):
+        fix_id = int(data.split("_")[-1])
+        await callback.answer("\u2699\ufe0f Applying fix...")
+
+        from core.autofix import apply_fix
+        pr_url = await apply_fix(fix_id)
+
+        if pr_url:
+            await callback.message.edit_text(
+                f"\u2705 <b>Fix #{fix_id} applied</b>\n\n"
+                f"PR: {pr_url}",
+                parse_mode="HTML",
+            )
+        else:
+            await callback.message.edit_text(
+                f"\u26a0\ufe0f <b>Fix #{fix_id} failed</b>\n\n"
+                f"Check logs: <code>[AutoFix]</code>",
+                parse_mode="HTML",
+            )
+
+    elif data.startswith("autofix_reject_"):
+        fix_id = int(data.split("_")[-1])
+        await callback.answer("Fix rejected")
+
+        from core.autofix import reject_fix
+        await reject_fix(fix_id)
+
+        await callback.message.edit_text(
+            f"\u274c <b>Fix #{fix_id} rejected</b>",
+            parse_mode="HTML",
+        )

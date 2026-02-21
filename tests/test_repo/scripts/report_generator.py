@@ -150,7 +150,7 @@ class ReportGenerator:
         self,
         classes: list[ClassResult],
         output_path: Path,
-        project_name: str = "AIST Track Bot"
+        project_name: str = "AIST_me_bot"
     ) -> str:
         """Генерирует markdown-отчёт."""
         now = datetime.now()

@@ -17,17 +17,27 @@ logger = get_logger(__name__)
 async def check_error_alerts(minutes: int = 15) -> Optional[str]:
     """Check for new (un-alerted) errors in the last N minutes.
 
+    Enhanced with classifier data: category, severity, suggested_action (WP-45).
     Returns HTML alert text if new errors found, None otherwise.
     Marks checked errors as alerted=True.
     """
+    _SEV_EMOJI = {"L4": "\U0001f534", "L3": "\U0001f7e0", "L2": "\U0001f7e1", "L1": "\U0001f7e2"}
+
     async with await acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, level, logger_name, message,
-                   context, occurrence_count, last_seen_at
+                   context, occurrence_count, last_seen_at,
+                   category, severity, suggested_action
             FROM error_logs
             WHERE alerted = FALSE
               AND last_seen_at > NOW() - INTERVAL '1 minute' * $1
-            ORDER BY last_seen_at DESC
+            ORDER BY
+                CASE severity
+                    WHEN 'L4' THEN 1 WHEN 'L3' THEN 2
+                    WHEN 'L2' THEN 3 WHEN 'L1' THEN 4
+                    ELSE 5
+                END,
+                last_seen_at DESC
             LIMIT 10
         """, minutes)
 
@@ -37,18 +47,20 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
     total_occurrences = sum(r['occurrence_count'] for r in rows)
 
     lines = [
-        f"\u26a0\ufe0f <b>Алерт: ошибки</b> "
-        f"({len(rows)} ошибок, {total_occurrences} случаев за {minutes} мин)\n"
+        f"\u26a0\ufe0f <b>\u041e\u0448\u0438\u0431\u043a\u0438</b> "
+        f"({len(rows)} \u043e\u0448\u0438\u0431\u043e\u043a, {total_occurrences} \u0441\u043b\u0443\u0447\u0430\u0435\u0432 \u0437\u0430 {minutes} \u043c\u0438\u043d)\n"
     ]
     for r in rows:
-        emoji = "\U0001f534" if r['level'] == 'CRITICAL' else "\U0001f7e1"
-        msg = (r['message'] or '')[:80]
-        ctx = r.get('context') or {}
-        ctx_str = f" | user={ctx['user_id']}" if isinstance(ctx, dict) and ctx.get('user_id') else ""
+        sev = r.get('severity') or '??'
+        cat = r.get('category') or '?'
+        emoji = _SEV_EMOJI.get(r.get('severity'), "\u26aa")
+        msg = (r['message'] or '')[:60]
         count_str = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
-        lines.append(f"  {emoji} {r['logger_name']}: {msg}{count_str}{ctx_str}")
+        action = r.get('suggested_action')
+        action_str = f"\n    \U0001f4a1 {action}" if action else ""
+        lines.append(f"  {emoji} [{cat}/{sev}] {msg}{count_str}{action_str}")
 
-    lines.append(f"\n\U0001f449 /errors — полный отчёт")
+    lines.append(f"\n\U0001f449 /errors \u2014 \u043f\u043e\u043b\u043d\u044b\u0439 \u043e\u0442\u0447\u0451\u0442")
 
     # Mark as alerted
     ids = [r['id'] for r in rows]

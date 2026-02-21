@@ -131,16 +131,29 @@ class ClaudeClient:
                 return None
         return None
 
-    async def _api_call_streaming(self, payload: dict, inactivity_timeout: float = 15) -> Optional[str]:
+    async def _api_call_streaming(
+        self, payload: dict, inactivity_timeout: float = 15, allow_partial: bool = True
+    ) -> Optional[str]:
         """Streaming API call with inactivity timeout.
 
         Uses SSE streaming — fails only when no data arrives for
         inactivity_timeout seconds (instead of a fixed total timeout
         that breaks on long outputs).
+
+        Args:
+            payload: Claude API payload
+            inactivity_timeout: max seconds without data before timeout
+            allow_partial: if False, return None on partial content instead of
+                truncated text. Use False for pre-generated content (lessons)
+                where partial = broken UX. Use True (default) for real-time
+                responses where partial > nothing.
         """
         session = await self.get_session()
         headers = {"x-api-key": self.api_key}
         payload = {**payload, "stream": True}
+
+        # Accumulate text across retry attempts — don't lose partial content
+        collected_text: list[str] = []
 
         for attempt in range(2):
             try:
@@ -155,7 +168,6 @@ class ClaudeClient:
                     ),
                 ) as resp:
                     if resp.status == 200:
-                        text_parts = []
                         while True:
                             line = await resp.content.readline()
                             if not line:
@@ -173,8 +185,8 @@ class ClaudeClient:
                             if event.get('type') == 'content_block_delta':
                                 delta = event.get('delta', {})
                                 if delta.get('type') == 'text_delta':
-                                    text_parts.append(delta['text'])
-                        return ''.join(text_parts) if text_parts else None
+                                    collected_text.append(delta['text'])
+                        return ''.join(collected_text) if collected_text else None
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
@@ -193,16 +205,189 @@ class ClaudeClient:
                         logger.error(f"Claude API error {resp.status}: {error[:200]}")
                         return None
             except asyncio.TimeoutError:
-                logger.warning(f"Claude API inactivity timeout ({inactivity_timeout}s), attempt {attempt + 1}")
+                partial_len = len(collected_text)
+                logger.warning(
+                    f"Claude API inactivity timeout ({inactivity_timeout}s), "
+                    f"attempt {attempt + 1}, collected {partial_len} chunks"
+                )
                 if attempt == 0:
+                    # Retry with 2x timeout — network may have recovered
+                    inactivity_timeout = inactivity_timeout * 2
                     await asyncio.sleep(1)
                     continue
+                # Both attempts failed — return partial content if allowed
+                if collected_text:
+                    partial = ''.join(collected_text)
+                    logger.error(
+                        f"Streaming partial content ({len(partial)} chars) after "
+                        f"timeout — {'returning' if allow_partial else 'discarding'}"
+                    )
+                    return partial if allow_partial else None
                 return None
             except aiohttp.ClientError as e:
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
                     continue
+                # Return partial content on connection error (if allowed)
+                if collected_text:
+                    partial = ''.join(collected_text)
+                    logger.error(
+                        f"Streaming partial content ({len(partial)} chars) after "
+                        f"connection error — {'returning' if allow_partial else 'discarding'}"
+                    )
+                    return partial if allow_partial else None
+                return None
+        return None
+
+    async def _api_call_streaming_full(self, payload: dict, inactivity_timeout: float = 15) -> Optional[dict]:
+        """Streaming API call returning full response dict (like _api_call).
+
+        Handles both text and tool_use content blocks via SSE.
+        Uses inactivity timeout instead of total timeout — no more
+        failures on long tool_use chains.
+
+        On timeout: preserves already-received blocks and returns them
+        (partial content is better than no content).
+
+        Returns:
+            dict {"stop_reason": str, "content": list} or None on error
+        """
+        session = await self.get_session()
+        headers = {"x-api-key": self.api_key}
+        payload = {**payload, "stream": True}
+
+        # Accumulate across retry attempts
+        content_blocks: list[dict] = []
+        current_block: Optional[dict] = None
+        stop_reason: Optional[str] = None
+        input_json_parts: list[str] = []
+
+        for attempt in range(2):
+            try:
+                async with session.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(
+                        total=300,
+                        sock_connect=10,
+                        sock_read=inactivity_timeout,
+                    ),
+                ) as resp:
+                    if resp.status == 200:
+                        while True:
+                            line = await resp.content.readline()
+                            if not line:
+                                break
+                            decoded = line.decode('utf-8').strip()
+                            if not decoded.startswith('data: '):
+                                continue
+                            data_str = decoded[6:]
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                event = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+
+                            event_type = event.get('type')
+
+                            if event_type == 'content_block_start':
+                                block = event.get('content_block', {})
+                                if block.get('type') == 'text':
+                                    current_block = {"type": "text", "text": ""}
+                                elif block.get('type') == 'tool_use':
+                                    current_block = {
+                                        "type": "tool_use",
+                                        "id": block.get("id", ""),
+                                        "name": block.get("name", ""),
+                                        "input": {},
+                                    }
+                                    input_json_parts = []
+
+                            elif event_type == 'content_block_delta':
+                                delta = event.get('delta', {})
+                                if delta.get('type') == 'text_delta' and current_block and current_block['type'] == 'text':
+                                    current_block['text'] += delta.get('text', '')
+                                elif delta.get('type') == 'input_json_delta' and current_block and current_block['type'] == 'tool_use':
+                                    input_json_parts.append(delta.get('partial_json', ''))
+
+                            elif event_type == 'content_block_stop':
+                                if current_block:
+                                    if current_block['type'] == 'tool_use' and input_json_parts:
+                                        try:
+                                            current_block['input'] = json.loads(''.join(input_json_parts))
+                                        except json.JSONDecodeError:
+                                            current_block['input'] = {}
+                                    content_blocks.append(current_block)
+                                    current_block = None
+                                    input_json_parts = []
+
+                            elif event_type == 'message_delta':
+                                delta = event.get('delta', {})
+                                if 'stop_reason' in delta:
+                                    stop_reason = delta['stop_reason']
+
+                        if content_blocks:
+                            return {
+                                "stop_reason": stop_reason or "end_turn",
+                                "content": content_blocks,
+                            }
+                        return None
+
+                    elif resp.status == 429:
+                        retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
+                        if attempt == 0:
+                            await asyncio.sleep(retry_after)
+                            continue
+                        return None
+                    elif resp.status == 529:
+                        logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
+                    else:
+                        error = await resp.text()
+                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        return None
+            except asyncio.TimeoutError:
+                # Flush current_block into content_blocks if partially received
+                if current_block and current_block.get('type') == 'text' and current_block.get('text'):
+                    content_blocks.append(current_block)
+                    current_block = None
+
+                partial_count = len(content_blocks)
+                logger.warning(
+                    f"Claude API inactivity timeout ({inactivity_timeout}s), "
+                    f"attempt {attempt + 1}, collected {partial_count} blocks"
+                )
+                if attempt == 0:
+                    inactivity_timeout = inactivity_timeout * 2
+                    await asyncio.sleep(1)
+                    continue
+                # Return partial blocks if we have text content
+                if content_blocks:
+                    logger.warning(
+                        f"Returning partial streaming_full response ({partial_count} blocks)"
+                    )
+                    return {
+                        "stop_reason": "timeout_partial",
+                        "content": content_blocks,
+                    }
+                return None
+            except aiohttp.ClientError as e:
+                logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                if content_blocks:
+                    return {
+                        "stop_reason": "error_partial",
+                        "content": content_blocks,
+                    }
                 return None
         return None
 
@@ -212,6 +397,7 @@ class ClaudeClient:
         user_prompt: str,
         max_tokens: int = 4000,
         model: str = None,
+        allow_partial: bool = True,
     ) -> Optional[str]:
         """Базовый метод генерации текста через Claude API (streaming).
 
@@ -223,6 +409,9 @@ class ClaudeClient:
             user_prompt: пользовательский промпт
             max_tokens: максимальное количество токенов ответа
             model: модель Claude (default: CLAUDE_MODEL_SONNET)
+            allow_partial: если False — при timeout вернёт None вместо
+                обрезанного текста. Для pre-gen контента (уроки) ставить False,
+                для real-time (консультант) — True.
 
         Returns:
             Сгенерированный текст или None при ошибке
@@ -245,7 +434,9 @@ class ClaudeClient:
                 }
 
                 return await self._api_call_streaming(
-                    payload, inactivity_timeout=inactivity_timeout
+                    payload,
+                    inactivity_timeout=inactivity_timeout,
+                    allow_partial=allow_partial,
                 )
 
     async def generate_with_tools(
@@ -278,6 +469,9 @@ class ClaudeClient:
 
         model = model or CLAUDE_MODEL_SONNET
 
+        # Adaptive inactivity timeout for streaming
+        inactivity_timeout = max(15, max_tokens / 200)
+
         async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
 
@@ -291,7 +485,9 @@ class ClaudeClient:
                         "tools": tools,
                     }
 
-                    data = await self._api_call(payload)
+                    data = await self._api_call_streaming_full(
+                        payload, inactivity_timeout=inactivity_timeout
+                    )
                     if not data:
                         logger.error(f"Claude API failed (tool_use round {round_num})")
                         return None
@@ -352,7 +548,7 @@ class ClaudeClient:
                     return block["text"]
             return None
 
-    async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None) -> str:
+    async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None, model=None) -> str:
         """Генерирует контент для теоретической темы марафона
 
         Args:
@@ -505,13 +701,16 @@ class ClaudeClient:
         # 500w → 750tok, 1000w → 1500tok, 2500w → 3750tok
         max_tokens = min(int(words * 1.5), 4096)
 
-        result = await self.generate(system_prompt, user_prompt, max_tokens=max_tokens)
+        result = await self.generate(
+            system_prompt, user_prompt, max_tokens=max_tokens, model=model,
+            allow_partial=False,  # Lesson: partial = broken UX, better retry
+        )
         if result:
             return result
         # Локализованное сообщение об ошибке из единого модуля
         return lp.get('error_generation', "Failed to generate content.")
 
-    async def generate_practice_intro(self, topic: dict, intern: dict) -> dict:
+    async def generate_practice_intro(self, topic: dict, intern: dict, model=None) -> dict:
         """Генерирует полное описание практического задания на языке пользователя
 
         Args:
@@ -527,8 +726,9 @@ class ClaudeClient:
         lang = intern.get('language', 'ru')
         topic_id = topic.get('id', '')
 
-        # Проверяем кеш (practice не зависит от пользователя, только от языка)
-        cache_key = f"practice:{topic_id}:{lang}" if topic_id else None
+        # Кеш per-user: practice персонализирована (имя, профессия, цели)
+        chat_id = intern.get('chat_id', '')
+        cache_key = f"practice:{topic_id}:{lang}:{chat_id}" if topic_id and chat_id else None
         if cache_key:
             cached = await cache_get(cache_key)
             if cached:
@@ -571,7 +771,10 @@ Examples:
 
 Translate and adapt everything to the target language."""
 
-        result = await self.generate(system_prompt, user_prompt)
+        result = await self.generate(
+            system_prompt, user_prompt, model=model,
+            allow_partial=False,  # Practice: partial = broken UX, better retry
+        )
 
         if not result:
             # Fallback: возвращаем оригинал на русском
@@ -753,7 +956,10 @@ Translate and adapt everything to the target language."""
 
 {qp['output_only_question']}"""
 
-        result = await self.generate(system_prompt, user_prompt)
+        result = await self.generate(
+            system_prompt, user_prompt,
+            allow_partial=False,  # Question: partial = broken UX, better retry
+        )
         if result and cache_key:
             await cache_set(cache_key, 'question', result)
         return result or qp['error_generation']

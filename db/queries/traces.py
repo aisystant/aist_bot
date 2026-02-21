@@ -26,16 +26,28 @@ THRESHOLDS = {
 
 _NAV_COMMANDS = {'/mode', '/help', '/profile', '/settings', '/language', '/mydata', '/feedback'}
 _HEAVY_COMMANDS = {'/feed', '/learn', '/test', '/assessment'}
+_HEAVY_CALLBACKS = {
+    'cb:marathon_next_question', 'cb:marathon_get_practice',
+    'cb:marathon_next_bonus',
+}
 
 
 def classify_command(command: str) -> str:
-    """Classify command into threshold category."""
+    """Classify command into threshold category.
+
+    Categories (SLA):
+    - nav: instant commands, <1s (e.g. /mode, /help, cb:inline_*)
+    - heavy: content generation, <3s (e.g. /feed, cb:marathon_*)
+    - consultation: AI dialogue, <8s (e.g. msg:*)
+    """
     if not command:
         return 'nav'
     cmd = command.split()[0] if command else ''
+    if cmd in _HEAVY_CALLBACKS:
+        return 'heavy'
     if cmd.startswith('cb:'):
         return 'nav'
-    if cmd.startswith('msg:?') or cmd.startswith('msg:? '):
+    if cmd.startswith('msg:'):
         return 'consultation'
     if cmd in _HEAVY_COMMANDS:
         return 'heavy'

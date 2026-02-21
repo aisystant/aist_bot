@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "a56ab77bd0dbb120eb18b71c8e753262c47855a49194e4476ca033bac0b335a5"
-  synced_at: "2026-02-19T04:34:08Z"
+  source_hash: "149939a5d8857b1b66ace8887bd1aafe448da45ef72f380a228a971844884cf1"
+  synced_at: "2026-02-20T00:07:50Z"
   generator: "DS-synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -47,6 +47,8 @@ scenarios: |
   | 16 | Экспорт | `/export` | 📋 | Экспорт данных пользователя | Export user data |
   | 17 | Аналитика (dev) | `/analytics` | ✅ | Сводная аналитика IWE: DAU/WAU/MAU, сессии, latency, retention D1/D7/D30, тренды. Только для разработчика | IWE summary analytics: DAU/WAU/MAU, sessions, latency, retention D1/D7/D30, trends. Dev-only |
   | 18 | L1 Unstick | — (auto) | ✅ | Автоматическое восстановление застрявших пользователей: 3+ ошибки за 5 мин или stuck в state >60 мин → сброс FSM → mode_select + извинение. Scheduler каждые 5 мин | Automatic recovery of stuck users: 3+ errors in 5 min or stuck in state >60 min → FSM reset → mode_select + apology. Scheduler every 5 min |
+  | 19 | L2 Auto-Fix | — (auto+approval) | ✅ | Автоматическая диагностика L2-ошибок: scheduler каждые 15 мин → Claude Sonnet анализирует ошибку + исходный код → диагноз + ArchGate-оценка → TG-сообщение разработчику с кнопками [✅ Применить / ❌ Отклонить] → на ✅ создаётся GitHub PR с исправлением. Безопасность: max 3 файла, protected files, always PR. См. DP.RUNBOOK.001 §6 | Automatic L2 error diagnosis: scheduler every 15 min → Claude Sonnet analyzes error + source code → diagnosis + ArchGate evaluation → TG message to developer with [✅ Apply / ❌ Reject] buttons → on ✅ creates GitHub PR with fix. Safety: max 3 files, protected files, always PR. See DP.RUNBOOK.001 §6 |
+  | 20 | Grafana Alerting | — (auto) | ✅ | Независимый мониторинг через Grafana Cloud: 4 правила (L3+ Critical, Unknown Spike, Error Rate Anomaly, Heartbeat Lost) → TG-уведомления. Не зависит от процесса бота. См. DP.RUNBOOK.001 §5 | Independent monitoring via Grafana Cloud: 4 rules (L3+ Critical, Unknown Spike, Error Rate Anomaly, Heartbeat Lost) → TG notifications. Independent of bot process. See DP.RUNBOOK.001 §5 |
 
 faq: |
   
@@ -65,6 +67,102 @@ faq: |
   | 11 | Как сбросить марафон? | How to reset the marathon? | сброс, сбросить, reset, обнулить, заново, restart | Открой `/settings` → кнопка «Сброс» → «Сбросить марафон» → подтверди. Прогресс обнулится, марафон начнётся с 1-го дня. Также можно сбросить через `/profile`. | Open `/settings` → "Reset" button → "Reset marathon" → confirm. Progress resets, marathon starts from day 1. You can also reset via `/profile`. |
   | 12 | Как сбросить статистику? | How to reset statistics? | сброс стат, статистик, reset stats, обнулить стат | Открой `/settings` → кнопка «Сброс» → «Сбросить статистику» → подтверди. Сбрасываются серии активных дней. Ответы и прогресс сохраняются. | Open `/settings` → "Reset" button → "Reset statistics" → confirm. Active day streaks are reset. Answers and progress are preserved. |
   | 13 | Как работает персонализация? | How does personalization work? | персонал, адапт, подстра, adapt, personaliz, customize | Бот адаптирует контент на трёх уровнях:\n\n1) Профиль — заполни имя, профессию, интересы и цели в /settings, и бот подстроит примеры, стиль и контент под тебя.\n\n2) Тест систематичности — /test определяет состояние (Хаос/Тупик/Поворот) и адаптирует стиль уроков, сложность и темы Ленты.\n\n3) Цифровой двойник — подключи через Настройки → Подключения → Цифровой двойник, и 10 полей профиля перельются в персональный ЦД для построения индивидуальной траектории. | The bot adapts content on three levels:\n\n1) Profile — fill in your name, occupation, interests and goals in /settings, and the bot will tailor examples, style and content for you.\n\n2) Systematicity test — /test determines your state (Chaos/Deadlock/Turning Point) and adapts lesson style, difficulty and Feed topics.\n\n3) Digital twin — connect via Settings → Connections → Digital Twin, and 10 profile fields transfer to your personal DT for building an individual trajectory. |
+
+platform: |
+  
+  > Когда пользователь спрашивает о своём «уровне», «статусе», «доступе», «тарифе», «подписке», «возможностях», «что доступно», «как расти», «что бесплатно», «сколько стоит» — он спрашивает об этой модели.
+  
+  Платформа имеет 5 уровней обслуживания (тиров). Каждый следующий включает всё из предыдущего. T1-T4 доступны пользователям, T5 — владельцу платформы.
+  
+  **🟢 T1 — Старт** (бесплатно, навсегда):
+  - Марафон 14 дней (/learn) — структурированная программа обучения
+  - Тест систематичности (/test) — определяет состояние и адаптирует контент
+  - Прогресс (/progress) — статистика обучения
+  - Профиль (/profile) и Настройки (/settings)
+  
+  **📘 T2 — Изучение** (подписка Telegram Stars):
+  - Лента (/feed) — персональные ежедневные дайджесты по выбранным темам
+  - Консультант (?вопрос) — ответы на основе базы знаний с расширенным контекстом
+  - Заметки (.текст) — сохранение мыслей и идей
+  - Планы (/rp /plan /report) — интеграция со Стратегом
+  
+  **Подписка:** Telegram Stars. Первые 15 дней — бесплатно (пробный период). Ранние подписчики сохраняют цену навсегда. Оформить: /settings → Подписка.
+  
+  **🧬 T3 — Персонализация** (подключён Цифровой двойник):
+  - Персональные рекомендации на основе целей, проблем и интересов
+  - Полный профиль с проекцией в ЦД (10 полей)
+  - Усиленная адаптация контента
+  
+  Как перейти на T3:
+  - Заполни профиль (/profile) — бот подстроит контент под тебя
+  - Пройди тест (/test) — бот адаптирует стиль и сложность
+  - Подключи Цифровой двойник (/settings → Подключения) — бот учтёт твои цели, проблемы и интересы
+  
+  **🚀 T4 — Созидание** (локальный экзокортекс):
+  - Claude Code + агенты (Стратег, Экстрактор, Синхронизатор)
+  - Личная база знаний (Pack)
+  - GitHub-интеграция (/settings → Подключения)
+  
+  **⚙️ T5 — Администрирование** (владелец платформы):
+  - Управление всеми системами, агентами и инфраструктурой
+  - Полный доступ к аналитике, конфигурации и деплою
+  
+  **Цифровой двойник:** персональное хранилище целей, проблем, интересов и самооценки. Позволяет боту давать индивидуальные рекомендации.
+  
+  **Программы обучения на платформе:**
+  - Личное развитие (ЛР) — вводная, подходит всем
+  - Рабочее развитие (РР) — для менеджеров и инженеров
+  - Исследовательское развитие (ИР) — для исследователей
+  
+  Посмотреть свои данные и текущий уровень: /mydata.
+  
+  [EN]
+  
+  When a user asks about their "level", "status", "access", "plan", "subscription", "capabilities", "what's available", "how to grow", "what's free", "how much" — they are asking about this model.
+  
+  The platform has 5 service tiers. Each tier includes everything from the previous one. T1-T4 are available to users, T5 is for the platform owner.
+  
+  **🟢 T1 — Start** (free, forever):
+  - 14-day Marathon (/learn) — structured learning program
+  - Systematicity Test (/test) — identifies state and adapts content
+  - Progress (/progress) — learning statistics
+  - Profile (/profile) and Settings (/settings)
+  
+  **📘 T2 — Learning** (Telegram Stars subscription):
+  - Feed (/feed) — personal daily digests on chosen topics
+  - Consultant (?question) — knowledge-base answers with extended context
+  - Notes (.text) — saving thoughts and ideas
+  - Plans (/rp /plan /report) — Strategist integration
+  
+  **Subscription:** Telegram Stars. First 15 days free (trial). Early subscribers keep their price forever. Subscribe: /settings → Subscription.
+  
+  **🧬 T3 — Personalization** (Digital Twin connected):
+  - Personal recommendations based on goals, problems and interests
+  - Full profile with DT projection (10 fields)
+  - Enhanced content adaptation
+  
+  How to reach T3:
+  - Fill your profile (/profile) — bot tailors content for you
+  - Take the test (/test) — bot adapts style and difficulty
+  - Connect Digital Twin (/settings → Connections) — bot considers your goals, problems and interests
+  
+  **🚀 T4 — Creation** (local exocortex):
+  - Claude Code + agents (Strategist, Extractor, Synchronizer)
+  - Personal knowledge base (Pack)
+  - GitHub integration (/settings → Connections)
+  
+  **⚙️ T5 — Administration** (platform owner):
+  - Full management of all systems, agents, and infrastructure
+  - Complete access to analytics, configuration, and deployment
+  
+  **Digital Twin:** personal storage for goals, problems, interests, and self-assessment. Enables the bot to give individual recommendations.
+  
+  **Learning programs on the platform:**
+  - Personal Development (ЛР) — introductory, fits everyone
+  - Professional Development (РР) — for managers and engineers
+  - Research Development (ИР) — for researchers
+  
+  View your data and current level: /mydata.
 
 integrations: |
   

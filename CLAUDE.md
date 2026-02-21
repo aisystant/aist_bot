@@ -1,4 +1,4 @@
-# CLAUDE.md — AIST Track Bot (new-architecture)
+# CLAUDE.md — AIST_me_bot (new-architecture)
 
 > **Общие инструкции:** см. `/Users/tserentserenov/Github/CLAUDE.md`
 >
@@ -235,16 +235,20 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 **Правило:** Все колонки в DB (кроме `error_logs` и `request_traces`) используют `TIMESTAMP` (naive). При записи — только `datetime.utcnow()`, **НЕ** `datetime.now(timezone.utc)`. asyncpg с `statement_cache_size=0` (Neon) не может кодировать aware datetime в naive колонку → `DataError`.
 
-### 10.6. Keyboard Management Policy
+### 10.6. Keyboard Management Policy (WP-52)
 
-**Декларативное правило:** каждый стейт объявляет `keyboard_type` на классе. SM engine автоматически чистит Reply-клавиатуру при входе в **любой** non-reply стейт (через `_pending_keyboard_cleanup` в `BaseState.send()`). Дополнительно: первый контакт пользователя после рестарта бота тоже планирует cleanup (`_keyboard_verified` в SM).
+**Принцип:** SM НЕ удаляет ReplyKeyboard, а ЗАМЕНЯЕТ. Tier-based KB из mode_select персистит через inline-стейты. SM-contextual стейты (Phase 2) заменят её на контекстную.
+
+**Два слоя ReplyKeyboard:**
+1. **mode_select KB** (2×2) — tier-based, отправляется при входе в mode_select
+2. **SM-contextual KB** (Phase 2) — Row 1: действия стейта, Row 2: `[🏠 Меню] [⚙️]`
 
 **Keyboard Registry (19 стейтов):**
 
 | State | keyboard_type | Кнопки |
 |-------|:---:|---|
 | common.start | `none` | Текстовый онбординг |
-| common.mode_select | `inline` | Динамическое меню сервисов |
+| common.mode_select | **`reply`** | Tier-based 2×2 ReplyKeyboard (tier_ui.py) |
 | common.settings | `inline` | Настройки (edit_text sub-nav) |
 | common.profile | `inline` | Профиль (edit_text sub-nav) |
 | common.consultation | `none` | Модальный, inline-фидбек |
@@ -262,15 +266,11 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 | utility.mydata | `inline` | Hub (5 секций) + delete confirm (text input) |
 | utility.feedback | `inline` | Баг/Предложение → severity |
 
-**SM auto-cleanup:** при входе в **любой** стейт с `keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Также при первом контакте после рестарта (`_keyboard_verified`). Первый `send()` нового стейта применяет cleanup:
-- **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению (0 extra API calls).
-- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (`send+edit`, +1 API call). **Fallback (3 ступени):** edit_reply_markup → edit_text → delete + новое сообщение с InlineKeyboard. **Известный баг Telegram API:** edit на сообщение с ReplyKeyboardRemove может падать с "message can't be edited" — поэтому финальный fallback обязателен.
-- **С ReplyKeyboardMarkup:** пропускает cleanup (новая Reply-клавиатура заменяет старую).
-- **Overhead:** ~50ms на переход в non-reply стейт (при наличии InlineKeyboard). `ReplyKeyboardRemove` без активной клавиатуры = no-op в Telegram API.
+**SM keyboard persistence:** SM больше не удаляет ReplyKeyboard автоматически. `_pending_keyboard_cleanup` в base.py оставлен для backwards compat но не заполняется. ReplyKeyboard из mode_select персистит через все inline-стейты. Reply-стейты (question, bonus, task) заменяют tier-KB на свою; при возврате в mode_select tier-KB восстанавливается.
 
-**Правила (defense-in-depth):**
+**Правила:**
 
-1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути финальный send() содержит `reply_markup=ReplyKeyboardRemove()` (ручная очистка — primary, SM auto-cleanup — safety net для command-bypass пути).
+1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути `send_remove_keyboard()` (очистка своей KB перед возвратом в mode_select).
 2. **Callback-переход**: handler ОБЯЗАН вызвать `callback.message.edit_reply_markup()` перед `go_to()`.
 3. **Inline sub-навигация**: `edit_text()` — клавиатура заменяется, stale кнопок нет.
 4. **Stale inline кнопки**: допустимы. Fallback handler → `fsm.button_expired` toast.
@@ -328,10 +328,12 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 | Ключ | Формат | Где используется |
 |------|--------|------------------|
-| `practice:{topic_id}:{lang}` | Практическое введение | `generate_practice_intro()` |
+| `practice:{topic_id}:{lang}:{chat_id}` | Практическое введение (per-user) | `generate_practice_intro()` |
 | `question:{topic_id}:{bloom}:{lang}:{occupation}` | Вопросы | `generate_question()` |
 
-**Экономия:** ~33% API-вызовов при пре-генерации (одинаковые темы для разных пользователей одного уровня). `cache_cleanup()` запускается из scheduler ежедневно.
+**Правило:** Персонализированный контент (содержит имя, профессию, цели пользователя) ОБЯЗАН кэшироваться per-user (`:{chat_id}`). Глобальный кэш допустим только для контента без персонализации.
+
+`cache_cleanup()` запускается из scheduler ежедневно.
 
 ### 10.16. Slot suggestion при перегрузке (≥50 users)
 
@@ -342,9 +344,94 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 **Зачем:** рассредоточение нагрузки на scheduler pre-generation. Без staggering — все 50 users = 50 concurrent Claude API вызовов в одну минуту.
 
-### 10.17. PostgreSQL Views: DROP + CREATE, не REPLACE
+### 10.17. config/__init__.py — barrel file sync
+
+При добавлении новой константы в `config/settings.py` — **ОБЯЗАТЕЛЬНО** добавить её в оба места в `config/__init__.py`: блок `from .settings import (...)` И список `__all__`. Без этого — `ImportError` crash loop на деплое (IDE не ловит, потому что `from config.settings import X` работает, а `from config import X` — нет).
+
+### 10.18. Scheduler Log Noise — подавлен
+
+apscheduler INFO-логи (`Running job`, `executed successfully`) подавлены до WARNING в `bot.py`. FSM `get_state`/`set_state` переведены на DEBUG. Для отладки scheduler — временно вернуть INFO.
+
+### 10.19. Look-Ahead Pre-Gen
+
+После доставки урока/практики `_pregen_next_topic_bg()` генерирует следующую тему в фоне (`asyncio.create_task`, fire-and-forget). Покрывает случай: пользователь пришёл до scheduled delivery.
+
+### 10.20. Haiku On-The-Fly Fallback
+
+При cache miss lesson.py и task.py используют `model=CLAUDE_MODEL_HAIKU` (3-5s вместо 15-19s Sonnet). Pre-gen scheduler и look-ahead всегда Sonnet (default). Worst case latency <5s.
+
+### 10.21. PostgreSQL Views: DROP + CREATE, не REPLACE
 
 `CREATE OR REPLACE VIEW` **запрещён**. PostgreSQL не позволяет менять порядок или имена колонок через REPLACE — бот падает в crash loop при старте. Всегда: `DROP VIEW IF EXISTS` + `CREATE VIEW`. View stateless — данные не теряются.
+
+---
+
+## 11. Error Classification (WP-45, DP.RUNBOOK.001)
+
+**Модуль:** `core/error_classifier.py` — классифицирует `error_logs` по 6 категориям RUNBOOK (fsm, db, claude_api, telegram_api, mcp, scheduler) + severity (L1-L4).
+
+**Порядок паттернов:** специфичные (MCP, Claude, TG) → generic (DB). First match wins. При добавлении нового паттерна — проверяй, не перекрывает ли generic (тест: 13 cases в комментарии к WP-45 коммиту).
+
+**Scheduler:** classify_unprocessed() каждые 5 мин + check_escalation() каждые 15 мин.
+
+**Grafana:** dashboard JSON в `monitoring/grafana-dashboard.json` (PostgreSQL datasource → Neon).
+
+---
+
+## 12. Progressive UI per Tier (WP-52 v4)
+
+**Файлы:** `core/tier_config.py`, `core/tier_detector.py`, `core/tier_ui.py`, `handlers/reply_keyboard.py`
+
+**Дизайн-документ:** `DS-my-strategy/inbox/WP-52-progressive-ui-tiers.md`
+**Pack-сущность:** DP.ARCH.002 § 13
+
+**Два слоя ReplyKeyboard:**
+1. **mode_select KB** (2×2) — при возврате в главное меню, tier-dependent
+2. **SM-contextual KB** — внутри reply-стейтов: Row 1 = действия, Row 2 = `[🏠 Меню] [⚙️]`
+
+**mode_select layouts:**
+
+```
+T1: [📚 Марафон] [🧪 Тест]     / [📊 Мой прогресс] [⚙️]
+T2: [📖 Лента]   [📚 Марафон]  / [📊 Мой прогресс] [⚙️]
+T3: [📖 Лента]   [🤖 Twin]     / [📊 Мои данные]   [⚙️]
+T4: [📋 Мой план] [🤖 Twin]    / [📊 Мои данные]   [⚙️]
+```
+
+**Tier detection (behavioral):** T1=default, T2=marathon_completed, T3=marathon+DT, T5=DEVELOPER_CHAT_ID
+
+**Правила:**
+- ⚙️ = universal settings (Language first, Profile link)
+- SM НЕ удаляет KB, а ЗАМЕНЯЕТ на контекстную
+- «Мой прогресс» (T1-T2) → «Мои данные» (T3+)
+- T5 = dev-commands + settings + help (НЕ наследует T4)
+- Menu ☰ per-user через `BotCommandScopeChat`
+- Все команды работают на любом тире (видимость ≠ доступность)
+
+---
+
+## 13. Данные: schedule_time и marathon_content
+
+### schedule_time — строго HH:MM (zero-padded)
+
+Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exact match). Данные без ведущего нуля (`'7:30'` вместо `'07:30'`) → silent failure (0 результатов, нет ошибки).
+
+**Нормализация на записи:** `zfill(5)` в `update_intern()`, `settings.py`, `profile.py`. Integrity check: `_check_schedule_integrity()` в `core/scheduler.py`, ежедневно 08:00 MSK.
+
+### marathon_content.status — семантика
+
+| DB status | Значение | Кто ставит |
+|-----------|---------|-----------|
+| `pending` | Контент отправлен, пользователь **не открыл** | pre-gen (insert) |
+| `delivered` | Пользователь **открыл** урок | `mark_content_delivered()` в lesson.py |
+
+`/delivery` dev-команда показывает эту разницу: 🟢 прочитано / 🟡 отправлено, не открыт.
+
+### Catch-up (нагонять пропущенный урок)
+
+- Если `topic['day'] < marathon_day` → catch-up notification (вместо обычного).
+- После прохождения пропущенного → предложить сегодняшний урок (генерация на лету по кнопке).
+- Ограничение: **max 1 день** catch-up. `MAX_TOPICS_PER_DAY = 4` (2 yesterday + 2 today).
 
 ---
 

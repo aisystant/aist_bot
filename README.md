@@ -1,8 +1,8 @@
-# AIST Track Bot — AI-помощник по системному развитию
+# AIST_me_bot — AI-помощник по системному развитию
 
 > **Тип репозитория:** `Downstream/instrument`
 
-Telegram-бот [@aist_track_bot](https://t.me/aist_track_bot) с персонализированным обучением от [Мастерской инженеров-менеджеров](https://system-school.ru/).
+Telegram-бот [@aist_me_bot](https://t.me/aist_track_bot) с персонализированным обучением от [Мастерской инженеров-менеджеров](https://system-school.ru/).
 
 **Миссия**: Помочь пользователям трансформироваться из случайных учеников в систематических — собранных и удерживающих внимание на своём развитии.
 
@@ -41,7 +41,7 @@ Telegram-бот [@aist_track_bot](https://t.me/aist_track_bot) с персона
 
 ### Быстрый старт
 
-1. Найдите [@aist_track_bot](https://t.me/aist_track_bot) в Telegram
+1. Найдите [@aist_me_bot](https://t.me/aist_track_bot) в Telegram
 2. Напишите `/start`
 3. Укажите своё имя
 4. Выберите язык интерфейса

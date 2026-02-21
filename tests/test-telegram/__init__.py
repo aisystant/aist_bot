@@ -1,5 +1,5 @@
 """
-E2E тесты для AIST Track Bot.
+E2E тесты для AIST_me_bot.
 
 Использует Telethon для эмуляции пользователя Telegram.
 Тесты основаны на сценариях из tests/test-manual/testing-scenarios.md.

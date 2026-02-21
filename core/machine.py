@@ -211,15 +211,6 @@ class StateMachine:
                 logger.error("Даже дефолтный стейт не найден!")
                 return
 
-        # First-contact after restart: schedule keyboard cleanup for non-reply states.
-        # _pending_keyboard_cleanup is in-memory and lost on restart — this recovers it.
-        if chat_id and chat_id not in self._keyboard_verified:
-            self._keyboard_verified.add(chat_id)
-            if getattr(current_state, 'keyboard_type', 'inline') != 'reply':
-                from aiogram.types import ReplyKeyboardRemove
-                BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
-                logger.debug(f"[SM] First-contact keyboard cleanup for chat_id={chat_id}")
-
         # Проверяем глобальные события
         message_text = message.text or ''
         global_target = self.check_global_event(message_text, current_state_name)
@@ -272,15 +263,10 @@ class StateMachine:
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
 
-        # Keyboard auto-cleanup: always schedule when entering non-reply state.
-        # Handles stale keyboards from: inline→inline gaps, silent returns, bot restarts.
-        # ReplyKeyboardRemove is a no-op in Telegram API when no reply keyboard exists.
+        # WP-52: SM no longer auto-removes ReplyKeyboard on transition.
+        # Tier-based KB from mode_select persists across inline states.
+        # SM-contextual states replace it explicitly (Phase 2).
         chat_id = user.get('chat_id') if isinstance(user, dict) else getattr(user, 'chat_id', None)
-        if (chat_id
-                and getattr(to_state, 'keyboard_type', 'inline') != 'reply'):
-            from aiogram.types import ReplyKeyboardRemove
-            BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
-            logger.debug(f"[SM] Keyboard cleanup scheduled: {from_state.name} → {to_state_name} (non-reply)")
 
         # Сохраняем новый стейт в БД
         try:
@@ -445,13 +431,8 @@ class StateMachine:
         # Объединяем контексты
         full_context = {**(context or {}), **exit_context}
 
-        # Keyboard auto-cleanup: always schedule when entering non-reply state.
-        # Symmetric with _transition() — covers go_to() path (commands, dispatcher).
-        if (chat_id
-                and getattr(to_state, 'keyboard_type', 'inline') != 'reply'):
-            from aiogram.types import ReplyKeyboardRemove
-            BaseState._pending_keyboard_cleanup[chat_id] = ReplyKeyboardRemove()
-            logger.debug(f"[SM] Keyboard cleanup scheduled: {current_state_name} → {state_name} (non-reply)")
+        # WP-52: SM no longer auto-removes ReplyKeyboard on go_to().
+        # Tier-based KB persists. SM-contextual states replace explicitly (Phase 2).
 
         # Сохраняем новый стейт в БД
         try:

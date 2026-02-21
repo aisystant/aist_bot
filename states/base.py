@@ -150,13 +150,14 @@ class BaseState(ABC):
         """
         Shortcut для отправки сообщения.
 
-        Keyboard cleanup (reply→non-reply переход):
-        - Без reply_markup: прикрепляет ReplyKeyboardRemove к сообщению.
-        - С InlineKeyboardMarkup: отправляет текст с ReplyKeyboardRemove,
-          затем edit_reply_markup для InlineKeyboard (Telegram API не позволяет
-          совместить ReplyKeyboardRemove и InlineKeyboard в одном сообщении).
-        - С другим reply_markup (ReplyKeyboard): пропускает cleanup (новая
-          Reply-клавиатура заменяет старую).
+        Transport-layer intercept: если parse_mode="Markdown", автоматически
+        конвертирует текст в HTML через md_to_html(). Это элиминирует класс
+        ошибок TelegramBadRequest: can't parse entities — HTML детерминистичен,
+        невалидная разметка показывается как plain text, не крашит.
+
+        WP-52: SM no longer auto-removes ReplyKeyboard. Tier-based KB from
+        mode_select persists across inline states. Legacy _pending_keyboard_cleanup
+        logic retained for backwards compat but dict is never populated.
 
         Args:
             user: Объект пользователя
@@ -166,6 +167,12 @@ class BaseState(ABC):
         Returns:
             Отправленное сообщение
         """
+        # Transport-layer intercept: Markdown → HTML (deterministic, crash-proof)
+        if kwargs.get('parse_mode') == 'Markdown':
+            from helpers.markdown_to_html import md_to_html
+            text = md_to_html(text)
+            kwargs['parse_mode'] = 'HTML'
+
         telegram_id = (
             getattr(user, 'telegram_id', None) or
             getattr(user, 'chat_id', None) or

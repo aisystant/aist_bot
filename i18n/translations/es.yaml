@@ -600,7 +600,10 @@ marathon:
   come_back_tomorrow: "¡Vuelve mañana para nuevos temas!"
   question_processed: "✅ ¡Respuesta aceptada!"
   fallback_question: "¿Cómo entiendes el tema «{topic}»? Escribe con tus propias palabras."
-  completed_hint: "Puedes continuar aprendiendo en modo Cinta (/feed) o ver programas avanzados en el Taller."
+  completed_hint: "Puedes continuar aprendiendo en modo Cinta o pasar a los programas completos."
+  completed_next_step: "El Maratón fue una introducción. El siguiente paso es el programa completo *Desarrollo Personal*, donde dominarás todas las prácticas de un estudiante sistemático."
+  btn_program_lr: "📚 Programa «Desarrollo Personal»"
+  btn_continue_feed: "📰 Continuar en Cinta"
   practice_ready: "La tarea práctica está lista."
   question_ready: "La pregunta sobre la lección está lista."
 

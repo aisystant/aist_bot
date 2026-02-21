@@ -161,7 +161,7 @@ def main():
     report = generator.generate_report(
         results,
         output_path,
-        project_name="AIST Track Bot"
+        project_name="AIST_me_bot"
     )
 
     # Вычисляем итоговое покрытие

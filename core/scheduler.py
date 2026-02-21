@@ -97,9 +97,12 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(scheduled_check, 'cron', minute='*')
     _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*')  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
+    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='*/30')  # Discourse: scheduled posts
+    _scheduler.add_job(_discourse_check_comments, 'cron', minute='*/15')  # Discourse: comment polling
+    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=3, minute=0)  # Publisher: daily scan 06:00 MSK = 03:00 UTC
     _scheduler.start()
 
-    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen)")
+    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse)")
     return _scheduler
 
 
@@ -144,10 +147,19 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
     question_content = results[1] if not isinstance(results[1], Exception) else None
     practice_content = results[2] if not isinstance(results[2], Exception) else None
 
-    # Валидация: error fallback возвращает строку ~60 символов вместо None
-    if lesson_content is not None and len(lesson_content) < 200:
-        logger.error(f"[PreGen] Lesson too short ({len(lesson_content)} chars) for {chat_id}, "
-                     f"topic {topic_index} — likely error fallback")
+    # Валидация длины: пропорциональная проверка по Content Budget Model
+    # calc_words даёт целевые слова, ×5 ≈ символы, порог 30% от ожидаемого
+    from config import calc_words
+    study_dur = intern.get('study_duration', 15)
+    expected_chars = calc_words(study_dur, bloom_level) * 5
+    min_chars = max(200, int(expected_chars * 0.3))
+
+    if lesson_content is not None and len(lesson_content) < min_chars:
+        logger.error(
+            f"[PreGen] Lesson too short ({len(lesson_content)} chars, "
+            f"min {min_chars}, expected ~{expected_chars}) for {chat_id}, "
+            f"topic {topic_index} — likely partial or error fallback"
+        )
         lesson_content = None
 
     if lesson_content is None:
@@ -200,6 +212,39 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
                 logger.warning(f"[PreGen] Pair pre-gen failed for {chat_id}, topic {pair_idx}: {e}")
 
     return True
+
+
+async def pregen_next_for_user(chat_id: int, intern: dict, current_topic_index: int):
+    """Look-ahead: пре-генерация следующей темы после текущей (fire-and-forget).
+
+    Вызывается из lesson.py / task.py после доставки контента пользователю.
+    Если следующая тема уже пре-генерирована — пропускаем.
+    Rule 10.19: Look-ahead pre-gen при доставке контента.
+    """
+    from core.topics import get_available_topics
+
+    try:
+        available = get_available_topics(intern)
+        # Найти следующие темы после текущей
+        next_topics = [
+            (idx, topic) for idx, topic in available
+            if idx > current_topic_index
+        ][:2]  # максимум 2 look-ahead
+
+        if not next_topics:
+            return
+
+        for next_idx, _ in next_topics:
+            existing = await get_marathon_content(chat_id, next_idx)
+            if existing and existing.get('lesson_content') and len(existing['lesson_content']) > 200:
+                continue  # уже есть
+            success = await _generate_and_save_content(chat_id, intern, next_idx)
+            if success:
+                logger.info(f"[LookAhead] Pre-generated topic {next_idx} for {chat_id}")
+            break  # генерируем только одну тему за раз (не блокировать API)
+
+    except Exception as e:
+        logger.warning(f"[LookAhead] Failed for {chat_id}: {e}")
 
 
 async def pre_generate_upcoming():
@@ -413,8 +458,21 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         total = get_total_topics()
         completed_count = len(intern['completed_topics'])
         if completed_count >= total:
-            # Марафон пройден
+            # Марафон пройден — C1 конверсия в программы (DP.ARCH.002 § 12)
+            from config.settings import PLATFORM_URLS
+
             progress = get_lessons_tasks_progress(intern['completed_topics'])
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_program_lr', lang),
+                    url=PLATFORM_URLS['lr'],
+                )],
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_continue_feed', lang),
+                    callback_data="mode_feed",
+                )],
+            ])
 
             await bot.send_message(
                 chat_id,
@@ -423,11 +481,9 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
                 f"📊 *{t('marathon.your_statistics', lang)}:*\n"
                 f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
                 f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
-                f"{t('marathon.now_practicing_learner', lang)}:\n"
-                f"{t('marathon.practices_list', lang)}\n\n"
-                f"{t('marathon.want_continue', lang)}\n"
-                f"{t('marathon.workshop_full_link', lang)}",
-                parse_mode="Markdown"
+                f"{t('marathon.completed_next_step', lang)}",
+                parse_mode="Markdown",
+                reply_markup=keyboard,
             )
         return
 
@@ -459,6 +515,9 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     # Планируем напоминания (+1ч и +3ч)
     await schedule_reminders(chat_id, intern)
 
+    # Определяем: catch-up (урок с прошлого дня) или обычный
+    is_catchup = topic['day'] < marathon_day
+
     # Отправляем уведомление с кнопкой «Получить урок»
     topic_title = get_topic_title(topic, lang)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -468,15 +527,26 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         )]
     ])
 
-    await bot.send_message(
-        chat_id,
-        f"*{t('reminders.marathon_lesson_ready', lang)}*\n"
-        f"📚 {topic_title}\n\n"
-        f"{t('reminders.marathon_lesson_cta', lang)}",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
+    if is_catchup:
+        await bot.send_message(
+            chat_id,
+            f"*{t('reminders.marathon_catchup_ready', lang)}*\n"
+            f"📚 {topic_title}\n\n"
+            f"{t('reminders.marathon_catchup_cta', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"[Scheduler] Sent CATCH-UP notification to {chat_id}, topic: {topic_title} (day {topic['day']} < marathon_day {marathon_day})")
+    else:
+        await bot.send_message(
+            chat_id,
+            f"*{t('reminders.marathon_lesson_ready', lang)}*\n"
+            f"📚 {topic_title}\n\n"
+            f"{t('reminders.marathon_lesson_cta', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
 
 
 async def schedule_reminders(chat_id: int, intern: dict):
@@ -667,6 +737,34 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Trial expiry notification error: {e}")
 
+    # 🎯 Milestone notifications (11:00 MSK daily — C3, DP.ARCH.002 § 12.5)
+    if now.hour == 11 and now.minute == 0:
+        try:
+            await send_milestone_notifications()
+        except Exception as e:
+            logger.error(f"[Scheduler] Milestone notification error: {e}")
+
+    # 📅 Event notifications (12:00 MSK daily — C7, DP.ARCH.002 § 12.7)
+    if now.hour == 12 and now.minute == 0:
+        try:
+            await send_event_notifications()
+        except Exception as e:
+            logger.error(f"[Scheduler] Event notification error: {e}")
+
+    # 🔍 Schedule integrity check: 08:00 MSK daily — detect silent delivery failures
+    if now.hour == 8 and now.minute == 0 and dev_chat_id:
+        try:
+            alert = await _check_schedule_integrity(now)
+            if alert:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), alert, parse_mode="HTML")
+                    logger.warning(f"[Scheduler] Schedule integrity alert sent")
+                finally:
+                    await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] Schedule integrity check error: {e}")
+
     # 🚨 Latency alert: проверяем каждые 15 минут
     if now.minute % 15 == 0 and dev_chat_id:
         try:
@@ -682,7 +780,7 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Latency alert error: {e}")
 
-    # 🚨 Error alert: проверяем каждые 15 минут
+    # 🚨 Error alert: проверяем каждые 15 минут (enhanced with classifier, WP-45)
     if now.minute % 15 == 0 and dev_chat_id:
         try:
             from db.queries.errors import check_error_alerts
@@ -696,6 +794,49 @@ async def scheduled_check():
                     await bot.session.close()
         except Exception as e:
             logger.error(f"[Scheduler] Error alert error: {e}")
+
+    # 🚨 L4 Escalation: L3/L4/unknown ошибки → отдельный алерт (WP-45)
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from core.error_classifier import check_escalation
+            escalation_text = await check_escalation()
+            if escalation_text:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), escalation_text, parse_mode="HTML")
+                    logger.info("[Scheduler] Escalation alert sent to developer")
+                finally:
+                    await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] Escalation check error: {e}")
+
+    # 🔧 L2 Auto-Fix: detect errors → Claude diagnosis → TG approval (WP-45 Phase 3)
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from core.autofix import run_autofix_cycle
+            bot = Bot(token=_bot_token)
+            try:
+                proposals = await run_autofix_cycle(bot, dev_chat_id)
+                if proposals > 0:
+                    logger.info(f"[Scheduler] AutoFix: {proposals} proposals sent")
+            finally:
+                await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] AutoFix cycle error: {e}")
+
+    # 🚨 L3 Health Check: каскадные ошибки → Railway restart (WP-45 Phase 4)
+    if now.minute % 15 == 0 and dev_chat_id:
+        try:
+            from core.health_check import run_l3_health_check
+            bot = Bot(token=_bot_token)
+            try:
+                restarted = await run_l3_health_check(bot, dev_chat_id)
+                if restarted:
+                    logger.warning("[Scheduler] L3: Railway restart triggered")
+            finally:
+                await bot.session.close()
+        except Exception as e:
+            logger.error(f"[Scheduler] L3 health check error: {e}")
 
     # 🧹 Midnight cleanup: удаляем невостребованный пре-генерированный контент + старые traces
     if now.hour == 0 and now.minute == 0:
@@ -713,6 +854,11 @@ async def scheduled_check():
             await cleanup_old_errors(days=7)
         except Exception as e:
             logger.error(f"[Scheduler] Error logs cleanup error: {e}")
+        try:
+            from db.queries.autofix import cleanup_old_fixes
+            await cleanup_old_fixes(days=30)
+        except Exception as e:
+            logger.error(f"[Scheduler] AutoFix cleanup error: {e}")
         try:
             from db.queries.cache import cache_cleanup
             await cache_cleanup()
@@ -734,6 +880,14 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Unstick check error: {e}")
 
+    # 🏷️ Error classifier: классифицируем новые ошибки каждые 5 мин (WP-45)
+    if now.minute % 5 == 0:
+        try:
+            from core.error_classifier import classify_unprocessed
+            await classify_unprocessed()
+        except Exception as e:
+            logger.error(f"[Scheduler] Error classifier error: {e}")
+
     # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
     if now.minute == 0:
         try:
@@ -744,6 +898,62 @@ async def scheduled_check():
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()
+
+
+# ═══════════════════════════════════════════════════════════
+# SCHEDULE INTEGRITY CHECK
+# ═══════════════════════════════════════════════════════════
+
+async def _check_schedule_integrity(now) -> Optional[str]:
+    """Daily integrity check: detect users with broken schedule data.
+
+    Checks:
+    1. Non-zero-padded schedule_time/feed_schedule_time (e.g. '7:30' instead of '07:30')
+    2. Active marathon/feed users whose delivery time already passed today but got nothing
+    3. Contradictory states (e.g. marathon_status='not_started' but completed_topics > 0)
+    """
+    from db.connection import get_pool
+
+    pool = await get_pool()
+    issues = []
+
+    async with pool.acquire() as conn:
+        # 1. Non-zero-padded times
+        bad_times = await conn.fetch('''
+            SELECT chat_id, tg_username, schedule_time, feed_schedule_time
+            FROM interns
+            WHERE onboarding_completed = TRUE
+              AND (schedule_time ~ '^[0-9]:' OR feed_schedule_time ~ '^[0-9]:')
+        ''')
+        if bad_times:
+            for r in bad_times:
+                issues.append(f"⚠️ {r['tg_username'] or r['chat_id']}: "
+                              f"schedule={r['schedule_time']}, feed={r['feed_schedule_time']} (no leading zero)")
+            # Auto-fix
+            await conn.execute("UPDATE interns SET schedule_time = LPAD(schedule_time, 5, '0') WHERE schedule_time ~ '^[0-9]:'")
+            await conn.execute("UPDATE interns SET feed_schedule_time = LPAD(feed_schedule_time, 5, '0') WHERE feed_schedule_time ~ '^[0-9]:'")
+
+        # 2. Contradictory states: has progress but status = 'not_started'
+        contradictions = await conn.fetch('''
+            SELECT chat_id, tg_username, marathon_status, feed_status,
+                   current_topic_index, completed_topics, marathon_start_date
+            FROM interns
+            WHERE onboarding_completed = TRUE
+              AND (
+                (marathon_status = 'not_started' AND marathon_start_date IS NOT NULL)
+                OR (marathon_status = 'not_started' AND current_topic_index > 0)
+              )
+        ''')
+        for r in contradictions:
+            issues.append(f"🔴 {r['tg_username'] or r['chat_id']}: "
+                          f"marathon_status={r['marathon_status']} but "
+                          f"start_date={r['marathon_start_date']}, topic_index={r['current_topic_index']}")
+
+    if not issues:
+        return None
+
+    header = f"🔍 <b>Schedule Integrity ({now.strftime('%d.%m %H:%M')})</b>\n\n"
+    return header + "\n".join(issues[:20])  # cap at 20 issues
 
 
 # ═══════════════════════════════════════════════════════════
@@ -874,6 +1084,188 @@ async def send_trial_expiry_notifications():
 
 
 # ═══════════════════════════════════════════════════════════
+# MILESTONE NOTIFICATIONS (DP.ARCH.002 § 12.5, C3)
+# ═══════════════════════════════════════════════════════════
+
+async def send_milestone_notifications():
+    """Отправить milestone-уведомления (C3): 7/14/30/60/90 дней."""
+    import json
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from db.queries.conversion import (
+        get_milestone_eligible_users, log_conversion_event, MILESTONE_DAYS,
+    )
+    from config.settings import PLATFORM_URLS
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for day in MILESTONE_DAYS:
+            milestone = f"day_{day}"
+            users = await get_milestone_eligible_users(day)
+
+            for user in users:
+                chat_id = user['chat_id']
+                lang = user.get('language', 'ru') or 'ru'
+
+                try:
+                    completed = json.loads(user.get('completed_topics', '[]') or '[]')
+                except (json.JSONDecodeError, TypeError):
+                    completed = []
+                topics_count = len(completed)
+                active_days = user.get('active_days_total', 0) or 0
+                streak = user.get('longest_streak', 0) or 0
+                bloom = user.get('complexity_level', 1) or 1
+
+                # Базовое сообщение
+                text = t(f'milestones.day_{day}', lang,
+                         topics=topics_count,
+                         active_days=active_days,
+                         streak=streak,
+                         bloom=bloom,
+                         marathon_status='')
+
+                # Специальные вставки для day_7 и day_14
+                if day == 7:
+                    trial_text = t('milestones.day_7_trial', lang)
+                    text += trial_text
+
+                if day == 14:
+                    marathon_done = user.get('marathon_status') == 'completed'
+                    if marathon_done:
+                        ms = t('milestones.day_14_marathon_done', lang)
+                    else:
+                        ms = t('milestones.day_14_marathon_progress', lang,
+                               completed=topics_count)
+                    text = text.replace('{marathon_status}', ms)
+
+                # Кнопки: day_30 и ниже → предложить ЛР, day_60 → twin
+                keyboard = None
+                if day in (30, 90):
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=t('milestones.btn_program', lang),
+                            url=PLATFORM_URLS['lr'],
+                        )]
+                    ])
+                elif day == 60:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=t('milestones.btn_twin', lang),
+                            callback_data="cmd_twin",
+                        )]
+                    ])
+                elif day == 14:
+                    marathon_done = user.get('marathon_status') == 'completed'
+                    if marathon_done:
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text=t('milestones.btn_program', lang),
+                                url=PLATFORM_URLS['lr'],
+                            )]
+                        ])
+
+                try:
+                    await bot.send_message(
+                        chat_id, text,
+                        reply_markup=keyboard,
+                        parse_mode="Markdown",
+                    )
+                    await log_conversion_event(chat_id, 'C3', milestone)
+                    total_sent += 1
+                    logger.info(f"[Scheduler] Milestone {milestone} sent to {chat_id}")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if any(x in error_msg for x in ('blocked', 'deactivated', 'chat not found')):
+                        logger.warning(f"[Scheduler] Milestone {milestone}: user {chat_id} unavailable, skipping")
+                    else:
+                        logger.error(f"[Scheduler] Milestone {milestone} error for {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+    if total_sent > 0:
+        logger.info(f"[Scheduler] Milestone notifications: {total_sent} sent")
+
+
+# ═══════════════════════════════════════════════════════════
+# EVENT NOTIFICATIONS (DP.ARCH.002 § 12.7, C7)
+# ═══════════════════════════════════════════════════════════
+
+async def send_event_notifications():
+    """Уведомить всех активных пользователей о приближающихся событиях (C7)."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from config.conversion import get_upcoming_events
+    from db.queries.conversion import log_conversion_event, was_milestone_sent
+    from db.connection import get_pool
+
+    today = moscow_today()
+    events = get_upcoming_events(today)
+    if not events:
+        return
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT chat_id, language FROM interns
+               WHERE onboarding_completed = TRUE'''
+        )
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for event in events:
+            event_name = event.get("name_ru", "")
+            event_url = event.get("url", "")
+            days_until = event.get("days_until", 0)
+            event_date = event["date"].strftime("%d.%m")
+            milestone_key = f"event:{event_name[:40]}"
+
+            for row in rows:
+                chat_id = row['chat_id']
+                lang = row.get('language', 'ru') or 'ru'
+
+                # Dedup: не отправляли ли уже C7 для этого события
+                if await was_milestone_sent(chat_id, milestone_key):
+                    continue
+
+                name = event.get(f"name_{lang}", event_name)
+                if lang == 'ru':
+                    text = (
+                        f"📅 *Событие через {days_until} дн. ({event_date})*\n\n"
+                        f"*{name}*\n\n"
+                        f"Зарегистрироваться можно по ссылке ниже."
+                    )
+                else:
+                    text = (
+                        f"📅 *Event in {days_until} days ({event_date})*\n\n"
+                        f"*{name}*\n\n"
+                        f"Register using the link below."
+                    )
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="📅 " + ("Зарегистрироваться" if lang == 'ru' else "Register"),
+                        url=event_url,
+                    )]
+                ])
+
+                try:
+                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+                    await log_conversion_event(chat_id, 'C7', milestone_key)
+                    total_sent += 1
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                        logger.error(f"[Scheduler] Event notification error for {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+    if total_sent > 0:
+        logger.info(f"[Scheduler] Event notifications: {total_sent} sent for {len(events)} events")
+
+
+# ═══════════════════════════════════════════════════════════
 # ДАЙДЖЕСТЫ ОБРАТНОЙ СВЯЗИ
 # ═══════════════════════════════════════════════════════════
 
@@ -924,5 +1316,320 @@ async def send_feedback_weekly_digest(dev_chat_id: int):
         logger.info(f"[Scheduler] Sent feedback weekly digest: {len(reports)} reports")
     except Exception as e:
         logger.error(f"[Scheduler] Feedback weekly digest error: {e}")
+    finally:
+        await bot.session.close()
+
+
+# ═══════════════════════════════════════════════════════════
+# DISCOURSE: запланированные публикации + мониторинг комментариев (WP-53)
+# ═══════════════════════════════════════════════════════════
+
+async def _discourse_scheduled_publish():
+    """Публиковать запланированные посты (каждые 5 минут)."""
+    from clients.discourse import discourse
+    if not discourse:
+        return
+
+    from db.queries.discourse import (
+        get_pending_publications, mark_publication_done, mark_publication_failed,
+        save_published_post,
+    )
+
+    pubs = await get_pending_publications()
+    if not pubs:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        for pub in pubs:
+            try:
+                result = await discourse.create_topic(
+                    category_id=pub["category_id"],
+                    title=pub["title"],
+                    raw=pub["raw"],
+                    username=pub["discourse_username"],
+                )
+                topic_id = result.get("topic_id")
+                post_id = result.get("id")
+
+                await mark_publication_done(pub["id"], topic_id)
+                await save_published_post(
+                    chat_id=pub["chat_id"],
+                    discourse_topic_id=topic_id,
+                    discourse_post_id=post_id,
+                    title=pub["title"],
+                    category_id=pub["category_id"],
+                    source_file=pub.get("source_file"),
+                )
+
+                # Обновить frontmatter (status → published) если есть source_file
+                source_file = pub.get("source_file")
+                if source_file:
+                    try:
+                        from clients.github_content import github_content, update_frontmatter_field
+                        if github_content:
+                            file_result = await github_content.read_file(source_file)
+                            if file_result:
+                                content, sha = file_result
+                                new_content = update_frontmatter_field(content, "status", "published")
+                                await github_content.update_file(
+                                    source_file, new_content, sha,
+                                    f"Published to club: {pub['title']}"
+                                )
+                    except Exception as fm_err:
+                        logger.warning(f"[Publisher] Frontmatter update failed for {source_file}: {fm_err}")
+
+                # Уведомить пользователя
+                slug = result.get("topic_slug", "")
+                url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+
+                from db.queries.discourse import get_scheduled_count
+                queue_count = await get_scheduled_count(pub["chat_id"])
+
+                await bot.send_message(
+                    pub["chat_id"],
+                    f"Опубликовано в клуб: «{pub['title']}»\n"
+                    f"{url}\n"
+                    f"В очереди: {queue_count}",
+                )
+                logger.info(f"[Publisher] Scheduled post published: topic_id={topic_id}, queue={queue_count}")
+            except Exception as e:
+                logger.error(f"[Discourse] Scheduled publish error for pub_id={pub['id']}: {e}")
+                await mark_publication_failed(pub["id"])
+    finally:
+        await bot.session.close()
+
+
+async def _smart_publisher_scan():
+    """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (06:00 МСК).
+
+    Цикл:
+    1. Получить все discourse accounts
+    2. Для каждого: scan GitHub index → найти ready+club посты
+    3. Reconciliation: сверить с published_posts и scheduled_publications
+    4. Auto-schedule новые посты на ближайшие свободные слоты
+    5. Queue Watch: если pending < min_queue → уведомить
+    """
+    from clients.github_content import github_content, parse_frontmatter
+    if not github_content:
+        return
+
+    from db.queries.discourse import (
+        get_all_discourse_accounts,
+        get_all_published_source_files,
+        get_all_published_titles_lower,
+        get_all_scheduled_source_files,
+        get_scheduled_count,
+        schedule_publication,
+    )
+    from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME, PUBLISHER_MIN_QUEUE
+
+    accounts = await get_all_discourse_accounts()
+    if not accounts:
+        return
+
+    # Scan index: получить все посты за текущий и прошлый год
+    from datetime import datetime
+    current_year = datetime.now().year
+    all_posts = []
+
+    for year in [current_year, current_year - 1]:
+        files = await github_content.list_files(f"docs/{year}")
+        for f in files:
+            if f["name"] == "README.md":
+                continue
+            result = await github_content.read_file(f["path"])
+            if not result:
+                continue
+            content, sha = result
+            fm = parse_frontmatter(content)
+            if fm.get("type") != "post":
+                continue
+            all_posts.append({
+                "path": f["path"],
+                "sha": sha,
+                "title": fm.get("title", f["name"]),
+                "status": fm.get("status", "draft"),
+                "target": fm.get("target", ""),
+                "tags": fm.get("tags", []),
+                "created": fm.get("created", ""),
+                "audience": fm.get("audience", ""),
+                "content": content,
+            })
+
+    logger.info(f"[Publisher] Scanned {len(all_posts)} posts from index")
+
+    # Для каждого пользователя с привязанным Discourse
+    bot = Bot(token=_bot_token)
+    try:
+        for account in accounts:
+            chat_id = account["chat_id"]
+            category_id = account.get("blog_category_id")
+            if not category_id:
+                continue
+
+            # Reconciliation
+            published_files = await get_all_published_source_files(chat_id)
+            published_titles = await get_all_published_titles_lower(chat_id)
+            scheduled_titles = await get_all_scheduled_source_files(chat_id)
+
+            # Найти ready+club посты, которые ещё не опубликованы и не запланированы
+            candidates = []
+            for post in all_posts:
+                if post["status"] != "ready":
+                    continue
+                if post["target"] != "club":
+                    continue
+                title_lower = post["title"].lower()
+                if post["path"] in published_files:
+                    continue
+                if title_lower in published_titles:
+                    continue
+                if title_lower in scheduled_titles:
+                    continue
+                candidates.append(post)
+
+            if not candidates:
+                # Проверить queue watch
+                queue_count = await get_scheduled_count(chat_id)
+                if queue_count < PUBLISHER_MIN_QUEUE:
+                    # Найти draft-посты с target=club как подсказку
+                    drafts = [p["title"] for p in all_posts
+                              if p["status"] == "draft" and p["target"] == "club"]
+                    draft_hint = ""
+                    if drafts:
+                        draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
+                    await bot.send_message(
+                        chat_id,
+                        f"В очереди публикаций: {queue_count} (мин. {PUBLISHER_MIN_QUEUE}).\n"
+                        f"Нужны новые посты со status: ready и target: club.{draft_hint}",
+                    )
+                continue
+
+            # Auto-schedule: распределить по ближайшим слотам
+            from datetime import timedelta
+            import pytz
+
+            msk = pytz.timezone("Europe/Moscow")
+            now_msk = datetime.now(msk)
+
+            # Парсинг каденции
+            day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+            pub_days = [day_map[d.strip()] for d in PUBLISHER_DAYS.split(",") if d.strip() in day_map]
+            if not pub_days:
+                pub_days = [0, 2, 4]  # Default: Пн/Ср/Пт
+
+            hour, minute = 10, 0
+            try:
+                parts = PUBLISHER_TIME.split(":")
+                hour, minute = int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
+                pass
+
+            # Найти ближайшие свободные слоты
+            scheduled_count = await get_scheduled_count(chat_id)
+            slots = []
+            check_date = now_msk.date() + timedelta(days=1)  # Начинаем с завтра
+            max_check = 60  # Не дальше 60 дней
+
+            for _ in range(max_check):
+                if check_date.weekday() in pub_days:
+                    slot_time = msk.localize(datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute)))
+                    slots.append(slot_time)
+                    if len(slots) >= len(candidates):
+                        break
+                check_date += timedelta(days=1)
+
+            # Запланировать
+            from clients.github_content import strip_frontmatter
+            import json
+
+            scheduled_posts = []
+            for post, slot in zip(candidates, slots):
+                raw = strip_frontmatter(post["content"])
+                tags_json = json.dumps(post["tags"]) if isinstance(post["tags"], list) else "[]"
+                await schedule_publication(
+                    chat_id=chat_id,
+                    title=post["title"],
+                    raw=raw,
+                    category_id=category_id,
+                    schedule_time=slot,
+                    tags=tags_json,
+                    source_file=post["path"],
+                )
+                scheduled_posts.append((post["title"], slot))
+                logger.info(f"[Publisher] Auto-scheduled: {post['title']!r} → {slot}")
+
+            # Уведомить
+            if scheduled_posts:
+                lines = [f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}" for title, slot in scheduled_posts]
+                await bot.send_message(
+                    chat_id,
+                    f"Добавлено в график публикаций ({len(scheduled_posts)}):\n" + "\n".join(lines),
+                )
+
+            # Queue Watch
+            new_queue = await get_scheduled_count(chat_id)
+            if new_queue < PUBLISHER_MIN_QUEUE:
+                drafts = [p["title"] for p in all_posts
+                          if p["status"] == "draft" and p["target"] == "club"]
+                draft_hint = ""
+                if drafts:
+                    draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
+                await bot.send_message(
+                    chat_id,
+                    f"В очереди: {new_queue} (мин. {PUBLISHER_MIN_QUEUE}). Нужны новые посты!{draft_hint}",
+                )
+    except Exception as e:
+        logger.error(f"[Publisher] Smart scan error: {e}", exc_info=True)
+    finally:
+        await bot.session.close()
+
+
+async def _discourse_check_comments():
+    """Проверить новые комментарии к опубликованным постам (каждые 15 минут)."""
+    from clients.discourse import discourse
+    if not discourse:
+        return
+
+    from db.queries.discourse import get_posts_for_comment_check, update_post_comments_count
+
+    posts = await get_posts_for_comment_check()
+    if not posts:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        for post in posts:
+            try:
+                topic = await discourse.get_topic(post["discourse_topic_id"])
+                if not topic:
+                    continue
+
+                new_count = topic.get("posts_count", 1)
+                old_count = post.get("posts_count", 1)
+
+                if new_count > old_count:
+                    # Есть новые комментарии
+                    await update_post_comments_count(post["discourse_topic_id"], new_count)
+
+                    diff = new_count - old_count
+                    slug = topic.get("slug", "")
+                    topic_id = post["discourse_topic_id"]
+                    url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+                    title = post.get("title", "")
+
+                    word = "комментарий" if diff == 1 else "комментариев" if diff > 4 else "комментария"
+                    await bot.send_message(
+                        post["chat_id"],
+                        f"Новый {word} ({diff}) к посту *{title}*\n\n{url}",
+                        parse_mode="Markdown",
+                    )
+                    logger.info(f"[Discourse] New comments for topic {topic_id}: {old_count} -> {new_count}")
+                elif new_count == old_count:
+                    # Обновить last_checked_at
+                    await update_post_comments_count(post["discourse_topic_id"], new_count)
+            except Exception as e:
+                logger.error(f"[Discourse] Comment check error for topic {post.get('discourse_topic_id')}: {e}")
     finally:
         await bot.session.close()

@@ -13,12 +13,14 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 
 from states.base import BaseState
 from i18n import t
+from helpers.markdown_to_html import md_to_html
 from db.queries import update_intern, save_answer
 from db.queries.answers import get_theory_count_at_level
 from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic
 from clients import claude
 from config import get_logger
+from config.settings import EVALUATION_ENABLED
 
 logger = get_logger(__name__)
 
@@ -160,11 +162,7 @@ class MarathonQuestionState(BaseState):
             one_time_keyboard=True
         )
 
-        try:
-            await self.send(user, header + question + footer, parse_mode="Markdown", reply_markup=keyboard)
-        except Exception:
-            logger.warning(f"Markdown parse failed for question (user {chat_id}), sending without formatting")
-            await self.send(user, header + question + footer, reply_markup=keyboard)
+        await self.send(user, md_to_html(header + question + footer), parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
 
     async def handle(self, user, message: Message) -> Optional[str]:
@@ -213,6 +211,29 @@ class MarathonQuestionState(BaseState):
                 answer_type="theory_answer",
                 complexity_level=bloom_level
             )
+
+        # ─── Оценка ответа (DS-evaluator-agent) ───
+        if EVALUATION_ENABLED:
+            topic = get_topic(topic_index)
+            if topic:
+                try:
+                    from core.evaluator import evaluate_and_fixate
+                    intern = self._user_to_intern_dict(user)
+                    evaluation = await evaluate_and_fixate(
+                        answer_text=text,
+                        topic=topic,
+                        bloom_level=bloom_level,
+                        intern=intern,
+                        telegram_user_id=chat_id,
+                    )
+                    if evaluation and evaluation.get("feedback"):
+                        await self.send(
+                            user,
+                            evaluation["feedback"],
+                            parse_mode="Markdown",
+                        )
+                except Exception as e:
+                    logger.warning(f"Evaluation failed for user {chat_id}: {e}")
 
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]

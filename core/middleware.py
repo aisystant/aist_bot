@@ -146,3 +146,9 @@ class TracingMiddleware(BaseMiddleware):
                     asyncio.create_task(get_or_create_session(user_id, command))
                 except Exception:
                     pass
+                # DAU: обновить last_active_date при любом взаимодействии
+                try:
+                    from db.queries.activity import touch_last_active_date
+                    asyncio.create_task(touch_last_active_date(user_id))
+                except Exception:
+                    pass

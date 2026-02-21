@@ -16,6 +16,7 @@ from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, In
 
 from states.base import BaseState
 from i18n import t
+from helpers.markdown_to_html import md_to_html
 from db.queries import update_intern, save_answer
 from clients.claude import claude
 from core.knowledge import get_topic
@@ -151,11 +152,7 @@ class MarathonBonusState(BaseState):
                     f"{question}\n\n"
                     f"_{t('marathon.write_answer', lang)}_"
                 )
-                try:
-                    await self.send(user, bonus_text, parse_mode="Markdown")
-                except Exception:
-                    logger.warning(f"Markdown parse failed for bonus (user {chat_id}), sending without formatting")
-                    await self.send(user, bonus_text)
+                await self.send(user, md_to_html(bonus_text), parse_mode="HTML")
 
                 logger.info(f"Bonus question sent to user {chat_id}, waiting for answer")
                 return None  # Остаёмся в стейте, ждём ответ

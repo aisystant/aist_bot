@@ -25,16 +25,49 @@ def _lang(intern) -> str:
     return intern.get('language', 'ru') or 'ru'
 
 
-def _profile_text(profile: dict, lang: str) -> str:
-    """Формирует текст профиля Digital Twin."""
+def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
+    """Формирует текст профиля Digital Twin.
+
+    Fallback chain: indicators.IND.1.PREF (Aisystant) → 1_declarative (bot sync) → intern (bot DB).
+    """
     degree = profile.get("degree", t('twin.not_set', lang))
     stage = profile.get("stage", t('twin.not_set', lang))
+
+    # Source 1: indicators path (Aisystant platform writes here)
     indicators = profile.get("indicators", {})
     pref = indicators.get("IND.1.PREF", {}) if isinstance(indicators, dict) else {}
-    objective = pref.get("objective", t('twin.not_set', lang)) if isinstance(pref, dict) else t('twin.not_set', lang)
-    roles = pref.get("role_set", []) if isinstance(pref, dict) else []
-    time_budget = pref.get("weekly_time_budget", t('twin.not_set_m', lang)) if isinstance(pref, dict) else t('twin.not_set_m', lang)
-    roles_text = ", ".join(roles) if isinstance(roles, list) and roles else t('twin.not_set_plural', lang)
+    pref = pref if isinstance(pref, dict) else {}
+
+    # Source 2: declarative path (bot sync writes here)
+    declarative = profile.get("1_declarative", {}) if isinstance(profile, dict) else {}
+    goals_sec = (declarative.get("1_2_goals", {}) if isinstance(declarative, dict) else {}) or {}
+    selfeval_sec = (declarative.get("1_3_selfeval", {}) if isinstance(declarative, dict) else {}) or {}
+
+    # Merge with fallback chain
+    objective = (
+        pref.get("objective")
+        or goals_sec.get("09_Цели обучения")
+        or (intern.get('goals') if intern else None)
+        or t('twin.not_set', lang)
+    )
+
+    roles_raw = (
+        pref.get("role_set")
+        or selfeval_sec.get("06_Роли")
+        or (intern.get('role') if intern else None)
+    )
+    if isinstance(roles_raw, str):
+        roles = [r.strip() for r in roles_raw.split(",") if r.strip()]
+    elif isinstance(roles_raw, list):
+        roles = roles_raw
+    else:
+        roles = []
+    roles_text = ", ".join(roles) if roles else t('twin.not_set_plural', lang)
+
+    time_budget = (
+        pref.get("weekly_time_budget")
+        or t('twin.not_set_m', lang)
+    )
 
     return (
         f"*{t('twin.profile_title', lang)}*\n\n"
@@ -112,12 +145,12 @@ async def cmd_twin(message: Message):
     if subcommand == "degrees":
         degrees = await digital_twin.get_degrees(telegram_user_id)
         if degrees:
-            lines = [f"*{t('twin.degrees_title', lang)}*\n"]
-            for d in degrees:
-                name = d.get("name", d.get("code", "?"))
-                desc = d.get("description", "")
-                lines.append(f"- *{name}*{f' — {desc}' if desc else ''}")
-            await message.answer("\n".join(lines), parse_mode="Markdown")
+            # describe_by_path возвращает markdown-текст
+            text = degrees if isinstance(degrees, str) else str(degrees)
+            # Ограничить длину для TG (4096 символов)
+            if len(text) > 4000:
+                text = text[:4000] + "\n..."
+            await message.answer(text, parse_mode="Markdown")
         else:
             await message.answer(t('twin.degrees_error', lang))
         return
@@ -136,7 +169,7 @@ async def cmd_twin(message: Message):
         [InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect")],
     ])
 
-    await message.answer(_profile_text(profile, lang), parse_mode="Markdown", reply_markup=keyboard)
+    await message.answer(_profile_text(profile, lang, intern=intern), parse_mode="Markdown", reply_markup=keyboard)
 
 
 @twin_router.callback_query(F.data == "twin_profile")
@@ -184,7 +217,7 @@ async def callback_twin_profile(callback: CallbackQuery):
     ])
 
     await callback.message.answer(
-        _profile_text(profile, lang), parse_mode="Markdown", reply_markup=keyboard,
+        _profile_text(profile, lang, intern=intern), parse_mode="Markdown", reply_markup=keyboard,
     )
 
 
@@ -204,12 +237,10 @@ async def callback_twin_degrees(callback: CallbackQuery):
 
     degrees = await digital_twin.get_degrees(telegram_user_id)
     if degrees:
-        lines = [f"*{t('twin.degrees_title', lang)}*\n"]
-        for d in degrees:
-            name = d.get("name", d.get("code", "?"))
-            desc = d.get("description", "")
-            lines.append(f"- *{name}*{f' — {desc}' if desc else ''}")
-        await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+        text = degrees if isinstance(degrees, str) else str(degrees)
+        if len(text) > 4000:
+            text = text[:4000] + "\n..."
+        await callback.message.answer(text, parse_mode="Markdown")
     else:
         await callback.message.answer(t('twin.degrees_error', lang))
 

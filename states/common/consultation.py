@@ -40,7 +40,7 @@ from db.queries.qa import save_qa, get_latest_qa_id
 from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
 from i18n import t
-from helpers.markdown_sanitizer import sanitize_markdown
+from helpers.markdown_to_html import md_to_html
 
 logger = logging.getLogger(__name__)
 
@@ -516,10 +516,7 @@ class ConsultationState(BaseState):
                             reply_markup = _build_feedback_keyboard(qa_id, 1, lang)
                     except Exception as e:
                         logger.warning(f"Meta FAQ save_qa error: {e}")
-                try:
-                    await self.send(user, sanitize_markdown(meta_answer), parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception:
-                    await self.send(user, meta_answer, reply_markup=reply_markup)
+                await self.send(user, md_to_html(meta_answer), parse_mode="HTML", reply_markup=reply_markup)
                 # Сохраняем в history + остаёмся в стейте
                 self._append_history(session_ctx, question, meta_answer)
                 await self._save_session_context(chat_id, session_ctx)
@@ -576,10 +573,7 @@ class ConsultationState(BaseState):
                             ]])
                     except Exception as e:
                         logger.warning(f"FAQ save_qa error: {e}")
-                try:
-                    await self.send(user, sanitize_markdown(response), parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception:
-                    await self.send(user, response, reply_markup=reply_markup)
+                await self.send(user, md_to_html(response), parse_mode="HTML", reply_markup=reply_markup)
             else:
                 # Показываем индикатор обработки
                 if is_refinement:
@@ -647,6 +641,32 @@ class ConsultationState(BaseState):
                     user_chat_id = self._get_chat_id(user)
                     tier, has_github, has_dt = await self._detect_tier(user_chat_id)
 
+                    # Proactive DT injection: detect personal query → fetch DT data
+                    if has_dt:
+                        from engines.shared.personal_detector import detect_personal_query, fetch_dt_context
+                        dt_paths = detect_personal_query(question)
+                        if dt_paths:
+                            dt_context = await fetch_dt_context(user_chat_id, dt_paths)
+                            if dt_context:
+                                bot_context = dt_context + "\n\n" + bot_context
+
+                    # C6: Goal → Program matching (DP.ARCH.002 § 12.8)
+                    user_goals = intern_dict.get('goals', '') or ''
+                    user_interests = intern_dict.get('interests', '') or ''
+                    if user_goals or user_interests:
+                        from config.conversion import match_goals_to_program, PROGRAM_NAMES
+                        from config.settings import PLATFORM_URLS
+                        matched_program = match_goals_to_program(user_goals, user_interests)
+                        if matched_program:
+                            pname = PROGRAM_NAMES[matched_program].get(lang, PROGRAM_NAMES[matched_program]["ru"])
+                            purl = PLATFORM_URLS[matched_program]
+                            goal_hint = {
+                                'ru': f"\n\nПЕРСОНАЛЬНАЯ РЕКОМЕНДАЦИЯ: На основе целей пользователя лучше всего подходит программа «{pname}»: {purl}. Упомяни это, если вопрос про развитие, обучение или «что дальше».",
+                                'en': f"\n\nPERSONAL RECOMMENDATION: Based on user goals, the best-fit program is «{pname}»: {purl}. Mention this if the question is about development, learning, or 'what's next'.",
+                            }.get(lang, '')
+                            if goal_hint:
+                                bot_context += goal_hint
+
                     from engines.shared import handle_question_with_tools
                     from engines.shared.consultation_tools import get_personal_claude_md
 
@@ -690,11 +710,7 @@ class ConsultationState(BaseState):
                 if qa_id:
                     reply_markup = _build_feedback_keyboard(qa_id, refinement_round, lang)
 
-                try:
-                    await self.send(user, sanitize_markdown(response), parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception as send_err:
-                    logger.warning(f"Consultation markdown error, falling back to plain text: {send_err}")
-                    await self.send(user, response, reply_markup=reply_markup)
+                await self.send(user, md_to_html(response), parse_mode="HTML", reply_markup=reply_markup)
 
         except Exception as e:
             if typing_task:
@@ -747,6 +763,9 @@ class ConsultationState(BaseState):
             from db.queries.qa import update_qa_comment
             try:
                 await update_qa_comment(qa_comment_id, text)
+                # Auto-triage (fire-and-forget)
+                from core.feedback_triage import triage_feedback
+                asyncio.create_task(triage_feedback(qa_comment_id, "comment"))
                 # Очищаем флаг
                 del ctx['qa_comment_id']
                 if chat_id:

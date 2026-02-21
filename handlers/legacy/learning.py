@@ -30,7 +30,7 @@ from integrations.telegram.keyboards import (
 )
 from clients.mcp import mcp_knowledge
 from clients.claude import ClaudeClient
-from helpers.message_split import prepare_markdown_parts
+from helpers.message_split import prepare_html_parts
 
 logger = logging.getLogger(__name__)
 
@@ -698,12 +698,9 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     )
 
     full = header + content
-    parts = prepare_markdown_parts(full)
+    parts = prepare_html_parts(full)
     for part in parts:
-        try:
-            await bot.send_message(chat_id, part, parse_mode="Markdown")
-        except Exception:
-            await bot.send_message(chat_id, part)
+        await bot.send_message(chat_id, part, parse_mode="HTML")
 
     if state:
         await state.set_state(LearningStates.waiting_for_answer)
@@ -766,12 +763,9 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     content += examples_text
 
     full = header + content
-    parts = prepare_markdown_parts(full)
+    parts = prepare_html_parts(full)
     for part in parts:
-        try:
-            await bot.send_message(chat_id, part, parse_mode="Markdown")
-        except Exception:
-            await bot.send_message(chat_id, part)
+        await bot.send_message(chat_id, part, parse_mode="HTML")
 
     if state:
         await state.set_state(LearningStates.waiting_for_work_product)

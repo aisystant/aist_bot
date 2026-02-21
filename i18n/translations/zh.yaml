@@ -600,7 +600,10 @@ marathon:
   come_back_tomorrow: "明天再来学习新主题！"
   question_processed: "✅ 回答已接受！"
   fallback_question: "你如何理解«{topic}»这个主题？请用自己的话写下来。"
-  completed_hint: "你可以在信息流模式（/feed）中继续学习，或在工坊中查看进阶课程。"
+  completed_hint: "你可以在信息流模式中继续学习，或转入完整课程。"
+  completed_next_step: "马拉松只是入门。下一步是完整的*个人发展*课程，你将掌握系统学习者的所有实践方法。"
+  btn_program_lr: "📚 «个人发展»课程"
+  btn_continue_feed: "📰 继续信息流"
   practice_ready: "实践任务已准备好。"
   question_ready: "课程问题已准备好。"
 

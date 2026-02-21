@@ -104,10 +104,18 @@ async def cmd_start(message: Message, state: FSMContext):
             return
 
         # Если SM активна — переводим в mode_select через Dispatcher
+        # WP-52: mode_select now sends tier-based ReplyKeyboard directly
         from handlers import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher and dispatcher.is_sm_active:
             await dispatcher.route_command('mode', intern)
+
+            # Sync per-user menu commands (hamburger)
+            from core.tier_ui import sync_menu_commands
+            from core.tier_detector import detect_ui_tier
+            lang = intern.get('language', 'ru') or 'ru'
+            tier = detect_ui_tier(intern)
+            await sync_menu_commands(message.bot, message.chat.id, tier, lang)
             return
 
         lang = intern.get('language', 'ru')
@@ -125,18 +133,22 @@ async def cmd_start(message: Message, state: FSMContext):
         total_active = stats.get('total', 0)
         marathon_day = get_marathon_day(intern)
 
+        # Send welcome with tier-based ReplyKeyboard (WP-52)
+        from core.tier_ui import build_reply_keyboard, sync_menu_commands
+        from core.tier_detector import detect_ui_tier
+        tier = detect_ui_tier(intern)
+        keyboard = build_reply_keyboard(tier, lang)
+
         await message.answer(
             t('welcome.returning', lang, name=intern['name']) + "\n" +
             f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
-            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}\n\n" +
-            t('commands.mode', lang) + "\n" +
-            t('commands.learn', lang) + "\n" +
-            t('commands.feed', lang) + "\n" +
-            t('commands.progress', lang) + "\n" +
-            t('commands.profile', lang) + "\n" +
-            t('commands.settings', lang),
-            parse_mode="Markdown"
+            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
         )
+
+        # Sync per-user menu commands
+        await sync_menu_commands(message.bot, message.chat.id, tier, lang)
         return
 
     # Определяем язык интерфейса пользователя
@@ -393,6 +405,11 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown",
             reply_markup=kb_learn(lang)
         )
+
+        # Send tier-based ReplyKeyboard + sync menu commands (WP-52)
+        from core.tier_ui import send_tier_keyboard
+        await send_tier_keyboard(callback.message, intern)
+
         await state.clear()
     except Exception as e:
         logger.error(f"[Onboarding] Error confirming profile for {chat_id}: {e}")

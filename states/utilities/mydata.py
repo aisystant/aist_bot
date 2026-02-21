@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ─── Tier detection helpers ────────────────────────────────────────────────
 
 TIER_NAMES = {
-    'ru': {1: 'T1 — Старт', 2: 'T2 — Обучение', 3: 'T3 — Персонализация', 4: 'T4 — Создание'},
+    'ru': {1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание'},
     'en': {1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation'},
 }
 
@@ -342,6 +342,10 @@ class MyDataState(BaseState):
 
         if data == "mydata_clear_qa":
             await self._clear_qa(user)
+            return None
+
+        if data == "mydata_reset_learning":
+            await self._reset_learning(user)
             return None
 
         if data == "mydata_disconnect_github":
@@ -790,6 +794,10 @@ class MyDataState(BaseState):
                 text=t('mydata.btn_clear_qa', lang),
                 callback_data="mydata_clear_qa",
             )],
+            [InlineKeyboardButton(
+                text=t('mydata.btn_reset_learning', lang),
+                callback_data="mydata_reset_learning",
+            )],
         ]
 
         # GitHub disconnect (if connected)
@@ -863,6 +871,22 @@ class MyDataState(BaseState):
         count = int(result.split()[-1]) if result else 0
         await self.send(
             user, f"✅ {t('mydata.qa_cleared', lang)} ({count})",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    async def _reset_learning(self, user) -> None:
+        """Сбросить весь учебный прогресс (марафон, лента, ответы). Профиль сохраняется."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        from db.queries.profile import reset_learning_data
+        result = await reset_learning_data(chat_id)
+        total = sum(result.values())
+        await self.send(
+            user, f"✅ {t('mydata.learning_reset_done', lang)} ({total})",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",

@@ -11,6 +11,25 @@ from db.connection import get_pool
 logger = get_logger(__name__)
 
 
+async def touch_last_active_date(chat_id: int):
+    """Обновить last_active_date если ещё не сегодня. 1 lightweight UPDATE.
+
+    Вызывается fire-and-forget из TracingMiddleware на КАЖДЫЙ запрос.
+    Условие WHERE гарантирует: max 1 реальный UPDATE/день на пользователя.
+    """
+    from .users import moscow_today
+
+    pool = await get_pool()
+    today = moscow_today()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            UPDATE interns
+            SET last_active_date = $2
+            WHERE chat_id = $1
+              AND (last_active_date IS NULL OR last_active_date < $2)
+        ''', chat_id, today)
+
+
 async def record_active_day(chat_id: int, activity_type: str,
                            mode: str = 'marathon', reference_id: int = None):
     """

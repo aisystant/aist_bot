@@ -27,6 +27,15 @@ from .settings import (
     GITHUB_CLIENT_SECRET,
     GITHUB_REDIRECT_URI,
 
+    # L2 Auto-Fix (WP-45)
+    GITHUB_BOT_PAT,
+    AUTOFIX_REPO,
+    AUTOFIX_BRANCH_BASE,
+    AUTOFIX_BOT_DIR,
+    AUTOFIX_MAX_FILES,
+    AUTOFIX_MAX_PROPOSALS,
+    AUTOFIX_PROTECTED,
+
     # Feature flags
     USE_STATE_MACHINE,
 
@@ -87,6 +96,9 @@ from .settings import (
     # Онтологические правила
     ONTOLOGY_RULES,
     ONTOLOGY_RULES_TOPICS,
+
+    # Markdown sanitizer
+    TELEGRAM_MARKDOWN_RULES,
 )
 
 __all__ = [
@@ -103,6 +115,13 @@ __all__ = [
     'GITHUB_CLIENT_ID',
     'GITHUB_CLIENT_SECRET',
     'GITHUB_REDIRECT_URI',
+    'GITHUB_BOT_PAT',
+    'AUTOFIX_REPO',
+    'AUTOFIX_BRANCH_BASE',
+    'AUTOFIX_BOT_DIR',
+    'AUTOFIX_MAX_FILES',
+    'AUTOFIX_MAX_PROPOSALS',
+    'AUTOFIX_PROTECTED',
     'USE_STATE_MACHINE',
     'get_logger',
     'MOSCOW_TZ',
@@ -138,4 +157,5 @@ __all__ = [
     'WORK_PRODUCT_CATEGORIES',
     'ONTOLOGY_RULES',
     'ONTOLOGY_RULES_TOPICS',
+    'TELEGRAM_MARKDOWN_RULES',
 ]

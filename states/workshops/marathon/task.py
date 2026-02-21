@@ -8,18 +8,22 @@
   - marathon_complete → common.mode_select (марафон завершён)
 """
 
+import asyncio
 from typing import Optional
 
-from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
 from i18n import t
+from helpers.markdown_to_html import md_to_html
 from db.queries import update_intern, save_answer, moscow_today
 from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
+from config import CLAUDE_MODEL_HAIKU
 from clients import claude
 from config import get_logger, DAILY_TOPICS_LIMIT
+from config.settings import EVALUATION_ENABLED, WP_VALIDATION_ENABLED
 
 logger = get_logger(__name__)
 
@@ -130,9 +134,11 @@ class MarathonTaskState(BaseState):
             try:
                 intern = self._user_to_intern_dict(user)
                 logger.info(f"Generating practice on-the-fly for topic {topic_index}, user {chat_id}, lang {lang}")
+                # Rule 10.20: Haiku for on-the-fly (3-5s vs 14s Sonnet)
                 practice_data = await claude.generate_practice_intro(
                     topic=topic,
-                    intern=intern
+                    intern=intern,
+                    model=CLAUDE_MODEL_HAIKU,
                 )
                 # Сохраняем в БД для повторного использования
                 await save_marathon_content(chat_id, topic_index, practice_content=practice_data)
@@ -200,12 +206,14 @@ class MarathonTaskState(BaseState):
             one_time_keyboard=True
         )
 
-        try:
-            await self.send(user, message, parse_mode="Markdown", reply_markup=keyboard)
-        except Exception:
-            logger.warning(f"Markdown parse failed for task (user {chat_id}), sending without formatting")
-            await self.send(user, message, reply_markup=keyboard)
+        await self.send(user, md_to_html(message), parse_mode="HTML", reply_markup=keyboard)
         logger.info(f"Practice task sent to user {chat_id}, lang {lang}")
+
+        # Rule 10.19: Look-ahead — pre-gen next topic in background
+        intern_dict = self._user_to_intern_dict(user)
+        asyncio.create_task(
+            _pregen_next_topic_bg(chat_id, intern_dict, topic_index)
+        )
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """
@@ -241,9 +249,30 @@ class MarathonTaskState(BaseState):
             )
             return None
 
-        # Сохраняем рабочий продукт
+        # ─── Валидация формулировки РП (DS-evaluator-agent) ───
         topic_index = self._get_current_topic_index(user)
         bloom_level = self._get_bloom_level(user)
+
+        if WP_VALIDATION_ENABLED and lang == 'ru':
+            try:
+                from core.wp_validator import validate_formulation, get_wp_hint
+                validation = await validate_formulation(text)
+                if not validation["valid"]:
+                    hint = get_wp_hint(
+                        bloom_level=bloom_level,
+                        text=text,
+                        suggestion=validation.get("suggestion", ""),
+                        lang=lang,
+                    )
+                    try:
+                        await self.send(user, hint, parse_mode="Markdown")
+                    except Exception:
+                        await self.send(user, hint)
+                    # не блокируем — принимаем ответ, hint как совет
+            except Exception as e:
+                logger.warning(f"WP validation error for user {chat_id}: {e}")
+
+        # Сохраняем рабочий продукт
         if chat_id:
             await save_answer(
                 chat_id=chat_id,
@@ -252,6 +281,29 @@ class MarathonTaskState(BaseState):
                 answer_type="work_product",
                 complexity_level=bloom_level
             )
+
+        # ─── Оценка рабочего продукта + фиксация (DS-evaluator-agent) ───
+        if EVALUATION_ENABLED:
+            topic = get_topic(topic_index)
+            if topic:
+                try:
+                    from core.evaluator import evaluate_and_fixate
+                    intern = self._user_to_intern_dict(user)
+                    evaluation = await evaluate_and_fixate(
+                        answer_text=text,
+                        topic=topic,
+                        bloom_level=bloom_level,
+                        intern=intern,
+                        telegram_user_id=chat_id,
+                    )
+                    if evaluation and evaluation.get("feedback"):
+                        await self.send(
+                            user,
+                            evaluation["feedback"],
+                            parse_mode="Markdown",
+                        )
+                except Exception as e:
+                    logger.warning(f"Evaluation failed for user {chat_id}: {e}")
 
         # Обновляем прогресс
         completed = self._get_completed_topics(user) + [topic_index]
@@ -272,18 +324,68 @@ class MarathonTaskState(BaseState):
         marathon_completed = len(completed) >= total_topics or len(completed) >= 28
 
         if marathon_completed:
-            # Марафон полностью завершён
+            # Марафон полностью завершён — C1 конверсия в программы
+            from config.settings import PLATFORM_URLS
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_program_lr', lang),
+                    url=PLATFORM_URLS['lr'],
+                )],
+                [InlineKeyboardButton(
+                    text=t('marathon.btn_continue_feed', lang),
+                    callback_data="mode_feed",
+                )],
+            ])
+
             await self.send(
                 user,
                 f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
                 f"🎉 *{t('marathon.completed', lang)}*\n\n"
+                f"{t('marathon.completed_next_step', lang)}\n\n"
                 f"_{t('marathon.completed_hint', lang)}_",
                 parse_mode="Markdown",
-                reply_markup=ReplyKeyboardRemove()
+                reply_markup=keyboard,
             )
             return "marathon_complete"
 
         # День завершён (практика = последняя тема дня)
+        # Проверяем: была ли это тема с прошлого дня (catch-up)?
+        topic = get_topic(topic_index)
+        marathon_day = self._get_marathon_day(user)
+        topic_day = topic.get('day', marathon_day) if topic else marathon_day
+        is_catchup = topic_day < marathon_day
+
+        if is_catchup:
+            # Проверяем: есть ли темы на сегодня (marathon_day)?
+            from core.topics import TOPICS
+            today_uncompleted = [
+                i for i, t_topic in enumerate(TOPICS)
+                if t_topic.get('day') == marathon_day and i not in set(completed)
+            ]
+
+            if today_uncompleted and topics_today < 4:
+                # Предлагаем сегодняшний урок
+                catchup_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"📚 {t('reminders.marathon_catchup_btn', lang)}",
+                        callback_data="marathon_catchup_today"
+                    )],
+                    [InlineKeyboardButton(
+                        text=f"✋ {t('reminders.marathon_catchup_skip', lang)}",
+                        callback_data="marathon_catchup_no"
+                    )],
+                ])
+                await self.send(
+                    user,
+                    f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
+                    f"✅ {t('marathon.day_complete', lang)}\n\n"
+                    f"{t('reminders.marathon_catchup_offer', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=catchup_keyboard
+                )
+                return "submitted"  # → common.mode_select (buttons stay)
+
         await self.send(
             user,
             f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
@@ -300,3 +402,12 @@ class MarathonTaskState(BaseState):
             "day_completed": True,
             "topics_completed": len(self._get_completed_topics(user))
         }
+
+
+async def _pregen_next_topic_bg(chat_id: int, intern: dict, current_topic_index: int):
+    """Background task: look-ahead pre-gen для следующей темы (Rule 10.19)."""
+    try:
+        from core.scheduler import pregen_next_for_user
+        await pregen_next_for_user(chat_id, intern, current_topic_index)
+    except Exception as e:
+        logger.warning(f"[LookAhead] Background pre-gen failed for {chat_id}: {e}")

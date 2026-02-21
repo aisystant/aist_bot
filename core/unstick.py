@@ -109,7 +109,7 @@ async def recover_user(chat_id: int, reason: str):
         reason: Причина восстановления (для лога)
     """
     from aiogram import Bot
-    from db.queries.users import get_intern, update_current_state
+    from db.queries.users import get_intern, update_intern
     from i18n import t
 
     intern = await get_intern(chat_id)
@@ -124,7 +124,7 @@ async def recover_user(chat_id: int, reason: str):
         return
 
     # Reset state в БД
-    await update_current_state(chat_id, RECOVERY_TARGET_STATE)
+    await update_intern(chat_id, current_state=RECOVERY_TARGET_STATE)
 
     # Отправить извинение
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
