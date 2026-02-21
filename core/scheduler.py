@@ -99,6 +99,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='*/5')  # Discourse: scheduled posts
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='*/15')  # Discourse: comment polling
+    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=3, minute=0)  # Publisher: daily scan 06:00 MSK = 03:00 UTC
     _scheduler.start()
 
     logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse)")
@@ -1349,19 +1350,229 @@ async def _discourse_scheduled_publish():
                     discourse_post_id=post_id,
                     title=pub["title"],
                     category_id=pub["category_id"],
+                    source_file=pub.get("source_file"),
                 )
+
+                # Обновить frontmatter (status → published) если есть source_file
+                source_file = pub.get("source_file")
+                if source_file:
+                    try:
+                        from clients.github_content import github_content, update_frontmatter_field
+                        if github_content:
+                            file_result = await github_content.read_file(source_file)
+                            if file_result:
+                                content, sha = file_result
+                                new_content = update_frontmatter_field(content, "status", "published")
+                                await github_content.update_file(
+                                    source_file, new_content, sha,
+                                    f"Published to club: {pub['title']}"
+                                )
+                    except Exception as fm_err:
+                        logger.warning(f"[Publisher] Frontmatter update failed for {source_file}: {fm_err}")
 
                 # Уведомить пользователя
                 slug = result.get("topic_slug", "")
                 url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+
+                from db.queries.discourse import get_scheduled_count
+                queue_count = await get_scheduled_count(pub["chat_id"])
+
                 await bot.send_message(
                     pub["chat_id"],
-                    f"Запланированный пост опубликован!\n\n{url}",
+                    f"Опубликовано в клуб: «{pub['title']}»\n"
+                    f"{url}\n"
+                    f"В очереди: {queue_count}",
                 )
-                logger.info(f"[Discourse] Scheduled post published: topic_id={topic_id}")
+                logger.info(f"[Publisher] Scheduled post published: topic_id={topic_id}, queue={queue_count}")
             except Exception as e:
                 logger.error(f"[Discourse] Scheduled publish error for pub_id={pub['id']}: {e}")
                 await mark_publication_failed(pub["id"])
+    finally:
+        await bot.session.close()
+
+
+async def _smart_publisher_scan():
+    """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (06:00 МСК).
+
+    Цикл:
+    1. Получить все discourse accounts
+    2. Для каждого: scan GitHub index → найти ready+club посты
+    3. Reconciliation: сверить с published_posts и scheduled_publications
+    4. Auto-schedule новые посты на ближайшие свободные слоты
+    5. Queue Watch: если pending < min_queue → уведомить
+    """
+    from clients.github_content import github_content, parse_frontmatter
+    if not github_content:
+        return
+
+    from db.queries.discourse import (
+        get_all_discourse_accounts,
+        get_all_published_source_files,
+        get_all_published_titles_lower,
+        get_all_scheduled_source_files,
+        get_scheduled_count,
+        schedule_publication,
+    )
+    from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME, PUBLISHER_MIN_QUEUE
+
+    accounts = await get_all_discourse_accounts()
+    if not accounts:
+        return
+
+    # Scan index: получить все посты за текущий и прошлый год
+    from datetime import datetime
+    current_year = datetime.now().year
+    all_posts = []
+
+    for year in [current_year, current_year - 1]:
+        files = await github_content.list_files(f"docs/{year}")
+        for f in files:
+            if f["name"] == "README.md":
+                continue
+            result = await github_content.read_file(f["path"])
+            if not result:
+                continue
+            content, sha = result
+            fm = parse_frontmatter(content)
+            if fm.get("type") != "post":
+                continue
+            all_posts.append({
+                "path": f["path"],
+                "sha": sha,
+                "title": fm.get("title", f["name"]),
+                "status": fm.get("status", "draft"),
+                "target": fm.get("target", ""),
+                "tags": fm.get("tags", []),
+                "created": fm.get("created", ""),
+                "audience": fm.get("audience", ""),
+                "content": content,
+            })
+
+    logger.info(f"[Publisher] Scanned {len(all_posts)} posts from index")
+
+    # Для каждого пользователя с привязанным Discourse
+    bot = Bot(token=_bot_token)
+    try:
+        for account in accounts:
+            chat_id = account["chat_id"]
+            category_id = account.get("blog_category_id")
+            if not category_id:
+                continue
+
+            # Reconciliation
+            published_files = await get_all_published_source_files(chat_id)
+            published_titles = await get_all_published_titles_lower(chat_id)
+            scheduled_titles = await get_all_scheduled_source_files(chat_id)
+
+            # Найти ready+club посты, которые ещё не опубликованы и не запланированы
+            candidates = []
+            for post in all_posts:
+                if post["status"] != "ready":
+                    continue
+                if post["target"] != "club":
+                    continue
+                title_lower = post["title"].lower()
+                if post["path"] in published_files:
+                    continue
+                if title_lower in published_titles:
+                    continue
+                if title_lower in scheduled_titles:
+                    continue
+                candidates.append(post)
+
+            if not candidates:
+                # Проверить queue watch
+                queue_count = await get_scheduled_count(chat_id)
+                if queue_count < PUBLISHER_MIN_QUEUE:
+                    # Найти draft-посты с target=club как подсказку
+                    drafts = [p["title"] for p in all_posts
+                              if p["status"] == "draft" and p["target"] == "club"]
+                    draft_hint = ""
+                    if drafts:
+                        draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
+                    await bot.send_message(
+                        chat_id,
+                        f"В очереди публикаций: {queue_count} (мин. {PUBLISHER_MIN_QUEUE}).\n"
+                        f"Нужны новые посты со status: ready и target: club.{draft_hint}",
+                    )
+                continue
+
+            # Auto-schedule: распределить по ближайшим слотам
+            from datetime import timedelta
+            import pytz
+
+            msk = pytz.timezone("Europe/Moscow")
+            now_msk = datetime.now(msk)
+
+            # Парсинг каденции
+            day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+            pub_days = [day_map[d.strip()] for d in PUBLISHER_DAYS.split(",") if d.strip() in day_map]
+            if not pub_days:
+                pub_days = [0, 2, 4]  # Default: Пн/Ср/Пт
+
+            hour, minute = 10, 0
+            try:
+                parts = PUBLISHER_TIME.split(":")
+                hour, minute = int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
+                pass
+
+            # Найти ближайшие свободные слоты
+            scheduled_count = await get_scheduled_count(chat_id)
+            slots = []
+            check_date = now_msk.date() + timedelta(days=1)  # Начинаем с завтра
+            max_check = 60  # Не дальше 60 дней
+
+            for _ in range(max_check):
+                if check_date.weekday() in pub_days:
+                    slot_time = msk.localize(datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute)))
+                    slots.append(slot_time)
+                    if len(slots) >= len(candidates):
+                        break
+                check_date += timedelta(days=1)
+
+            # Запланировать
+            from clients.github_content import strip_frontmatter
+            import json
+
+            scheduled_posts = []
+            for post, slot in zip(candidates, slots):
+                raw = strip_frontmatter(post["content"])
+                tags_json = json.dumps(post["tags"]) if isinstance(post["tags"], list) else "[]"
+                await schedule_publication(
+                    chat_id=chat_id,
+                    title=post["title"],
+                    raw=raw,
+                    category_id=category_id,
+                    schedule_time=slot,
+                    tags=tags_json,
+                    source_file=post["path"],
+                )
+                scheduled_posts.append((post["title"], slot))
+                logger.info(f"[Publisher] Auto-scheduled: {post['title']!r} → {slot}")
+
+            # Уведомить
+            if scheduled_posts:
+                lines = [f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}" for title, slot in scheduled_posts]
+                await bot.send_message(
+                    chat_id,
+                    f"Добавлено в график публикаций ({len(scheduled_posts)}):\n" + "\n".join(lines),
+                )
+
+            # Queue Watch
+            new_queue = await get_scheduled_count(chat_id)
+            if new_queue < PUBLISHER_MIN_QUEUE:
+                drafts = [p["title"] for p in all_posts
+                          if p["status"] == "draft" and p["target"] == "club"]
+                draft_hint = ""
+                if drafts:
+                    draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
+                await bot.send_message(
+                    chat_id,
+                    f"В очереди: {new_queue} (мин. {PUBLISHER_MIN_QUEUE}). Нужны новые посты!{draft_hint}",
+                )
+    except Exception as e:
+        logger.error(f"[Publisher] Smart scan error: {e}", exc_info=True)
     finally:
         await bot.session.close()
 

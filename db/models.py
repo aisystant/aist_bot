@@ -795,6 +795,7 @@ async def create_tables(pool: asyncpg.Pool):
                 schedule_time TIMESTAMP NOT NULL,
                 status TEXT DEFAULT 'pending',
                 discourse_topic_id INTEGER,
+                source_file TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )
         ''')
@@ -804,5 +805,13 @@ async def create_tables(pool: asyncpg.Pool):
             ON scheduled_publications (status, schedule_time)
             WHERE status = 'pending'
         ''')
+
+        # Migration: source_file for smart publisher (WP-53 Phase 3)
+        try:
+            await conn.execute(
+                'ALTER TABLE scheduled_publications ADD COLUMN IF NOT EXISTS source_file TEXT'
+            )
+        except Exception:
+            pass
 
     logger.info("✅ Все таблицы созданы/обновлены")

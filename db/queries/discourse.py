@@ -134,16 +134,17 @@ async def schedule_publication(
     category_id: int,
     schedule_time: datetime,
     tags: str = "[]",
+    source_file: str | None = None,
 ) -> int:
     """Запланировать публикацию."""
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        INSERT INTO scheduled_publications (chat_id, title, raw, category_id, schedule_time, tags)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO scheduled_publications (chat_id, title, raw, category_id, schedule_time, tags, source_file)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
         """,
-        chat_id, title, raw, category_id, schedule_time, tags,
+        chat_id, title, raw, category_id, schedule_time, tags, source_file,
     )
     return row["id"]
 
@@ -182,4 +183,92 @@ async def mark_publication_failed(pub_id: int) -> None:
     await pool.execute(
         "UPDATE scheduled_publications SET status = 'failed' WHERE id = $1",
         pub_id,
+    )
+
+
+# ── Smart Publisher (R21, WP-53 Phase 3) ──────────────────────
+
+
+async def get_all_published_source_files(chat_id: int) -> set[str]:
+    """Множество source_file опубликованных постов (для reconciliation)."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT source_file FROM published_posts WHERE chat_id = $1 AND source_file IS NOT NULL",
+        chat_id,
+    )
+    return {r["source_file"] for r in rows}
+
+
+async def get_all_published_titles_lower(chat_id: int) -> set[str]:
+    """Множество title (lowercase) опубликованных постов (для reconciliation по title)."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT lower(title) as t FROM published_posts WHERE chat_id = $1",
+        chat_id,
+    )
+    return {r["t"] for r in rows}
+
+
+async def get_all_scheduled_source_files(chat_id: int) -> set[str]:
+    """Множество source_file запланированных постов."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT sp.title FROM scheduled_publications sp
+        WHERE sp.chat_id = $1 AND sp.status = 'pending'
+        """,
+        chat_id,
+    )
+    # scheduled_publications не имеет source_file, сравниваем по title
+    return {r["title"].lower() for r in rows}
+
+
+async def get_scheduled_count(chat_id: int) -> int:
+    """Количество постов в очереди (pending)."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT COUNT(*) as cnt FROM scheduled_publications WHERE chat_id = $1 AND status = 'pending'",
+        chat_id,
+    )
+    return row["cnt"] if row else 0
+
+
+async def get_upcoming_schedule(chat_id: int, limit: int = 10) -> list[dict]:
+    """Ближайшие запланированные публикации для отображения."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT id, title, schedule_time, status
+        FROM scheduled_publications
+        WHERE chat_id = $1 AND status = 'pending'
+        ORDER BY schedule_time
+        LIMIT $2
+        """,
+        chat_id, limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_all_discourse_accounts() -> list[dict]:
+    """Все привязанные аккаунты Discourse (для scheduler scan)."""
+    pool = await get_pool()
+    rows = await pool.fetch("SELECT * FROM discourse_accounts")
+    return [dict(r) for r in rows]
+
+
+async def cancel_scheduled_publication(pub_id: int) -> None:
+    """Отменить запланированную публикацию."""
+    pool = await get_pool()
+    await pool.execute(
+        "DELETE FROM scheduled_publications WHERE id = $1 AND status = 'pending'",
+        pub_id,
+    )
+
+
+async def reschedule_publication(pub_id: int, new_time: datetime) -> None:
+    """Перенести публикацию на новое время."""
+    pool = await get_pool()
+    await pool.execute(
+        "UPDATE scheduled_publications SET schedule_time = $2 WHERE id = $1 AND status = 'pending'",
+        pub_id, new_time,
     )

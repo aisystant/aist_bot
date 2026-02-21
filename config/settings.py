@@ -358,6 +358,14 @@ DISCOURSE_API_URL = os.getenv("DISCOURSE_API_URL", "")
 DISCOURSE_API_KEY = os.getenv("DISCOURSE_API_KEY", "")
 DISCOURSE_BLOGS_CATEGORY_ID = int(os.getenv("DISCOURSE_BLOGS_CATEGORY_ID", "36"))
 
+# ============= PUBLISHER (R21, WP-53 Phase 3) =============
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_KNOWLEDGE_REPO = os.getenv("GITHUB_KNOWLEDGE_REPO", "")  # "owner/repo"
+PUBLISHER_DAYS = os.getenv("PUBLISHER_DAYS", "mon,wed,fri")  # Дни публикации
+PUBLISHER_TIME = os.getenv("PUBLISHER_TIME", "10:00")  # Время публикации (МСК)
+PUBLISHER_MIN_QUEUE = int(os.getenv("PUBLISHER_MIN_QUEUE", "2"))  # Мин. очередь
+
 # ============= EVALUATOR (DS-evaluator-agent) =============
 
 # Включить проверку ответов (Claude Haiku ~1-2 сек на оценку)
