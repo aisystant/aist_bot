@@ -3,8 +3,11 @@
 # =============================================================================
 
 welcome:
-  greeting: "你好！"
-  intro: "我将帮助你成为一个系统化的学习者。"
+  greeting: "你好！👋"
+  intro: "我是系统化学习机器人。14天内帮助你掌握自学技能。"
+  intro_marathon: "🏃 *马拉松（14天）*\n• 每天2个主题：课程+练习\n• 错过了？可以补课，但只能补1天\n• 系统性测试将确定你的风格——机器人会调整内容\n• 这是第1级——基础"
+  intro_tiers: "📈 *接下来呢？*\n机器人是智能工作环境（IWE）的一部分，就像IDE，但用于思维发展。马拉松之后将解锁：\n• 个性化信息流和AI顾问\n• 数字孪生——机器人了解你的背景\n• 与systemsworld.club社区的联系\n• 知识创造和AI代理工作流"
+  intro_start: "开始吧！设置只需1分钟。"
   ask_name: "你叫什么名字？"
   returning: "欢迎回来，{name}！"
   current_mode: "模式"
@@ -14,6 +17,7 @@ welcome:
   marathon_days_info: "{days}天 — 每天2个主题（理论+实践）"
   marathon_duration_info: "每个主题{minutes}分钟"
   marathon_reminders_info: "每日提醒时间：{time}"
+  marathon_personalize_hint: "💡 _想要个性化课程？通过/profile告诉我关于你自己——内容将为你量身定制。_"
 
 commands:
   learn: "/learn — 获取主题"

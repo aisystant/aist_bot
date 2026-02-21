@@ -3,8 +3,11 @@
 # =============================================================================
 
 welcome:
-  greeting: "Bonjour !"
-  intro: "Je vais t'aider à devenir un apprenant systématique."
+  greeting: "Bonjour ! 👋"
+  intro: "Je suis un bot d'apprentissage systématique. Je t'aiderai à maîtriser les compétences d'auto-apprentissage en 14 jours."
+  intro_marathon: "🏃 *Marathon (14 jours)*\n• 2 sujets par jour : leçon + pratique\n• Manqué un jour ? Tu peux rattraper, mais seulement 1 jour\n• Le test de systématicité déterminera ton style — le bot adapte le contenu\n• C'est le Niveau 1 — les fondations"
+  intro_tiers: "📈 *Et après ?*\nLe bot fait partie de l'Environnement de Travail Intelligent (IWE), comme un IDE, mais pour développer la pensée. Après le marathon, tu débloques :\n• Flux personnalisé et consultant IA\n• Jumeau Numérique — le bot apprend ton contexte\n• Connexion avec le club systemsworld.club\n• Création de connaissances et travail avec des agents IA"
+  intro_start: "Commençons ! La configuration prend 1 minute."
   ask_name: "Comment t'appelles-tu ?"
   returning: "Content de te revoir, {name} !"
   current_mode: "Mode"
@@ -14,6 +17,7 @@ welcome:
   marathon_days_info: "{days} jours — 2 sujets par jour (théorie + pratique)"
   marathon_duration_info: "{minutes} minutes par sujet"
   marathon_reminders_info: "Rappels quotidiens à {time}"
+  marathon_personalize_hint: "💡 _Tu veux des leçons personnalisées ? Parle-moi de toi via /profile — et le contenu sera adapté pour toi._"
 
 commands:
   learn: "/learn — obtenir un sujet"

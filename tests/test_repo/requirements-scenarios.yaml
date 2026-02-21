@@ -76,23 +76,7 @@ class_1_registration:
           pattern: "update_intern|intern.*name"
           description: "Сохранение имени в БД"
 
-    - id: "1.4"
-      name: "Ввод занятия"
-      priority: normal
-      checks:
-        - type: state
-          file: "bot.py"
-          name: "waiting_for_occupation"
-          description: "Состояние ожидания занятия"
-
-    - id: "1.5"
-      name: "Ввод интересов"
-      priority: normal
-      checks:
-        - type: state
-          file: "bot.py"
-          name: "waiting_for_interests"
-          description: "Состояние ожидания интересов"
+    # 1.4, 1.5 removed: occupation/interests moved to /profile (slim onboarding)
 
     - id: "1.6"
       name: "Выбор режима Марафон"
