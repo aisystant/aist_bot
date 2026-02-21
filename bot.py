@@ -190,6 +190,7 @@ async def main():
         BotCommand(command="feedback", description="Обратная связь"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="club", description="Публикация в клуб"),
         BotCommand(command="language", description="🌐 Language / Сменить язык"),
     ])
 
@@ -205,6 +206,7 @@ async def main():
         BotCommand(command="feedback", description="Feedback"),
         BotCommand(command="help", description="Help"),
         BotCommand(command="settings", description="Settings"),
+        BotCommand(command="club", description="Publish to club"),
         BotCommand(command="language", description="🌐 Change language"),
     ], language_code="en")
 
@@ -220,6 +222,7 @@ async def main():
         BotCommand(command="feedback", description="Comentarios"),
         BotCommand(command="help", description="Ayuda"),
         BotCommand(command="settings", description="Ajustes"),
+        BotCommand(command="club", description="Publicar en el club"),
         BotCommand(command="language", description="🌐 Cambiar idioma"),
     ], language_code="es")
 
@@ -235,6 +238,7 @@ async def main():
         BotCommand(command="feedback", description="Retour"),
         BotCommand(command="help", description="Aide"),
         BotCommand(command="settings", description="Paramètres"),
+        BotCommand(command="club", description="Publier dans le club"),
         BotCommand(command="language", description="🌐 Changer la langue"),
     ], language_code="fr")
 
@@ -250,6 +254,7 @@ async def main():
         BotCommand(command="feedback", description="反馈"),
         BotCommand(command="help", description="帮助"),
         BotCommand(command="settings", description="设置"),
+        BotCommand(command="club", description="发布到俱乐部"),
         BotCommand(command="language", description="🌐 更改语言"),
     ], language_code="zh")
 
