@@ -461,6 +461,47 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # АВТО-ТРИАЖ FEEDBACK (feedback_triage)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS feedback_triage (
+                id SERIAL PRIMARY KEY,
+                qa_id INTEGER NOT NULL REFERENCES qa_history(id),
+                chat_id BIGINT NOT NULL,
+                question TEXT NOT NULL,
+                answer_snippet TEXT,
+
+                -- LLM-классификация
+                category TEXT NOT NULL DEFAULT 'unknown',
+                severity TEXT NOT NULL DEFAULT 'low',
+                cluster TEXT DEFAULT NULL,
+                reason TEXT DEFAULT NULL,
+
+                -- Метаданные
+                has_comment BOOLEAN DEFAULT FALSE,
+                user_comment TEXT DEFAULT NULL,
+                status TEXT DEFAULT 'new',
+                created_at TIMESTAMP DEFAULT NOW(),
+                notified_at TIMESTAMP DEFAULT NULL
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_feedback_triage_severity_status
+            ON feedback_triage(severity, status)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_feedback_triage_category
+            ON feedback_triage(category)
+        ''')
+
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_triage_qa_id
+            ON feedback_triage(qa_id)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # ИСПОЛЬЗОВАНИЕ СЕРВИСОВ (аналитика)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

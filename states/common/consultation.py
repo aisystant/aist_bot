@@ -763,6 +763,9 @@ class ConsultationState(BaseState):
             from db.queries.qa import update_qa_comment
             try:
                 await update_qa_comment(qa_comment_id, text)
+                # Auto-triage (fire-and-forget)
+                from core.feedback_triage import triage_feedback
+                asyncio.create_task(triage_feedback(qa_comment_id, "comment"))
                 # Очищаем флаг
                 del ctx['qa_comment_id']
                 if chat_id:

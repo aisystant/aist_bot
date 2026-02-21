@@ -4,6 +4,7 @@
 Роутят callback queries в Dispatcher / State Machine.
 """
 
+import asyncio
 import logging
 
 from aiogram import Router, F
@@ -598,6 +599,10 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
 
             # Записываем что ответ не помог
             await update_qa_helpful(qa_id, False)
+
+            # Auto-triage (fire-and-forget)
+            from core.feedback_triage import triage_feedback
+            asyncio.create_task(triage_feedback(qa_id, "not_helpful"))
 
             # Загружаем оригинальный Q&A
             qa = await get_qa_by_id(qa_id)
