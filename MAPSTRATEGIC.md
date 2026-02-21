@@ -210,6 +210,7 @@ updated: 2026-02-09
 | Питч для инвесторов (развитие бота) | заметка 14 фев 09:22 | Phase 3 |
 | **MCP-сервер Railway** — обёртка Railway API для логов, деплоев, метрик. Claude Code получает логи как tool (Context Engineering). Паттерн переносим на любой PaaS → генеративность для шаблона экзокортекса (T3). ArchGate: выигрывает по эволюционируемости, масштабируемости, генеративности, современности vs прямой CLI | сессия 16 фев, ArchGate-оценка | Phase 2 |
 | **Publisher: OAuth вместо PAT** — GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var. Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient. АрхГейт: 8.8/10 (обучаемость 9, генеративность 8 — шаблонные пользователи не трогают env vars). | сессия 21 фев | Phase 2 |
+| **Тест владения Принципами (Principles Proficiency Test)** — адаптивный бот-тест по аналогии с IELTS placement test. Тестирует каждый ZP-принцип независимо (3-5 вопросов), определяет глубину 0-5 (Bloom), выдаёт векторный профиль `{ZP.1:3, ZP.2:1, ...}`. Источник: EDU.WP.005 (Diagnostic Assessment), рубрика: can-do из EDU.MAP.001. Формат: `/test` → адаптивный диалог → результат = профиль + bottleneck + рекомендация стратегии. Данные: в digital-twin (профиль → EDU.WP.004 Learning Progression Map). | сессия 21 фев (WP-50) | Phase 2-3 |
 
 ---
 
@@ -228,4 +229,4 @@ updated: 2026-02-09
 
 ---
 
-*Последнее обновление: 2026-02-21*
+*Последнее обновление: 2026-02-21 (+ Principles Proficiency Test)*
