@@ -103,9 +103,11 @@ async def cmd_profile(message: Message):
     bloom_level = intern['bloom_level']
     bloom_emojis = {1: '🔵', 2: '🟡', 3: '🔴'}
 
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else t('profile.not_specified', lang)
-    motivation_short = intern['motivation'][:100] + '...' if len(intern.get('motivation', '')) > 100 else intern.get('motivation', '')
-    goals_short = intern['goals'][:100] + '...' if len(intern['goals']) > 100 else intern['goals']
+    interests_str = ', '.join(intern['interests']) if intern.get('interests') else t('profile.not_specified', lang)
+    motivation = intern.get('motivation') or ''
+    motivation_short = motivation[:100] + '...' if len(motivation) > 100 else motivation
+    goals = intern.get('goals') or ''
+    goals_short = goals[:100] + '...' if len(goals) > 100 else goals
 
     marathon_day = get_marathon_day(intern)
     start_date = intern.get('marathon_start_date')

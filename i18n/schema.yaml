@@ -22,13 +22,25 @@
 # -----------------------------------------------------------------------------
 welcome:
   greeting:
-    ru: "Привет!"
-    en: "Hello!"
+    ru: "Привет! 👋"
+    en: "Hello! 👋"
     description: "Первое сообщение при входе в бота"
 
   intro:
-    ru: "Я помогу тебе стать систематическим учеником."
-    en: "I'll help you become a systematic learner."
+    ru: "Я — бот для систематического обучения. Помогу освоить навыки самообучения за 14 дней."
+    en: "I'm a systematic learning bot. I'll help you master self-learning skills in 14 days."
+
+  intro_marathon:
+    ru: "🏃 *Марафон (14 дней)*\n• 2 темы в день: урок + практика\n• Пропустил? Можно догнать, но только 1 день\n• Это первый уровень — фундамент"
+    en: "🏃 *Marathon (14 days)*\n• 2 topics per day: theory + practice\n• Missed a day? You can catch up, but only 1 day\n• This is Level 1 — the foundation"
+
+  intro_tiers:
+    ru: "📈 *Что дальше?*\nПосле марафона откроются:\n• Персональная лента и консультации\n• Цифровой двойник — бот учитывает твой контекст\n• Связь с GitHub и клубом systemsworld.club"
+    en: "📈 *What's next?*\nAfter the marathon you'll unlock:\n• Personalized feed and consultations\n• Digital Twin — the bot learns your context\n• Connection with GitHub and systemsworld.club"
+
+  intro_start:
+    ru: "Давай начнём! Настройка займёт 1 минуту."
+    en: "Let's begin! Setup takes 1 minute."
 
   marathon_welcome:
     ru: "Добро пожаловать в марафон, {name}!"
@@ -49,6 +61,10 @@ welcome:
   marathon_reminders_info:
     ru: "Напоминания каждый день в {time}"
     en: "Daily reminders at {time}"
+
+  marathon_personalize_hint:
+    ru: "💡 _Хочешь персональные уроки? Расскажи о себе через /profile — и контент будет адаптирован под тебя._"
+    en: "💡 _Want personalized lessons? Tell me about yourself via /profile — and content will be tailored to you._"
 
   ask_name:
     ru: "Как тебя зовут?"

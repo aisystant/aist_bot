@@ -31,16 +31,12 @@ onboarding_router = Router(name="onboarding")
 # ============= СОСТОЯНИЯ FSM =============
 
 class OnboardingStates(StatesGroup):
-    """Онбординг для марафона"""
+    """Онбординг для марафона (slim: имя → длительность → расписание → старт)"""
     choosing_language = State()          # 0. Язык (для неподдерживаемых языков)
     waiting_for_name = State()           # 1. Имя
-    waiting_for_occupation = State()     # 2. Чем занимаешься
-    waiting_for_interests = State()      # 3. Интересы/хобби
-    waiting_for_motivation = State()     # 4. Что важно в жизни
-    waiting_for_goals = State()          # 5. Что хочешь изменить
-    waiting_for_study_duration = State() # 6. Время на тему
-    waiting_for_schedule = State()       # 7. Время напоминания
-    waiting_for_start_date = State()     # 8. Дата старта марафона
+    waiting_for_study_duration = State() # 2. Время на тему
+    waiting_for_schedule = State()       # 3. Время напоминания
+    waiting_for_start_date = State()     # 4. Дата старта марафона
     confirming_profile = State()
 
 
@@ -158,6 +154,9 @@ async def cmd_start(message: Message, state: FSMContext):
         welcome_text = (
             t('welcome.greeting', lang) + "\n" +
             t('welcome.intro', lang) + "\n\n" +
+            t('welcome.intro_marathon', lang) + "\n\n" +
+            t('welcome.intro_tiers', lang) + "\n\n" +
+            t('welcome.intro_start', lang) + "\n\n" +
             t('welcome.ask_name', lang)
         )
     else:
@@ -165,6 +164,8 @@ async def cmd_start(message: Message, state: FSMContext):
         welcome_text = (
             t('welcome.greeting', 'en') + "\n" +
             t('welcome.intro', 'en') + "\n\n" +
+            t('welcome.intro_marathon', 'en') + "\n\n" +
+            t('welcome.intro_tiers', 'en') + "\n\n" +
             "🌐 *Choose your language:*"
         )
         await message.answer(welcome_text, reply_markup=kb_language_select(), parse_mode="Markdown")
@@ -174,7 +175,7 @@ async def cmd_start(message: Message, state: FSMContext):
     # Сохраняем определённый язык для дальнейшего использования
     await state.update_data(lang=lang)
 
-    await message.answer(welcome_text)
+    await message.answer(welcome_text, parse_mode="Markdown")
     await state.set_state(OnboardingStates.waiting_for_name)
 
 
@@ -192,7 +193,11 @@ async def on_choose_language(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         t('welcome.greeting', lang_code) + "\n" +
         t('welcome.intro', lang_code) + "\n\n" +
-        t('welcome.ask_name', lang_code)
+        t('welcome.intro_marathon', lang_code) + "\n\n" +
+        t('welcome.intro_tiers', lang_code) + "\n\n" +
+        t('welcome.intro_start', lang_code) + "\n\n" +
+        t('welcome.ask_name', lang_code),
+        parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_name)
 
@@ -202,55 +207,10 @@ async def on_name(message: Message, state: FSMContext):
     lang = await get_lang(state)
     name = message.text.strip()
     await update_intern(message.chat.id, name=name, language=lang)
+    # Slim onboarding: имя → сразу duration (occupation/interests/values/goals → /profile позже)
     await message.answer(
         t('onboarding.nice_to_meet', lang, name=name) + "\n\n" +
-        t('onboarding.ask_occupation', lang) + "\n\n" +
-        t('onboarding.ask_occupation_hint', lang),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OnboardingStates.waiting_for_occupation)
-
-@onboarding_router.message(OnboardingStates.waiting_for_occupation)
-async def on_occupation(message: Message, state: FSMContext):
-    lang = await get_lang(state)
-    await update_intern(message.chat.id, occupation=message.text.strip())
-    await message.answer(
-        t('onboarding.ask_interests', lang) + "\n\n" +
-        t('onboarding.ask_interests_hint', lang) + "\n\n" +
-        t('onboarding.ask_interests_why', lang),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OnboardingStates.waiting_for_interests)
-
-@onboarding_router.message(OnboardingStates.waiting_for_interests)
-async def on_interests(message: Message, state: FSMContext):
-    lang = await get_lang(state)
-    interests = [i.strip() for i in message.text.replace(',', ';').split(';') if i.strip()]
-    await update_intern(message.chat.id, interests=interests)
-    await message.answer(
-        f"*{t('onboarding.ask_values', lang)}*\n\n" +
-        t('onboarding.ask_values_hint', lang),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OnboardingStates.waiting_for_motivation)
-
-@onboarding_router.message(OnboardingStates.waiting_for_motivation)
-async def on_motivation(message: Message, state: FSMContext):
-    lang = await get_lang(state)
-    await update_intern(message.chat.id, motivation=message.text.strip())
-    await message.answer(
-        f"*{t('onboarding.ask_goals', lang)}*\n\n" +
-        t('onboarding.ask_goals_hint', lang),
-        parse_mode="Markdown"
-    )
-    await state.set_state(OnboardingStates.waiting_for_goals)
-
-@onboarding_router.message(OnboardingStates.waiting_for_goals)
-async def on_goals(message: Message, state: FSMContext):
-    lang = await get_lang(state)
-    await update_intern(message.chat.id, goals=message.text.strip())
-    await message.answer(
-        t('onboarding.ask_duration', lang) + "\n\n",
+        t('onboarding.ask_duration', lang),
         parse_mode="Markdown",
         reply_markup=kb_study_duration(lang)
     )
@@ -342,17 +302,10 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
     lang = intern.get('language', 'ru') or 'ru'
 
     duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else t('profile.not_specified_plural', lang)
-    motivation_short = intern['motivation'][:100] + '...' if len(intern['motivation']) > 100 else intern['motivation']
-    goals_short = intern['goals'][:100] + '...' if len(intern['goals']) > 100 else intern['goals']
 
     await callback.message.edit_text(
         f"📋 *{t('profile.your_profile', lang)}:*\n\n"
         f"👤 *{t('profile.name_label', lang)}:* {intern['name']}\n"
-        f"💼 *{t('profile.occupation_label', lang)}:* {intern['occupation']}\n"
-        f"🎨 *{t('profile.interests_label', lang)}:* {interests_str}\n\n"
-        f"💫 *{t('profile.what_important', lang)}:* {motivation_short}\n"
-        f"🎯 *{t('profile.what_change', lang)}:* {goals_short}\n\n"
         f"{duration.get('emoji', '')} {duration.get('name', '')} {t('profile.per_topic', lang)}\n"
         f"⏰ {t('profile.reminder_at', lang)} {intern['schedule_time']}\n"
         f"🗓 {t('profile.marathon_start', lang)}: *{start_date.strftime('%d.%m.%Y')}*\n\n"
@@ -401,7 +354,8 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             f"📅 {t('welcome.marathon_days_info', lang, days=MARATHON_DAYS)}\n"
             f"⏱ {t('welcome.marathon_duration_info', lang, minutes=intern['study_duration'])}\n"
             f"⏰ {t('welcome.marathon_reminders_info', lang, time=intern['schedule_time'])}\n\n"
-            f"{start_msg}",
+            f"{start_msg}\n\n"
+            f"{t('welcome.marathon_personalize_hint', lang)}",
             parse_mode="Markdown",
             reply_markup=kb_learn(lang)
         )
