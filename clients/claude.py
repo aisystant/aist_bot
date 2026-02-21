@@ -131,15 +131,22 @@ class ClaudeClient:
                 return None
         return None
 
-    async def _api_call_streaming(self, payload: dict, inactivity_timeout: float = 15) -> Optional[str]:
+    async def _api_call_streaming(
+        self, payload: dict, inactivity_timeout: float = 15, allow_partial: bool = True
+    ) -> Optional[str]:
         """Streaming API call with inactivity timeout.
 
         Uses SSE streaming — fails only when no data arrives for
         inactivity_timeout seconds (instead of a fixed total timeout
         that breaks on long outputs).
 
-        On timeout: preserves already-received text and returns it
-        (partial content is better than no content).
+        Args:
+            payload: Claude API payload
+            inactivity_timeout: max seconds without data before timeout
+            allow_partial: if False, return None on partial content instead of
+                truncated text. Use False for pre-generated content (lessons)
+                where partial = broken UX. Use True (default) for real-time
+                responses where partial > nothing.
         """
         session = await self.get_session()
         headers = {"x-api-key": self.api_key}
@@ -208,26 +215,28 @@ class ClaudeClient:
                     inactivity_timeout = inactivity_timeout * 2
                     await asyncio.sleep(1)
                     continue
-                # Both attempts failed — return partial content if we have it
+                # Both attempts failed — return partial content if allowed
                 if collected_text:
                     partial = ''.join(collected_text)
-                    logger.warning(
-                        f"Returning partial streaming response ({len(partial)} chars)"
+                    logger.error(
+                        f"Streaming partial content ({len(partial)} chars) after "
+                        f"timeout — {'returning' if allow_partial else 'discarding'}"
                     )
-                    return partial
+                    return partial if allow_partial else None
                 return None
             except aiohttp.ClientError as e:
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
                     continue
-                # Return partial content on connection error too
+                # Return partial content on connection error (if allowed)
                 if collected_text:
                     partial = ''.join(collected_text)
-                    logger.warning(
-                        f"Returning partial response after connection error ({len(partial)} chars)"
+                    logger.error(
+                        f"Streaming partial content ({len(partial)} chars) after "
+                        f"connection error — {'returning' if allow_partial else 'discarding'}"
                     )
-                    return partial
+                    return partial if allow_partial else None
                 return None
         return None
 
@@ -388,6 +397,7 @@ class ClaudeClient:
         user_prompt: str,
         max_tokens: int = 4000,
         model: str = None,
+        allow_partial: bool = True,
     ) -> Optional[str]:
         """Базовый метод генерации текста через Claude API (streaming).
 
@@ -399,6 +409,9 @@ class ClaudeClient:
             user_prompt: пользовательский промпт
             max_tokens: максимальное количество токенов ответа
             model: модель Claude (default: CLAUDE_MODEL_SONNET)
+            allow_partial: если False — при timeout вернёт None вместо
+                обрезанного текста. Для pre-gen контента (уроки) ставить False,
+                для real-time (консультант) — True.
 
         Returns:
             Сгенерированный текст или None при ошибке
@@ -421,7 +434,9 @@ class ClaudeClient:
                 }
 
                 return await self._api_call_streaming(
-                    payload, inactivity_timeout=inactivity_timeout
+                    payload,
+                    inactivity_timeout=inactivity_timeout,
+                    allow_partial=allow_partial,
                 )
 
     async def generate_with_tools(
@@ -686,7 +701,10 @@ class ClaudeClient:
         # 500w → 750tok, 1000w → 1500tok, 2500w → 3750tok
         max_tokens = min(int(words * 1.5), 4096)
 
-        result = await self.generate(system_prompt, user_prompt, max_tokens=max_tokens, model=model)
+        result = await self.generate(
+            system_prompt, user_prompt, max_tokens=max_tokens, model=model,
+            allow_partial=False,  # Lesson: partial = broken UX, better retry
+        )
         if result:
             return result
         # Локализованное сообщение об ошибке из единого модуля
@@ -753,7 +771,10 @@ Examples:
 
 Translate and adapt everything to the target language."""
 
-        result = await self.generate(system_prompt, user_prompt, model=model)
+        result = await self.generate(
+            system_prompt, user_prompt, model=model,
+            allow_partial=False,  # Practice: partial = broken UX, better retry
+        )
 
         if not result:
             # Fallback: возвращаем оригинал на русском
@@ -935,7 +956,10 @@ Translate and adapt everything to the target language."""
 
 {qp['output_only_question']}"""
 
-        result = await self.generate(system_prompt, user_prompt)
+        result = await self.generate(
+            system_prompt, user_prompt,
+            allow_partial=False,  # Question: partial = broken UX, better retry
+        )
         if result and cache_key:
             await cache_set(cache_key, 'question', result)
         return result or qp['error_generation']

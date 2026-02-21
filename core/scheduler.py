@@ -147,10 +147,19 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
     question_content = results[1] if not isinstance(results[1], Exception) else None
     practice_content = results[2] if not isinstance(results[2], Exception) else None
 
-    # Валидация: error fallback возвращает строку ~60 символов вместо None
-    if lesson_content is not None and len(lesson_content) < 200:
-        logger.error(f"[PreGen] Lesson too short ({len(lesson_content)} chars) for {chat_id}, "
-                     f"topic {topic_index} — likely error fallback")
+    # Валидация длины: пропорциональная проверка по Content Budget Model
+    # calc_words даёт целевые слова, ×5 ≈ символы, порог 30% от ожидаемого
+    from config import calc_words
+    study_dur = intern.get('study_duration', 15)
+    expected_chars = calc_words(study_dur, bloom_level) * 5
+    min_chars = max(200, int(expected_chars * 0.3))
+
+    if lesson_content is not None and len(lesson_content) < min_chars:
+        logger.error(
+            f"[PreGen] Lesson too short ({len(lesson_content)} chars, "
+            f"min {min_chars}, expected ~{expected_chars}) for {chat_id}, "
+            f"topic {topic_index} — likely partial or error fallback"
+        )
         lesson_content = None
 
     if lesson_content is None:
