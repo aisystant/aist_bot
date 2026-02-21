@@ -209,6 +209,7 @@ updated: 2026-02-09
 | Стратег в боте — диалог + запись в DS-my-strategy | заметка 14 фев 09:22 | Phase 2 |
 | Питч для инвесторов (развитие бота) | заметка 14 фев 09:22 | Phase 3 |
 | **MCP-сервер Railway** — обёртка Railway API для логов, деплоев, метрик. Claude Code получает логи как tool (Context Engineering). Паттерн переносим на любой PaaS → генеративность для шаблона экзокортекса (T3). ArchGate: выигрывает по эволюционируемости, масштабируемости, генеративности, современности vs прямой CLI | сессия 16 фев, ArchGate-оценка | Phase 2 |
+| **Publisher: OAuth вместо PAT** — GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var. Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient. АрхГейт: 8.8/10 (обучаемость 9, генеративность 8 — шаблонные пользователи не трогают env vars). | сессия 21 фев | Phase 2 |
 
 ---
 
@@ -227,4 +228,4 @@ updated: 2026-02-09
 
 ---
 
-*Последнее обновление: 2026-02-19*
+*Последнее обновление: 2026-02-21*
