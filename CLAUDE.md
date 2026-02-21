@@ -235,16 +235,20 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 **Правило:** Все колонки в DB (кроме `error_logs` и `request_traces`) используют `TIMESTAMP` (naive). При записи — только `datetime.utcnow()`, **НЕ** `datetime.now(timezone.utc)`. asyncpg с `statement_cache_size=0` (Neon) не может кодировать aware datetime в naive колонку → `DataError`.
 
-### 10.6. Keyboard Management Policy
+### 10.6. Keyboard Management Policy (WP-52)
 
-**Декларативное правило:** каждый стейт объявляет `keyboard_type` на классе. SM engine автоматически чистит Reply-клавиатуру при входе в **любой** non-reply стейт (через `_pending_keyboard_cleanup` в `BaseState.send()`). Дополнительно: первый контакт пользователя после рестарта бота тоже планирует cleanup (`_keyboard_verified` в SM).
+**Принцип:** SM НЕ удаляет ReplyKeyboard, а ЗАМЕНЯЕТ. Tier-based KB из mode_select персистит через inline-стейты. SM-contextual стейты (Phase 2) заменят её на контекстную.
+
+**Два слоя ReplyKeyboard:**
+1. **mode_select KB** (2×2) — tier-based, отправляется при входе в mode_select
+2. **SM-contextual KB** (Phase 2) — Row 1: действия стейта, Row 2: `[🏠 Меню] [⚙️]`
 
 **Keyboard Registry (19 стейтов):**
 
 | State | keyboard_type | Кнопки |
 |-------|:---:|---|
 | common.start | `none` | Текстовый онбординг |
-| common.mode_select | `inline` | Динамическое меню сервисов |
+| common.mode_select | **`reply`** | Tier-based 2×2 ReplyKeyboard (tier_ui.py) |
 | common.settings | `inline` | Настройки (edit_text sub-nav) |
 | common.profile | `inline` | Профиль (edit_text sub-nav) |
 | common.consultation | `none` | Модальный, inline-фидбек |
@@ -262,15 +266,11 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 | utility.mydata | `inline` | Hub (5 секций) + delete confirm (text input) |
 | utility.feedback | `inline` | Баг/Предложение → severity |
 
-**SM auto-cleanup:** при входе в **любой** стейт с `keyboard_type != "reply"` SM записывает `ReplyKeyboardRemove()` в `BaseState._pending_keyboard_cleanup[chat_id]`. Также при первом контакте после рестарта (`_keyboard_verified`). Первый `send()` нового стейта применяет cleanup:
-- **Без reply_markup:** прикрепляет `ReplyKeyboardRemove` к сообщению (0 extra API calls).
-- **С InlineKeyboardMarkup:** отправляет текст с `ReplyKeyboardRemove`, затем `edit_reply_markup` для InlineKeyboard (`send+edit`, +1 API call). **Fallback (3 ступени):** edit_reply_markup → edit_text → delete + новое сообщение с InlineKeyboard. **Известный баг Telegram API:** edit на сообщение с ReplyKeyboardRemove может падать с "message can't be edited" — поэтому финальный fallback обязателен.
-- **С ReplyKeyboardMarkup:** пропускает cleanup (новая Reply-клавиатура заменяет старую).
-- **Overhead:** ~50ms на переход в non-reply стейт (при наличии InlineKeyboard). `ReplyKeyboardRemove` без активной клавиатуры = no-op в Telegram API.
+**SM keyboard persistence:** SM больше не удаляет ReplyKeyboard автоматически. `_pending_keyboard_cleanup` в base.py оставлен для backwards compat но не заполняется. ReplyKeyboard из mode_select персистит через все inline-стейты. Reply-стейты (question, bonus, task) заменяют tier-KB на свою; при возврате в mode_select tier-KB восстанавливается.
 
-**Правила (defense-in-depth):**
+**Правила:**
 
-1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути финальный send() содержит `reply_markup=ReplyKeyboardRemove()` (ручная очистка — primary, SM auto-cleanup — safety net для command-bypass пути).
+1. **Reply-стейт**: `keyboard_type = "reply"` + на каждом exit-пути `send_remove_keyboard()` (очистка своей KB перед возвратом в mode_select).
 2. **Callback-переход**: handler ОБЯЗАН вызвать `callback.message.edit_reply_markup()` перед `go_to()`.
 3. **Inline sub-навигация**: `edit_text()` — клавиатура заменяется, stale кнопок нет.
 4. **Stale inline кнопки**: допустимы. Fallback handler → `fsm.button_expired` toast.

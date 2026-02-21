@@ -104,24 +104,17 @@ async def cmd_start(message: Message, state: FSMContext):
             return
 
         # Если SM активна — переводим в mode_select через Dispatcher
+        # WP-52: mode_select now sends tier-based ReplyKeyboard directly
         from handlers import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher and dispatcher.is_sm_active:
-            # SM first: mode_select sends "👋" with InlineKeyboard
-            # (SM auto-cleanup removes any existing ReplyKeyboard)
             await dispatcher.route_command('mode', intern)
 
-            # THEN send tier-based ReplyKeyboard AFTER SM
-            # (must be last — SM auto-cleanup would kill it otherwise)
-            from core.tier_ui import build_reply_keyboard, sync_menu_commands
+            # Sync per-user menu commands (hamburger)
+            from core.tier_ui import sync_menu_commands
             from core.tier_detector import detect_ui_tier
             lang = intern.get('language', 'ru') or 'ru'
             tier = detect_ui_tier(intern)
-            keyboard = build_reply_keyboard(tier, lang)
-            await message.answer(
-                t('welcome.returning', lang, name=intern['name']),
-                reply_markup=keyboard,
-            )
             await sync_menu_commands(message.bot, message.chat.id, tier, lang)
             return
 

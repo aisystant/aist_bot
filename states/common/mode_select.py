@@ -1,13 +1,11 @@
 """
-Стейт: Главное меню (генерируется из сервисного реестра).
+Стейт: Главное меню — tier-based ReplyKeyboard (WP-52).
 
-Вход: после онбординга или по команде /mode, /start (existing user)
-Выход: в entry_state выбранного сервиса
+Вход: после онбординга, /mode, /start (existing user), возврат из сервиса
+Выход: через ReplyKeyboard → reply_keyboard handler → dispatcher
 
-Меню строится из ServiceRegistry:
-  menu(user) = registry.filter(access).render()
-
-Добавление нового сервиса = 1 запись в services_init.py → меню обновляется.
+Меню = tier-based 2x2 ReplyKeyboard (tier_config.py / tier_ui.py).
+Сервисы не на клавиатуре доступны через /command или /help.
 """
 
 from typing import Optional
@@ -15,8 +13,8 @@ from typing import Optional
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
-from core.registry import registry
-from core import callback_protocol
+from core.tier_ui import build_reply_keyboard
+from core.tier_detector import detect_ui_tier
 from i18n import t, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
 
@@ -25,11 +23,12 @@ class ModeSelectState(BaseState):
     """
     Стейт главного меню.
 
-    Генерирует inline keyboard из сервисного реестра.
-    Callback-ы обрабатываются в handlers/callbacks.py (cb_service_select).
+    Отправляет tier-based ReplyKeyboard (2x2).
+    Навигация через handlers/reply_keyboard.py.
     """
 
     name = "common.mode_select"
+    keyboard_type = "reply"  # WP-52: SM knows this is a reply-keyboard state
     display_name = {"ru": "Главное меню", "en": "Main Menu", "es": "Menú principal", "fr": "Menu principal"}
     allow_global = ["consultation", "notes"]
 
@@ -51,7 +50,7 @@ class ModeSelectState(BaseState):
 
     async def enter(self, user, context: dict = None) -> None:
         """
-        Показываем главное меню из сервисного реестра.
+        Показываем tier-based ReplyKeyboard.
 
         Если context содержит day_completed=True — не показываем меню.
         """
@@ -64,27 +63,9 @@ class ModeSelectState(BaseState):
 
         user_dict = self._user_dict(user)
 
-        # Собираем видимые сервисы по категориям (scenario + system)
-        scenario_services = await registry.for_user(user_dict, category="scenario")
-        system_services = await registry.for_user(user_dict, category="system")
-
-        all_buttons = []
-
-        # Каждый сервис — отдельная строка (полная ширина, корректно на Desktop)
-        for services in [scenario_services, system_services]:
-            for s in services:
-                all_buttons.append([InlineKeyboardButton(
-                    text=f"{s.icon} {t(s.i18n_key, lang)}",
-                    callback_data=callback_protocol.encode("service", s.id),
-                )])
-
-        # Language button — always in English for discoverability by non-native speakers
-        all_buttons.append([InlineKeyboardButton(
-            text="🌐 Language",
-            callback_data="show_language",
-        )])
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=all_buttons)
+        # Tier-based ReplyKeyboard (WP-52 v4)
+        tier = detect_ui_tier(user_dict)
+        keyboard = build_reply_keyboard(tier, lang)
 
         await self.send(user, "👋", reply_markup=keyboard)
 
@@ -94,7 +75,7 @@ class ModeSelectState(BaseState):
         return None  # Остаёмся в стейте
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Inline-кнопки в главном меню."""
+        """Inline-кнопки — backwards compat для старых сообщений в чате."""
         data = callback.data
 
         if data == "show_language":
@@ -114,7 +95,7 @@ class ModeSelectState(BaseState):
         return names.get(code, code)
 
     async def _show_language_options(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Show language selector."""
+        """Show language selector (backwards compat for old inline messages)."""
         lang = self._get_lang(user)
         buttons = [
             [InlineKeyboardButton(text=self._get_language_name(l), callback_data=f"lang_{l}")]

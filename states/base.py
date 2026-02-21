@@ -155,13 +155,9 @@ class BaseState(ABC):
         ошибок TelegramBadRequest: can't parse entities — HTML детерминистичен,
         невалидная разметка показывается как plain text, не крашит.
 
-        Keyboard cleanup (reply→non-reply переход):
-        - Без reply_markup: прикрепляет ReplyKeyboardRemove к сообщению.
-        - С InlineKeyboardMarkup: отправляет текст с ReplyKeyboardRemove,
-          затем edit_reply_markup для InlineKeyboard (Telegram API не позволяет
-          совместить ReplyKeyboardRemove и InlineKeyboard в одном сообщении).
-        - С другим reply_markup (ReplyKeyboard): пропускает cleanup (новая
-          Reply-клавиатура заменяет старую).
+        WP-52: SM no longer auto-removes ReplyKeyboard. Tier-based KB from
+        mode_select persists across inline states. Legacy _pending_keyboard_cleanup
+        logic retained for backwards compat but dict is never populated.
 
         Args:
             user: Объект пользователя
