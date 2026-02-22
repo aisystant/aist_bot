@@ -269,7 +269,16 @@ async def main():
                 secret_token=WEBHOOK_SECRET,
                 drop_pending_updates=False,
             )
-            logger.info(f"✅ Webhook registered (secret={'set' if WEBHOOK_SECRET else 'none'})")
+            # Verify webhook is reachable (getWebhookInfo diagnostic)
+            info = await bot.get_webhook_info()
+            logger.info(
+                f"✅ Webhook registered: url={info.url}, "
+                f"pending={info.pending_update_count}, "
+                f"last_error={info.last_error_message or 'none'}, "
+                f"secret={'set' if WEBHOOK_SECRET else 'none'}"
+            )
+            if info.last_error_message:
+                logger.warning(f"⚠️ Telegram reports webhook error: {info.last_error_message}")
             webhook_ok = True
         except Exception as e:
             logger.error(f"❌ Failed to set webhook: {e}")

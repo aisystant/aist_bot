@@ -541,6 +541,20 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
         bot: aiogram Bot instance
     """
     app = web.Application()
+
+    # Webhook request logging (diagnose silent failures)
+    @web.middleware
+    async def webhook_logging_middleware(request: web.Request, handler):
+        if request.path == "/telegram" and request.method == "POST":
+            has_secret = "X-Telegram-Bot-Api-Secret-Token" in request.headers
+            logger.info(f"[Webhook] POST /telegram (secret_header={'yes' if has_secret else 'NO'})")
+        resp = await handler(request)
+        if request.path == "/telegram" and request.method == "POST":
+            logger.info(f"[Webhook] Response: {resp.status}")
+        return resp
+
+    app.middlewares.append(webhook_logging_middleware)
+
     app.router.add_get("/health", health_handler)
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
