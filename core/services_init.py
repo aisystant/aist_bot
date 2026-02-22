@@ -140,13 +140,5 @@ def register_all_services() -> None:
         visible=False,
     ))
 
-    registry.register(ServiceDescriptor(
-        id="twin",
-        i18n_key="service.twin",
-        icon="\U0001f916",  # 🤖
-        entry_state="common.mode_select",  # TODO: twin state
-        category="system",
-        order=30,
-        command="/twin",
-        visible=False,
-    ))
+    # twin: no SM state — handled directly by handlers/twin.py (twin_router)
+    # Do NOT register command="/twin" here, it would intercept and route to SM

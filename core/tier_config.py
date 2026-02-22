@@ -83,7 +83,7 @@ TIER_MENU_COMMANDS = {
     UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'help'],
     UITier.T2_LEARNING:        ['feed', 'learn', 'test', 'progress', 'profile', 'help'],
     UITier.T3_PERSONALIZATION: ['twin', 'feed', 'learn', 'test', 'progress', 'help'],
-    UITier.T4_CREATION:        ['plan', 'club', 'notes', 'twin', 'feed', 'progress', 'test', 'help'],
+    UITier.T4_CREATION:        ['plan', 'club', 'twin', 'feed', 'progress', 'test', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
