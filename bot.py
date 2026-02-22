@@ -296,6 +296,23 @@ async def main():
         if webhook_ok:
             logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
 
+            # Re-register webhook after delay to survive rolling deploy.
+            # Old container's shutdown may delete_webhook before this runs;
+            # this re-registration restores it.
+            async def _reregister_webhook():
+                await asyncio.sleep(30)
+                try:
+                    await bot.set_webhook(
+                        url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
+                        secret_token=WEBHOOK_SECRET,
+                        drop_pending_updates=False,
+                    )
+                    logger.info("✅ Webhook re-registered (post-deploy safety)")
+                except Exception as e:
+                    logger.error(f"❌ Webhook re-registration failed: {e}")
+
+            asyncio.create_task(_reregister_webhook())
+
             # Keep running until shutdown signal
             stop_event = asyncio.Event()
             loop = asyncio.get_running_loop()
@@ -303,11 +320,11 @@ async def main():
                 loop.add_signal_handler(sig, stop_event.set)
             await stop_event.wait()
 
-            # Graceful shutdown
-            try:
-                await bot.delete_webhook()
-            except Exception:
-                pass
+            # Graceful shutdown — do NOT delete webhook on SIGTERM.
+            # During rolling deploy, new container already registered the same
+            # webhook URL. Calling delete_webhook here would remove it, leaving
+            # Telegram with no webhook → "stuck buttons" until next redeploy.
+            logger.info("🛑 Shutting down (webhook preserved for rolling deploy)")
             await runner.cleanup()
         else:
             # Fallback to polling if webhook registration failed
