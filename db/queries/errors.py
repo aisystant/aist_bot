@@ -7,6 +7,7 @@
 - cleanup_old_errors() → midnight cleanup
 """
 
+import html
 from typing import Optional
 from db.connection import acquire
 from config import get_logger
@@ -52,12 +53,12 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
     ]
     for r in rows:
         sev = r.get('severity') or '??'
-        cat = r.get('category') or '?'
+        cat = html.escape(r.get('category') or '?')
         emoji = _SEV_EMOJI.get(r.get('severity'), "\u26aa")
-        msg = (r['message'] or '')[:60]
+        msg = html.escape((r['message'] or '')[:60])
         count_str = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
         action = r.get('suggested_action')
-        action_str = f"\n    \U0001f4a1 {action}" if action else ""
+        action_str = f"\n    \U0001f4a1 {html.escape(action)}" if action else ""
         lines.append(f"  {emoji} [{cat}/{sev}] {msg}{count_str}{action_str}")
 
     lines.append(f"\n\U0001f449 /errors \u2014 \u043f\u043e\u043b\u043d\u044b\u0439 \u043e\u0442\u0447\u0451\u0442")

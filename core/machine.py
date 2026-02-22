@@ -180,6 +180,10 @@ class StateMachine:
 
             # Проверяем триггер
             if message_text.startswith(trigger):
+                # Проверяем, что целевой стейт зарегистрирован
+                if not self.get_state(target):
+                    logger.warning(f"Глобальное событие {event_name} → {target}: стейт не зарегистрирован, пропуск")
+                    continue
                 logger.info(f"Глобальное событие: {event_name} -> {target}")
                 return target
 

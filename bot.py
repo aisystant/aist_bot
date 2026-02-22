@@ -156,6 +156,24 @@ async def main():
 
     dp = Dispatcher(storage=PostgresStorage())
 
+    # Global error handler: suppress transient Telegram API errors
+    from aiogram.types import ErrorEvent
+    from aiogram.exceptions import TelegramBadRequest
+
+    @dp.error()
+    async def on_telegram_error(event: ErrorEvent):
+        exc = event.exception
+        if isinstance(exc, TelegramBadRequest):
+            msg = str(exc)
+            if "query is too old" in msg or "query ID is invalid" in msg:
+                # Callback query expired (>30s) — transient, safe to suppress
+                logger.debug(f"[ErrorHandler] Suppressed stale callback query: {msg}")
+                return True
+            if "message is not modified" in msg:
+                # User clicked same button twice — safe to suppress
+                return True
+        return False
+
     # Регистрируем middleware (порядок важен: Maintenance → Logging → Tracing)
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
