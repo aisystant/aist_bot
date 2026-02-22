@@ -1005,6 +1005,7 @@ async def send_subscription_launch_notification():
 
     price = get_current_price()
     bot = Bot(token=_bot_token)
+    sem = asyncio.Semaphore(25)  # TG rate limit: 30 msg/sec, safe margin
 
     try:
         pool = await get_pool()
@@ -1014,27 +1015,28 @@ async def send_subscription_launch_notification():
             )
 
         sent = 0
-        for row in rows:
-            chat_id = row['chat_id']
-            intern = await get_intern(chat_id)
-            lang = intern.get('language', 'ru') or 'ru'
 
-            text = t('subscription.launch_notification', lang, price=price)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=t('subscription.subscribe_button', lang, price=price),
-                    callback_data="subscribe",
-                )]
-            ])
+        async def _send_one(chat_id: int):
+            nonlocal sent
+            async with sem:
+                intern = await get_intern(chat_id)
+                lang = intern.get('language', 'ru') or 'ru'
+                text = t('subscription.launch_notification', lang, price=price)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=t('subscription.subscribe_button', lang, price=price),
+                        callback_data="subscribe",
+                    )]
+                ])
+                try:
+                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+                    sent += 1
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                        logger.error(f"[Scheduler] Launch notification error for {chat_id}: {e}")
 
-            try:
-                await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
-                sent += 1
-            except Exception as e:
-                error_msg = str(e).lower()
-                if 'blocked' not in error_msg and 'deactivated' not in error_msg:
-                    logger.error(f"[Scheduler] Launch notification error for {chat_id}: {e}")
-
+        await asyncio.gather(*[_send_one(row['chat_id']) for row in rows])
         logger.info(f"[Scheduler] Subscription launch notification sent to {sent}/{len(rows)} users")
     finally:
         await bot.session.close()
@@ -1052,33 +1054,32 @@ async def send_trial_expiry_notifications():
 
     price = get_current_price()
     bot = Bot(token=_bot_token)
+    sem = asyncio.Semaphore(20)  # TG rate limit: 30 msg/sec, safe margin
 
     try:
         for days_ahead in [1, 0]:
             chat_ids = await get_trial_expiring_users(days_ahead)
-            for chat_id in chat_ids:
-                intern = await get_intern(chat_id)
-                lang = intern.get('language', 'ru') or 'ru'
 
-                if days_ahead == 1:
-                    text = t('subscription.trial_expiring', lang)
-                else:
-                    text = t('subscription.trial_expired', lang)
+            async def _send_one(chat_id: int, _days=days_ahead):
+                async with sem:
+                    intern = await get_intern(chat_id)
+                    lang = intern.get('language', 'ru') or 'ru'
+                    text = t('subscription.trial_expiring', lang) if _days == 1 else t('subscription.trial_expired', lang)
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=t('subscription.subscribe_button', lang, price=price),
+                            callback_data="subscribe",
+                        )]
+                    ])
+                    try:
+                        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+                        logger.info(f"[Scheduler] Trial expiry notification sent to {chat_id} (days_ahead={_days})")
+                    except Exception as e:
+                        error_msg = str(e).lower()
+                        if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                            logger.error(f"[Scheduler] Trial notification error for {chat_id}: {e}")
 
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text=t('subscription.subscribe_button', lang, price=price),
-                        callback_data="subscribe",
-                    )]
-                ])
-
-                try:
-                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
-                    logger.info(f"[Scheduler] Trial expiry notification sent to {chat_id} (days_ahead={days_ahead})")
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if 'blocked' not in error_msg and 'deactivated' not in error_msg:
-                        logger.error(f"[Scheduler] Trial notification error for {chat_id}: {e}")
+            await asyncio.gather(*[_send_one(cid) for cid in chat_ids])
     finally:
         await bot.session.close()
 
