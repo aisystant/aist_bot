@@ -261,32 +261,48 @@ async def main():
         await site.start()
         logger.info(f"✅ Web server listening on port {PORT}")
 
+        # Sanitize webhook secret: Telegram allows only A-Za-z0-9_-
+        import re
+        clean_secret = re.sub(r'[^A-Za-z0-9_\-]', '', WEBHOOK_SECRET) if WEBHOOK_SECRET else None
+        if WEBHOOK_SECRET and clean_secret != WEBHOOK_SECRET:
+            logger.warning(f"⚠️ WEBHOOK_SECRET sanitized: removed {len(WEBHOOK_SECRET) - len(clean_secret)} invalid chars")
+
         # Now register webhook with Telegram
+        webhook_ok = False
         try:
             await bot.set_webhook(
                 url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
-                secret_token=WEBHOOK_SECRET or None,
+                secret_token=clean_secret or None,
                 drop_pending_updates=False,
             )
             logger.info("✅ Webhook registered with Telegram")
+            webhook_ok = True
         except Exception as e:
             logger.error(f"❌ Failed to set webhook: {e}")
 
-        logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
+        if webhook_ok:
+            logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
 
-        # Keep running until shutdown signal
-        stop_event = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop_event.set)
-        await stop_event.wait()
+            # Keep running until shutdown signal
+            stop_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop_event.set)
+            await stop_event.wait()
 
-        # Graceful shutdown
-        try:
-            await bot.delete_webhook()
-        except Exception:
-            pass
-        await runner.cleanup()
+            # Graceful shutdown
+            try:
+                await bot.delete_webhook()
+            except Exception:
+                pass
+            await runner.cleanup()
+        else:
+            # Fallback to polling if webhook registration failed
+            logger.warning("⚠️ Webhook failed, falling back to polling mode")
+            await runner.cleanup()
+            await bot.delete_webhook(drop_pending_updates=False)
+            logger.info("🚀 Бот запущен (polling fallback) с PostgreSQL!")
+            await dp.start_polling(bot)
     else:
         # ═══ Polling mode (local development) ═══
         logger.info("📡 Polling mode (no WEBHOOK_URL set)")
