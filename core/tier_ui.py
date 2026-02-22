@@ -1,13 +1,13 @@
 """
 Tier-aware UI builders: ReplyKeyboard, Menu Commands sync.
 
-Source-of-truth: WP-52 § 3-4
+Source-of-truth: WP-52
 
 Usage:
     from core.tier_ui import send_tier_keyboard, sync_menu_commands
 
     # On /start or tier transition:
-    await send_tier_keyboard(message, user)
+    await send_tier_keyboard(message, chat_id)
 
     # Or individually:
     keyboard = build_reply_keyboard(tier, lang)
@@ -64,7 +64,12 @@ async def sync_menu_commands(bot: Bot, user_id: int, tier: int, lang: str = 'ru'
     """Set per-user menu commands (Bot Menu Button) based on tier.
 
     Uses BotCommandScopeChat for per-user command menus.
+    T5 is skipped — dev commands are set in bot.py at startup.
     """
+    # T5: dev commands set separately in bot.py, don't override
+    if tier == UITier.T5_ADMIN:
+        return
+
     command_keys = TIER_MENU_COMMANDS.get(tier, TIER_MENU_COMMANDS[UITier.T1_START])
 
     commands = []
@@ -90,7 +95,8 @@ async def send_tier_keyboard(message: Message, user: dict, text: str = None) -> 
         user: intern dict from get_intern()
         text: optional message text; if None, keyboard is attached silently
     """
-    tier = detect_ui_tier(user)
+    chat_id = user.get('chat_id') or message.chat.id
+    tier = await detect_ui_tier(chat_id)
     lang = user.get('language', 'ru') or 'ru'
     keyboard = build_reply_keyboard(tier, lang)
 
@@ -101,4 +107,4 @@ async def send_tier_keyboard(message: Message, user: dict, text: str = None) -> 
         await message.answer("👇", reply_markup=keyboard)
 
     # Sync hamburger menu commands for this user
-    await sync_menu_commands(message.bot, user['chat_id'], tier, lang)
+    await sync_menu_commands(message.bot, chat_id, tier, lang)

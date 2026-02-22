@@ -392,19 +392,25 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 **mode_select layouts:**
 
 ```
-T1: [📚 Марафон] [🧪 Тест]     / [📊 Мой прогресс] [⚙️]
-T2: [📖 Лента]   [📚 Марафон]  / [📊 Мой прогресс] [⚙️]
-T3: [📖 Лента]   [🤖 Twin]     / [📊 Мои данные]   [⚙️]
-T4: [📋 Мой план] [🤖 Twin]    / [📊 Мои данные]   [⚙️]
+T1: [📚 Марафон] [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
+T2: [📖 Лента]   [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
+T3: [🧬 ЦД]      [📖 Лента]     / [📊 Прогресс]  [⚙️ Настройки]
+T4: [📋 Мой план] [🏛 Клуб]     / [🧬 ЦД]        [⚙️ Настройки]
+T5: = T4 (keyboard), dev-commands в menu (bot.py)
 ```
 
-**Tier detection (behavioral):** T1=default, T2=marathon_completed, T3=marathon+DT, T5=DEVELOPER_CHAT_ID
+**Tier detection (payment-first):**
+- T1: нет подписки (free)
+- T2: подписка Stars / 15-дн. триал
+- T3: T2 + ЦД подключён
+- T4: T3 + GitHub подключён
+- T5: DEVELOPER_CHAT_ID
+- Тир падает до T1 при истечении подписки
 
 **Правила:**
-- ⚙️ = universal settings (Language first, Profile link)
+- ⚙️ Настройки = universal settings (Language first, Profile link)
 - SM НЕ удаляет KB, а ЗАМЕНЯЕТ на контекстную
-- «Мой прогресс» (T1-T2) → «Мои данные» (T3+)
-- T5 = dev-commands + settings + help (НЕ наследует T4)
+- T5 menu = dev-commands (stats, usage, qa, ...) — set в bot.py, НЕ в tier_config
 - Menu ☰ per-user через `BotCommandScopeChat`
 - Все команды работают на любом тире (видимость ≠ доступность)
 

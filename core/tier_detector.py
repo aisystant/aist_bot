@@ -1,13 +1,16 @@
 """
-UI Tier detection — behavioral, not payment.
+UI Tier detection — subscription + connections.
 
-Source-of-truth: WP-52 § 5.2
+Source-of-truth: WP-52
 
-Tier transitions:
-  T1→T2: marathon_status == 'completed'
-  T2→T3: marathon completed + DT connected (dt_connected_at IS NOT NULL)
-  T3→T4: has exocortex (deferred)
-  T4→T5: platform owner (DEVELOPER_CHAT_ID)
+Tier model (cumulative, payment-first):
+  T1: free (no active subscription/trial)
+  T2: active subscription or trial
+  T3: T2 + Digital Twin connected
+  T4: T3 + GitHub connected
+  T5: platform admin (DEVELOPER_CHAT_ID)
+
+Tier drops to T1 if subscription expires.
 """
 
 import os
@@ -18,39 +21,60 @@ from core.tier_config import UITier
 logger = logging.getLogger(__name__)
 
 
-def detect_ui_tier(user: dict) -> int:
-    """Detect UI tier based on user behavior.
+async def detect_ui_tier(chat_id: int) -> int:
+    """Detect UI tier based on subscription + connections.
 
     Args:
-        user: intern dict from get_intern()
+        chat_id: Telegram user chat_id
 
     Returns:
         UITier constant (1-5)
     """
-    chat_id = user.get('chat_id')
-
-    # T5: Platform admin
+    # T5: Platform admin (always, regardless of subscription)
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
     if dev_chat_id and str(chat_id) == dev_chat_id:
         return UITier.T5_ADMIN
 
-    # T3: Marathon completed + DT connected
-    if _is_marathon_completed(user) and _is_dt_connected(user):
+    # Check subscription — no active sub/trial = T1
+    if not await _has_active_subscription(chat_id):
+        return UITier.T1_START
+
+    # T4: subscription + GitHub connected
+    if await _is_github_connected(chat_id):
+        return UITier.T4_CREATION
+
+    # T3: subscription + DT connected
+    if await _is_dt_connected(chat_id):
         return UITier.T3_PERSONALIZATION
 
-    # T2: Marathon completed
-    if _is_marathon_completed(user):
-        return UITier.T2_LEARNING
-
-    # T1: Default (new user, in marathon)
-    return UITier.T1_START
+    # T2: subscription active
+    return UITier.T2_LEARNING
 
 
-def _is_marathon_completed(user: dict) -> bool:
-    """Check if marathon is completed."""
-    return user.get('marathon_status') == 'completed'
+async def _has_active_subscription(chat_id: int) -> bool:
+    """Check if user has active subscription or trial."""
+    from core.access import access_layer
+    return await access_layer.has_access(chat_id, "feed")
 
 
-def _is_dt_connected(user: dict) -> bool:
-    """Check if Digital Twin is connected via /twin."""
-    return user.get('dt_connected_at') is not None
+async def _is_github_connected(chat_id: int) -> bool:
+    """Check if user has GitHub OAuth connected."""
+    try:
+        from db.queries.github import get_github_connection
+        return await get_github_connection(chat_id) is not None
+    except Exception:
+        return False
+
+
+async def _is_dt_connected(chat_id: int) -> bool:
+    """Check if Digital Twin is connected."""
+    try:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT dt_connected_at FROM interns WHERE chat_id = $1', chat_id,
+            )
+            return row is not None and row['dt_connected_at'] is not None
+    except Exception:
+        return False

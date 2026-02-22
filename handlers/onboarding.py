@@ -110,7 +110,7 @@ async def cmd_start(message: Message, state: FSMContext):
             from core.tier_ui import sync_menu_commands
             from core.tier_detector import detect_ui_tier
             lang = intern.get('language', 'ru') or 'ru'
-            tier = detect_ui_tier(intern)
+            tier = await detect_ui_tier(message.chat.id)
             await sync_menu_commands(message.bot, message.chat.id, tier, lang)
             return
 
@@ -132,7 +132,7 @@ async def cmd_start(message: Message, state: FSMContext):
         # Send welcome with tier-based ReplyKeyboard (WP-52)
         from core.tier_ui import build_reply_keyboard, sync_menu_commands
         from core.tier_detector import detect_ui_tier
-        tier = detect_ui_tier(intern)
+        tier = await detect_ui_tier(message.chat.id)
         keyboard = build_reply_keyboard(tier, lang)
 
         await message.answer(

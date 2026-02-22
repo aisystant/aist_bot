@@ -4,6 +4,13 @@ Progressive UI per Tier — declarative configuration.
 Source-of-truth: WP-52-progressive-ui-tiers.md
 Architecture ref: DP.ARCH.002 (service tiers)
 
+Tier model (payment-first):
+  T1: free (no subscription)
+  T2: subscription active
+  T3: T2 + DT connected
+  T4: T3 + GitHub connected
+  T5: admin (DEVELOPER_CHAT_ID) — menu set in bot.py, NOT here
+
 Each tier defines:
   - keyboard: 2x2 ReplyKeyboard buttons
   - menu_commands: commands in Bot Menu Button (hamburger)
@@ -11,7 +18,7 @@ Each tier defines:
 
 
 class UITier:
-    """UI tier constants (behavioral, not payment)."""
+    """UI tier constants."""
     T1_START = 1
     T2_LEARNING = 2
     T3_PERSONALIZATION = 3
@@ -24,15 +31,17 @@ class UITier:
 # ═══════════════════════════════════════════════════════════
 
 KB_LABELS = {
-    'marathon':   {'ru': '📚 Марафон',   'en': '📚 Marathon',  'es': '📚 Maratón',  'fr': '📚 Marathon', 'zh': '📚 马拉松'},
-    'feed':       {'ru': '📖 Лента',     'en': '📖 Feed',      'es': '📖 Feed',     'fr': '📖 Fil',      'zh': '📖 信息流'},
-    'test':       {'ru': '🧪 Тест',      'en': '🧪 Test',      'es': '🧪 Test',     'fr': '🧪 Test',     'zh': '🧪 测试'},
-    'progress':   {'ru': '📊 Прогресс',  'en': '📊 Progress',  'es': '📊 Progreso', 'fr': '📊 Progrès',  'zh': '📊 进度'},
-    'profile':    {'ru': '👤 Профиль',   'en': '👤 Profile',   'es': '👤 Perfil',   'fr': '👤 Profil',   'zh': '👤 档案'},
-    'profile_dt': {'ru': '🤖 Профиль',   'en': '🤖 Profile',   'es': '🤖 Perfil',   'fr': '🤖 Profil',   'zh': '🤖 档案'},
-    'plans':      {'ru': '📋 Мой план',  'en': '📋 My plan',   'es': '📋 Mi plan',  'fr': '📋 Mon plan', 'zh': '📋 我的计划'},
-    'notes':      {'ru': '📝 Заметки',   'en': '📝 Notes',     'es': '📝 Notas',    'fr': '📝 Notes',    'zh': '📝 笔记'},
-    'settings':   {'ru': '⚙️',           'en': '⚙️',            'es': '⚙️',           'fr': '⚙️',          'zh': '⚙️'},
+    'marathon':   {'ru': '📚 Марафон',    'en': '📚 Marathon',   'es': '📚 Maratón',    'fr': '📚 Marathon',   'zh': '📚 马拉松'},
+    'feed':       {'ru': '📖 Лента',      'en': '📖 Feed',       'es': '📖 Feed',       'fr': '📖 Fil',        'zh': '📖 信息流'},
+    'test':       {'ru': '🧪 Тест',       'en': '🧪 Test',       'es': '🧪 Test',       'fr': '🧪 Test',       'zh': '🧪 测试'},
+    'progress':   {'ru': '📊 Прогресс',   'en': '📊 Progress',   'es': '📊 Progreso',   'fr': '📊 Progrès',    'zh': '📊 进度'},
+    'profile':    {'ru': '👤 Профиль',    'en': '👤 Profile',    'es': '👤 Perfil',     'fr': '👤 Profil',     'zh': '👤 档案'},
+    'profile_dt': {'ru': '🤖 Профиль',    'en': '🤖 Profile',    'es': '🤖 Perfil',     'fr': '🤖 Profil',     'zh': '🤖 档案'},
+    'dt':         {'ru': '🧬 ЦД',         'en': '🧬 DT',         'es': '🧬 GD',         'fr': '🧬 JN',         'zh': '🧬 数字孪生'},
+    'club':       {'ru': '🏛 Клуб',       'en': '🏛 Club',       'es': '🏛 Club',       'fr': '🏛 Club',       'zh': '🏛 俱乐部'},
+    'plans':      {'ru': '📋 Мой план',   'en': '📋 My plan',    'es': '📋 Mi plan',    'fr': '📋 Mon plan',   'zh': '📋 我的计划'},
+    'notes':      {'ru': '📝 Заметки',    'en': '📝 Notes',      'es': '📝 Notas',      'fr': '📝 Notes',      'zh': '📝 笔记'},
+    'settings':   {'ru': '⚙️ Настройки',  'en': '⚙️ Settings',   'es': '⚙️ Ajustes',    'fr': '⚙️ Paramètres', 'zh': '⚙️ 设置'},
 }
 
 # Service key → slash command name (for routing)
@@ -43,6 +52,8 @@ SERVICE_TO_COMMAND = {
     'progress': 'progress',
     'profile': 'profile',
     'profile_dt': 'profile',
+    'dt': 'twin',
+    'club': 'club',
     'plans': 'plan',
     'notes': 'notes',
     'settings': 'settings',
@@ -56,23 +67,24 @@ SERVICE_TO_COMMAND = {
 
 TIER_KEYBOARD = {
     UITier.T1_START:           [['marathon', 'test'],     ['progress', 'settings']],
-    UITier.T2_LEARNING:        [['feed',     'marathon'], ['progress', 'settings']],
-    UITier.T3_PERSONALIZATION: [['feed',     'test'],     ['progress', 'settings']],
-    UITier.T4_CREATION:        [['plans',    'notes'],    ['feed',     'settings']],
-    UITier.T5_ADMIN:           [['plans',    'notes'],    ['feed',     'settings']],
+    UITier.T2_LEARNING:        [['feed',     'test'],     ['progress', 'settings']],
+    UITier.T3_PERSONALIZATION: [['dt',       'feed'],     ['progress', 'settings']],
+    UITier.T4_CREATION:        [['plans',    'club'],     ['dt',       'settings']],
+    UITier.T5_ADMIN:           [['plans',    'club'],     ['dt',       'settings']],
 }
 
 
 # ═══════════════════════════════════════════════════════════
 # MENU COMMANDS PER TIER (Bot Menu Button / hamburger)
+# T5 menu is set separately in bot.py (dev-specific commands)
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
     UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'help'],
-    UITier.T2_LEARNING:        ['feed', 'test', 'progress', 'learn', 'profile', 'help'],
-    UITier.T3_PERSONALIZATION: ['feed', 'test', 'progress', 'twin', 'learn', 'notes', 'help'],
-    UITier.T4_CREATION:        ['plan', 'notes', 'rp', 'report', 'feed', 'progress', 'test', 'help'],
-    UITier.T5_ADMIN:           ['plan', 'notes', 'rp', 'report', 'feed', 'progress', 'test', 'analytics', 'help'],
+    UITier.T2_LEARNING:        ['feed', 'learn', 'test', 'progress', 'profile', 'help'],
+    UITier.T3_PERSONALIZATION: ['twin', 'feed', 'learn', 'test', 'progress', 'help'],
+    UITier.T4_CREATION:        ['plan', 'club', 'notes', 'twin', 'feed', 'progress', 'test', 'help'],
+    # T5: not here — set in bot.py as dev commands
 }
 
 # Command descriptions per language (for setMyCommands)
@@ -82,7 +94,8 @@ COMMAND_DESCRIPTIONS = {
     'test':      {'ru': 'Тест систематичности',         'en': 'Systematicity test',        'es': 'Test de sistematicidad',     'fr': 'Test de systématicité',        'zh': '系统性测试'},
     'progress':  {'ru': 'Мой прогресс',                 'en': 'My progress',               'es': 'Mi progreso',                'fr': 'Mon progrès',                  'zh': '我的进度'},
     'profile':   {'ru': 'Мой профиль',                  'en': 'My profile',                'es': 'Mi perfil',                  'fr': 'Mon profil',                   'zh': '我的档案'},
-    'twin':      {'ru': 'Профиль развития',             'en': 'Development profile',       'es': 'Perfil de desarrollo',       'fr': 'Profil de développement',      'zh': '发展档案'},
+    'twin':      {'ru': 'Цифровой двойник',             'en': 'Digital twin',              'es': 'Gemelo digital',             'fr': 'Jumeau numérique',             'zh': '数字孪生'},
+    'club':      {'ru': 'Клуб — публикация',            'en': 'Club — publishing',         'es': 'Club — publicación',         'fr': 'Club — publication',           'zh': '俱乐部 — 发布'},
     'notes':     {'ru': 'Заметки',                      'en': 'Notes',                     'es': 'Notas',                      'fr': 'Notes',                        'zh': '笔记'},
     'plan':      {'ru': 'Рабочий план',                 'en': 'Work plan',                 'es': 'Plan de trabajo',            'fr': 'Plan de travail',              'zh': '工作计划'},
     'rp':        {'ru': 'Рабочие продукты',             'en': 'Work products',             'es': 'Productos de trabajo',       'fr': 'Produits de travail',          'zh': '工作产品'},

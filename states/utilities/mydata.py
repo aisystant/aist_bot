@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 # ─── Tier detection helpers ────────────────────────────────────────────────
 
 TIER_NAMES = {
-    'ru': {1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание'},
-    'en': {1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation'},
+    'ru': {1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание', 5: 'T5 — Админ'},
+    'en': {1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation', 5: 'T5 — Admin'},
 }
 
-TIER_EMOJI = {1: '🟢', 2: '📘', 3: '🧬', 4: '🚀'}
+TIER_EMOJI = {1: '🟢', 2: '📘', 3: '🧬', 4: '🚀', 5: '⚡'}
 
 # ─── Categories by tier ────────────────────────────────────────────────────
 
@@ -151,40 +151,12 @@ class MyDataState(BaseState):
         return await get_knowledge_profile(chat_id)
 
     async def _detect_tier(self, chat_id: int) -> int:
-        """Определить текущий тир пользователя: T1/T2/T3 (T4 не в боте).
+        """Определить текущий тир пользователя (единый детектор).
 
-        Проверка:
-        1. T3: DT подключён (persistent DB flag + in-memory fallback)
-        2. T2: подписка или триал
-        3. T1: default
+        Делегирует в core.tier_detector.detect_ui_tier().
         """
-        # T3: persistent check (survives redeploy)
-        try:
-            from db import get_pool
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT dt_connected_at FROM interns WHERE chat_id = $1', chat_id,
-                )
-                if row and row['dt_connected_at'] is not None:
-                    return 3
-        except Exception:
-            pass
-
-        # T3: in-memory fallback (current session, before DB is updated)
-        try:
-            from clients.digital_twin import digital_twin
-            if digital_twin.is_connected(chat_id):
-                return 3
-        except Exception:
-            pass
-
-        # T2: подписка или триал
-        from core.access import access_layer
-        if await access_layer.has_access(chat_id, "consultation"):
-            return 2
-
-        return 1
+        from core.tier_detector import detect_ui_tier
+        return await detect_ui_tier(chat_id)
 
     def _get_categories_for_tier(self, tier: int) -> dict:
         """Собрать категории данных для тира."""

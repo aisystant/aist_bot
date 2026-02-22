@@ -64,11 +64,12 @@ class ModeSelectState(BaseState):
         user_dict = self._user_dict(user)
 
         # Tier-based ReplyKeyboard + Menu ☰ sync (WP-52 v4)
-        tier = detect_ui_tier(user_dict)
+        chat_id = user_dict['chat_id']
+        tier = await detect_ui_tier(chat_id)
         keyboard = build_reply_keyboard(tier, lang)
 
         await self.send(user, "👋", reply_markup=keyboard)
-        await sync_menu_commands(self.bot, user_dict['chat_id'], tier, lang)
+        await sync_menu_commands(self.bot, chat_id, tier, lang)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
