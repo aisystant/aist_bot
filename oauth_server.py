@@ -548,16 +548,19 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:
-        from aiogram.webhook.aiohttp_server import SimpleRequestHandler
-        from config.settings import WEBHOOK_PATH, WEBHOOK_SECRET
+        try:
+            from aiogram.webhook.aiohttp_server import SimpleRequestHandler
+            from config.settings import WEBHOOK_PATH, WEBHOOK_SECRET
 
-        webhook_handler = SimpleRequestHandler(
-            dispatcher=dp,
-            bot=bot,
-            secret_token=WEBHOOK_SECRET or None,
-        )
-        webhook_handler.register(app, path=WEBHOOK_PATH)
-        logger.info(f"Webhook handler registered at {WEBHOOK_PATH}")
+            webhook_handler = SimpleRequestHandler(
+                dispatcher=dp,
+                bot=bot,
+                secret_token=WEBHOOK_SECRET or None,
+            )
+            webhook_handler.register(app, path=WEBHOOK_PATH)
+            logger.info(f"Webhook handler registered at {WEBHOOK_PATH}")
+        except Exception as e:
+            logger.error(f"❌ Failed to register webhook handler: {e}")
 
     return app
 

@@ -254,27 +254,38 @@ async def main():
 
         app = create_oauth_app(dp=dp, bot=bot)
 
-        await bot.set_webhook(
-            url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
-            secret_token=WEBHOOK_SECRET or None,
-            drop_pending_updates=False,
-        )
-        logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
-
+        # Start web server FIRST so Railway health check passes immediately
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", PORT)
         await site.start()
+        logger.info(f"✅ Web server listening on port {PORT}")
+
+        # Now register webhook with Telegram
+        try:
+            await bot.set_webhook(
+                url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
+                secret_token=WEBHOOK_SECRET or None,
+                drop_pending_updates=False,
+            )
+            logger.info("✅ Webhook registered with Telegram")
+        except Exception as e:
+            logger.error(f"❌ Failed to set webhook: {e}")
+
+        logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
 
         # Keep running until shutdown signal
         stop_event = asyncio.Event()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, stop_event.set)
         await stop_event.wait()
 
         # Graceful shutdown
-        await bot.delete_webhook()
+        try:
+            await bot.delete_webhook()
+        except Exception:
+            pass
         await runner.cleanup()
     else:
         # ═══ Polling mode (local development) ═══
