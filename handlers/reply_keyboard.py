@@ -38,15 +38,18 @@ async def on_reply_keyboard_press(message: Message, state: FSMContext):
     if dispatcher and dispatcher.is_sm_active:
         try:
             await state.clear()
-            await dispatcher.route_command(command, intern)
+            routed = await dispatcher.route_command(command, intern)
+            if routed:
+                return
         except Exception as e:
             logger.error(f"[ReplyKB] Error routing '{message.text}' -> /{command}: {e}")
             lang = intern.get('language', 'ru') or 'ru'
             from i18n import t
             await message.answer(t('errors.processing_error', lang))
-    else:
-        # Fallback: try calling handler directly for non-SM commands
-        await _fallback_route(message, state, command, intern)
+            return
+
+    # Fallback: try calling handler directly for non-SM commands
+    await _fallback_route(message, state, command, intern)
 
 
 async def _fallback_route(message: Message, state: FSMContext, command: str, intern: dict):
