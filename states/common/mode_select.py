@@ -13,7 +13,7 @@ from typing import Optional
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from states.base import BaseState
-from core.tier_ui import build_reply_keyboard
+from core.tier_ui import build_reply_keyboard, sync_menu_commands
 from core.tier_detector import detect_ui_tier
 from i18n import t, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
@@ -63,11 +63,12 @@ class ModeSelectState(BaseState):
 
         user_dict = self._user_dict(user)
 
-        # Tier-based ReplyKeyboard (WP-52 v4)
+        # Tier-based ReplyKeyboard + Menu ☰ sync (WP-52 v4)
         tier = detect_ui_tier(user_dict)
         keyboard = build_reply_keyboard(tier, lang)
 
         await self.send(user, "👋", reply_markup=keyboard)
+        await sync_menu_commands(self.bot, user_dict['chat_id'], tier, lang)
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""

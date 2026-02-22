@@ -50,11 +50,14 @@ async def on_reply_keyboard_press(message: Message, state: FSMContext):
 
 
 async def _fallback_route(message: Message, state: FSMContext, command: str, intern: dict):
-    """Fallback routing for commands not in State Machine (e.g. /progress)."""
+    """Fallback routing for commands not in State Machine (e.g. /progress, /settings)."""
     try:
         if command == 'progress':
             from handlers.progress import cmd_progress
             await cmd_progress(message, state)
+        elif command == 'settings':
+            from handlers.commands import cmd_settings
+            await cmd_settings(message, state)
         else:
             lang = intern.get('language', 'ru') or 'ru'
             from i18n import t

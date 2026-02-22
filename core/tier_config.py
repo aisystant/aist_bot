@@ -32,6 +32,7 @@ KB_LABELS = {
     'profile_dt': {'ru': '🤖 Профиль',   'en': '🤖 Profile',   'es': '🤖 Perfil',   'fr': '🤖 Profil',   'zh': '🤖 档案'},
     'plans':      {'ru': '📋 Мой план',  'en': '📋 My plan',   'es': '📋 Mi plan',  'fr': '📋 Mon plan', 'zh': '📋 我的计划'},
     'notes':      {'ru': '📝 Заметки',   'en': '📝 Notes',     'es': '📝 Notas',    'fr': '📝 Notes',    'zh': '📝 笔记'},
+    'settings':   {'ru': '⚙️',           'en': '⚙️',            'es': '⚙️',           'fr': '⚙️',          'zh': '⚙️'},
 }
 
 # Service key → slash command name (for routing)
@@ -44,6 +45,7 @@ SERVICE_TO_COMMAND = {
     'profile_dt': 'profile',
     'plans': 'plan',
     'notes': 'notes',
+    'settings': 'settings',
 }
 
 
@@ -53,11 +55,11 @@ SERVICE_TO_COMMAND = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_KEYBOARD = {
-    UITier.T1_START:           [['marathon', 'test'],  ['progress', 'profile']],
-    UITier.T2_LEARNING:        [['feed',     'test'],  ['progress', 'profile']],
-    UITier.T3_PERSONALIZATION: [['feed',     'test'],  ['progress', 'profile_dt']],
-    UITier.T4_CREATION:        [['plans',    'notes'], ['feed',     'profile_dt']],
-    UITier.T5_ADMIN:           [['plans',    'notes'], ['feed',     'profile_dt']],
+    UITier.T1_START:           [['marathon', 'test'],     ['progress', 'settings']],
+    UITier.T2_LEARNING:        [['feed',     'marathon'], ['progress', 'settings']],
+    UITier.T3_PERSONALIZATION: [['feed',     'test'],     ['progress', 'settings']],
+    UITier.T4_CREATION:        [['plans',    'notes'],    ['feed',     'settings']],
+    UITier.T5_ADMIN:           [['plans',    'notes'],    ['feed',     'settings']],
 }
 
 

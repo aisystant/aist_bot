@@ -177,85 +177,42 @@ async def main():
     # 3. Fallback (catch-all) — ПОСЛЕДНИМ
     setup_fallback(dp)
 
-    # Установка команд бота для разных языков
-    # Русский (по умолчанию)
+    # Global fallback commands (T1 level — per-user tier menus set via sync_menu_commands)
+    # WP-52: Global = minimal T1 fallback; per-user BotCommandScopeChat overrides this
     await bot.set_my_commands([
-        BotCommand(command="mode", description="Главное меню"),
         BotCommand(command="learn", description="Марафон — получить урок"),
-        BotCommand(command="feed", description="Лента — получить дайджест"),
-        BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="test", description="Тест систематичности"),
+        BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="profile", description="Мой профиль"),
-        BotCommand(command="mydata", description="Мои данные"),
-        BotCommand(command="feedback", description="Обратная связь"),
         BotCommand(command="help", description="Справка"),
-        BotCommand(command="settings", description="Настройки"),
-        BotCommand(command="club", description="Публикация в клуб"),
-        BotCommand(command="language", description="🌐 Language / Сменить язык"),
     ])
-
-    # Английский
     await bot.set_my_commands([
-        BotCommand(command="mode", description="Main menu"),
         BotCommand(command="learn", description="Marathon — get a lesson"),
-        BotCommand(command="feed", description="Feed — get a digest"),
-        BotCommand(command="progress", description="My progress"),
         BotCommand(command="test", description="Systematicity test"),
+        BotCommand(command="progress", description="My progress"),
         BotCommand(command="profile", description="My profile"),
-        BotCommand(command="mydata", description="My data"),
-        BotCommand(command="feedback", description="Feedback"),
         BotCommand(command="help", description="Help"),
-        BotCommand(command="settings", description="Settings"),
-        BotCommand(command="club", description="Publish to club"),
-        BotCommand(command="language", description="🌐 Change language"),
     ], language_code="en")
-
-    # Испанский
     await bot.set_my_commands([
-        BotCommand(command="mode", description="Menú principal"),
         BotCommand(command="learn", description="Maratón — obtener lección"),
-        BotCommand(command="feed", description="Feed — obtener resumen"),
-        BotCommand(command="progress", description="Mi progreso"),
         BotCommand(command="test", description="Test de sistematicidad"),
+        BotCommand(command="progress", description="Mi progreso"),
         BotCommand(command="profile", description="Mi perfil"),
-        BotCommand(command="mydata", description="Mis datos"),
-        BotCommand(command="feedback", description="Comentarios"),
         BotCommand(command="help", description="Ayuda"),
-        BotCommand(command="settings", description="Ajustes"),
-        BotCommand(command="club", description="Publicar en el club"),
-        BotCommand(command="language", description="🌐 Cambiar idioma"),
     ], language_code="es")
-
-    # Французский
     await bot.set_my_commands([
-        BotCommand(command="mode", description="Menu principal"),
         BotCommand(command="learn", description="Marathon — obtenir une leçon"),
-        BotCommand(command="feed", description="Fil — obtenir un résumé"),
-        BotCommand(command="progress", description="Mon progrès"),
         BotCommand(command="test", description="Test de systématicité"),
+        BotCommand(command="progress", description="Mon progrès"),
         BotCommand(command="profile", description="Mon profil"),
-        BotCommand(command="mydata", description="Mes données"),
-        BotCommand(command="feedback", description="Retour"),
         BotCommand(command="help", description="Aide"),
-        BotCommand(command="settings", description="Paramètres"),
-        BotCommand(command="club", description="Publier dans le club"),
-        BotCommand(command="language", description="🌐 Changer la langue"),
     ], language_code="fr")
-
-    # Китайский
     await bot.set_my_commands([
-        BotCommand(command="mode", description="主菜单"),
         BotCommand(command="learn", description="马拉松 — 获取课程"),
-        BotCommand(command="feed", description="信息流 — 获取摘要"),
-        BotCommand(command="progress", description="我的进度"),
         BotCommand(command="test", description="系统性测试"),
+        BotCommand(command="progress", description="我的进度"),
         BotCommand(command="profile", description="我的档案"),
-        BotCommand(command="mydata", description="我的数据"),
-        BotCommand(command="feedback", description="反馈"),
         BotCommand(command="help", description="帮助"),
-        BotCommand(command="settings", description="设置"),
-        BotCommand(command="club", description="发布到俱乐部"),
-        BotCommand(command="language", description="🌐 更改语言"),
     ], language_code="zh")
 
     # Команды разработчика (отдельное меню)

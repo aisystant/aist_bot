@@ -1508,10 +1508,9 @@ async def _smart_publisher_scan():
 
             # Auto-schedule: распределить по ближайшим слотам
             from datetime import timedelta
-            import pytz
+            from db.queries.users import moscow_now
 
-            msk = pytz.timezone("Europe/Moscow")
-            now_msk = datetime.now(msk)
+            now_msk = moscow_now()
 
             # Парсинг каденции
             day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
@@ -1534,7 +1533,7 @@ async def _smart_publisher_scan():
 
             for _ in range(max_check):
                 if check_date.weekday() in pub_days:
-                    slot_time = msk.localize(datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute)))
+                    slot_time = datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute))
                     slots.append(slot_time)
                     if len(slots) >= len(candidates):
                         break
