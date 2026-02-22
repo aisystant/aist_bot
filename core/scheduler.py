@@ -1535,26 +1535,56 @@ async def _smart_publisher_scan():
             except (ValueError, IndexError):
                 pass
 
-            # Найти ближайшие свободные слоты
+            # Разделить: итоги недели (тег "итоги-недели") vs обычные посты
+            weekly_reviews = [p for p in candidates if "итоги-недели" in (p.get("tags") or [])]
+            regular = [p for p in candidates if "итоги-недели" not in (p.get("tags") or [])]
+
+            from clients.github_content import strip_frontmatter
+            import json
+
+            scheduled_posts = []
+
+            # Weekly reviews → ближайший Пн 06:00 МСК
+            for wr in weekly_reviews:
+                wr_date = now_msk.date() + timedelta(days=1)
+                for _ in range(7):
+                    if wr_date.weekday() == 0:  # Monday
+                        break
+                    wr_date += timedelta(days=1)
+                slot_time = datetime.combine(wr_date, datetime.min.time().replace(hour=6, minute=0))
+                raw = strip_frontmatter(wr["content"])
+                tags_json = json.dumps(wr["tags"]) if isinstance(wr["tags"], list) else "[]"
+                await schedule_publication(
+                    chat_id=chat_id,
+                    title=wr["title"],
+                    raw=raw,
+                    category_id=category_id,
+                    schedule_time=slot_time,
+                    tags=tags_json,
+                    source_file=wr["path"],
+                )
+                scheduled_posts.append((wr["title"], slot_time))
+                logger.info(f"[Publisher] Auto-scheduled weekly review: {wr['title']!r} → {slot_time}")
+
+            # Regular → Вт-Вс (исключить Пн=0 из каденции)
+            regular_pub_days = [d for d in pub_days if d != 0]
+            if not regular_pub_days:
+                regular_pub_days = [1, 2, 3, 4, 5, 6]  # Вт-Вс
+
             scheduled_count = await get_scheduled_count(chat_id)
             slots = []
             check_date = now_msk.date() + timedelta(days=1)  # Начинаем с завтра
             max_check = 60  # Не дальше 60 дней
 
             for _ in range(max_check):
-                if check_date.weekday() in pub_days:
+                if check_date.weekday() in regular_pub_days:
                     slot_time = datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute))
                     slots.append(slot_time)
-                    if len(slots) >= len(candidates):
+                    if len(slots) >= len(regular):
                         break
                 check_date += timedelta(days=1)
 
-            # Запланировать
-            from clients.github_content import strip_frontmatter
-            import json
-
-            scheduled_posts = []
-            for post, slot in zip(candidates, slots):
+            for post, slot in zip(regular, slots):
                 raw = strip_frontmatter(post["content"])
                 tags_json = json.dumps(post["tags"]) if isinstance(post["tags"], list) else "[]"
                 await schedule_publication(
