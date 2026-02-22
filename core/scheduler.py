@@ -7,7 +7,7 @@
 import asyncio
 import logging
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from aiogram import Bot
@@ -99,10 +99,12 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='*/30')  # Discourse: scheduled posts
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='*/15')  # Discourse: comment polling
-    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=3, minute=0)  # Publisher: daily scan 06:00 MSK = 03:00 UTC
+    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=3, minute=0)  # Publisher: daily scan 03:00 MSK (scheduler timezone=MOSCOW_TZ)
+    # Startup scan: компенсация пропущенного cron при редеплое после 03:00 MSK
+    _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
     _scheduler.start()
 
-    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse)")
+    logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse + publisher startup scan)")
     return _scheduler
 
 
@@ -1402,7 +1404,7 @@ async def _discourse_scheduled_publish():
 
 
 async def _smart_publisher_scan():
-    """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (06:00 МСК).
+    """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (03:00 МСК).
 
     Цикл:
     1. Получить все discourse accounts
@@ -1413,6 +1415,7 @@ async def _smart_publisher_scan():
     """
     from clients.github_content import github_content, parse_frontmatter
     if not github_content:
+        logger.warning("[Publisher] Smart scan skipped: github_content is None (GITHUB_BOT_PAT or GITHUB_KNOWLEDGE_REPO not set)")
         return
 
     from db.queries.discourse import (
@@ -1427,6 +1430,7 @@ async def _smart_publisher_scan():
 
     accounts = await get_all_discourse_accounts()
     if not accounts:
+        logger.warning("[Publisher] Smart scan skipped: no discourse_accounts in DB")
         return
 
     # Scan index: получить все посты за текущий и прошлый год
@@ -1491,6 +1495,7 @@ async def _smart_publisher_scan():
                 candidates.append(post)
 
             if not candidates:
+                logger.info(f"[Publisher] No new candidates for chat_id={chat_id} (total posts={len(all_posts)}, published_files={len(published_files)}, published_titles={len(published_titles)}, scheduled_titles={len(scheduled_titles)})")
                 # Проверить queue watch
                 queue_count = await get_scheduled_count(chat_id)
                 if queue_count < PUBLISHER_MIN_QUEUE:
