@@ -533,13 +533,32 @@ async def github_callback_handler(request: web.Request) -> web.Response:
     )
 
 
-def create_oauth_app() -> web.Application:
-    """Создаёт aiohttp приложение для OAuth."""
+def create_oauth_app(dp=None, bot=None) -> web.Application:
+    """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
+
+    Args:
+        dp: aiogram Dispatcher (если передан, добавляет webhook handler)
+        bot: aiogram Bot instance
+    """
     app = web.Application()
     app.router.add_get("/health", health_handler)
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
     app.router.add_get("/auth/github/callback", github_callback_handler)
+
+    # Webhook route (WP-44: polling → webhooks)
+    if dp is not None and bot is not None:
+        from aiogram.webhook.aiohttp_server import SimpleRequestHandler
+        from config.settings import WEBHOOK_PATH, WEBHOOK_SECRET
+
+        webhook_handler = SimpleRequestHandler(
+            dispatcher=dp,
+            bot=bot,
+            secret_token=WEBHOOK_SECRET or None,
+        )
+        webhook_handler.register(app, path=WEBHOOK_PATH)
+        logger.info(f"Webhook handler registered at {WEBHOOK_PATH}")
+
     return app
 
 

@@ -12,12 +12,14 @@ GitHub: https://github.com/aisystant/aist_track_bot
 import asyncio
 import logging
 import os
+import signal
 import sys
 import warnings
 
 # Подавить Pydantic warning из aiogram (model_custom_emoji_id protected namespace)
 warnings.filterwarnings("ignore", message=".*model_custom_emoji_id.*protected namespace.*")
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeChat
 
@@ -240,36 +242,68 @@ async def main():
     from core.scheduler import init_scheduler
     init_scheduler(bot_dispatcher, dp, BOT_TOKEN)
 
-    # Запуск OAuth сервера (для Linear интеграции)
-    oauth_runner = None
-    try:
-        from oauth_server import start_oauth_server, set_bot_instance, stop_oauth_server
-        set_bot_instance(bot)
-        oauth_runner = await start_oauth_server()
-    except ImportError:
-        logger.warning("⚠️ oauth_server не найден, Linear интеграция отключена")
-    except Exception as e:
-        logger.error(f"⚠️ Ошибка запуска OAuth сервера: {e}")
+    # Запуск бота: webhook (prod) или polling (dev)
+    from config.settings import WEBHOOK_URL, WEBHOOK_SECRET, WEBHOOK_PATH, PORT
 
-    logger.info("🚀 Бот запущен с PostgreSQL!")
+    from oauth_server import set_bot_instance, create_oauth_app, start_oauth_server, stop_oauth_server
+    set_bot_instance(bot)
 
-    # Снимаем webhook/polling предыдущего инстанса (устраняет TelegramConflictError при редеплое)
-    await bot.delete_webhook(drop_pending_updates=False)
+    if WEBHOOK_URL:
+        # ═══ Webhook mode (production) ═══
+        logger.info(f"🌐 Webhook mode: {WEBHOOK_URL}{WEBHOOK_PATH} on port {PORT}")
 
-    try:
-        await dp.start_polling(bot)
-    finally:
-        # Закрываем singleton sessions (Claude + MCP)
-        from clients.claude import ClaudeClient
-        from clients.mcp import MCPClient
-        await ClaudeClient.close_session()
-        await MCPClient.close_session()
-        logger.info("🔒 HTTP sessions закрыты")
+        app = create_oauth_app(dp=dp, bot=bot)
 
-        from core.error_handler import shutdown_error_handler
-        await shutdown_error_handler()
-        if oauth_runner:
-            await stop_oauth_server(oauth_runner)
+        await bot.set_webhook(
+            url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
+            secret_token=WEBHOOK_SECRET or None,
+            drop_pending_updates=False,
+        )
+        logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+
+        # Keep running until shutdown signal
+        stop_event = asyncio.Event()
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop_event.set)
+        await stop_event.wait()
+
+        # Graceful shutdown
+        await bot.delete_webhook()
+        await runner.cleanup()
+    else:
+        # ═══ Polling mode (local development) ═══
+        logger.info("📡 Polling mode (no WEBHOOK_URL set)")
+
+        oauth_runner = None
+        try:
+            oauth_runner = await start_oauth_server()
+        except Exception as e:
+            logger.error(f"⚠️ Ошибка запуска OAuth сервера: {e}")
+
+        await bot.delete_webhook(drop_pending_updates=False)
+        logger.info("🚀 Бот запущен (polling) с PostgreSQL!")
+
+        try:
+            await dp.start_polling(bot)
+        finally:
+            if oauth_runner:
+                await stop_oauth_server(oauth_runner)
+
+    # Cleanup (both modes)
+    from clients.claude import ClaudeClient
+    from clients.mcp import MCPClient
+    await ClaudeClient.close_session()
+    await MCPClient.close_session()
+    logger.info("🔒 HTTP sessions закрыты")
+
+    from core.error_handler import shutdown_error_handler
+    await shutdown_error_handler()
 
 if __name__ == "__main__":
     asyncio.run(main())

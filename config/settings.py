@@ -26,7 +26,13 @@ DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-m
 LINEAR_CLIENT_ID = os.getenv("LINEAR_CLIENT_ID")
 LINEAR_CLIENT_SECRET = os.getenv("LINEAR_CLIENT_SECRET")
 LINEAR_REDIRECT_URI = os.getenv("LINEAR_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/linear/callback")
-OAUTH_SERVER_PORT = int(os.getenv("OAUTH_SERVER_PORT", "8080"))
+PORT = int(os.getenv("PORT", os.getenv("OAUTH_SERVER_PORT", "8080")))
+OAUTH_SERVER_PORT = PORT  # backwards compat
+
+# ============= WEBHOOK (WP-44) =============
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://xxx.up.railway.app (empty = polling mode)
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+WEBHOOK_PATH = "/telegram"
 
 # ============= GITHUB OAUTH =============
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
