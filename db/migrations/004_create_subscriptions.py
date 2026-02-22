@@ -81,7 +81,7 @@ async def migrate():
             print("Колонка trial_started_at добавлена")
 
         # --- Backfill: trial_started_at для существующих пользователей ---
-        # Все зарегистрированные до запуска получают триал с даты запуска (23 фев)
+        # Все зарегистрированные до запуска получают триал с даты запуска (1 мар)
         from config.settings import SUBSCRIPTION_LAUNCH_DATE
         updated = await conn.execute('''
             UPDATE interns

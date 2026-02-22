@@ -342,7 +342,7 @@ ONTOLOGY_RULES_TOPICS = """
 from datetime import date as _date
 
 # Дата запуска подписки (week 0)
-SUBSCRIPTION_LAUNCH_DATE = _date(2026, 2, 23)
+SUBSCRIPTION_LAUNCH_DATE = _date(2026, 3, 1)
 
 # Ценообразование
 SUBSCRIPTION_BASE_PRICE = 50       # Stars на старте

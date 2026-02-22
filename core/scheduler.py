@@ -722,7 +722,7 @@ async def scheduled_check():
         except (ValueError, Exception) as e:
             logger.error(f"[Scheduler] Feedback digest error: {e}")
 
-    # 🚀 Launch day notification (23 фев, 10:00 MSK — одноразово)
+    # 🚀 Launch day notification (1 мар, 10:00 MSK — одноразово)
     from config.settings import SUBSCRIPTION_LAUNCH_DATE
     if (now.date() == SUBSCRIPTION_LAUNCH_DATE
             and now.hour == 10 and now.minute == 0):
