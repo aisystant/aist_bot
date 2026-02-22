@@ -7,9 +7,9 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "149939a5d8857b1b66ace8887bd1aafe448da45ef72f380a228a971844884cf1"
-  synced_at: "2026-02-20T00:07:50Z"
-  generator: "DS-synchronizer/scripts/pack-project.sh"
+  source_hash: "f96217a6344325e6ca7d1ee653366b69e2ec6caf0017027cee5404587d261369"
+  synced_at: "2026-02-22T01:01:01Z"
+  generator: "DS-ai-systems/synchronizer/scripts/pack-project.sh"
 
 identity: |
   
