@@ -210,17 +210,26 @@ async def get_all_published_titles_lower(chat_id: int) -> set[str]:
 
 
 async def get_all_scheduled_source_files(chat_id: int) -> set[str]:
-    """Множество source_file запланированных постов."""
+    """Множество source_file запланированных постов (для reconciliation)."""
     pool = await get_pool()
     rows = await pool.fetch(
         """
-        SELECT sp.title FROM scheduled_publications sp
-        WHERE sp.chat_id = $1 AND sp.status = 'pending'
+        SELECT sp.source_file FROM scheduled_publications sp
+        WHERE sp.chat_id = $1 AND sp.status = 'pending' AND sp.source_file IS NOT NULL
         """,
         chat_id,
     )
-    # scheduled_publications не имеет source_file, сравниваем по title
-    return {r["title"].lower() for r in rows}
+    return {r["source_file"] for r in rows}
+
+
+async def get_all_scheduled_titles_lower(chat_id: int) -> set[str]:
+    """Множество title (lowercase) запланированных постов (для reconciliation по title)."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT lower(title) as t FROM scheduled_publications WHERE chat_id = $1 AND status = 'pending'",
+        chat_id,
+    )
+    return {r["t"] for r in rows}
 
 
 async def get_scheduled_count(chat_id: int) -> int:
@@ -272,3 +281,76 @@ async def reschedule_publication(pub_id: int, new_time: datetime) -> None:
         "UPDATE scheduled_publications SET schedule_time = $2 WHERE id = $1 AND status = 'pending'",
         pub_id, new_time,
     )
+
+
+async def reschedule_all_pending(
+    chat_id: int, pub_days: list[int], hour: int, minute: int,
+) -> tuple[list[tuple[str, datetime]], int]:
+    """Перераспределить все pending посты по новому расписанию.
+
+    Удаляет дубли (по source_file), перераспределяет по слотам.
+    Returns (list of (title, new_schedule_time), removed_duplicates_count).
+    """
+    from datetime import timedelta
+    from db.queries.users import moscow_now
+
+    pool = await get_pool()
+
+    rows = await pool.fetch(
+        """
+        SELECT id, title, source_file, schedule_time
+        FROM scheduled_publications
+        WHERE chat_id = $1 AND status = 'pending'
+        ORDER BY schedule_time
+        """,
+        chat_id,
+    )
+    if not rows:
+        return [], 0
+
+    # Dedup by source_file (keep first occurrence)
+    seen_files: set[str] = set()
+    unique_posts = []
+    duplicate_ids = []
+    for r in rows:
+        sf = r["source_file"]
+        if sf and sf in seen_files:
+            duplicate_ids.append(r["id"])
+        else:
+            if sf:
+                seen_files.add(sf)
+            unique_posts.append(r)
+
+    # Delete duplicates
+    if duplicate_ids:
+        await pool.execute(
+            "DELETE FROM scheduled_publications WHERE id = ANY($1::int[])",
+            duplicate_ids,
+        )
+
+    # Generate new slots starting from tomorrow
+    now_msk = moscow_now()
+    slots: list[datetime] = []
+    check_date = now_msk.date() + timedelta(days=1)
+
+    for _ in range(60):
+        if check_date.weekday() in pub_days:
+            slot_time = datetime.combine(
+                check_date,
+                datetime.min.time().replace(hour=hour, minute=minute),
+            )
+            slots.append(slot_time)
+            if len(slots) >= len(unique_posts):
+                break
+        check_date += timedelta(days=1)
+
+    # Update schedule_time for each post
+    result = []
+    for post, slot in zip(unique_posts, slots):
+        await pool.execute(
+            "UPDATE scheduled_publications SET schedule_time = $2 WHERE id = $1",
+            post["id"], slot,
+        )
+        result.append((post["title"], slot))
+
+    return result, len(duplicate_ids)

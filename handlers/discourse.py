@@ -42,6 +42,8 @@ from db.queries.discourse import (
     get_all_published_source_files,
     get_all_published_titles_lower,
     get_all_scheduled_source_files,
+    get_all_scheduled_titles_lower,
+    reschedule_all_pending,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,6 +196,32 @@ async def cmd_club(message: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"show_publish_options error: {e}")
             await message.answer(f"Ошибка загрузки постов: {e}")
+        return
+
+    # /club reschedule — перераспределить pending посты по текущему каденсу
+    if subcommand == "reschedule":
+        if not account:
+            await message.answer("Аккаунт клуба не привязан. /club connect")
+            return
+        from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME
+        day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+        pub_days = [day_map[d.strip()] for d in PUBLISHER_DAYS.split(",") if d.strip() in day_map]
+        if not pub_days:
+            pub_days = list(range(7))
+        hour, minute = 10, 0
+        try:
+            parts = PUBLISHER_TIME.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            pass
+        result, dupes = await reschedule_all_pending(telegram_user_id, pub_days, hour, minute)
+        if not result:
+            await message.answer("Нет постов для перепланировки.")
+            return
+        lines = [f"Перепланировано {len(result)} постов (удалено дублей: {dupes}):\n"]
+        for title, slot in result:
+            lines.append(f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}")
+        await message.answer("\n".join(lines))
         return
 
     # /club posts
@@ -701,7 +729,8 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
     try:
         published_files = await get_all_published_source_files(chat_id)
         published_titles = await get_all_published_titles_lower(chat_id)
-        scheduled_titles = await get_all_scheduled_source_files(chat_id)
+        scheduled_files = await get_all_scheduled_source_files(chat_id)
+        scheduled_titles = await get_all_scheduled_titles_lower(chat_id)
 
         current_year = datetime.now().year
         candidates = []
@@ -726,6 +755,8 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
                 if f["path"] in published_files:
                     continue
                 if title.lower() in published_titles:
+                    continue
+                if f["path"] in scheduled_files:
                     continue
                 if title.lower() in scheduled_titles:
                     continue

@@ -1423,6 +1423,7 @@ async def _smart_publisher_scan():
         get_all_published_source_files,
         get_all_published_titles_lower,
         get_all_scheduled_source_files,
+        get_all_scheduled_titles_lower,
         get_scheduled_count,
         schedule_publication,
     )
@@ -1473,10 +1474,11 @@ async def _smart_publisher_scan():
             if not category_id:
                 continue
 
-            # Reconciliation
+            # Reconciliation: dedup by source_file AND title
             published_files = await get_all_published_source_files(chat_id)
             published_titles = await get_all_published_titles_lower(chat_id)
-            scheduled_titles = await get_all_scheduled_source_files(chat_id)
+            scheduled_files = await get_all_scheduled_source_files(chat_id)
+            scheduled_titles = await get_all_scheduled_titles_lower(chat_id)
 
             # Найти ready+club посты, которые ещё не опубликованы и не запланированы
             candidates = []
@@ -1489,6 +1491,8 @@ async def _smart_publisher_scan():
                 if post["path"] in published_files:
                     continue
                 if title_lower in published_titles:
+                    continue
+                if post["path"] in scheduled_files:
                     continue
                 if title_lower in scheduled_titles:
                     continue
