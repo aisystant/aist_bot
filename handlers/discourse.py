@@ -248,7 +248,10 @@ async def cmd_club(message: Message, state: FSMContext):
         queue = await get_scheduled_count(telegram_user_id)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Опубликовать", callback_data="club_publish_start")],
-            [InlineKeyboardButton(text=f"Расписание ({queue})", callback_data="club_schedule")],
+            [
+                InlineKeyboardButton(text=f"Расписание ({queue})", callback_data="club_schedule"),
+                InlineKeyboardButton(text="Перепланировать", callback_data="club_reschedule"),
+            ],
             [
                 InlineKeyboardButton(text="Мои публикации", callback_data="club_posts"),
                 InlineKeyboardButton(text="Отвязать", callback_data="club_disconnect"),
@@ -686,6 +689,31 @@ async def on_schedule_cancel_item(callback: CallbackQuery):
     await _show_schedule(callback.message, callback.from_user.id)
 
 
+@discourse_router.callback_query(lambda c: c.data == "club_reschedule")
+async def on_club_reschedule(callback: CallbackQuery):
+    """Перепланировать все pending посты по текущему каденсу (из кнопки)."""
+    await callback.answer()
+    from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME
+    day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+    pub_days = [day_map[d.strip()] for d in PUBLISHER_DAYS.split(",") if d.strip() in day_map]
+    if not pub_days:
+        pub_days = list(range(7))
+    hour, minute = 10, 0
+    try:
+        parts = PUBLISHER_TIME.split(":")
+        hour, minute = int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        pass
+    result, dupes = await reschedule_all_pending(callback.from_user.id, pub_days, hour, minute)
+    if not result:
+        await callback.message.answer("Нет постов для перепланировки.")
+        return
+    lines = [f"Перепланировано {len(result)} постов (удалено дублей: {dupes}):\n"]
+    for title, slot in result:
+        lines.append(f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}")
+    await callback.message.answer("\n".join(lines))
+
+
 @discourse_router.callback_query(lambda c: c.data == "club_main")
 async def on_club_main(callback: CallbackQuery):
     """Вернуться в главное меню /club."""
@@ -701,7 +729,10 @@ async def on_club_main(callback: CallbackQuery):
     cat_id = account.get("blog_category_id") or "?"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Опубликовать", callback_data="club_publish_start")],
-        [InlineKeyboardButton(text=f"Расписание ({queue})", callback_data="club_schedule")],
+        [
+            InlineKeyboardButton(text=f"Расписание ({queue})", callback_data="club_schedule"),
+            InlineKeyboardButton(text="Перепланировать", callback_data="club_reschedule"),
+        ],
         [
             InlineKeyboardButton(text="Мои публикации", callback_data="club_posts"),
             InlineKeyboardButton(text="Отвязать", callback_data="club_disconnect"),
