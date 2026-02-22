@@ -157,7 +157,7 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'intro_instruction': "Напиши краткое вдохновляющее введение к заданию (2-3 предложения).",
             'task_instruction': "Переведи и адаптируй задание под профиль стажера.",
             'wp_instruction': "Сформулируй рабочий продукт. РП начинается с существительного, обозначающего ДОКУМЕНТ, ВЕЩЬ или СИСТЕМУ В ОПРЕДЕЛЁННОМ СОСТОЯНИИ (чек-лист, схема, таблица, текст, пост, описание, план, набор, реестр, система с настроенным X, бот с реализованной функцией Y). ЗАПРЕЩЕНО начинать с отглагольных существительных-процессов (анализ, исследование, обзор, диагностика, сравнение). Тест: можно ли это увидеть/передать/показать?",
-            'examples_instruction': "Приведи 2-3 примера хороших рабочих продуктов.",
+            'examples_instruction': "Приведи 2-3 примера РАЗНЫХ по содержанию рабочих продуктов. Каждый пример — это конкретный результат (текст, таблица, список, схема), а НЕ «слот» или запись в трекере. Примеры должны отличаться друг от друга по ситуации и форме. ЗАПРЕЩЕНО повторять одну и ту же структуру (например, 3 одинаковых шаблона подряд).",
             'error_generation': "Не удалось сгенерировать задание. Попробуйте ещё раз.",
         },
         'en': {
@@ -167,8 +167,8 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'examples_header': "EXAMPLES",
             'intro_instruction': "Write a brief inspiring introduction to the task (2-3 sentences).",
             'task_instruction': "Translate and adapt the task to the student's profile.",
-            'wp_instruction': "Describe the expected work product.",
-            'examples_instruction': "Provide 2-3 examples of good work products.",
+            'wp_instruction': "Describe the expected work product. It must start with a noun denoting a DOCUMENT, THING, or SYSTEM IN A STATE (checklist, diagram, table, text, post, plan, set, registry). NEVER start with process-nouns (analysis, research, review, comparison). Test: can you see/hand over/show it?",
+            'examples_instruction': "Provide 2-3 examples of DIFFERENT work products. Each example is a concrete result (text, table, list, diagram), NOT a 'slot' or tracker entry. Examples must differ from each other in situation and form. NEVER repeat the same template structure across examples.",
             'error_generation': "Failed to generate the task. Please try again.",
         },
         'es': {
@@ -178,8 +178,8 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'examples_header': "EJEMPLOS",
             'intro_instruction': "Escribe una breve introducción inspiradora a la tarea (2-3 oraciones).",
             'task_instruction': "Traduce y adapta la tarea al perfil del estudiante.",
-            'wp_instruction': "Describe el producto de trabajo esperado.",
-            'examples_instruction': "Proporciona 2-3 ejemplos de buenos productos de trabajo.",
+            'wp_instruction': "Describe el producto de trabajo esperado. Debe empezar con un sustantivo que denote DOCUMENTO, COSA o SISTEMA EN UN ESTADO (lista, diagrama, tabla, texto, plan, registro). NUNCA usar sustantivos de proceso (análisis, investigación, revisión). Prueba: ¿se puede ver/entregar/mostrar?",
+            'examples_instruction': "Proporciona 2-3 ejemplos de productos de trabajo DIFERENTES. Cada ejemplo es un resultado concreto (texto, tabla, lista, esquema), NO una 'entrada' o registro en un rastreador. Los ejemplos deben diferir entre sí en situación y forma. NUNCA repetir la misma estructura de plantilla.",
             'error_generation': "No se pudo generar la tarea. Por favor, inténtelo de nuevo.",
         },
         'fr': {
@@ -189,8 +189,8 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'examples_header': "EXEMPLES",
             'intro_instruction': "Écris une brève introduction inspirante à la tâche (2-3 phrases).",
             'task_instruction': "Traduis et adapte la tâche au profil de l'étudiant.",
-            'wp_instruction': "Décris le produit de travail attendu.",
-            'examples_instruction': "Fournis 2-3 exemples de bons produits de travail.",
+            'wp_instruction': "Décris le produit de travail attendu. Il doit commencer par un nom désignant un DOCUMENT, OBJET ou SYSTÈME DANS UN ÉTAT (liste, schéma, tableau, texte, plan, registre). JAMAIS de noms de processus (analyse, recherche, revue). Test : peut-on le voir/transmettre/montrer ?",
+            'examples_instruction': "Fournis 2-3 exemples de produits de travail DIFFÉRENTS. Chaque exemple est un résultat concret (texte, tableau, liste, schéma), PAS une 'entrée' ou un enregistrement dans un suivi. Les exemples doivent différer en situation et en forme. JAMAIS répéter la même structure de modèle.",
             'error_generation': "Échec de la génération de la tâche. Veuillez réessayer.",
         },
         'zh': {
@@ -200,8 +200,8 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'examples_header': "示例",
             'intro_instruction': "写一段简短的任务介绍（2-3句话）。",
             'task_instruction': "根据学员的个人资料翻译并调整任务。",
-            'wp_instruction': "描述预期的工作成果。",
-            'examples_instruction': "提供2-3个优秀工作成果的示例。",
+            'wp_instruction': "描述预期的工作成果。必须以表示文档、物品或系统状态的名词开头（清单、图表、表格、文本、计划、登记册）。禁止使用过程名词（分析、研究、审查）。测试：能否看到/交付/展示？",
+            'examples_instruction': "提供2-3个不同的工作成果示例。每个示例是具体的结果（文本、表格、清单、图表），而不是"时间段"或跟踪记录。示例之间在情境和形式上必须不同。禁止重复相同的模板结构。",
             'error_generation': "无法生成任务。请重试。",
         }
     }
