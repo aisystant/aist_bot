@@ -31,8 +31,19 @@ OAUTH_SERVER_PORT = PORT  # backwards compat
 
 # ============= WEBHOOK (WP-44) =============
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://xxx.up.railway.app (empty = polling mode)
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 WEBHOOK_PATH = "/telegram"
+
+# Webhook secret: Telegram allows only A-Za-z0-9_- (1-256 chars)
+# Auto-generate from BOT_TOKEN hash if not set — deterministic, always valid
+import hashlib as _hashlib
+import re as _re
+_raw_webhook_secret = os.getenv("WEBHOOK_SECRET", "")
+if _raw_webhook_secret:
+    # Sanitize user-provided secret
+    WEBHOOK_SECRET = _re.sub(r'[^A-Za-z0-9_\-]', '', _raw_webhook_secret) or None
+else:
+    # Auto-generate: sha256(bot_token)[:48] — hex chars, always valid
+    WEBHOOK_SECRET = _hashlib.sha256((BOT_TOKEN or "").encode()).hexdigest()[:48] if BOT_TOKEN else None
 
 # ============= GITHUB OAUTH =============
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")

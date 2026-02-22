@@ -551,15 +551,11 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
         try:
             from aiogram.webhook.aiohttp_server import SimpleRequestHandler
             from config.settings import WEBHOOK_PATH, WEBHOOK_SECRET
-            import re
-
-            # Sanitize: Telegram allows only A-Za-z0-9_- in secret_token
-            clean_secret = re.sub(r'[^A-Za-z0-9_\-]', '', WEBHOOK_SECRET) if WEBHOOK_SECRET else None
 
             webhook_handler = SimpleRequestHandler(
                 dispatcher=dp,
                 bot=bot,
-                secret_token=clean_secret or None,
+                secret_token=WEBHOOK_SECRET,
             )
             webhook_handler.register(app, path=WEBHOOK_PATH)
             logger.info(f"Webhook handler registered at {WEBHOOK_PATH}")

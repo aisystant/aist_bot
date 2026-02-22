@@ -261,24 +261,28 @@ async def main():
         await site.start()
         logger.info(f"✅ Web server listening on port {PORT}")
 
-        # Sanitize webhook secret: Telegram allows only A-Za-z0-9_-
-        import re
-        clean_secret = re.sub(r'[^A-Za-z0-9_\-]', '', WEBHOOK_SECRET) if WEBHOOK_SECRET else None
-        if WEBHOOK_SECRET and clean_secret != WEBHOOK_SECRET:
-            logger.warning(f"⚠️ WEBHOOK_SECRET sanitized: removed {len(WEBHOOK_SECRET) - len(clean_secret)} invalid chars")
-
-        # Now register webhook with Telegram
+        # Register webhook with Telegram (secret already sanitized/generated in settings.py)
         webhook_ok = False
         try:
             await bot.set_webhook(
                 url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
-                secret_token=clean_secret or None,
+                secret_token=WEBHOOK_SECRET,
                 drop_pending_updates=False,
             )
-            logger.info("✅ Webhook registered with Telegram")
+            logger.info(f"✅ Webhook registered (secret={'set' if WEBHOOK_SECRET else 'none'})")
             webhook_ok = True
         except Exception as e:
             logger.error(f"❌ Failed to set webhook: {e}")
+            # Log to error_logs for persistent diagnostics
+            try:
+                from core.error_logger import log_error
+                await log_error(
+                    error_type="webhook_registration",
+                    message=str(e),
+                    context={"url": WEBHOOK_URL, "has_secret": bool(WEBHOOK_SECRET)},
+                )
+            except Exception:
+                pass
 
         if webhook_ok:
             logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
