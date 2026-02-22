@@ -94,8 +94,8 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _bot_token = bot_token
 
     _scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
-    _scheduler.add_job(scheduled_check, 'cron', minute='*')
-    _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*')  # Pre-gen за 3ч до доставки
+    _scheduler.add_job(scheduled_check, 'cron', minute='*', max_instances=2)
+    _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*', max_instances=2)  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='*/30')  # Discourse: scheduled posts
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='*/15')  # Discourse: comment polling

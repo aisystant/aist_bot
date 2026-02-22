@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 github_router = Router(name="github")
 
-# Ожидание пересылки после ".": user_id -> timestamp (TTL 60 сек)
+# Ожидание пересылки после ".": user_id -> timestamp (TTL 10 сек)
 _pending_forwards: dict[int, float] = {}
+_FORWARD_TTL_SECONDS = 10
 
 
 def _lang(intern) -> str:
@@ -282,7 +283,12 @@ async def handle_fleeting_note(message: Message):
         await message.answer(t('github.note_error', lang))
 
 
-@github_router.message(F.forward_date)
+def _is_forwarded(message: Message) -> bool:
+    """Check if message is forwarded (supports both old and new Bot API)."""
+    return bool(message.forward_origin or message.forward_date)
+
+
+@github_router.message(_is_forwarded)
 async def handle_forwarded_message(message: Message):
     """Обработка пересланных сообщений → заметки."""
     from clients.github_oauth import github_oauth
@@ -291,7 +297,7 @@ async def handle_forwarded_message(message: Message):
     telegram_user_id = message.chat.id
 
     pending_time = _pending_forwards.get(telegram_user_id)
-    if not pending_time or (time.time() - pending_time) > 3:
+    if not pending_time or (time.time() - pending_time) > _FORWARD_TTL_SECONDS:
         return
 
     del _pending_forwards[telegram_user_id]
@@ -322,10 +328,23 @@ def _extract_message_text(message: Message, lang: str = 'ru') -> str:
     """Извлекает текст из сообщения (обычного или пересланного)."""
     parts = []
 
-    if message.forward_from:
-        parts.append(t('github.from_user', lang, name=message.forward_from.full_name))
+    # Sender attribution: new API (forward_origin) → deprecated fields fallback
+    sender_name = None
+    if message.forward_origin:
+        origin = message.forward_origin
+        if hasattr(origin, 'sender_user') and origin.sender_user:
+            sender_name = origin.sender_user.full_name
+        elif hasattr(origin, 'sender_user_name') and origin.sender_user_name:
+            sender_name = origin.sender_user_name
+        elif hasattr(origin, 'chat') and origin.chat:
+            sender_name = origin.chat.title or origin.chat.full_name
+    elif message.forward_from:
+        sender_name = message.forward_from.full_name
     elif message.forward_sender_name:
-        parts.append(t('github.from_user', lang, name=message.forward_sender_name))
+        sender_name = message.forward_sender_name
+
+    if sender_name:
+        parts.append(t('github.from_user', lang, name=sender_name))
 
     if message.text:
         parts.append(message.text)
