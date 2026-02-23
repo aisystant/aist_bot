@@ -882,6 +882,13 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Session cleanup error: {e}")
 
+    # 🔄 Catch-up: пропущенные доставки марафона (каждые 30 мин)
+    if now.minute % 30 == 0:
+        try:
+            await _catch_up_missed_deliveries()
+        except Exception as e:
+            logger.error(f"[Scheduler] Catch-up delivery error: {e}")
+
     # 🔧 Unstick: проверяем застрявших пользователей каждые 5 минут
     if now.minute % 5 == 0:
         try:
@@ -908,6 +915,63 @@ async def scheduled_check():
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()
+
+
+# ═══════════════════════════════════════════════════════════
+# CATCH-UP: ПРОПУЩЕННЫЕ ДОСТАВКИ
+# ═══════════════════════════════════════════════════════════
+
+async def _catch_up_missed_deliveries():
+    """Компенсирующая доставка: найти пользователей, чьё время уже прошло,
+    но marathon_content за сегодня нет → перезапустить доставку.
+
+    Запускается каждые 30 минут. Покрывает случаи:
+    - Редеплой Railway (потеря cron-джобов)
+    - Таймаут Claude API при пре-генерации + исчерпание retry
+    """
+    from db.connection import get_pool
+
+    now = moscow_now()
+    time_str = f"{now.hour:02d}:{now.minute:02d}"
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        missed = await conn.fetch('''
+            SELECT i.chat_id
+            FROM interns i
+            WHERE i.marathon_status = 'active'
+              AND i.onboarding_completed = TRUE
+              AND i.schedule_time IS NOT NULL
+              AND i.schedule_time <= $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM marathon_content mc
+                  WHERE mc.chat_id = i.chat_id
+                    AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+              )
+        ''', time_str)
+
+    if not missed:
+        return
+
+    logger.warning(f"[Scheduler] Catch-up: {len(missed)} missed marathon deliveries, re-triggering")
+
+    bot = Bot(token=_bot_token)
+    sem = asyncio.Semaphore(10)
+
+    async def _deliver_one(chat_id: int):
+        async with sem:
+            try:
+                await send_scheduled_topic(chat_id, bot)
+                logger.info(f"[Scheduler] Catch-up delivered to {chat_id}")
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                    logger.error(f"[Scheduler] Catch-up failed for {chat_id}: {e}")
+
+    try:
+        await asyncio.gather(*[_deliver_one(r['chat_id']) for r in missed])
+    finally:
+        await bot.session.close()
 
 
 # ═══════════════════════════════════════════════════════════

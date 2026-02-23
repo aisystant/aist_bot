@@ -253,6 +253,7 @@ async def get_delivery_report() -> dict:
 
         return {
             'users': users,
+            'report_date': now_msk.strftime('%d.%m.%Y'),
             'summary': {
                 'active': len(active),
                 'sent': counts['sent_read'] + counts['sent_unread'],

@@ -13,9 +13,19 @@ from aiogram.filters import Command
 
 from helpers.message_split import truncate_safe
 
+from datetime import datetime, timedelta, timezone
+
 logger = logging.getLogger(__name__)
 
+MOSCOW_TZ = timezone(timedelta(hours=3))
+
 dev_router = Router(name="dev")
+
+
+def _msk_now() -> str:
+    """Текущее время МСК для заголовков отчётов: '23.02 14:35 MSK'."""
+    now = datetime.now(MOSCOW_TZ)
+    return now.strftime('%d.%m %H:%M MSK')
 
 
 def _is_developer(chat_id: int) -> bool:
@@ -50,7 +60,7 @@ async def cmd_stats(message: Message):
     complexity_str = " | ".join(f"L{r['lvl']}: {r['cnt']}" for r in complexity)
 
     text = (
-        f"<b>Статистика пользователей</b>\n{sep}\n\n"
+        f"<b>Статистика пользователей</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>Пользователи</b>\n"
         f"  Всего: {s.get('total', 0)} | Онбординг пройден: {s.get('onboarded', 0)}\n"
         f"  Активны сегодня: {s.get('active_today', 0)} | За неделю: {s.get('active_week', 0)}\n\n"
@@ -102,7 +112,7 @@ async def cmd_usage(message: Message):
         sched_lines += f"  {r['hour']}: {r['cnt']} польз.\n"
 
     text = (
-        f"<b>Использование сервисов</b>\n{sep}\n\n"
+        f"<b>Использование сервисов</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>Топ сервисов</b> (всего нажатий | уник. пользователей):\n"
         f"{svc_lines}\n"
         f"<b>Расписание (распределение)</b>:\n"
@@ -143,7 +153,7 @@ async def cmd_qa(message: Message):
         topics_str += f"  {r['topic']}: {r['cnt']}\n"
 
     text = (
-        f"<b>Аналитика консультаций</b>\n{sep}\n\n"
+        f"<b>Аналитика консультаций</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>Объём</b>\n"
         f"  Всего: {total} | Сегодня: {s.get('today', 0)} | За неделю: {s.get('this_week', 0)}\n"
         f"  Уник. пользователей: {s.get('unique_users', 0)}\n\n"
@@ -183,7 +193,7 @@ async def cmd_health(message: Message):
         table_lines += f"  {r['table']}: {cnt}\n"
 
     text = (
-        f"<b>Состояние системы</b>\n{sep}\n\n"
+        f"<b>Состояние системы</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>Размеры таблиц</b>:\n"
         f"{table_lines}\n"
         f"<b>Марафон</b>\n"
@@ -245,7 +255,7 @@ async def cmd_latency(message: Message):
         red_lines = "  \u2014 нет\n"
 
     text = (
-        f"<b>Отчёт по латентности (24ч)</b>\n{sep}\n\n"
+        f"<b>Отчёт по латентности</b> (24ч, {_msk_now()})\n{sep}\n\n"
         f"<b>Сводка</b>\n"
         f"  Запросов: {s['total']} | Среднее: {s['avg_ms']}мс | P95: {s['p95_ms']}мс\n"
         f"  \U0001f534 Красная зона: {report['red_count']}\n\n"
@@ -280,7 +290,7 @@ async def cmd_errors(message: Message):
 
     if s['unique_errors'] == 0:
         await message.answer(
-            f"<b>Отчёт по ошибкам (24ч)</b>\n{sep}\n\n"
+            f"<b>Отчёт по ошибкам</b> (24ч, {_msk_now()})\n{sep}\n\n"
             f"\U0001f7e2 Ошибок за последние 24 часа нет.",
             parse_mode="HTML"
         )
@@ -300,7 +310,7 @@ async def cmd_errors(message: Message):
         recent_lines += f"  {emoji} {r['logger_name']}: {msg}{count_str}\n"
 
     text = (
-        f"<b>Отчёт по ошибкам (24ч)</b>\n{sep}\n\n"
+        f"<b>Отчёт по ошибкам</b> (24ч, {_msk_now()})\n{sep}\n\n"
         f"<b>Сводка</b>\n"
         f"  Уник. ошибок: {s['unique_errors']}"
         f" | Всего случаев: {s['total_occurrences']}\n"
@@ -360,7 +370,7 @@ def _format_analytics(report: dict) -> str:
     lat_emoji = "\U0001f7e2" if q['avg_ms'] < 3000 else ("\U0001f7e1" if q['avg_ms'] < 8000 else "\U0001f534")
 
     text = (
-        f"<b>Аналитика IWE</b>\n{sep}\n\n"
+        f"<b>Аналитика IWE</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>\U0001f465 Пользователи</b>\n"
         f"  DAU: {u['dau']} | WAU: {u['wau']} | MAU: {u['mau']}\n"
         f"  Всего: {u['total']} | Новых сегодня: {u['new_today']} | за неделю: {u['new_week']}\n\n"
@@ -446,6 +456,7 @@ async def cmd_delivery(message: Message):
         return
 
     sep = "\u2500" * 20
+    report_date = report.get('report_date', '')
 
     # Per-user lines
     user_lines = ""
@@ -453,16 +464,16 @@ async def cmd_delivery(message: Message):
         status = u['status']
         if status == 'sent_read':
             emoji = "\U0001f7e2"
-            label = f"прочитано ({u['time']})"
+            label = f"открыт ({u['time']})"
         elif status == 'sent_unread':
             emoji = "\U0001f7e1"
-            label = f"отправлено, не открыт ({u['time']})"
+            label = f"отправлен, не открыт ({u['time']})"
         elif status == 'not_yet':
             emoji = "\u23f3"
             label = f"ждёт {u['schedule']}"
         elif status == 'missed':
             emoji = "\U0001f534"
-            label = f"ПРОПУСК (план {u['schedule']})"
+            label = f"НЕ ДОСТАВЛЕН (план {u['schedule']})"
         else:
             emoji = "\u2753"
             label = status
@@ -473,12 +484,12 @@ async def cmd_delivery(message: Message):
     s = report['summary']
 
     text = (
-        f"<b>Доставка марафона</b>\n{sep}\n\n"
+        f"<b>Доставка марафона</b> ({report_date}, {_msk_now()})\n{sep}\n\n"
         f"<b>Сводка</b>\n"
         f"  Активных: {s['active']}\n"
-        f"  \U0001f7e2 Отправлено: {s['sent']} (прочитано: {s['sent_read']})\n"
+        f"  \U0001f7e2 Отправлено: {s['sent']} (открыт урок: {s['sent_read']})\n"
         f"  \u23f3 Время не наступило: {s['not_yet']}\n"
-        f"  \U0001f534 Пропущено: {s['missed']}\n\n"
+        f"  \U0001f534 Не доставлено: {s['missed']}\n\n"
         f"<b>Пользователи</b>\n{user_lines}"
     )
 
