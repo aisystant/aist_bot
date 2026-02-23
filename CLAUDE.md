@@ -231,11 +231,17 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 Формат заметок и логика вставки в `clients/github_api.py` должны соответствовать структуре `fleeting-notes.md`.
 При изменении структуры файла (шапка, описание, разделители) — обновить `_find_insert_position`.
 
-### 10.5. Naive datetime для TIMESTAMP колонок
+### 10.5. GitHub Integration
+
+- `GITHUB_BOT_PAT` — только для AutoFix (org `aisystant/aist_bot`). Fine-grained PAT = single owner.
+- Publisher (R21) — per-user OAuth tokens из `github_connections.knowledge_repo`. Singleton deprecated.
+- Добавление нового repo-поля: DB migration → queries → OAuth cache → Settings UI → consumers.
+
+### 10.6. Naive datetime для TIMESTAMP колонок
 
 **Правило:** Все колонки в DB (кроме `error_logs` и `request_traces`) используют `TIMESTAMP` (naive). При записи — только `datetime.utcnow()`, **НЕ** `datetime.now(timezone.utc)`. asyncpg с `statement_cache_size=0` (Neon) не может кодировать aware datetime в naive колонку → `DataError`.
 
-### 10.6. Keyboard Management Policy (WP-52)
+### 10.7. Keyboard Management Policy (WP-52)
 
 **Принцип:** SM НЕ удаляет ReplyKeyboard, а ЗАМЕНЯЕТ. Tier-based KB из mode_select персистит через inline-стейты. SM-contextual стейты (Phase 2) заменят её на контекстную.
 
