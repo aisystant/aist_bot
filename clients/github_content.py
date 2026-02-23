@@ -89,7 +89,8 @@ class GitHubContentClient:
         url = f"{self.base_url}/repos/{self.repo}/contents/{path}"
         async with session.get(url, headers=self._headers()) as resp:
             if resp.status >= 400:
-                logger.error(f"GitHub read_file {path} error {resp.status}")
+                log = logger.warning if resp.status in (403, 404) else logger.error
+                log(f"GitHub read_file {path} error {resp.status}")
                 return None
             data = await resp.json()
             content = base64.b64decode(data["content"]).decode("utf-8")

@@ -11,6 +11,7 @@ Source-of-truth: DP.AGENT.001 R7, PROCESSES.md §6.
 """
 
 import asyncio
+import html as html_mod
 import json
 import os
 import logging
@@ -160,13 +161,13 @@ async def _send_alert(qa_id: int, chat_id: int, question: str,
 
     lines = [
         f"{sev_emoji} <b>Feedback Alert</b> [{sev.upper()}]",
-        f"<b>Cat:</b> {cat} | <b>Cluster:</b> {cluster}",
-        f"<b>Q:</b> {question[:100]}",
+        f"<b>Cat:</b> {html_mod.escape(cat)} | <b>Cluster:</b> {html_mod.escape(cluster)}",
+        f"<b>Q:</b> {html_mod.escape(question[:100])}",
     ]
     if user_comment:
-        lines.append(f"\u270f\ufe0f <b>Comment:</b> {user_comment[:200]}")
+        lines.append(f"\u270f\ufe0f <b>Comment:</b> {html_mod.escape(user_comment[:200])}")
     if reason:
-        lines.append(f"\U0001f4a1 {reason}")
+        lines.append(f"\U0001f4a1 {html_mod.escape(reason)}")
     lines.append(f"<code>qa_id={qa_id} chat={chat_id}</code>")
 
     text = "\n".join(lines)

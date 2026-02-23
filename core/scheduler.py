@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import timedelta
@@ -944,7 +945,25 @@ async def _check_schedule_integrity(now) -> Optional[str]:
                 OR (marathon_status = 'not_started' AND current_topic_index > 0)
               )
         ''')
-        for r in contradictions:
+        # Auto-fix: users with progress but marathon_status='not_started' → set to 'active'
+        fixable = [r for r in contradictions
+                   if r['marathon_start_date'] is not None
+                   and (len(json.loads(r['completed_topics'] or '[]')) > 0
+                        or r['current_topic_index'] > 0)]
+        if fixable:
+            fix_ids = [r['chat_id'] for r in fixable]
+            await conn.execute(
+                "UPDATE interns SET marathon_status = 'active' WHERE chat_id = ANY($1::bigint[])",
+                fix_ids,
+            )
+            for r in fixable:
+                issues.append(f"🟢 {r['tg_username'] or r['chat_id']}: "
+                              f"auto-fixed marathon_status → active "
+                              f"(had {r['current_topic_index']} topics)")
+
+        # Report remaining (no progress, just start_date set)
+        unfixable = [r for r in contradictions if r not in fixable]
+        for r in unfixable:
             issues.append(f"🔴 {r['tg_username'] or r['chat_id']}: "
                           f"marathon_status={r['marathon_status']} but "
                           f"start_date={r['marathon_start_date']}, topic_index={r['current_topic_index']}")

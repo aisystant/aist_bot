@@ -210,13 +210,13 @@ global_events:
     trigger: "?"                        # Сообщение начинается с ?
     target: common.consultation
 
-  notes:
-    trigger: "/note"                    # Команда /note
-    target: utility.notes
+  # notes: disabled until utility.notes state is implemented (Week 8)
+  #   trigger: "/note"
+  #   target: utility.notes
 
-  export:
-    trigger: "/export"
-    target: utility.export
+  # export: disabled until utility.export state is implemented
+  #   trigger: "/export"
+  #   target: utility.export
 
   progress:
     trigger: "/progress"
