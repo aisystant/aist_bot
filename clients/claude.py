@@ -737,7 +737,7 @@ class ClaudeClient:
 
         task_ru = topic.get('task', '')
         work_product_ru = topic.get('work_product', '')
-        wp_examples = topic.get('wp_examples', [])
+        wp_examples = topic.get('work_product_examples', [])
         wp_examples_text = "\n".join(f"• {ex}" for ex in wp_examples) if wp_examples else ""
 
         system_prompt = f"""Ты — персональный наставник по системному мышлению.
@@ -843,7 +843,7 @@ Translate and adapt everything to the target language."""
             'intro': '',
             'task': topic.get('task', ''),
             'work_product': topic.get('work_product', ''),
-            'examples': "\n".join(f"• {ex}" for ex in (topic.get('wp_examples', []) or []))
+            'examples': "\n".join(f"• {ex}" for ex in (topic.get('work_product_examples', []) or []))
         }
         try:
             lines = raw.split('\n')
