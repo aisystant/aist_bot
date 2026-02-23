@@ -137,6 +137,11 @@ async def schedule_publication(
     source_file: str | None = None,
 ) -> int:
     """Запланировать публикацию."""
+    # Safeguard: scheduled_publications.schedule_time — TIMESTAMP (naive).
+    # asyncpg не может записать aware datetime в naive колонку → DataError.
+    # См. CLAUDE.md § 10.5, error_logs #449.
+    if schedule_time.tzinfo is not None:
+        schedule_time = schedule_time.replace(tzinfo=None)
     pool = await get_pool()
     row = await pool.fetchrow(
         """

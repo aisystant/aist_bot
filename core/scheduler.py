@@ -790,7 +790,11 @@ async def scheduled_check():
             if alert_text:
                 bot = Bot(token=_bot_token)
                 try:
-                    await bot.send_message(int(dev_chat_id), alert_text, parse_mode="HTML")
+                    try:
+                        await bot.send_message(int(dev_chat_id), alert_text, parse_mode="HTML")
+                    except Exception:
+                        # Fallback: отправить без HTML если парсинг сломан
+                        await bot.send_message(int(dev_chat_id), alert_text)
                     logger.info("[Scheduler] Error alert sent to developer")
                 finally:
                     await bot.session.close()
@@ -805,7 +809,10 @@ async def scheduled_check():
             if escalation_text:
                 bot = Bot(token=_bot_token)
                 try:
-                    await bot.send_message(int(dev_chat_id), escalation_text, parse_mode="HTML")
+                    try:
+                        await bot.send_message(int(dev_chat_id), escalation_text, parse_mode="HTML")
+                    except Exception:
+                        await bot.send_message(int(dev_chat_id), escalation_text)
                     logger.info("[Scheduler] Escalation alert sent to developer")
                 finally:
                     await bot.session.close()

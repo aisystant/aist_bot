@@ -27,6 +27,7 @@ Grafana queries (для PostgreSQL datasource → Neon):
     ORDER BY occurrence_count DESC
 """
 
+import html
 import re
 import logging
 from typing import Optional
@@ -55,6 +56,9 @@ PATTERNS: list[dict] = [
     {"category": "fsm", "severity": "L2",
      "pattern": r"(?i)state.*corrupt|FSM.*mismatch|state.*sync",
      "action": "PR: sync FSM state с DB"},
+    {"category": "fsm", "severity": "L2",
+     "pattern": r"(?i)стейт не найден|state.*not found|state.*not registered",
+     "action": "PR: зарегистрировать стейт или убрать команду"},
 
     # --- Claude API (§ 3.3) — before DB (claude timeout ≠ db timeout) ---
     {"category": "claude_api", "severity": "L1",
@@ -86,6 +90,9 @@ PATTERNS: list[dict] = [
     {"category": "telegram_api", "severity": "L2",
      "pattern": r"(?i)message.*too long|MESSAGE_TOO_LONG",
      "action": "PR: add text truncation"},
+    {"category": "telegram_api", "severity": "L1",
+     "pattern": r"(?i)can't parse entities|Unsupported start tag|parse.*entities.*error",
+     "action": "Экранировать HTML в тексте сообщения (html.escape)"},
 
     # --- MCP (§ 3.5) — before DB (MCP connection fail ≠ db connection fail) ---
     {"category": "mcp", "severity": "L3",
@@ -102,9 +109,20 @@ PATTERNS: list[dict] = [
     {"category": "scheduler", "severity": "L1",
      "pattern": r"(?i)\[Scheduler\].*error|\[PreGen\].*(?:timeout|failed)",
      "action": "Retry в след. цикл (auto)"},
+    {"category": "scheduler", "severity": "L2",
+     "pattern": r"(?i)offset-naive and offset-aware|can't subtract.*datetime",
+     "action": "PR: привести datetime к naive (CLAUDE.md § 10.5)"},
     {"category": "scheduler", "severity": "L4",
      "pattern": r"(?i)scheduler.*stuck|scheduler.*not.*start|asyncio.*deadlock",
      "action": "Escalate: проверить Railway logs"},
+
+    # --- Deployment (§ 3.7) — webhook/infrastructure issues ---
+    {"category": "deployment", "severity": "L1",
+     "pattern": r"(?i)secret token.*unallowed|Failed to set webhook|webhook.*error",
+     "action": "Проверить WEBHOOK_SECRET env var (деплой)"},
+    {"category": "deployment", "severity": "L1",
+     "pattern": r"(?i)terminated by.*setWebhook|terminated by other getUpdates",
+     "action": "Transient: переключение polling↔webhook (Railway redeploy)"},
 
     # --- DB (§ 3.2) — last: generic patterns (connection, timeout) ---
     {"category": "db", "severity": "L3",
@@ -176,10 +194,92 @@ def classify_error(logger_name: str, message: str, traceback_text: str | None) -
     return {"category": "unknown", "severity": None, "action": None}
 
 
+_HAIKU_CLASSIFY_PROMPT = """Classify this bot error into a RUNBOOK category.
+
+Logger: {logger_name}
+Message: {message}
+Traceback (last 3 lines): {traceback_tail}
+
+Respond in JSON only:
+{{"category": "fsm|claude_api|telegram_api|mcp|scheduler|db|deployment", "severity": "L1|L2|L3|L4", "action": "<one sentence fix suggestion>"}}
+
+Rules:
+- L1: transient, auto-recoverable (retry, skip)
+- L2: code bug, needs PR fix
+- L3: infrastructure issue (restart, check service)
+- L4: critical, manual intervention needed"""
+
+_VALID_CATEGORIES = {"fsm", "claude_api", "telegram_api", "mcp", "scheduler", "db", "deployment"}
+_VALID_SEVERITIES = {"L1", "L2", "L3", "L4"}
+
+
+async def _classify_with_haiku(logger_name: str, message: str, traceback_text: str | None) -> dict | None:
+    """Classify unknown error using Haiku. Returns dict or None on failure.
+
+    Budget: ≤5 calls per cycle, ≤50 tokens/call. Timeout: 8s.
+    """
+    import os
+    import json
+    import aiohttp
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
+    traceback_tail = ""
+    if traceback_text:
+        lines = traceback_text.strip().splitlines()
+        traceback_tail = "\n".join(lines[-3:])
+
+    from config import CLAUDE_MODEL_HAIKU
+    prompt = _HAIKU_CLASSIFY_PROMPT.format(
+        logger_name=logger_name,
+        message=(message or "")[:200],
+        traceback_tail=traceback_tail[:300],
+    )
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": CLAUDE_MODEL_HAIKU,
+                    "max_tokens": 100,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                text = data["content"][0]["text"]
+                text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                result = json.loads(text)
+                # Validate
+                cat = result.get("category", "")
+                sev = result.get("severity", "")
+                if cat not in _VALID_CATEGORIES or sev not in _VALID_SEVERITIES:
+                    return None
+                return {
+                    "category": cat,
+                    "severity": sev,
+                    "action": (result.get("action") or "")[:200],
+                }
+    except Exception:
+        return None
+
+
 async def classify_unprocessed(limit: int = 100) -> int:
     """Classify errors that haven't been classified yet.
 
     Called from scheduler every 5 min.
+    Phase 1: regex patterns (instant).
+    Phase 2: Haiku fallback for unknowns (≤5 calls, async).
     Returns number of classified errors.
     """
     async with await acquire() as conn:
@@ -195,11 +295,35 @@ async def classify_unprocessed(limit: int = 100) -> int:
         return 0
 
     updates = []
+    unknown_rows = []
+
+    # Phase 1: regex classification
     for row in rows:
         result = classify_error(
             row['logger_name'], row['message'], row.get('traceback')
         )
+        if result['category'] == 'unknown':
+            unknown_rows.append(row)
         updates.append((row['id'], result['category'], result['severity'], result['action']))
+
+    # Phase 2: Haiku fallback for unknowns (max 5 per cycle)
+    haiku_upgraded = 0
+    for row in unknown_rows[:5]:
+        haiku_result = await _classify_with_haiku(
+            row['logger_name'], row['message'], row.get('traceback')
+        )
+        if haiku_result:
+            # Find and update the corresponding entry in updates
+            for i, (uid, _, _, _) in enumerate(updates):
+                if uid == row['id']:
+                    updates[i] = (
+                        row['id'],
+                        haiku_result['category'],
+                        haiku_result['severity'],
+                        haiku_result['action'],
+                    )
+                    haiku_upgraded += 1
+                    break
 
     async with await acquire() as conn:
         await conn.executemany("""
@@ -208,13 +332,42 @@ async def classify_unprocessed(limit: int = 100) -> int:
             WHERE id = $1
         """, updates)
 
-    logger.info(f"[Classifier] Classified {len(updates)} errors")
-    return len(updates)
+    classified = len(updates)
+    if haiku_upgraded:
+        logger.info(f"[Classifier] Classified {classified} errors ({haiku_upgraded} via Haiku)")
+    else:
+        logger.info(f"[Classifier] Classified {classified} errors")
+    return classified
 
 
 # ═══════════════════════════════════════════════════════════
 # L4 ESCALATION
 # ═══════════════════════════════════════════════════════════
+
+async def _escalate_persistent_l1() -> int:
+    """Upgrade persistent L1 errors to L2 for autofix pipeline.
+
+    L1 с action "retry" + occurrence_count >= 3 + age > 1h = код-баг, не transient.
+    Повышаем severity до L2 → попадёт в autofix pipeline.
+    Returns number of escalated errors.
+    """
+    async with await acquire() as conn:
+        result = await conn.execute("""
+            UPDATE error_logs
+            SET severity = 'L2',
+                suggested_action = 'PR: persistent L1 → auto-escalated to L2'
+            WHERE severity = 'L1'
+              AND occurrence_count >= 3
+              AND first_seen_at < NOW() - INTERVAL '1 hour'
+              AND last_seen_at > NOW() - INTERVAL '24 hours'
+              AND escalated = FALSE
+              AND suggested_action ILIKE '%retry%'
+        """)
+        count = int(result.split()[-1]) if result else 0
+        if count > 0:
+            logger.info(f"[Classifier] Escalated {count} persistent L1 → L2")
+        return count
+
 
 async def check_escalation() -> Optional[str]:
     """L4: find L3/L4 or high-occurrence unknown errors needing escalation.
@@ -222,6 +375,9 @@ async def check_escalation() -> Optional[str]:
     Returns HTML alert text for TG, None if nothing to escalate.
     Called from scheduler every 15 min.
     """
+    # Phase 1: upgrade persistent L1 → L2 (код-баги, не transient)
+    await _escalate_persistent_l1()
+
     async with await acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, category, severity, logger_name, message,
@@ -251,9 +407,9 @@ async def check_escalation() -> Optional[str]:
 
     for r in rows:
         sev = r['severity'] or '??'
-        cat = r['category'] or 'unknown'
+        cat = html.escape(r['category'] or 'unknown')
         emoji = SEVERITY_EMOJI.get(r['severity'], "\u26aa")
-        msg = (r['message'] or '')[:80]
+        msg = html.escape((r['message'] or '')[:80])
         count = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
         lines.append(f"  {emoji} [{cat}/{sev}] {msg}{count}")
 

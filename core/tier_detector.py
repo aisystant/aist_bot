@@ -11,18 +11,37 @@ Tier model (cumulative, payment-first):
   T5: platform admin (DEVELOPER_CHAT_ID)
 
 Tier drops to T1 if subscription expires.
+
+Tier transitions logged to tier_events table (analytics).
+Downgrade T2+→T1 triggers user notification.
 """
 
+import asyncio
 import os
 import logging
+from datetime import datetime
 
 from core.tier_config import UITier
 
 logger = logging.getLogger(__name__)
 
+# In-memory tier cache: chat_id → last known tier.
+# Resets on deploy — intentional: avoids false transition logs on startup.
+_tier_cache: dict[int, int] = {}
+
+_TIER_NAMES = {
+    UITier.T1_START: "Start",
+    UITier.T2_LEARNING: "Learning",
+    UITier.T3_PERSONALIZATION: "Personalization",
+    UITier.T4_CREATION: "Creation",
+    UITier.T5_ADMIN: "Admin",
+}
+
 
 async def detect_ui_tier(chat_id: int) -> int:
     """Detect UI tier based on subscription + connections.
+
+    Also tracks tier transitions: logs to tier_events + notifies on downgrade.
 
     Args:
         chat_id: Telegram user chat_id
@@ -37,18 +56,24 @@ async def detect_ui_tier(chat_id: int) -> int:
 
     # Check subscription — no active sub/trial = T1
     if not await _has_active_subscription(chat_id):
-        return UITier.T1_START
+        new_tier = UITier.T1_START
+    elif await _is_github_connected(chat_id):
+        new_tier = UITier.T4_CREATION
+    elif await _is_dt_connected(chat_id):
+        new_tier = UITier.T3_PERSONALIZATION
+    else:
+        new_tier = UITier.T2_LEARNING
 
-    # T4: subscription + GitHub connected
-    if await _is_github_connected(chat_id):
-        return UITier.T4_CREATION
+    # Track tier transition (fire-and-forget)
+    prev_tier = _tier_cache.get(chat_id)
+    if prev_tier is not None and prev_tier != new_tier:
+        reason = _infer_reason(prev_tier, new_tier)
+        asyncio.create_task(_log_tier_transition(chat_id, prev_tier, new_tier, reason))
+        if new_tier < prev_tier:
+            asyncio.create_task(_notify_downgrade(chat_id, prev_tier, new_tier))
+    _tier_cache[chat_id] = new_tier
 
-    # T3: subscription + DT connected
-    if await _is_dt_connected(chat_id):
-        return UITier.T3_PERSONALIZATION
-
-    # T2: subscription active
-    return UITier.T2_LEARNING
+    return new_tier
 
 
 async def _has_active_subscription(chat_id: int) -> bool:
@@ -78,3 +103,68 @@ async def _is_dt_connected(chat_id: int) -> bool:
             return row is not None and row['dt_connected_at'] is not None
     except Exception:
         return False
+
+
+# ═══════════════════════════════════════════════════════════
+# TIER TRANSITION TRACKING (WP-52 analytics)
+# ═══════════════════════════════════════════════════════════
+
+def _infer_reason(from_tier: int, to_tier: int) -> str:
+    """Infer the reason for a tier transition."""
+    if to_tier == UITier.T1_START:
+        return "subscription_expired"
+    if to_tier == UITier.T2_LEARNING and from_tier == UITier.T1_START:
+        return "subscription_activated"
+    if to_tier == UITier.T3_PERSONALIZATION:
+        return "dt_connected"
+    if to_tier == UITier.T4_CREATION:
+        return "github_connected"
+    if to_tier < from_tier:
+        return "downgrade"
+    return "upgrade"
+
+
+async def _log_tier_transition(chat_id: int, from_tier: int, to_tier: int, reason: str) -> None:
+    """Log tier transition to tier_events table (fire-and-forget)."""
+    try:
+        from db.connection import acquire
+        async with await acquire() as conn:
+            await conn.execute(
+                """INSERT INTO tier_events (chat_id, from_tier, to_tier, reason, created_at)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                chat_id, from_tier, to_tier, reason, datetime.utcnow(),
+            )
+        direction = "upgrade" if to_tier > from_tier else "downgrade"
+        logger.info(
+            f"[Tier] {direction}: user {chat_id} "
+            f"T{from_tier}({_TIER_NAMES.get(from_tier, '?')}) → "
+            f"T{to_tier}({_TIER_NAMES.get(to_tier, '?')}) [{reason}]"
+        )
+    except Exception as e:
+        logger.error(f"[Tier] Failed to log transition: {e}")
+
+
+async def _notify_downgrade(chat_id: int, from_tier: int, to_tier: int) -> None:
+    """Notify user when their tier drops (e.g. subscription expired)."""
+    try:
+        from aiogram import Bot
+        bot_token = os.getenv("BOT_TOKEN")
+        if not bot_token:
+            return
+
+        # Only notify on meaningful downgrades (T2+→T1 = subscription expired)
+        if to_tier != UITier.T1_START:
+            return
+
+        from_name = _TIER_NAMES.get(from_tier, f"T{from_tier}")
+        bot = Bot(token=bot_token)
+        try:
+            await bot.send_message(
+                chat_id,
+                f"Подписка истекла. Часть сервисов ограничена.\n"
+                f"Напиши /start чтобы увидеть доступные функции.",
+            )
+        finally:
+            await bot.session.close()
+    except Exception as e:
+        logger.error(f"[Tier] Failed to send downgrade notification: {e}")

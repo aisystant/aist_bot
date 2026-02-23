@@ -126,6 +126,19 @@ async def cmd_club(message: Message, state: FSMContext):
         await message.answer("Сначала пройди /start.")
         return
 
+    # T4 access check: Club — T4 (Creation) feature.
+    # Requires: subscription + GitHub connected.
+    from core.tier_detector import detect_ui_tier
+    from core.tier_config import UITier
+    tier = await detect_ui_tier(telegram_user_id)
+    if tier < UITier.T4_CREATION:
+        await message.answer(
+            "Клуб доступен на уровне T4 (Creation).\n"
+            "Для доступа нужна подписка и подключённый GitHub.\n"
+            "→ /start — посмотреть текущий уровень"
+        )
+        return
+
     text = message.text or ""
     parts = text.strip().split(maxsplit=2)
     subcommand = parts[1].lower() if len(parts) > 1 else None

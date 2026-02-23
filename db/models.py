@@ -855,4 +855,23 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
+        # ═══════════════════════════════════════════════════════════
+        # TIER EVENTS: аналитика переходов между тирами (WP-52)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS tier_events (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                from_tier INTEGER NOT NULL,
+                to_tier INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_tier_events_chat
+            ON tier_events (chat_id, created_at DESC)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

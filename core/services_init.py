@@ -128,17 +128,10 @@ def register_all_services() -> None:
         access_check=_check_access("plans"),
     ))
 
-    # --- HIDDEN: в разработке (visible=False, команды работают) ---
-
-    registry.register(ServiceDescriptor(
-        id="notes",
-        i18n_key="service.notes",
-        icon="\U0001f4dd",  # 📝
-        entry_state="utility.notes",
-        category="scenario",
-        order=45,
-        visible=False,
-    ))
+    # --- HIDDEN: в разработке ---
+    # notes: стейт utility.notes ещё не реализован (Week 8).
+    # НЕ регистрировать до создания — иначе machine.go_to() падает с "стейт не найден".
+    # См. error_logs #454 (2026-02-22).
 
     # twin: no SM state — handled directly by handlers/twin.py (twin_router)
     # Do NOT register command="/twin" here, it would intercept and route to SM
