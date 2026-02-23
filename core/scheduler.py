@@ -97,10 +97,10 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(scheduled_check, 'cron', minute='*', max_instances=2)
     _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*', max_instances=2)  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
-    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='*/30')  # Discourse: scheduled posts
-    _scheduler.add_job(_discourse_check_comments, 'cron', minute='*/15')  # Discourse: comment polling
-    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=3, minute=0)  # Publisher: daily scan 03:00 MSK (scheduler timezone=MOSCOW_TZ)
-    # Startup scan: компенсация пропущенного cron при редеплое после 03:00 MSK
+    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37')  # Discourse: scheduled posts (offset from :00/:30)
+    _scheduler.add_job(_discourse_check_comments, 'cron', minute='3,18,33,48')  # Discourse: comment polling (offset from :00/:15/:30/:45)
+    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
+    # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
     _scheduler.start()
 
@@ -1335,7 +1335,7 @@ async def send_feedback_weekly_digest(dev_chat_id: int):
 # ═══════════════════════════════════════════════════════════
 
 async def _discourse_scheduled_publish():
-    """Публиковать запланированные посты (каждые 5 минут)."""
+    """Публиковать запланированные посты (каждые ~30 мин, в :07 и :37)."""
     from clients.discourse import discourse
     if not discourse:
         return
@@ -1411,7 +1411,7 @@ async def _discourse_scheduled_publish():
 
 
 async def _smart_publisher_scan():
-    """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (03:00 МСК).
+    """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (05:07 МСК).
 
     Цикл:
     1. Получить все discourse accounts
@@ -1551,14 +1551,14 @@ async def _smart_publisher_scan():
 
             scheduled_posts = []
 
-            # Weekly reviews → ближайший Пн 06:00 МСК
+            # Weekly reviews → ближайший Пн 07:14 МСК
             for wr in weekly_reviews:
                 wr_date = now_msk.date() + timedelta(days=1)
                 for _ in range(7):
                     if wr_date.weekday() == 0:  # Monday
                         break
                     wr_date += timedelta(days=1)
-                slot_time = datetime.combine(wr_date, datetime.min.time().replace(hour=6, minute=0))
+                slot_time = datetime.combine(wr_date, datetime.min.time().replace(hour=7, minute=14))
                 raw = strip_frontmatter(wr["content"])
                 tags_json = json.dumps(wr["tags"]) if isinstance(wr["tags"], list) else "[]"
                 await schedule_publication(
