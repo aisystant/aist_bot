@@ -413,6 +413,7 @@ T5: = T4 (keyboard), dev-commands в menu (bot.py)
 - T5 menu = dev-commands (stats, usage, qa, ...) — set в bot.py, НЕ в tier_config
 - Menu ☰ per-user через `BotCommandScopeChat`
 - Все команды работают на любом тире (видимость ≠ доступность)
+- Paywall text НЕ должен обещать функциональность, которой нет у целевой команды (урок: `/start` не показывает тир-инфо)
 
 ---
 
