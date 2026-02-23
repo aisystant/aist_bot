@@ -392,6 +392,7 @@ async def create_tables(pool: asyncpg.Pool):
         # Миграции для github_connections
         github_migrations = [
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS strategy_repo TEXT',
+            'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS knowledge_repo TEXT',
         ]
         for migration in github_migrations:
             try:

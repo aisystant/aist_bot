@@ -766,10 +766,15 @@ async def on_club_main(callback: CallbackQuery):
 
 async def _scan_ready_posts(chat_id: int) -> list[dict]:
     """Сканировать индекс знаний → вернуть ready+club посты, не в published/scheduled."""
-    from clients.github_content import github_content, parse_frontmatter
-    if not github_content:
+    from clients.github_content import create_content_client, parse_frontmatter
+    from clients.github_oauth import github_oauth
+
+    token = await github_oauth.get_access_token(chat_id)
+    knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
+    if not token or not knowledge_repo:
         return []
 
+    client = create_content_client(token, knowledge_repo)
     try:
         published_files = await get_all_published_source_files(chat_id)
         published_titles = await get_all_published_titles_lower(chat_id)
@@ -780,11 +785,11 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
         candidates = []
 
         for year in [current_year, current_year - 1]:
-            files = await github_content.list_files(f"docs/{year}")
+            files = await client.list_files(f"docs/{year}")
             for f in files:
                 if f["name"] == "README.md":
                     continue
-                result = await github_content.read_file(f["path"])
+                result = await client.read_file(f["path"])
                 if not result:
                     continue
                 content, sha = result
@@ -816,6 +821,8 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
     except Exception as e:
         logger.error(f"Scan ready posts error: {e}")
         return []
+    finally:
+        await client.close()
 
 
 async def _show_publish_options(message: Message, state: FSMContext, chat_id: int):
@@ -871,7 +878,8 @@ async def on_publish_manual(callback: CallbackQuery, state: FSMContext):
 async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
     """Пользователь выбрал пост из индекса → опубликовать сейчас + перестроить график."""
     from clients.discourse import discourse
-    from clients.github_content import github_content, strip_frontmatter, update_frontmatter_field
+    from clients.github_content import create_content_client, strip_frontmatter, update_frontmatter_field
+    from clients.github_oauth import github_oauth
 
     await callback.answer()
 
@@ -901,21 +909,24 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Блог не указан. /club → Отвязать → /club → Подключить")
         return
 
-    # Прочитать контент из GitHub
-    if not github_content:
-        await callback.message.answer("GitHub не настроен (GITHUB_BOT_PAT).")
+    # Прочитать контент из GitHub (per-user OAuth)
+    token = await github_oauth.get_access_token(callback.from_user.id)
+    knowledge_repo = await github_oauth.get_knowledge_repo(callback.from_user.id)
+    if not token or not knowledge_repo:
+        await callback.message.answer("GitHub не настроен. Настройки → GitHub → Выбрать индекс знаний.")
         return
 
-    file_result = await github_content.read_file(post["path"])
-    if not file_result:
-        await callback.message.answer(f"Не удалось прочитать {post['path']}.")
-        return
-
-    content, sha = file_result
-    raw = strip_frontmatter(content)
-
-    # Публикуем
+    client = create_content_client(token, knowledge_repo)
     try:
+        file_result = await client.read_file(post["path"])
+        if not file_result:
+            await callback.message.answer(f"Не удалось прочитать {post['path']}.")
+            return
+
+        content, sha = file_result
+        raw = strip_frontmatter(content)
+
+        # Публикуем
         result = await discourse.create_topic(
             category_id=category_id,
             title=post["title"],
@@ -939,7 +950,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         # Обновить frontmatter → published
         try:
             new_content = update_frontmatter_field(content, "status", "published")
-            await github_content.update_file(
+            await client.update_file(
                 post["path"], new_content, sha,
                 f"Published to club: {post['title']}"
             )
@@ -961,6 +972,8 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"Smart publish error: {e}")
         await callback.message.answer(f"Ошибка публикации: {e}")
+    finally:
+        await client.close()
 
     await state.clear()
 

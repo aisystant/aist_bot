@@ -198,6 +198,12 @@ class SettingsState(BaseState):
         if data.startswith("github_repo:"):
             return await self._github_repo_selected(user, callback, data)
 
+        if data == "github_select_knowledge_repo":
+            return await self._github_select_knowledge_repo(user, callback)
+
+        if data.startswith("github_knowledge_repo:"):
+            return await self._github_knowledge_repo_selected(user, callback, data)
+
         if data == "github_disconnect":
             return await self._github_disconnect(user, callback)
 
@@ -676,6 +682,19 @@ class SettingsState(BaseState):
                     callback_data="github_select_repo",
                 )])
 
+            knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
+            if knowledge_repo:
+                lines.append(f"{t('settings.github_knowledge_repo', lang)}: `{knowledge_repo}`")
+                buttons.append([InlineKeyboardButton(
+                    text=t('settings.github_change_knowledge_repo', lang),
+                    callback_data="github_select_knowledge_repo",
+                )])
+            else:
+                buttons.append([InlineKeyboardButton(
+                    text=t('settings.github_select_knowledge_repo', lang),
+                    callback_data="github_select_knowledge_repo",
+                )])
+
             buttons.append([InlineKeyboardButton(
                 text=t('settings.github_disconnect', lang),
                 callback_data="github_disconnect",
@@ -772,6 +791,70 @@ class SettingsState(BaseState):
         await callback.message.edit_text(
             f"✅ {t('settings.github_repo', lang)}: `{repo_full_name}`\n"
             f"{t('settings.github_path', lang)}: `{notes_path}`",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
+            ]),
+        )
+        return None
+
+    async def _github_select_knowledge_repo(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем список репозиториев для выбора индекса знаний."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.github_oauth import github_oauth
+
+        if not await github_oauth.is_connected(chat_id):
+            await callback.message.edit_text(
+                t('settings.not_connected', lang),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
+                ]),
+            )
+            return None
+
+        repos = await github_oauth.get_repos(chat_id, limit=20)
+        if not repos:
+            await callback.message.edit_text(
+                f"🐙 {t('settings.github_no_repos', lang)}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
+                ]),
+            )
+            return None
+
+        buttons = []
+        for repo in repos[:10]:
+            full_name = repo.get("full_name", "")
+            name = repo.get("name", "")
+            buttons.append([InlineKeyboardButton(
+                text=name, callback_data=f"github_knowledge_repo:{full_name}",
+            )])
+        buttons.append([InlineKeyboardButton(
+            text=t('buttons.back', lang), callback_data="conn_github",
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.edit_text(
+            f"🐙 *{t('settings.github_select_knowledge_repo', lang)}:*",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+        return None
+
+    async def _github_knowledge_repo_selected(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохраняем выбранный репозиторий индекса знаний."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.github_oauth import github_oauth
+
+        repo_full_name = data.split(":", 1)[1]
+        await github_oauth.set_knowledge_repo(chat_id, repo_full_name)
+
+        await callback.message.edit_text(
+            f"✅ {t('settings.github_knowledge_repo', lang)}: `{repo_full_name}`",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]

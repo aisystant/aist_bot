@@ -118,6 +118,11 @@ class GitHubContentClient:
             await self._session.close()
 
 
+def create_content_client(token: str, repo: str) -> GitHubContentClient:
+    """Создать GitHubContentClient для конкретного пользователя (OAuth token + repo)."""
+    return GitHubContentClient(token, repo)
+
+
 # ── Frontmatter helpers ──────────────────────────────────────
 
 
@@ -172,8 +177,9 @@ def strip_frontmatter(content: str) -> str:
     return content
 
 
-# ── Singleton ──────────────────────────────────────────────
-
+# ── Singleton (DEPRECATED — use create_content_client) ──────
+# Publisher теперь использует per-user OAuth токены через github_oauth.
+# Singleton оставлен для обратной совместимости, будет None без GITHUB_KNOWLEDGE_REPO.
 import os
 
 _gh_token = os.getenv("GITHUB_BOT_PAT", "")
@@ -182,9 +188,4 @@ _gh_repo = os.getenv("GITHUB_KNOWLEDGE_REPO", "")
 github_content = GitHubContentClient(_gh_token, _gh_repo) if _gh_token and _gh_repo else None
 
 if not github_content:
-    _missing = []
-    if not _gh_token:
-        _missing.append("GITHUB_BOT_PAT")
-    if not _gh_repo:
-        _missing.append("GITHUB_KNOWLEDGE_REPO")
-    logger.warning(f"[Publisher] GitHubContentClient disabled — missing env: {', '.join(_missing)}")
+    logger.info("[Publisher] Singleton disabled — using per-user OAuth tokens via github_connections")

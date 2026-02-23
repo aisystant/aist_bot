@@ -79,6 +79,7 @@ class GitHubOAuthClient:
                 "target_repo": row.get("target_repo"),
                 "notes_path": row.get("notes_path") or "inbox/fleeting-notes.md",
                 "strategy_repo": row.get("strategy_repo"),
+                "knowledge_repo": row.get("knowledge_repo"),
             }
             return self._cache[telegram_user_id]
         return None
@@ -346,6 +347,26 @@ class GitHubOAuthClient:
         await update_github_strategy_repo(telegram_user_id, repo_full_name)
         logger.info(
             f"Set strategy repo for user {telegram_user_id}: {repo_full_name}"
+        )
+
+    async def get_knowledge_repo(self, telegram_user_id: int) -> Optional[str]:
+        """Возвращает репо индекса знаний (owner/repo) для Публикатора."""
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            return data.get("knowledge_repo")
+        return None
+
+    async def set_knowledge_repo(self, telegram_user_id: int, repo_full_name: str):
+        """Устанавливает репо индекса знаний для Публикатора."""
+        data = await self._get_cached(telegram_user_id)
+        if data:
+            data["knowledge_repo"] = repo_full_name
+
+        from db.queries.github import update_github_knowledge_repo
+
+        await update_github_knowledge_repo(telegram_user_id, repo_full_name)
+        logger.info(
+            f"Set knowledge repo for user {telegram_user_id}: {repo_full_name}"
         )
 
     async def disconnect(self, telegram_user_id: int):

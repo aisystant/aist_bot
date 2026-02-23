@@ -827,6 +827,18 @@ settings:
     ru: "Не удалось получить список репозиториев."
     en: "Could not get repository list."
 
+  github_knowledge_repo:
+    ru: "Индекс знаний"
+    en: "Knowledge Index"
+
+  github_select_knowledge_repo:
+    ru: "Выбрать индекс знаний"
+    en: "Select Knowledge Index"
+
+  github_change_knowledge_repo:
+    ru: "Сменить индекс знаний"
+    en: "Change Knowledge Index"
+
   language:
     title:
       ru: "Выбери язык:"

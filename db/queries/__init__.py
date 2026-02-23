@@ -61,6 +61,8 @@ from .github import (
     update_github_repo,
     update_github_notes_path,
     update_github_strategy_repo,
+    update_github_knowledge_repo,
+    get_users_with_knowledge_repo,
     delete_github_connection,
 )
 
@@ -142,6 +144,8 @@ __all__ = [
     'update_github_repo',
     'update_github_notes_path',
     'update_github_strategy_repo',
+    'update_github_knowledge_repo',
+    'get_users_with_knowledge_repo',
     'delete_github_connection',
 
     # profile

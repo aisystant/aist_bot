@@ -75,6 +75,26 @@ async def update_github_strategy_repo(chat_id: int, strategy_repo: str) -> None:
         )
 
 
+async def update_github_knowledge_repo(chat_id: int, knowledge_repo: str) -> None:
+    """Обновить репозиторий индекса знаний (для Публикатора)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE github_connections SET knowledge_repo = $1, updated_at = NOW() WHERE chat_id = $2',
+            knowledge_repo, chat_id,
+        )
+
+
+async def get_users_with_knowledge_repo() -> list[dict]:
+    """Получить всех пользователей с настроенным knowledge_repo."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT chat_id, access_token, knowledge_repo FROM github_connections WHERE knowledge_repo IS NOT NULL'
+        )
+        return [dict(r) for r in rows]
+
+
 async def delete_github_connection(chat_id: int) -> None:
     """Удалить GitHub подключение (disconnect)."""
     pool = await get_pool()
