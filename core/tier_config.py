@@ -43,6 +43,7 @@ TIER_DISPLAY = {
 KB_LABELS = {
     'marathon':   {'ru': '📚 Марафон',    'en': '📚 Marathon',   'es': '📚 Maratón',    'fr': '📚 Marathon',   'zh': '📚 马拉松'},
     'feed':       {'ru': '📖 Лента',      'en': '📖 Feed',       'es': '📖 Feed',       'fr': '📖 Fil',        'zh': '📖 信息流'},
+    'training':   {'ru': '🧠 Тренировка', 'en': '🧠 Training',   'es': '🧠 Entrena',    'fr': '🧠 Entraîn.',   'zh': '🧠 训练'},
     'test':       {'ru': '🧪 Тест',       'en': '🧪 Test',       'es': '🧪 Test',       'fr': '🧪 Test',       'zh': '🧪 测试'},
     'progress':   {'ru': '📊 Прогресс',   'en': '📊 Progress',   'es': '📊 Progreso',   'fr': '📊 Progrès',    'zh': '📊 进度'},
     'profile':    {'ru': '👤 Профиль',    'en': '👤 Profile',    'es': '👤 Perfil',     'fr': '👤 Profil',     'zh': '👤 档案'},
@@ -59,6 +60,7 @@ KB_LABELS = {
 SERVICE_TO_COMMAND = {
     'marathon': 'learn',
     'feed': 'feed',
+    'training': 'train',
     'test': 'assessment',
     'progress': 'progress',
     'profile': 'profile',
@@ -79,10 +81,10 @@ SERVICE_TO_COMMAND = {
 
 TIER_KEYBOARD = {
     UITier.T1_START:           [['marathon', 'test'],     ['progress', 'settings']],
-    UITier.T2_LEARNING:        [['feed',     'test'],     ['progress', 'settings']],
-    UITier.T3_PERSONALIZATION: [['dt',       'feed'],     ['progress', 'settings']],
-    UITier.T4_CREATION:        [['plans',    'club'],     ['mydata',   'settings']],
-    UITier.T5_ADMIN:           [['plans',    'club'],     ['mydata',   'settings']],
+    UITier.T2_LEARNING:        [['feed',     'test'],     ['training', 'settings']],
+    UITier.T3_PERSONALIZATION: [['training', 'feed'],     ['progress', 'settings']],
+    UITier.T4_CREATION:        [['plans',    'club'],     ['training', 'settings']],
+    UITier.T5_ADMIN:           [['plans',    'club'],     ['training', 'settings']],
 }
 
 
@@ -93,9 +95,9 @@ TIER_KEYBOARD = {
 
 TIER_MENU_COMMANDS = {
     UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'mode', 'help'],
-    UITier.T2_LEARNING:        ['feed', 'learn', 'test', 'progress', 'profile', 'mode', 'help'],
-    UITier.T3_PERSONALIZATION: ['twin', 'feed', 'learn', 'test', 'progress', 'mode', 'help'],
-    UITier.T4_CREATION:        ['plan', 'club', 'feed', 'progress', 'test', 'mode', 'help'],
+    UITier.T2_LEARNING:        ['feed', 'train', 'learn', 'test', 'progress', 'profile', 'mode', 'help'],
+    UITier.T3_PERSONALIZATION: ['feed', 'train', 'learn', 'test', 'progress', 'mydata', 'mode', 'help'],
+    UITier.T4_CREATION:        ['plan', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'mode', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -103,6 +105,7 @@ TIER_MENU_COMMANDS = {
 COMMAND_DESCRIPTIONS = {
     'learn':     {'ru': 'Марафон — получить урок',     'en': 'Marathon — get a lesson',   'es': 'Maratón — obtener lección',  'fr': 'Marathon — obtenir une leçon', 'zh': '马拉松 — 获取课程'},
     'feed':      {'ru': 'Лента — получить дайджест',   'en': 'Feed — get a digest',       'es': 'Feed — obtener resumen',     'fr': 'Fil — obtenir un résumé',      'zh': '信息流 — 获取摘要'},
+    'train':     {'ru': 'Тренировка принципов',         'en': 'Principles training',       'es': 'Entrenamiento de principios','fr': 'Entraînement des principes',   'zh': '原则训练'},
     'test':      {'ru': 'Тест систематичности',         'en': 'Systematicity test',        'es': 'Test de sistematicidad',     'fr': 'Test de systématicité',        'zh': '系统性测试'},
     'progress':  {'ru': 'Мой прогресс',                 'en': 'My progress',               'es': 'Mi progreso',                'fr': 'Mon progrès',                  'zh': '我的进度'},
     'profile':   {'ru': 'Мой профиль',                  'en': 'My profile',                'es': 'Mi perfil',                  'fr': 'Mon profil',                   'zh': '我的档案'},
@@ -112,6 +115,7 @@ COMMAND_DESCRIPTIONS = {
     'plan':      {'ru': 'Рабочий план',                 'en': 'Work plan',                 'es': 'Plan de trabajo',            'fr': 'Plan de travail',              'zh': '工作计划'},
     'rp':        {'ru': 'Рабочие продукты',             'en': 'Work products',             'es': 'Productos de trabajo',       'fr': 'Produits de travail',          'zh': '工作产品'},
     'report':    {'ru': 'Отчёт дня',                    'en': 'Day report',                'es': 'Informe del día',            'fr': 'Rapport du jour',              'zh': '日报'},
+    'mydata':    {'ru': 'Мои данные',                    'en': 'My data',                   'es': 'Mis datos',                  'fr': 'Mes données',                  'zh': '我的数据'},
     'mode':      {'ru': 'Клавиатура',                    'en': 'Keyboard',                  'es': 'Teclado',                    'fr': 'Clavier',                      'zh': '键盘'},
     'help':      {'ru': 'Помощь',                       'en': 'Help',                      'es': 'Ayuda',                      'fr': 'Aide',                         'zh': '帮助'},
     'analytics': {'ru': 'Аналитика',                    'en': 'Analytics',                 'es': 'Analíticas',                 'fr': 'Analytiques',                  'zh': '分析'},

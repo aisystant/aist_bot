@@ -191,6 +191,7 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"{t('commands.mode', lang)}\n"
         f"{t('commands.learn', lang)}\n"
         f"{t('commands.feed', lang)}\n"
+        f"{t('commands.train', lang)}\n"
         f"{t('commands.progress', lang)}\n"
         f"{t('commands.test', lang)}\n\n"
 
