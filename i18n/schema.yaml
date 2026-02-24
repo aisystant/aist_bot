@@ -109,6 +109,10 @@ commands:
     ru: "/feed — получить дайджест"
     en: "/feed — get a digest"
 
+  train:
+    ru: "/train — тренировка принципов"
+    en: "/train — principles training"
+
   test:
     ru: "/test — тест систематичности"
     en: "/test — systematicity test"
@@ -1650,6 +1654,163 @@ modes:
   complexity_set:
     ru: "Сложность: {level}"
     en: "Complexity: {level}"
+
+# -----------------------------------------------------------------------------
+# Тренировка принципов (/train)
+# -----------------------------------------------------------------------------
+training:
+  # Дашборд
+  dashboard_title:
+    ru: "🧠 Тренировка принципов"
+    en: "🧠 Principles Training"
+
+  dashboard_hint:
+    ru: "Выберите принцип для тренировки:"
+    en: "Select a principle to train:"
+
+  depth_label:
+    ru: "{current}/{max}"
+    en: "{current}/{max}"
+
+  stats_attempts:
+    ru: "Попыток: {count}"
+    en: "Attempts: {count}"
+
+  stats_passed:
+    ru: "Пройдено: {count}"
+    en: "Passed: {count}"
+
+  no_principles_enabled:
+    ru: "Нет включённых принципов. Перейдите в настройки."
+    en: "No enabled principles. Go to settings."
+
+  # Setup
+  setup_welcome:
+    ru: "👋 *Добро пожаловать в Тренировку!*\n\nСначала выберите когнитивный уровень заданий:"
+    en: "👋 *Welcome to Training!*\n\nFirst, select the cognitive level for assignments:"
+
+  setup_principles_prompt:
+    ru: "Выберите принципы для тренировки:"
+    en: "Select principles to train:"
+
+  setup_complete:
+    ru: "✅ Настройка завершена!"
+    en: "✅ Setup complete!"
+
+  # Когнитивные уровни
+  cognitive_postformal:
+    ru: "🧠 Взрослый"
+    en: "🧠 Adult"
+    description: "Постформальный уровень"
+
+  cognitive_formal_operational:
+    ru: "🎓 Подросток"
+    en: "🎓 Teenager"
+    description: "Формально-операциональный"
+
+  cognitive_concrete_operational:
+    ru: "📖 Ребёнок 7-11"
+    en: "📖 Child 7-11"
+    description: "Конкретно-операциональный"
+
+  cognitive_preoperational:
+    ru: "🎨 Ребёнок 3-6"
+    en: "🎨 Child 3-6"
+    description: "Дооперациональный"
+
+  cognitive_level_label:
+    ru: "Когнитивный уровень"
+    en: "Cognitive level"
+
+  # Задание
+  assignment_header:
+    ru: "📝 *{principle_name}* — Глубина {depth}"
+    en: "📝 *{principle_name}* — Depth {depth}"
+
+  write_answer:
+    ru: "Напишите ваш ответ:"
+    en: "Write your answer:"
+
+  answer_too_short:
+    ru: "Ответ слишком короткий (минимум {min_len} символов). Попробуйте ещё раз."
+    en: "Answer too short (minimum {min_len} characters). Try again."
+
+  generating_assignment:
+    ru: "⏳ Генерирую задание..."
+    en: "⏳ Generating assignment..."
+
+  evaluating_answer:
+    ru: "⏳ Оцениваю ответ..."
+    en: "⏳ Evaluating answer..."
+
+  # Результаты оценки
+  passed:
+    ru: "✅ *Принято!*\nГлубина {depth}/{max_depth}\n\n{feedback}"
+    en: "✅ *Passed!*\nDepth {depth}/{max_depth}\n\n{feedback}"
+
+  partial:
+    ru: "🔶 *Частично верно*\n\n{feedback}"
+    en: "🔶 *Partially correct*\n\n{feedback}"
+
+  failed:
+    ru: "❌ *Не принято*\n\n{feedback}"
+    en: "❌ *Not passed*\n\n{feedback}"
+
+  max_depth_reached:
+    ru: "🏆 Максимальная глубина достигнута!"
+    en: "🏆 Maximum depth reached!"
+
+  # Кнопки
+  retry_button:
+    ru: "🔄 Попробовать ещё"
+    en: "🔄 Try again"
+
+  back_to_dashboard:
+    ru: "← К дашборду"
+    en: "← To dashboard"
+
+  settings_button:
+    ru: "⚙️ Настройки"
+    en: "⚙️ Settings"
+
+  select_all_button:
+    ru: "Все"
+    en: "All"
+
+  confirm_button:
+    ru: "✅ Подтвердить"
+    en: "✅ Confirm"
+
+  # Режим (mode_selector)
+  training_button:
+    ru: "🧠 Тренировка"
+    en: "🧠 Training"
+    max_length: 20
+
+  training_full_desc:
+    ru: "🧠 *Тренировка* — развитие принципов"
+    en: "🧠 *Training* — developing principles"
+
+  training_daily:
+    ru: "_Задания по принципам мышления, ИИ оценивает ответы_"
+    en: "_Assignments on thinking principles, AI evaluates answers_"
+
+  training_activated:
+    ru: "✅ *Режим Тренировка активирован!*"
+    en: "✅ *Training mode activated!*"
+
+  training_name:
+    ru: "🧠 Тренировка"
+    en: "🧠 Training"
+
+  # Ошибки
+  error_generate:
+    ru: "Не удалось сгенерировать задание. Попробуйте позже."
+    en: "Failed to generate assignment. Try later."
+
+  error_evaluate:
+    ru: "Не удалось оценить ответ. Попробуйте позже."
+    en: "Failed to evaluate answer. Try later."
 
 # -----------------------------------------------------------------------------
 # Напоминания (scheduler)

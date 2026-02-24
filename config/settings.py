@@ -110,6 +110,7 @@ class Mode:
     """Режимы работы бота"""
     MARATHON = "marathon"
     FEED = "feed"
+    TRAINING = "training"
     BOTH = "both"
 
 # ============= СТАТУСЫ =============
@@ -248,6 +249,20 @@ FEED_DAYS_PER_WEEK = 7  # checkpoint глубины (не ограничивае
 FEED_SESSION_DURATION_MIN = 5  # минимальная длительность сессии (мин)
 FEED_SESSION_DURATION_MAX = 12  # максимальная длительность сессии (мин)
 FEED_TOPICS_TO_SUGGEST = 5  # сколько тем предлагать на выбор
+
+# ============= НАСТРОЙКИ ТРЕНИРОВКИ (WP-55) =============
+
+ZP_PRINCIPLES = ["ZP.1", "ZP.2", "ZP.3", "ZP.4", "ZP.5", "ZP.6"]
+TRAINING_MAX_DEPTH = 5
+TRAINING_COGNITIVE_LEVELS = {
+    "postformal": "Взрослый",
+    "formal_operational": "Подросток",
+    "concrete_operational": "Ребёнок 7-11",
+    "preoperational": "Ребёнок 3-6",
+}
+TRAINING_MIN_ANSWER_LENGTH = 20
+TRAINING_PASS_THRESHOLD = 0.7
+TRAINING_PARTIAL_THRESHOLD = 0.4
 
 # ============= НАСТРОЙКИ ИНТЕНТОВ =============
 

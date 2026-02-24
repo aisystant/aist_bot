@@ -38,6 +38,7 @@ states:
     events:
       marathon: workshop.marathon.lesson
       feed: feed.topics
+      training: training.dashboard
       exocortex: workshop.exocortex.audit
       fpfkids: workshop.fpfkids.goals
       practice: workshop.practice.topic_select
@@ -136,6 +137,33 @@ states:
     allow_global: [consultation, notes]
 
   # ==========================================
+  # ТРЕНИРОВКА (training.*)
+  # ==========================================
+
+  training.dashboard:
+    description: "Дашборд тренировки — прогресс по принципам"
+    events:
+      select_principle: training.assignment
+      settings: training.setup
+      setup_needed: training.setup
+      back: common.mode_select
+    allow_global: [consultation, notes]
+
+  training.assignment:
+    description: "Задание тренировки — генерация, ответ, оценка"
+    events:
+      passed: training.dashboard
+      retry: training.assignment
+      back: training.dashboard
+    allow_global: [consultation, notes]
+
+  training.setup:
+    description: "Первоначальная настройка тренировки"
+    events:
+      setup_complete: training.dashboard
+    allow_global: []
+
+  # ==========================================
   # МАСТЕРСКАЯ: ОЦЕНКА (workshop.assessment.*)
   # ==========================================
 
@@ -229,6 +257,10 @@ global_events:
   help:
     trigger: "/help"
     target: common.help
+
+  train:
+    trigger: "/train"
+    target: training.dashboard
 
   mode:
     trigger: "/mode"

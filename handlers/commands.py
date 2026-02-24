@@ -167,17 +167,11 @@ async def cmd_waka(message: Message, state: FSMContext):
 
     lang = intern.get('language', 'ru') or 'ru'
 
-    # Per-user key из БД, fallback на системный
+    # Per-user key из БД (как GitHub — каждый подключает свой)
     from db.queries.wakatime import get_wakatime_connection
     waka_conn = await get_wakatime_connection(message.chat.id)
 
-    if waka_conn:
-        api_key = waka_conn.get('api_key')
-    else:
-        from config.settings import WAKATIME_API_KEY
-        api_key = WAKATIME_API_KEY
-
-    if not api_key:
+    if not waka_conn:
         await message.answer(
             t('settings.waka_intro', lang) + "\n\n"
             + t('settings.waka_enter_key', lang).replace(':', '') + " → /settings",
@@ -185,14 +179,16 @@ async def cmd_waka(message: Message, state: FSMContext):
         )
         return
 
+    api_key = waka_conn.get('api_key')
     from clients.wakatime import wakatime_client
 
     try:
-        day, week = await asyncio.gather(
+        today_sum, yesterday_sum, week = await asyncio.gather(
+            wakatime_client.get_day_summary(api_key, day=None, today=True),
             wakatime_client.get_day_summary(api_key),
             wakatime_client.get_week_summary(api_key),
         )
-        text = wakatime_client.format_telegram(day, week)
+        text = wakatime_client.format_telegram(today_sum, yesterday_sum, week)
         await message.answer(text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"[CMD] /waka error for chat_id={message.chat.id}: {e}")

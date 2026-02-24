@@ -34,6 +34,9 @@ from states.workshops.assessment import (
 # Лента (реализовано)
 from states.feed import FeedTopicsState, FeedDigestState
 
+# Тренировка (WP-55)
+from states.training import TrainingDashboardState, TrainingAssignmentState, TrainingSetupState
+
 # Utilities (частично реализовано)
 from states.utilities import ProgressState, MyDataState, FeedbackState
 # TODO: Неделя 8 — раскомментировать после создания
@@ -86,6 +89,11 @@ def register_all_states(
         FeedTopicsState(*args),
         FeedDigestState(*args),
 
+        # Training стейты (Тренировка WP-55)
+        TrainingDashboardState(*args),
+        TrainingAssignmentState(*args),
+        TrainingSetupState(*args),
+
         # Utility стейты
         ProgressState(*args),
         MyDataState(*args),
@@ -128,6 +136,11 @@ def get_available_states() -> list[str]:
         # Feed (Лента)
         "feed.topics",
         "feed.digest",
+
+        # Training (Тренировка)
+        "training.dashboard",
+        "training.assignment",
+        "training.setup",
 
         # Utilities
         "utility.progress",

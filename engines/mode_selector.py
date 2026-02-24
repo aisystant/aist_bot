@@ -4,6 +4,7 @@ UI для выбора режима работы бота.
 Позволяет переключаться между:
 - Марафон: 14-дневный структурированный курс
 - Лента: бесконечное изучение по выбранным темам
+- Тренировка: развитие принципов мышления
 """
 
 import re
@@ -57,7 +58,10 @@ async def cmd_mode(message: Message):
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"{t('modes.feed_full_desc', lang)}\n"
         f"{feed_info}\n"
-        f"{t('modes.feed_daily', lang)}\n"
+        f"{t('modes.feed_daily', lang)}\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"{t('training.training_full_desc', lang)}\n"
+        f"{t('training.training_daily', lang)}\n"
     )
 
     # Кнопки выбора режима — независимые ✓ по статусам
@@ -72,6 +76,10 @@ async def cmd_mode(message: Message):
         [InlineKeyboardButton(
             text=t('modes.feed_button', lang) + (" ✓" if feed_active else ""),
             callback_data="mode_feed"
+        )],
+        [InlineKeyboardButton(
+            text=t('training.training_button', lang),
+            callback_data="mode_training"
         )],
     ]
 
@@ -808,6 +816,35 @@ async def marathon_difficulty_selected(callback: CallbackQuery):
     names = {1: t('modes.level_basic', lang), 2: t('modes.level_medium', lang), 3: t('modes.level_advanced', lang)}
     await callback.answer(t('modes.complexity_set', lang, level=names.get(level)))
     await show_marathon_settings(callback.message, intern, edit=True)
+
+
+@mode_router.callback_query(F.data == "mode_training")
+async def select_training(callback: CallbackQuery, state: FSMContext):
+    """Выбор режима Тренировка — перенаправляет на /train"""
+    try:
+        from engines.training.engine import TrainingEngine
+        from engines.training.handlers import show_dashboard, show_cognitive_selection
+
+        chat_id = callback.message.chat.id
+        engine = TrainingEngine(chat_id)
+
+        intern = await engine.get_intern()
+        if not intern:
+            await callback.answer(t('profile.not_found', 'ru'), show_alert=True)
+            return
+
+        await callback.answer()
+
+        if not await engine.is_setup_complete():
+            await show_cognitive_selection(callback.message, state)
+            return
+
+        await show_dashboard(callback.message, engine, state, edit=True)
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Ошибка в select_training: {e}\n{traceback.format_exc()}")
+        await callback.answer(t('modes.error_occurred', 'ru'), show_alert=True)
 
 
 @mode_router.callback_query(F.data == "mode_feed")

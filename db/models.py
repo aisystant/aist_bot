@@ -899,4 +899,56 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
+        # ============= ТРЕНИРОВКА (WP-55) =============
+
+        # Настройки тренировки (когнитивный уровень + включённые принципы)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS training_settings (
+                chat_id BIGINT PRIMARY KEY,
+                cognitive_level TEXT DEFAULT 'postformal',
+                enabled_principles TEXT DEFAULT '["ZP.1","ZP.2","ZP.3","ZP.4","ZP.5","ZP.6"]',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # Прогресс по принципам (текущая глубина каждого принципа)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS training_progress (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                principle_id TEXT NOT NULL,
+                current_depth INTEGER DEFAULT 0,
+                attempts_at_depth INTEGER DEFAULT 0,
+                last_completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(chat_id, principle_id)
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_training_progress_chat
+            ON training_progress (chat_id)
+        ''')
+
+        # Попытки (история ответов на задания)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS training_attempts (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                principle_id TEXT NOT NULL,
+                depth INTEGER NOT NULL,
+                assignment_text TEXT,
+                answer_text TEXT,
+                passed BOOLEAN DEFAULT FALSE,
+                feedback TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_training_attempts_chat
+            ON training_attempts (chat_id, principle_id)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

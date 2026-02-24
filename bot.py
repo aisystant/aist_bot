@@ -201,6 +201,7 @@ async def main():
     # WP-52: Global = minimal T1 fallback; per-user BotCommandScopeChat overrides this
     await bot.set_my_commands([
         BotCommand(command="learn", description="Марафон — получить урок"),
+        BotCommand(command="train", description="Тренировка принципов"),
         BotCommand(command="test", description="Тест систематичности"),
         BotCommand(command="progress", description="Мой прогресс"),
         BotCommand(command="profile", description="Мой профиль"),
@@ -208,6 +209,7 @@ async def main():
     ])
     await bot.set_my_commands([
         BotCommand(command="learn", description="Marathon — get a lesson"),
+        BotCommand(command="train", description="Principles training"),
         BotCommand(command="test", description="Systematicity test"),
         BotCommand(command="progress", description="My progress"),
         BotCommand(command="profile", description="My profile"),
@@ -215,6 +217,7 @@ async def main():
     ], language_code="en")
     await bot.set_my_commands([
         BotCommand(command="learn", description="Maratón — obtener lección"),
+        BotCommand(command="train", description="Entrenamiento de principios"),
         BotCommand(command="test", description="Test de sistematicidad"),
         BotCommand(command="progress", description="Mi progreso"),
         BotCommand(command="profile", description="Mi perfil"),
@@ -222,6 +225,7 @@ async def main():
     ], language_code="es")
     await bot.set_my_commands([
         BotCommand(command="learn", description="Marathon — obtenir une leçon"),
+        BotCommand(command="train", description="Entraînement des principes"),
         BotCommand(command="test", description="Test de systématicité"),
         BotCommand(command="progress", description="Mon progrès"),
         BotCommand(command="profile", description="Mon profil"),
@@ -229,6 +233,7 @@ async def main():
     ], language_code="fr")
     await bot.set_my_commands([
         BotCommand(command="learn", description="马拉松 — 获取课程"),
+        BotCommand(command="train", description="原则训练"),
         BotCommand(command="test", description="系统性测试"),
         BotCommand(command="progress", description="我的进度"),
         BotCommand(command="profile", description="我的档案"),

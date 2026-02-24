@@ -45,6 +45,14 @@ def setup_routers(dp: Dispatcher):
     else:
         logger.info("⏭ feed_router пропущен (USE_STATE_MACHINE=true)")
 
+    # Роутер режима Тренировка (только если State Machine выключен)
+    if not USE_STATE_MACHINE:
+        from .training import training_router
+        dp.include_router(training_router)
+        logger.info("✓ Подключен training_router (/train) [legacy]")
+    else:
+        logger.info("⏭ training_router пропущен (USE_STATE_MACHINE=true)")
+
     # TODO: Роутер режима Марафон (когда будет вынесен из bot.py)
     # from .marathon import marathon_router
     # dp.include_router(marathon_router)
@@ -55,7 +63,8 @@ def setup_routers(dp: Dispatcher):
 def get_commands_list() -> list:
     """Возвращает список команд для регистрации в боте"""
     return [
-        ("mode", "Выбор режима (Марафон/Лента)"),
+        ("mode", "Выбор режима (Марафон/Лента/Тренировка)"),
         ("feed", "Режим Лента — персональные темы"),
         ("feed_status", "Статус режима Лента"),
+        ("train", "Тренировка принципов мышления"),
     ]

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Legacy COMMAND_MAP — fallback для команд, не зарегистрированных в реестре
 _LEGACY_COMMAND_MAP = {
     'feed': 'feed.topics',
+    'train': 'training.dashboard',
     'mode': 'common.mode_select',
     'update': 'common.settings',
     'language': 'common.settings',
