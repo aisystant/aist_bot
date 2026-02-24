@@ -211,6 +211,21 @@ updated: 2026-02-09
 | **MCP-сервер Railway** — обёртка Railway API для логов, деплоев, метрик. Claude Code получает логи как tool (Context Engineering). Паттерн переносим на любой PaaS → генеративность для шаблона экзокортекса (T3). ArchGate: выигрывает по эволюционируемости, масштабируемости, генеративности, современности vs прямой CLI | сессия 16 фев, ArchGate-оценка | Phase 2 |
 | **Publisher: OAuth вместо PAT** — GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var. Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient. АрхГейт: 8.8/10 (обучаемость 9, генеративность 8 — шаблонные пользователи не трогают env vars). | сессия 21 фев | Phase 2 |
 | **Тест владения Принципами (Principles Proficiency Test)** — адаптивный бот-тест по аналогии с IELTS placement test. Тестирует каждый ZP-принцип независимо (3-5 вопросов), определяет глубину 0-5 (Bloom), выдаёт векторный профиль `{ZP.1:3, ZP.2:1, ...}`. Источник: EDU.WP.005 (Diagnostic Assessment), рубрика: can-do из EDU.MAP.001. Формат: `/test` → адаптивный диалог → результат = профиль + bottleneck + рекомендация стратегии. Данные: в digital-twin (профиль → EDU.WP.004 Learning Progression Map). | сессия 21 фев (WP-50) | Phase 2-3 |
+| **Проводник по маршруту** — FSM-состояния в боте для навигации по учебному маршруту. 5 SM-состояний, интеграция DT-данных для персонализации. Источник: WP-33. | WP-33 (13 фев) | Phase 2-3 |
+| **Circuit breaker** — единый паттерн для Claude API + MCP + Neon. Источник: WP-44 Phase 1. | WP-44 (17 фев) | Phase 1 |
+| **Horizontal scaling** — 2+ Railway instances + load balancer. Требует webhook (done). Источник: WP-44 Phase 1. | WP-44 | Phase 2 |
+| **Graceful degradation** — fallback при перегрузке Claude API. Источник: WP-44 Phase 1. | WP-44 | Phase 1 |
+| **Нагрузочное тестирование** — locust/k6 для бота. Источник: WP-44. | WP-44 | Phase 1-2 |
+| **L4 Escalate via GitHub Issue** — автоматическое создание GitHub Issue при unknown error pattern. Источник: WP-45 Phase 5. | WP-45 (17 фев) | Phase 1 |
+| **Scheduled analytics reports** — daily/weekly отчёты через Claude headless → TG (7:00). Источник: WP-46 Phase 2. | WP-46 (17 фев) | Phase 2 |
+| **Grafana Cloud dashboard** — 5 типов: Overview, Engagement, Content, Latency, Funnels + retention cohort heatmap. Источник: WP-46 Phase 3. | WP-46 | Phase 2 |
+| **UX-алерты аналитики** — 0 DAU за 3ч, >30% red-zone, retention D1 <20%. Источник: WP-46 Phase 4. | WP-46 | Phase 2-3 |
+| **SM-Contextual Keyboards** — Row 1 actions + Row 2 `[🏠 Меню] [⚙️]` auto-append в SM-стейтах. ~2-3h. Источник: WP-52 Phase 2. | WP-52 (20 фев) | Phase 1 |
+| **Tier-aware /help** — gateway showing all tiers (locked/unlocked) + «подробнее». Источник: WP-52 Phase 3. | WP-52 | Phase 1 |
+| **Tier-aware /mydata** — комплексный вид T3+: прогресс + DT + аналитика. Источник: WP-52 Phase 3. | WP-52 | Phase 1-2 |
+| **Celebration message при tier upgrade** — «🎉 Вы перешли на уровень...». Источник: WP-52. | WP-52 | Phase 1 |
+| **Customizable KB (T3+)** — user_settings.custom_keyboard, Profile → настройка клавиатуры. Источник: WP-52 Phase 4. Deferred. | WP-52 | Phase 3 |
+| **Publisher: Multi-platform** — Content Adapter Layer → Twitter, LinkedIn, TG channel, VK. Источник: WP-53 Phase 4. | WP-53 (20 фев) | Phase 3 |
 
 ---
 
@@ -229,4 +244,4 @@ updated: 2026-02-09
 
 ---
 
-*Последнее обновление: 2026-02-21 (+ Principles Proficiency Test)*
+*Последнее обновление: 2026-02-24 (+ backlog из WP-33,44,45,46,52,53 — Inbox Triage W10)*
