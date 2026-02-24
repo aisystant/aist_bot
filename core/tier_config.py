@@ -26,6 +26,16 @@ class UITier:
     T5_ADMIN = 5
 
 
+# Tier display names for user-facing messages (greeting, etc.)
+TIER_DISPLAY = {
+    UITier.T1_START:           "T1 — Start",
+    UITier.T2_LEARNING:        "T2 — Learning",
+    UITier.T3_PERSONALIZATION: "T3 — Personalization",
+    UITier.T4_CREATION:        "T4 — Creation",
+    UITier.T5_ADMIN:           "T5 — Admin",
+}
+
+
 # ═══════════════════════════════════════════════════════════
 # KEYBOARD BUTTON LABELS (per service, per language)
 # ═══════════════════════════════════════════════════════════
