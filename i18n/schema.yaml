@@ -834,6 +834,26 @@ settings:
     ru: "Не удалось получить список репозиториев."
     en: "Could not get repository list."
 
+  waka_intro:
+    ru: "WakaTime — трекер времени разработки. Автоматически отслеживает, сколько и в каких проектах вы кодите."
+    en: "WakaTime — development time tracker. Automatically tracks how much and which projects you code in."
+
+  waka_enter_key:
+    ru: "Введите API-ключ (найдите на wakatime.com/settings/api-key):"
+    en: "Enter your API key (find it at wakatime.com/settings/api-key):"
+
+  waka_invalid_key:
+    ru: "Невалидный API-ключ. Проверьте на wakatime.com/settings/api-key и попробуйте снова."
+    en: "Invalid API key. Check at wakatime.com/settings/api-key and try again."
+
+  waka_check_stats:
+    ru: "посмотреть статистику"
+    en: "check stats"
+
+  waka_disconnect:
+    ru: "Отключить WakaTime"
+    en: "Disconnect WakaTime"
+
   github_knowledge_repo:
     ru: "Индекс знаний"
     en: "Knowledge Index"

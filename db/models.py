@@ -405,6 +405,18 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
+        # WAKATIME ПОДКЛЮЧЕНИЯ (per-user API keys, WP-60)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS wakatime_connections (
+                chat_id BIGINT PRIMARY KEY REFERENCES interns(chat_id),
+                api_key TEXT NOT NULL,
+                wakatime_username TEXT,
+                connected_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # ОЦЕНКИ / ТЕСТЫ (assessments)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

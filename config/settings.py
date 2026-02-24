@@ -369,6 +369,9 @@ PLATFORM_URLS = {
     "guides": "https://docs.system-school.ru/ru/",
 }
 
+# ============= WAKATIME (WP-60) =============
+WAKATIME_API_KEY = os.getenv("WAKATIME_API_KEY")
+
 # ============= DISCOURSE (systemsworld.club) =============
 
 DISCOURSE_API_URL = os.getenv("DISCOURSE_API_URL", "")

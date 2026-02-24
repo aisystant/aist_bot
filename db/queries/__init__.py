@@ -98,6 +98,12 @@ from .conversion import (
     get_milestone_eligible_users,
 )
 
+from .wakatime import (
+    get_wakatime_connection,
+    save_wakatime_connection,
+    delete_wakatime_connection,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -174,4 +180,9 @@ __all__ = [
     'was_milestone_sent',
     'is_cooldown_active',
     'get_milestone_eligible_users',
+
+    # wakatime
+    'get_wakatime_connection',
+    'save_wakatime_connection',
+    'delete_wakatime_connection',
 ]
