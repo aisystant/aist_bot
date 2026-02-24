@@ -104,23 +104,26 @@ class SettingsState(BaseState):
             f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
         )
 
-        # Статус подписки
-        from core.access import access_layer
-        from db.queries.subscription import get_active_subscription
-        sub = await get_active_subscription(chat_id)
-        in_trial = await access_layer._is_in_trial(chat_id)
-        trial_days = await access_layer.get_trial_days_remaining(chat_id)
+        # Статус подписки (до SUBSCRIPTION_LAUNCH_DATE — open beta, не показываем триал)
+        from datetime import date as _date
+        from config.settings import SUBSCRIPTION_LAUNCH_DATE
+        if _date.today() >= SUBSCRIPTION_LAUNCH_DATE:
+            from core.access import access_layer
+            from db.queries.subscription import get_active_subscription
+            sub = await get_active_subscription(chat_id)
+            in_trial = await access_layer._is_in_trial(chat_id)
+            trial_days = await access_layer.get_trial_days_remaining(chat_id)
 
-        if sub:
-            expires = sub.get('expires_at')
-            date_str = expires.strftime('%d.%m.%Y') if expires else '—'
-            sub_line = t('subscription.status_active', lang, date=date_str)
-        elif in_trial and trial_days > 0:
-            sub_line = t('subscription.status_trial', lang, days=trial_days)
-        else:
-            sub_line = t('subscription.status_expired', lang)
+            if sub:
+                expires = sub.get('expires_at')
+                date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+                sub_line = t('subscription.status_active', lang, date=date_str)
+            elif in_trial and trial_days > 0:
+                sub_line = t('subscription.status_trial', lang, days=trial_days)
+            else:
+                sub_line = t('subscription.status_expired', lang)
 
-        text += f"⭐ {sub_line}\n"
+            text += f"⭐ {sub_line}\n"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
