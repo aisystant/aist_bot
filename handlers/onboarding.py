@@ -76,8 +76,14 @@ async def cmd_start(message: Message, state: FSMContext):
         # Очищаем legacy FSM state
         await state.clear()
 
-        # Проверяем наличие старых учебных данных → предлагаем сброс (одноразово)
+        # Очищаем stale settings_waiting_for (WP-60 bugfix)
         ctx = intern.get('current_context', {})
+        if ctx.get('settings_waiting_for'):
+            ctx.pop('settings_waiting_for')
+            await update_intern(message.chat.id, current_context=ctx)
+            intern['current_context'] = ctx
+
+        # Проверяем наличие старых учебных данных → предлагаем сброс (одноразово)
         reset_offered = ctx.get('reset_offered', False)
         if not reset_offered and _has_learning_data(intern):
             lang = intern.get('language', 'ru')
