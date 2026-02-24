@@ -629,6 +629,7 @@ class SettingsState(BaseState):
 
     async def _show_connections(self, user, callback: CallbackQuery) -> Optional[str]:
         """Показываем подключения к сторонним сервисам."""
+        await self._set_waiting(user, None)  # сброс waiting при возврате в список
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
