@@ -99,6 +99,9 @@ from .settings import (
 
     # Markdown sanitizer
     TELEGRAM_MARKDOWN_RULES,
+
+    # WakaTime (WP-60)
+    WAKATIME_API_KEY,
 )
 
 __all__ = [
@@ -158,4 +161,5 @@ __all__ = [
     'ONTOLOGY_RULES',
     'ONTOLOGY_RULES_TOPICS',
     'TELEGRAM_MARKDOWN_RULES',
+    'WAKATIME_API_KEY',
 ]

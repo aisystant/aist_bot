@@ -5,6 +5,7 @@
 Вся бизнес-логика — в State Machine (states/).
 """
 
+import asyncio
 import logging
 import traceback
 
@@ -153,6 +154,30 @@ async def cmd_mydata(message: Message, state: FSMContext):
 
     lang = intern.get('language', 'ru') or 'ru'
     await message.answer(t('errors.processing_error', lang))
+
+
+@commands_router.message(Command("waka"))
+async def cmd_waka(message: Message, state: FSMContext):
+    """WakaTime — статистика рабочего времени разработчика."""
+    intern = await get_intern(message.chat.id)
+    if not intern or not intern.get('onboarding_completed'):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('profile.first_start', lang))
+        return
+
+    from clients.wakatime import wakatime_client
+
+    try:
+        day, week = await asyncio.gather(
+            wakatime_client.get_day_summary(),
+            wakatime_client.get_week_summary(),
+        )
+        text = wakatime_client.format_telegram(day, week)
+        await message.answer(text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"[CMD] /waka error for chat_id={message.chat.id}: {e}")
+        lang = intern.get('language', 'ru') or 'ru'
+        await message.answer(t('errors.processing_error', lang))
 
 
 @commands_router.message(Command("test"))

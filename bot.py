@@ -250,6 +250,7 @@ async def main():
                 BotCommand(command="delivery", description="Доставка уроков марафона"),
                 BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="reset", description="Full wipe тестера → ре-онбординг"),
+                BotCommand(command="waka", description="WakaTime статистика"),
                 BotCommand(command="mode", description="Главное меню"),
                 BotCommand(command="help", description="Справка"),
             ], scope=BotCommandScopeChat(chat_id=int(dev_chat_id)))
