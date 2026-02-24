@@ -298,6 +298,17 @@ class StateMachine:
                 logger.warning(f"Не удалось обновить user из БД: {e}")
                 fresh_user = user
 
+        # Очищаем stale settings_waiting_for при переходе в не-settings/profile стейт
+        _WAITING_STATES = ('common.settings', 'common.profile')
+        if to_state_name not in _WAITING_STATES and chat_id and isinstance(fresh_user, dict):
+            ctx = fresh_user.get('current_context', {})
+            if ctx.get('settings_waiting_for'):
+                ctx.pop('settings_waiting_for')
+                from db.queries import update_intern
+                await update_intern(chat_id, current_context=ctx)
+                fresh_user['current_context'] = ctx
+                logger.info(f"[SM] Cleared stale settings_waiting_for on transition to {to_state_name}")
+
         # Тихий возврат из модального стейта (консультация, заметки, feedback):
         # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта
         _silent_return = (
@@ -460,6 +471,17 @@ class StateMachine:
             except Exception as e:
                 logger.warning(f"Не удалось обновить user из БД: {e}")
                 fresh_user = user
+
+        # Очищаем stale settings_waiting_for при переходе в не-settings/profile стейт
+        _WAITING_STATES = ('common.settings', 'common.profile')
+        if state_name not in _WAITING_STATES and chat_id and isinstance(fresh_user, dict):
+            ctx = fresh_user.get('current_context', {})
+            if ctx.get('settings_waiting_for'):
+                ctx.pop('settings_waiting_for')
+                from db.queries import update_intern
+                await update_intern(chat_id, current_context=ctx)
+                fresh_user['current_context'] = ctx
+                logger.info(f"[SM] Cleared stale settings_waiting_for on go_to({state_name})")
 
         # Тихий возврат из модального стейта (консультация, заметки, feedback):
         # не вызываем enter(), чтобы не перерисовывать UI предыдущего стейта.

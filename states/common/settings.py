@@ -81,6 +81,11 @@ class SettingsState(BaseState):
             return user.get('current_context', {}).get('settings_waiting_for')
         return None
 
+    async def exit(self, user) -> dict:
+        """Очищаем settings_waiting_for при выходе из стейта."""
+        await self._set_waiting(user, None)
+        return {}
+
     async def enter(self, user, context: dict = None) -> None:
         """Показываем системные настройки."""
         chat_id = self._get_chat_id(user)
