@@ -51,6 +51,7 @@ KB_LABELS = {
     'club':       {'ru': '🏛 Клуб',       'en': '🏛 Club',       'es': '🏛 Club',       'fr': '🏛 Club',       'zh': '🏛 俱乐部'},
     'plans':      {'ru': '📋 Мой план',   'en': '📋 My plan',    'es': '📋 Mi plan',    'fr': '📋 Mon plan',   'zh': '📋 我的计划'},
     'notes':      {'ru': '📝 Заметки',    'en': '📝 Notes',      'es': '📝 Notas',      'fr': '📝 Notes',      'zh': '📝 笔记'},
+    'mydata':     {'ru': '📁 Мои данные',  'en': '📁 My data',    'es': '📁 Mis datos',  'fr': '📁 Mes données', 'zh': '📁 我的数据'},
     'settings':   {'ru': '⚙️ Настройки',  'en': '⚙️ Settings',   'es': '⚙️ Ajustes',    'fr': '⚙️ Paramètres', 'zh': '⚙️ 设置'},
 }
 
@@ -66,6 +67,7 @@ SERVICE_TO_COMMAND = {
     'club': 'club',
     'plans': 'plan',
     'notes': 'notes',
+    'mydata': 'mydata',
     'settings': 'settings',
 }
 
@@ -79,8 +81,8 @@ TIER_KEYBOARD = {
     UITier.T1_START:           [['marathon', 'test'],     ['progress', 'settings']],
     UITier.T2_LEARNING:        [['feed',     'test'],     ['progress', 'settings']],
     UITier.T3_PERSONALIZATION: [['dt',       'feed'],     ['progress', 'settings']],
-    UITier.T4_CREATION:        [['plans',    'club'],     ['dt',       'settings']],
-    UITier.T5_ADMIN:           [['plans',    'club'],     ['dt',       'settings']],
+    UITier.T4_CREATION:        [['plans',    'club'],     ['mydata',   'settings']],
+    UITier.T5_ADMIN:           [['plans',    'club'],     ['mydata',   'settings']],
 }
 
 

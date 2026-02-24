@@ -67,6 +67,9 @@ async def _fallback_route(message: Message, state: FSMContext, command: str, int
         elif command == 'twin':
             from handlers.twin import cmd_twin
             await cmd_twin(message)
+        elif command == 'mydata':
+            from handlers.commands import cmd_mydata
+            await cmd_mydata(message, state)
         else:
             lang = intern.get('language', 'ru') or 'ru'
             from i18n import t
