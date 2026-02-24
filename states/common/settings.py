@@ -192,6 +192,12 @@ class SettingsState(BaseState):
         if data == "conn_club_disconnect":
             return await self._club_disconnect(user, callback)
 
+        if data == "conn_waka":
+            return await self._handle_waka_connection(user, callback)
+
+        if data == "conn_waka_disconnect":
+            return await self._waka_disconnect(user, callback)
+
         if data == "github_select_repo":
             return await self._github_select_repo(user, callback)
 
@@ -322,6 +328,25 @@ class SettingsState(BaseState):
             else:
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None
+
+        elif field == 'wakatime_key':
+            # Валидируем API key через WakaTime API
+            key = text.strip()
+            if not key.startswith('waka_') and len(key) < 20:
+                await self.send(user, t('settings.waka_invalid_key', lang))
+                return None
+
+            from clients.wakatime import wakatime_client
+            waka_user = await wakatime_client.validate_key(key)
+            if not waka_user:
+                await self.send(user, t('settings.waka_invalid_key', lang))
+                return None
+
+            from db.queries.wakatime import save_wakatime_connection
+            await save_wakatime_connection(chat_id, key, waka_user.get('username'))
+
+            username = waka_user.get('username') or waka_user.get('display_name') or ''
+            await self.send(user, f"✅ WakaTime {t('settings.connected', lang)}: *{username}*\n/waka — {t('settings.waka_check_stats', lang)}", parse_mode="Markdown")
 
         await self._set_waiting(user, None)
 
@@ -637,17 +662,28 @@ class SettingsState(BaseState):
         else:
             club_status = t('settings.not_connected', lang)
 
+        # Проверяем WakaTime подключение
+        from db.queries.wakatime import get_wakatime_connection
+        waka_conn = await get_wakatime_connection(chat_id)
+        if waka_conn:
+            waka_user = waka_conn.get('wakatime_username', '')
+            waka_status = f"✅ @{waka_user}" if waka_user else "✅ " + t('settings.connected', lang)
+        else:
+            waka_status = t('settings.not_connected', lang)
+
         text = (
             f"🔗 *{t('settings.connections_label', lang)}*\n\n"
             f"🐙 GitHub: {github_status}\n"
             f"🤖 {t('settings.twin_label', lang)}: {twin_status}\n"
             f"🏛 Клуб: {club_status}\n"
+            f"📊 WakaTime: {waka_status}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github")],
             [InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin")],
             [InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club")],
+            [InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka")],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
         ])
 
@@ -1028,6 +1064,57 @@ class SettingsState(BaseState):
 
         await callback.message.edit_text(
             f"🤖 {t('settings.twin_label', lang)}: {t('settings.not_connected', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+            ]),
+        )
+        return None
+
+    # =========== WakaTime ===========
+
+    async def _handle_waka_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус WakaTime или предлагаем подключить."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.wakatime import get_wakatime_connection
+        waka_conn = await get_wakatime_connection(chat_id)
+
+        if waka_conn:
+            waka_user = waka_conn.get('wakatime_username', '')
+            text = f"📊 *WakaTime {t('settings.connected', lang)}*\n"
+            if waka_user:
+                text += f"User: *{waka_user}*\n"
+            text += f"\n/waka — {t('settings.waka_check_stats', lang)}"
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('settings.waka_disconnect', lang), callback_data="conn_waka_disconnect")],
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ])
+        else:
+            text = (
+                f"📊 *WakaTime*\n\n"
+                f"{t('settings.waka_intro', lang)}\n\n"
+                f"{t('settings.waka_enter_key', lang)}"
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ])
+            await self._set_waiting(user, 'wakatime_key')
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _waka_disconnect(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Отключить WakaTime."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.wakatime import delete_wakatime_connection
+        await delete_wakatime_connection(chat_id)
+
+        await callback.message.edit_text(
+            f"📊 WakaTime: {t('settings.not_connected', lang)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
             ]),

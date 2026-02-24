@@ -158,25 +158,44 @@ async def cmd_mydata(message: Message, state: FSMContext):
 
 @commands_router.message(Command("waka"))
 async def cmd_waka(message: Message, state: FSMContext):
-    """WakaTime — статистика рабочего времени разработчика."""
+    """WakaTime — статистика рабочего времени пользователя."""
     intern = await get_intern(message.chat.id)
     if not intern or not intern.get('onboarding_completed'):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
 
+    lang = intern.get('language', 'ru') or 'ru'
+
+    # Per-user key из БД, fallback на системный
+    from db.queries.wakatime import get_wakatime_connection
+    waka_conn = await get_wakatime_connection(message.chat.id)
+
+    if waka_conn:
+        api_key = waka_conn.get('api_key')
+    else:
+        from config.settings import WAKATIME_API_KEY
+        api_key = WAKATIME_API_KEY
+
+    if not api_key:
+        await message.answer(
+            t('settings.waka_intro', lang) + "\n\n"
+            + t('settings.waka_enter_key', lang).replace(':', '') + " → /settings",
+            parse_mode="Markdown",
+        )
+        return
+
     from clients.wakatime import wakatime_client
 
     try:
         day, week = await asyncio.gather(
-            wakatime_client.get_day_summary(),
-            wakatime_client.get_week_summary(),
+            wakatime_client.get_day_summary(api_key),
+            wakatime_client.get_week_summary(api_key),
         )
         text = wakatime_client.format_telegram(day, week)
         await message.answer(text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"[CMD] /waka error for chat_id={message.chat.id}: {e}")
-        lang = intern.get('language', 'ru') or 'ru'
         await message.answer(t('errors.processing_error', lang))
 
 
