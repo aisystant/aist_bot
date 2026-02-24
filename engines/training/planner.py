@@ -30,20 +30,53 @@ BLOOM_LABELS = {
     'Create': 'Создание',
 }
 
+# Fallback-имена принципов (если JSON не загрузится)
+ZP_PRINCIPLE_NAMES = {
+    'ZP.1': 'Аксиоматичность',
+    'ZP.2': 'Структура',
+    'ZP.3': 'Многомасштабность',
+    'ZP.4': 'Оптимизация',
+    'ZP.5': 'Бесконечное развитие',
+    'ZP.6': 'Научный метод',
+}
 
-@lru_cache(maxsize=1)
+
 def load_zp_cells() -> dict:
-    """Загрузить данные ZP-ячеек из JSON (кэшируется)."""
+    """Загрузить данные ZP-ячеек из JSON.
+
+    НЕ кэшируется через lru_cache — при ошибке загрузки
+    закешируется пустой dict навсегда. Вместо этого: module-level cache
+    с возможностью повторной попытки.
+    """
+    global _zp_cells_cache
+    if _zp_cells_cache is not None:
+        return _zp_cells_cache
+
     path = BASE_DIR / "data" / "curriculum" / "zp_cells.json"
     try:
         with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            logger.info(f"Loaded {len(data)} ZP cells from {path}")
+            _zp_cells_cache = data
+            return data
     except FileNotFoundError:
-        logger.error(f"ZP cells file not found: {path}")
+        logger.error(f"ZP cells file not found: {path} (BASE_DIR={BASE_DIR})")
         return {}
     except json.JSONDecodeError as e:
         logger.error(f"ZP cells JSON error: {e}")
         return {}
+
+
+_zp_cells_cache: dict = None
+
+
+def get_principle_name(principle_id: str) -> str:
+    """Получить имя принципа (из JSON или fallback)."""
+    cells = load_zp_cells()
+    name = cells.get(principle_id, {}).get('name')
+    if name:
+        return name
+    return ZP_PRINCIPLE_NAMES.get(principle_id, principle_id)
 
 
 async def generate_assignment_text(

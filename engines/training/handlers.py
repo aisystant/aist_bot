@@ -24,6 +24,7 @@ from config import (
 )
 from i18n import t
 from db.queries.users import get_intern
+from db.queries.training import get_principle_depth
 from .engine import TrainingEngine
 
 logger = get_logger(__name__)
@@ -35,7 +36,8 @@ training_router = Router(name="training")
 class TrainingStates(StatesGroup):
     """FSM-состояния режима Тренировка."""
     setup_cognitive = State()
-    setup_principles = State()
+    setup_mode = State()       # Выбор режима: вперемешку / по порядку / конкретный ZP / конкретный FPF
+    setup_principles = State()  # Выбор конкретного принципа (если выбран ZP/FPF)
     dashboard = State()
     viewing_assignment = State()
     waiting_answer = State()
@@ -107,9 +109,9 @@ async def handle_cognitive_choice(callback: CallbackQuery, state: FSMContext):
 
     await state.update_data(cognitive_level=level)
 
-    # Если это setup — показать выбор принципов
+    # Если это setup — показать выбор режима тренировки
     if current_state == TrainingStates.setup_cognitive.state:
-        await show_principle_selection(callback.message, state, is_setup=True)
+        await show_training_mode_selection(callback.message, state)
     else:
         # Из настроек — обновить и вернуться
         engine = TrainingEngine(callback.message.chat.id)
@@ -120,17 +122,135 @@ async def handle_cognitive_choice(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-async def show_principle_selection(message: Message, state: FSMContext, is_setup: bool = False):
-    """Показать выбор принципов."""
-    from .planner import load_zp_cells
-    cells = load_zp_cells()
+# ============= TRAINING MODE SELECTION =============
+
+async def show_training_mode_selection(message: Message, state: FSMContext):
+    """Показать 4 режима тренировки после выбора когнитивного уровня."""
+    buttons = [
+        [InlineKeyboardButton(
+            text="🔀 Все вперемешку",
+            callback_data="train_mode_shuffle"
+        )],
+        [InlineKeyboardButton(
+            text="📶 По порядку из непройденных",
+            callback_data="train_mode_sequential"
+        )],
+        [InlineKeyboardButton(
+            text="🔹 Выбрать нулевой принцип (ZP)",
+            callback_data="train_mode_pick_zp"
+        )],
+        [InlineKeyboardButton(
+            text="🔸 Выбрать первый принцип (FPF)",
+            callback_data="train_mode_pick_fpf"
+        )],
+    ]
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    text = (
+        "📋 *Как тренироваться?*\n\n"
+        "🔀 *Все вперемешку* — случайный принцип из непройденных\n"
+        "📶 *По порядку* — от первого непройденного к последнему\n"
+        "🔹 *Нулевой принцип* — выбрать конкретный ZP\n"
+        "🔸 *Первый принцип* — выбрать конкретный FPF (скоро)"
+    )
+
+    try:
+        await message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    except Exception:
+        await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
+    await state.set_state(TrainingStates.setup_mode)
+
+
+@training_router.callback_query(F.data == "train_mode_shuffle")
+async def handle_mode_shuffle(callback: CallbackQuery, state: FSMContext):
+    """Режим: все вперемешку — включить все ZP принципы."""
+    await state.update_data(training_mode='shuffle', selected_principles=list(ZP_PRINCIPLES))
+    await _finalize_setup(callback, state)
+
+
+@training_router.callback_query(F.data == "train_mode_sequential")
+async def handle_mode_sequential(callback: CallbackQuery, state: FSMContext):
+    """Режим: по порядку — включить все ZP принципы."""
+    await state.update_data(training_mode='sequential', selected_principles=list(ZP_PRINCIPLES))
+    await _finalize_setup(callback, state)
+
+
+@training_router.callback_query(F.data == "train_mode_pick_zp")
+async def handle_mode_pick_zp(callback: CallbackQuery, state: FSMContext):
+    """Режим: выбрать конкретный нулевой принцип."""
+    from .planner import get_principle_name
+
+    buttons = []
+    for pid in ZP_PRINCIPLES:
+        name = get_principle_name(pid)
+        buttons.append([InlineKeyboardButton(
+            text=f"{pid} {name}",
+            callback_data=f"train_pick_{pid}"
+        )])
+    buttons.append([InlineKeyboardButton(text="← Назад", callback_data="train_mode_back")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text(
+        "🔹 *Выберите нулевой принцип:*",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
+@training_router.callback_query(F.data == "train_mode_pick_fpf")
+async def handle_mode_pick_fpf(callback: CallbackQuery, state: FSMContext):
+    """Режим: первые принципы (FPF) — пока не реализовано."""
+    await callback.answer("Первые принципы (FPF) будут добавлены позже.", show_alert=True)
+
+
+@training_router.callback_query(F.data.startswith("train_pick_"))
+async def handle_pick_principle(callback: CallbackQuery, state: FSMContext):
+    """Выбран конкретный принцип."""
+    principle_id = callback.data.replace("train_pick_", "")
+    if principle_id in ZP_PRINCIPLES:
+        await state.update_data(training_mode='single', selected_principles=[principle_id])
+        await _finalize_setup(callback, state)
+    else:
+        await callback.answer("Неизвестный принцип", show_alert=True)
+
+
+@training_router.callback_query(F.data == "train_mode_back")
+async def handle_mode_back(callback: CallbackQuery, state: FSMContext):
+    """Назад к выбору режима тренировки."""
+    await show_training_mode_selection(callback.message, state)
+    await callback.answer()
+
+
+async def _finalize_setup(callback: CallbackQuery, state: FSMContext):
+    """Финализировать настройку и показать дашборд."""
+    data = await state.get_data()
+    cognitive_level = data.get('cognitive_level', 'postformal')
+    selected = data.get('selected_principles', list(ZP_PRINCIPLES))
+
+    engine = TrainingEngine(callback.message.chat.id)
+    success = await engine.setup(cognitive_level, selected)
+
+    if not success:
+        await callback.answer("Ошибка сохранения настроек", show_alert=True)
+        return
+
+    await callback.answer("Настройки сохранены!")
+    await show_dashboard(callback.message, engine, state, edit=True)
+
+
+async def show_principle_selection(message: Message, state: FSMContext):
+    """Показать выбор принципов (для настроек)."""
+    from .planner import get_principle_name
 
     data = await state.get_data()
     selected = data.get('selected_principles', list(ZP_PRINCIPLES))
 
     buttons = []
     for pid in ZP_PRINCIPLES:
-        name = cells.get(pid, {}).get('name', pid)
+        name = get_principle_name(pid)
         check = '✅' if pid in selected else '⬜'
         buttons.append([InlineKeyboardButton(
             text=f"{check} {pid} {name}",
@@ -147,7 +267,7 @@ async def show_principle_selection(message: Message, state: FSMContext, is_setup
     # Кнопка подтверждения
     buttons.append([InlineKeyboardButton(
         text="✅ Подтвердить",
-        callback_data="train_confirm_setup"
+        callback_data="train_confirm_principles"
     )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -188,21 +308,17 @@ async def handle_principle_toggle(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@training_router.callback_query(F.data == "train_confirm_setup")
-async def handle_confirm_setup(callback: CallbackQuery, state: FSMContext):
-    """Подтвердить настройки и перейти к дашборду."""
+@training_router.callback_query(F.data == "train_confirm_principles")
+async def handle_confirm_principles(callback: CallbackQuery, state: FSMContext):
+    """Подтвердить изменение принципов из настроек."""
     data = await state.get_data()
-    cognitive_level = data.get('cognitive_level', 'postformal')
     selected = data.get('selected_principles', list(ZP_PRINCIPLES))
 
+    from db.queries.training import update_training_settings
+    await update_training_settings(callback.message.chat.id, enabled_principles=selected)
+    await callback.answer("Принципы обновлены!")
+
     engine = TrainingEngine(callback.message.chat.id)
-    success = await engine.setup(cognitive_level, selected)
-
-    if not success:
-        await callback.answer("Ошибка сохранения настроек", show_alert=True)
-        return
-
-    await callback.answer("Настройки сохранены!")
     await show_dashboard(callback.message, engine, state, edit=True)
 
 
@@ -282,10 +398,22 @@ async def handle_start_assignment(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer("Генерирую задание...")
 
-    assignment = await engine.generate_assignment(principle_id)
+    try:
+        assignment = await engine.generate_assignment(principle_id)
+    except Exception as e:
+        logger.error(f"[Training] generate_assignment error: {e}")
+        assignment = None
+
     if not assignment:
+        from .planner import get_principle_name
+        p_name = get_principle_name(principle_id)
+        depth = await get_principle_depth(callback.message.chat.id, principle_id)
+        if depth >= TRAINING_MAX_DEPTH:
+            error_text = f"✅ {p_name} — пройден полностью ({depth}/{TRAINING_MAX_DEPTH})."
+        else:
+            error_text = f"⚠️ Не удалось загрузить задание для {p_name}. Попробуйте позже."
         await callback.message.edit_text(
-            "Этот принцип полностью пройден или недоступен.",
+            error_text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="← Назад", callback_data="train_back")
             ]])
@@ -474,36 +602,6 @@ async def handle_settings_principles(callback: CallbackQuery, state: FSMContext)
     settings = await engine.get_settings()
     enabled = settings.get('enabled_principles', []) if settings else []
 
-    await state.update_data(
-        selected_principles=enabled,
-        settings_mode=True,
-    )
-    await show_principle_selection(callback.message, state, is_setup=False)
+    await state.update_data(selected_principles=enabled)
+    await show_principle_selection(callback.message, state)
     await callback.answer()
-
-
-@training_router.callback_query(
-    TrainingStates.setup_principles,
-    F.data == "train_confirm_setup"
-)
-async def handle_confirm_principles_settings(callback: CallbackQuery, state: FSMContext):
-    """Подтвердить изменение принципов из настроек."""
-    data = await state.get_data()
-    selected = data.get('selected_principles', list(ZP_PRINCIPLES))
-    is_settings = data.get('settings_mode', False)
-
-    engine = TrainingEngine(callback.message.chat.id)
-
-    if is_settings:
-        # Обновить только принципы
-        from db.queries.training import update_training_settings
-        await update_training_settings(callback.message.chat.id, enabled_principles=selected)
-        await callback.answer("Принципы обновлены!")
-    else:
-        # Первоначальная настройка
-        cognitive = data.get('cognitive_level', 'postformal')
-        await engine.setup(cognitive, selected)
-        await callback.answer("Настройки сохранены!")
-
-    await state.update_data(settings_mode=False)
-    await show_dashboard(callback.message, engine, state, edit=True)

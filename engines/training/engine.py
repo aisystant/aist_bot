@@ -87,17 +87,15 @@ class TrainingEngine:
         progress_map = {r['principle_id']: r for r in progress_rows}
         stats = await get_training_stats(self.chat_id)
 
-        from .planner import load_zp_cells
-        cells = load_zp_cells()
+        from .planner import get_principle_name
 
         principles = []
         for pid in ZP_PRINCIPLES:
-            p_data = cells.get(pid, {})
             prog = progress_map.get(pid)
             current_depth = prog['current_depth'] if prog else 0
             principles.append({
                 'id': pid,
-                'name': p_data.get('name', pid),
+                'name': get_principle_name(pid),
                 'current_depth': current_depth,
                 'max_depth': TRAINING_MAX_DEPTH,
                 'enabled': pid in enabled,
@@ -119,38 +117,44 @@ class TrainingEngine:
         """Сгенерировать задание для принципа на текущей глубине."""
         settings = await self.get_settings()
         if not settings:
+            logger.warning(f"[Training] No settings for chat_id={self.chat_id}")
             return None
 
         enabled = settings.get('enabled_principles', [])
         if principle_id not in enabled:
+            logger.warning(f"[Training] {principle_id} not in enabled={enabled}")
             return None
 
         current_depth = await get_principle_depth(self.chat_id, principle_id)
         target_depth = current_depth + 1
         if target_depth > TRAINING_MAX_DEPTH:
+            logger.info(f"[Training] {principle_id} fully completed (depth={current_depth})")
             return None  # Принцип полностью пройден
 
-        from .planner import load_zp_cells, generate_assignment_text
+        from .planner import load_zp_cells, generate_assignment_text, get_principle_name
         cells = load_zp_cells()
         principle_data = cells.get(principle_id)
         if not principle_data:
+            logger.error(f"[Training] No cell data for {principle_id}, cells keys={list(cells.keys())[:3]}...")
             return None
 
         depth_data = principle_data.get('depths', {}).get(str(target_depth))
         if not depth_data:
+            logger.error(f"[Training] No depth_data for {principle_id} depth={target_depth}")
             return None
 
         cognitive_level = settings.get('cognitive_level', 'postformal')
         intern = await self.get_intern()
+        p_name = get_principle_name(principle_id)
 
         assignment_text = await generate_assignment_text(
             depth_data, cognitive_level, intern,
-            principle_data.get('name', principle_id), target_depth
+            p_name, target_depth
         )
 
         return {
             'principle_id': principle_id,
-            'principle_name': principle_data.get('name', principle_id),
+            'principle_name': p_name,
             'depth': target_depth,
             'bloom_level': depth_data.get('bloom_level', ''),
             'bridge_text': depth_data.get('bridge_template') or '',
