@@ -80,10 +80,10 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'help'],
-    UITier.T2_LEARNING:        ['feed', 'learn', 'test', 'progress', 'profile', 'help'],
-    UITier.T3_PERSONALIZATION: ['twin', 'feed', 'learn', 'test', 'progress', 'help'],
-    UITier.T4_CREATION:        ['plan', 'club', 'twin', 'feed', 'progress', 'test', 'help'],
+    UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'mode', 'help'],
+    UITier.T2_LEARNING:        ['feed', 'learn', 'test', 'progress', 'profile', 'mode', 'help'],
+    UITier.T3_PERSONALIZATION: ['twin', 'feed', 'learn', 'test', 'progress', 'mode', 'help'],
+    UITier.T4_CREATION:        ['plan', 'club', 'feed', 'progress', 'test', 'mode', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -100,6 +100,7 @@ COMMAND_DESCRIPTIONS = {
     'plan':      {'ru': 'Рабочий план',                 'en': 'Work plan',                 'es': 'Plan de trabajo',            'fr': 'Plan de travail',              'zh': '工作计划'},
     'rp':        {'ru': 'Рабочие продукты',             'en': 'Work products',             'es': 'Productos de trabajo',       'fr': 'Produits de travail',          'zh': '工作产品'},
     'report':    {'ru': 'Отчёт дня',                    'en': 'Day report',                'es': 'Informe del día',            'fr': 'Rapport du jour',              'zh': '日报'},
+    'mode':      {'ru': 'Главное меню',                  'en': 'Main menu',                 'es': 'Menú principal',             'fr': 'Menu principal',               'zh': '主菜单'},
     'help':      {'ru': 'Помощь',                       'en': 'Help',                      'es': 'Ayuda',                      'fr': 'Aide',                         'zh': '帮助'},
     'analytics': {'ru': 'Аналитика',                    'en': 'Analytics',                 'es': 'Analíticas',                 'fr': 'Analytiques',                  'zh': '分析'},
 }
