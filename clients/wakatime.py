@@ -123,27 +123,35 @@ class WakaTimeClient:
         return result
 
     @staticmethod
+    def _esc(text: str) -> str:
+        """Экранирование спецсимволов Markdown v1 в динамическом тексте."""
+        for ch in ('_', '*', '`', '['):
+            text = text.replace(ch, f'\\{ch}')
+        return text
+
+    @staticmethod
     def format_telegram(day: dict | None, week: dict | None) -> str:
         """Форматировать результаты для Telegram (Markdown v1)."""
+        esc = WakaTimeClient._esc
         parts: list[str] = []
 
         if day:
-            lines = [f"*Вчера* ({day['date']}): *{day['total']}*"]
+            lines = [f"*Вчера* ({day['date']}): *{esc(day['total'])}*"]
             if day["projects"]:
                 lines.append("")
                 for p in day["projects"][:7]:
-                    lines.append(f"  {p['name']} — {p['text']}")
+                    lines.append(f"  {esc(p['name'])} — {esc(p['text'])}")
             parts.append("\n".join(lines))
 
         if week:
             cur = week["current"]
             prev = week["previous"]
-            lines = [f"*Текущая неделя*: *{cur['total']}*"]
+            lines = [f"*Текущая неделя*: *{esc(cur['total'])}*"]
             if cur["projects"]:
                 lines.append("")
                 for p in cur["projects"][:7]:
-                    lines.append(f"  {p['name']} — {p['text']}")
-            lines.append(f"\n*Прошлая неделя*: *{prev['total']}*")
+                    lines.append(f"  {esc(p['name'])} — {esc(p['text'])}")
+            lines.append(f"\n*Прошлая неделя*: *{esc(prev['total'])}*")
             parts.append("\n".join(lines))
 
         if not parts:
