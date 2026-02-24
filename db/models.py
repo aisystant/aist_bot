@@ -126,6 +126,10 @@ async def create_tables(pool: asyncpg.Pool):
 
             # DT connection persistence (DP.D.028)
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_connected_at TIMESTAMP DEFAULT NULL',
+
+            # Bot blocked flag (WP-7: scheduler skip blocked users)
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE',
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked_at TIMESTAMP DEFAULT NULL',
         ]
         
         for migration in migrations:
@@ -874,5 +878,13 @@ async def create_tables(pool: asyncpg.Pool):
             CREATE INDEX IF NOT EXISTS idx_tier_events_chat
             ON tier_events (chat_id, created_at DESC)
         ''')
+
+        # Migration: comment_check_failures for published_posts (WP-7: skip deleted topics)
+        try:
+            await conn.execute(
+                'ALTER TABLE published_posts ADD COLUMN IF NOT EXISTS comment_check_failures INTEGER DEFAULT 0'
+            )
+        except Exception:
+            pass
 
     logger.info("✅ Все таблицы созданы/обновлены")

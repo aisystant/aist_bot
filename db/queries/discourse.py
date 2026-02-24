@@ -111,18 +111,35 @@ async def update_post_comments_count(discourse_topic_id: int, posts_count: int) 
 
 
 async def get_posts_for_comment_check() -> list[dict]:
-    """Получить посты для проверки комментариев (polling)."""
+    """Получить посты для проверки комментариев (polling).
+
+    Исключает посты с 3+ неудачными проверками (удалённые/недоступные топики).
+    """
     pool = await get_pool()
     rows = await pool.fetch(
         """
         SELECT pp.*, da.discourse_username
         FROM published_posts pp
         JOIN discourse_accounts da ON pp.chat_id = da.chat_id
+        WHERE COALESCE(pp.comment_check_failures, 0) < 3
         ORDER BY pp.published_at DESC
         LIMIT 100
         """
     )
     return [dict(r) for r in rows]
+
+
+async def increment_comment_check_failures(discourse_topic_id: int) -> None:
+    """Инкремент счётчика неудачных проверок комментариев."""
+    pool = await get_pool()
+    await pool.execute(
+        """
+        UPDATE published_posts
+        SET comment_check_failures = COALESCE(comment_check_failures, 0) + 1
+        WHERE discourse_topic_id = $1
+        """,
+        discourse_topic_id,
+    )
 
 
 # ── Запланированные публикации ─────────────────────────────

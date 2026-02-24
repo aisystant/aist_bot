@@ -259,6 +259,33 @@ async def update_tg_username(chat_id: int, username: str) -> None:
         )
 
 
+async def mark_bot_blocked(chat_id: int) -> None:
+    """Пометить пользователя как заблокировавшего бота."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE interns
+               SET bot_blocked = TRUE, bot_blocked_at = NOW()
+               WHERE chat_id = $1 AND bot_blocked IS NOT TRUE""",
+            chat_id,
+        )
+    logger.info(f"[BlockedUser] Marked {chat_id} as bot_blocked")
+
+
+async def clear_bot_blocked(chat_id: int) -> None:
+    """Снять пометку bot_blocked (пользователь снова пишет боту)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """UPDATE interns
+               SET bot_blocked = FALSE, bot_blocked_at = NULL
+               WHERE chat_id = $1 AND bot_blocked = TRUE""",
+            chat_id,
+        )
+    if result and result != "UPDATE 0":
+        logger.info(f"[BlockedUser] Cleared bot_blocked for {chat_id}")
+
+
 async def update_user_state(chat_id: int, state_name: str) -> None:
     """
     Обновить текущее состояние пользователя (для State Machine).
@@ -322,7 +349,8 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
             '''SELECT chat_id FROM interns
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
-                 AND onboarding_completed = TRUE''',
+                 AND onboarding_completed = TRUE
+                 AND bot_blocked IS NOT TRUE''',
             time_str
         )
         marathon_ids = {row['chat_id'] for row in marathon_rows}
@@ -332,7 +360,8 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
             '''SELECT chat_id FROM interns
                WHERE feed_schedule_time = $1
                  AND feed_status = 'active'
-                 AND onboarding_completed = TRUE''',
+                 AND onboarding_completed = TRUE
+                 AND bot_blocked IS NOT TRUE''',
             time_str
         )
         feed_ids = {row['chat_id'] for row in feed_rows}
@@ -343,7 +372,8 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
                WHERE schedule_time = $1
                  AND feed_schedule_time IS NULL
                  AND feed_status = 'active'
-                 AND onboarding_completed = TRUE''',
+                 AND onboarding_completed = TRUE
+                 AND bot_blocked IS NOT TRUE''',
             time_str
         )
         feed_ids = feed_ids | {row['chat_id'] for row in fallback_rows}

@@ -249,8 +249,11 @@ class DiscourseClient:
         session = await self._get_session()
         url = f"{self.base_url}/t/{topic_id}.json"
         async with session.get(url, headers=self._headers()) as resp:
+            if resp.status == 404:
+                logger.info(f"Discourse get_topic {topic_id}: topic not found (404)")
+                return None
             if resp.status >= 400:
-                logger.error(f"Discourse get_topic error {resp.status}")
+                logger.error(f"Discourse get_topic {topic_id} error {resp.status}")
                 return None
             return await resp.json()
 

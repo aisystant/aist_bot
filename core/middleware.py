@@ -73,13 +73,19 @@ class LoggingMiddleware(BaseMiddleware):
             except Exception:
                 pass
 
-            # Fire-and-forget: сохранить/обновить tg_username
-            if event.from_user and event.from_user.username:
+            # Fire-and-forget: сохранить/обновить tg_username + снять bot_blocked
+            if event.from_user:
                 try:
-                    from db.queries.users import update_tg_username
-                    asyncio.create_task(update_tg_username(event.from_user.id, event.from_user.username))
+                    from db.queries.users import clear_bot_blocked
+                    asyncio.create_task(clear_bot_blocked(event.from_user.id))
                 except Exception:
                     pass
+                if event.from_user.username:
+                    try:
+                        from db.queries.users import update_tg_username
+                        asyncio.create_task(update_tg_username(event.from_user.id, event.from_user.username))
+                    except Exception:
+                        pass
 
         elif isinstance(event, CallbackQuery) and event.message:
             # Typing для callbacks (кнопки «Подробнее», навигация)

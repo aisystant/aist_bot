@@ -416,7 +416,10 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Sent feed notification to {chat_id}")
     except Exception as e:
         error_msg = str(e).lower()
-        if 'blocked' not in error_msg and 'deactivated' not in error_msg and 'chat not found' not in error_msg:
+        if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+            from db.queries.users import mark_bot_blocked
+            await mark_bot_blocked(chat_id)
+        else:
             logger.error(f"[Scheduler] Error sending feed notification to {chat_id}: {e}")
 
 
@@ -657,6 +660,8 @@ async def check_reminders():
                         'UPDATE reminders SET sent = TRUE WHERE id = $1',
                         row['id']
                     )
+                    from db.queries.users import mark_bot_blocked
+                    await mark_bot_blocked(row['chat_id'])
                 else:
                     logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
 
@@ -692,6 +697,8 @@ async def scheduled_check():
                 error_msg = str(e).lower()
                 if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
                     logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
+                    from db.queries.users import mark_bot_blocked
+                    await mark_bot_blocked(chat_id)
                 else:
                     logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
@@ -943,6 +950,7 @@ async def _catch_up_missed_deliveries():
               AND i.onboarding_completed = TRUE
               AND i.schedule_time IS NOT NULL
               AND i.schedule_time <= $1
+              AND i.bot_blocked IS NOT TRUE
               AND NOT EXISTS (
                   SELECT 1 FROM marathon_content mc
                   WHERE mc.chat_id = i.chat_id
@@ -965,7 +973,10 @@ async def _catch_up_missed_deliveries():
                 logger.info(f"[Scheduler] Catch-up delivered to {chat_id}")
             except Exception as e:
                 error_msg = str(e).lower()
-                if 'blocked' not in error_msg and 'deactivated' not in error_msg:
+                if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+                    from db.queries.users import mark_bot_blocked
+                    await mark_bot_blocked(chat_id)
+                else:
                     logger.error(f"[Scheduler] Catch-up failed for {chat_id}: {e}")
 
     try:
@@ -1125,7 +1136,10 @@ async def send_subscription_launch_notification():
                     sent += 1
                 except Exception as e:
                     error_msg = str(e).lower()
-                    if 'blocked' not in error_msg and 'deactivated' not in error_msg and 'chat not found' not in error_msg:
+                    if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+                        from db.queries.users import mark_bot_blocked
+                        await mark_bot_blocked(chat_id)
+                    else:
                         logger.error(f"[Scheduler] Launch notification error for {chat_id}: {e}")
 
         await asyncio.gather(*[_send_one(row['chat_id']) for row in rows])
@@ -1168,7 +1182,10 @@ async def send_trial_expiry_notifications():
                         logger.info(f"[Scheduler] Trial expiry notification sent to {chat_id} (days_ahead={_days})")
                     except Exception as e:
                         error_msg = str(e).lower()
-                        if 'blocked' not in error_msg and 'deactivated' not in error_msg and 'chat not found' not in error_msg:
+                        if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+                            from db.queries.users import mark_bot_blocked
+                            await mark_bot_blocked(chat_id)
+                        else:
                             logger.error(f"[Scheduler] Trial notification error for {chat_id}: {e}")
 
             await asyncio.gather(*[_send_one(cid) for cid in chat_ids])
@@ -1271,6 +1288,8 @@ async def send_milestone_notifications():
                     error_msg = str(e).lower()
                     if any(x in error_msg for x in ('blocked', 'deactivated', 'chat not found')):
                         logger.warning(f"[Scheduler] Milestone {milestone}: user {chat_id} unavailable, skipping")
+                        from db.queries.users import mark_bot_blocked
+                        await mark_bot_blocked(chat_id)
                     else:
                         logger.error(f"[Scheduler] Milestone {milestone} error for {chat_id}: {e}")
     finally:
@@ -1349,7 +1368,10 @@ async def send_event_notifications():
                     total_sent += 1
                 except Exception as e:
                     error_msg = str(e).lower()
-                    if 'blocked' not in error_msg and 'deactivated' not in error_msg and 'chat not found' not in error_msg:
+                    if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+                        from db.queries.users import mark_bot_blocked
+                        await mark_bot_blocked(chat_id)
+                    else:
                         logger.error(f"[Scheduler] Event notification error for {chat_id}: {e}")
     finally:
         await bot.session.close()
@@ -1747,7 +1769,11 @@ async def _discourse_check_comments():
     if not discourse:
         return
 
-    from db.queries.discourse import get_posts_for_comment_check, update_post_comments_count
+    from db.queries.discourse import (
+        get_posts_for_comment_check,
+        update_post_comments_count,
+        increment_comment_check_failures,
+    )
 
     posts = await get_posts_for_comment_check()
     if not posts:
@@ -1756,9 +1782,12 @@ async def _discourse_check_comments():
     bot = Bot(token=_bot_token)
     try:
         for post in posts:
+            topic_id = post.get("discourse_topic_id")
             try:
-                topic = await discourse.get_topic(post["discourse_topic_id"])
+                topic = await discourse.get_topic(topic_id)
                 if not topic:
+                    await increment_comment_check_failures(topic_id)
+                    logger.info(f"[Discourse] Topic {topic_id} not found, failures incremented")
                     continue
 
                 new_count = topic.get("posts_count", 1)
@@ -1766,11 +1795,10 @@ async def _discourse_check_comments():
 
                 if new_count > old_count:
                     # Есть новые комментарии
-                    await update_post_comments_count(post["discourse_topic_id"], new_count)
+                    await update_post_comments_count(topic_id, new_count)
 
                     diff = new_count - old_count
                     slug = topic.get("slug", "")
-                    topic_id = post["discourse_topic_id"]
                     url = f"https://systemsworld.club/t/{slug}/{topic_id}"
                     title = post.get("title", "")
 
@@ -1783,8 +1811,9 @@ async def _discourse_check_comments():
                     logger.info(f"[Discourse] New comments for topic {topic_id}: {old_count} -> {new_count}")
                 elif new_count == old_count:
                     # Обновить last_checked_at
-                    await update_post_comments_count(post["discourse_topic_id"], new_count)
+                    await update_post_comments_count(topic_id, new_count)
             except Exception as e:
-                logger.error(f"[Discourse] Comment check error for topic {post.get('discourse_topic_id')}: {e}")
+                await increment_comment_check_failures(topic_id)
+                logger.warning(f"[Discourse] Comment check error for topic {topic_id}: {e}")
     finally:
         await bot.session.close()
