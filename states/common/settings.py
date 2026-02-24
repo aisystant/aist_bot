@@ -668,14 +668,18 @@ class SettingsState(BaseState):
         else:
             club_status = t('settings.not_connected', lang)
 
-        # Проверяем WakaTime подключение
+        # Проверяем WakaTime подключение (per-user → системный fallback)
         from db.queries.wakatime import get_wakatime_connection
         waka_conn = await get_wakatime_connection(chat_id)
         if waka_conn:
             waka_user = waka_conn.get('wakatime_username', '')
             waka_status = f"✅ @{waka_user}" if waka_user else "✅ " + t('settings.connected', lang)
         else:
-            waka_status = t('settings.not_connected', lang)
+            from config.settings import WAKATIME_API_KEY
+            if WAKATIME_API_KEY:
+                waka_status = "✅ system key"
+            else:
+                waka_status = t('settings.not_connected', lang)
 
         text = (
             f"🔗 *{t('settings.connections_label', lang)}*\n\n"
@@ -1086,6 +1090,10 @@ class SettingsState(BaseState):
         from db.queries.wakatime import get_wakatime_connection
         waka_conn = await get_wakatime_connection(chat_id)
 
+        # Fallback на системный ключ
+        from config.settings import WAKATIME_API_KEY
+        has_system_key = bool(WAKATIME_API_KEY)
+
         if waka_conn:
             waka_user = waka_conn.get('wakatime_username', '')
             text = f"📊 *WakaTime {t('settings.connected', lang)}*\n"
@@ -1095,6 +1103,15 @@ class SettingsState(BaseState):
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('settings.waka_disconnect', lang), callback_data="conn_waka_disconnect")],
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ])
+        elif has_system_key:
+            # Системный ключ — /waka работает без персонального подключения
+            text = (
+                f"📊 *WakaTime {t('settings.connected', lang)}* (system)\n\n"
+                f"/waka — {t('settings.waka_check_stats', lang)}"
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
             ])
         else:
