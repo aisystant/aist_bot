@@ -74,6 +74,13 @@ welcome:
     ru: "С возвращением, {name}!"
     en: "Welcome back, {name}!"
 
+  menu_greeting:
+    ru: "Привет, {name}! 👋\n{tier}\nВыбери действие ↓"
+    en: "Hi, {name}! 👋\n{tier}\nChoose an action ↓"
+    es: "Hola, {name}! 👋\n{tier}\nElige una acción ↓"
+    fr: "Salut, {name} ! 👋\n{tier}\nChoisis une action ↓"
+    zh: "你好，{name}！👋\n{tier}\n选择操作 ↓"
+
   current_mode:
     ru: "Режим"
     en: "Mode"

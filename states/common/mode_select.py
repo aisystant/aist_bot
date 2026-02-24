@@ -15,6 +15,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from states.base import BaseState
 from core.tier_ui import build_reply_keyboard, sync_menu_commands
 from core.tier_detector import detect_ui_tier
+from core.tier_config import TIER_DISPLAY
 from i18n import t, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
 
@@ -68,7 +69,10 @@ class ModeSelectState(BaseState):
         tier = await detect_ui_tier(chat_id)
         keyboard = build_reply_keyboard(tier, lang)
 
-        await self.send(user, "👋", reply_markup=keyboard)
+        name = user_dict.get('name', '')
+        tier_label = TIER_DISPLAY.get(tier, f"T{tier}")
+        greeting = t('welcome.menu_greeting', lang, name=name, tier=tier_label)
+        await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
         await sync_menu_commands(self.bot, chat_id, tier, lang)
 
     async def handle(self, user, message: Message) -> Optional[str]:
