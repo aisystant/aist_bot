@@ -36,6 +36,7 @@ from db.queries.discourse import (
     is_title_published,
     get_upcoming_schedule,
     get_scheduled_count,
+    get_scheduled_publication,
     cancel_scheduled_publication,
     reschedule_publication,
     schedule_publication,
@@ -44,6 +45,7 @@ from db.queries.discourse import (
     get_all_scheduled_source_files,
     get_all_scheduled_titles_lower,
     reschedule_all_pending,
+    mark_publication_done,
 )
 
 logger = logging.getLogger(__name__)
@@ -666,9 +668,13 @@ async def _show_schedule(message_or_cb, chat_id: int):
         lines.append(f"{i}. «{pub['title']}» — {time_str}")
         buttons.append([
             InlineKeyboardButton(
-                text=f"❌ {i}. {pub['title'][:25]}",
+                text=f"🚀 {pub['title'][:25]}",
+                callback_data=f"club_sched_pub_now:{pub['id']}",
+            ),
+            InlineKeyboardButton(
+                text=f"❌",
                 callback_data=f"club_sched_cancel:{pub['id']}",
-            )
+            ),
         ])
 
     buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="club_main")])
@@ -700,6 +706,113 @@ async def on_schedule_cancel_item(callback: CallbackQuery):
     await cancel_scheduled_publication(pub_id)
     await callback.message.answer("Публикация удалена из графика.")
     await _show_schedule(callback.message, callback.from_user.id)
+
+
+@discourse_router.callback_query(lambda c: c.data and c.data.startswith("club_sched_pub_now:"))
+async def on_schedule_publish_now(callback: CallbackQuery):
+    """Опубликовать запланированный пост прямо сейчас + перепланировать остальные."""
+    from clients.discourse import discourse
+
+    await callback.answer()
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if not discourse:
+        await callback.message.answer("Интеграция с клубом не настроена.")
+        return
+
+    pub_id = int(callback.data.split(":")[1])
+    pub = await get_scheduled_publication(pub_id)
+    if not pub:
+        await callback.message.answer("Публикация не найдена или уже опубликована.")
+        return
+
+    chat_id = callback.from_user.id
+
+    # Публикуем в Discourse
+    await callback.message.answer(f"⏳ Публикую «{pub['title']}»...")
+    try:
+        result = await discourse.create_topic(
+            category_id=pub["category_id"],
+            title=pub["title"],
+            raw=pub["raw"],
+            username=pub["discourse_username"],
+        )
+        topic_id = result.get("topic_id")
+        post_id = result.get("id")
+        slug = result.get("topic_slug", "")
+
+        # Обновить статус в БД
+        await mark_publication_done(pub_id, topic_id)
+        await save_published_post(
+            chat_id=chat_id,
+            discourse_topic_id=topic_id,
+            discourse_post_id=post_id,
+            title=pub["title"],
+            category_id=pub["category_id"],
+            source_file=pub.get("source_file"),
+        )
+
+        # Обновить frontmatter → published (если есть source_file)
+        source_file = pub.get("source_file")
+        if source_file:
+            try:
+                from clients.github_content import create_content_client, update_frontmatter_field
+                from clients.github_oauth import github_oauth
+                token = await github_oauth.get_access_token(chat_id)
+                knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
+                if token and knowledge_repo:
+                    client = create_content_client(token, knowledge_repo)
+                    try:
+                        file_result = await client.read_file(source_file)
+                        if file_result:
+                            content, sha = file_result
+                            new_content = update_frontmatter_field(content, "status", "published")
+                            await client.update_file(
+                                source_file, new_content, sha,
+                                f"Published to club: {pub['title']}"
+                            )
+                    finally:
+                        await client.close()
+            except Exception as fm_err:
+                logger.warning(f"Frontmatter update failed: {fm_err}")
+
+        url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+
+        # Перепланировать оставшиеся
+        from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME
+        day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+        pub_days = [day_map[d.strip()] for d in PUBLISHER_DAYS.split(",") if d.strip() in day_map]
+        if not pub_days:
+            pub_days = list(range(7))
+        hour, minute = 10, 0
+        try:
+            parts = PUBLISHER_TIME.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            pass
+        reschedule_result, dupes = await reschedule_all_pending(chat_id, pub_days, hour, minute)
+
+        queue = await get_scheduled_count(chat_id)
+        lines = [
+            f"✅ Опубликовано: «{pub['title']}»",
+            url,
+            f"В очереди: {queue}",
+        ]
+        if reschedule_result:
+            lines.append(f"\n📅 Перепланировано {len(reschedule_result)} постов:")
+            for title, slot in reschedule_result[:5]:
+                lines.append(f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}")
+            if len(reschedule_result) > 5:
+                lines.append(f"  ... и ещё {len(reschedule_result) - 5}")
+
+        await callback.message.answer("\n".join(lines))
+    except Exception as e:
+        logger.error(f"Publish now error: {e}")
+        await callback.message.answer(f"Ошибка публикации: {e}")
 
 
 @discourse_router.callback_query(lambda c: c.data == "club_reschedule")
@@ -849,9 +962,16 @@ async def _show_publish_options(message: Message, state: FSMContext, chat_id: in
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     if candidates:
-        text = f"*Готовые к публикации* ({len(candidates)}):\n\nВыбери пост или введи вручную:"
+        text = f"*Готовые к публикации* ({len(candidates)}):\n\nВыбери пост для мгновенной публикации или введи вручную:"
     else:
-        text = "Нет готовых постов (status: ready, target: club).\n\nМожешь ввести пост вручную:"
+        text = (
+            "*Публикация в клуб*\n\n"
+            "Готовых постов в индексе нет.\n\n"
+            "Что можно сделать:\n"
+            "• *Ввести вручную* — заголовок и текст прямо здесь\n"
+            "• Пометить пост в индексе: `status: ready`, `target: club`\n"
+            "• Опубликовать из расписания: /club → Расписание → 🚀"
+        )
 
     await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 

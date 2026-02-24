@@ -287,6 +287,21 @@ async def get_all_discourse_accounts() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_scheduled_publication(pub_id: int) -> dict | None:
+    """Получить полные данные запланированной публикации по ID."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT sp.*, da.discourse_username
+        FROM scheduled_publications sp
+        JOIN discourse_accounts da ON sp.chat_id = da.chat_id
+        WHERE sp.id = $1 AND sp.status = 'pending'
+        """,
+        pub_id,
+    )
+    return dict(row) if row else None
+
+
 async def cancel_scheduled_publication(pub_id: int) -> None:
     """Отменить запланированную публикацию."""
     pool = await get_pool()
