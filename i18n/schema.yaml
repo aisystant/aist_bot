@@ -75,11 +75,11 @@ welcome:
     en: "Welcome back, {name}!"
 
   menu_greeting:
-    ru: "Привет, {name}! 👋\n{tier}\nВыбери действие ↓"
-    en: "Hi, {name}! 👋\n{tier}\nChoose an action ↓"
-    es: "Hola, {name}! 👋\n{tier}\nElige una acción ↓"
-    fr: "Salut, {name} ! 👋\n{tier}\nChoisis une action ↓"
-    zh: "你好，{name}！👋\n{tier}\n选择操作 ↓"
+    ru: "Привет, {name}! 👋\nТвой уровень на платформе — {tier_num} (из 4)\nВыбери действие ↓"
+    en: "Hi, {name}! 👋\nYour platform level — {tier_num} (of 4)\nChoose an action ↓"
+    es: "Hola, {name}! 👋\nTu nivel en la plataforma — {tier_num} (de 4)\nElige una acción ↓"
+    fr: "Salut, {name} ! 👋\nTon niveau sur la plateforme — {tier_num} (sur 4)\nChoisis une action ↓"
+    zh: "你好，{name}！👋\n你的平台等级 — {tier_num}（共 4 级）\n选择操作 ↓"
 
   current_mode:
     ru: "Режим"
