@@ -516,53 +516,64 @@ class SettingsState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        from core.access import access_layer
-        from core.pricing import get_current_price
-        from db.queries.subscription import get_active_subscription
-
-        sub = await get_active_subscription(chat_id)
-        in_trial = await access_layer._is_in_trial(chat_id)
-        trial_days = await access_layer.get_trial_days_remaining(chat_id)
-        price = get_current_price()
+        from datetime import date as _date
+        from config.settings import SUBSCRIPTION_LAUNCH_DATE
 
         buttons = []
 
-        if sub:
-            expires = sub.get('expires_at')
-            date_str = expires.strftime('%d.%m.%Y') if expires else '—'
-            amount = sub.get('stars_amount', price)
+        # До SUBSCRIPTION_LAUNCH_DATE — open beta, подписки не активны
+        if _date.today() < SUBSCRIPTION_LAUNCH_DATE:
             text = (
                 f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                f"{t('subscription.status_active', lang, date=date_str)}\n"
-                f"{t('subscription.price_locked', lang, price=amount)}\n\n"
-                f"{t('subscription.current_price', lang, price=price)}"
+                f"Open Beta — полный доступ до {SUBSCRIPTION_LAUNCH_DATE.strftime('%d.%m.%Y')}"
             )
-            buttons.append([InlineKeyboardButton(
-                text=t('subscription.cancel_button', lang),
-                callback_data="sub_cancel_confirm",
-            )])
-        elif in_trial and trial_days > 0:
-            text = (
-                f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                f"{t('subscription.trial_active', lang, days=trial_days)}\n\n"
-                f"{t('subscription.current_price', lang, price=price)}"
-            )
-            buttons.append([InlineKeyboardButton(
-                text=t('subscription.subscribe_button', lang, price=price),
-                callback_data="subscribe",
-            )])
         else:
-            text = (
-                f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                f"{t('subscription.status_expired', lang)}\n\n"
-                f"{t('subscription.current_price', lang, price=price)}"
-            )
-            buttons.append([InlineKeyboardButton(
-                text=t('subscription.subscribe_button', lang, price=price),
-                callback_data="subscribe",
-            )])
+            from core.access import access_layer
+            from core.pricing import get_current_price
+            from db.queries.subscription import get_active_subscription
 
-        buttons.append([InlineKeyboardButton(text="💡 " + t('buttons.why', lang), callback_data="sub_why_paid")])
+            sub = await get_active_subscription(chat_id)
+            in_trial = await access_layer._is_in_trial(chat_id)
+            trial_days = await access_layer.get_trial_days_remaining(chat_id)
+            price = get_current_price()
+
+            if sub:
+                expires = sub.get('expires_at')
+                date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+                amount = sub.get('stars_amount', price)
+                text = (
+                    f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
+                    f"{t('subscription.status_active', lang, date=date_str)}\n"
+                    f"{t('subscription.price_locked', lang, price=amount)}\n\n"
+                    f"{t('subscription.current_price', lang, price=price)}"
+                )
+                buttons.append([InlineKeyboardButton(
+                    text=t('subscription.cancel_button', lang),
+                    callback_data="sub_cancel_confirm",
+                )])
+            elif in_trial and trial_days > 0:
+                text = (
+                    f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
+                    f"{t('subscription.trial_active', lang, days=trial_days)}\n\n"
+                    f"{t('subscription.current_price', lang, price=price)}"
+                )
+                buttons.append([InlineKeyboardButton(
+                    text=t('subscription.subscribe_button', lang, price=price),
+                    callback_data="subscribe",
+                )])
+            else:
+                text = (
+                    f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
+                    f"{t('subscription.status_expired', lang)}\n\n"
+                    f"{t('subscription.current_price', lang, price=price)}"
+                )
+                buttons.append([InlineKeyboardButton(
+                    text=t('subscription.subscribe_button', lang, price=price),
+                    callback_data="subscribe",
+                )])
+
+            buttons.append([InlineKeyboardButton(text="💡 " + t('buttons.why', lang), callback_data="sub_why_paid")])
+
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
