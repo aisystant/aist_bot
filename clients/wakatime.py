@@ -1,8 +1,8 @@
 """
 WakaTime API клиент — получение статистики рабочего времени.
 
-Per-user: каждый пользователь подключает свой WakaTime API key.
-Fallback: системный WAKATIME_API_KEY из env (для разработчика).
+Per-user: каждый пользователь подключает свой WakaTime API key
+через Settings → Connections → WakaTime (аналогично GitHub).
 Auth: Basic base64(api_key) — формат WakaTime API v1.
 
 Использование:
@@ -69,9 +69,12 @@ class WakaTimeClient:
             }
         return None
 
-    async def get_day_summary(self, api_key: str, day: date | None = None) -> dict | None:
-        """Получить саммари за один день (по умолчанию — вчера)."""
-        target = day or (date.today() - timedelta(days=1))
+    async def get_day_summary(self, api_key: str, day: date | None = None, today: bool = False) -> dict | None:
+        """Получить саммари за один день (по умолчанию — вчера, today=True — сегодня)."""
+        if today:
+            target = date.today()
+        else:
+            target = day or (date.today() - timedelta(days=1))
         ds = target.isoformat()
         data = await self._fetch(f"{API_BASE}/summaries?start={ds}&end={ds}", api_key)
         if not data:
@@ -130,16 +133,24 @@ class WakaTimeClient:
         return text
 
     @staticmethod
-    def format_telegram(day: dict | None, week: dict | None) -> str:
+    def format_telegram(today: dict | None, yesterday: dict | None, week: dict | None) -> str:
         """Форматировать результаты для Telegram (Markdown v1)."""
         esc = WakaTimeClient._esc
         parts: list[str] = []
 
-        if day:
-            lines = [f"*Вчера* ({day['date']}): *{esc(day['total'])}*"]
-            if day["projects"]:
+        if today:
+            lines = [f"*Сегодня* ({today['date']}): *{esc(today['total'])}*"]
+            if today["projects"]:
                 lines.append("")
-                for p in day["projects"][:7]:
+                for p in today["projects"][:5]:
+                    lines.append(f"  {esc(p['name'])} — {esc(p['text'])}")
+            parts.append("\n".join(lines))
+
+        if yesterday:
+            lines = [f"*Вчера* ({yesterday['date']}): *{esc(yesterday['total'])}*"]
+            if yesterday["projects"]:
+                lines.append("")
+                for p in yesterday["projects"][:5]:
                     lines.append(f"  {esc(p['name'])} — {esc(p['text'])}")
             parts.append("\n".join(lines))
 
@@ -177,7 +188,7 @@ def _aggregate_multi_day(days: list[dict], key: str) -> list[dict]:
     for name, seconds in sorted(agg.items(), key=lambda x: x[1], reverse=True)[:10]:
         h, remainder = divmod(seconds, 3600)
         m = remainder // 60
-        result.append({"name": name, "total_seconds": seconds, "text": f"{h}h {m}m"})
+        result.append({"name": name, "total_seconds": seconds, "text": f"{int(h)}h {int(m)}m"})
     return result
 
 
