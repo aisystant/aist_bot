@@ -28,6 +28,7 @@ COPY topics/ ./topics/
 COPY states/ ./states/
 COPY handlers/ ./handlers/
 COPY helpers/ ./helpers/
+COPY data/ ./data/
 
 EXPOSE ${PORT:-8080}
 CMD ["python", "bot.py"]
