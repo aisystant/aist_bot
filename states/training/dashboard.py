@@ -95,13 +95,13 @@ class TrainingDashboardState(BaseState):
                 callback_data="train_continue"
             )])
 
+        buttons.append([
+            InlineKeyboardButton(text="🔄 Сменить режим", callback_data="train_change_mode"),
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="train_settings"),
+        ])
         buttons.append([InlineKeyboardButton(
-            text="🔄 Сменить режим",
-            callback_data="train_change_mode"
-        )])
-        buttons.append([InlineKeyboardButton(
-            text="⚙️ Настройки",
-            callback_data="train_settings"
+            text="← Назад",
+            callback_data="train_exit"
         )])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -109,6 +109,37 @@ class TrainingDashboardState(BaseState):
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
         return None
+
+    async def _show_settings(self, user, chat_id: int):
+        """Показать подменю настроек."""
+        engine = TrainingEngine(chat_id)
+        data = await engine.get_dashboard_data()
+        cognitive_label = data.get('cognitive_label', 'Взрослый') if data else 'Взрослый'
+        mode_label = data.get('mode_label', '🔀 Все вперемешку') if data else ''
+
+        text = (
+            "⚙️ *Настройки тренировки*\n\n"
+            f"Режим: {mode_label}\n"
+            f"Уровень: {cognitive_label}"
+        )
+
+        buttons = [
+            [InlineKeyboardButton(
+                text="🧠 Изменить уровень",
+                callback_data="train_settings_cognitive"
+            )],
+            [InlineKeyboardButton(
+                text="🗑 Сбросить прогресс",
+                callback_data="train_reset_ask"
+            )],
+            [InlineKeyboardButton(
+                text="← Назад",
+                callback_data="train_settings_back"
+            )],
+        ]
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
         text = message.text or ''
@@ -119,9 +150,6 @@ class TrainingDashboardState(BaseState):
             self._user_data[chat_id] = {'principle_id': principle_id}
             return "select_principle"
 
-        if text == 'train_settings':
-            return "settings"
-
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
@@ -130,7 +158,6 @@ class TrainingDashboardState(BaseState):
         chat_id = self._get_chat_id(user)
 
         if data == 'train_continue':
-            # Определить принцип по режиму
             engine = TrainingEngine(chat_id)
             next_pid = await engine.get_next_principle()
             if next_pid:
@@ -154,7 +181,51 @@ class TrainingDashboardState(BaseState):
 
         if data == 'train_settings':
             await callback.answer()
-            return "settings"
+            await self._show_settings(user, chat_id)
+            return None
+
+        if data == 'train_settings_cognitive':
+            await callback.answer()
+            return "settings"  # → training.setup (полный setup)
+
+        if data == 'train_reset_ask':
+            # Подтверждение сброса
+            buttons = [
+                [InlineKeyboardButton(
+                    text="✅ Да, сбросить",
+                    callback_data="train_reset_confirm"
+                )],
+                [InlineKeyboardButton(
+                    text="← Отмена",
+                    callback_data="train_settings_back"
+                )],
+            ]
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await self.send(
+                user,
+                "⚠️ *Сбросить весь прогресс тренировки?*\n\n"
+                "Все глубины принципов обнулятся. Это действие нельзя отменить.",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+            return None
+
+        if data == 'train_reset_confirm':
+            engine = TrainingEngine(chat_id)
+            await engine.reset_progress()
+            await callback.answer("Прогресс сброшен!")
+            # Перерисовать дашборд
+            return "reset_done"
+
+        if data == 'train_settings_back':
+            await callback.answer()
+            # Перерисовать дашборд
+            return "refresh"
+
+        if data == 'train_exit':
+            await callback.answer()
+            return "back"
 
         return None
 

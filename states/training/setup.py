@@ -59,6 +59,7 @@ class TrainingSetupState(BaseState):
             buttons.append([InlineKeyboardButton(
                 text=label, callback_data=f"setup_cognitive_{key}"
             )])
+        buttons.append([InlineKeyboardButton(text="← Назад", callback_data="setup_back")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await self.send(
@@ -89,6 +90,8 @@ class TrainingSetupState(BaseState):
                 callback_data="setup_mode_pick_fpf"
             )],
         ]
+
+        buttons.append([InlineKeyboardButton(text="← Назад", callback_data="setup_mode_back_to_prev")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         text = (
@@ -124,6 +127,11 @@ class TrainingSetupState(BaseState):
         cb = callback.data or ''
 
         step = data.get('step', 'cognitive')
+
+        # === Назад из когнитивного уровня ===
+        if cb == 'setup_back':
+            await callback.answer()
+            return "back"
 
         # === Шаг 1: Когнитивный уровень ===
         if step == 'cognitive' and cb.startswith('setup_cognitive_'):
@@ -165,6 +173,19 @@ class TrainingSetupState(BaseState):
                     show_alert=True
                 )
                 return None
+
+            if cb == 'setup_mode_back_to_prev':
+                # mode_only → назад к дашборду; полный setup → назад к когнитивному
+                if data.get('cognitive_level') is None:
+                    # mode_only: нет cognitive_level → вернуться к дашборду
+                    await callback.answer()
+                    return "back"
+                else:
+                    data['step'] = 'cognitive'
+                    self._user_data[chat_id] = data
+                    await callback.answer()
+                    await self._show_cognitive_selection(user)
+                    return None
 
         # === Шаг 3: Выбор конкретного ZP ===
         if step == 'pick_zp':

@@ -256,9 +256,9 @@ ZP_PRINCIPLES = ["ZP.1", "ZP.2", "ZP.3", "ZP.4", "ZP.5", "ZP.6"]
 TRAINING_MAX_DEPTH = 5
 TRAINING_COGNITIVE_LEVELS = {
     "postformal": "Взрослый",
-    "formal_operational": "Подросток",
-    "concrete_operational": "Ребёнок 7-11",
-    "preoperational": "Ребёнок 3-6",
+    "formal_operational": "Подросток (11-16)",
+    "concrete_operational": "Ребёнок (7-11)",
+    "preoperational": "Ребёнок (3-6)",
 }
 TRAINING_MIN_ANSWER_LENGTH = 20
 TRAINING_PASS_THRESHOLD = 0.7

@@ -147,6 +147,8 @@ states:
       change_mode: training.setup
       settings: training.setup
       setup_needed: training.setup
+      reset_done: training.dashboard
+      refresh: training.dashboard
       back: common.mode_select
     allow_global: [consultation, notes]
 
@@ -162,6 +164,7 @@ states:
     description: "Первоначальная настройка тренировки"
     events:
       setup_complete: training.dashboard
+      back: training.dashboard
     allow_global: []
 
   # ==========================================

@@ -28,6 +28,7 @@ from db.queries.training import (
     increment_attempts,
     save_training_attempt,
     get_training_stats,
+    reset_training_progress,
 )
 
 logger = get_logger(__name__)
@@ -346,3 +347,7 @@ class TrainingEngine:
         )
         self._settings = None
         return True
+
+    async def reset_progress(self) -> None:
+        """Сбросить весь прогресс тренировки (начать заново)."""
+        await reset_training_progress(self.chat_id)

@@ -134,6 +134,19 @@ async def increment_attempts(chat_id: int, principle_id: str) -> None:
         ''', chat_id, principle_id)
 
 
+async def reset_training_progress(chat_id: int) -> None:
+    """Сбросить весь прогресс тренировки (начать заново)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'DELETE FROM training_progress WHERE chat_id = $1', chat_id
+        )
+        await conn.execute(
+            'DELETE FROM training_attempts WHERE chat_id = $1', chat_id
+        )
+    logger.info(f"[Training] Reset progress for chat_id={chat_id}")
+
+
 # ============= ATTEMPTS =============
 
 async def save_training_attempt(
