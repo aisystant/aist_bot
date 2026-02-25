@@ -186,7 +186,13 @@ class ClaudeClient:
                                 delta = event.get('delta', {})
                                 if delta.get('type') == 'text_delta':
                                     collected_text.append(delta['text'])
-                        return ''.join(collected_text) if collected_text else None
+                        if not collected_text:
+                            logger.warning(
+                                f"Claude API 200 but empty response "
+                                f"(model={payload.get('model')}, attempt {attempt + 1})"
+                            )
+                            return None
+                        return ''.join(collected_text)
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
@@ -705,10 +711,7 @@ class ClaudeClient:
             system_prompt, user_prompt, max_tokens=max_tokens, model=model,
             allow_partial=False,  # Lesson: partial = broken UX, better retry
         )
-        if result:
-            return result
-        # Локализованное сообщение об ошибке из единого модуля
-        return lp.get('error_generation', "Failed to generate content.")
+        return result
 
     async def generate_practice_intro(self, topic: dict, intern: dict, model=None) -> dict:
         """Генерирует полное описание практического задания на языке пользователя

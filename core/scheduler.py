@@ -168,15 +168,16 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
         )
         lesson_content = None
 
-    if lesson_content is None:
-        return False
-
     if isinstance(results[1], Exception):
         logger.warning(f"[PreGen] Question generation failed for {chat_id}: {results[1]}")
     if isinstance(results[2], Exception):
         logger.warning(f"[PreGen] Practice generation failed for {chat_id}: {results[2]}")
 
-    # Сохраняем в БД
+    # Сохраняем всё что удалось (вопрос/практика сохраняются даже без урока)
+    has_any = lesson_content or question_content or practice_content
+    if not has_any:
+        return False
+
     await save_marathon_content(
         chat_id=chat_id,
         topic_index=topic_index,
@@ -185,6 +186,10 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
         practice_content=practice_content,
         bloom_level=bloom_level,
     )
+
+    if lesson_content is None:
+        logger.warning(f"[PreGen] Lesson failed but saved question/practice for {chat_id}, topic {topic_index}")
+        return False  # Lesson still missing — pre-gen incomplete
 
     # Pre-gen для парной темы того же дня (theory→practice)
     completed = set(intern.get('completed_topics', []))
