@@ -227,6 +227,26 @@ class MarathonLessonState(BaseState):
                         ),
                         timeout=CONTENT_GENERATION_TIMEOUT
                     )
+                    if not content:
+                        logger.error(f"Content generation returned None for user {chat_id}, topic {topic_index}")
+                        retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text=f"🔄 {t('buttons.try_again', lang)}",
+                                callback_data="marathon_retry_lesson"
+                            )],
+                            [InlineKeyboardButton(
+                                text=f"← {t('buttons.back_to_menu', lang)}",
+                                callback_data="marathon_back_menu"
+                            )],
+                        ])
+                        await self.send(
+                            user,
+                            f"⚠️ {t('errors.content_generation_failed', lang)}\n\n"
+                            f"_{t('errors.try_again_later', lang)}_",
+                            reply_markup=retry_keyboard,
+                            parse_mode="Markdown"
+                        )
+                        return
                     # Сохраняем в БД для повторного использования
                     await save_marathon_content(chat_id, topic_index, lesson_content=content)
                     logger.info(f"Cached on-the-fly lesson for user {chat_id}, topic {topic_index}")
