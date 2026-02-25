@@ -163,6 +163,75 @@ async def generate_assignment_text(
     return response
 
 
+COGNITIVE_AGE_LABELS = {
+    'preoperational': '3-6 лет',
+    'concrete_operational': '7-11 лет',
+    'formal_operational': '11-16 лет',
+}
+
+
+async def generate_child_assignment_text(
+    cell_data: dict,
+    cognitive_level: str,
+    child_name: str,
+    principle_name: str,
+    depth: int,
+) -> str:
+    """Сгенерировать карточку занятия для взрослого, который тренирует ребёнка.
+
+    Args:
+        cell_data: данные ячейки (одна глубина)
+        cognitive_level: когнитивный уровень ребёнка
+        child_name: имя ребёнка
+        principle_name: название принципа
+        depth: номер глубины (1-5)
+    """
+    forms = cell_data.get('forms', {})
+    form_text = forms.get(cognitive_level, forms.get('concrete_operational', ''))
+    transfer_test = cell_data.get('transfer_test', '')
+    can_do = cell_data.get('can_do', [])
+    domains = cell_data.get('domains', [])
+    bloom_level = cell_data.get('bloom_level', '')
+    bloom_label = BLOOM_LABELS.get(bloom_level, bloom_level)
+    age_label = COGNITIVE_AGE_LABELS.get(cognitive_level, '7-11 лет')
+
+    system_prompt = f"""Ты педагог-методист. Создай КАРТОЧКУ ЗАНЯТИЯ для взрослого, который будет тренировать принцип "{principle_name}" с ребёнком {child_name} ({age_label}).
+
+Глубина {depth} ({bloom_label}).
+
+ПРАВИЛА:
+- Карточка — это ИНСТРУКЦИЯ ДЛЯ ВЗРОСЛОГО, не для ребёнка напрямую
+- Занятие должно быть ОФЛАЙН-АКТИВНОСТЬЮ (игра, эксперимент, диалог, наблюдение)
+- Адаптируй сложность под возраст: {age_label}
+- Используй бытовые домены: {', '.join(domains)}
+- Укажи: название занятия, длительность (5-20 мин), пошаговую инструкцию (3-5 шагов)
+- В конце — критерий успеха (как понять, что ребёнок усвоил)
+- НЕ используй Markdown с ** или __ (Telegram ломает)
+- Формулируй на русском языке
+- Длина: 5-10 предложений
+
+ФОРМАТ ЗАНЯТИЯ (из учебной программы):
+{form_text}
+
+ШАБЛОН (transfer_test):
+{transfer_test}
+
+ЦЕЛЕВЫЕ НАВЫКИ (can_do):
+{chr(10).join(f'- {c}' for c in can_do)}"""
+
+    user_prompt = f"Создай карточку занятия для ребёнка {child_name} ({age_label})"
+
+    response = await claude.generate(
+        system_prompt, user_prompt,
+        max_tokens=600, model=CLAUDE_MODEL_HAIKU,
+    )
+
+    if not response:
+        return form_text or f"Проведите занятие по принципу {principle_name} (глубина {depth}) с ребёнком {child_name}."
+
+    return response
+
+
 async def evaluate_training_answer(
     answer_text: str,
     cell_data: dict,

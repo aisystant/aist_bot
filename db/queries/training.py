@@ -1,7 +1,7 @@
 """
 DB-запросы для режима Тренировка (WP-55).
 
-Таблицы: training_settings, training_progress, training_attempts.
+Таблицы: training_settings, training_progress, training_attempts, training_children.
 """
 
 import json
@@ -170,16 +170,119 @@ async def save_training_attempt(
         return attempt_id
 
 
-async def get_training_stats(chat_id: int) -> dict:
+async def get_training_stats(chat_id: int, child_id: int = None) -> dict:
     """Агрегированная статистика тренировки."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow('''
-            SELECT
-                COUNT(*) as total_attempts,
-                COUNT(*) FILTER (WHERE passed = TRUE) as total_passed,
-                COUNT(DISTINCT principle_id) FILTER (WHERE passed = TRUE) as principles_practiced
-            FROM training_attempts
-            WHERE chat_id = $1
-        ''', chat_id)
+        if child_id is not None:
+            row = await conn.fetchrow('''
+                SELECT
+                    COUNT(*) as total_attempts,
+                    COUNT(*) FILTER (WHERE passed = TRUE) as total_passed,
+                    COUNT(DISTINCT principle_id) FILTER (WHERE passed = TRUE) as principles_practiced
+                FROM training_attempts
+                WHERE chat_id = $1 AND child_id = $2
+            ''', chat_id, child_id)
+        else:
+            row = await conn.fetchrow('''
+                SELECT
+                    COUNT(*) as total_attempts,
+                    COUNT(*) FILTER (WHERE passed = TRUE) as total_passed,
+                    COUNT(DISTINCT principle_id) FILTER (WHERE passed = TRUE) as principles_practiced
+                FROM training_attempts
+                WHERE chat_id = $1 AND child_id IS NULL
+            ''', chat_id)
         return dict(row) if row else {'total_attempts': 0, 'total_passed': 0, 'principles_practiced': 0}
+
+
+# ============= CHILDREN (Phase 2) =============
+
+async def create_training_child(chat_id: int, name: str, cognitive_level: str) -> dict:
+    """Создать профиль ребёнка."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            INSERT INTO training_children (chat_id, name, cognitive_level)
+            VALUES ($1, $2, $3)
+            RETURNING *
+        ''', chat_id, name, cognitive_level)
+        return dict(row)
+
+
+async def get_training_children(chat_id: int) -> list:
+    """Получить список детей пользователя."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT * FROM training_children WHERE chat_id = $1 ORDER BY created_at',
+            chat_id
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_training_child(child_id: int) -> Optional[dict]:
+    """Получить профиль ребёнка по ID."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT * FROM training_children WHERE id = $1', child_id
+        )
+        return dict(row) if row else None
+
+
+async def get_child_progress(chat_id: int, child_id: int) -> list:
+    """Получить прогресс ребёнка по всем принципам."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT * FROM training_progress WHERE chat_id = $1 AND child_id = $2 ORDER BY principle_id',
+            chat_id, child_id
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_child_principle_depth(chat_id: int, child_id: int, principle_id: str) -> int:
+    """Получить текущую глубину принципа для ребёнка."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        val = await conn.fetchval(
+            'SELECT current_depth FROM training_progress WHERE chat_id = $1 AND child_id = $2 AND principle_id = $3',
+            chat_id, child_id, principle_id
+        )
+        return val or 0
+
+
+async def advance_child_principle_depth(chat_id: int, child_id: int, principle_id: str, new_depth: int) -> None:
+    """Увеличить глубину принципа для ребёнка (UPSERT)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO training_progress (chat_id, child_id, principle_id, current_depth, attempts_at_depth, last_completed_at)
+            VALUES ($1, $2, $3, $4, 0, NOW())
+            ON CONFLICT (chat_id, principle_id, child_id) WHERE child_id IS NOT NULL DO UPDATE SET
+                current_depth = $4,
+                attempts_at_depth = 0,
+                last_completed_at = NOW()
+        ''', chat_id, child_id, principle_id, new_depth)
+
+
+async def save_child_training_attempt(
+    chat_id: int,
+    child_id: int,
+    principle_id: str,
+    depth: int,
+    assignment_text: str,
+    answer_text: str,
+    passed: bool,
+    feedback: str,
+) -> int:
+    """Сохранить попытку ответа ребёнка. Возвращает ID."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        attempt_id = await conn.fetchval('''
+            INSERT INTO training_attempts
+                (chat_id, child_id, principle_id, depth, assignment_text, answer_text, passed, feedback)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id
+        ''', chat_id, child_id, principle_id, depth, assignment_text, answer_text, passed, feedback)
+        return attempt_id

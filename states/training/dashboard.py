@@ -11,7 +11,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from engines.training.engine import TrainingEngine
-from config import get_logger, ZP_PRINCIPLES, TRAINING_MAX_DEPTH
+from config import get_logger, ZP_PRINCIPLES, TRAINING_MAX_DEPTH, TRAINING_COGNITIVE_LEVELS
 
 logger = get_logger(__name__)
 
@@ -93,6 +93,11 @@ class TrainingDashboardState(BaseState):
                 callback_data="train_continue"
             )])
 
+        buttons.append([InlineKeyboardButton(
+            text="👶 Занятие с ребёнком",
+            callback_data="train_child"
+        )])
+
         buttons.append([
             InlineKeyboardButton(text="🔄 Сменить режим", callback_data="train_change_mode"),
             InlineKeyboardButton(text="⚙️ Настройки", callback_data="train_settings"),
@@ -133,14 +138,78 @@ class TrainingDashboardState(BaseState):
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
+    async def _show_child_select(self, user, chat_id: int):
+        """Показать выбор ребёнка или создание нового."""
+        engine = TrainingEngine(chat_id)
+        children = await engine.get_children()
+
+        buttons = []
+        for child in children:
+            buttons.append([InlineKeyboardButton(
+                text=f"👶 {child['name']}",
+                callback_data=f"train_child_select_{child['id']}"
+            )])
+
+        buttons.append([InlineKeyboardButton(
+            text="➕ Добавить ребёнка",
+            callback_data="train_child_add"
+        )])
+        buttons.append([InlineKeyboardButton(
+            text="← Назад",
+            callback_data="train_child_back"
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        text = "👶 *Занятие с ребёнком*\n\nВыберите ребёнка или добавьте нового:"
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _show_child_age_select(self, user):
+        """Показать выбор возраста ребёнка."""
+        # Только детские уровни (без postformal)
+        child_levels = {
+            'preoperational': 'Ребёнок (3-6)',
+            'concrete_operational': 'Ребёнок (7-11)',
+            'formal_operational': 'Подросток (11-16)',
+        }
+
+        buttons = []
+        for key, label in child_levels.items():
+            buttons.append([InlineKeyboardButton(
+                text=label, callback_data=f"train_child_age_{key}"
+            )])
+        buttons.append([InlineKeyboardButton(
+            text="← Назад", callback_data="train_child_back"
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await self.send(
+            user,
+            "👶 *Укажите возраст ребёнка:*",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
     async def handle(self, user, message: Message) -> Optional[str]:
-        text = message.text or ''
+        text = (message.text or '').strip()
+        chat_id = self._get_chat_id(user)
 
         if text.startswith('train_start_'):
             principle_id = text.replace('train_start_', '')
-            chat_id = self._get_chat_id(user)
             self._user_data[chat_id] = {'principle_id': principle_id}
             return "select_principle"
+
+        # Ввод имени ребёнка
+        data = self._user_data.get(chat_id, {})
+        if data.get('waiting_child_name') and text:
+            cognitive_level = data.get('child_cognitive_level', 'concrete_operational')
+            engine = TrainingEngine(chat_id)
+            child = await engine.add_child(text, cognitive_level)
+            if child:
+                self._user_data[chat_id] = {'child_id': child['id']}
+                return "child_selected"
+            else:
+                await self.send(user, "Не удалось добавить ребёнка. Попробуйте ещё раз.")
+                return None
 
         return None
 
@@ -170,6 +239,36 @@ class TrainingDashboardState(BaseState):
             self._user_data[chat_id] = {'principle_id': principle_id}
             await callback.answer("Генерирую задание...")
             return "select_principle"
+
+        if data == 'train_child':
+            await callback.answer()
+            await self._show_child_select(user, chat_id)
+            return None
+
+        if data.startswith('train_child_select_'):
+            child_id = int(data.replace('train_child_select_', ''))
+            self._user_data[chat_id] = {'child_id': child_id}
+            await callback.answer()
+            return "child_selected"
+
+        if data == 'train_child_add':
+            await callback.answer()
+            await self._show_child_age_select(user)
+            return None
+
+        if data.startswith('train_child_age_'):
+            level = data.replace('train_child_age_', '')
+            self._user_data[chat_id] = {
+                'waiting_child_name': True,
+                'child_cognitive_level': level,
+            }
+            await callback.answer()
+            await self.send(user, "✏️ Напишите имя ребёнка:")
+            return None
+
+        if data == 'train_child_back':
+            await callback.answer()
+            return "refresh"
 
         if data == 'train_settings':
             await callback.answer()

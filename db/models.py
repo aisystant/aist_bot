@@ -964,4 +964,47 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass  # Колонки уже существуют
 
+        # ============= ТРЕНИРОВКА РЕБЁНКА (WP-55 Phase 2) =============
+
+        # Профили детей (дочерние ЦД)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS training_children (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                name TEXT NOT NULL,
+                cognitive_level TEXT NOT NULL DEFAULT 'concrete_operational',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_training_children_chat
+            ON training_children (chat_id)
+        ''')
+
+        # Миграция: child_id в training_progress и training_attempts
+        try:
+            await conn.execute('''
+                ALTER TABLE training_progress
+                ADD COLUMN IF NOT EXISTS child_id INTEGER DEFAULT NULL
+            ''')
+            await conn.execute('''
+                ALTER TABLE training_attempts
+                ADD COLUMN IF NOT EXISTS child_id INTEGER DEFAULT NULL
+            ''')
+        except Exception:
+            pass
+
+        # Обновить UNIQUE constraint для training_progress (chat_id, principle_id, child_id)
+        # Старый: UNIQUE(chat_id, principle_id) — оставляем для NULL child_id (взрослый)
+        # Новый индекс для child_id != NULL
+        try:
+            await conn.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_training_progress_child
+                ON training_progress (chat_id, principle_id, child_id)
+                WHERE child_id IS NOT NULL
+            ''')
+        except Exception:
+            pass
+
     logger.info("✅ Все таблицы созданы/обновлены")

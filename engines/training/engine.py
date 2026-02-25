@@ -29,6 +29,14 @@ from db.queries.training import (
     save_training_attempt,
     get_training_stats,
     reset_training_progress,
+    # Child training (Phase 2)
+    create_training_child,
+    get_training_children,
+    get_training_child,
+    get_child_progress,
+    get_child_principle_depth,
+    advance_child_principle_depth,
+    save_child_training_attempt,
 )
 
 logger = get_logger(__name__)
@@ -351,3 +359,138 @@ class TrainingEngine:
     async def reset_progress(self) -> None:
         """Сбросить весь прогресс тренировки (начать заново)."""
         await reset_training_progress(self.chat_id)
+
+    # === Child Training (Phase 2) ===
+
+    async def add_child(self, name: str, cognitive_level: str) -> Optional[dict]:
+        """Добавить профиль ребёнка."""
+        if cognitive_level not in TRAINING_COGNITIVE_LEVELS:
+            return None
+        return await create_training_child(self.chat_id, name, cognitive_level)
+
+    async def get_children(self) -> list:
+        """Получить список детей пользователя."""
+        return await get_training_children(self.chat_id)
+
+    async def get_child_dashboard_data(self, child_id: int) -> dict:
+        """Данные дашборда для ребёнка."""
+        child = await get_training_child(child_id)
+        if not child or child['chat_id'] != self.chat_id:
+            return {}
+
+        progress_rows = await get_child_progress(self.chat_id, child_id)
+        progress_map = {r['principle_id']: r for r in progress_rows}
+        stats = await get_training_stats(self.chat_id, child_id=child_id)
+
+        from .planner import get_principle_name
+
+        principles = []
+        for pid in ZP_PRINCIPLES:
+            prog = progress_map.get(pid)
+            current_depth = prog['current_depth'] if prog else 0
+            principles.append({
+                'id': pid,
+                'name': get_principle_name(pid),
+                'current_depth': current_depth,
+                'max_depth': TRAINING_MAX_DEPTH,
+                'enabled': True,
+                'completed': current_depth >= TRAINING_MAX_DEPTH,
+            })
+
+        return {
+            'child': child,
+            'principles': principles,
+            'stats': stats,
+        }
+
+    async def generate_child_assignment(self, child_id: int, principle_id: str) -> Optional[dict]:
+        """Сгенерировать задание для ребёнка (карточка занятия для взрослого)."""
+        child = await get_training_child(child_id)
+        if not child or child['chat_id'] != self.chat_id:
+            return None
+
+        current_depth = await get_child_principle_depth(self.chat_id, child_id, principle_id)
+        target_depth = current_depth + 1
+        if target_depth > TRAINING_MAX_DEPTH:
+            return None
+
+        from .planner import load_zp_cells, generate_child_assignment_text, get_principle_name
+        cells = load_zp_cells()
+        principle_data = cells.get(principle_id)
+        if not principle_data:
+            return None
+
+        depth_data = principle_data.get('depths', {}).get(str(target_depth))
+        if not depth_data:
+            return None
+
+        cognitive_level = child.get('cognitive_level', 'concrete_operational')
+        p_name = get_principle_name(principle_id)
+
+        assignment_text = await generate_child_assignment_text(
+            depth_data, cognitive_level, child['name'],
+            p_name, target_depth
+        )
+
+        return {
+            'child_id': child_id,
+            'child_name': child['name'],
+            'principle_id': principle_id,
+            'principle_name': p_name,
+            'depth': target_depth,
+            'bloom_level': depth_data.get('bloom_level', ''),
+            'assignment_text': assignment_text,
+            'criteria': depth_data.get('criteria', ''),
+        }
+
+    async def report_child_result(
+        self, child_id: int, principle_id: str, depth: int,
+        assignment_text: str, passed: bool, answer_text: str = '',
+    ) -> dict:
+        """Записать результат занятия с ребёнком."""
+        feedback = ''
+
+        # Если взрослый ввёл ответ ребёнка — оценить через AI
+        if answer_text and len(answer_text) >= 10:
+            from .planner import load_zp_cells, evaluate_training_answer
+            cells = load_zp_cells()
+            depth_data = cells.get(principle_id, {}).get('depths', {}).get(str(depth), {})
+            result = await evaluate_training_answer(
+                answer_text=answer_text,
+                cell_data=depth_data,
+                assignment_text=assignment_text,
+                intern=None,
+            )
+            passed = result.get('passed', False)
+            feedback = result.get('feedback', '')
+
+        # Сохранить попытку
+        await save_child_training_attempt(
+            self.chat_id, child_id, principle_id, depth,
+            assignment_text, answer_text or ('self-report: ' + ('passed' if passed else 'failed')),
+            passed, feedback
+        )
+
+        # Обновить прогресс
+        if passed:
+            await advance_child_principle_depth(self.chat_id, child_id, principle_id, depth)
+
+        return {
+            'passed': passed,
+            'feedback': feedback,
+            'new_depth': depth if passed else None,
+        }
+
+    async def get_next_child_principle(self, child_id: int) -> Optional[str]:
+        """Определить следующий принцип для тренировки ребёнка."""
+        progress_rows = await get_child_progress(self.chat_id, child_id)
+        progress_map = {r['principle_id']: r['current_depth'] for r in progress_rows}
+
+        incomplete = [
+            pid for pid in ZP_PRINCIPLES
+            if progress_map.get(pid, 0) < TRAINING_MAX_DEPTH
+        ]
+        if not incomplete:
+            return None
+
+        return incomplete[0]  # sequential for children

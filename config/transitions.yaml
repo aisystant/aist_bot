@@ -146,6 +146,7 @@ states:
       select_principle: training.assignment
       change_mode: training.setup
       setup_needed: training.setup
+      child_selected: training.child_assignment
       reset_done: training.dashboard
       refresh: training.dashboard
       back: common.mode_select
@@ -165,6 +166,12 @@ states:
       setup_complete: training.dashboard
       back: training.dashboard
     allow_global: []
+
+  training.child_assignment:
+    description: "Занятие с ребёнком — карточка + результат"
+    events:
+      back: training.dashboard
+    allow_global: [consultation, notes]
 
   # ==========================================
   # МАСТЕРСКАЯ: ОЦЕНКА (workshop.assessment.*)

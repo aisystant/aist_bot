@@ -35,7 +35,7 @@ from states.workshops.assessment import (
 from states.feed import FeedTopicsState, FeedDigestState
 
 # Тренировка (WP-55)
-from states.training import TrainingDashboardState, TrainingAssignmentState, TrainingSetupState
+from states.training import TrainingDashboardState, TrainingAssignmentState, TrainingSetupState, TrainingChildAssignmentState
 
 # Utilities (частично реализовано)
 from states.utilities import ProgressState, MyDataState, FeedbackState
@@ -93,6 +93,7 @@ def register_all_states(
         TrainingDashboardState(*args),
         TrainingAssignmentState(*args),
         TrainingSetupState(*args),
+        TrainingChildAssignmentState(*args),
 
         # Utility стейты
         ProgressState(*args),
@@ -141,6 +142,7 @@ def get_available_states() -> list[str]:
         "training.dashboard",
         "training.assignment",
         "training.setup",
+        "training.child_assignment",
 
         # Utilities
         "utility.progress",
