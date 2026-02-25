@@ -61,6 +61,39 @@ def _lang(intern) -> str:
 
 # ── Helpers ───────────────────────────────────────────────
 
+
+async def _revert_frontmatter_to_draft(chat_id: int, source_file: str) -> None:
+    """Revert frontmatter status → draft, чтобы smart_publisher не пере-планировал.
+
+    Вызывается при отмене запланированной публикации.
+    Best-effort: ошибка не блокирует отмену.
+    """
+    try:
+        from clients.github_content import create_content_client, update_frontmatter_field
+        from clients.github_oauth import github_oauth
+
+        token = await github_oauth.get_access_token(chat_id)
+        repo = await github_oauth.get_knowledge_repo(chat_id)
+        if not token or not repo:
+            return
+        client = create_content_client(token, repo)
+        try:
+            result = await client.read_file(source_file)
+            if not result:
+                return
+            content, sha = result
+            new_content = update_frontmatter_field(content, "status", "draft")
+            await client.update_file(
+                source_file, new_content, sha,
+                f"Reverted to draft (cancelled from schedule): {source_file}",
+            )
+            logger.info(f"[Publisher] Frontmatter reverted to draft: {source_file}")
+        finally:
+            await client.close()
+    except Exception as e:
+        logger.warning(f"[Publisher] Frontmatter revert failed for {source_file}: {e}")
+
+
 def _parse_blog_input(text: str) -> tuple[str | None, int | None]:
     """Parse blog URL or text → (username_guess, category_id).
 
@@ -700,10 +733,17 @@ async def on_club_schedule(callback: CallbackQuery):
 
 @discourse_router.callback_query(lambda c: c.data and c.data.startswith("club_sched_cancel:"))
 async def on_schedule_cancel_item(callback: CallbackQuery):
-    """Отменить одну запланированную публикацию."""
+    """Отменить одну запланированную публикацию + revert frontmatter → draft."""
     await callback.answer()
     pub_id = int(callback.data.split(":")[1])
+    # Получить данные до удаления (нужен source_file)
+    pub = await get_scheduled_publication(pub_id)
     await cancel_scheduled_publication(pub_id)
+
+    # Revert frontmatter: status → draft (чтобы smart_publisher не пере-планировал)
+    if pub and pub.get("source_file"):
+        await _revert_frontmatter_to_draft(pub["chat_id"], pub["source_file"])
+
     await callback.message.answer("Публикация удалена из графика.")
     await _show_schedule(callback.message, callback.from_user.id)
 
@@ -1120,6 +1160,10 @@ async def _rebuild_schedule_after_manual(chat_id: int) -> str:
     first = schedule[0]
     first_time = first["schedule_time"]
     if hasattr(first_time, "date") and first_time.date() == today:
+        # Revert frontmatter перед удалением
+        pub = await get_scheduled_publication(first["id"])
+        if pub and pub.get("source_file"):
+            await _revert_frontmatter_to_draft(chat_id, pub["source_file"])
         await cancel_scheduled_publication(first["id"])
         schedule = schedule[1:]
 

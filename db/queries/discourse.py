@@ -264,6 +264,20 @@ async def get_scheduled_count(chat_id: int) -> int:
     return row["cnt"] if row else 0
 
 
+async def get_scheduled_dates(chat_id: int) -> set:
+    """Множество дат (date objects), на которые уже есть pending публикации."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT DISTINCT schedule_time::date as d
+        FROM scheduled_publications
+        WHERE chat_id = $1 AND status = 'pending'
+        """,
+        chat_id,
+    )
+    return {r["d"] for r in rows}
+
+
 async def get_upcoming_schedule(chat_id: int, limit: int = 10) -> list[dict]:
     """Ближайшие запланированные публикации для отображения."""
     pool = await get_pool()

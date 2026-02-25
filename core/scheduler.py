@@ -1522,6 +1522,10 @@ async def _discourse_scheduled_publish():
         await bot.session.close()
 
 
+_last_publisher_scan: datetime | None = None
+_PUBLISHER_SCAN_COOLDOWN = timedelta(hours=2)
+
+
 async def _smart_publisher_scan():
     """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (05:07 МСК).
 
@@ -1532,6 +1536,15 @@ async def _smart_publisher_scan():
     4. Auto-schedule новые посты на ближайшие свободные слоты
     5. Queue Watch: если pending < min_queue → уведомить
     """
+    global _last_publisher_scan
+
+    # Cooldown: не запускать повторно если scan был < 2 часов назад (startup vs cron)
+    now = datetime.now(MOSCOW_TZ)
+    if _last_publisher_scan and (now - _last_publisher_scan) < _PUBLISHER_SCAN_COOLDOWN:
+        logger.info(f"[Publisher] Scan skipped: last scan was {now - _last_publisher_scan} ago (cooldown={_PUBLISHER_SCAN_COOLDOWN})")
+        return
+    _last_publisher_scan = now
+
     from clients.github_content import create_content_client, parse_frontmatter
     from db.queries.github import get_users_with_knowledge_repo
     from db.queries.discourse import (
@@ -1541,6 +1554,7 @@ async def _smart_publisher_scan():
         get_all_scheduled_source_files,
         get_all_scheduled_titles_lower,
         get_scheduled_count,
+        get_scheduled_dates,
         schedule_publication,
     )
     from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME, PUBLISHER_MIN_QUEUE
@@ -1704,14 +1718,16 @@ async def _smart_publisher_scan():
                     regular_pub_days = [1, 2, 3, 4, 5, 6]  # Вт-Вс
 
                 scheduled_count = await get_scheduled_count(chat_id)
+                occupied_dates = await get_scheduled_dates(chat_id)
                 slots = []
                 check_date = now_msk.date() + timedelta(days=1)  # Начинаем с завтра
                 max_check = 60  # Не дальше 60 дней
 
                 for _ in range(max_check):
-                    if check_date.weekday() in regular_pub_days:
+                    if check_date.weekday() in regular_pub_days and check_date not in occupied_dates:
                         slot_time = datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute))
                         slots.append(slot_time)
+                        occupied_dates.add(check_date)  # Не дублировать в рамках одного scan
                         if len(slots) >= len(regular):
                             break
                     check_date += timedelta(days=1)
