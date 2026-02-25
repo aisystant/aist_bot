@@ -1,8 +1,9 @@
 """
-Стейт: Первоначальная настройка тренировки.
+Стейт: Настройка режима тренировки.
 
-Вход: из training.dashboard (если setup не пройден) или из настроек
-Flow: когнитивный уровень → выбор режима (4 сценария) → дашборд.
+Вход: из training.dashboard (первый запуск или «Сменить режим»)
+Flow: выбор режима (4 сценария) -> дашборд.
+Когнитивный уровень = postformal (фиксирован, Phase 2 — тренировка ребёнка).
 """
 
 from typing import Optional, Dict
@@ -12,13 +13,16 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 from states.base import BaseState
 from engines.training.engine import TrainingEngine
 from engines.training.planner import get_principle_name
-from config import get_logger, ZP_PRINCIPLES, TRAINING_COGNITIVE_LEVELS
+from config import get_logger, ZP_PRINCIPLES
 
 logger = get_logger(__name__)
 
+# Фиксированный когнитивный уровень (Phase 1 — только взрослые)
+DEFAULT_COGNITIVE_LEVEL = 'postformal'
+
 
 class TrainingSetupState(BaseState):
-    """Настройка тренировки: когнитивный уровень → 4 режима → дашборд."""
+    """Настройка тренировки: выбор режима -> дашборд."""
 
     name = "training.setup"
     display_name = {
@@ -36,39 +40,15 @@ class TrainingSetupState(BaseState):
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
         chat_id = self._get_chat_id(user)
-        # mode_only=True — пропустить когнитивный уровень, только выбор режима
-        mode_only = (context or {}).get('mode_only', False)
 
         self._user_data[chat_id] = {
-            'step': 'mode' if mode_only else 'cognitive',
-            'cognitive_level': None,
+            'step': 'mode',
             'training_mode': None,
             'single_principle': None,
         }
 
-        if mode_only:
-            await self._show_mode_selection(user)
-        else:
-            await self._show_cognitive_selection(user)
-
+        await self._show_mode_selection(user)
         return None
-
-    async def _show_cognitive_selection(self, user):
-        buttons = []
-        for key, label in TRAINING_COGNITIVE_LEVELS.items():
-            buttons.append([InlineKeyboardButton(
-                text=label, callback_data=f"setup_cognitive_{key}"
-            )])
-        buttons.append([InlineKeyboardButton(text="← Назад", callback_data="setup_back")])
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-        await self.send(
-            user,
-            "🧠 *Тренировка принципов мышления*\n\n"
-            "Выберите когнитивный уровень тренируемого:",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
 
     async def _show_mode_selection(self, user):
         """Показать 4 режима тренировки."""
@@ -91,7 +71,7 @@ class TrainingSetupState(BaseState):
             )],
         ]
 
-        buttons.append([InlineKeyboardButton(text="← Назад", callback_data="setup_mode_back_to_prev")])
+        buttons.append([InlineKeyboardButton(text="← Назад", callback_data="setup_back")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         text = (
@@ -126,27 +106,14 @@ class TrainingSetupState(BaseState):
         data = self._user_data.get(chat_id, {})
         cb = callback.data or ''
 
-        step = data.get('step', 'cognitive')
+        step = data.get('step', 'mode')
 
-        # === Назад из когнитивного уровня ===
+        # === Назад ===
         if cb == 'setup_back':
             await callback.answer()
             return "back"
 
-        # === Шаг 1: Когнитивный уровень ===
-        if step == 'cognitive' and cb.startswith('setup_cognitive_'):
-            level = cb.replace('setup_cognitive_', '')
-            if level not in TRAINING_COGNITIVE_LEVELS:
-                await callback.answer("Неизвестный уровень", show_alert=True)
-                return None
-            data['cognitive_level'] = level
-            data['step'] = 'mode'
-            self._user_data[chat_id] = data
-            await callback.answer()
-            await self._show_mode_selection(user)
-            return None
-
-        # === Шаг 2: Выбор режима ===
+        # === Выбор режима ===
         if step == 'mode':
             if cb == 'setup_mode_shuffle':
                 data['training_mode'] = 'shuffle'
@@ -174,20 +141,7 @@ class TrainingSetupState(BaseState):
                 )
                 return None
 
-            if cb == 'setup_mode_back_to_prev':
-                # mode_only → назад к дашборду; полный setup → назад к когнитивному
-                if data.get('cognitive_level') is None:
-                    # mode_only: нет cognitive_level → вернуться к дашборду
-                    await callback.answer()
-                    return "back"
-                else:
-                    data['step'] = 'cognitive'
-                    self._user_data[chat_id] = data
-                    await callback.answer()
-                    await self._show_cognitive_selection(user)
-                    return None
-
-        # === Шаг 3: Выбор конкретного ZP ===
+        # === Выбор конкретного ZP ===
         if step == 'pick_zp':
             if cb == 'setup_mode_back':
                 data['step'] = 'mode'
@@ -222,17 +176,18 @@ class TrainingSetupState(BaseState):
         else:
             enabled = list(ZP_PRINCIPLES)
 
-        cognitive = data.get('cognitive_level')
-        if cognitive:
-            # Полный setup (первый раз или после смены уровня)
+        # Проверяем: первый setup или смена режима
+        is_first_setup = not await engine.is_setup_complete()
+        if is_first_setup:
+            # Первый раз — полный setup с cognitive_level=postformal
             await engine.setup(
-                cognitive_level=cognitive,
+                cognitive_level=DEFAULT_COGNITIVE_LEVEL,
                 enabled_principles=enabled,
                 training_mode=mode,
                 single_principle=single,
             )
         else:
-            # Только смена режима (mode_only=True)
+            # Смена режима
             await engine.update_training_mode(mode, single)
 
         return "setup_complete"

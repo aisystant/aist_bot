@@ -145,7 +145,6 @@ states:
     events:
       select_principle: training.assignment
       change_mode: training.setup
-      settings: training.setup
       setup_needed: training.setup
       reset_done: training.dashboard
       refresh: training.dashboard

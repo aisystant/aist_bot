@@ -59,13 +59,11 @@ class TrainingDashboardState(BaseState):
 
         principles = data.get('principles', [])
         stats = data.get('stats', {})
-        cognitive_label = data.get('cognitive_label', 'Взрослый')
         mode_label = data.get('mode_label', '🔀 Все вперемешку')
 
         lines = [
             "🧠 *Тренировка принципов*",
             f"Режим: {mode_label}",
-            f"Уровень: {cognitive_label}",
             "━━━━━━━━━━━━━━━━━━",
         ]
 
@@ -114,20 +112,14 @@ class TrainingDashboardState(BaseState):
         """Показать подменю настроек."""
         engine = TrainingEngine(chat_id)
         data = await engine.get_dashboard_data()
-        cognitive_label = data.get('cognitive_label', 'Взрослый') if data else 'Взрослый'
         mode_label = data.get('mode_label', '🔀 Все вперемешку') if data else ''
 
         text = (
             "⚙️ *Настройки тренировки*\n\n"
-            f"Режим: {mode_label}\n"
-            f"Уровень: {cognitive_label}"
+            f"Режим: {mode_label}"
         )
 
         buttons = [
-            [InlineKeyboardButton(
-                text="🧠 Изменить уровень",
-                callback_data="train_settings_cognitive"
-            )],
             [InlineKeyboardButton(
                 text="🗑 Сбросить прогресс",
                 callback_data="train_reset_ask"
@@ -183,10 +175,6 @@ class TrainingDashboardState(BaseState):
             await callback.answer()
             await self._show_settings(user, chat_id)
             return None
-
-        if data == 'train_settings_cognitive':
-            await callback.answer()
-            return "settings"  # → training.setup (полный setup)
 
         if data == 'train_reset_ask':
             # Подтверждение сброса
