@@ -943,11 +943,22 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
         scheduled_files = await get_all_scheduled_source_files(chat_id)
         scheduled_titles = await get_all_scheduled_titles_lower(chat_id)
 
-        current_year = datetime.now().year
+        today = datetime.now().date()
+        cutoff = today - timedelta(days=14)
+        current_year = today.year
         candidates = []
 
         # Семафор: макс 10 параллельных запросов к GitHub API
         sem = asyncio.Semaphore(10)
+
+        def _is_recent(filename: str) -> bool:
+            """Проверить дату в имени файла (YYYY-MM-DD-*). Файлы за последние 14 дней."""
+            try:
+                parts = filename.split("-", 3)
+                file_date = datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+                return file_date >= cutoff
+            except (ValueError, IndexError):
+                return True  # Не удалось распарсить → читаем на всякий случай
 
         async def _read_and_check(file_info: dict) -> dict | None:
             """Прочитать файл и проверить frontmatter. Возвращает кандидата или None."""
@@ -984,7 +995,7 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
             }
 
         files = await client.list_files(f"docs/{current_year}")
-        files = [f for f in files if f["name"] != "README.md"]
+        files = [f for f in files if f["name"] != "README.md" and _is_recent(f["name"])]
 
         if files:
             # Параллельное чтение файлов

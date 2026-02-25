@@ -1592,12 +1592,22 @@ async def _smart_publisher_scan():
             # Per-user scan индекса знаний
             client = create_content_client(token, knowledge_repo)
             try:
-                current_year = datetime.now().year
+                today = datetime.now().date()
+                cutoff = today - timedelta(days=14)
+                current_year = today.year
                 all_posts = []
+
+                def _is_recent(filename: str) -> bool:
+                    try:
+                        parts = filename.split("-", 3)
+                        file_date = datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+                        return file_date >= cutoff
+                    except (ValueError, IndexError):
+                        return True
 
                 files = await client.list_files(f"docs/{current_year}")
                 for f in files:
-                    if f["name"] == "README.md":
+                    if f["name"] == "README.md" or not _is_recent(f["name"]):
                         continue
                     result = await client.read_file(f["path"])
                     if not result:
