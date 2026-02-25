@@ -19,7 +19,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
-from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content
+from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content, cleanup_error_questions
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
@@ -104,6 +104,9 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
     _scheduler.start()
+
+    # One-time cleanup: обнулить question_content с текстом ошибки (bug fix)
+    _scheduler.add_job(cleanup_error_questions, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=30), id='cleanup_error_questions')
 
     logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse + publisher startup scan)")
     return _scheduler

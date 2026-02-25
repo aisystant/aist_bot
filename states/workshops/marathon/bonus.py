@@ -146,6 +146,16 @@ class MarathonBonusState(BaseState):
                     bloom_level=next_level
                 )
 
+                if not question:
+                    logger.warning(f"Bonus question generation returned None for user {chat_id}")
+                    await self.send(
+                        user,
+                        f"⚠️ {t('errors.question_generation_failed', lang)}\n\n"
+                        f"_{t('marathon.loading_practice', lang)}_",
+                        parse_mode="Markdown"
+                    )
+                    return "no"  # Переходим к заданию
+
                 # Показываем вопрос
                 bonus_text = (
                     f"🚀 *{t('marathon.bonus_question', lang)}* ({t(f'bloom.level_{next_level}_short', lang)})\n\n"

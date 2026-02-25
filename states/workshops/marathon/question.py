@@ -121,6 +121,12 @@ class MarathonQuestionState(BaseState):
         pre_generated = await get_marathon_content(chat_id, topic_index)
         question = pre_generated.get('question_content') if pre_generated else None
 
+        # Валидация: пре-генерированный контент может содержать текст ошибки
+        # от предыдущей неудачной генерации (bug: error text cached as question)
+        if question and len(question) < 100 and '?' not in question and '？' not in question:
+            logger.warning(f"Pre-generated question for user {chat_id}, topic {topic_index} looks invalid ({len(question)} chars, no '?'), re-generating")
+            question = None
+
         if question:
             logger.info(f"Loaded pre-generated question for user {chat_id}, topic {topic_index}")
         else:
@@ -135,11 +141,11 @@ class MarathonQuestionState(BaseState):
                     intern=intern,
                     bloom_level=bloom_level
                 )
-                # Сохраняем в БД для повторного использования
-                await save_marathon_content(chat_id, topic_index, question_content=question)
-                logger.info(f"Cached on-the-fly question for user {chat_id}, topic {topic_index}")
             except Exception as e:
                 logger.error(f"Error generating question for user {chat_id}: {e}")
+                question = None
+
+            if not question:
                 await self.send(
                     user,
                     f"⚠️ {t('errors.question_generation_failed', lang)}\n\n"
@@ -147,6 +153,10 @@ class MarathonQuestionState(BaseState):
                     parse_mode="Markdown"
                 )
                 return
+
+            # Сохраняем в БД для повторного использования (только валидный вопрос)
+            await save_marathon_content(chat_id, topic_index, question_content=question)
+            logger.info(f"Cached on-the-fly question for user {chat_id}, topic {topic_index}")
 
         # ─── Показываем вопрос ───
         header = f"💭 *{t('marathon.reflection_question', lang)}* ({t(f'bloom.level_{bloom_level}_short', lang)})\n\n"

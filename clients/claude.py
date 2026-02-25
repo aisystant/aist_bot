@@ -962,7 +962,7 @@ EXAMPLES: (примеры, каждый с новой строки начина�
         )
         if result and cache_key:
             await cache_set(cache_key, 'question', result)
-        return result or qp['error_generation']
+        return result
 
 
 # Создаём экземпляр клиента

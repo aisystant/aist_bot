@@ -77,6 +77,7 @@ from .marathon import (
     get_marathon_content,
     mark_content_delivered,
     cleanup_expired_content,
+    cleanup_error_questions,
 )
 
 from .subscription import (
@@ -164,6 +165,7 @@ __all__ = [
     'get_marathon_content',
     'mark_content_delivered',
     'cleanup_expired_content',
+    'cleanup_error_questions',
 
     # subscription
     'get_active_subscription',

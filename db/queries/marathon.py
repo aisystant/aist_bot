@@ -98,6 +98,27 @@ async def invalidate_user_content(chat_id: int):
         logger.info(f"[Marathon] Invalidated pre-gen content for {chat_id}: {result}")
 
 
+async def cleanup_error_questions():
+    """Удалить пре-генерированные вопросы, содержащие текст ошибки вместо реального вопроса.
+
+    Баг: generate_question() возвращал error fallback text, который кешировался в БД.
+    Эта функция обнуляет question_content для таких записей, чтобы при следующей
+    загрузке вопрос был сгенерирован заново.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            '''UPDATE marathon_content
+               SET question_content = NULL
+               WHERE question_content IS NOT NULL
+                 AND LENGTH(question_content) < 100
+                 AND question_content NOT LIKE '%?%'
+                 AND question_content NOT LIKE '%？%' ''',
+        )
+        logger.info(f"[Marathon] Cleanup error questions: {result}")
+        return result
+
+
 async def cleanup_expired_content():
     """Удалить невостребованный пре-генерированный контент.
 
