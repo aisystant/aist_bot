@@ -285,7 +285,13 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 **Процесс:** см. `PROCESSES.md § 5. Keyboard Lifecycle`.
 
-### 10.6. CJK-строки: outer single quotes
+### 10.6. Publisher: cancel = revert frontmatter + slot uniqueness
+
+При отмене запланированной публикации (cancel) — **ОБЯЗАТЕЛЬНО** revert frontmatter `status → draft` через GitHub API. Иначе `_smart_publisher_scan` (05:07 МСК) повторно обнаружит `status: ready` и пере-запланирует.
+
+Слоты генерируются с проверкой `occupied_dates` — одна дата = один пост. Startup scan имеет 2-часовой cooldown (не дублирует утренний cron).
+
+### 10.7. CJK-строки: outer single quotes
 
 Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `SyntaxError`. CJK-контент оборачивать в single quotes: `'来自"个人发展"项目的主题。'`.
 
