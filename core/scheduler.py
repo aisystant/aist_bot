@@ -1572,8 +1572,6 @@ async def _smart_publisher_scan():
     # chat_id → discourse account для быстрого lookup
     account_map = {a["chat_id"]: a for a in accounts}
 
-    from datetime import datetime
-
     bot = Bot(token=_bot_token)
     try:
         for ku in knowledge_users:

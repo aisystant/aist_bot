@@ -7,6 +7,7 @@
 """
 
 import json
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -48,9 +49,13 @@ def load_zp_cells() -> dict:
     закешируется пустой dict навсегда. Вместо этого: module-level cache
     с возможностью повторной попытки.
     """
-    global _zp_cells_cache
+    global _zp_cells_cache, _zp_cells_error_until
     if _zp_cells_cache is not None:
         return _zp_cells_cache
+
+    # Suppress retries for 5 min after a load failure (prevents error log spam)
+    if time.monotonic() < _zp_cells_error_until:
+        return {}
 
     path = BASE_DIR / "data" / "curriculum" / "zp_cells.json"
     try:
@@ -61,13 +66,16 @@ def load_zp_cells() -> dict:
             return data
     except FileNotFoundError:
         logger.error(f"ZP cells file not found: {path} (BASE_DIR={BASE_DIR})")
+        _zp_cells_error_until = time.monotonic() + 300
         return {}
     except json.JSONDecodeError as e:
         logger.error(f"ZP cells JSON error: {e}")
+        _zp_cells_error_until = time.monotonic() + 300
         return {}
 
 
 _zp_cells_cache: dict = None
+_zp_cells_error_until: float = 0  # monotonic timestamp: suppress retries for 5 min after failure
 
 
 def get_principle_name(principle_id: str) -> str:

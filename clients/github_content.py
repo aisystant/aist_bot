@@ -21,6 +21,7 @@ GitHub Content API клиент — доступ к индексу знаний 
     await github_content.update_file(path, new_content, sha, "Published to club: Title")
 """
 
+import asyncio
 import base64
 import re
 
@@ -83,18 +84,26 @@ class GitHubContentClient:
                 return [f["name"] for f in data if f["type"] == "dir"]
             return []
 
-    async def read_file(self, path: str) -> tuple[str, str] | None:
-        """Прочитать файл. Возвращает (content, sha) или None."""
+    async def read_file(self, path: str, _retries: int = 2) -> tuple[str, str] | None:
+        """Прочитать файл. Возвращает (content, sha) или None.
+
+        Retry с backoff для transient 502/503 ошибок.
+        """
         session = await self._get_session()
         url = f"{self.base_url}/repos/{self.repo}/contents/{path}"
-        async with session.get(url, headers=self._headers()) as resp:
-            if resp.status >= 400:
-                log = logger.warning if resp.status in (403, 404) else logger.error
-                log(f"GitHub read_file {path} error {resp.status}")
-                return None
-            data = await resp.json()
-            content = base64.b64decode(data["content"]).decode("utf-8")
-            return content, data["sha"]
+        for attempt in range(_retries + 1):
+            async with session.get(url, headers=self._headers()) as resp:
+                if resp.status in (502, 503) and attempt < _retries:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                    continue
+                if resp.status >= 400:
+                    log = logger.warning if resp.status in (403, 404) else logger.error
+                    log(f"GitHub read_file {path} error {resp.status}")
+                    return None
+                data = await resp.json()
+                content = base64.b64decode(data["content"]).decode("utf-8")
+                return content, data["sha"]
+        return None
 
     async def update_file(self, path: str, content: str, sha: str, message: str) -> bool:
         """Обновить файл (git commit). Возвращает True при успехе."""
