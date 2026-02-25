@@ -1595,29 +1595,31 @@ async def _smart_publisher_scan():
                 current_year = datetime.now().year
                 all_posts = []
 
-                for year in [current_year, current_year - 1]:
-                    files = await client.list_files(f"docs/{year}")
-                    for f in files:
-                        if f["name"] == "README.md":
-                            continue
-                        result = await client.read_file(f["path"])
-                        if not result:
-                            continue
-                        content, sha = result
-                        fm = parse_frontmatter(content)
-                        if fm.get("type") != "post":
-                            continue
-                        all_posts.append({
-                            "path": f["path"],
-                            "sha": sha,
-                            "title": fm.get("title", f["name"]),
-                            "status": fm.get("status", "draft"),
-                            "target": fm.get("target", ""),
-                            "tags": fm.get("tags", []),
-                            "created": fm.get("created", ""),
-                            "audience": fm.get("audience", ""),
-                            "content": content,
-                        })
+                files = await client.list_files(f"docs/{current_year}")
+                for f in files:
+                    if f["name"] == "README.md":
+                        continue
+                    result = await client.read_file(f["path"])
+                    if not result:
+                        continue
+                    content, sha = result
+                    # Ранний выход: нет frontmatter → пропускаем
+                    if not content.startswith("---"):
+                        continue
+                    fm = parse_frontmatter(content)
+                    if fm.get("type") != "post":
+                        continue
+                    all_posts.append({
+                        "path": f["path"],
+                        "sha": sha,
+                        "title": fm.get("title", f["name"]),
+                        "status": fm.get("status", "draft"),
+                        "target": fm.get("target", ""),
+                        "tags": fm.get("tags", []),
+                        "created": fm.get("created", ""),
+                        "audience": fm.get("audience", ""),
+                        "content": content,
+                    })
 
                 logger.info(f"[Publisher] Scanned {len(all_posts)} posts from {knowledge_repo} for chat_id={chat_id}")
 

@@ -10,6 +10,7 @@
 - /club posts — мои публикации
 """
 
+import asyncio
 import json
 import re
 import logging
@@ -239,11 +240,15 @@ async def cmd_club(message: Message, state: FSMContext):
             )
             return
         # Показать ready-посты из индекса как кнопки
+        loading_msg = await message.answer("⏳ Сканирую индекс знаний…")
         try:
-            await _show_publish_options(message, state, telegram_user_id)
+            await _show_publish_options(message, state, telegram_user_id, loading_msg)
         except Exception as e:
             logger.error(f"show_publish_options error: {e}")
-            await message.answer(f"Ошибка загрузки постов: {e}")
+            try:
+                await loading_msg.edit_text(f"Ошибка загрузки постов: {e}")
+            except Exception:
+                await message.answer(f"Ошибка загрузки постов: {e}")
         return
 
     # /club reschedule — перераспределить pending посты по текущему каденсу
@@ -618,11 +623,15 @@ async def on_club_publish_start(callback: CallbackQuery, state: FSMContext):
         return
 
     # Smart publish: показать ready-посты из индекса
+    loading_msg = await callback.message.answer("⏳ Сканирую индекс знаний…")
     try:
-        await _show_publish_options(callback.message, state, callback.from_user.id)
+        await _show_publish_options(callback.message, state, callback.from_user.id, loading_msg)
     except Exception as e:
         logger.error(f"show_publish_options error: {e}")
-        await callback.message.answer(f"Ошибка загрузки постов: {e}")
+        try:
+            await loading_msg.edit_text(f"Ошибка загрузки постов: {e}")
+        except Exception:
+            await callback.message.answer(f"Ошибка загрузки постов: {e}")
 
 
 @discourse_router.callback_query(lambda c: c.data == "club_publish_cancel")
@@ -937,38 +946,55 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
         current_year = datetime.now().year
         candidates = []
 
-        for year in [current_year, current_year - 1]:
-            files = await client.list_files(f"docs/{year}")
-            for f in files:
-                if f["name"] == "README.md":
-                    continue
-                result = await client.read_file(f["path"])
-                if not result:
-                    continue
-                content, sha = result
-                fm = parse_frontmatter(content)
-                if fm.get("type") != "post":
-                    continue
-                if fm.get("status") != "ready":
-                    continue
-                if fm.get("target") != "club":
-                    continue
-                title = fm.get("title", f["name"])
-                if f["path"] in published_files:
-                    continue
-                if title.lower() in published_titles:
-                    continue
-                if f["path"] in scheduled_files:
-                    continue
-                if title.lower() in scheduled_titles:
-                    continue
-                candidates.append({
-                    "path": f["path"],
-                    "sha": sha,
-                    "title": title,
-                    "tags": fm.get("tags", []),
-                    "content": content,
-                })
+        # Семафор: макс 10 параллельных запросов к GitHub API
+        sem = asyncio.Semaphore(10)
+
+        async def _read_and_check(file_info: dict) -> dict | None:
+            """Прочитать файл и проверить frontmatter. Возвращает кандидата или None."""
+            async with sem:
+                result = await client.read_file(file_info["path"])
+            if not result:
+                return None
+            content, sha = result
+            # Ранний выход: если файл не начинается с ---, frontmatter нет
+            if not content.startswith("---"):
+                return None
+            fm = parse_frontmatter(content)
+            if fm.get("type") != "post":
+                return None
+            if fm.get("status") != "ready":
+                return None
+            if fm.get("target") != "club":
+                return None
+            title = fm.get("title", file_info["name"])
+            if file_info["path"] in published_files:
+                return None
+            if title.lower() in published_titles:
+                return None
+            if file_info["path"] in scheduled_files:
+                return None
+            if title.lower() in scheduled_titles:
+                return None
+            return {
+                "path": file_info["path"],
+                "sha": sha,
+                "title": title,
+                "tags": fm.get("tags", []),
+                "content": content,
+            }
+
+        files = await client.list_files(f"docs/{current_year}")
+        files = [f for f in files if f["name"] != "README.md"]
+
+        if files:
+            # Параллельное чтение файлов
+            results = await asyncio.gather(
+                *[_read_and_check(f) for f in files],
+                return_exceptions=True,
+            )
+            for r in results:
+                if isinstance(r, dict):
+                    candidates.append(r)
 
         return candidates
     except Exception as e:
@@ -978,7 +1004,9 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
         await client.close()
 
 
-async def _show_publish_options(message: Message, state: FSMContext, chat_id: int):
+async def _show_publish_options(
+    message: Message, state: FSMContext, chat_id: int, loading_msg: Message | None = None,
+):
     """Показать ready-посты из индекса как кнопки + вариант ручного ввода."""
     candidates = await _scan_ready_posts(chat_id)
 
@@ -1013,6 +1041,17 @@ async def _show_publish_options(message: Message, state: FSMContext, chat_id: in
             "• Опубликовать из расписания: /club → Расписание → 🚀"
         )
 
+    # Заменяем loading-сообщение результатом, или шлём новое
+    if loading_msg:
+        try:
+            await loading_msg.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
+            return
+        except Exception:
+            # Fallback: если edit не удался, удалим loading и отправим новое
+            try:
+                await loading_msg.delete()
+            except Exception:
+                pass
     await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
