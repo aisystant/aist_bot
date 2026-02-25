@@ -1,6 +1,6 @@
 # AIST_me_bot — AI-помощник по системному развитию
 
-> **Тип репозитория:** `Downstream/instrument`
+> **Тип репозитория:** `DS/instrument`
 
 Telegram-бот [@aist_me_bot](https://t.me/aist_track_bot) с персонализированным обучением от [Мастерской инженеров-менеджеров](https://system-school.ru/).
 

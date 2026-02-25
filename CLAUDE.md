@@ -8,7 +8,7 @@
 
 ## 1. Тип репозитория
 
-**Downstream-instrument** — Telegram-бот марафона личного развития.
+**DS/instrument** — Telegram-бот марафона личного развития.
 
 **НЕ является source-of-truth** — определения в Pack'ах.
 
