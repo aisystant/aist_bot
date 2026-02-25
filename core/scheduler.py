@@ -1681,7 +1681,6 @@ async def _smart_publisher_scan():
                     continue
 
                 # Auto-schedule: распределить по ближайшим слотам
-                from datetime import timedelta
                 from db.queries.users import moscow_now
 
                 now_msk = moscow_now()

@@ -168,6 +168,8 @@ class ClaudeClient:
                     ),
                 ) as resp:
                     if resp.status == 200:
+                        stop_reason = None
+                        event_types = []
                         while True:
                             line = await resp.content.readline()
                             if not line:
@@ -182,15 +184,25 @@ class ClaudeClient:
                                 event = json.loads(data_str)
                             except json.JSONDecodeError:
                                 continue
-                            if event.get('type') == 'content_block_delta':
+                            etype = event.get('type', '')
+                            if etype not in event_types:
+                                event_types.append(etype)
+                            if etype == 'content_block_delta':
                                 delta = event.get('delta', {})
                                 if delta.get('type') == 'text_delta':
                                     collected_text.append(delta['text'])
+                            elif etype == 'message_delta':
+                                stop_reason = event.get('delta', {}).get('stop_reason')
                         if not collected_text:
                             logger.warning(
                                 f"Claude API 200 but empty response "
-                                f"(model={payload.get('model')}, attempt {attempt + 1})"
+                                f"(model={payload.get('model')}, attempt {attempt + 1}, "
+                                f"stop_reason={stop_reason}, events={event_types})"
                             )
+                            # Retry on empty 200 — likely transient
+                            if attempt == 0:
+                                await asyncio.sleep(2)
+                                continue
                             return None
                         return ''.join(collected_text)
                     elif resp.status == 429:
