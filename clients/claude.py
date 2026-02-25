@@ -956,13 +956,23 @@ EXAMPLES: (примеры, каждый с новой строки начина�
 
 {qp['output_only_question']}"""
 
-        result = await self.generate(
-            system_prompt, user_prompt,
-            allow_partial=False,  # Question: partial = broken UX, better retry
-        )
-        if result and cache_key:
-            await cache_set(cache_key, 'question', result)
-        return result
+        # Retry: вопрос короткий, retry дешевле чем broken UX
+        for attempt in range(2):
+            result = await self.generate(
+                system_prompt, user_prompt,
+                allow_partial=False,
+            )
+            if result:
+                if cache_key:
+                    await cache_set(cache_key, 'question', result)
+                return result
+            logger.warning(
+                f"generate_question attempt {attempt + 1} returned None "
+                f"(topic={topic_id}, bloom={level}, lang={lang})"
+            )
+            if attempt == 0:
+                await asyncio.sleep(2)
+        return None
 
 
 # Создаём экземпляр клиента
