@@ -15,7 +15,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 # Claude models: Sonnet для сложных задач, Haiku для простых (быстрее + дешевле)
-CLAUDE_MODEL_SONNET = "claude-sonnet-4-20250514"
+CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
 CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
