@@ -761,15 +761,15 @@ EXAMPLES: (примеры, каждый с новой строки начина�
 {TELEGRAM_MARKDOWN_RULES}"""
 
         user_prompt = f"""{lp['task_header']}: {topic.get('title')}
-Concept: {topic.get('main_concept')}
+{lp['concept']}: {topic.get('main_concept')}
 
-SOURCE DATA:
-Task: {task_ru}
-Work product: {work_product_ru}
-Examples:
+{lp['source_data']}:
+{lp['task_header']}: {task_ru}
+{lp['work_product_header']}: {work_product_ru}
+{lp['examples_header']}:
 {wp_examples_text}
 
-Translate and adapt everything to the target language."""
+{lp['adapt_instruction']}"""
 
         result = await self.generate(
             system_prompt, user_prompt, model=model,
