@@ -2,7 +2,7 @@
 Стейт: Дашборд тренировки.
 
 Вход: из training.setup или training.assignment
-Показывает прогресс по принципам. Пользователь выбирает принцип для тренировки.
+Показывает прогресс по принципам. Кнопки: Продолжить, Сменить режим, Настройки.
 """
 
 from typing import Optional, Dict
@@ -60,26 +60,24 @@ class TrainingDashboardState(BaseState):
         principles = data.get('principles', [])
         stats = data.get('stats', {})
         cognitive_label = data.get('cognitive_label', 'Взрослый')
+        mode_label = data.get('mode_label', '🔀 Все вперемешку')
 
         lines = [
             "🧠 *Тренировка принципов*",
+            f"Режим: {mode_label}",
             f"Уровень: {cognitive_label}",
             "━━━━━━━━━━━━━━━━━━",
         ]
 
-        buttons = []
+        has_incomplete = False
         for p in principles:
             if not p['enabled']:
                 continue
             bar = _progress_bar(p['current_depth'], p['max_depth'])
             status = "✅" if p['completed'] else ""
             lines.append(f"{p['id']} {p['name']}  {bar} {status}")
-
             if not p['completed']:
-                buttons.append([InlineKeyboardButton(
-                    text=f"📝 {p['id']} {p['name']}",
-                    callback_data=f"train_start_{p['id']}"
-                )])
+                has_incomplete = True
 
         lines.append("━━━━━━━━━━━━━━━━━━")
         total = stats.get('total_attempts', 0)
@@ -87,8 +85,23 @@ class TrainingDashboardState(BaseState):
         if total > 0:
             lines.append(f"Попыток: {total} | Пройдено: {passed}")
 
+        # Кнопки
+        buttons = []
+
+        # Главная кнопка — Продолжить (если есть непройденные)
+        if has_incomplete:
+            buttons.append([InlineKeyboardButton(
+                text="▶️ Продолжить",
+                callback_data="train_continue"
+            )])
+
         buttons.append([InlineKeyboardButton(
-            text="⚙️ Настройки", callback_data="train_settings"
+            text="🔄 Сменить режим",
+            callback_data="train_change_mode"
+        )])
+        buttons.append([InlineKeyboardButton(
+            text="⚙️ Настройки",
+            callback_data="train_settings"
         )])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -100,7 +113,6 @@ class TrainingDashboardState(BaseState):
     async def handle(self, user, message: Message) -> Optional[str]:
         text = message.text or ''
 
-        # Обработка callback через текст (SM передает .text для callback)
         if text.startswith('train_start_'):
             principle_id = text.replace('train_start_', '')
             chat_id = self._get_chat_id(user)
@@ -115,10 +127,27 @@ class TrainingDashboardState(BaseState):
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
         """Обработка inline-кнопок."""
         data = callback.data or ''
+        chat_id = self._get_chat_id(user)
+
+        if data == 'train_continue':
+            # Определить принцип по режиму
+            engine = TrainingEngine(chat_id)
+            next_pid = await engine.get_next_principle()
+            if next_pid:
+                self._user_data[chat_id] = {'principle_id': next_pid}
+                await callback.answer("Генерирую задание...")
+                return "select_principle"
+            else:
+                await callback.answer("Все принципы пройдены!", show_alert=True)
+                return None
+
+        if data == 'train_change_mode':
+            self._user_data[chat_id] = {'mode_only': True}
+            await callback.answer()
+            return "change_mode"
 
         if data.startswith('train_start_'):
             principle_id = data.replace('train_start_', '')
-            chat_id = self._get_chat_id(user)
             self._user_data[chat_id] = {'principle_id': principle_id}
             await callback.answer("Генерирую задание...")
             return "select_principle"

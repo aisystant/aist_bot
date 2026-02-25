@@ -951,4 +951,17 @@ async def create_tables(pool: asyncpg.Pool):
             ON training_attempts (chat_id, principle_id)
         ''')
 
+        # Миграция: training_mode + single_principle (WP-55 v2)
+        try:
+            await conn.execute('''
+                ALTER TABLE training_settings
+                ADD COLUMN IF NOT EXISTS training_mode TEXT DEFAULT 'shuffle'
+            ''')
+            await conn.execute('''
+                ALTER TABLE training_settings
+                ADD COLUMN IF NOT EXISTS single_principle TEXT
+            ''')
+        except Exception:
+            pass  # Колонки уже существуют
+
     logger.info("✅ Все таблицы созданы/обновлены")

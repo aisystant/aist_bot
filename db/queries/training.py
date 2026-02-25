@@ -33,20 +33,26 @@ async def get_training_settings(chat_id: int) -> Optional[dict]:
 async def save_training_settings(
     chat_id: int,
     cognitive_level: str,
-    enabled_principles: list
+    enabled_principles: list,
+    training_mode: str = 'shuffle',
+    single_principle: str = None,
 ) -> dict:
     """Создать или обновить настройки тренировки."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
-            INSERT INTO training_settings (chat_id, cognitive_level, enabled_principles)
-            VALUES ($1, $2, $3)
+            INSERT INTO training_settings
+                (chat_id, cognitive_level, enabled_principles, training_mode, single_principle)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (chat_id) DO UPDATE SET
                 cognitive_level = EXCLUDED.cognitive_level,
                 enabled_principles = EXCLUDED.enabled_principles,
+                training_mode = EXCLUDED.training_mode,
+                single_principle = EXCLUDED.single_principle,
                 updated_at = NOW()
             RETURNING *
-        ''', chat_id, cognitive_level, json.dumps(enabled_principles))
+        ''', chat_id, cognitive_level, json.dumps(enabled_principles),
+            training_mode, single_principle)
         result = dict(row)
         result['enabled_principles'] = json.loads(result.get('enabled_principles') or '[]')
         return result
@@ -65,6 +71,16 @@ async def update_training_settings(chat_id: int, **kwargs) -> None:
             await conn.execute(
                 'UPDATE training_settings SET enabled_principles = $2, updated_at = NOW() WHERE chat_id = $1',
                 chat_id, json.dumps(kwargs['enabled_principles'])
+            )
+        if 'training_mode' in kwargs:
+            await conn.execute(
+                'UPDATE training_settings SET training_mode = $2, updated_at = NOW() WHERE chat_id = $1',
+                chat_id, kwargs['training_mode']
+            )
+        if 'single_principle' in kwargs:
+            await conn.execute(
+                'UPDATE training_settings SET single_principle = $2, updated_at = NOW() WHERE chat_id = $1',
+                chat_id, kwargs['single_principle']
             )
 
 

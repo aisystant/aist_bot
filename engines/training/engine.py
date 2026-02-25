@@ -8,6 +8,7 @@ TrainingEngine — бизнес-логика режима Тренировка.
 4. evaluate_answer(...) — AI-оценка ответа → advance depth
 """
 
+import random
 from typing import Optional
 
 from config import (
@@ -62,16 +63,83 @@ class TrainingEngine:
 
     # === First-time setup ===
 
-    async def setup(self, cognitive_level: str, enabled_principles: list) -> bool:
+    async def setup(
+        self,
+        cognitive_level: str,
+        enabled_principles: list,
+        training_mode: str = 'shuffle',
+        single_principle: str = None,
+    ) -> bool:
         """Сохранить первоначальные настройки."""
         if cognitive_level not in TRAINING_COGNITIVE_LEVELS:
             return False
         valid = [p for p in enabled_principles if p in ZP_PRINCIPLES]
         if not valid:
             return False
+        if training_mode not in ('shuffle', 'sequential', 'single'):
+            training_mode = 'shuffle'
         self._settings = await save_training_settings(
-            self.chat_id, cognitive_level, valid
+            self.chat_id, cognitive_level, valid,
+            training_mode=training_mode,
+            single_principle=single_principle,
         )
+        return True
+
+    async def get_next_principle(self) -> Optional[str]:
+        """Определить следующий принцип для тренировки на основе режима."""
+        settings = await self.get_settings()
+        if not settings:
+            return None
+
+        mode = settings.get('training_mode', 'shuffle')
+        enabled = settings.get('enabled_principles', list(ZP_PRINCIPLES))
+        progress_rows = await get_training_progress(self.chat_id)
+        progress_map = {r['principle_id']: r['current_depth'] for r in progress_rows}
+
+        if mode == 'single':
+            pid = settings.get('single_principle')
+            if pid and progress_map.get(pid, 0) < TRAINING_MAX_DEPTH:
+                return pid
+            return None
+
+        # Собрать непройденные
+        incomplete = [
+            pid for pid in ZP_PRINCIPLES
+            if pid in enabled and progress_map.get(pid, 0) < TRAINING_MAX_DEPTH
+        ]
+        if not incomplete:
+            return None
+
+        if mode == 'sequential':
+            return incomplete[0]
+
+        # shuffle (default)
+        return random.choice(incomplete)
+
+    async def update_training_mode(self, training_mode: str, single_principle: str = None) -> bool:
+        """Обновить режим тренировки."""
+        if training_mode not in ('shuffle', 'sequential', 'single'):
+            return False
+        if training_mode == 'single':
+            # Для single — обновить enabled_principles тоже
+            if single_principle and single_principle in ZP_PRINCIPLES:
+                await update_training_settings(
+                    self.chat_id,
+                    training_mode=training_mode,
+                    single_principle=single_principle,
+                    enabled_principles=[single_principle],
+                )
+            else:
+                return False
+        elif training_mode in ('shuffle', 'sequential'):
+            # Для shuffle/sequential — включить все
+            await update_training_settings(
+                self.chat_id,
+                training_mode=training_mode,
+                single_principle=None,
+                enabled_principles=list(ZP_PRINCIPLES),
+            )
+        self._settings = None
         return True
 
     # === Dashboard ===
@@ -102,12 +170,28 @@ class TrainingEngine:
                 'completed': current_depth >= TRAINING_MAX_DEPTH,
             })
 
+        from .planner import get_principle_name as _gpn
+        mode = settings.get('training_mode', 'shuffle')
+        single_pid = settings.get('single_principle')
+
+        # Метка текущего режима
+        MODE_LABELS = {
+            'shuffle': '🔀 Все вперемешку',
+            'sequential': '📶 По порядку',
+        }
+        if mode == 'single' and single_pid:
+            mode_label = f"🔹 {single_pid} {_gpn(single_pid)}"
+        else:
+            mode_label = MODE_LABELS.get(mode, '🔀 Все вперемешку')
+
         return {
             'principles': principles,
             'cognitive_level': settings.get('cognitive_level', 'postformal'),
             'cognitive_label': TRAINING_COGNITIVE_LEVELS.get(
                 settings.get('cognitive_level', 'postformal'), 'Взрослый'
             ),
+            'training_mode': mode,
+            'mode_label': mode_label,
             'stats': stats,
         }
 

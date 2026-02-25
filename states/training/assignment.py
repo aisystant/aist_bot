@@ -11,6 +11,8 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from engines.training.engine import TrainingEngine
+from engines.training.planner import get_principle_name
+from db.queries.training import get_principle_depth
 from config import get_logger, TRAINING_MIN_ANSWER_LENGTH, TRAINING_MAX_DEPTH
 
 logger = get_logger(__name__)
@@ -41,10 +43,23 @@ class TrainingAssignmentState(BaseState):
             return "back"
 
         engine = TrainingEngine(chat_id)
-        assignment = await engine.generate_assignment(principle_id)
+
+        try:
+            assignment = await engine.generate_assignment(principle_id)
+        except Exception as e:
+            logger.error(f"[Training] generate_assignment error for {principle_id}: {e}")
+            assignment = None
 
         if not assignment:
-            await self.send(user, "Этот принцип полностью пройден или недоступен.")
+            # Различить: пройден полностью vs ошибка загрузки
+            p_name = get_principle_name(principle_id)
+            depth = await get_principle_depth(chat_id, principle_id)
+            if depth >= TRAINING_MAX_DEPTH:
+                error_text = f"✅ {p_name} — пройден полностью ({depth}/{TRAINING_MAX_DEPTH})."
+            else:
+                error_text = f"⚠️ Не удалось загрузить задание для {p_name}. Попробуйте позже."
+                logger.error(f"[Training] No assignment for {principle_id}, depth={depth}")
+            await self.send(user, error_text)
             return "back"
 
         # Сохранить данные задания

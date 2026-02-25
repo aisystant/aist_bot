@@ -144,6 +144,7 @@ states:
     description: "Дашборд тренировки — прогресс по принципам"
     events:
       select_principle: training.assignment
+      change_mode: training.setup
       settings: training.setup
       setup_needed: training.setup
       back: common.mode_select
