@@ -372,7 +372,11 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 
 При cache miss lesson.py и task.py используют `model=CLAUDE_MODEL_HAIKU` (3-5s вместо 15-19s Sonnet). Pre-gen scheduler и look-ahead всегда Sonnet (default). Worst case latency <5s.
 
-### 10.21. PostgreSQL Views: DROP + CREATE, не REPLACE
+### 10.21. Message Splitting для LLM-контента
+
+`self.send()` с LLM-generated контентом (вопросы, задания, ответы ИИ) → **всегда** `prepare_html_parts()`, **не** `md_to_html()` напрямую. Telegram молча обрезает сообщения >4096 символов без ошибки. Паттерн: `parts = prepare_html_parts(text)` → loop → keyboard на последнем part.
+
+### 10.22. PostgreSQL Views: DROP + CREATE, не REPLACE
 
 `CREATE OR REPLACE VIEW` **запрещён**. PostgreSQL не позволяет менять порядок или имена колонок через REPLACE — бот падает в crash loop при старте. Всегда: `DROP VIEW IF EXISTS` + `CREATE VIEW`. View stateless — данные не теряются.
 
