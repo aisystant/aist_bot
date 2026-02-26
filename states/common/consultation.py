@@ -40,7 +40,7 @@ from db.queries.qa import save_qa, get_latest_qa_id
 from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
 from i18n import t
-from helpers.markdown_to_html import md_to_html
+from helpers.message_split import prepare_html_parts
 
 logger = logging.getLogger(__name__)
 
@@ -516,7 +516,11 @@ class ConsultationState(BaseState):
                             reply_markup = _build_feedback_keyboard(qa_id, 1, lang)
                     except Exception as e:
                         logger.warning(f"Meta FAQ save_qa error: {e}")
-                await self.send(user, md_to_html(meta_answer), parse_mode="HTML", reply_markup=reply_markup)
+                parts = prepare_html_parts(meta_answer)
+                for i, part in enumerate(parts):
+                    is_last = (i == len(parts) - 1)
+                    kb = reply_markup if is_last else None
+                    await self.send(user, part, parse_mode="HTML", reply_markup=kb)
                 # Сохраняем в history + остаёмся в стейте
                 self._append_history(session_ctx, question, meta_answer)
                 await self._save_session_context(chat_id, session_ctx)
@@ -573,7 +577,11 @@ class ConsultationState(BaseState):
                             ]])
                     except Exception as e:
                         logger.warning(f"FAQ save_qa error: {e}")
-                await self.send(user, md_to_html(response), parse_mode="HTML", reply_markup=reply_markup)
+                parts = prepare_html_parts(response)
+                for i, part in enumerate(parts):
+                    is_last = (i == len(parts) - 1)
+                    kb = reply_markup if is_last else None
+                    await self.send(user, part, parse_mode="HTML", reply_markup=kb)
             else:
                 # Показываем индикатор обработки
                 if is_refinement:
@@ -710,7 +718,11 @@ class ConsultationState(BaseState):
                 if qa_id:
                     reply_markup = _build_feedback_keyboard(qa_id, refinement_round, lang)
 
-                await self.send(user, md_to_html(response), parse_mode="HTML", reply_markup=reply_markup)
+                parts = prepare_html_parts(response)
+                for i, part in enumerate(parts):
+                    is_last = (i == len(parts) - 1)
+                    kb = reply_markup if is_last else None
+                    await self.send(user, part, parse_mode="HTML", reply_markup=kb)
 
         except Exception as e:
             if typing_task:

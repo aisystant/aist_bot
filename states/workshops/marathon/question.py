@@ -13,7 +13,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 
 from states.base import BaseState
 from i18n import t
-from helpers.markdown_to_html import md_to_html
+from helpers.message_split import prepare_html_parts
 from db.queries import update_intern, save_answer
 from db.queries.answers import get_theory_count_at_level
 from db.queries.marathon import get_marathon_content, save_marathon_content
@@ -172,8 +172,12 @@ class MarathonQuestionState(BaseState):
             one_time_keyboard=True
         )
 
-        await self.send(user, md_to_html(header + question + footer), parse_mode="HTML", reply_markup=keyboard)
-        logger.info(f"Question sent to user {chat_id}, length: {len(question)}")
+        parts = prepare_html_parts(header + question + footer)
+        for i, part in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            kb = keyboard if is_last else None
+            await self.send(user, part, parse_mode="HTML", reply_markup=kb)
+        logger.info(f"Question sent to user {chat_id}, length: {len(question)}, parts: {len(parts)}")
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """

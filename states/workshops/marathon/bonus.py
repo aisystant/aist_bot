@@ -16,7 +16,7 @@ from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, In
 
 from states.base import BaseState
 from i18n import t
-from helpers.markdown_to_html import md_to_html
+from helpers.message_split import prepare_html_parts
 from db.queries import update_intern, save_answer
 from clients.claude import claude
 from core.knowledge import get_topic
@@ -162,9 +162,11 @@ class MarathonBonusState(BaseState):
                     f"{question}\n\n"
                     f"_{t('marathon.write_answer', lang)}_"
                 )
-                await self.send(user, md_to_html(bonus_text), parse_mode="HTML")
+                parts = prepare_html_parts(bonus_text)
+                for part in parts:
+                    await self.send(user, part, parse_mode="HTML")
 
-                logger.info(f"Bonus question sent to user {chat_id}, waiting for answer")
+                logger.info(f"Bonus question sent to user {chat_id}, parts: {len(parts)}, waiting for answer")
                 return None  # Остаёмся в стейте, ждём ответ
 
             except Exception as e:
