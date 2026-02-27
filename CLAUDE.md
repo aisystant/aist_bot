@@ -441,12 +441,9 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 **Нормализация на записи:** `zfill(5)` в `update_intern()`, `settings.py`, `profile.py`. Integrity check: `_check_schedule_integrity()` в `core/scheduler.py`, ежедневно 08:00 MSK.
 
-### marathon_status lifecycle — известная дыра
+### marathon_status lifecycle — ИСПРАВЛЕНО (2026-02-27)
 
-`on_start_date()` (onboarding.py:298) устанавливает `marathon_start_date`, но НЕ `marathon_status='active'`. Активация происходит только при клике кнопки «📚 Марафон» в mode_select (`engines/mode_selector.py:103`). Если пользователь не кликнет — scheduler его пропустит.
-
-**Workaround:** `_check_schedule_integrity()` auto-fix: пользователи с прогрессом + `not_started` → `active`.
-**TODO:** Добавить `marathon_status='active'` в `on_start_date()` onboarding.py.
+**Правило:** `marathon_start_date` и `marathon_status` — связанная пара. Любой `update_intern(marathon_start_date=...)` ОБЯЗАН также ставить `marathon_status=MarathonStatus.ACTIVE`. Исправлено в 5 местах: onboarding.py, settings.py, mode_selector.py (2x), legacy/learning.py. `_check_schedule_integrity()` auto-fix расширен: фиксит пользователей с `start_date <= today` даже без прогресса.
 
 ### marathon_content.status — семантика
 
