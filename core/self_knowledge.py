@@ -407,6 +407,18 @@ def get_self_knowledge(lang: str = 'ru') -> str:
     return result
 
 
+def _kw_matches(kw: str, text: str) -> bool:
+    """Проверить совпадение ключевого слова в тексте.
+
+    Короткие KW (≤3 символов) — word-boundary matching (избегаем ложных
+    срабатываний вроде "рп" внутри "интерпретатор").
+    Длинные KW — substring matching (как раньше).
+    """
+    if len(kw) <= 3:
+        return bool(re.search(rf'(?<!\w){re.escape(kw)}(?!\w)', text))
+    return kw in text
+
+
 def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
     """Проверить, совпадает ли вопрос с FAQ (L1 кеш).
 
@@ -425,12 +437,16 @@ def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
         if not keywords:
             continue
 
-        matched = sum(1 for kw in keywords if kw in q_lower)
+        matched = sum(1 for kw in keywords if _kw_matches(kw, q_lower))
         if matched > best_score:
             best_score = matched
             best_item = item
 
-    if best_item and best_score >= 1:
+    # Длинные вопросы (>30 символов) требуют ≥2 совпадений, чтобы избежать
+    # ложных срабатываний (например, "можешь помочь установить X" ≠ "что умеешь?")
+    min_score = 2 if len(q_lower) > 30 else 1
+
+    if best_item and best_score >= min_score:
         answer = best_item.get(f'answer_{lang}') or best_item.get('answer_ru', '')
         # Конвертировать литеральные \n маркеры из Pack в реальные переносы строк
         return answer.replace('\\n', '\n')
