@@ -264,6 +264,13 @@ TRAINING_MIN_ANSWER_LENGTH = 20
 TRAINING_PASS_THRESHOLD = 0.7
 TRAINING_PARTIAL_THRESHOLD = 0.4
 
+# Пониженные пороги для первых глубин (1-2): ученик только входит в тему
+TRAINING_THRESHOLDS_BY_DEPTH = {
+    1: {'pass': 0.5, 'partial': 0.3},
+    2: {'pass': 0.5, 'partial': 0.3},
+    # 3-5: используются глобальные TRAINING_PASS/PARTIAL_THRESHOLD
+}
+
 # ============= НАСТРОЙКИ ИНТЕНТОВ =============
 
 # Вопросительные слова для всех поддерживаемых языков

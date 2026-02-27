@@ -19,6 +19,7 @@ from config import (
     CLAUDE_MODEL_HAIKU,
     TRAINING_PASS_THRESHOLD,
     TRAINING_PARTIAL_THRESHOLD,
+    TRAINING_THRESHOLDS_BY_DEPTH,
 )
 
 logger = get_logger(__name__)
@@ -245,6 +246,7 @@ async def evaluate_training_answer(
     cell_data: dict,
     assignment_text: str,
     intern: Optional[dict],
+    depth: int = 3,
 ) -> dict:
     """Оценить ответ пользователя через AI.
 
@@ -253,10 +255,16 @@ async def evaluate_training_answer(
         cell_data: данные ячейки
         assignment_text: текст задания
         intern: профиль пользователя
+        depth: глубина (1-5), для первых уровней пороги ниже
 
     Returns:
         {passed: bool, partial: bool, feedback: str}
     """
+    # Пороги зависят от глубины: на первых уровнях мягче
+    depth_thresholds = TRAINING_THRESHOLDS_BY_DEPTH.get(depth)
+    pass_threshold = depth_thresholds['pass'] if depth_thresholds else TRAINING_PASS_THRESHOLD
+    partial_threshold = depth_thresholds['partial'] if depth_thresholds else TRAINING_PARTIAL_THRESHOLD
+
     criteria = cell_data.get('criteria', '')
     common_errors = cell_data.get('common_errors', [])
     can_do = cell_data.get('can_do', [])
@@ -283,15 +291,15 @@ async def evaluate_training_answer(
 ОЦЕНИ ОТВЕТ и верни JSON:
 {{
   "score": <число от 0.0 до 1.0>,
-  "passed": <true если score >= {TRAINING_PASS_THRESHOLD}>,
-  "partial": <true если score >= {TRAINING_PARTIAL_THRESHOLD} и score < {TRAINING_PASS_THRESHOLD}>,
+  "passed": <true если score >= {pass_threshold}>,
+  "partial": <true если score >= {partial_threshold} и score < {pass_threshold}>,
   "feedback": "<конструктивная обратная связь на русском, 2-4 предложения>"
 }}
 
 ПРАВИЛА:
-- score >= {TRAINING_PASS_THRESHOLD}: PASSED — ученик демонстрирует навыки из can_do
-- score >= {TRAINING_PARTIAL_THRESHOLD}: PARTIAL — частично верно, нужна доработка
-- score < {TRAINING_PARTIAL_THRESHOLD}: FAIL — фундаментальное непонимание
+- score >= {pass_threshold}: PASSED — ученик демонстрирует навыки из can_do
+- score >= {partial_threshold}: PARTIAL — частично верно, нужна доработка
+- score < {partial_threshold}: FAIL — фундаментальное непонимание
 - В feedback объясни ЧТО хорошо и ЧТО доработать
 - Если обнаружил типичную ошибку — укажи её мягко
 - Верни ТОЛЬКО JSON, без лишнего текста"""

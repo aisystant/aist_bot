@@ -279,6 +279,7 @@ class TrainingEngine:
             cell_data=depth_data,
             assignment_text=assignment_text,
             intern=intern,
+            depth=depth,
         )
 
         passed = result.get('passed', False)
@@ -460,6 +461,7 @@ class TrainingEngine:
                 cell_data=depth_data,
                 assignment_text=assignment_text,
                 intern=None,
+                depth=depth,
             )
             passed = result.get('passed', False)
             feedback = result.get('feedback', '')
