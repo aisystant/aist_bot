@@ -347,7 +347,9 @@ async def marathon_date_tomorrow(callback: CallbackQuery):
     today = moscow_today()
     new_date = today + timedelta(days=1)
 
-    await update_intern(chat_id, marathon_start_date=new_date)
+    await update_intern(chat_id,
+                        marathon_start_date=new_date,
+                        marathon_status=MarathonStatus.ACTIVE)
     lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
@@ -377,7 +379,9 @@ async def marathon_date_day_after(callback: CallbackQuery):
     today = moscow_today()
     new_date = today + timedelta(days=2)
 
-    await update_intern(chat_id, marathon_start_date=new_date)
+    await update_intern(chat_id,
+                        marathon_start_date=new_date,
+                        marathon_status=MarathonStatus.ACTIVE)
     lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 

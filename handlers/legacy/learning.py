@@ -22,7 +22,7 @@ from aiogram.fsm.state import State, StatesGroup
 from db.queries import get_intern, update_intern, get_topics_today
 from db.queries.answers import save_answer
 from db.queries.users import moscow_today
-from config import MARATHON_DAYS, MAX_TOPICS_PER_DAY
+from config import MARATHON_DAYS, MAX_TOPICS_PER_DAY, MarathonStatus
 from i18n import t
 from engines.shared import handle_question, ProcessingStage
 from integrations.telegram.keyboards import (
@@ -560,7 +560,8 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
             return
         else:
             today = moscow_today()
-            await update_intern(chat_id, marathon_start_date=today)
+            await update_intern(chat_id, marathon_start_date=today,
+                                marathon_status=MarathonStatus.ACTIVE)
             await bot.send_message(
                 chat_id,
                 f"🚀 *{t('marathon.marathon_launched', lang)}*\n\n"

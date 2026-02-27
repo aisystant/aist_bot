@@ -1037,11 +1037,10 @@ async def _check_schedule_integrity(now) -> Optional[str]:
                 OR (marathon_status = 'not_started' AND current_topic_index > 0)
               )
         ''')
-        # Auto-fix: users with progress but marathon_status='not_started' → set to 'active'
+        # Auto-fix: users with start_date <= today and marathon_status='not_started' → set to 'active'
         fixable = [r for r in contradictions
                    if r['marathon_start_date'] is not None
-                   and (len(json.loads(r['completed_topics'] or '[]')) > 0
-                        or r['current_topic_index'] > 0)]
+                   and r['marathon_start_date'] <= now.date()]
         if fixable:
             fix_ids = [r['chat_id'] for r in fixable]
             await conn.execute(

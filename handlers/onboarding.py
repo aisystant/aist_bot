@@ -14,7 +14,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import STUDY_DURATIONS, MARATHON_DAYS
+from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
 from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
@@ -301,7 +301,9 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
     else:  # start_day_after
         start_date = today + timedelta(days=2)
 
-    await update_intern(callback.message.chat.id, marathon_start_date=start_date)
+    await update_intern(callback.message.chat.id,
+                        marathon_start_date=start_date,
+                        marathon_status=MarathonStatus.ACTIVE)
     await callback.answer()
 
     intern = await get_intern(callback.message.chat.id)

@@ -17,7 +17,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import STUDY_DURATIONS, MARATHON_DAYS
+from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
@@ -449,7 +449,9 @@ async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
         start_date = today + timedelta(days=2)
         date_text = t('update.day_after_tomorrow', lang)
 
-    await update_intern(callback.message.chat.id, marathon_start_date=start_date)
+    await update_intern(callback.message.chat.id,
+                        marathon_start_date=start_date,
+                        marathon_status=MarathonStatus.ACTIVE)
 
     await callback.answer(t('update.start_date_updated', lang))
     await callback.message.edit_text(
