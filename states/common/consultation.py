@@ -17,7 +17,7 @@ Persistent Session:
 - После ответа бот остаётся в стейте (enter() → None)
 - Текст без "?" трактуется как follow-up вопрос
 - Claude получает conversation history (последние 3-5 пар)
-- Выход: кнопка "Завершить" / таймаут 5 мин / глобальная команда
+- Выход: кнопка "Завершить" / таймаут 5 мин (только без нового вопроса) / глобальная команда
 
 Вызывается из любого стейта, где allow_global содержит "consultation".
 Триггер: сообщение начинается с "?"
@@ -798,22 +798,31 @@ class ConsultationState(BaseState):
 
         # --- Проверка таймаута (5 мин неактивности) ---
         last_activity = ctx.get('consultation_last_activity', 0)
-        if last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC:
-            logger.info(f"[Consultation] Session timeout for chat {chat_id}")
-            await self._end_session(user, ctx, lang)
-            return "done"
+        timed_out = last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC
 
         # --- Вопрос с "?" → явный новый вопрос ---
         if text.startswith('?'):
             question = text[1:].strip()
             if question:
+                if timed_out:
+                    logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
+                    self._clear_session(ctx)
                 await self.enter(user, context={'question': question})
                 return "followup"
 
         # --- Текст без "?" (≥3 символов) → follow-up вопрос ---
         if len(text) >= 3:
+            if timed_out:
+                logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
+                self._clear_session(ctx)
             await self.enter(user, context={'question': text})
             return "followup"
+
+        # Таймаут без содержательного текста → завершить
+        if timed_out:
+            logger.info(f"[Consultation] Session timeout for chat {chat_id}")
+            await self._end_session(user, ctx, lang)
+            return "done"
 
         # Слишком короткий текст — подсказка
         await self.send(user, t('consultation.session_hint', lang))
