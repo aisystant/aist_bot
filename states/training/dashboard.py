@@ -268,7 +268,8 @@ class TrainingDashboardState(BaseState):
 
         if data == 'train_child_back':
             await callback.answer()
-            return "refresh"
+            await self.enter(user)
+            return None
 
         if data == 'train_settings':
             await callback.answer()
@@ -302,13 +303,13 @@ class TrainingDashboardState(BaseState):
             engine = TrainingEngine(chat_id)
             await engine.reset_progress()
             await callback.answer("Прогресс сброшен!")
-            # Перерисовать дашборд
-            return "reset_done"
+            await self.enter(user)
+            return None
 
         if data == 'train_settings_back':
             await callback.answer()
-            # Перерисовать дашборд
-            return "refresh"
+            await self.enter(user)
+            return None
 
         if data == 'train_exit':
             await callback.answer()

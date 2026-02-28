@@ -11,7 +11,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from engines.training.engine import TrainingEngine
-from engines.training.planner import get_principle_name
+from engines.training.planner import get_principle_name, load_zp_cells, generate_example_answer
 from db.queries.training import get_principle_depth
 from config import get_logger, TRAINING_MIN_ANSWER_LENGTH, TRAINING_MAX_DEPTH
 
@@ -111,6 +111,8 @@ class TrainingAssignmentState(BaseState):
         )
 
         if result.get('passed'):
+            # Сбросить счётчик неудач
+            data['fail_count'] = 0
             new_depth = result.get('new_depth', depth)
             if new_depth >= TRAINING_MAX_DEPTH:
                 text = f"🎉 *Принцип пройден полностью!*\n\nГлубина {new_depth}/{TRAINING_MAX_DEPTH}"
@@ -120,16 +122,29 @@ class TrainingAssignmentState(BaseState):
                 text += f"\n\n{result['feedback']}"
             await self.send(user, text, parse_mode="Markdown")
             return "passed"
-        elif result.get('partial'):
-            text = f"🔶 *Частично верно*\n\n{result.get('feedback', '')}"
-            buttons = [
-                [InlineKeyboardButton(text="🔄 Попробовать ещё", callback_data="train_retry")],
-                [InlineKeyboardButton(text="← К дашборду", callback_data="train_back")],
-            ]
-            await self.send(user, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
-            return None
         else:
-            text = f"❌ *Не совсем*\n\n{result.get('feedback', '')}"
+            # Подсчёт неудач подряд
+            fail_count = data.get('fail_count', 0) + 1
+            data['fail_count'] = fail_count
+
+            if result.get('partial'):
+                text = f"🔶 *Частично верно*\n\n{result.get('feedback', '')}"
+            else:
+                text = f"❌ *Не совсем*\n\n{result.get('feedback', '')}"
+
+            # После 2 неудач — показать пример правильного ответа
+            if fail_count >= 2:
+                try:
+                    cells = load_zp_cells()
+                    cell_data = cells.get(principle_id, {}).get('depths', {}).get(str(depth), {})
+                    p_name = get_principle_name(principle_id)
+                    example = await generate_example_answer(
+                        cell_data, assignment_text, p_name, depth
+                    )
+                    text += f"\n\n💡 *Пример ответа:*\n{example}"
+                except Exception as e:
+                    logger.warning(f"[Training] Failed to generate example: {e}")
+
             buttons = [
                 [InlineKeyboardButton(text="🔄 Попробовать ещё", callback_data="train_retry")],
                 [InlineKeyboardButton(text="← К дашборду", callback_data="train_back")],
@@ -144,7 +159,27 @@ class TrainingAssignmentState(BaseState):
             return "back"
         if data == "train_retry":
             await callback.answer()
-            return "retry"
+            # Показать сохранённое задание заново (без генерации нового)
+            chat_id = self._get_chat_id(user)
+            saved = self._user_data.get(chat_id, {})
+            principle_id = saved.get('principle_id')
+            depth = saved.get('depth')
+            assignment_text = saved.get('assignment_text', '')
+            if principle_id and depth and assignment_text:
+                p_name = get_principle_name(principle_id)
+                lines = [
+                    f"📝 *{p_name}* — Глубина {depth}",
+                    f"\n{assignment_text}",
+                    "\n✏️ Напишите ваш ответ:",
+                ]
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="← Назад", callback_data="train_back")
+                ]])
+                await self.send(user, '\n'.join(lines), reply_markup=keyboard, parse_mode="Markdown")
+            else:
+                # Данные потеряны — вернуться к дашборду
+                return "back"
+            return None
         return None
 
     async def exit(self, user) -> dict:
