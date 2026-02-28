@@ -333,3 +333,55 @@ async def evaluate_training_answer(
             'partial': True,
             'feedback': response[:500],
         }
+
+
+async def generate_example_answer(
+    cell_data: dict,
+    assignment_text: str,
+    principle_name: str,
+    depth: int,
+) -> str:
+    """Сгенерировать пример правильного ответа (подсказка после 2 неудач).
+
+    Args:
+        cell_data: данные ячейки (одна глубина)
+        assignment_text: текст задания
+        principle_name: название принципа
+        depth: номер глубины (1-5)
+
+    Returns:
+        Текст примера правильного ответа
+    """
+    criteria = cell_data.get('criteria', '')
+    can_do = cell_data.get('can_do', [])
+    can_do_text = '\n'.join(f'- {c}' for c in can_do)
+
+    system_prompt = f"""Ты тренер мышления. Ученик дважды не справился с заданием по принципу "{principle_name}" (глубина {depth}).
+
+ЗАДАНИЕ БЫЛО:
+{assignment_text}
+
+КРИТЕРИИ ОЦЕНКИ:
+{criteria}
+
+ЦЕЛЕВЫЕ НАВЫКИ:
+{can_do_text}
+
+Напиши КРАТКИЙ пример хорошего ответа на это задание.
+
+ПРАВИЛА:
+- Покажи ход рассуждения, а не просто ответ
+- Длина: 3-5 предложений
+- НЕ используй Markdown с ** или __ (Telegram ломает)
+- Формулируй на русском языке
+- Пример должен быть обучающим — чтобы ученик понял подход"""
+
+    response = await claude.generate(
+        system_prompt, "Напиши пример ответа.",
+        max_tokens=400, model=CLAUDE_MODEL_HAIKU,
+    )
+
+    if not response:
+        return "Попробуйте опереться на критерии оценки и целевые навыки задания."
+
+    return response
