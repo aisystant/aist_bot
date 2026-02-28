@@ -374,7 +374,7 @@ SUBSCRIPTION_WEEKLY_MULTIPLIER = 1.05  # множитель после лине�
 MAX_SUBSCRIPTION_PRICE = 500       # ~1000 руб/мес (бизнес-cap)
 
 # Триал
-FREE_TRIAL_DAYS = 15
+FREE_TRIAL_DAYS = 30
 
 # Заблокированные сервисы (без подписки/триала)
 LOCKED_SERVICES = {"feed", "consultation", "notes", "plans"}
