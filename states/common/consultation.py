@@ -55,22 +55,8 @@ MAX_HISTORY_ENTRY_CHARS = 800
 SESSION_TIMEOUT_SEC = 300  # 5 минут
 
 
-# Ключевые слова для классификации «вопрос о боте»
-_BOT_KEYWORDS_RU = [
-    "бот", "умеешь", "можешь", "команд", "функц", "помощ",
-    "кнопк", "меню", "серви", "навиг", "как пользо", "что делает",
-    "как работает бот", "возможност", "о себе", "кто ты", "расскаж",
-    "представ", "твои возможн", "твои функц",
-    "стек", "техноло", "база данн", "на чём напис", "на чем напис",
-]
-_BOT_KEYWORDS_EN = [
-    "bot", "can you", "feature", "command", "help", "menu",
-    "service", "navigate", "how to use", "what can", "how does the bot",
-    "about yourself", "who are you", "tell me about", "your capabilit",
-    "introduce", "what are you",
-    "stack", "technolog", "database", "built with",
-]
-_BOT_KEYWORDS = _BOT_KEYWORDS_RU + _BOT_KEYWORDS_EN
+
+
 
 # --- Meta-question patterns: hardcoded rich answers (instant, no Claude API) ---
 _META_PATTERNS = {
@@ -292,14 +278,6 @@ class ConsultationState(BaseState):
             'assessment_state': getattr(user, 'assessment_state', None),
         }
 
-    def _is_bot_question(self, question: str) -> bool:
-        """Классифицировать: вопрос о боте или о домене?"""
-        q = question.lower()
-        return (
-            any(kw in q for kw in _BOT_KEYWORDS)
-            or self._detect_service_intent(question) is not None
-        )
-
     def _detect_service_intent(self, question: str) -> Optional[str]:
         """Определяет, относится ли вопрос к конкретному сервису.
 
@@ -321,77 +299,6 @@ class ConsultationState(BaseState):
                     return service_id
 
         return None
-
-    async def _answer_bot_question(self, user, question: str, lang: str, previous_answer: str = None) -> str:
-        """Быстрый путь: ответ на вопрос о боте (L2).
-
-        1. Проверить FAQ → мгновенный ответ (пропускается при refinement)
-        2. Иначе → Claude с self-knowledge (без MCP-поиска)
-        """
-        # Попробовать FAQ (не при refinement — пользователь уже видел FAQ или L2 ответ)
-        if not previous_answer:
-            faq_answer = match_faq(question, lang)
-            if faq_answer:
-                return faq_answer
-
-        # Claude с self-knowledge в system prompt
-        from clients import claude
-        from config import ONTOLOGY_RULES
-
-        name = self._user_to_dict(user).get('name', '')
-        self_knowledge = get_self_knowledge(lang)
-
-        lang_instruction = {
-            'ru': "ВАЖНО: Отвечай на русском языке.",
-            'en': "IMPORTANT: Answer in English.",
-            'es': "IMPORTANTE: Responde en español.",
-            'fr': "IMPORTANT: Réponds en français.",
-            'zh': "重要：请用中文回答。"
-        }.get(lang, "IMPORTANT: Answer in English.")
-
-        refinement_block = ""
-        if previous_answer:
-            refinement_block = {
-                'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь уже видел этот текст, НЕ ПОВТОРЯЙ его):\n{previous_answer[:800]}\n\nНапиши ДРУГОЙ, более развёрнутый ответ. Раскрой аспекты, которые не были затронуты выше. Приведи конкретные примеры использования.",
-                'en': f"\n\nPREVIOUS ANSWER (user already saw this, DO NOT repeat it):\n{previous_answer[:800]}\n\nWrite a DIFFERENT, more detailed answer. Cover aspects not addressed above. Give concrete usage examples.",
-            }.get(lang, f"\n\nPREVIOUS ANSWER (DO NOT repeat):\n{previous_answer[:800]}\n\nGive a different, more detailed answer.")
-
-        if previous_answer:
-            length_instruction = {
-                'ru': "ОГРАНИЧЕНИЕ ДЛИНЫ: максимум 400 слов. Дай развёрнутый ответ с примерами и деталями.",
-                'en': "LENGTH LIMIT: max 400 words. Give a detailed answer with examples.",
-            }.get(lang, "LENGTH LIMIT: max 400 words. Give a detailed answer with examples.")
-            max_tokens = 1600
-        else:
-            length_instruction = {
-                'ru': "ЖЁСТКОЕ ОГРАНИЧЕНИЕ ДЛИНЫ: максимум 150 слов. Ответ — 3-5 коротких абзацев. Если информации много — выбери самое важное, остальное пропусти. Пользователь может нажать 🔍 для подробностей.",
-                'en': "STRICT LENGTH LIMIT: max 150 words. 3-5 short paragraphs. Pick the most important info, user can tap 🔍 for details.",
-            }.get(lang, "STRICT LENGTH LIMIT: max 150 words. 3-5 short paragraphs.")
-            max_tokens = 800
-
-        system_prompt = f"""Ты — AIST Bot, дружелюбный бот-наставник.
-Отвечаешь на вопрос пользователя {name} о себе (о боте).
-
-{lang_instruction}
-
-ЗНАНИЯ О БОТЕ:
-{self_knowledge}
-
-{length_instruction}
-
-ПРАВИЛА:
-1. Используй информацию из знаний о боте — не выдумывай функции
-2. Предлагай конкретные команды (например /learn, /test)
-3. Если вопрос не о боте — вежливо перенаправь
-4. «ты/вы» = вопрос о боте, «я/мне» = вопрос о пользователе
-{refinement_block}
-{ONTOLOGY_RULES}"""
-
-        user_prompt = f"Вопрос: {question}" if lang == 'ru' else f"Question: {question}"
-        # Bot FAQ (L2) — простая задача, Haiku достаточно
-        from config import CLAUDE_MODEL_HAIKU
-        answer = await claude.generate(system_prompt, user_prompt, max_tokens=max_tokens, model=CLAUDE_MODEL_HAIKU)
-        return answer or t('consultation.error', lang)
 
     async def _load_session_context(self, user) -> dict:
         """Загрузить consultation session context из current_context в DB."""
@@ -528,10 +435,7 @@ class ConsultationState(BaseState):
                 return None
 
         # --- Триггер глубокого поиска: "ИИ ..." / "AI ..." → пропустить FAQ, сразу L3 ---
-        # Refinement: deep search только для доменных вопросов (L3).
-        # Для bot-вопросов refinement → L2 (Claude + self-knowledge, без MCP).
-        is_bot_q = self._is_bot_question(question)
-        deep_search = is_refinement and not is_bot_q
+        deep_search = is_refinement
         if not is_refinement:
             _DEEP_PREFIXES = ("ии ", "аи ", "ai ")
             q_check = question.lower()
@@ -592,114 +496,93 @@ class ConsultationState(BaseState):
                 # Продлеваем typing на время тяжёлой операции (>5 сек)
                 typing_task = self._keep_typing(chat_id)
 
-                if is_bot_q and not deep_search:
-                    # --- L2: вопрос о боте → Claude + self-knowledge (без MCP) ---
-                    answer = await self._answer_bot_question(
-                        user, question, lang,
-                        previous_answer=previous_answer if is_refinement else None,
-                    )
-                    _answer_for_history = answer
-                    response = self._format_response(answer, [], lang)
-                    # Сохраняем Q&A для кнопок feedback
-                    chat_id_l2 = self._get_chat_id(user)
-                    if chat_id_l2:
-                        try:
-                            await save_qa(
-                                chat_id=chat_id_l2,
-                                mode=self._get_mode(user),
-                                context_topic='',
-                                question=question,
-                                answer=answer,
-                            )
-                        except Exception as e:
-                            logger.warning(f"L2 save_qa error: {e}")
-                else:
-                    # --- L3: предметный вопрос → tool_use для ВСЕХ тиров (T1-T4) ---
-                    context_topic = self._get_current_topic(user)
-                    intern_dict = self._user_to_dict(user)
-                    bot_context = get_self_knowledge(lang)
+                # --- L3: единый путь → tool_use для ВСЕХ вопросов (T1-T4) ---
+                # LLM сам решает через tools: искать в knowledge base или в bot_info
+                context_topic = self._get_current_topic(user)
+                intern_dict = self._user_to_dict(user)
+                bot_context = get_self_knowledge(lang)
 
-                    # L1 structured data → prepend to bot_context
-                    if structured_context:
-                        bot_context = structured_context + "\n\n" + bot_context
+                # L1 structured data → prepend to bot_context
+                if structured_context:
+                    bot_context = structured_context + "\n\n" + bot_context
 
-                    # Refinement: inject previous answer
-                    if is_refinement and previous_answer:
-                        refinement_instruction = {
-                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
-                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
-                        bot_context += refinement_instruction
-                    elif deep_search:
-                        depth_instruction = {
-                            'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай развёрнутый ответ, используя ВСЕ доступные фрагменты из контекста. Если в контексте есть связи между темами — покажи их. Если есть примеры — приведи. НО НЕ выдумывай то, чего в контексте нет.",
-                            'en': "\n\nDEPTH INSTRUCTION: Give a comprehensive answer using ALL available context fragments. Show connections between topics if present. Cite examples from context. But DO NOT invent what is not in the context.",
-                        }.get(lang, "\n\nDEPTH INSTRUCTION: Use ALL context fragments. Do not invent.")
-                        bot_context += depth_instruction
+                # Refinement: inject previous answer
+                if is_refinement and previous_answer:
+                    refinement_instruction = {
+                        'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                        'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                    }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+                    bot_context += refinement_instruction
+                elif deep_search:
+                    depth_instruction = {
+                        'ru': "\n\nИНСТРУКЦИЯ ГЛУБИНЫ: Дай развёрнутый ответ, используя ВСЕ доступные фрагменты из контекста. Если в контексте есть связи между темами — покажи их. Если есть примеры — приведи. НО НЕ выдумывай то, чего в контексте нет.",
+                        'en': "\n\nDEPTH INSTRUCTION: Give a comprehensive answer using ALL available context fragments. Show connections between topics if present. Cite examples from context. But DO NOT invent what is not in the context.",
+                    }.get(lang, "\n\nDEPTH INSTRUCTION: Use ALL context fragments. Do not invent.")
+                    bot_context += depth_instruction
 
-                    # L1 structured data for deep search
-                    if deep_search and not is_refinement and not structured_context:
-                        hit = structured_lookup(question, lang)
-                        if hit:
-                            sc = format_structured_context(hit, lang)
-                            if sc:
-                                bot_context = sc + "\n\n" + bot_context
+                # L1 structured data for deep search
+                if deep_search and not is_refinement and not structured_context:
+                    hit = structured_lookup(question, lang)
+                    if hit:
+                        sc = format_structured_context(hit, lang)
+                        if sc:
+                            bot_context = sc + "\n\n" + bot_context
 
-                    # Определяем тир (DP.ARCH.002)
-                    user_chat_id = self._get_chat_id(user)
-                    tier, has_github, has_dt = await self._detect_tier(user_chat_id)
+                # Определяем тир (DP.ARCH.002)
+                user_chat_id = self._get_chat_id(user)
+                tier, has_github, has_dt = await self._detect_tier(user_chat_id)
 
-                    # Proactive DT injection: detect personal query → fetch DT data
-                    if has_dt:
-                        from engines.shared.personal_detector import detect_personal_query, fetch_dt_context
-                        dt_paths = detect_personal_query(question)
-                        if dt_paths:
-                            dt_context = await fetch_dt_context(user_chat_id, dt_paths)
-                            if dt_context:
-                                bot_context = dt_context + "\n\n" + bot_context
+                # Proactive DT injection: detect personal query → fetch DT data
+                if has_dt:
+                    from engines.shared.personal_detector import detect_personal_query, fetch_dt_context
+                    dt_paths = detect_personal_query(question)
+                    if dt_paths:
+                        dt_context = await fetch_dt_context(user_chat_id, dt_paths)
+                        if dt_context:
+                            bot_context = dt_context + "\n\n" + bot_context
 
-                    # C6: Goal → Program matching (DP.ARCH.002 § 12.8)
-                    user_goals = intern_dict.get('goals', '') or ''
-                    user_interests = intern_dict.get('interests', '') or ''
-                    if user_goals or user_interests:
-                        from config.conversion import match_goals_to_program, PROGRAM_NAMES
-                        from config.settings import PLATFORM_URLS
-                        matched_program = match_goals_to_program(user_goals, user_interests)
-                        if matched_program:
-                            pname = PROGRAM_NAMES[matched_program].get(lang, PROGRAM_NAMES[matched_program]["ru"])
-                            purl = PLATFORM_URLS[matched_program]
-                            goal_hint = {
-                                'ru': f"\n\nПЕРСОНАЛЬНАЯ РЕКОМЕНДАЦИЯ: На основе целей пользователя лучше всего подходит программа «{pname}»: {purl}. Упомяни это, если вопрос про развитие, обучение или «что дальше».",
-                                'en': f"\n\nPERSONAL RECOMMENDATION: Based on user goals, the best-fit program is «{pname}»: {purl}. Mention this if the question is about development, learning, or 'what's next'.",
-                            }.get(lang, '')
-                            if goal_hint:
-                                bot_context += goal_hint
+                # C6: Goal → Program matching (DP.ARCH.002 § 12.8)
+                user_goals = intern_dict.get('goals', '') or ''
+                user_interests = intern_dict.get('interests', '') or ''
+                if user_goals or user_interests:
+                    from config.conversion import match_goals_to_program, PROGRAM_NAMES
+                    from config.settings import PLATFORM_URLS
+                    matched_program = match_goals_to_program(user_goals, user_interests)
+                    if matched_program:
+                        pname = PROGRAM_NAMES[matched_program].get(lang, PROGRAM_NAMES[matched_program]["ru"])
+                        purl = PLATFORM_URLS[matched_program]
+                        goal_hint = {
+                            'ru': f"\n\nПЕРСОНАЛЬНАЯ РЕКОМЕНДАЦИЯ: На основе целей пользователя лучше всего подходит программа «{pname}»: {purl}. Упомяни это, если вопрос про развитие, обучение или «что дальше».",
+                            'en': f"\n\nPERSONAL RECOMMENDATION: Based on user goals, the best-fit program is «{pname}»: {purl}. Mention this if the question is about development, learning, or 'what's next'.",
+                        }.get(lang, '')
+                        if goal_hint:
+                            bot_context += goal_hint
 
-                    from engines.shared import handle_question_with_tools
-                    from engines.shared.consultation_tools import get_personal_claude_md
+                from engines.shared import handle_question_with_tools
+                from engines.shared.consultation_tools import get_personal_claude_md
 
-                    personal_claude = ""
-                    if has_github:
-                        personal_claude = await get_personal_claude_md(user_chat_id)
+                personal_claude = ""
+                if has_github:
+                    personal_claude = await get_personal_claude_md(user_chat_id)
 
-                    # Conversation history → multi-turn messages
-                    history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
+                # Conversation history → multi-turn messages
+                history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
 
-                    answer, sources = await handle_question_with_tools(
-                        question=question,
-                        intern=intern_dict,
-                        context_topic=context_topic,
-                        bot_context=bot_context,
-                        has_digital_twin=has_dt,
-                        personal_claude_md=personal_claude,
-                        tier=tier,
-                        is_refinement=is_refinement,
-                        conversation_messages=history_messages,
-                    )
-                    logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
-                    _answer_for_history = answer
+                answer, sources = await handle_question_with_tools(
+                    question=question,
+                    intern=intern_dict,
+                    context_topic=context_topic,
+                    bot_context=bot_context,
+                    has_digital_twin=has_dt,
+                    personal_claude_md=personal_claude,
+                    tier=tier,
+                    is_refinement=is_refinement,
+                    conversation_messages=history_messages,
+                )
+                logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
+                _answer_for_history = answer
 
-                    response = self._format_response(answer, sources, lang)
+                response = self._format_response(answer, sources, lang)
 
                 typing_task.cancel()
 

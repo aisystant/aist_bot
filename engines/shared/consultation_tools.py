@@ -108,13 +108,28 @@ TOOL_READ_DIGITAL_TWIN = {
 }
 
 
+TOOL_GET_BOT_INFO = {
+    "name": "get_bot_info",
+    "description": (
+        "Информация о боте AIST: возможности, команды, сценарии, FAQ. "
+        "Используй когда пользователь спрашивает о самом боте: "
+        "что умеет, как пользоваться, какие команды доступны."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+}
+
+
 def get_tools_for_tier(has_digital_twin: bool) -> List[Dict[str, Any]]:
     """Возвращает набор tools в зависимости от тира пользователя.
 
-    T1 (без ЦД): search_knowledge, search_guides
+    T1 (без ЦД): search_knowledge, search_guides, get_bot_info
     T2+ (с ЦД): + read_digital_twin
     """
-    tools = [TOOL_SEARCH_KNOWLEDGE, TOOL_SEARCH_GUIDES]
+    tools = [TOOL_SEARCH_KNOWLEDGE, TOOL_SEARCH_GUIDES, TOOL_GET_BOT_INFO]
     if has_digital_twin:
         tools.append(TOOL_READ_DIGITAL_TWIN)
     return tools
@@ -145,8 +160,17 @@ async def execute_tool(
         return await _exec_search_guides(tool_input)
     elif tool_name == "read_digital_twin":
         return await _exec_read_digital_twin(tool_input, telegram_user_id)
+    elif tool_name == "get_bot_info":
+        return _exec_get_bot_info()
     else:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
+
+
+def _exec_get_bot_info() -> str:
+    """Возвращает self-knowledge бота (сценарии, FAQ, идентичность)."""
+    from core.self_knowledge import get_self_knowledge
+    knowledge = get_self_knowledge('ru')
+    return json.dumps({"bot_info": knowledge[:4000]}, ensure_ascii=False)
 
 
 async def _exec_search_knowledge(input: Dict[str, Any]) -> str:
