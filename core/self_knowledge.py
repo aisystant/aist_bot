@@ -442,9 +442,9 @@ def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
             best_score = matched
             best_item = item
 
-    # Длинные вопросы (>30 символов) требуют ≥2 совпадений, чтобы избежать
-    # ложных срабатываний (например, "можешь помочь установить X" ≠ "что умеешь?")
-    min_score = 2 if len(q_lower) > 30 else 1
+    # Вопросы >20 символов требуют ≥2 совпадений: одно generic-слово
+    # ("можешь", "помощ") в длинном вопросе — скорее всего не FAQ
+    min_score = 2 if len(q_lower) > 20 else 1
 
     if best_item and best_score >= min_score:
         answer = best_item.get(f'answer_{lang}') or best_item.get('answer_ru', '')
