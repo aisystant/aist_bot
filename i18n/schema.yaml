@@ -4140,6 +4140,15 @@ donation:
     ru: "✅ Спасибо за донат! Это помогает развивать проект."
     en: "✅ Thank you for your donation! This helps develop the project."
 
+  suggest_recurring:
+    ru: "💡 Хочешь поддерживать проект каждый месяц? Оформи ежемесячный донат — сумма будет списываться автоматически."
+    en: "💡 Want to support the project every month? Set up a monthly donation — the amount will be charged automatically."
+
+  suggest_recurring_button:
+    ru: "🔄 Оформить ежемесячный донат"
+    en: "🔄 Set up monthly donation"
+    max_length: 30
+
   recurring_invoice_title:
     ru: "Ежемесячный донат AIST"
     en: "Monthly AIST Donation"
