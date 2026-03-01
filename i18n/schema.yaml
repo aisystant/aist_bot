@@ -4647,16 +4647,16 @@ schedule:
     en: "📋 *Schedule & Catalog*"
 
   hub_upcoming:
-    ru: "📅 *Ближайшие занятия:*"
-    en: "📅 *Upcoming classes:*"
+    ru: "📅 *Мой график:*"
+    en: "📅 *My schedule:*"
 
   hub_upcoming_item:
     ru: "• {course} — {datetime}"
     en: "• {course} — {datetime}"
 
   hub_choose:
-    ru: "Выберите раздел:"
-    en: "Choose a section:"
+    ru: "Куда можно записаться:"
+    en: "Where to enroll:"
 
   # Hub menu button labels
   menu_personal:
