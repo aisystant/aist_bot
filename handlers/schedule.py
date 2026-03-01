@@ -246,11 +246,38 @@ async def callback_workshop(callback: CallbackQuery):
             tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
             if tariffs:
                 from handlers.subscription import _parse_tariff, _period_label
+                paid_tariffs = []
                 for tariff in tariffs[:5]:
                     code, name, amount, periodicity = _parse_tariff(tariff)
                     period = _period_label(periodicity, lang)
                     lines.append(f"  • {period} — {amount} ₽")
                     if amount > 0:
+                        paid_tariffs.append((code, amount, period))
+                # Один тариф → сразу создаём платёж
+                if len(paid_tariffs) == 1:
+                    code, amount, period = paid_tariffs[0]
+                    try:
+                        result = await aisystant.create_subscription_payment(
+                            aisystant_id, code, amount, purpose="WORKSHOP",
+                        )
+                        if result and result.get("confirmationUrl"):
+                            url = result["confirmationUrl"]
+                            buttons.append([InlineKeyboardButton(
+                                text=t('aisystant_sub.btn_pay_link', lang), url=url,
+                            )])
+                        else:
+                            buttons.append([InlineKeyboardButton(
+                                text=f"💳 {period} — {amount} ₽",
+                                callback_data=f"sub_pay_ws:{code}:{amount}",
+                            )])
+                    except Exception as e:
+                        logger.error(f"[Schedule] workshop auto-payment error: {e}")
+                        buttons.append([InlineKeyboardButton(
+                            text=f"💳 {period} — {amount} ₽",
+                            callback_data=f"sub_pay_ws:{code}:{amount}",
+                        )])
+                else:
+                    for code, amount, period in paid_tariffs:
                         buttons.append([InlineKeyboardButton(
                             text=f"💳 {period} — {amount} ₽",
                             callback_data=f"sub_pay_ws:{code}:{amount}",
@@ -298,11 +325,39 @@ async def callback_ws_tariffs(callback: CallbackQuery):
 
     lines = [t('schedule.workshop_text', lang), ""]
     buttons = []
+    paid_tariffs = []
     for tariff in tariffs[:5]:
         code, name, amount, periodicity = _parse_tariff(tariff)
         period = _period_label(periodicity, lang)
         lines.append(f"  • {period} — {amount} ₽")
         if amount > 0:
+            paid_tariffs.append((code, amount, period))
+
+    # Один тариф → сразу создаём платёж
+    if len(paid_tariffs) == 1:
+        code, amount, period = paid_tariffs[0]
+        try:
+            result = await aisystant.create_subscription_payment(
+                aisystant_id, code, amount, purpose="WORKSHOP",
+            )
+            if result and result.get("confirmationUrl"):
+                url = result["confirmationUrl"]
+                buttons.append([InlineKeyboardButton(
+                    text=t('aisystant_sub.btn_pay_link', lang), url=url,
+                )])
+            else:
+                buttons.append([InlineKeyboardButton(
+                    text=f"💳 {period} — {amount} ₽",
+                    callback_data=f"sub_pay_ws:{code}:{amount}",
+                )])
+        except Exception as e:
+            logger.error(f"[Schedule] ws renewal auto-payment error: {e}")
+            buttons.append([InlineKeyboardButton(
+                text=f"💳 {period} — {amount} ₽",
+                callback_data=f"sub_pay_ws:{code}:{amount}",
+            )])
+    else:
+        for code, amount, period in paid_tariffs:
             buttons.append([InlineKeyboardButton(
                 text=f"💳 {period} — {amount} ₽",
                 callback_data=f"sub_pay_ws:{code}:{amount}",
