@@ -207,6 +207,7 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"*{t('commands.section_aisystant', lang)}*\n"
         f"{t('commands.link', lang)}\n"
         f"{t('commands.schedule', lang)}\n"
+        f"{t('commands.buy', lang)}\n"
         f"{t('commands.subscription', lang)}\n"
         f"{t('commands.guide', lang)}\n"
         f"{t('commands.contacts', lang)}\n\n"

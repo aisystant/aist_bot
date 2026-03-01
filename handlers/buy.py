@@ -1,0 +1,110 @@
+"""
+Единая витрина покупок (WP-79).
+
+Команда: /buy (кнопка или команда)
+Показывает всё, что можно купить: подписка БР + курсы.
+Минимум кликов: /buy → кнопка оплаты = 2 клика.
+"""
+
+import logging
+
+from aiogram import Router, F
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from aiogram.filters import Command
+
+from db.queries import get_intern
+from db.queries.aisystant import get_aisystant_id
+from clients.aisystant import aisystant
+from i18n import t
+
+logger = logging.getLogger(__name__)
+
+buy_router = Router(name="buy")
+
+
+def _lang(intern) -> str:
+    if not intern:
+        return 'ru'
+    return intern.get('language', 'ru') or 'ru'
+
+
+@buy_router.message(Command("buy"))
+async def cmd_buy(message: Message):
+    """Команда /buy — витрина покупок."""
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await message.answer(t('buy.no_account', lang))
+        return
+
+    await _show_buy_menu(message, chat_id, aisystant_id, lang)
+
+
+async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang: str):
+    """Показать витрину: подписка + курсы."""
+    lines = [t('buy.title', lang), ""]
+    buttons = []
+
+    # 1. Подписка БР
+    try:
+        is_active = await aisystant.has_active_subscription(aisystant_id)
+        if is_active:
+            lines.append(t('buy.sub_active', lang))
+        else:
+            tariffs = await aisystant.get_subscription_tariffs(aisystant_id)
+            if tariffs:
+                lines.append(t('buy.sub_section', lang))
+                for tariff in tariffs[:3]:
+                    code = tariff.get("code", "")
+                    name = tariff.get("name", code)
+                    amount = tariff.get("amount", 0)
+                    try:
+                        amount = float(amount)
+                    except (TypeError, ValueError):
+                        amount = 0
+                    period = tariff.get("period", "месяц")
+                    lines.append(f"  • {name} — {int(amount)} ₽/{period}")
+                    if amount > 0:
+                        buttons.append([InlineKeyboardButton(
+                            text=f"💳 {name} — {int(amount)} ₽",
+                            callback_data=f"sub_pay:{code}:{int(amount)}",
+                        )])
+                lines.append("")
+    except Exception as e:
+        logger.error(f"[Buy] subscription check error: {e}")
+
+    # 2. Курсы
+    try:
+        internships = await aisystant.get_available_internships(aisystant_id)
+        if internships:
+            lines.append(t('buy.courses_section', lang))
+            for course in internships[:8]:
+                code = course.get("code", "")
+                name = course.get("courseName", course.get("name", code))
+                raw_amount = course.get("amount") or course.get("price") or 0
+                try:
+                    amount = float(raw_amount)
+                except (TypeError, ValueError):
+                    amount = 0
+                if amount > 0:
+                    lines.append(f"  • {name} — {int(amount)} ₽")
+                    buttons.append([InlineKeyboardButton(
+                        text=f"📚 {name[:25]} — {int(amount)} ₽",
+                        callback_data=f"schedule_pay:{code}:{int(amount)}",
+                    )])
+    except Exception as e:
+        logger.error(f"[Buy] internships error: {e}")
+
+    if not buttons:
+        lines.append(t('buy.nothing_available', lang))
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+    await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)

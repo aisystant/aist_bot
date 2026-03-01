@@ -190,6 +190,9 @@ commands:
   guide:
     ru: "/guide — персональный гид обучения"
     en: "/guide — personal learning guide"
+  buy:
+    ru: "/buy — витрина покупок (подписка + курсы)"
+    en: "/buy — shop (subscription + courses)"
 
   section_main:
     ru: "Основные"
@@ -4732,3 +4735,26 @@ contacts:
   text:
     ru: "📞 *Контакты*\n\n🌐 Сайт: aisystant.system-school.ru\n📧 Email: info@system-school.ru\n💬 Telegram: @system_school_chat\n📺 YouTube: System School"
     en: "📞 *Contacts*\n\n🌐 Website: aisystant.system-school.ru\n📧 Email: info@system-school.ru\n💬 Telegram: @system_school_chat\n📺 YouTube: System School"
+
+# -----------------------------------------------------------------------------
+# Витрина покупок (WP-79)
+# -----------------------------------------------------------------------------
+buy:
+  title:
+    ru: "🛒 *Что можно приобрести*"
+    en: "🛒 *Available for purchase*"
+  no_account:
+    ru: "Для покупок привяжите аккаунт Aisystant: /link"
+    en: "Link your Aisystant account first: /link"
+  sub_active:
+    ru: "✅ Подписка «Бесконечное развитие» активна"
+    en: "✅ «Infinite Development» subscription is active"
+  sub_section:
+    ru: "*💎 Подписка «Бесконечное развитие»*"
+    en: "*💎 «Infinite Development» subscription*"
+  courses_section:
+    ru: "*📚 Курсы и семинары*"
+    en: "*📚 Courses and seminars*"
+  nothing_available:
+    ru: "Сейчас нет доступных предложений."
+    en: "No offers available at the moment."
