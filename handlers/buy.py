@@ -81,15 +81,15 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     except Exception as e:
         logger.error(f"[Buy] subscription check error: {e}")
 
-    # 2. Курсы
+    # 2. Курсы (все в продаже, не только непокупленные)
     try:
-        internships = await aisystant.get_available_internships(aisystant_id)
-        if internships:
+        courses = await aisystant.get_available_courses()
+        if courses:
             lines.append(t('buy.courses_section', lang))
-            for course in internships[:8]:
+            for course in courses[:8]:
                 code = course.get("code", "")
                 name = course.get("courseName", course.get("name", code))
-                raw_amount = course.get("amount") or course.get("price") or 0
+                raw_amount = course.get("price") or course.get("amount") or 0
                 try:
                     amount = float(raw_amount)
                 except (TypeError, ValueError):
@@ -101,7 +101,7 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                         callback_data=f"schedule_pay:{code}:{int(amount)}",
                     )])
     except Exception as e:
-        logger.error(f"[Buy] internships error: {e}")
+        logger.error(f"[Buy] courses error: {e}")
 
     if not buttons:
         lines.append(t('buy.nothing_available', lang))
