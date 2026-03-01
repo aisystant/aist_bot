@@ -1,11 +1,11 @@
 """
 Обработка донатов через Telegram Stars.
 
-WP-79: Stars = донаты по желанию (произвольная сумма).
-Подписка = Aisystant «Бесконечное развитие» (handlers/subscription.py), определяет тир T2.
+Два варианта:
+- donate_once: разовый донат (без subscription_period)
+- donate_recurring: ежемесячный донат (subscription_period=30 дней)
 
-Подписка: createInvoiceLink → pre_checkout → successful_payment.
-Grandfathering: Telegram auto-renews по исходной цене.
+Подписка на Aisystant «Бесконечное развитие» → handlers/subscription.py (определяет тир T2).
 """
 
 import logging
@@ -31,11 +31,11 @@ logger = logging.getLogger(__name__)
 payments_router = Router(name="payments")
 
 
-# === Subscribe callback (кнопка "Подписаться") ===
+# === Разовый донат ===
 
-@payments_router.callback_query(F.data == "subscribe")
-async def cb_subscribe(callback: CallbackQuery):
-    """Создать invoice link и отправить пользователю."""
+@payments_router.callback_query(F.data == "donate_once")
+async def cb_donate_once(callback: CallbackQuery):
+    """Создать invoice для разового доната."""
     await callback.answer()
 
     chat_id = callback.message.chat.id
@@ -46,31 +46,80 @@ async def cb_subscribe(callback: CallbackQuery):
 
     try:
         link = await callback.bot.create_invoice_link(
-            title=t('subscription.invoice_title', lang),
-            description=t('subscription.invoice_description', lang),
-            payload=f"sub_{chat_id}_{price}",
+            title=t('donation.once_invoice_title', lang),
+            description=t('donation.once_invoice_description', lang),
+            payload=f"donate_once_{chat_id}_{price}",
             currency="XTR",
-            prices=[LabeledPrice(label="Subscription", amount=price)],
-            subscription_period=2592000,  # 30 дней
+            prices=[LabeledPrice(label="Donation", amount=price)],
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=t('subscription.pay_button', lang, price=price),
+                text=t('donation.once_pay_button', lang, price=price),
                 url=link,
             )]
         ])
 
         await callback.message.answer(
-            t('subscription.invoice_text', lang, price=price),
+            t('donation.once_invoice_text', lang, price=price),
             reply_markup=keyboard,
         )
 
     except Exception as e:
-        logger.error(f"[Payments] Error creating invoice: {e}")
+        logger.error(f"[Payments] Error creating one-time donation invoice: {e}")
         import traceback
         logger.error(traceback.format_exc())
         await callback.message.answer(t('errors.try_again', lang))
+
+
+# === Постоянный (ежемесячный) донат ===
+
+@payments_router.callback_query(F.data == "donate_recurring")
+async def cb_donate_recurring(callback: CallbackQuery):
+    """Создать invoice для ежемесячного доната."""
+    await callback.answer()
+
+    chat_id = callback.message.chat.id
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru'
+
+    price = get_current_price()
+
+    try:
+        link = await callback.bot.create_invoice_link(
+            title=t('donation.recurring_invoice_title', lang),
+            description=t('donation.recurring_invoice_description', lang),
+            payload=f"sub_{chat_id}_{price}",
+            currency="XTR",
+            prices=[LabeledPrice(label="Monthly donation", amount=price)],
+            subscription_period=2592000,  # 30 дней
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=t('donation.recurring_pay_button', lang, price=price),
+                url=link,
+            )]
+        ])
+
+        await callback.message.answer(
+            t('donation.recurring_invoice_text', lang, price=price),
+            reply_markup=keyboard,
+        )
+
+    except Exception as e:
+        logger.error(f"[Payments] Error creating recurring donation invoice: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.message.answer(t('errors.try_again', lang))
+
+
+# === Backward compatibility: старые кнопки "Подписаться" из уведомлений ===
+
+@payments_router.callback_query(F.data == "subscribe")
+async def cb_subscribe_legacy(callback: CallbackQuery):
+    """Legacy: старые кнопки подписки → перенаправляем на ежемесячный донат."""
+    await cb_donate_recurring(callback)
 
 
 # === Pre-checkout: подтверждение платежа ===
@@ -81,29 +130,36 @@ async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await pre_checkout_query.answer(ok=True)
 
 
-# === Successful payment: запись подписки ===
+# === Successful payment ===
 
 @payments_router.message(F.successful_payment)
 async def on_successful_payment(message: Message):
-    """Обработка успешного платежа — сохраняем подписку."""
+    """Обработка успешного платежа — разовый донат или ежемесячный."""
     payment = message.successful_payment
     chat_id = message.chat.id
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru'
 
+    payload = getattr(payment, 'invoice_payload', '') or ''
+
+    # Разовый донат — благодарим и не сохраняем подписку
+    if payload.startswith("donate_once_"):
+        amount = payment.total_amount
+        await message.answer(t('donation.once_success', lang))
+        logger.info(f"[Payments] One-time donation: chat_id={chat_id}, amount={amount} Stars")
+        return
+
+    # Ежемесячный донат — сохраняем как подписку (для отслеживания и отмены)
     try:
-        # Извлекаем данные подписки
         charge_id = payment.telegram_payment_charge_id
         amount = payment.total_amount
         is_first = getattr(payment, 'is_first_recurring', False)
 
-        # Дата окончания подписки (naive UTC — DB column is TIMESTAMP, not TIMESTAMPTZ)
         expiration_ts = getattr(payment, 'subscription_expiration_date', None)
         if expiration_ts:
             expires_at = datetime.utcfromtimestamp(expiration_ts)
         else:
-            # Fallback: 30 дней от сейчас
             from datetime import timedelta
             expires_at = datetime.utcnow() + timedelta(days=30)
 
@@ -115,22 +171,21 @@ async def on_successful_payment(message: Message):
             is_first=is_first,
         )
 
-        # Определяем сообщение
         is_recurring = getattr(payment, 'is_recurring', False)
         if is_recurring and not is_first:
-            msg_key = 'subscription.renewal_success'
+            msg_key = 'donation.recurring_renewal'
         else:
-            msg_key = 'subscription.success'
+            msg_key = 'donation.recurring_success'
 
         await message.answer(t(msg_key, lang))
         logger.info(
-            f"[Payments] Subscription saved: chat_id={chat_id}, "
+            f"[Payments] Recurring donation saved: chat_id={chat_id}, "
             f"amount={amount} Stars, expires={expires_at}, "
             f"recurring={is_recurring}, first={is_first}"
         )
 
     except Exception as e:
-        logger.error(f"[Payments] Error saving subscription: {e}")
+        logger.error(f"[Payments] Error saving recurring donation: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        await message.answer(t('subscription.success', lang))  # Всё равно сообщаем успех
+        await message.answer(t('donation.recurring_success', lang))
