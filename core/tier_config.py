@@ -102,12 +102,12 @@ SERVICE_TO_COMMAND = {
 
 # WP-79: «Главная + Тянет вверх» principle
 TIER_KEYBOARD = {
-    UITier.T1_NEW:             [['link',      'buy'],           ['test',     'contacts']],
-    UITier.T1_START:           [['marathon',  'buy'],           ['test',     'settings']],
-    UITier.T2_LEARNING:        [['feed',      'guide'],         ['profile',  'settings']],
-    UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['profile',  'settings']],
-    UITier.T4_CREATION:        [['plans',     'guide'],         ['profile',  'settings']],
-    UITier.T5_ADMIN:           [['plans',     'guide'],         ['profile',  'settings']],
+    UITier.T1_NEW:             [['link',      'buy'],           ['schedule', 'settings']],
+    UITier.T1_START:           [['marathon',  'buy'],           ['schedule', 'settings']],
+    UITier.T2_LEARNING:        [['feed',      'guide'],         ['schedule', 'settings']],
+    UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['schedule', 'settings']],
+    UITier.T4_CREATION:        [['plans',     'guide'],         ['schedule', 'settings']],
+    UITier.T5_ADMIN:           [['plans',     'guide'],         ['schedule', 'settings']],
 }
 
 
@@ -117,8 +117,8 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_NEW:             ['buy', 'link', 'test', 'help'],
-    UITier.T1_START:           ['buy', 'learn', 'test', 'mode', 'help'],
+    UITier.T1_NEW:             ['buy', 'link', 'schedule', 'test', 'contacts', 'help'],
+    UITier.T1_START:           ['buy', 'learn', 'schedule', 'test', 'profile', 'mode', 'help'],
     UITier.T2_LEARNING:        ['buy', 'feed', 'train', 'schedule', 'profile', 'help'],
     UITier.T3_PERSONALIZATION: ['buy', 'feed', 'train', 'schedule', 'guide', 'progress', 'start', 'help'],
     UITier.T4_CREATION:        ['buy', 'plan', 'schedule', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'start', 'help'],
