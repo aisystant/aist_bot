@@ -174,6 +174,22 @@ commands:
   bug_report:
     ru: "! — баг-репорт (!текст — быстро)"
     en: "! — bug report (!text — quick)"
+  # WP-79: Aisystant integration
+  link:
+    ru: "/link — привязать аккаунт Aisystant"
+    en: "/link — link Aisystant account"
+  schedule:
+    ru: "/schedule — расписание занятий"
+    en: "/schedule — class schedule"
+  subscription:
+    ru: "/subscription — подписка «Бесконечное развитие»"
+    en: "/subscription — subscribe to «Infinite Development»"
+  contacts:
+    ru: "/contacts — контактная информация"
+    en: "/contacts — contact information"
+  guide:
+    ru: "/guide — персональный гид обучения"
+    en: "/guide — personal learning guide"
 
   section_main:
     ru: "Основные"
@@ -187,6 +203,9 @@ commands:
   section_club:
     ru: "Клуб"
     en: "Club"
+  section_aisystant:
+    ru: "Aisystant"
+    en: "Aisystant"
   section_settings:
     ru: "Настройки"
     en: "Settings"

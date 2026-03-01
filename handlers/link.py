@@ -63,6 +63,8 @@ async def cmd_link(message: Message):
     if aisystant_id:
         await save_aisystant_link(chat_id, aisystant_id)
         await message.answer(t('link.found_auto', lang))
+        # Обновляем тир и клавиатуру
+        await _refresh_tier_keyboard(message, chat_id, lang)
         return
 
     # Не найден → показываем ссылку для привязки
@@ -108,5 +110,20 @@ async def callback_link_check(callback: CallbackQuery):
         await save_aisystant_link(chat_id, aisystant_id)
         await callback.answer(t('link.check_success', lang), show_alert=True)
         await callback.message.edit_text(t('link.check_success', lang))
+        # Обновляем тир и клавиатуру
+        await _refresh_tier_keyboard(callback.message, chat_id, lang)
     else:
         await callback.answer(t('link.check_not_yet', lang), show_alert=True)
+
+
+async def _refresh_tier_keyboard(message, chat_id: int, lang: str):
+    """Обновить ReplyKeyboard и меню после смены тира."""
+    try:
+        from core.tier_detector import detect_ui_tier
+        from core.tier_ui import build_reply_keyboard, sync_menu_commands
+        tier = await detect_ui_tier(chat_id)
+        keyboard = build_reply_keyboard(tier, lang)
+        await message.answer("👌", reply_markup=keyboard)
+        await sync_menu_commands(message.bot, chat_id, tier, lang)
+    except Exception as e:
+        logger.error(f"[Link] refresh tier keyboard error: {e}")

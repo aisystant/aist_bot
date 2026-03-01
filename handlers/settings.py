@@ -204,6 +204,13 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"{t('commands.twin', lang)}\n"
         f"{t('commands.mydata', lang)}\n\n"
 
+        f"*{t('commands.section_aisystant', lang)}*\n"
+        f"{t('commands.link', lang)}\n"
+        f"{t('commands.schedule', lang)}\n"
+        f"{t('commands.subscription', lang)}\n"
+        f"{t('commands.guide', lang)}\n"
+        f"{t('commands.contacts', lang)}\n\n"
+
         f"*{t('commands.section_club', lang)}*\n"
         f"{t('commands.club', lang)}\n"
         f"{t('commands.github', lang)}\n\n"
