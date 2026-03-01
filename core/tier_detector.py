@@ -1,16 +1,18 @@
 """
 UI Tier detection — subscription + connections.
 
-Source-of-truth: WP-52
+Source-of-truth: WP-52 + WP-79
 
 Tier model (cumulative, payment-first):
-  T1: free (no active subscription/trial)
-  T2: active subscription or trial
+  T1_NEW (0):  not linked to Aisystant
+  T1_START (1): linked, no БР subscription
+  T2: Aisystant «Бесконечное развитие» subscription active
   T3: T2 + Digital Twin connected
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
 
-Tier drops to T1 if subscription expires.
+Tier drops to T1_START if БР subscription expires.
+Tier drops to T1_NEW if aisystant link removed (unlikely).
 
 Tier transitions logged to tier_events table (analytics).
 Downgrade T2+→T1 triggers user notification.
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 _tier_cache: dict[int, int] = {}
 
 _TIER_NAMES = {
+    UITier.T1_NEW: "New",
     UITier.T1_START: "Start",
     UITier.T2_LEARNING: "Learning",
     UITier.T3_PERSONALIZATION: "Personalization",
@@ -39,7 +42,7 @@ _TIER_NAMES = {
 
 
 async def detect_ui_tier(chat_id: int) -> int:
-    """Detect UI tier based on subscription + connections.
+    """Detect UI tier based on Aisystant link + БР subscription + connections.
 
     Also tracks tier transitions: logs to tier_events + notifies on downgrade.
 
@@ -47,15 +50,19 @@ async def detect_ui_tier(chat_id: int) -> int:
         chat_id: Telegram user chat_id
 
     Returns:
-        UITier constant (1-5)
+        UITier constant (0-5)
     """
     # T5: Platform admin (always, regardless of subscription)
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
     if dev_chat_id and str(chat_id) == dev_chat_id:
         return UITier.T5_ADMIN
 
-    # Check subscription — no active sub/trial = T1
-    if not await _has_active_subscription(chat_id):
+    # WP-79: Check Aisystant link first
+    aisystant_id = await _get_aisystant_id(chat_id)
+
+    if not aisystant_id:
+        new_tier = UITier.T1_NEW
+    elif not await _has_active_subscription(chat_id, aisystant_id):
         new_tier = UITier.T1_START
     elif await _is_github_connected(chat_id):
         new_tier = UITier.T4_CREATION
@@ -76,8 +83,30 @@ async def detect_ui_tier(chat_id: int) -> int:
     return new_tier
 
 
-async def _has_active_subscription(chat_id: int) -> bool:
-    """Check if user has active subscription or trial."""
+async def _get_aisystant_id(chat_id: int) -> str | None:
+    """Get aisystant_id from DB (WP-79)."""
+    try:
+        from db.queries.aisystant import get_aisystant_id
+        return await get_aisystant_id(chat_id)
+    except Exception:
+        return None
+
+
+async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
+    """Check if user has active Aisystant БР subscription.
+
+    WP-79: Primary check = Aisystant «Бесконечное развитие».
+    Fallback = old internal subscription (Telegram Stars) — will be removed in Step 7.
+    """
+    # Primary: Aisystant БР
+    try:
+        from clients.aisystant import aisystant
+        if await aisystant.has_active_subscription(aisystant_id):
+            return True
+    except Exception as e:
+        logger.warning(f"[Tier] Aisystant subscription check failed: {e}")
+
+    # Fallback: old internal subscription/trial (to be removed)
     from core.access import access_layer
     return await access_layer.has_access(chat_id, "feed")
 
@@ -111,9 +140,13 @@ async def _is_dt_connected(chat_id: int) -> bool:
 
 def _infer_reason(from_tier: int, to_tier: int) -> str:
     """Infer the reason for a tier transition."""
-    if to_tier == UITier.T1_START:
+    if to_tier == UITier.T1_NEW:
+        return "aisystant_unlinked"
+    if to_tier == UITier.T1_START and from_tier >= UITier.T2_LEARNING:
         return "subscription_expired"
-    if to_tier == UITier.T2_LEARNING and from_tier == UITier.T1_START:
+    if to_tier == UITier.T1_START and from_tier == UITier.T1_NEW:
+        return "aisystant_linked"
+    if to_tier == UITier.T2_LEARNING and from_tier <= UITier.T1_START:
         return "subscription_activated"
     if to_tier == UITier.T3_PERSONALIZATION:
         return "dt_connected"
@@ -153,7 +186,7 @@ async def _notify_downgrade(chat_id: int, from_tier: int, to_tier: int) -> None:
             return
 
         # Only notify on meaningful downgrades (T2+→T1 = subscription expired)
-        if to_tier != UITier.T1_START:
+        if to_tier > UITier.T1_START:
             return
 
         from_name = _TIER_NAMES.get(from_tier, f"T{from_tier}")

@@ -1,5 +1,8 @@
 """
-Обработка платежей Telegram Stars.
+Обработка донатов через Telegram Stars.
+
+WP-79: Stars = донаты по желанию (произвольная сумма).
+Подписка = Aisystant «Бесконечное развитие» (handlers/subscription.py), определяет тир T2.
 
 Подписка: createInvoiceLink → pre_checkout → successful_payment.
 Grandfathering: Telegram auto-renews по исходной цене.

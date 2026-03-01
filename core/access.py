@@ -5,7 +5,7 @@
 
 3 типа доступа:
   - subscription: рекуррентная подписка → набор доступных сервисов
-  - purchase: разовая покупка → открывает конкретный курс
+  - purchase: разовая покупка → открывает конкретную программу
   - feature: paywall на функцию → показывает paywall при доступе
 
 user.has_access(service) = user.subscription ∪ user.purchases ∪ user.role
@@ -86,18 +86,18 @@ class AccessLayer:
     async def get_paywall(self, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
         """Получить текст paywall и кнопку подписки.
 
+        WP-79: Paywall ведёт на Aisystant «Бесконечное развитие».
+        Telegram Stars = донаты (не подписка).
+
         Returns:
             (text, keyboard) — сообщение и кнопка подписки.
         """
-        from core.pricing import get_current_price
-
-        price = get_current_price()
-        text = t('subscription.paywall_text', lang, price=price)
+        text = t('aisystant_sub.title', lang) + "\n\n" + t('aisystant_sub.desc', lang)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=t('subscription.subscribe_button', lang, price=price),
-                callback_data="subscribe",
+                text=t('aisystant_sub.btn_subscribe', lang),
+                callback_data="aisystant_subscribe",
             )]
         ])
         return text, keyboard
@@ -112,7 +112,7 @@ class AccessLayer:
         return await get_active_subscription(user_id)
 
     async def check_purchase(self, user_id: int, resource_id: str) -> bool:
-        """Проверить, куплен ли ресурс (курс, фича).
+        """Проверить, куплен ли ресурс (программа, фича).
 
         Returns:
             True если куплено.

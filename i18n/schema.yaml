@@ -174,6 +174,25 @@ commands:
   bug_report:
     ru: "! — баг-репорт (!текст — быстро)"
     en: "! — bug report (!text — quick)"
+  # WP-79: Aisystant integration
+  link:
+    ru: "/link — привязать аккаунт Aisystant"
+    en: "/link — link Aisystant account"
+  schedule:
+    ru: "/schedule — расписание занятий"
+    en: "/schedule — class schedule"
+  subscription:
+    ru: "/subscription — подписка «Бесконечное развитие»"
+    en: "/subscription — subscribe to «Infinite Development»"
+  contacts:
+    ru: "/contacts — контактная информация"
+    en: "/contacts — contact information"
+  guide:
+    ru: "/guide — персональный гид обучения"
+    en: "/guide — personal learning guide"
+  buy:
+    ru: "/buy — витрина покупок (подписка + программы)"
+    en: "/buy — shop (subscription + programs)"
 
   section_main:
     ru: "Основные"
@@ -187,6 +206,9 @@ commands:
   section_club:
     ru: "Клуб"
     en: "Club"
+  section_aisystant:
+    ru: "Aisystant"
+    en: "Aisystant"
   section_settings:
     ru: "Настройки"
     en: "Settings"
@@ -1314,8 +1336,8 @@ modes:
     en: "*Current mode:*"
 
   marathon_full_desc:
-    ru: "📚 *Марафон* — 14-дневный курс"
-    en: "📚 *Marathon* — 14-day course"
+    ru: "📚 *Марафон* — 14-дневный интенсив"
+    en: "📚 *Marathon* — 14-day intensive"
 
   marathon_daily:
     ru: "_Каждый день изучаете две темы: теория + практика_"
@@ -4470,3 +4492,348 @@ reset:
   done:
     ru: "✅ Прогресс сброшен! Профиль сохранён. Начинаем заново."
     en: "✅ Progress reset! Profile preserved. Starting fresh."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Aisystant account linking
+# ═══════════════════════════════════════════════════════════
+link:
+  already_linked:
+    ru: "✅ Аккаунт Aisystant уже привязан."
+    en: "✅ Aisystant account is already linked."
+
+  found_auto:
+    ru: "✅ Аккаунт Aisystant найден и привязан!\n\nТеперь вам доступны расписание, программы и оплата."
+    en: "✅ Aisystant account found and linked!\n\nSchedule, programs, and payments are now available."
+
+  not_found:
+    ru: "Аккаунт Aisystant не найден по вашему Telegram.\n\nНажмите кнопку ниже, чтобы привязать аккаунт на сайте Aisystant."
+    en: "Aisystant account not found for your Telegram.\n\nClick the button below to link your account on the Aisystant website."
+
+  btn_link:
+    ru: "🔗 Привязать на сайте"
+    en: "🔗 Link on website"
+
+  btn_check:
+    ru: "🔄 Проверить привязку"
+    en: "🔄 Check link"
+
+  check_success:
+    ru: "✅ Привязка подтверждена! Аккаунт Aisystant подключён."
+    en: "✅ Link confirmed! Aisystant account connected."
+
+  check_not_yet:
+    ru: "Привязка ещё не завершена.\n\nПерейдите по ссылке выше и привяжите Telegram в личном кабинете Aisystant."
+    en: "Link not yet completed.\n\nFollow the link above and connect Telegram in your Aisystant account."
+
+  unlinked:
+    ru: "Привязка Aisystant удалена."
+    en: "Aisystant link removed."
+
+  error:
+    ru: "Ошибка при привязке аккаунта. Попробуйте позже."
+    en: "Error linking account. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Schedule, programs, payments
+# ═══════════════════════════════════════════════════════════
+schedule:
+  title:
+    ru: "📋 *Расписание*"
+    en: "📋 *Schedule*"
+
+  no_account:
+    ru: "Привяжите аккаунт Aisystant, чтобы видеть расписание занятий.\n\nНажмите /link"
+    en: "Link your Aisystant account to see class schedule.\n\nPress /link"
+
+  no_lessons:
+    ru: "Ближайших занятий нет.\n\nПосмотрите доступные программы:"
+    en: "No upcoming classes.\n\nBrowse available programs:"
+
+  lesson_item:
+    ru: "📅 *{course}*\n🕐 {datetime}\n📍 {location}"
+    en: "📅 *{course}*\n🕐 {datetime}\n📍 {location}"
+
+  btn_courses:
+    ru: "📚 Каталог программ"
+    en: "📚 Program catalog"
+
+  btn_my_courses:
+    ru: "📖 Мои программы"
+    en: "📖 My programs"
+
+  # Program catalog
+  catalog_title:
+    ru: "📚 *Каталог программ*"
+    en: "📚 *Program catalog*"
+
+  catalog_empty:
+    ru: "Сейчас нет доступных программ."
+    en: "No programs available right now."
+
+  catalog_section:
+    ru: "_{section}_"
+    en: "_{section}_"
+
+  course_item:
+    ru: "• *{name}*\n  Старт: {start} | {price}"
+    en: "• *{name}*\n  Start: {start} | {price}"
+
+  btn_buy:
+    ru: "💳 Купить"
+    en: "💳 Buy"
+
+  # My programs
+  my_courses_title:
+    ru: "📖 *Мои программы*"
+    en: "📖 *My programs*"
+
+  my_courses_empty:
+    ru: "Вы ещё не записаны на программы."
+    en: "You are not enrolled in any programs yet."
+
+  my_course_item:
+    ru: "• *{name}*\n  Статус: {status}"
+    en: "• *{name}*\n  Status: {status}"
+
+  # Payment
+  payment_confirm:
+    ru: "Оплатить *{course}*?\n\nСумма: *{amount} ₽*"
+    en: "Pay for *{course}*?\n\nAmount: *{amount} ₽*"
+
+  btn_pay:
+    ru: "💳 Оплатить {amount} ₽"
+    en: "💳 Pay {amount} ₽"
+
+  btn_cancel:
+    ru: "❌ Отмена"
+    en: "❌ Cancel"
+
+  payment_success:
+    ru: "✅ Переходите к оплате по ссылке ниже."
+    en: "✅ Follow the link below to complete payment."
+
+  btn_pay_link:
+    ru: "💳 Перейти к оплате"
+    en: "💳 Go to payment"
+
+  payment_error:
+    ru: "Ошибка создания платежа. Попробуйте позже."
+    en: "Payment creation error. Please try again later."
+
+  error:
+    ru: "Ошибка загрузки расписания. Попробуйте позже."
+    en: "Error loading schedule. Please try again later."
+
+  # Program section names
+  section_personal:
+    ru: "Личное развитие"
+    en: "Personal development"
+
+  section_professional:
+    ru: "Профессиональное развитие"
+    en: "Professional development"
+
+  section_seminars:
+    ru: "Семинары"
+    en: "Seminars"
+
+  section_reviews:
+    ru: "Разборы"
+    en: "Reviews"
+
+  # Hub (navigation center)
+  hub_title:
+    ru: "📋 *Расписание и каталог*"
+    en: "📋 *Schedule & Catalog*"
+
+  hub_upcoming:
+    ru: "📅 *Мой график:*"
+    en: "📅 *My schedule:*"
+
+  hub_upcoming_item:
+    ru: "• {course} — {datetime}"
+    en: "• {course} — {datetime}"
+
+  hub_choose:
+    ru: "Куда можно записаться:"
+    en: "Where to enroll:"
+
+  # Hub menu button labels
+  menu_personal:
+    ru: "Личное развитие"
+    en: "Personal development"
+
+  menu_professional:
+    ru: "Рабочее развитие"
+    en: "Professional development"
+
+  menu_seminars:
+    ru: "Семинары"
+    en: "Seminars"
+
+  menu_reviews:
+    ru: "Разбор проекта"
+    en: "Project review"
+
+  menu_workshop:
+    ru: "Мастерская Церена"
+    en: "Tseren's Workshop"
+
+  menu_subscription:
+    ru: "Подписка БР"
+    en: "ID Subscription"
+
+  menu_my_courses:
+    ru: "Мои программы"
+    en: "My programs"
+
+  # Category view
+  category_empty:
+    ru: "В этом разделе сейчас нет программ в продаже."
+    en: "No programs for sale in this section right now."
+
+  btn_back:
+    ru: "⬅️ Назад"
+    en: "⬅️ Back"
+
+  # Workshop (Мастерская Церена)
+  workshop_text:
+    ru: "🔧 *Мастерская Церена*\n\nЕженедельные практические занятия с разбором рабочих продуктов участников."
+    en: "🔧 *Tseren's Workshop*\n\nWeekly hands-on sessions with review of participants' work products."
+
+  workshop_active:
+    ru: "✅ Подписка на мастерскую активна"
+    en: "✅ Workshop subscription is active"
+
+  btn_workshop_renew:
+    ru: "🔄 Продлить подписку"
+    en: "🔄 Renew subscription"
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Guide (replaces ЦД/twin as user-facing name)
+# ═══════════════════════════════════════════════════════════
+guide:
+  title:
+    ru: "🧭 *Гид*"
+    en: "🧭 *Guide*"
+
+  desc_t2:
+    ru: "Гид — ваш персональный помощник в обучении.\n\nПодключите Цифровой двойник, чтобы получить:\n• Персональный профиль с целями\n• Рекомендации по программам\n• Отслеживание прогресса"
+    en: "Guide is your personal learning assistant.\n\nConnect your Digital Twin to get:\n• Personal profile with goals\n• Program recommendations\n• Progress tracking"
+
+  btn_connect_dt:
+    ru: "🧬 Подключить Цифровой двойник"
+    en: "🧬 Connect Digital Twin"
+
+  profile_header:
+    ru: "🧭 *Ваш Гид*"
+    en: "🧭 *Your Guide*"
+
+  btn_update:
+    ru: "🔄 Обновить профиль"
+    en: "🔄 Update profile"
+
+  btn_degrees:
+    ru: "📐 Ступени развития"
+    en: "📐 Development stages"
+
+  btn_settings:
+    ru: "⚙️ Настройки Гида"
+    en: "⚙️ Guide settings"
+
+  loading:
+    ru: "Загружаю данные..."
+    en: "Loading data..."
+
+  unavailable:
+    ru: "Гид временно недоступен. Попробуйте позже."
+    en: "Guide is temporarily unavailable. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Aisystant subscription (БР)
+# ═══════════════════════════════════════════════════════════
+aisystant_sub:
+  title:
+    ru: "💳 *Подписка «Бесконечное развитие»*"
+    en: "💳 *«Infinite Development» Subscription*"
+
+  desc:
+    ru: "Подписка открывает полный доступ:\n• Лента дайджестов\n• Тренировка принципов\n• Персональный Гид\n• Все программы"
+    en: "Subscription unlocks full access:\n• Digest feed\n• Principles training\n• Personal Guide\n• All programs"
+
+  already_active:
+    ru: "✅ Подписка «Бесконечное развитие» активна."
+    en: "✅ «Infinite Development» subscription is active."
+
+  no_account:
+    ru: "Сначала привяжите аккаунт Aisystant.\n\nНажмите /link"
+    en: "First, link your Aisystant account.\n\nPress /link"
+
+  no_tariffs:
+    ru: "Нет доступных тарифов. Попробуйте позже."
+    en: "No available tariffs. Please try again later."
+
+  tariff_item:
+    ru: "• *{name}*: {price} ₽/{period}"
+    en: "• *{name}*: {price} ₽/{period}"
+
+  btn_subscribe:
+    ru: "💳 Оформить подписку"
+    en: "💳 Subscribe"
+
+  payment_success:
+    ru: "✅ Переходите по ссылке для оплаты подписки."
+    en: "✅ Follow the link to complete subscription payment."
+
+  btn_pay_link:
+    ru: "💳 Перейти к оплате"
+    en: "💳 Go to payment"
+
+  payment_error:
+    ru: "Ошибка создания платежа. Попробуйте позже."
+    en: "Payment creation error. Please try again later."
+
+  error:
+    ru: "Ошибка загрузки подписки. Попробуйте позже."
+    en: "Error loading subscription. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Contacts
+# ═══════════════════════════════════════════════════════════
+contacts:
+  title:
+    ru: "📞 *Контакты*"
+    en: "📞 *Contacts*"
+
+  text:
+    ru: "📞 *Контакты*\n\n🌐 Сайт: aisystant.system-school.ru\n📧 Email: info@system-school.ru\n💬 Telegram: @system_school_chat\n📺 YouTube: System School"
+    en: "📞 *Contacts*\n\n🌐 Website: aisystant.system-school.ru\n📧 Email: info@system-school.ru\n💬 Telegram: @system_school_chat\n📺 YouTube: System School"
+
+# -----------------------------------------------------------------------------
+# Витрина покупок (WP-79)
+# -----------------------------------------------------------------------------
+buy:
+  title:
+    ru: "🛒 *Что можно приобрести*"
+    en: "🛒 *Available for purchase*"
+  no_account:
+    ru: "Для покупок привяжите аккаунт Aisystant: /link"
+    en: "Link your Aisystant account first: /link"
+  sub_active:
+    ru: "✅ Подписка «Бесконечное развитие» активна"
+    en: "✅ «Infinite Development» subscription is active"
+  sub_section:
+    ru: "*💎 Подписка «Бесконечное развитие»*"
+    en: "*💎 «Infinite Development» subscription*"
+  courses_section:
+    ru: "*📚 Практикумы, резидентуры, семинары*"
+    en: "*📚 Workshops, residencies, seminars*"
+  btn_buy_sub:
+    ru: "💳 Оформить подписку"
+    en: "💳 Subscribe"
+  btn_renew_sub:
+    ru: "🔄 Продлить подписку"
+    en: "🔄 Renew subscription"
+  nothing_available:
+    ru: "Сейчас нет доступных предложений."
+    en: "No offers available at the moment."

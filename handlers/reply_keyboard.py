@@ -67,6 +67,24 @@ async def _fallback_route(message: Message, state: FSMContext, command: str, int
         elif command == 'twin':
             from handlers.twin import cmd_twin
             await cmd_twin(message)
+        elif command == 'link':
+            from handlers.link import cmd_link
+            await cmd_link(message)
+        elif command == 'schedule':
+            from handlers.schedule import cmd_schedule
+            await cmd_schedule(message)
+        elif command == 'guide':
+            from handlers.guide import cmd_guide
+            await cmd_guide(message)
+        elif command == 'subscription':
+            from handlers.subscription import cmd_subscription
+            await cmd_subscription(message)
+        elif command == 'contacts':
+            from handlers.contacts import cmd_contacts
+            await cmd_contacts(message)
+        elif command == 'buy':
+            from handlers.buy import cmd_buy
+            await cmd_buy(message)
         elif command == 'mydata':
             from handlers.commands import cmd_mydata
             await cmd_mydata(message, state)

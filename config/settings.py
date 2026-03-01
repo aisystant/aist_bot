@@ -45,6 +45,10 @@ else:
     # Auto-generate: sha256(bot_token)[:48] — hex chars, always valid
     WEBHOOK_SECRET = _hashlib.sha256((BOT_TOKEN or "").encode()).hexdigest()[:48] if BOT_TOKEN else None
 
+# ============= AISYSTANT LMS (WP-79) =============
+AISYSTANT_BASE_URL = os.getenv("AISYSTANT_BASE_URL", "https://aisystant.system-school.ru")
+AISYSTANT_TECH_PASSWORD = os.getenv("AISYSTANT_TECH_PASSWORD", "")
+
 # ============= GITHUB OAUTH =============
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
@@ -137,13 +141,13 @@ class FeedWeekStatus:
 # ============= УРОВНИ СЛОЖНОСТИ =============
 
 DIFFICULTY_LEVELS = {
-    "easy": {"emoji": "🌱", "name": "Начальный", "desc": "С нуля, простым языком"},
+    "easy": {"emoji": "🔰", "name": "Начальный", "desc": "С нуля, простым языком"},
     "medium": {"emoji": "🌿", "name": "Средний", "desc": "Есть базовые знания"},
     "hard": {"emoji": "🌳", "name": "Продвинутый", "desc": "Глубокое погружение"}
 }
 
 LEARNING_STYLES = {
-    "theoretical": {"emoji": "📚", "name": "Теоретик", "desc": "Сначала теория, потом практика"},
+    "theoretical": {"emoji": "📐", "name": "Теоретик", "desc": "Сначала теория, потом практика"},
     "practical": {"emoji": "🔧", "name": "Практик", "desc": "Учусь на примерах и задачах"},
     "mixed": {"emoji": "⚖️", "name": "Смешанный", "desc": "Баланс теории и практики"}
 }

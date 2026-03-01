@@ -25,7 +25,7 @@ def kb_experience(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 def kb_difficulty(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура выбора сложности"""
-    emojis = {'easy': '🌱', 'medium': '🌿', 'hard': '🌳'}
+    emojis = {'easy': '🔰', 'medium': '🌿', 'hard': '🌳'}
     keys = ['easy', 'medium', 'hard']
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{emojis[k]} {t(f'difficulty.{k}', lang)}", callback_data=f"diff_{k}")]
@@ -35,7 +35,7 @@ def kb_difficulty(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 def kb_learning_style(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура выбора стиля обучения"""
-    emojis = {'theoretical': '📚', 'practical': '🔧', 'mixed': '⚖️'}
+    emojis = {'theoretical': '📐', 'practical': '🔧', 'mixed': '⚖️'}
     keys = ['theoretical', 'practical', 'mixed']
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{emojis[k]} {t(f'learning_style.{k}', lang)}", callback_data=f"style_{k}")]
@@ -56,7 +56,7 @@ def kb_confirm(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text=t('buttons.yes', lang), callback_data="confirm"),
-            InlineKeyboardButton(text="🔄", callback_data="restart")
+            InlineKeyboardButton(text="🔁", callback_data="restart")
         ]
     ])
 
@@ -182,7 +182,7 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура редактирования профиля"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👤 " + t('buttons.name', lang), callback_data="upd_name"),
-         InlineKeyboardButton(text="💼 " + t('buttons.occupation', lang), callback_data="upd_occupation")],
+         InlineKeyboardButton(text="🏢 " + t('buttons.occupation', lang), callback_data="upd_occupation")],
         [InlineKeyboardButton(text="🎨 " + t('buttons.interests', lang), callback_data="upd_interests"),
          InlineKeyboardButton(text="🎯 " + t('buttons.goals', lang), callback_data="upd_goals")],
         [InlineKeyboardButton(text="⏱ " + t('buttons.duration', lang), callback_data="upd_duration"),

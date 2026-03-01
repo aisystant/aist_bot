@@ -130,6 +130,10 @@ async def create_tables(pool: asyncpg.Pool):
             # Bot blocked flag (WP-7: scheduler skip blocked users)
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE',
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked_at TIMESTAMP DEFAULT NULL',
+
+            # Aisystant account linking (WP-79: единый бот)
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS aisystant_id TEXT DEFAULT NULL',
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS aisystant_linked_at TIMESTAMP DEFAULT NULL',
         ]
         
         for migration in migrations:

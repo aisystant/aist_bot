@@ -105,6 +105,13 @@ from .wakatime import (
     delete_wakatime_connection,
 )
 
+from .aisystant import (
+    get_aisystant_id,
+    save_aisystant_link,
+    remove_aisystant_link,
+    is_aisystant_linked,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -187,4 +194,10 @@ __all__ = [
     'get_wakatime_connection',
     'save_wakatime_connection',
     'delete_wakatime_connection',
+
+    # aisystant (WP-79)
+    'get_aisystant_id',
+    'save_aisystant_link',
+    'remove_aisystant_link',
+    'is_aisystant_linked',
 ]
