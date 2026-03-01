@@ -77,9 +77,11 @@ class FeedEngine:
         if not intern:
             return False, t('feed.profile_not_found', lang)
 
-        # Обновляем режим
+        # Обновляем режим (derive_mode учитывает marathon_status)
+        from db.queries.users import derive_mode
+        marathon_status = intern.get('marathon_status', 'not_started')
         await update_intern(self.chat_id,
-            mode=Mode.FEED,
+            mode=derive_mode(marathon_status, FeedStatus.ACTIVE),
             feed_status=FeedStatus.ACTIVE,
             feed_started_at=datetime.utcnow(),
         )
