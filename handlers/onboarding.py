@@ -301,9 +301,11 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
     else:  # start_day_after
         start_date = today + timedelta(days=2)
 
+    from db.queries.users import derive_mode
     await update_intern(callback.message.chat.id,
                         marathon_start_date=start_date,
-                        marathon_status=MarathonStatus.ACTIVE)
+                        marathon_status=MarathonStatus.ACTIVE,
+                        mode=derive_mode(MarathonStatus.ACTIVE, 'not_started'))
     await callback.answer()
 
     intern = await get_intern(callback.message.chat.id)

@@ -560,8 +560,11 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
             return
         else:
             today = moscow_today()
+            from db.queries.users import derive_mode
+            feed_status = intern.get('feed_status', 'not_started')
             await update_intern(chat_id, marathon_start_date=today,
-                                marathon_status=MarathonStatus.ACTIVE)
+                                marathon_status=MarathonStatus.ACTIVE,
+                                mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
             await bot.send_message(
                 chat_id,
                 f"🚀 *{t('marathon.marathon_launched', lang)}*\n\n"
