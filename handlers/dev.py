@@ -276,52 +276,53 @@ async def cmd_errors(message: Message):
     if not _is_developer(message.chat.id):
         return
 
+    import html as html_mod
     from db.queries.errors import get_error_report
 
     try:
         report = await get_error_report(hours=24)
+
+        sep = "\u2500" * 20
+        s = report['summary']
+
+        if s['unique_errors'] == 0:
+            await message.answer(
+                f"<b>Отчёт по ошибкам</b> (24ч, {_msk_now()})\n{sep}\n\n"
+                f"\U0001f7e2 Ошибок за последние 24 часа нет.",
+                parse_mode="HTML"
+            )
+            return
+
+        # По источникам
+        logger_lines = ""
+        for r in report['by_logger']:
+            name = html_mod.escape(r['logger_name'])
+            logger_lines += f"  {name}: {r['count']} уник. ({r['total_occurrences']} всего)\n"
+
+        # Последние ошибки
+        recent_lines = ""
+        for r in report['recent'][:8]:
+            emoji = "\U0001f534" if r['level'] == 'CRITICAL' else "\U0001f7e1"
+            msg = html_mod.escape((r['message'] or '')[:60])
+            count_str = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
+            recent_lines += f"  {emoji} {html_mod.escape(r['logger_name'])}: {msg}{count_str}\n"
+
+        text = (
+            f"<b>Отчёт по ошибкам</b> (24ч, {_msk_now()})\n{sep}\n\n"
+            f"<b>Сводка</b>\n"
+            f"  Уник. ошибок: {s['unique_errors']}"
+            f" | Всего случаев: {s['total_occurrences']}\n"
+            f"  \U0001f534 Критических: {s['critical_count']}\n\n"
+            f"<b>По источникам</b>\n{logger_lines}\n"
+            f"<b>Последние</b>\n{recent_lines}"
+        )
+
+        text = truncate_safe(text)
+
+        await message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"[Dev] /errors error: {e}")
         await message.answer("Ошибка загрузки отчёта по ошибкам.")
-        return
-
-    sep = "\u2500" * 20
-    s = report['summary']
-
-    if s['unique_errors'] == 0:
-        await message.answer(
-            f"<b>Отчёт по ошибкам</b> (24ч, {_msk_now()})\n{sep}\n\n"
-            f"\U0001f7e2 Ошибок за последние 24 часа нет.",
-            parse_mode="HTML"
-        )
-        return
-
-    # По источникам
-    logger_lines = ""
-    for r in report['by_logger']:
-        logger_lines += f"  {r['logger_name']}: {r['count']} уник. ({r['total_occurrences']} всего)\n"
-
-    # Последние ошибки
-    recent_lines = ""
-    for r in report['recent'][:8]:
-        emoji = "\U0001f534" if r['level'] == 'CRITICAL' else "\U0001f7e1"
-        msg = (r['message'] or '')[:60]
-        count_str = f" x{r['occurrence_count']}" if r['occurrence_count'] > 1 else ""
-        recent_lines += f"  {emoji} {r['logger_name']}: {msg}{count_str}\n"
-
-    text = (
-        f"<b>Отчёт по ошибкам</b> (24ч, {_msk_now()})\n{sep}\n\n"
-        f"<b>Сводка</b>\n"
-        f"  Уник. ошибок: {s['unique_errors']}"
-        f" | Всего случаев: {s['total_occurrences']}\n"
-        f"  \U0001f534 Критических: {s['critical_count']}\n\n"
-        f"<b>По источникам</b>\n{logger_lines}\n"
-        f"<b>Последние</b>\n{recent_lines}"
-    )
-
-    text = truncate_safe(text)
-
-    await message.answer(text, parse_mode="HTML")
 
 
 @dev_router.message(Command("analytics"))

@@ -5,6 +5,7 @@
 Показывает тарифы и создаёт платёж через Aisystant API.
 """
 
+import asyncio
 import logging
 
 from aiogram import Router, F
@@ -63,6 +64,41 @@ def _lang(intern) -> str:
     return intern.get('language', 'ru') or 'ru'
 
 
+async def _create_tariff_buttons(
+    aisystant_id: str,
+    paid_tariffs: list[tuple[str, int, str]],
+    lang: str,
+    purpose: str | None = None,
+) -> list[list[InlineKeyboardButton]]:
+    """Pre-create payments for all tariffs → URL buttons (no extra click).
+
+    Falls back to callback buttons if payment creation fails.
+    """
+    async def _one(code: str, amount: int, period: str):
+        try:
+            result = await aisystant.create_subscription_payment(
+                aisystant_id, code, amount,
+                **({"purpose": purpose} if purpose else {}),
+            )
+            if result and result.get("confirmationUrl"):
+                return [InlineKeyboardButton(
+                    text=f"💳 {period} — {amount} ₽",
+                    url=result["confirmationUrl"],
+                )]
+        except Exception as e:
+            logger.error(f"[Subscription] pre-create payment error for {code}: {e}")
+        # Fallback: callback button
+        prefix = "sub_pay_ws" if purpose == "WORKSHOP" else "sub_pay"
+        return [InlineKeyboardButton(
+            text=f"💳 {period} — {amount} ₽",
+            callback_data=f"{prefix}:{code}:{amount}",
+        )]
+
+    rows = await asyncio.gather(*[_one(c, a, p) for c, a, p in paid_tariffs])
+    aisystant.invalidate_subscription_cache(aisystant_id)
+    return list(rows)
+
+
 @subscription_router.message(Command("subscription"))
 async def cmd_subscription(message: Message):
     """Команда /subscription — оформление подписки БР."""
@@ -112,34 +148,9 @@ async def cmd_subscription(message: Message):
         if amount > 0:
             paid_tariffs.append((code, amount, period))
 
-    # Один тариф → сразу создаём платёж
-    if len(paid_tariffs) == 1:
-        code, amount, period = paid_tariffs[0]
-        try:
-            result = await aisystant.create_subscription_payment(aisystant_id, code, amount)
-            if result and result.get("confirmationUrl"):
-                url = result["confirmationUrl"]
-                aisystant.invalidate_subscription_cache(aisystant_id)
-                buttons.append([InlineKeyboardButton(
-                    text=t('aisystant_sub.btn_pay_link', lang), url=url,
-                )])
-            else:
-                buttons.append([InlineKeyboardButton(
-                    text=f"💳 {period} — {amount} ₽",
-                    callback_data=f"sub_pay:{code}:{amount}",
-                )])
-        except Exception as e:
-            logger.error(f"[Subscription] auto-payment error: {e}")
-            buttons.append([InlineKeyboardButton(
-                text=f"💳 {period} — {amount} ₽",
-                callback_data=f"sub_pay:{code}:{amount}",
-            )])
-    else:
-        for code, amount, period in paid_tariffs:
-            buttons.append([InlineKeyboardButton(
-                text=f"💳 {period} — {amount} ₽",
-                callback_data=f"sub_pay:{code}:{amount}",
-            )])
+    # Сразу создаём платежи для всех тарифов → URL-кнопки без лишнего шага
+    if paid_tariffs:
+        buttons.extend(await _create_tariff_buttons(aisystant_id, paid_tariffs, lang))
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
@@ -227,34 +238,9 @@ async def callback_aisystant_subscribe(callback: CallbackQuery):
         if amount > 0:
             paid_tariffs.append((code, amount, period))
 
-    # Один тариф → сразу создаём платёж
-    if len(paid_tariffs) == 1:
-        code, amount, period = paid_tariffs[0]
-        try:
-            result = await aisystant.create_subscription_payment(aisystant_id, code, amount)
-            if result and result.get("confirmationUrl"):
-                url = result["confirmationUrl"]
-                aisystant.invalidate_subscription_cache(aisystant_id)
-                buttons.append([InlineKeyboardButton(
-                    text=t('aisystant_sub.btn_pay_link', lang), url=url,
-                )])
-            else:
-                buttons.append([InlineKeyboardButton(
-                    text=f"💳 {period} — {amount} ₽",
-                    callback_data=f"sub_pay:{code}:{amount}",
-                )])
-        except Exception as e:
-            logger.error(f"[Subscription] paywall auto-payment error: {e}")
-            buttons.append([InlineKeyboardButton(
-                text=f"💳 {period} — {amount} ₽",
-                callback_data=f"sub_pay:{code}:{amount}",
-            )])
-    else:
-        for code, amount, period in paid_tariffs:
-            buttons.append([InlineKeyboardButton(
-                text=f"💳 {period} — {amount} ₽",
-                callback_data=f"sub_pay:{code}:{amount}",
-            )])
+    # Сразу создаём платежи для всех тарифов → URL-кнопки без лишнего шага
+    if paid_tariffs:
+        buttons.extend(await _create_tariff_buttons(aisystant_id, paid_tariffs, lang))
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
