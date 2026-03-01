@@ -14,7 +14,7 @@ Tier model (payment-first, cumulative):
 
 Keyboard principle «Главная + Тянет вверх» (WP-79 §1):
   Row 1: [main activity for tier] [pulls up to next tier]
-  Row 2: [📋 Расписание] [⚙️ Настройки]  (stable)
+  Row 2: [📅 Расписание] [⚙️ Настройки]  (stable)
 
 Each tier defines:
   - keyboard: 2x2 ReplyKeyboard buttons
@@ -63,7 +63,7 @@ KB_LABELS = {
     'settings':   {'ru': '⚙️ Настройки',  'en': '⚙️ Settings',   'es': '⚙️ Ajustes',    'fr': '⚙️ Paramètres', 'zh': '⚙️ 设置'},
     # WP-79: Aisystant integration
     'link':       {'ru': '🔗 Привязать',  'en': '🔗 Link',       'es': '🔗 Vincular',   'fr': '🔗 Lier',        'zh': '🔗 关联'},
-    'schedule':   {'ru': '📋 Расписание', 'en': '📋 Schedule',   'es': '📋 Horario',    'fr': '📋 Horaire',     'zh': '📋 日程'},
+    'schedule':   {'ru': '📅 Расписание', 'en': '📅 Schedule',   'es': '📅 Horario',    'fr': '📅 Horaire',     'zh': '📅 日程'},
     'subscription': {'ru': '💳 Подписка', 'en': '💳 Subscribe',  'es': '💳 Suscripción','fr': '💳 Abonnement',  'zh': '💳 订阅'},
     'guide':      {'ru': '🧭 Гид',       'en': '🧭 Guide',      'es': '🧭 Guía',       'fr': '🧭 Guide',       'zh': '🧭 指南'},
     'contacts':   {'ru': '📞 Контакты',  'en': '📞 Contacts',   'es': '📞 Contactos',  'fr': '📞 Contacts',    'zh': '📞 联系'},
