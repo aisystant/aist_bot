@@ -1,15 +1,21 @@
 """
-Расписание, каталог курсов, оплата (WP-79).
+Расписание — навигационный хаб (WP-79).
 
-Команды:
-- /schedule — расписание занятий + навигация к каталогу
-- callback schedule_courses — каталог доступных курсов
-- callback schedule_my — мои курсы
-- callback schedule_buy:{code}:{amount} — покупка курса
+/schedule → хаб с разделами:
+- Личное развитие / Рабочее развитие / Семинары / Разбор проекта
+- Мастерская Церена (подписка WORKSHOP)
+- Подписка БР
+- Мои курсы
 
-Доступно всем тирам (кнопка «📋 Расписание»):
-- T1 new: только каталог (без личного расписания)
-- T1+ (с aisystant_id): личное расписание + каталог + мои курсы
+Callbacks:
+- sched_cat:{program}          — каталог по программе
+- sched_workshop               — мастерская Церена
+- aisystant_subscribe          — подписка БР (обработчик в subscription.py)
+- schedule_my                  — мои курсы
+- sched_back                   — возврат в хаб
+- schedule_detail:{code}       — детали курса + подтверждение оплаты
+- schedule_pay:{code}:{amount} — создание платежа
+- sub_pay_ws:{code}:{amount}   — платёж за мастерскую
 """
 
 import logging
@@ -40,6 +46,17 @@ SECTION_NAMES = {
     'reviews': 'schedule.section_reviews',
 }
 
+# Hub menu sections: key, callback_data, emoji, i18n label
+MENU_SECTIONS = [
+    ('personal',     'sched_cat:personal',     '📚', 'schedule.menu_personal'),
+    ('professional', 'sched_cat:professional', '💼', 'schedule.menu_professional'),
+    ('seminars',     'sched_cat:seminars',     '🎤', 'schedule.menu_seminars'),
+    ('reviews',      'sched_cat:reviews',      '🔍', 'schedule.menu_reviews'),
+    ('workshop',     'sched_workshop',         '🔧', 'schedule.menu_workshop'),
+    ('subscription', 'aisystant_subscribe',    '💎', 'schedule.menu_subscription'),
+    ('my_courses',   'schedule_my',            '📋', 'schedule.menu_my_courses'),
+]
+
 
 def _lang(intern) -> str:
     if not intern:
@@ -69,60 +86,80 @@ def _format_date(date_str: str, lang: str) -> str:
         return date_str or "—"
 
 
-@schedule_router.message(Command("schedule"))
-async def cmd_schedule(message: Message):
-    """Команда /schedule — расписание занятий."""
-    chat_id = message.chat.id
+# ── Hub ─────────────────────────────────────────────────
+
+async def _show_hub(message: Message, chat_id: int):
+    """Показать навигационный хаб расписания."""
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
+    lines = [t('schedule.hub_title', lang), ""]
+
+    # Ближайшие занятия (для привязанных пользователей)
     aisystant_id = await get_aisystant_id(chat_id)
+    if aisystant_id:
+        try:
+            lessons = await aisystant.get_user_lessons(aisystant_id)
+            if lessons:
+                lines.append(t('schedule.hub_upcoming', lang))
+                for lesson in lessons[:3]:
+                    potok = lesson.get("potok", {})
+                    course_name = potok.get("courseName", potok.get("code", "—"))
+                    lesson_data = lesson.get("lesson", {})
+                    lesson_dt = _format_datetime(lesson_data.get("datetime", ""), lang)
+                    lines.append(t('schedule.hub_upcoming_item', lang,
+                                    course=course_name, datetime=lesson_dt))
+                lines.append("")
+        except Exception as e:
+            logger.error(f"[Schedule] hub lessons error: {e}")
 
-    # Нет привязки — показываем каталог и предлагаем привязать
-    if not aisystant_id:
-        courses = await aisystant.get_available_courses()
-        if courses:
-            text = _build_catalog_text(courses, lang)
-            await message.answer(text, parse_mode="Markdown")
-        else:
-            await message.answer(t('schedule.no_account', lang))
-        return
+    lines.append(t('schedule.hub_choose', lang))
 
-    # Есть привязка — показываем занятия
-    try:
-        lessons = await aisystant.get_user_lessons(aisystant_id)
-    except Exception as e:
-        logger.error(f"[Schedule] get_user_lessons error: {e}")
-        await message.answer(t('schedule.error', lang))
-        return
+    # Кнопки разделов (2 в ряд)
+    buttons = []
+    row = []
+    for _key, callback_data, emoji, i18n_key in MENU_SECTIONS:
+        label = t(i18n_key, lang)
+        row.append(InlineKeyboardButton(
+            text=f"{emoji} {label}",
+            callback_data=callback_data,
+        ))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
 
-    buttons = [
-        [InlineKeyboardButton(text=t('schedule.btn_courses', lang), callback_data="schedule_courses")],
-        [InlineKeyboardButton(text=t('schedule.btn_my_courses', lang), callback_data="schedule_my")],
-    ]
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-    if not lessons:
-        await message.answer(t('schedule.no_lessons', lang), reply_markup=keyboard)
-        return
-
-    lines = [t('schedule.title', lang), ""]
-    for lesson in lessons[:10]:
-        potok = lesson.get("potok", {})
-        course_name = potok.get("courseName", potok.get("code", "—"))
-        lesson_data = lesson.get("lesson", {})
-        lesson_dt = _format_datetime(lesson_data.get("datetime", ""), lang)
-        location = lesson_data.get("location", "Онлайн")
-        lines.append(t('schedule.lesson_item', lang,
-                        course=course_name, datetime=lesson_dt, location=location))
-        lines.append("")
-
     await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
 
 
+@schedule_router.message(Command("schedule"))
+async def cmd_schedule(message: Message):
+    """Команда /schedule — навигационный хаб."""
+    await _show_hub(message, message.chat.id)
+
+
+@schedule_router.callback_query(F.data == "sched_back")
+async def callback_back(callback: CallbackQuery):
+    """Возврат в хаб."""
+    await callback.answer()
+    await _show_hub(callback.message, callback.from_user.id)
+
+
 @schedule_router.callback_query(F.data == "schedule_courses")
-async def callback_courses(callback: CallbackQuery):
-    """Каталог доступных курсов."""
+async def callback_courses_legacy(callback: CallbackQuery):
+    """Legacy stub: старая кнопка → хаб."""
+    await callback.answer()
+    await _show_hub(callback.message, callback.from_user.id)
+
+
+# ── Каталог по программе ────────────────────────────────
+
+@schedule_router.callback_query(F.data.startswith("sched_cat:"))
+async def callback_category(callback: CallbackQuery):
+    """Курсы одной программы с кнопками оплаты."""
+    category = callback.data.split(":", 1)[1]
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
@@ -136,28 +173,150 @@ async def callback_courses(callback: CallbackQuery):
         await callback.message.answer(t('schedule.error', lang))
         return
 
-    if not courses:
-        await callback.message.answer(t('schedule.catalog_empty', lang))
+    filtered = [c for c in courses if c.get("program") == category]
+
+    if not filtered:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
+        ])
+        await callback.message.answer(t('schedule.category_empty', lang), reply_markup=keyboard)
         return
 
-    text = _build_catalog_text(courses, lang)
+    section_name = t(SECTION_NAMES.get(category, 'schedule.section_personal'), lang)
+    lines = [f"*{section_name}*", ""]
 
-    # Inline-кнопки для покупки (для привязанных пользователей)
-    aisystant_id = await get_aisystant_id(chat_id)
     buttons = []
-    if aisystant_id:
-        for course in courses[:8]:
+    aisystant_id = await get_aisystant_id(chat_id)
+
+    for course in filtered:
+        name = course.get("courseName", course.get("code", "—"))
+        start = _format_date(course.get("started", ""), lang)
+        price = course.get("price")
+        price_str = f"{int(price)} ₽" if price else "бесплатно"
+        lines.append(t('schedule.course_item', lang, name=name, start=start, price=price_str))
+
+        # Кнопка оплаты (только для привязанных)
+        if aisystant_id and price:
             code = course.get("code", "")
-            name = course.get("courseName", code)[:30]
-            # Используем internships для получения цены
+            short_name = name[:25]
             buttons.append([InlineKeyboardButton(
-                text=f"💳 {name}",
+                text=f"💳 {short_name} — {price_str}",
                 callback_data=f"schedule_detail:{code}",
             )])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
-    await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+    # Кнопка «Назад»
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_back', lang), callback_data="sched_back",
+    )])
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+
+
+# ── Мастерская Церена ───────────────────────────────────
+
+@schedule_router.callback_query(F.data == "sched_workshop")
+async def callback_workshop(callback: CallbackQuery):
+    """Мастерская Церена — подписка WORKSHOP."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('schedule.no_account', lang))
+        return
+
+    lines = [t('schedule.workshop_text', lang), ""]
+    buttons = []
+
+    try:
+        # Проверяем активную подписку WORKSHOP
+        ws_sub = await aisystant.get_subscription_status_by_purpose(aisystant_id, "WORKSHOP")
+        if ws_sub:
+            lines.append(t('schedule.workshop_active', lang))
+            buttons.append([InlineKeyboardButton(
+                text=t('schedule.btn_workshop_renew', lang),
+                callback_data="sched_ws_tariffs",
+            )])
+        else:
+            # Показываем тарифы сразу
+            tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
+            if tariffs:
+                from handlers.subscription import _parse_tariff, _period_label
+                for tariff in tariffs[:5]:
+                    code, name, amount, periodicity = _parse_tariff(tariff)
+                    period = _period_label(periodicity, lang)
+                    lines.append(f"  • {period} — {amount} ₽")
+                    if amount > 0:
+                        buttons.append([InlineKeyboardButton(
+                            text=f"💳 {period} — {amount} ₽",
+                            callback_data=f"sub_pay_ws:{code}:{amount}",
+                        )])
+    except Exception as e:
+        logger.error(f"[Schedule] workshop error: {e}")
+
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_back', lang), callback_data="sched_back",
+    )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+
+
+@schedule_router.callback_query(F.data == "sched_ws_tariffs")
+async def callback_ws_tariffs(callback: CallbackQuery):
+    """Тарифы мастерской для продления."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('schedule.no_account', lang))
+        return
+
+    try:
+        tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
+    except Exception as e:
+        logger.error(f"[Schedule] ws tariffs error: {e}")
+        await callback.message.answer(t('schedule.error', lang))
+        return
+
+    if not tariffs:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
+        ])
+        await callback.message.answer(t('schedule.category_empty', lang), reply_markup=keyboard)
+        return
+
+    from handlers.subscription import _parse_tariff, _period_label
+
+    lines = [t('schedule.workshop_text', lang), ""]
+    buttons = []
+    for tariff in tariffs[:5]:
+        code, name, amount, periodicity = _parse_tariff(tariff)
+        period = _period_label(periodicity, lang)
+        lines.append(f"  • {period} — {amount} ₽")
+        if amount > 0:
+            buttons.append([InlineKeyboardButton(
+                text=f"💳 {period} — {amount} ₽",
+                callback_data=f"sub_pay_ws:{code}:{amount}",
+            )])
+
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_back', lang), callback_data="sched_back",
+    )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+
+
+# ── Мои курсы ───────────────────────────────────────────
 
 @schedule_router.callback_query(F.data == "schedule_my")
 async def callback_my_courses(callback: CallbackQuery):
@@ -182,7 +341,7 @@ async def callback_my_courses(callback: CallbackQuery):
 
     if not courses:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('schedule.btn_courses', lang), callback_data="schedule_courses")],
+            [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
         ])
         await callback.message.answer(t('schedule.my_courses_empty', lang), reply_markup=keyboard)
         return
@@ -194,8 +353,14 @@ async def callback_my_courses(callback: CallbackQuery):
         status = potok.get("status", "—")
         lines.append(t('schedule.my_course_item', lang, name=name, status=status))
 
-    await callback.message.answer("\n".join(lines), parse_mode="Markdown")
+    buttons = [
+        [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
+    ]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
 
+
+# ── Детали курса + оплата ───────────────────────────────
 
 @schedule_router.callback_query(F.data.startswith("schedule_detail:"))
 async def callback_course_detail(callback: CallbackQuery):
@@ -246,7 +411,7 @@ async def callback_course_detail(callback: CallbackQuery):
                 )],
                 [InlineKeyboardButton(
                     text=t('schedule.btn_cancel', lang),
-                    callback_data="schedule_courses",
+                    callback_data="sched_back",
                 )],
             ])
             await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -293,33 +458,3 @@ async def callback_pay(callback: CallbackQuery):
         [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=url)],
     ])
     await callback.message.answer(t('schedule.payment_success', lang), reply_markup=keyboard)
-
-
-def _build_catalog_text(courses: list[dict], lang: str) -> str:
-    """Build formatted catalog text grouped by program."""
-    sections: dict[str, list[dict]] = {}
-    for course in courses:
-        program = course.get("program", "personal")
-        sections.setdefault(program, []).append(course)
-
-    lines = [t('schedule.catalog_title', lang), ""]
-
-    section_order = ['personal', 'professional', 'seminars', 'reviews']
-    for section_key in section_order:
-        section_courses = sections.get(section_key)
-        if not section_courses:
-            continue
-
-        section_name = t(SECTION_NAMES.get(section_key, 'schedule.section_personal'), lang)
-        lines.append(t('schedule.catalog_section', lang, section=section_name))
-
-        for course in section_courses:
-            name = course.get("courseName", course.get("code", "—"))
-            start = _format_date(course.get("started", ""), lang)
-            price = course.get("price")
-            price_str = f"{int(price)} ₽" if price else "бесплатно"
-            lines.append(t('schedule.course_item', lang, name=name, start=start, price=price_str))
-
-        lines.append("")
-
-    return "\n".join(lines)

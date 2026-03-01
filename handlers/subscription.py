@@ -201,3 +201,41 @@ async def callback_aisystant_subscribe(callback: CallbackQuery):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+
+
+@subscription_router.callback_query(F.data.startswith("sub_pay_ws:"))
+async def callback_sub_pay_workshop(callback: CallbackQuery):
+    """Создать платёж за подписку Мастерской (WORKSHOP)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    amount = float(parts[2])
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('aisystant_sub.no_account', lang))
+        return
+
+    try:
+        result = await aisystant.create_subscription_payment(
+            aisystant_id, code, amount, purpose="WORKSHOP",
+        )
+    except Exception as e:
+        logger.error(f"[Subscription] workshop payment error: {e}")
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    if not result or not result.get("confirmationUrl"):
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    url = result["confirmationUrl"]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('aisystant_sub.btn_pay_link', lang), url=url)],
+    ])
+    await callback.message.answer(t('aisystant_sub.payment_success', lang), reply_markup=keyboard)

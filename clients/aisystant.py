@@ -171,6 +171,15 @@ class AisystantClient:
             params={"user-id": aisystant_id},
         )
 
+    async def get_subscription_status_by_purpose(
+        self, aisystant_id: str, purpose: str,
+    ) -> dict | None:
+        """Получить статус подписки по purpose (WORKSHOP, INTERNSHIP и т.д.)."""
+        return await self._get(
+            "/api/subscriptions/active-subscription",
+            params={"user-id": aisystant_id, "purpose": purpose},
+        )
+
     # ── Каталог потоков ────────────────────────────────────
 
     async def get_all_potoki(self) -> list[dict]:

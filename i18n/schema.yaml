@@ -4641,6 +4641,74 @@ schedule:
     ru: "Разборы"
     en: "Reviews"
 
+  # Hub (navigation center)
+  hub_title:
+    ru: "📋 *Расписание и каталог*"
+    en: "📋 *Schedule & Catalog*"
+
+  hub_upcoming:
+    ru: "📅 *Ближайшие занятия:*"
+    en: "📅 *Upcoming classes:*"
+
+  hub_upcoming_item:
+    ru: "• {course} — {datetime}"
+    en: "• {course} — {datetime}"
+
+  hub_choose:
+    ru: "Выберите раздел:"
+    en: "Choose a section:"
+
+  # Hub menu button labels
+  menu_personal:
+    ru: "Личное развитие"
+    en: "Personal development"
+
+  menu_professional:
+    ru: "Рабочее развитие"
+    en: "Professional development"
+
+  menu_seminars:
+    ru: "Семинары"
+    en: "Seminars"
+
+  menu_reviews:
+    ru: "Разбор проекта"
+    en: "Project review"
+
+  menu_workshop:
+    ru: "Мастерская Церена"
+    en: "Tseren's Workshop"
+
+  menu_subscription:
+    ru: "Подписка БР"
+    en: "ID Subscription"
+
+  menu_my_courses:
+    ru: "Мои курсы"
+    en: "My courses"
+
+  # Category view
+  category_empty:
+    ru: "В этом разделе сейчас нет курсов в продаже."
+    en: "No courses for sale in this section right now."
+
+  btn_back:
+    ru: "⬅️ Назад"
+    en: "⬅️ Back"
+
+  # Workshop (Мастерская Церена)
+  workshop_text:
+    ru: "🔧 *Мастерская Церена*\n\nЕженедельные практические занятия с разбором рабочих продуктов участников."
+    en: "🔧 *Tseren's Workshop*\n\nWeekly hands-on sessions with review of participants' work products."
+
+  workshop_active:
+    ru: "✅ Подписка на мастерскую активна"
+    en: "✅ Workshop subscription is active"
+
+  btn_workshop_renew:
+    ru: "🔄 Продлить подписку"
+    en: "🔄 Renew subscription"
+
 # ═══════════════════════════════════════════════════════════
 # WP-79: Guide (replaces ЦД/twin as user-facing name)
 # ═══════════════════════════════════════════════════════════
