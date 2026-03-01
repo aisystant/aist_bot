@@ -6,7 +6,7 @@ DB-запросы для привязки Aisystant аккаунта (WP-79).
 - Запросов к Aisystant API (курсы, оплата, занятия)
 """
 
-from db import pool
+from db.connection import get_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 
 async def get_aisystant_id(chat_id: int) -> str | None:
     """Получить aisystant_id по chat_id. None если не привязан."""
+    pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             'SELECT aisystant_id FROM interns WHERE chat_id = $1',
@@ -26,6 +27,7 @@ async def get_aisystant_id(chat_id: int) -> str | None:
 
 async def save_aisystant_link(chat_id: int, aisystant_id: str):
     """Сохранить привязку Aisystant аккаунта."""
+    pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''UPDATE interns
@@ -40,6 +42,7 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
 
 async def remove_aisystant_link(chat_id: int):
     """Удалить привязку Aisystant аккаунта."""
+    pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''UPDATE interns
