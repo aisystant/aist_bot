@@ -158,14 +158,13 @@ async def on_successful_payment(message: Message):
         # Предложить сделать донат постоянным
         active_sub = await get_active_subscription(chat_id)
         if not active_sub:
-            price = get_current_price()
             try:
                 link = await message.bot.create_invoice_link(
                     title=t('donation.recurring_invoice_title', lang),
                     description=t('donation.recurring_invoice_description', lang),
-                    payload=f"sub_{chat_id}_{price}",
+                    payload=f"sub_{chat_id}_{amount}",
                     currency="XTR",
-                    prices=[LabeledPrice(label="Monthly donation", amount=price)],
+                    prices=[LabeledPrice(label="Monthly donation", amount=amount)],
                     subscription_period=2592000,
                 )
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
