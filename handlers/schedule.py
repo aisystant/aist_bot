@@ -512,4 +512,12 @@ async def callback_pay(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=url)],
     ])
-    await callback.message.answer(t('schedule.payment_success', lang), reply_markup=keyboard)
+    try:
+        await callback.message.edit_text(
+            t('schedule.payment_success', lang),
+            reply_markup=keyboard,
+        )
+    except Exception:
+        await callback.message.answer(
+            t('schedule.payment_success', lang), reply_markup=keyboard,
+        )

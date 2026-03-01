@@ -181,7 +181,14 @@ async def callback_sub_pay(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('aisystant_sub.btn_pay_link', lang), url=url)],
     ])
-    await callback.message.answer(t('aisystant_sub.payment_success', lang), reply_markup=keyboard)
+    try:
+        await callback.message.edit_text(
+            t('aisystant_sub.payment_success', lang), reply_markup=keyboard,
+        )
+    except Exception:
+        await callback.message.answer(
+            t('aisystant_sub.payment_success', lang), reply_markup=keyboard,
+        )
 
 
 @subscription_router.callback_query(F.data == "aisystant_subscribe")
@@ -288,4 +295,11 @@ async def callback_sub_pay_workshop(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('aisystant_sub.btn_pay_link', lang), url=url)],
     ])
-    await callback.message.answer(t('aisystant_sub.payment_success', lang), reply_markup=keyboard)
+    try:
+        await callback.message.edit_text(
+            t('aisystant_sub.payment_success', lang), reply_markup=keyboard,
+        )
+    except Exception:
+        await callback.message.answer(
+            t('aisystant_sub.payment_success', lang), reply_markup=keyboard,
+        )
