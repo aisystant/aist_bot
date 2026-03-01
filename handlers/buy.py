@@ -49,39 +49,11 @@ async def cmd_buy(message: Message):
 
 
 async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang: str):
-    """Показать витрину: подписка + курсы."""
+    """Показать витрину: курсы + подписка (подписка в конце)."""
     lines = [t('buy.title', lang), ""]
     buttons = []
 
-    # 1. Подписка БР
-    try:
-        is_active = await aisystant.has_active_subscription(aisystant_id)
-        if is_active:
-            lines.append(t('buy.sub_active', lang))
-        else:
-            tariffs = await aisystant.get_subscription_tariffs(aisystant_id)
-            if tariffs:
-                lines.append(t('buy.sub_section', lang))
-                for tariff in tariffs[:3]:
-                    code = tariff.get("code", "")
-                    name = tariff.get("name", code)
-                    amount = tariff.get("amount", 0)
-                    try:
-                        amount = float(amount)
-                    except (TypeError, ValueError):
-                        amount = 0
-                    period = tariff.get("period", "месяц")
-                    lines.append(f"  • {name} — {int(amount)} ₽/{period}")
-                    if amount > 0:
-                        buttons.append([InlineKeyboardButton(
-                            text=f"💳 {name} — {int(amount)} ₽",
-                            callback_data=f"sub_pay:{code}:{int(amount)}",
-                        )])
-                lines.append("")
-    except Exception as e:
-        logger.error(f"[Buy] subscription check error: {e}")
-
-    # 2. Курсы (все в продаже, не только непокупленные)
+    # 1. Курсы (все в продаже)
     try:
         courses = await aisystant.get_available_courses()
         if courses:
@@ -100,8 +72,37 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                         text=f"📚 {name[:25]} — {int(amount)} ₽",
                         callback_data=f"schedule_pay:{code}:{int(amount)}",
                     )])
+            lines.append("")
     except Exception as e:
         logger.error(f"[Buy] courses error: {e}")
+
+    # 2. Подписка БР (всегда показываем тарифы — для покупки или продления)
+    try:
+        is_active = await aisystant.has_active_subscription(aisystant_id)
+        tariffs = await aisystant.get_subscription_tariffs(aisystant_id)
+        if tariffs:
+            if is_active:
+                lines.append(t('buy.sub_active', lang))
+            lines.append(t('buy.sub_section', lang))
+            for tariff in tariffs[:3]:
+                code = tariff.get("code", "")
+                name = tariff.get("name", code)
+                amount = tariff.get("amount", 0)
+                try:
+                    amount = float(amount)
+                except (TypeError, ValueError):
+                    amount = 0
+                period = tariff.get("period", "месяц")
+                lines.append(f"  • {name} — {int(amount)} ₽/{period}")
+                if amount > 0:
+                    btn_prefix = "🔄" if is_active else "💳"
+                    buttons.append([InlineKeyboardButton(
+                        text=f"{btn_prefix} {name} — {int(amount)} ₽",
+                        callback_data=f"sub_pay:{code}:{int(amount)}",
+                    )])
+            lines.append("")
+    except Exception as e:
+        logger.error(f"[Buy] subscription check error: {e}")
 
     if not buttons:
         lines.append(t('buy.nothing_available', lang))
