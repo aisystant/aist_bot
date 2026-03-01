@@ -104,31 +104,7 @@ class SettingsState(BaseState):
             f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
         )
 
-        # Статус подписки (до SUBSCRIPTION_LAUNCH_DATE — open beta, не показываем триал)
-        from datetime import date as _date
-        from config.settings import SUBSCRIPTION_LAUNCH_DATE
-        if _date.today() >= SUBSCRIPTION_LAUNCH_DATE:
-            from core.access import access_layer
-            from db.queries.subscription import get_active_subscription
-            sub = await get_active_subscription(chat_id)
-            in_trial = await access_layer._is_in_trial(chat_id)
-            trial_days = await access_layer.get_trial_days_remaining(chat_id)
-
-            if sub:
-                expires = sub.get('expires_at')
-                date_str = expires.strftime('%d.%m.%Y') if expires else '—'
-                sub_line = t('subscription.status_active', lang, date=date_str)
-            elif in_trial and trial_days > 0:
-                sub_line = t('subscription.status_trial', lang, days=trial_days)
-            else:
-                sub_line = t('subscription.status_expired', lang)
-
-            text += f"⭐ {sub_line}\n"
-
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⭐ " + t('subscription.settings_label', lang), callback_data="upd_subscription"),
-            ],
             [
                 InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language"),
             ],
@@ -137,6 +113,9 @@ class SettingsState(BaseState):
             ],
             [
                 InlineKeyboardButton(text="🔄 " + t('settings.reset_label', lang), callback_data="show_resets"),
+            ],
+            [
+                InlineKeyboardButton(text="⭐ " + t('donation.settings_label', lang), callback_data="upd_subscription"),
             ],
             [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
@@ -222,9 +201,7 @@ class SettingsState(BaseState):
             return await self._github_disconnect(user, callback)
 
         if data == "upd_subscription":
-            return await self._show_subscription(user, callback)
-        if data == "sub_why_paid":
-            return await self._show_why_paid(user, callback)
+            return await self._show_donation(user, callback)
         if data == "sub_cancel_confirm":
             return await self._subscription_cancel_confirm(user, callback)
         if data == "sub_cancel_do":
@@ -514,96 +491,64 @@ class SettingsState(BaseState):
         )
         return None
 
-    async def _show_subscription(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Показываем статус подписки."""
+    async def _show_donation(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем экран донатов с объяснением и двумя вариантами."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        from datetime import date as _date
-        from config.settings import SUBSCRIPTION_LAUNCH_DATE
+        from core.pricing import get_current_price
+        from db.queries.subscription import get_active_subscription
+
+        price = get_current_price()
+        sub = await get_active_subscription(chat_id)
+
+        text = (
+            f"⭐ *{t('donation.title', lang)}*\n\n"
+            f"{t('donation.explanation', lang)}"
+        )
 
         buttons = []
 
-        # До SUBSCRIPTION_LAUNCH_DATE — open beta, подписки не активны
-        if _date.today() < SUBSCRIPTION_LAUNCH_DATE:
-            text = (
-                f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                f"Open Beta — полный доступ до {SUBSCRIPTION_LAUNCH_DATE.strftime('%d.%m.%Y')}"
-            )
-        else:
-            from core.access import access_layer
-            from core.pricing import get_current_price
-            from db.queries.subscription import get_active_subscription
+        # Активный ежемесячный донат — показываем статус + отмену
+        if sub:
+            expires = sub.get('expires_at')
+            date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+            amount = sub.get('stars_amount', price)
+            text += f"\n\n{t('donation.recurring_active', lang, price=amount, date=date_str)}"
+            buttons.append([InlineKeyboardButton(
+                text=t('donation.cancel_recurring_button', lang),
+                callback_data="sub_cancel_confirm",
+            )])
 
-            sub = await get_active_subscription(chat_id)
-            in_trial = await access_layer._is_in_trial(chat_id)
-            trial_days = await access_layer.get_trial_days_remaining(chat_id)
-            price = get_current_price()
-
-            if sub:
-                expires = sub.get('expires_at')
-                date_str = expires.strftime('%d.%m.%Y') if expires else '—'
-                amount = sub.get('stars_amount', price)
-                text = (
-                    f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                    f"{t('subscription.status_active', lang, date=date_str)}\n"
-                    f"{t('subscription.price_locked', lang, price=amount)}\n\n"
-                    f"{t('subscription.current_price', lang, price=price)}"
-                )
-                buttons.append([InlineKeyboardButton(
-                    text=t('subscription.cancel_button', lang),
-                    callback_data="sub_cancel_confirm",
-                )])
-            elif in_trial and trial_days > 0:
-                text = (
-                    f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                    f"{t('subscription.trial_active', lang, days=trial_days)}\n\n"
-                    f"{t('subscription.current_price', lang, price=price)}"
-                )
-                buttons.append([InlineKeyboardButton(
-                    text=t('subscription.subscribe_button', lang, price=price),
-                    callback_data="subscribe",
-                )])
-            else:
-                text = (
-                    f"⭐ *{t('subscription.settings_label', lang)}*\n\n"
-                    f"{t('subscription.status_expired', lang)}\n\n"
-                    f"{t('subscription.current_price', lang, price=price)}"
-                )
-                buttons.append([InlineKeyboardButton(
-                    text=t('subscription.subscribe_button', lang, price=price),
-                    callback_data="subscribe",
-                )])
-
-            buttons.append([InlineKeyboardButton(text="💡 " + t('buttons.why', lang), callback_data="sub_why_paid")])
-
+        buttons.append([InlineKeyboardButton(
+            text=t('donation.once_button', lang, price=price),
+            callback_data="donate_once",
+        )])
+        buttons.append([InlineKeyboardButton(
+            text=t('donation.recurring_button', lang, price=price),
+            callback_data="donate_recurring",
+        )])
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        return None
-
-    async def _show_why_paid(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Показываем объяснение, почему подписка платная."""
-        lang = self._get_lang(user)
-
-        text = t('subscription.why_paid', lang)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_subscription")]
-        ])
-
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         return None
 
     async def _subscription_cancel_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Подтверждение отмены подписки."""
+        """Подтверждение отмены ежемесячного доната."""
         lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
 
-        text = f"⚠️ {t('subscription.cancel_confirm', lang)}"
+        from db.queries.subscription import get_active_subscription
+        sub = await get_active_subscription(chat_id)
+        expires = sub.get('expires_at') if sub else None
+        date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+
+        text = f"⚠️ {t('donation.cancel_confirm', lang, date=date_str)}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=t('subscription.cancel_confirm_button', lang), callback_data="sub_cancel_do"),
+                InlineKeyboardButton(text=t('donation.cancel_confirm_button', lang), callback_data="sub_cancel_do"),
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_subscription"),
             ]
         ])
@@ -612,7 +557,7 @@ class SettingsState(BaseState):
         return None
 
     async def _subscription_cancel_do(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Отменить подписку через Telegram API."""
+        """Отменить ежемесячный донат через Telegram API."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
@@ -620,7 +565,7 @@ class SettingsState(BaseState):
 
         sub = await get_active_subscription(chat_id)
         if not sub:
-            await callback.answer(t('subscription.status_expired', lang))
+            await callback.answer(t('donation.no_active', lang))
             await self.enter(user)
             return None
 
@@ -633,15 +578,14 @@ class SettingsState(BaseState):
                 is_canceled=True,
             )
         except Exception as e:
-            logger.error(f"[Subscription] Cancel API error: {e}")
+            logger.error(f"[Donation] Cancel API error: {e}")
 
         await cancel_subscription(chat_id, charge_id)
 
-        expires = sub.get('expires_at')
-        date_str = expires.strftime('%d.%m.%Y') if expires else '—'
+        text = t('donation.cancelled', lang)
 
         await callback.message.edit_text(
-            t('subscription.cancelled', lang, date=date_str),
+            text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
             ]),
