@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 buy_router = Router(name="buy")
 
+# Короткие названия для отображения (API возвращает длинные)
+SHORT_NAMES = {
+    "Практикум по методам саморазвития": "Методы саморазвития",
+    "Практикум по системному саморазвитию": "Системное саморазвитие",
+}
+
+
+def _short_name(name: str) -> str:
+    return SHORT_NAMES.get(name, name)
+
 
 def _lang(intern) -> str:
     if not intern:
@@ -60,7 +70,8 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
             lines.append(t('buy.courses_section', lang))
             for course in courses[:8]:
                 code = course.get("code", "")
-                name = course.get("courseName", course.get("name", code))
+                raw_name = course.get("courseName", course.get("name", code))
+                name = _short_name(raw_name)
                 raw_amount = course.get("price") or course.get("amount") or 0
                 try:
                     amount = float(raw_amount)
