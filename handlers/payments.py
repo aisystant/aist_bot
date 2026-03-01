@@ -31,37 +31,43 @@ logger = logging.getLogger(__name__)
 payments_router = Router(name="payments")
 
 
-# === Разовый донат ===
+# === Разовый донат (с выбором суммы) ===
 
-@payments_router.callback_query(F.data == "donate_once")
-async def cb_donate_once(callback: CallbackQuery):
-    """Создать invoice для разового доната."""
+@payments_router.callback_query(F.data.startswith("donate_pay:"))
+async def cb_donate_pay(callback: CallbackQuery):
+    """Создать invoice для разового доната на указанную сумму."""
     await callback.answer()
 
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru'
 
-    price = get_current_price()
+    try:
+        amount = int(callback.data.split(":")[1])
+        if amount < 1 or amount > 10000:
+            raise ValueError
+    except (ValueError, IndexError):
+        await callback.message.answer(t('errors.try_again', lang))
+        return
 
     try:
         link = await callback.bot.create_invoice_link(
             title=t('donation.once_invoice_title', lang),
             description=t('donation.once_invoice_description', lang),
-            payload=f"donate_once_{chat_id}_{price}",
+            payload=f"donate_once_{chat_id}_{amount}",
             currency="XTR",
-            prices=[LabeledPrice(label="Donation", amount=price)],
+            prices=[LabeledPrice(label="Donation", amount=amount)],
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=t('donation.once_pay_button', lang, price=price),
+                text=t('donation.once_pay_button', lang, price=amount),
                 url=link,
             )]
         ])
 
         await callback.message.answer(
-            t('donation.once_invoice_text', lang, price=price),
+            t('donation.once_invoice_text', lang, price=amount),
             reply_markup=keyboard,
         )
 
