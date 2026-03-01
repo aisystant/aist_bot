@@ -623,12 +623,16 @@ class ConsultationState(BaseState):
             await self.send(user, t('consultation.error', lang))
             return None
 
-        # Сохраняем ответ в conversation history
+        # Сохраняем ответ в conversation history + записываем активный день
         try:
             if question and _answer_for_history:
                 self._append_history(session_ctx, question, _answer_for_history)
                 await self._save_session_context(chat_id, session_ctx)
                 logger.info(f"[Consultation] History saved, {len(session_ctx.get('consultation_history', []))} pairs")
+                # Записываем активный день (fire-and-forget)
+                if chat_id:
+                    from db.queries.activity import record_active_day
+                    asyncio.create_task(record_active_day(chat_id, 'question_asked', mode=self._get_mode(user)))
         except Exception as e:
             logger.warning(f"Consultation history save error: {e}")
 
