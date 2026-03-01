@@ -40,12 +40,6 @@ SECTION_NAMES = {
     'reviews': 'schedule.section_reviews',
 }
 
-# Короткие названия для отображения
-SHORT_NAMES = {
-    "Практикум по методам саморазвития": "Методы саморазвития",
-    "Практикум по системному саморазвитию": "Системное саморазвитие",
-}
-
 
 def _lang(intern) -> str:
     if not intern:
@@ -320,8 +314,7 @@ def _build_catalog_text(courses: list[dict], lang: str) -> str:
         lines.append(t('schedule.catalog_section', lang, section=section_name))
 
         for course in section_courses:
-            raw_name = course.get("courseName", course.get("code", "—"))
-            name = SHORT_NAMES.get(raw_name, raw_name)
+            name = course.get("courseName", course.get("code", "—"))
             start = _format_date(course.get("started", ""), lang)
             price = course.get("price")
             price_str = f"{int(price)} ₽" if price else "бесплатно"

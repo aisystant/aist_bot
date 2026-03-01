@@ -145,15 +145,7 @@ async def callback_aisystant_subscribe(callback: CallbackQuery):
         await callback.message.answer(t('aisystant_sub.no_account', lang))
         return
 
-    # Показываем тарифы (дублируем логику из cmd_subscription для callback)
-    try:
-        is_active = await aisystant.has_active_subscription(aisystant_id)
-        if is_active:
-            await callback.message.answer(t('aisystant_sub.already_active', lang))
-            return
-    except Exception:
-        pass
-
+    # Показываем тарифы (и для новой подписки, и для продления)
     try:
         tariffs = await aisystant.get_subscription_tariffs(aisystant_id)
     except Exception as e:
