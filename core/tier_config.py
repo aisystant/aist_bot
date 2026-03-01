@@ -94,10 +94,10 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'mode', 'help'],
-    UITier.T2_LEARNING:        ['feed', 'train', 'learn', 'test', 'progress', 'profile', 'mode', 'help'],
-    UITier.T3_PERSONALIZATION: ['feed', 'train', 'learn', 'test', 'progress', 'mydata', 'mode', 'help'],
-    UITier.T4_CREATION:        ['plan', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'mode', 'start', 'help'],
+    UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'mode', 'settings', 'help'],
+    UITier.T2_LEARNING:        ['feed', 'train', 'learn', 'test', 'progress', 'profile', 'mode', 'settings', 'help'],
+    UITier.T3_PERSONALIZATION: ['feed', 'train', 'learn', 'test', 'progress', 'mydata', 'mode', 'settings', 'help'],
+    UITier.T4_CREATION:        ['plan', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'mode', 'settings', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -117,6 +117,7 @@ COMMAND_DESCRIPTIONS = {
     'report':    {'ru': 'Отчёт дня',                    'en': 'Day report',                'es': 'Informe del día',            'fr': 'Rapport du jour',              'zh': '日报'},
     'mydata':    {'ru': 'Мои данные',                    'en': 'My data',                   'es': 'Mis datos',                  'fr': 'Mes données',                  'zh': '我的数据'},
     'mode':      {'ru': 'Клавиатура',                    'en': 'Keyboard',                  'es': 'Teclado',                    'fr': 'Clavier',                      'zh': '键盘'},
+    'settings':  {'ru': 'Настройки и подписка',           'en': 'Settings & subscription',   'es': 'Ajustes y suscripción',      'fr': 'Paramètres et abonnement',     'zh': '设置与订阅'},
     'start':     {'ru': 'Перезапуск бота',                'en': 'Restart the bot',            'es': 'Reiniciar el bot',           'fr': 'Redémarrer le bot',            'zh': '重启机器人'},
     'help':      {'ru': 'Помощь',                       'en': 'Help',                      'es': 'Ayuda',                      'fr': 'Aide',                         'zh': '帮助'},
     'analytics': {'ru': 'Аналитика',                    'en': 'Analytics',                 'es': 'Analíticas',                 'fr': 'Analytiques',                  'zh': '分析'},

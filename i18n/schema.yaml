@@ -2243,6 +2243,14 @@ help:
     ru: "Рекомендуется установить время получения контента — так вы не будете ждать слишком долго. Или запросите его командой, но подождите примерно 1 минуту. Бот в это время формирует динамический контекст для обращения к ИИ, используя ваши данные и обращаясь к хранилищам данных МИМ."
     en: "It's recommended to set content delivery time — so you don't wait too long. Or request it via command, but wait about 1 minute. The bot creates dynamic context for AI, using your data and MIM knowledge bases."
 
+  subscription_title:
+    ru: "Подписка"
+    en: "Subscription"
+
+  subscription_info:
+    ru: "Лента, Консультант, Заметки и Планы доступны по подписке (Telegram Stars).\n\nПервые 30 дней — бесплатный пробный период.\nСтоимость подписки повышается каждую неделю. Подписавшись, вы фиксируете свою цену навсегда — Telegram продлевает подписку автоматически по той же цене.\n\n⭐ Звёзды используются для продвижения бота в Telegram — так нас находят новые ученики.\n\nОформить: /settings → Подписка."
+    en: "Feed, Consultant, Notes and Plans require a subscription (Telegram Stars).\n\nFirst 30 days are a free trial.\nThe subscription price increases every week. Once you subscribe, your price is locked forever — Telegram auto-renews at the same rate.\n\n⭐ Stars are used to promote the bot on Telegram — helping new learners find us.\n\nSubscribe: /settings → Subscription."
+
   feedback:
     ru: "Замечания и предложения"
     en: "Feedback and suggestions"
