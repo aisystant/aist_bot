@@ -45,6 +45,10 @@ else:
     # Auto-generate: sha256(bot_token)[:48] — hex chars, always valid
     WEBHOOK_SECRET = _hashlib.sha256((BOT_TOKEN or "").encode()).hexdigest()[:48] if BOT_TOKEN else None
 
+# ============= AISYSTANT LMS (WP-79) =============
+AISYSTANT_BASE_URL = os.getenv("AISYSTANT_BASE_URL", "https://aisystant.system-school.ru")
+AISYSTANT_TECH_PASSWORD = os.getenv("AISYSTANT_TECH_PASSWORD", "")
+
 # ============= GITHUB OAUTH =============
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
@@ -364,7 +368,7 @@ ONTOLOGY_RULES_TOPICS = """
 from datetime import date as _date
 
 # Дата запуска подписки (week 0)
-SUBSCRIPTION_LAUNCH_DATE = _date(2026, 3, 1)
+SUBSCRIPTION_LAUNCH_DATE = _date(2099, 1, 1)  # Stars → донаты; подписка будет через Aisystant
 
 # Ценообразование
 SUBSCRIPTION_BASE_PRICE = 50       # Stars на старте
