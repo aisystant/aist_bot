@@ -74,47 +74,79 @@ async def collect_user_progress(
     """Прогресс пользователя в обучении из bot DB → {progress_section}.
 
     Данные берутся из intern dict (уже загружен из БД, 0 доп. запросов).
-    Включает: статус марафона, текущий день, пройденные темы, серию дней.
+    Показывает прогресс ВСЕГДА, если есть хоть какие-то данные:
+    - Активность (дни, серия, рекорд)
+    - Марафон (статус, день, темы)
+    - Лента (статус)
+    - Дата регистрации
     """
-    marathon_status = intern.get('marathon_status', 'not_started')
-    if marathon_status == 'not_started':
-        return ("progress_section", "")
-
     parts = []
 
-    # Статус марафона
-    status_labels = {
-        'active': 'Активен',
-        'paused': 'На паузе',
-        'completed': 'Завершён',
-    }
-    parts.append(f"Статус марафона: {status_labels.get(marathon_status, marathon_status)}")
-
-    # Текущий день / индекс темы
-    current_topic_index = intern.get('current_topic_index', 0)
-    if current_topic_index is not None:
-        parts.append(f"Текущая тема: #{current_topic_index + 1}")
-
-    # Пройденные темы
-    completed = intern.get('completed_topics', [])
-    if isinstance(completed, str):
-        import json as _json
-        try:
-            completed = _json.loads(completed)
-        except (ValueError, TypeError):
-            completed = []
-    if completed:
-        parts.append(f"Пройдено тем: {len(completed)}")
-
-    # Серия активных дней
+    # --- Активность (показываем всегда, если есть) ---
+    total_days = intern.get('active_days_total', 0)
     streak = intern.get('active_days_streak', 0)
-    if streak and streak > 0:
-        parts.append(f"Серия активных дней: {streak}")
+    longest = intern.get('longest_streak', 0)
+    last_active = intern.get('last_active_date')
 
-    # Дата старта
-    start_date = intern.get('marathon_start_date')
-    if start_date:
-        parts.append(f"Дата начала: {start_date}")
+    if total_days and total_days > 0:
+        parts.append(f"Всего активных дней: {total_days}")
+    if streak and streak > 0:
+        parts.append(f"Текущая серия: {streak} дн.")
+    if longest and longest > 0 and longest != streak:
+        parts.append(f"Рекорд серии: {longest} дн.")
+    if last_active:
+        parts.append(f"Последняя активность: {last_active}")
+
+    # --- Марафон ---
+    marathon_status = intern.get('marathon_status', 'not_started')
+    if marathon_status != 'not_started':
+        status_labels = {
+            'active': 'Активен',
+            'paused': 'На паузе',
+            'completed': 'Завершён',
+        }
+        parts.append(f"Марафон: {status_labels.get(marathon_status, marathon_status)}")
+
+        current_topic_index = intern.get('current_topic_index', 0)
+        if current_topic_index is not None:
+            parts.append(f"Текущая тема: #{current_topic_index + 1}")
+
+        completed = intern.get('completed_topics', [])
+        if isinstance(completed, str):
+            import json as _json
+            try:
+                completed = _json.loads(completed)
+            except (ValueError, TypeError):
+                completed = []
+        if completed:
+            parts.append(f"Пройдено тем: {len(completed)}")
+
+        start_date = intern.get('marathon_start_date')
+        if start_date:
+            parts.append(f"Дата начала марафона: {start_date}")
+
+    # --- Лента ---
+    feed_status = intern.get('feed_status', 'not_started')
+    if feed_status != 'not_started':
+        feed_labels = {
+            'active': 'Активна',
+            'completed': 'Завершена',
+        }
+        parts.append(f"Лента: {feed_labels.get(feed_status, feed_status)}")
+
+    # --- Режим ---
+    mode = intern.get('mode', '')
+    if mode:
+        mode_labels = {'marathon': 'Марафон', 'feed': 'Лента', 'both': 'Марафон + Лента'}
+        parts.append(f"Режим: {mode_labels.get(mode, mode)}")
+
+    # --- Дата регистрации ---
+    created_at = intern.get('created_at')
+    if created_at:
+        if hasattr(created_at, 'strftime'):
+            parts.append(f"В боте с: {created_at.strftime('%Y-%m-%d')}")
+        else:
+            parts.append(f"В боте с: {created_at}")
 
     if not parts:
         return ("progress_section", "")

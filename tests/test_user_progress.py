@@ -3,7 +3,7 @@
 
 Покрывает изменения РП #5:
 - collect_user_progress() — Context Pipeline collector
-- _user_to_dict() — marathon fields в intern dict
+- _user_to_dict() — marathon + activity fields в intern dict
 - _build_user_profile() — complexity_level не выводится
 - assemble_context() — progress_section в результате
 - SUBSCRIPTION_LAUNCH_DATE — paywall отложен на 2099
@@ -18,7 +18,7 @@ import os
 import asyncio
 import importlib
 import importlib.util
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import MagicMock
 
 # Добавляем путь к проекту
@@ -32,7 +32,6 @@ sys.path.insert(0, PROJECT_ROOT)
 
 def _mock_modules():
     """Мокаем тяжёлые зависимости (aiogram, asyncpg, aiohttp)."""
-    mocked = {}
     for mod_name in [
         'aiogram', 'aiogram.types', 'aiogram.enums', 'aiogram.filters',
         'aiogram.fsm', 'aiogram.fsm.context', 'aiogram.fsm.state',
@@ -53,9 +52,7 @@ def _mock_modules():
             if mod_name == 'aiogram.enums':
                 mock.ChatAction = MagicMock()
                 mock.ChatAction.TYPING = 'typing'
-            mocked[mod_name] = mock
             sys.modules[mod_name] = mock
-    return mocked
 
 
 def _load_module(name: str, filepath: str):
@@ -71,11 +68,6 @@ def _setup_imports():
     """Настроить изолированные импорты для тестов."""
     _mock_modules()
 
-    # 1. config.settings — работает нативно
-    # (уже в sys.path, config/settings.py не зависит от aiogram)
-
-    # 2. Регистрируем пакеты-пустышки для engines.shared,
-    #    чтобы контролировать цепочку импортов
     import types
 
     # engines (пакет-заглушка)
@@ -102,11 +94,12 @@ def _setup_imports():
                 'clients.digital_twin', 'clients.github_oauth',
                 'core', 'core.intent', 'core.registry', 'core.self_knowledge',
                 'core.access', 'core.feedback_triage',
-                'i18n', 'helpers', 'helpers.message_split']:
+                'i18n', 'helpers', 'helpers.message_split',
+                'config.conversion']:
         if pkg not in sys.modules:
             m = MagicMock()
             if pkg == 'i18n':
-                m.t = lambda key, lang='ru': key  # i18n.t() → return key
+                m.t = lambda key, lang='ru': key
             sys.modules[pkg] = m
 
     # states (пакет-заглушка)
@@ -128,18 +121,15 @@ def _setup_imports():
 
 _setup_imports()
 
-
-# Теперь безопасно загружаем целевые модули
+# Загружаем целевые модули
 _context_pipeline = _load_module(
     'engines.shared.context_pipeline',
     os.path.join(PROJECT_ROOT, 'engines', 'shared', 'context_pipeline.py'),
 )
-
 _question_handler = _load_module(
     'engines.shared.question_handler',
     os.path.join(PROJECT_ROOT, 'engines', 'shared', 'question_handler.py'),
 )
-
 _consultation = _load_module(
     'states.common.consultation',
     os.path.join(PROJECT_ROOT, 'states', 'common', 'consultation.py'),
@@ -156,65 +146,107 @@ def _run(coro):
 
 
 # =========================================================================
-# 1. collect_user_progress
+# 1. collect_user_progress — пустой пользователь
 # =========================================================================
 
-def test_progress_not_started_returns_empty():
-    """marathon_status='not_started' → пустая строка."""
-    key, value = _run(_context_pipeline.collect_user_progress(intern={'marathon_status': 'not_started'}, lang='ru'))
-    assert key == "progress_section"
-    assert value == "", f"Ожидали пустую строку, получили: {value!r}"
-    print("✅ not_started → пустая строка")
-
-
-def test_progress_missing_status_returns_empty():
-    """Нет marathon_status → default 'not_started' → пустая строка."""
+def test_progress_brand_new_user_empty():
+    """Совсем новый пользователь (нет данных) → пустая строка."""
     key, value = _run(_context_pipeline.collect_user_progress(intern={}, lang='ru'))
     assert key == "progress_section"
-    assert value == ""
-    print("✅ missing marathon_status → пустая строка")
+    assert value == "", f"Ожидали пустую строку, получили: {value!r}"
+    print("✅ brand new user → пустая строка")
 
 
-def test_progress_active_returns_data():
-    """marathon_status='active' → непустая строка с данными прогресса."""
+# =========================================================================
+# 1b. collect_user_progress — пользователь с активностью, без марафона
+# =========================================================================
+
+def test_progress_activity_without_marathon():
+    """Есть активность, но marathon='not_started' → показать активность."""
+    intern = {
+        'marathon_status': 'not_started',
+        'active_days_total': 12,
+        'active_days_streak': 3,
+        'longest_streak': 7,
+        'mode': 'feed',
+        'created_at': datetime(2026, 1, 15),
+    }
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
+    assert key == "progress_section"
+    assert "ПРОГРЕСС ПОЛЬЗОВАТЕЛЯ" in value
+    assert "Всего активных дней: 12" in value
+    assert "Текущая серия: 3" in value
+    assert "Рекорд серии: 7" in value
+    assert "Режим: Лента" in value
+    assert "2026-01-15" in value
+    # Марафон НЕ должен упоминаться
+    assert "Марафон" not in value
+    print("✅ activity без марафона → показывает активность")
+
+
+def test_progress_mode_shown():
+    """Режим отображается."""
+    intern = {'mode': 'marathon', 'active_days_total': 1}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
+    assert "Режим: Марафон" in value
+    print("✅ mode → отображается")
+
+
+def test_progress_mode_both():
+    """Режим 'both' → 'Марафон + Лента'."""
+    intern = {'mode': 'both', 'active_days_total': 1}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
+    assert "Марафон + Лента" in value
+    print("✅ mode='both' → 'Марафон + Лента'")
+
+
+# =========================================================================
+# 1c. collect_user_progress — марафон
+# =========================================================================
+
+def test_progress_active_marathon():
+    """marathon_status='active' → полный прогресс с марафоном."""
     intern = {
         'marathon_status': 'active',
         'current_topic_index': 3,
         'completed_topics': [0, 1, 2],
         'active_days_streak': 5,
+        'active_days_total': 10,
         'marathon_start_date': '2026-02-15',
+        'mode': 'marathon',
     }
     key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
     assert key == "progress_section"
     assert "ПРОГРЕСС ПОЛЬЗОВАТЕЛЯ" in value
-    assert "Активен" in value
+    assert "Марафон: Активен" in value
     assert "Текущая тема: #4" in value  # index 3 → #4
     assert "Пройдено тем: 3" in value
-    assert "Серия активных дней: 5" in value
-    assert "Дата начала: 2026-02-15" in value
+    assert "Текущая серия: 5" in value
+    assert "Всего активных дней: 10" in value
+    assert "Дата начала марафона: 2026-02-15" in value
     print("✅ active → полный прогресс")
 
 
 def test_progress_paused():
     """marathon_status='paused' → 'На паузе'."""
-    key, value = _run(_context_pipeline.collect_user_progress(
-        intern={'marathon_status': 'paused', 'current_topic_index': 1}, lang='ru'))
+    intern = {'marathon_status': 'paused', 'current_topic_index': 1, 'active_days_total': 3}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
     assert "На паузе" in value
     print("✅ paused → 'На паузе'")
 
 
 def test_progress_completed():
     """marathon_status='completed' → 'Завершён'."""
-    key, value = _run(_context_pipeline.collect_user_progress(
-        intern={'marathon_status': 'completed', 'current_topic_index': 13}, lang='ru'))
+    intern = {'marathon_status': 'completed', 'current_topic_index': 13, 'active_days_total': 14}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
     assert "Завершён" in value
     print("✅ completed → 'Завершён'")
 
 
 def test_progress_en_header():
     """lang='en' → USER PROGRESS header."""
-    key, value = _run(_context_pipeline.collect_user_progress(
-        intern={'marathon_status': 'active', 'current_topic_index': 0}, lang='en'))
+    intern = {'active_days_total': 1, 'mode': 'feed'}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='en'))
     assert "USER PROGRESS" in value
     print("✅ en → USER PROGRESS header")
 
@@ -224,7 +256,7 @@ def test_progress_completed_topics_json_string():
     intern = {
         'marathon_status': 'active',
         'current_topic_index': 5,
-        'completed_topics': '[0, 1, 2, 3, 4]',  # JSON string from DB
+        'completed_topics': '[0, 1, 2, 3, 4]',
     }
     key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
     assert "Пройдено тем: 5" in value
@@ -233,42 +265,50 @@ def test_progress_completed_topics_json_string():
 
 def test_progress_zero_streak_hidden():
     """active_days_streak=0 → не показывать серию."""
-    intern = {
-        'marathon_status': 'active',
-        'current_topic_index': 0,
-        'active_days_streak': 0,
-    }
+    intern = {'active_days_total': 5, 'active_days_streak': 0, 'mode': 'feed'}
     key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
-    assert "Серия" not in value
+    assert "Текущая серия" not in value
     print("✅ streak=0 → скрыта")
 
 
-def test_progress_no_start_date_hidden():
-    """marathon_start_date=None → не показывать дату."""
-    intern = {
-        'marathon_status': 'active',
-        'current_topic_index': 0,
-        'marathon_start_date': None,
-    }
+def test_progress_longest_equals_streak_hidden():
+    """longest_streak == active_days_streak → рекорд не дублируется."""
+    intern = {'active_days_total': 5, 'active_days_streak': 5, 'longest_streak': 5}
     key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
-    assert "Дата начала" not in value
-    print("✅ start_date=None → скрыта")
+    assert "Рекорд серии" not in value
+    print("✅ longest==streak → рекорд скрыт")
 
 
-def test_progress_unknown_status_raw():
-    """Неизвестный marathon_status → отображается как есть."""
-    key, value = _run(_context_pipeline.collect_user_progress(
-        intern={'marathon_status': 'custom_state', 'current_topic_index': 0}, lang='ru'))
-    assert "custom_state" in value
-    print("✅ unknown status → raw value")
+def test_progress_feed_active():
+    """feed_status='active' → показывает 'Лента: Активна'."""
+    intern = {'feed_status': 'active', 'active_days_total': 3, 'mode': 'feed'}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
+    assert "Лента: Активна" in value
+    print("✅ feed_status='active' → 'Лента: Активна'")
+
+
+def test_progress_created_at_string():
+    """created_at как строка → показывается как есть."""
+    intern = {'active_days_total': 1, 'created_at': '2026-01-01'}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
+    assert "В боте с: 2026-01-01" in value
+    print("✅ created_at string → показывается")
+
+
+def test_progress_created_at_datetime():
+    """created_at как datetime → форматируется в YYYY-MM-DD."""
+    intern = {'active_days_total': 1, 'created_at': datetime(2026, 2, 10, 14, 30)}
+    key, value = _run(_context_pipeline.collect_user_progress(intern=intern, lang='ru'))
+    assert "В боте с: 2026-02-10" in value
+    print("✅ created_at datetime → форматируется")
 
 
 # =========================================================================
-# 2. _user_to_dict — marathon fields
+# 2. _user_to_dict — marathon + activity fields
 # =========================================================================
 
-def test_user_to_dict_marathon_fields():
-    """_user_to_dict() включает marathon_status, marathon_start_date, active_days_streak."""
+def test_user_to_dict_all_progress_fields():
+    """_user_to_dict() включает все progress fields."""
     ConsultationState = _consultation.ConsultationState
 
     class FakeUser:
@@ -286,18 +326,30 @@ def test_user_to_dict_marathon_fields():
         marathon_status = "active"
         marathon_start_date = "2026-02-01"
         active_days_streak = 7
+        active_days_total = 20
+        longest_streak = 10
+        last_active_date = "2026-02-28"
+        feed_status = "not_started"
+        created_at = datetime(2026, 1, 1)
+        onboarding_completed = True
 
     state = ConsultationState.__new__(ConsultationState)
     d = state._user_to_dict(FakeUser())
 
-    assert d['marathon_status'] == 'active', f"marathon_status: {d.get('marathon_status')}"
-    assert d['marathon_start_date'] == '2026-02-01', f"marathon_start_date: {d.get('marathon_start_date')}"
-    assert d['active_days_streak'] == 7, f"active_days_streak: {d.get('active_days_streak')}"
-    print("✅ _user_to_dict() включает marathon fields")
+    assert d['marathon_status'] == 'active'
+    assert d['marathon_start_date'] == '2026-02-01'
+    assert d['active_days_streak'] == 7
+    assert d['active_days_total'] == 20
+    assert d['longest_streak'] == 10
+    assert d['last_active_date'] == '2026-02-28'
+    assert d['feed_status'] == 'not_started'
+    assert d['created_at'] == datetime(2026, 1, 1)
+    assert d['onboarding_completed'] is True
+    print("✅ _user_to_dict() включает все progress fields")
 
 
 def test_user_to_dict_defaults():
-    """_user_to_dict() для user без marathon attrs → корректные defaults."""
+    """_user_to_dict() для user без progress attrs → корректные defaults."""
     ConsultationState = _consultation.ConsultationState
 
     class MinimalUser:
@@ -312,7 +364,13 @@ def test_user_to_dict_defaults():
     assert d['marathon_status'] == 'not_started'
     assert d['marathon_start_date'] is None
     assert d['active_days_streak'] == 0
-    print("✅ _user_to_dict() defaults для marathon fields")
+    assert d['active_days_total'] == 0
+    assert d['longest_streak'] == 0
+    assert d['last_active_date'] is None
+    assert d['feed_status'] == 'not_started'
+    assert d['created_at'] is None
+    assert d['onboarding_completed'] is False
+    print("✅ _user_to_dict() defaults для progress fields")
 
 
 def test_user_to_dict_passthrough():
@@ -322,7 +380,7 @@ def test_user_to_dict_passthrough():
     d = {'chat_id': 789, 'marathon_status': 'completed'}
     state = ConsultationState.__new__(ConsultationState)
     result = state._user_to_dict(d)
-    assert result is d  # тот же объект
+    assert result is d
     print("✅ _user_to_dict() dict passthrough")
 
 
@@ -349,10 +407,7 @@ def test_profile_no_complexity_level():
 def test_profile_no_study_duration():
     """_build_user_profile() НЕ содержит study_duration."""
     build = _question_handler._build_user_profile
-    intern = {
-        'study_duration': 5,
-        'interests': ['собранность'],
-    }
+    intern = {'study_duration': 5, 'interests': ['собранность']}
     profile = build(intern, 'ru')
     assert "study_duration" not in profile.lower()
     assert "Длительность" not in profile
@@ -362,8 +417,7 @@ def test_profile_no_study_duration():
 def test_profile_empty_for_new_user():
     """_build_user_profile() → пустая строка для нового пользователя."""
     build = _question_handler._build_user_profile
-    profile = build({}, 'ru')
-    assert profile == ""
+    assert build({}, 'ru') == ""
     print("✅ _build_user_profile() пустая для нового пользователя")
 
 
@@ -378,10 +432,9 @@ def test_profile_includes_assessment():
 
 
 def test_profile_includes_role():
-    """_build_user_profile() показывает роль пользователя."""
+    """_build_user_profile() показывает роль."""
     build = _question_handler._build_user_profile
-    intern = {'role': 'Инженер'}
-    profile = build(intern, 'ru')
+    profile = build({'role': 'Инженер'}, 'ru')
     assert "Роль: Инженер" in profile
     print("✅ _build_user_profile() включает role")
 
@@ -389,8 +442,7 @@ def test_profile_includes_role():
 def test_profile_en_header():
     """_build_user_profile() lang='en' → USER PROFILE header."""
     build = _question_handler._build_user_profile
-    intern = {'interests': ['AI']}
-    profile = build(intern, 'en')
+    profile = build({'interests': ['AI']}, 'en')
     assert "USER PROFILE" in profile
     print("✅ _build_user_profile() en → USER PROFILE header")
 
@@ -404,8 +456,7 @@ def test_tier_pipeline_includes_progress():
     TIER_PIPELINE = _context_pipeline.TIER_PIPELINE
     collect_fn = _context_pipeline.collect_user_progress
     for tier in [1, 2, 3, 4]:
-        collectors = TIER_PIPELINE[tier]
-        assert collect_fn in collectors, f"collect_user_progress отсутствует в T{tier}"
+        assert collect_fn in TIER_PIPELINE[tier], f"collect_user_progress отсутствует в T{tier}"
     print("✅ collect_user_progress в TIER_PIPELINE для T1-T4")
 
 
@@ -413,8 +464,8 @@ def test_tier_pipeline_tiers_defined():
     """TIER_PIPELINE определён для тиров 1-4."""
     TIER_PIPELINE = _context_pipeline.TIER_PIPELINE
     for tier in [1, 2, 3, 4]:
-        assert tier in TIER_PIPELINE, f"Тир {tier} отсутствует в TIER_PIPELINE"
-        assert len(TIER_PIPELINE[tier]) >= 2, f"Тир {tier}: слишком мало collectors"
+        assert tier in TIER_PIPELINE
+        assert len(TIER_PIPELINE[tier]) >= 2
     print("✅ TIER_PIPELINE определён для T1-T4")
 
 
@@ -424,9 +475,9 @@ def test_tier_pipeline_tiers_defined():
 
 def test_assemble_context_has_progress_key():
     """assemble_context() возвращает dict с ключом 'progress_section'."""
-    intern = {'marathon_status': 'not_started', 'language': 'ru'}
+    intern = {'language': 'ru'}
     sections = _run(_context_pipeline.assemble_context(tier=1, intern=intern, lang='ru'))
-    assert 'progress_section' in sections, f"Нет ключа progress_section: {list(sections.keys())}"
+    assert 'progress_section' in sections
     print("✅ assemble_context() включает progress_section key")
 
 
@@ -437,12 +488,29 @@ def test_assemble_context_progress_populated():
         'current_topic_index': 5,
         'completed_topics': [0, 1, 2, 3, 4],
         'active_days_streak': 3,
+        'active_days_total': 10,
+        'language': 'ru',
+        'mode': 'marathon',
+    }
+    sections = _run(_context_pipeline.assemble_context(tier=1, intern=intern, lang='ru'))
+    assert sections['progress_section'] != ""
+    assert "Активен" in sections['progress_section']
+    print("✅ assemble_context() progress populated для active user")
+
+
+def test_assemble_context_progress_for_feed_user():
+    """assemble_context() → progress_section непустой для feed user без марафона."""
+    intern = {
+        'marathon_status': 'not_started',
+        'active_days_total': 5,
+        'mode': 'feed',
+        'feed_status': 'active',
         'language': 'ru',
     }
     sections = _run(_context_pipeline.assemble_context(tier=1, intern=intern, lang='ru'))
-    assert sections['progress_section'] != "", "progress_section пустой для active user"
-    assert "Активен" in sections['progress_section']
-    print("✅ assemble_context() progress populated для active user")
+    assert sections['progress_section'] != "", "progress_section пустой для feed user с активностью"
+    assert "Лента" in sections['progress_section']
+    print("✅ assemble_context() progress для feed user без марафона")
 
 
 def test_assemble_context_all_default_keys():
@@ -524,19 +592,25 @@ if __name__ == "__main__":
     print("=" * 60)
 
     tests = [
-        # 1. collect_user_progress
-        test_progress_not_started_returns_empty,
-        test_progress_missing_status_returns_empty,
-        test_progress_active_returns_data,
+        # 1. collect_user_progress — пустой/новый
+        test_progress_brand_new_user_empty,
+        # 1b. collect_user_progress — активность без марафона
+        test_progress_activity_without_marathon,
+        test_progress_mode_shown,
+        test_progress_mode_both,
+        # 1c. collect_user_progress — марафон
+        test_progress_active_marathon,
         test_progress_paused,
         test_progress_completed,
         test_progress_en_header,
         test_progress_completed_topics_json_string,
         test_progress_zero_streak_hidden,
-        test_progress_no_start_date_hidden,
-        test_progress_unknown_status_raw,
+        test_progress_longest_equals_streak_hidden,
+        test_progress_feed_active,
+        test_progress_created_at_string,
+        test_progress_created_at_datetime,
         # 2. _user_to_dict
-        test_user_to_dict_marathon_fields,
+        test_user_to_dict_all_progress_fields,
         test_user_to_dict_defaults,
         test_user_to_dict_passthrough,
         # 3. _build_user_profile
@@ -552,6 +626,7 @@ if __name__ == "__main__":
         # 5. assemble_context
         test_assemble_context_has_progress_key,
         test_assemble_context_progress_populated,
+        test_assemble_context_progress_for_feed_user,
         test_assemble_context_all_default_keys,
         # 6. SUBSCRIPTION_LAUNCH_DATE
         test_subscription_launch_date_in_future,

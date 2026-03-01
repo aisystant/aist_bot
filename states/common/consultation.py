@@ -279,6 +279,12 @@ class ConsultationState(BaseState):
             'marathon_status': getattr(user, 'marathon_status', 'not_started'),
             'marathon_start_date': getattr(user, 'marathon_start_date', None),
             'active_days_streak': getattr(user, 'active_days_streak', 0),
+            'active_days_total': getattr(user, 'active_days_total', 0),
+            'longest_streak': getattr(user, 'longest_streak', 0),
+            'last_active_date': getattr(user, 'last_active_date', None),
+            'feed_status': getattr(user, 'feed_status', 'not_started'),
+            'created_at': getattr(user, 'created_at', None),
+            'onboarding_completed': getattr(user, 'onboarding_completed', False),
         }
 
     def _detect_service_intent(self, question: str) -> Optional[str]:
