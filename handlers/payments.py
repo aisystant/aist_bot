@@ -149,11 +149,38 @@ async def on_successful_payment(message: Message):
 
     payload = getattr(payment, 'invoice_payload', '') or ''
 
-    # Разовый донат — благодарим и не сохраняем подписку
+    # Разовый донат — благодарим и предлагаем ежемесячный
     if payload.startswith("donate_once_"):
         amount = payment.total_amount
         await message.answer(t('donation.once_success', lang))
         logger.info(f"[Payments] One-time donation: chat_id={chat_id}, amount={amount} Stars")
+
+        # Предложить сделать донат постоянным
+        active_sub = await get_active_subscription(chat_id)
+        if not active_sub:
+            price = get_current_price()
+            try:
+                link = await message.bot.create_invoice_link(
+                    title=t('donation.recurring_invoice_title', lang),
+                    description=t('donation.recurring_invoice_description', lang),
+                    payload=f"sub_{chat_id}_{price}",
+                    currency="XTR",
+                    prices=[LabeledPrice(label="Monthly donation", amount=price)],
+                    subscription_period=2592000,
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=t('donation.suggest_recurring_button', lang),
+                        url=link,
+                    )]
+                ])
+                await message.answer(
+                    t('donation.suggest_recurring', lang),
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.error(f"[Payments] Error suggesting recurring after one-time: {e}")
+
         return
 
     # Ежемесячный донат — сохраняем как подписку (для отслеживания и отмены)
