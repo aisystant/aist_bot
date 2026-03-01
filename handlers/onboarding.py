@@ -153,36 +153,46 @@ async def cmd_start(message: Message, state: FSMContext):
         await sync_menu_commands(message.bot, message.chat.id, tier, lang)
         return
 
-    # Определяем язык интерфейса пользователя
+    # WP-79: Упрощённый онбординг — 0 шагов
+    # Язык автоопределяем из Telegram, имя берём из first_name
     lang = detect_language(message.from_user.language_code)
+    if lang not in SUPPORTED_LANGUAGES:
+        lang = 'en'
 
-    if lang in SUPPORTED_LANGUAGES:
-        welcome_text = (
-            t('welcome.greeting', lang) + "\n" +
-            t('welcome.intro', lang) + "\n\n" +
-            t('welcome.intro_marathon', lang) + "\n\n" +
-            t('welcome.intro_tiers', lang) + "\n\n" +
-            t('welcome.intro_start', lang) + "\n\n" +
-            t('welcome.ask_name', lang)
-        )
-    else:
-        # Для неизвестных языков — показываем выбор языка
-        welcome_text = (
-            t('welcome.greeting', 'en') + "\n" +
-            t('welcome.intro', 'en') + "\n\n" +
-            t('welcome.intro_marathon', 'en') + "\n\n" +
-            t('welcome.intro_tiers', 'en') + "\n\n" +
-            "🌐 *Choose your language:*"
-        )
-        await message.answer(welcome_text, reply_markup=kb_language_select(), parse_mode="Markdown")
-        await state.set_state(OnboardingStates.choosing_language)
-        return
+    name = message.from_user.first_name or message.from_user.username or 'User'
 
-    # Сохраняем определённый язык для дальнейшего использования
-    await state.update_data(lang=lang)
+    # Сразу создаём профиль и завершаем онбординг
+    from datetime import datetime
+    await update_intern(
+        message.chat.id,
+        name=name,
+        language=lang,
+        onboarding_completed=True,
+        trial_started_at=datetime.utcnow(),
+    )
+    # Сохраняем tg_username для привязки Aisystant
+    if message.from_user.username:
+        await update_intern(message.chat.id, tg_username=message.from_user.username)
 
-    await message.answer(welcome_text, parse_mode="Markdown")
-    await state.set_state(OnboardingStates.waiting_for_name)
+    # Автоматически пробуем привязать Aisystant (фоново)
+    import asyncio
+    asyncio.create_task(_try_auto_link(message.chat.id))
+
+    # Отправляем приветствие + T1_NEW клавиатуру
+    from core.tier_ui import build_reply_keyboard, sync_menu_commands
+    from core.tier_detector import detect_ui_tier
+    tier = await detect_ui_tier(message.chat.id)
+    keyboard = build_reply_keyboard(tier, lang)
+
+    await message.answer(
+        t('welcome.greeting', lang) + "\n" +
+        t('welcome.intro', lang) + "\n\n" +
+        t('welcome.intro_start', lang),
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+    await sync_menu_commands(message.bot, message.chat.id, tier, lang)
+    await state.clear()
 
 
 @onboarding_router.callback_query(OnboardingStates.choosing_language, F.data.startswith("lang_"))
@@ -447,3 +457,25 @@ async def on_reset_skip(callback: CallbackQuery, state: FSMContext):
     dispatcher = get_dispatcher()
     if dispatcher and dispatcher.is_sm_active:
         await dispatcher.route_command('mode', intern)
+
+
+# ============= WP-79: AUTO-LINK AISYSTANT =============
+
+async def _try_auto_link(chat_id: int):
+    """Попытка автоматической привязки Aisystant аккаунта при /start (fire-and-forget)."""
+    try:
+        from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+        from clients.aisystant import aisystant
+
+        # Уже привязан?
+        existing = await get_aisystant_id(chat_id)
+        if existing:
+            return
+
+        # Пробуем найти
+        aisystant_id = await aisystant.find_user_by_tg(chat_id)
+        if aisystant_id:
+            await save_aisystant_link(chat_id, aisystant_id)
+            logger.info(f"[Onboarding] Auto-linked Aisystant for {chat_id}: {aisystant_id}")
+    except Exception as e:
+        logger.debug(f"[Onboarding] Auto-link failed for {chat_id}: {e}")

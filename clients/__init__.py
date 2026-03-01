@@ -5,12 +5,14 @@
 - claude.py: ClaudeClient для работы с Claude API
 - mcp.py: MCPClient для работы с Knowledge MCP (SYS.017)
 - discourse.py: DiscourseClient для публикации на systemsworld.club
+- aisystant.py: AisystantClient для расписания, оплаты, подписок (WP-79)
 """
 
 from .claude import ClaudeClient, claude
 from .mcp import MCPClient, mcp_knowledge
 from .digital_twin import DigitalTwinClient, digital_twin
 from .discourse import DiscourseClient, discourse
+from .aisystant import AisystantClient, aisystant
 
 __all__ = [
     'ClaudeClient',
@@ -21,4 +23,6 @@ __all__ = [
     'digital_twin',
     'DiscourseClient',
     'discourse',
+    'AisystantClient',
+    'aisystant',
 ]

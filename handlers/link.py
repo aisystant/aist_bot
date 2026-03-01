@@ -1,0 +1,112 @@
+"""
+Хэндлер привязки Telegram ↔ Aisystant аккаунта (WP-79).
+
+Команды:
+- /link — привязать аккаунт (или кнопка «🔗 Привязать»)
+- callback link_check — повторная проверка после перехода на сайт
+
+Поток:
+1. Проверяем, есть ли уже привязка в БД
+2. Если нет → спрашиваем Aisystant API (find_user_by_tg)
+3. Если найден → сохраняем aisystant_id в БД
+4. Если нет → показываем ссылку для привязки на сайте + кнопку «Проверить»
+"""
+
+import logging
+
+from aiogram import Router, F
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
+from aiogram.filters import Command
+
+from db.queries import get_intern
+from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+from clients.aisystant import aisystant
+from i18n import t
+
+logger = logging.getLogger(__name__)
+
+link_router = Router(name="link")
+
+
+def _lang(intern) -> str:
+    if not intern:
+        return 'ru'
+    return intern.get('language', 'ru') or 'ru'
+
+
+@link_router.message(Command("link"))
+async def cmd_link(message: Message):
+    """Команда /link — привязка аккаунта Aisystant."""
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    # Уже привязан?
+    existing = await get_aisystant_id(chat_id)
+    if existing:
+        await message.answer(t('link.already_linked', lang))
+        return
+
+    # Пробуем найти автоматически
+    try:
+        aisystant_id = await aisystant.find_user_by_tg(chat_id)
+    except Exception as e:
+        logger.error(f"[Link] find_user_by_tg error for {chat_id}: {e}")
+        await message.answer(t('link.error', lang))
+        return
+
+    if aisystant_id:
+        await save_aisystant_link(chat_id, aisystant_id)
+        await message.answer(t('link.found_auto', lang))
+        return
+
+    # Не найден → показываем ссылку для привязки
+    try:
+        tg_username = message.from_user.username if message.from_user else None
+        link_url = await aisystant.get_link_url(chat_id, tg_username)
+    except Exception as e:
+        logger.error(f"[Link] get_link_url error for {chat_id}: {e}")
+        await message.answer(t('link.error', lang))
+        return
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('link.btn_link', lang), url=link_url)],
+        [InlineKeyboardButton(text=t('link.btn_check', lang), callback_data="link_check")],
+    ])
+
+    await message.answer(t('link.not_found', lang), reply_markup=keyboard)
+
+
+@link_router.callback_query(F.data == "link_check")
+async def callback_link_check(callback: CallbackQuery):
+    """Повторная проверка привязки после перехода на сайт."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    # Уже привязан?
+    existing = await get_aisystant_id(chat_id)
+    if existing:
+        await callback.answer(t('link.check_success', lang), show_alert=True)
+        await callback.message.edit_text(t('link.check_success', lang))
+        return
+
+    # Проверяем ещё раз через API
+    try:
+        aisystant_id = await aisystant.find_user_by_tg(chat_id)
+    except Exception as e:
+        logger.error(f"[Link] check: find_user_by_tg error for {chat_id}: {e}")
+        await callback.answer(t('link.error', lang), show_alert=True)
+        return
+
+    if aisystant_id:
+        await save_aisystant_link(chat_id, aisystant_id)
+        await callback.answer(t('link.check_success', lang), show_alert=True)
+        await callback.message.edit_text(t('link.check_success', lang))
+    else:
+        await callback.answer(t('link.check_not_yet', lang), show_alert=True)

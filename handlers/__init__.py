@@ -41,6 +41,11 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .dev import dev_router
     from .payments import payments_router
     from .discourse import discourse_router
+    from .link import link_router
+    from .schedule import schedule_router
+    from .guide import guide_router
+    from .subscription import subscription_router
+    from .contacts import contacts_router
 
     dp.include_router(onboarding_router)
     dp.include_router(payments_router)
@@ -54,6 +59,11 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(feedback_router)
     dp.include_router(github_router)
     dp.include_router(discourse_router)
+    dp.include_router(link_router)
+    dp.include_router(schedule_router)
+    dp.include_router(guide_router)
+    dp.include_router(subscription_router)
+    dp.include_router(contacts_router)
 
     # ReplyKeyboard text → command routing (AFTER all command routers, BEFORE fallback)
     from .reply_keyboard import reply_kb_router

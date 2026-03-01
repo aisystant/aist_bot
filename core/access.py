@@ -86,18 +86,18 @@ class AccessLayer:
     async def get_paywall(self, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
         """Получить текст paywall и кнопку подписки.
 
+        WP-79: Paywall ведёт на Aisystant «Бесконечное развитие».
+        Telegram Stars = донаты (не подписка).
+
         Returns:
             (text, keyboard) — сообщение и кнопка подписки.
         """
-        from core.pricing import get_current_price
-
-        price = get_current_price()
-        text = t('subscription.paywall_text', lang, price=price)
+        text = t('aisystant_sub.title', lang) + "\n\n" + t('aisystant_sub.desc', lang)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=t('subscription.subscribe_button', lang, price=price),
-                callback_data="subscribe",
+                text=t('aisystant_sub.btn_subscribe', lang),
+                callback_data="aisystant_subscribe",
             )]
         ])
         return text, keyboard

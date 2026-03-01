@@ -1,15 +1,20 @@
 """
 Progressive UI per Tier — declarative configuration.
 
-Source-of-truth: WP-52-progressive-ui-tiers.md
+Source-of-truth: WP-52 + WP-79 (unified bot UX)
 Architecture ref: DP.ARCH.002 (service tiers)
 
-Tier model (payment-first):
-  T1: free (no subscription)
-  T2: subscription active
+Tier model (payment-first, cumulative):
+  T1_NEW:  not linked to Aisystant (brand new user)
+  T1_START: linked to Aisystant, no БР subscription
+  T2: Aisystant «Бесконечное развитие» subscription active
   T3: T2 + DT connected
   T4: T3 + GitHub connected
   T5: admin (DEVELOPER_CHAT_ID) — menu set in bot.py, NOT here
+
+Keyboard principle «Главная + Тянет вверх» (WP-79 §1):
+  Row 1: [main activity for tier] [pulls up to next tier]
+  Row 2: [📋 Расписание] [⚙️ Настройки]  (stable)
 
 Each tier defines:
   - keyboard: 2x2 ReplyKeyboard buttons
@@ -19,7 +24,8 @@ Each tier defines:
 
 class UITier:
     """UI tier constants."""
-    T1_START = 1
+    T1_NEW = 0             # WP-79: not linked to Aisystant
+    T1_START = 1           # linked, no subscription
     T2_LEARNING = 2
     T3_PERSONALIZATION = 3
     T4_CREATION = 4
@@ -28,6 +34,7 @@ class UITier:
 
 # Tier display names for user-facing messages (greeting, etc.)
 TIER_DISPLAY = {
+    UITier.T1_NEW:             "T1 — New",
     UITier.T1_START:           "T1 — Start",
     UITier.T2_LEARNING:        "T2 — Learning",
     UITier.T3_PERSONALIZATION: "T3 — Personalization",
@@ -54,6 +61,12 @@ KB_LABELS = {
     'notes':      {'ru': '📝 Заметки',    'en': '📝 Notes',      'es': '📝 Notas',      'fr': '📝 Notes',      'zh': '📝 笔记'},
     'mydata':     {'ru': '📁 Мои данные',  'en': '📁 My data',    'es': '📁 Mis datos',  'fr': '📁 Mes données', 'zh': '📁 我的数据'},
     'settings':   {'ru': '⚙️ Настройки',  'en': '⚙️ Settings',   'es': '⚙️ Ajustes',    'fr': '⚙️ Paramètres', 'zh': '⚙️ 设置'},
+    # WP-79: Aisystant integration
+    'link':       {'ru': '🔗 Привязать',  'en': '🔗 Link',       'es': '🔗 Vincular',   'fr': '🔗 Lier',        'zh': '🔗 关联'},
+    'schedule':   {'ru': '📋 Расписание', 'en': '📋 Schedule',   'es': '📋 Horario',    'fr': '📋 Horaire',     'zh': '📋 日程'},
+    'subscription': {'ru': '💳 Подписка', 'en': '💳 Subscribe',  'es': '💳 Suscripción','fr': '💳 Abonnement',  'zh': '💳 订阅'},
+    'guide':      {'ru': '🧭 Гид',       'en': '🧭 Guide',      'es': '🧭 Guía',       'fr': '🧭 Guide',       'zh': '🧭 指南'},
+    'contacts':   {'ru': '📞 Контакты',  'en': '📞 Contacts',   'es': '📞 Contactos',  'fr': '📞 Contacts',    'zh': '📞 联系'},
 }
 
 # Service key → slash command name (for routing)
@@ -71,6 +84,12 @@ SERVICE_TO_COMMAND = {
     'notes': 'notes',
     'mydata': 'mydata',
     'settings': 'settings',
+    # WP-79
+    'link': 'link',
+    'schedule': 'schedule',
+    'subscription': 'subscription',
+    'guide': 'guide',
+    'contacts': 'contacts',
 }
 
 
@@ -79,12 +98,14 @@ SERVICE_TO_COMMAND = {
 # [[top-left, top-right], [bottom-left, bottom-right]]
 # ═══════════════════════════════════════════════════════════
 
+# WP-79: «Главная + Тянет вверх» principle
 TIER_KEYBOARD = {
-    UITier.T1_START:           [['marathon', 'test'],     ['progress', 'settings']],
-    UITier.T2_LEARNING:        [['feed',     'test'],     ['training', 'settings']],
-    UITier.T3_PERSONALIZATION: [['training', 'feed'],     ['progress', 'settings']],
-    UITier.T4_CREATION:        [['plans',    'club'],     ['training', 'settings']],
-    UITier.T5_ADMIN:           [['plans',    'club'],     ['training', 'settings']],
+    UITier.T1_NEW:             [['schedule',  'link'],          ['test',     'contacts']],
+    UITier.T1_START:           [['marathon',  'subscription'],  ['schedule', 'settings']],
+    UITier.T2_LEARNING:        [['feed',      'guide'],         ['schedule', 'settings']],
+    UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['schedule', 'settings']],
+    UITier.T4_CREATION:        [['plans',     'guide'],         ['schedule', 'settings']],
+    UITier.T5_ADMIN:           [['plans',     'guide'],         ['schedule', 'settings']],
 }
 
 
@@ -94,10 +115,11 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_START:           ['learn', 'test', 'progress', 'profile', 'mode', 'settings', 'help'],
-    UITier.T2_LEARNING:        ['feed', 'train', 'learn', 'test', 'progress', 'profile', 'mode', 'settings', 'help'],
-    UITier.T3_PERSONALIZATION: ['feed', 'train', 'learn', 'test', 'progress', 'mydata', 'mode', 'settings', 'help'],
-    UITier.T4_CREATION:        ['plan', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'mode', 'settings', 'start', 'help'],
+    UITier.T1_NEW:             ['link', 'schedule', 'test', 'contacts', 'help'],
+    UITier.T1_START:           ['learn', 'schedule', 'test', 'progress', 'profile', 'settings', 'help'],
+    UITier.T2_LEARNING:        ['feed', 'schedule', 'train', 'learn', 'test', 'progress', 'profile', 'settings', 'help'],
+    UITier.T3_PERSONALIZATION: ['feed', 'schedule', 'train', 'learn', 'test', 'progress', 'mydata', 'settings', 'help'],
+    UITier.T4_CREATION:        ['plan', 'schedule', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'settings', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -121,6 +143,10 @@ COMMAND_DESCRIPTIONS = {
     'start':     {'ru': 'Перезапуск бота',                'en': 'Restart the bot',            'es': 'Reiniciar el bot',           'fr': 'Redémarrer le bot',            'zh': '重启机器人'},
     'help':      {'ru': 'Помощь',                       'en': 'Help',                      'es': 'Ayuda',                      'fr': 'Aide',                         'zh': '帮助'},
     'analytics': {'ru': 'Аналитика',                    'en': 'Analytics',                 'es': 'Analíticas',                 'fr': 'Analytiques',                  'zh': '分析'},
+    # WP-79
+    'link':      {'ru': 'Привязать Aisystant',           'en': 'Link Aisystant account',    'es': 'Vincular Aisystant',          'fr': 'Lier Aisystant',               'zh': '关联 Aisystant'},
+    'schedule':  {'ru': 'Расписание занятий',             'en': 'Class schedule',            'es': 'Horario de clases',           'fr': 'Horaire des cours',            'zh': '课程日程'},
+    'contacts':  {'ru': 'Контактная информация',         'en': 'Contact information',       'es': 'Información de contacto',    'fr': 'Coordonnées',                  'zh': '联系信息'},
 }
 
 

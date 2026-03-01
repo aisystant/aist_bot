@@ -4465,3 +4465,251 @@ reset:
   done:
     ru: "✅ Прогресс сброшен! Профиль сохранён. Начинаем заново."
     en: "✅ Progress reset! Profile preserved. Starting fresh."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Aisystant account linking
+# ═══════════════════════════════════════════════════════════
+link:
+  already_linked:
+    ru: "✅ Аккаунт Aisystant уже привязан."
+    en: "✅ Aisystant account is already linked."
+
+  found_auto:
+    ru: "✅ Аккаунт Aisystant найден и привязан!\n\nТеперь вам доступны расписание, курсы и оплата."
+    en: "✅ Aisystant account found and linked!\n\nSchedule, courses, and payments are now available."
+
+  not_found:
+    ru: "Аккаунт Aisystant не найден по вашему Telegram.\n\nНажмите кнопку ниже, чтобы привязать аккаунт на сайте Aisystant."
+    en: "Aisystant account not found for your Telegram.\n\nClick the button below to link your account on the Aisystant website."
+
+  btn_link:
+    ru: "🔗 Привязать на сайте"
+    en: "🔗 Link on website"
+
+  btn_check:
+    ru: "🔄 Проверить привязку"
+    en: "🔄 Check link"
+
+  check_success:
+    ru: "✅ Привязка подтверждена! Аккаунт Aisystant подключён."
+    en: "✅ Link confirmed! Aisystant account connected."
+
+  check_not_yet:
+    ru: "Привязка ещё не завершена.\n\nПерейдите по ссылке выше и привяжите Telegram в личном кабинете Aisystant."
+    en: "Link not yet completed.\n\nFollow the link above and connect Telegram in your Aisystant account."
+
+  unlinked:
+    ru: "Привязка Aisystant удалена."
+    en: "Aisystant link removed."
+
+  error:
+    ru: "Ошибка при привязке аккаунта. Попробуйте позже."
+    en: "Error linking account. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Schedule, courses, payments
+# ═══════════════════════════════════════════════════════════
+schedule:
+  title:
+    ru: "📋 *Расписание*"
+    en: "📋 *Schedule*"
+
+  no_account:
+    ru: "Привяжите аккаунт Aisystant, чтобы видеть расписание занятий.\n\nНажмите /link"
+    en: "Link your Aisystant account to see class schedule.\n\nPress /link"
+
+  no_lessons:
+    ru: "Ближайших занятий нет.\n\nПосмотрите доступные курсы:"
+    en: "No upcoming classes.\n\nBrowse available courses:"
+
+  lesson_item:
+    ru: "📅 *{course}*\n🕐 {datetime}\n📍 {location}"
+    en: "📅 *{course}*\n🕐 {datetime}\n📍 {location}"
+
+  btn_courses:
+    ru: "📚 Каталог курсов"
+    en: "📚 Course catalog"
+
+  btn_my_courses:
+    ru: "📖 Мои курсы"
+    en: "📖 My courses"
+
+  # Course catalog
+  catalog_title:
+    ru: "📚 *Каталог курсов*"
+    en: "📚 *Course catalog*"
+
+  catalog_empty:
+    ru: "Сейчас нет доступных курсов."
+    en: "No courses available right now."
+
+  catalog_section:
+    ru: "_{section}_"
+    en: "_{section}_"
+
+  course_item:
+    ru: "• *{name}*\n  Старт: {start} | {price}"
+    en: "• *{name}*\n  Start: {start} | {price}"
+
+  btn_buy:
+    ru: "💳 Купить"
+    en: "💳 Buy"
+
+  # My courses
+  my_courses_title:
+    ru: "📖 *Мои курсы*"
+    en: "📖 *My courses*"
+
+  my_courses_empty:
+    ru: "Вы ещё не записаны на курсы."
+    en: "You are not enrolled in any courses yet."
+
+  my_course_item:
+    ru: "• *{name}*\n  Статус: {status}"
+    en: "• *{name}*\n  Status: {status}"
+
+  # Payment
+  payment_confirm:
+    ru: "Оплатить *{course}*?\n\nСумма: *{amount} ₽*"
+    en: "Pay for *{course}*?\n\nAmount: *{amount} ₽*"
+
+  btn_pay:
+    ru: "💳 Оплатить {amount} ₽"
+    en: "💳 Pay {amount} ₽"
+
+  btn_cancel:
+    ru: "❌ Отмена"
+    en: "❌ Cancel"
+
+  payment_success:
+    ru: "✅ Переходите к оплате по ссылке ниже."
+    en: "✅ Follow the link below to complete payment."
+
+  btn_pay_link:
+    ru: "💳 Перейти к оплате"
+    en: "💳 Go to payment"
+
+  payment_error:
+    ru: "Ошибка создания платежа. Попробуйте позже."
+    en: "Payment creation error. Please try again later."
+
+  error:
+    ru: "Ошибка загрузки расписания. Попробуйте позже."
+    en: "Error loading schedule. Please try again later."
+
+  # Program section names
+  section_personal:
+    ru: "Личное развитие"
+    en: "Personal development"
+
+  section_professional:
+    ru: "Профессиональное развитие"
+    en: "Professional development"
+
+  section_seminars:
+    ru: "Семинары"
+    en: "Seminars"
+
+  section_reviews:
+    ru: "Разборы"
+    en: "Reviews"
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Guide (replaces ЦД/twin as user-facing name)
+# ═══════════════════════════════════════════════════════════
+guide:
+  title:
+    ru: "🧭 *Гид*"
+    en: "🧭 *Guide*"
+
+  desc_t2:
+    ru: "Гид — ваш персональный помощник в обучении.\n\nПодключите Цифровой двойник, чтобы получить:\n• Персональный профиль с целями\n• Рекомендации по курсам\n• Отслеживание прогресса"
+    en: "Guide is your personal learning assistant.\n\nConnect your Digital Twin to get:\n• Personal profile with goals\n• Course recommendations\n• Progress tracking"
+
+  btn_connect_dt:
+    ru: "🧬 Подключить Цифровой двойник"
+    en: "🧬 Connect Digital Twin"
+
+  profile_header:
+    ru: "🧭 *Ваш Гид*"
+    en: "🧭 *Your Guide*"
+
+  btn_update:
+    ru: "🔄 Обновить профиль"
+    en: "🔄 Update profile"
+
+  btn_degrees:
+    ru: "📐 Ступени развития"
+    en: "📐 Development stages"
+
+  btn_settings:
+    ru: "⚙️ Настройки Гида"
+    en: "⚙️ Guide settings"
+
+  loading:
+    ru: "Загружаю данные..."
+    en: "Loading data..."
+
+  unavailable:
+    ru: "Гид временно недоступен. Попробуйте позже."
+    en: "Guide is temporarily unavailable. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Aisystant subscription (БР)
+# ═══════════════════════════════════════════════════════════
+aisystant_sub:
+  title:
+    ru: "💳 *Подписка «Бесконечное развитие»*"
+    en: "💳 *«Infinite Development» Subscription*"
+
+  desc:
+    ru: "Подписка открывает полный доступ:\n• Лента дайджестов\n• Тренировка принципов\n• Персональный Гид\n• Все курсы и семинары"
+    en: "Subscription unlocks full access:\n• Digest feed\n• Principles training\n• Personal Guide\n• All courses and seminars"
+
+  already_active:
+    ru: "✅ Подписка «Бесконечное развитие» активна."
+    en: "✅ «Infinite Development» subscription is active."
+
+  no_account:
+    ru: "Сначала привяжите аккаунт Aisystant.\n\nНажмите /link"
+    en: "First, link your Aisystant account.\n\nPress /link"
+
+  no_tariffs:
+    ru: "Нет доступных тарифов. Попробуйте позже."
+    en: "No available tariffs. Please try again later."
+
+  tariff_item:
+    ru: "• *{name}*: {price} ₽/{period}"
+    en: "• *{name}*: {price} ₽/{period}"
+
+  btn_subscribe:
+    ru: "💳 Оформить подписку"
+    en: "💳 Subscribe"
+
+  payment_success:
+    ru: "✅ Переходите по ссылке для оплаты подписки."
+    en: "✅ Follow the link to complete subscription payment."
+
+  btn_pay_link:
+    ru: "💳 Перейти к оплате"
+    en: "💳 Go to payment"
+
+  payment_error:
+    ru: "Ошибка создания платежа. Попробуйте позже."
+    en: "Payment creation error. Please try again later."
+
+  error:
+    ru: "Ошибка загрузки подписки. Попробуйте позже."
+    en: "Error loading subscription. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# WP-79: Contacts
+# ═══════════════════════════════════════════════════════════
+contacts:
+  title:
+    ru: "📞 *Контакты*"
+    en: "📞 *Contacts*"
+
+  text:
+    ru: "📞 *Контакты*\n\n🌐 Сайт: aisystant.system-school.ru\n📧 Email: info@system-school.ru\n💬 Telegram: @system_school_chat\n📺 YouTube: System School"
+    en: "📞 *Contacts*\n\n🌐 Website: aisystant.system-school.ru\n📧 Email: info@system-school.ru\n💬 Telegram: @system_school_chat\n📺 YouTube: System School"
