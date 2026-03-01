@@ -57,7 +57,6 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     try:
         courses = await aisystant.get_available_courses()
         if courses:
-            lines.append(t('buy.courses_section', lang))
             for course in courses[:8]:
                 code = course.get("code", "")
                 name = course.get("courseName", course.get("name", code))
