@@ -347,9 +347,12 @@ async def marathon_date_tomorrow(callback: CallbackQuery):
     today = moscow_today()
     new_date = today + timedelta(days=1)
 
+    from db.queries.users import derive_mode
+    feed_status = intern.get('feed_status', 'not_started')
     await update_intern(chat_id,
                         marathon_start_date=new_date,
-                        marathon_status=MarathonStatus.ACTIVE)
+                        marathon_status=MarathonStatus.ACTIVE,
+                        mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
     lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
@@ -379,9 +382,12 @@ async def marathon_date_day_after(callback: CallbackQuery):
     today = moscow_today()
     new_date = today + timedelta(days=2)
 
+    from db.queries.users import derive_mode
+    feed_status = intern.get('feed_status', 'not_started')
     await update_intern(chat_id,
                         marathon_start_date=new_date,
-                        marathon_status=MarathonStatus.ACTIVE)
+                        marathon_status=MarathonStatus.ACTIVE,
+                        mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
     lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
@@ -440,11 +446,14 @@ async def marathon_reset_do(callback: CallbackQuery):
     await delete_marathon_answers(chat_id)
 
     # Сбрасываем прогресс марафона
+    from db.queries.users import derive_mode
+    feed_status = intern.get('feed_status', 'not_started') if intern else 'not_started'
     await update_intern(chat_id,
         completed_topics=[],
         current_topic_index=0,
         marathon_start_date=today,
         marathon_status=MarathonStatus.ACTIVE,
+        mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
         topics_today=0,
         topics_at_current_bloom=0,
     )

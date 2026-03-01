@@ -456,9 +456,12 @@ async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
         start_date = today + timedelta(days=2)
         date_text = t('update.day_after_tomorrow', lang)
 
+    from db.queries.users import derive_mode
+    feed_status = intern.get('feed_status', 'not_started')
     await update_intern(callback.message.chat.id,
                         marathon_start_date=start_date,
-                        marathon_status=MarathonStatus.ACTIVE)
+                        marathon_status=MarathonStatus.ACTIVE,
+                        mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
 
     await callback.answer(t('update.start_date_updated', lang))
     await callback.message.edit_text(

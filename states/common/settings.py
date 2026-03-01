@@ -453,11 +453,14 @@ class SettingsState(BaseState):
         today = moscow_today()
 
         await delete_marathon_answers(chat_id)
+        from db.queries.users import derive_mode
+        feed_status = user.get('feed_status', 'not_started') if isinstance(user, dict) else getattr(user, 'feed_status', 'not_started')
         await update_intern(chat_id,
             completed_topics=[],
             current_topic_index=0,
             marathon_start_date=today,
             marathon_status=MarathonStatus.ACTIVE,
+            mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
             topics_today=0,
             topics_at_current_bloom=0,
         )
