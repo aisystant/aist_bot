@@ -3,7 +3,7 @@ DB-запросы для привязки Aisystant аккаунта (WP-79).
 
 Хранит aisystant_id в таблице interns для:
 - Проверки подписки БР (определяет T2)
-- Запросов к Aisystant API (курсы, оплата, занятия)
+- Запросов к Aisystant API (программы, оплата, занятия)
 """
 
 from db.connection import get_pool

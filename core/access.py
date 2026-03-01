@@ -5,7 +5,7 @@
 
 3 типа доступа:
   - subscription: рекуррентная подписка → набор доступных сервисов
-  - purchase: разовая покупка → открывает конкретный курс
+  - purchase: разовая покупка → открывает конкретную программу
   - feature: paywall на функцию → показывает paywall при доступе
 
 user.has_access(service) = user.subscription ∪ user.purchases ∪ user.role
@@ -112,7 +112,7 @@ class AccessLayer:
         return await get_active_subscription(user_id)
 
     async def check_purchase(self, user_id: int, resource_id: str) -> bool:
-        """Проверить, куплен ли ресурс (курс, фича).
+        """Проверить, куплен ли ресурс (программа, фича).
 
         Returns:
             True если куплено.

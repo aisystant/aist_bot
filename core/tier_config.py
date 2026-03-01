@@ -149,7 +149,7 @@ COMMAND_DESCRIPTIONS = {
     'link':      {'ru': 'Привязать Aisystant',           'en': 'Link Aisystant account',    'es': 'Vincular Aisystant',          'fr': 'Lier Aisystant',               'zh': '关联 Aisystant'},
     'schedule':  {'ru': 'Расписание занятий',             'en': 'Class schedule',            'es': 'Horario de clases',           'fr': 'Horaire des cours',            'zh': '课程日程'},
     'contacts':  {'ru': 'Контактная информация',         'en': 'Contact information',       'es': 'Información de contacto',    'fr': 'Coordonnées',                  'zh': '联系信息'},
-    'buy':       {'ru': 'Купить (подписка + курсы)',     'en': 'Buy (subscription + courses)', 'es': 'Comprar (suscripción + cursos)', 'fr': 'Acheter (abonnement + cours)', 'zh': '购买（订阅+课程）'},
+    'buy':       {'ru': 'Купить (подписка + программы)',  'en': 'Buy (subscription + programs)', 'es': 'Comprar (suscripción + programas)', 'fr': 'Acheter (abonnement + programmes)', 'zh': '购买（订阅+项目）'},
 }
 
 

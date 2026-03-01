@@ -5,15 +5,15 @@
 - Личное развитие / Рабочее развитие / Семинары / Разбор проекта
 - Мастерская Церена (подписка WORKSHOP)
 - Подписка БР
-- Мои курсы
+- Мои программы
 
 Callbacks:
 - sched_cat:{program}          — каталог по программе
 - sched_workshop               — мастерская Церена
 - aisystant_subscribe          — подписка БР (обработчик в subscription.py)
-- schedule_my                  — мои курсы
+- schedule_my                  — мои программы
 - sched_back                   — возврат в хаб
-- schedule_detail:{code}       — детали курса + подтверждение оплаты
+- schedule_detail:{code}       — детали программы + подтверждение оплаты
 - schedule_pay:{code}:{amount} — создание платежа
 - sub_pay_ws:{code}:{amount}   — платёж за мастерскую
 """
@@ -158,7 +158,7 @@ async def callback_courses_legacy(callback: CallbackQuery):
 
 @schedule_router.callback_query(F.data.startswith("sched_cat:"))
 async def callback_category(callback: CallbackQuery):
-    """Курсы одной программы с кнопками оплаты."""
+    """Потоки одной программы с кнопками оплаты."""
     category = callback.data.split(":", 1)[1]
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
@@ -316,11 +316,11 @@ async def callback_ws_tariffs(callback: CallbackQuery):
     await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
 
 
-# ── Мои курсы ───────────────────────────────────────────
+# ── Мои программы ──────────────────────────────────────
 
 @schedule_router.callback_query(F.data == "schedule_my")
 async def callback_my_courses(callback: CallbackQuery):
-    """Мои курсы."""
+    """Мои программы."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
@@ -360,11 +360,11 @@ async def callback_my_courses(callback: CallbackQuery):
     await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
 
 
-# ── Детали курса + оплата ───────────────────────────────
+# ── Детали программы + оплата ──────────────────────────
 
 @schedule_router.callback_query(F.data.startswith("schedule_detail:"))
 async def callback_course_detail(callback: CallbackQuery):
-    """Детали курса + кнопка покупки."""
+    """Детали программы + кнопка покупки."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
@@ -416,7 +416,7 @@ async def callback_course_detail(callback: CallbackQuery):
             ])
             await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
         else:
-            await callback.message.answer(f"*{name}*\n\nБесплатный курс.", parse_mode="Markdown")
+            await callback.message.answer(f"*{name}*\n\nБесплатная программа.", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"[Schedule] course_detail error for code={code}: {e}")
         import traceback
@@ -426,7 +426,7 @@ async def callback_course_detail(callback: CallbackQuery):
 
 @schedule_router.callback_query(F.data.startswith("schedule_pay:"))
 async def callback_pay(callback: CallbackQuery):
-    """Создать платёж за курс."""
+    """Создать платёж за программу."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)

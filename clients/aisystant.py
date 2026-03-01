@@ -4,8 +4,8 @@ Aisystant LMS API клиент — расписание, оплата, подп�
 Портирован из SystemsSchool_bot. Используется для:
 - Привязка Telegram ↔ Aisystant аккаунта
 - Проверка подписки «Бесконечное развитие» (определяет T2)
-- Каталог потоков (курсы, семинары, резидентуры)
-- Оплата курсов и подписки через Aisystant Payment Gateway
+- Каталог потоков (программы, семинары, резидентуры)
+- Оплата программ и подписки через Aisystant Payment Gateway
 - Расписание занятий пользователя
 
 Использование:
@@ -228,17 +228,17 @@ class AisystantClient:
         return courses
 
     async def get_available_internships(self, aisystant_id: str) -> list[dict]:
-        """Получить курсы, доступные для покупки (с ценами)."""
+        """Получить программы, доступные для покупки (с ценами)."""
         result = await self._get(
             "/api/subscriptions/active-internships",
             params={"user-id": aisystant_id},
         )
         return result if isinstance(result, list) else []
 
-    # ── Курсы пользователя ─────────────────────────────────
+    # ── Программы пользователя ──────────────────────────────
 
     async def get_user_courses(self, aisystant_id: str) -> list[dict]:
-        """Получить курсы, на которые записан пользователь.
+        """Получить программы, на которые записан пользователь.
 
         Фильтрует закрытые/отменённые.
         """
@@ -291,7 +291,7 @@ class AisystantClient:
         self, aisystant_id: str, code: str, amount: float,
         payment_index: int | None = None,
     ) -> dict | None:
-        """Создать платёж за курс/семинар.
+        """Создать платёж за программу/семинар.
 
         Возвращает {'confirmationUrl': ..., 'id': ...} или None.
         """

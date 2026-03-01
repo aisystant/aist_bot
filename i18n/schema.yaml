@@ -191,8 +191,8 @@ commands:
     ru: "/guide — персональный гид обучения"
     en: "/guide — personal learning guide"
   buy:
-    ru: "/buy — витрина покупок (подписка + курсы)"
-    en: "/buy — shop (subscription + courses)"
+    ru: "/buy — витрина покупок (подписка + программы)"
+    en: "/buy — shop (subscription + programs)"
 
   section_main:
     ru: "Основные"
@@ -1336,8 +1336,8 @@ modes:
     en: "*Current mode:*"
 
   marathon_full_desc:
-    ru: "📚 *Марафон* — 14-дневный курс"
-    en: "📚 *Marathon* — 14-day course"
+    ru: "📚 *Марафон* — 14-дневный интенсив"
+    en: "📚 *Marathon* — 14-day intensive"
 
   marathon_daily:
     ru: "_Каждый день изучаете две темы: теория + практика_"
@@ -4502,8 +4502,8 @@ link:
     en: "✅ Aisystant account is already linked."
 
   found_auto:
-    ru: "✅ Аккаунт Aisystant найден и привязан!\n\nТеперь вам доступны расписание, курсы и оплата."
-    en: "✅ Aisystant account found and linked!\n\nSchedule, courses, and payments are now available."
+    ru: "✅ Аккаунт Aisystant найден и привязан!\n\nТеперь вам доступны расписание, программы и оплата."
+    en: "✅ Aisystant account found and linked!\n\nSchedule, programs, and payments are now available."
 
   not_found:
     ru: "Аккаунт Aisystant не найден по вашему Telegram.\n\nНажмите кнопку ниже, чтобы привязать аккаунт на сайте Aisystant."
@@ -4534,7 +4534,7 @@ link:
     en: "Error linking account. Please try again later."
 
 # ═══════════════════════════════════════════════════════════
-# WP-79: Schedule, courses, payments
+# WP-79: Schedule, programs, payments
 # ═══════════════════════════════════════════════════════════
 schedule:
   title:
@@ -4546,29 +4546,29 @@ schedule:
     en: "Link your Aisystant account to see class schedule.\n\nPress /link"
 
   no_lessons:
-    ru: "Ближайших занятий нет.\n\nПосмотрите доступные курсы:"
-    en: "No upcoming classes.\n\nBrowse available courses:"
+    ru: "Ближайших занятий нет.\n\nПосмотрите доступные программы:"
+    en: "No upcoming classes.\n\nBrowse available programs:"
 
   lesson_item:
     ru: "📅 *{course}*\n🕐 {datetime}\n📍 {location}"
     en: "📅 *{course}*\n🕐 {datetime}\n📍 {location}"
 
   btn_courses:
-    ru: "📚 Каталог курсов"
-    en: "📚 Course catalog"
+    ru: "📚 Каталог программ"
+    en: "📚 Program catalog"
 
   btn_my_courses:
-    ru: "📖 Мои курсы"
-    en: "📖 My courses"
+    ru: "📖 Мои программы"
+    en: "📖 My programs"
 
-  # Course catalog
+  # Program catalog
   catalog_title:
-    ru: "📚 *Каталог курсов*"
-    en: "📚 *Course catalog*"
+    ru: "📚 *Каталог программ*"
+    en: "📚 *Program catalog*"
 
   catalog_empty:
-    ru: "Сейчас нет доступных курсов."
-    en: "No courses available right now."
+    ru: "Сейчас нет доступных программ."
+    en: "No programs available right now."
 
   catalog_section:
     ru: "_{section}_"
@@ -4582,14 +4582,14 @@ schedule:
     ru: "💳 Купить"
     en: "💳 Buy"
 
-  # My courses
+  # My programs
   my_courses_title:
-    ru: "📖 *Мои курсы*"
-    en: "📖 *My courses*"
+    ru: "📖 *Мои программы*"
+    en: "📖 *My programs*"
 
   my_courses_empty:
-    ru: "Вы ещё не записаны на курсы."
-    en: "You are not enrolled in any courses yet."
+    ru: "Вы ещё не записаны на программы."
+    en: "You are not enrolled in any programs yet."
 
   my_course_item:
     ru: "• *{name}*\n  Статус: {status}"
@@ -4684,13 +4684,13 @@ schedule:
     en: "ID Subscription"
 
   menu_my_courses:
-    ru: "Мои курсы"
-    en: "My courses"
+    ru: "Мои программы"
+    en: "My programs"
 
   # Category view
   category_empty:
-    ru: "В этом разделе сейчас нет курсов в продаже."
-    en: "No courses for sale in this section right now."
+    ru: "В этом разделе сейчас нет программ в продаже."
+    en: "No programs for sale in this section right now."
 
   btn_back:
     ru: "⬅️ Назад"
@@ -4718,8 +4718,8 @@ guide:
     en: "🧭 *Guide*"
 
   desc_t2:
-    ru: "Гид — ваш персональный помощник в обучении.\n\nПодключите Цифровой двойник, чтобы получить:\n• Персональный профиль с целями\n• Рекомендации по курсам\n• Отслеживание прогресса"
-    en: "Guide is your personal learning assistant.\n\nConnect your Digital Twin to get:\n• Personal profile with goals\n• Course recommendations\n• Progress tracking"
+    ru: "Гид — ваш персональный помощник в обучении.\n\nПодключите Цифровой двойник, чтобы получить:\n• Персональный профиль с целями\n• Рекомендации по программам\n• Отслеживание прогресса"
+    en: "Guide is your personal learning assistant.\n\nConnect your Digital Twin to get:\n• Personal profile with goals\n• Program recommendations\n• Progress tracking"
 
   btn_connect_dt:
     ru: "🧬 Подключить Цифровой двойник"
@@ -4758,8 +4758,8 @@ aisystant_sub:
     en: "💳 *«Infinite Development» Subscription*"
 
   desc:
-    ru: "Подписка открывает полный доступ:\n• Лента дайджестов\n• Тренировка принципов\n• Персональный Гид\n• Все курсы и семинары"
-    en: "Subscription unlocks full access:\n• Digest feed\n• Principles training\n• Personal Guide\n• All courses and seminars"
+    ru: "Подписка открывает полный доступ:\n• Лента дайджестов\n• Тренировка принципов\n• Персональный Гид\n• Все программы"
+    en: "Subscription unlocks full access:\n• Digest feed\n• Principles training\n• Personal Guide\n• All programs"
 
   already_active:
     ru: "✅ Подписка «Бесконечное развитие» активна."
