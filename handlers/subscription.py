@@ -26,6 +26,37 @@ logger = logging.getLogger(__name__)
 subscription_router = Router(name="subscription")
 
 
+PERIOD_LABELS = {
+    'm': {'ru': '1 месяц', 'en': '1 month'},
+    '3m': {'ru': '3 месяца', 'en': '3 months'},
+    '6m': {'ru': '6 месяцев', 'en': '6 months'},
+    'y': {'ru': '1 год', 'en': '1 year'},
+    '2y': {'ru': '2 года', 'en': '2 years'},
+}
+
+
+def _parse_tariff(tariff: dict) -> tuple[str, str, int, str]:
+    """Извлечь code, name, amount, periodicity из тарифа API.
+
+    API формат: {"code": "...", "details": {"amount": 300, "periodicity": "m", "name": "..."}}
+    """
+    code = tariff.get("code", "")
+    details = tariff.get("details", {})
+    name = details.get("name", tariff.get("name", code))
+    amount = details.get("amount", tariff.get("amount", 0))
+    try:
+        amount = int(amount)
+    except (TypeError, ValueError):
+        amount = 0
+    periodicity = details.get("periodicity", "m")
+    return code, name, amount, periodicity
+
+
+def _period_label(periodicity: str, lang: str) -> str:
+    labels = PERIOD_LABELS.get(periodicity, {})
+    return labels.get(lang, labels.get('ru', periodicity))
+
+
 def _lang(intern) -> str:
     if not intern:
         return 'ru'
@@ -74,18 +105,15 @@ async def cmd_subscription(message: Message):
 
     buttons = []
     for tariff in tariffs[:5]:
-        code = tariff.get("code", "")
-        name = tariff.get("name", code)
-        amount = tariff.get("amount", 0)
-        period = tariff.get("period", "месяц")
+        code, name, amount, periodicity = _parse_tariff(tariff)
+        period = _period_label(periodicity, lang)
 
-        lines.append(t('aisystant_sub.tariff_item', lang,
-                        name=name, price=int(amount), period=period))
+        lines.append(f"  • {period} — {amount} ₽")
 
         if amount > 0:
             buttons.append([InlineKeyboardButton(
-                text=f"💳 {name} — {int(amount)} ₽",
-                callback_data=f"sub_pay:{code}:{int(amount)}",
+                text=f"💳 {period} — {amount} ₽",
+                callback_data=f"sub_pay:{code}:{amount}",
             )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
@@ -160,15 +188,15 @@ async def callback_aisystant_subscribe(callback: CallbackQuery):
     lines = [t('aisystant_sub.title', lang), "", t('aisystant_sub.desc', lang), ""]
     buttons = []
     for tariff in tariffs[:5]:
-        code = tariff.get("code", "")
-        name = tariff.get("name", code)
-        amount = tariff.get("amount", 0)
-        period = tariff.get("period", "месяц")
-        lines.append(t('aisystant_sub.tariff_item', lang, name=name, price=int(amount), period=period))
+        code, name, amount, periodicity = _parse_tariff(tariff)
+        period = _period_label(periodicity, lang)
+
+        lines.append(f"  • {period} — {amount} ₽")
+
         if amount > 0:
             buttons.append([InlineKeyboardButton(
-                text=f"💳 {name} — {int(amount)} ₽",
-                callback_data=f"sub_pay:{code}:{int(amount)}",
+                text=f"💳 {period} — {amount} ₽",
+                callback_data=f"sub_pay:{code}:{amount}",
             )])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
