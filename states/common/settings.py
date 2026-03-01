@@ -17,7 +17,7 @@ import logging
 import re
 from typing import Optional
 
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
 from states.base import BaseState
 from i18n import t, SUPPORTED_LANGUAGES
@@ -133,7 +133,7 @@ class SettingsState(BaseState):
         text = (message.text or "").strip()
 
         if waiting_for:
-            return await self._handle_text_input(user, waiting_for, text)
+            return await self._handle_text_input(user, waiting_for, text, message)
 
         await self.enter(user)
         return None
@@ -202,6 +202,12 @@ class SettingsState(BaseState):
 
         if data == "upd_subscription":
             return await self._show_donation(user, callback)
+        if data == "donate_once":
+            return await self._show_donate_amounts(user, callback)
+        if data == "donate_once_custom":
+            return await self._ask_donate_amount(user, callback)
+        if data.startswith("donate_pay:"):
+            return await self._create_once_donation(user, callback, data)
         if data == "sub_cancel_confirm":
             return await self._subscription_cancel_confirm(user, callback)
         if data == "sub_cancel_do":
@@ -287,12 +293,15 @@ class SettingsState(BaseState):
 
         return None
 
-    async def _handle_text_input(self, user, field: str, text: str) -> Optional[str]:
+    async def _handle_text_input(self, user, field: str, text: str, message: Message = None) -> Optional[str]:
         """Сохраняем текстовый ввод."""
         chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
         time_pattern = r'^([01]?[0-9]|2[0-3]):([0-5][0-9])$'
+
+        if field == 'donate_amount':
+            return await self._handle_donate_amount_input(user, text, message)
 
         if field == 'schedule_marathon':
             if re.match(time_pattern, text):
@@ -521,7 +530,7 @@ class SettingsState(BaseState):
             )])
 
         buttons.append([InlineKeyboardButton(
-            text=t('donation.once_button', lang, price=price),
+            text=t('donation.once_button', lang),
             callback_data="donate_once",
         )])
         buttons.append([InlineKeyboardButton(
@@ -532,6 +541,119 @@ class SettingsState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _show_donate_amounts(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем выбор суммы для разового доната."""
+        lang = self._get_lang(user)
+
+        from core.pricing import get_current_price
+        price = get_current_price()
+
+        text = t('donation.choose_amount', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"⭐ {price} Stars", callback_data=f"donate_pay:{price}")],
+            [InlineKeyboardButton(text=t('donation.custom_amount_button', lang), callback_data="donate_once_custom")],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_subscription")],
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _ask_donate_amount(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Запрашиваем произвольную сумму доната."""
+        lang = self._get_lang(user)
+
+        await callback.message.edit_text(
+            t('donation.enter_amount', lang),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="donate_once")]
+            ]),
+            parse_mode="Markdown",
+        )
+
+        await self._set_waiting(user, 'donate_amount')
+        return None
+
+    async def _create_once_donation(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Создаём invoice для разового доната (из callback donate_pay:N)."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        try:
+            amount = int(data.split(":")[1])
+            if amount < 1 or amount > 10000:
+                raise ValueError
+        except (ValueError, IndexError):
+            await callback.message.answer(t('errors.try_again', lang))
+            return None
+
+        try:
+            link = await callback.bot.create_invoice_link(
+                title=t('donation.once_invoice_title', lang),
+                description=t('donation.once_invoice_description', lang),
+                payload=f"donate_once_{chat_id}_{amount}",
+                currency="XTR",
+                prices=[LabeledPrice(label="Donation", amount=amount)],
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('donation.once_pay_button', lang, price=amount),
+                    url=link,
+                )]
+            ])
+
+            await callback.message.answer(
+                t('donation.once_invoice_text', lang, price=amount),
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.error(f"[Donation] Error creating invoice: {e}")
+            await callback.message.answer(t('errors.try_again', lang))
+
+        return None
+
+    async def _handle_donate_amount_input(self, user, text: str, message: Message) -> Optional[str]:
+        """Обрабатываем введённую сумму доната."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        try:
+            amount = int(text)
+            if amount < 1 or amount > 10000:
+                raise ValueError
+        except ValueError:
+            await self.send(user, t('donation.invalid_amount', lang))
+            return None
+
+        await self._set_waiting(user, None)
+
+        try:
+            link = await message.bot.create_invoice_link(
+                title=t('donation.once_invoice_title', lang),
+                description=t('donation.once_invoice_description', lang),
+                payload=f"donate_once_{chat_id}_{amount}",
+                currency="XTR",
+                prices=[LabeledPrice(label="Donation", amount=amount)],
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('donation.once_pay_button', lang, price=amount),
+                    url=link,
+                )]
+            ])
+
+            await message.answer(
+                t('donation.once_invoice_text', lang, price=amount),
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.error(f"[Donation] Error creating invoice from text input: {e}")
+            await message.answer(t('errors.try_again', lang))
+
         return None
 
     async def _subscription_cancel_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
