@@ -166,6 +166,8 @@ async def cmd_help(message: Message):
         f"{t('help.feed_short', lang)}\n\n"
         f"{t('help.schedule_hint', lang)}\n\n"
         f"{t('help.ai_hint', lang)}\n\n"
+        f"*{t('help.subscription_title', lang)}*\n"
+        f"{t('help.subscription_info', lang)}\n\n"
         f"*{t('help.feedback', lang)}:* /feedback {t('help.feedback_or', lang)} !текст"
     )
 
