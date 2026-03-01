@@ -267,7 +267,7 @@ async def handle_fleeting_note(message: Message):
     if message.reply_to_message:
         replied_text = _extract_message_text(message.reply_to_message, lang)
         if replied_text:
-            note_text = f"{replied_text}\n\n{note_text}" if note_text else replied_text
+            note_text = f"Мой комментарий: {note_text}\n\n{replied_text}" if note_text else replied_text
 
     # Сценарий B: forward → "." (проверяем ожидающую пересылку)
     if not message.reply_to_message:
@@ -277,7 +277,7 @@ async def handle_fleeting_note(message: Message):
             if (time.time() - fwd_time) <= _FORWARD_TTL_SECONDS:
                 fwd_text = _extract_message_text(fwd_msg, lang)
                 if fwd_text:
-                    note_text = f"{fwd_text}\n\n{note_text}" if note_text else fwd_text
+                    note_text = f"Мой комментарий: {note_text}\n\n{fwd_text}" if note_text else fwd_text
 
     # Сценарий C: просто "." без контекста → ожидать пересылку ("." → forward)
     if not note_text:
