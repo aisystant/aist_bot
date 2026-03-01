@@ -2136,12 +2136,12 @@ update:
 # -----------------------------------------------------------------------------
 help:
   title:
-    ru: "📖 Как я работаю"
-    en: "📖 How I work"
+    ru: "📖 Справка"
+    en: "📖 Help"
 
   intro:
-    ru: "Я — бот, который помогает учиться учиться.\nКаждый день присылаю короткий урок (5–15 мин), подобранный лично для вас."
-    en: "I'm a bot that helps you learn how to learn.\nEvery day I send a short lesson (5–15 min), personalized just for you."
+    ru: "Бот — часть интеллектуальной рабочей среды для развития мышления.\nЕжедневные уроки, тренировки, ИИ-консультант и цифровой двойник — всё в одном месте."
+    en: "The bot is part of an Intelligent Working Environment for developing thinking.\nDaily lessons, training, AI consultant and digital twin — all in one place."
 
   getting_started:
     ru: "🚀 С чего начать"
@@ -2184,16 +2184,16 @@ help:
     en: "📚 Learning modes:"
 
   ai_hint:
-    ru: "❓ *Задать вопрос* — начните с `?`\nПример: `?Что значит собранность?`"
-    en: "❓ *Ask a question* — start with `?`\nExample: `?What is self-discipline?`"
+    ru: "❓ *Спроси что угодно* — начни с `?`\n`?Что значит собранность?`\n`?Как мне начать создавать IWE?`"
+    en: "❓ *Ask anything* — start with `?`\n`?What is self-discipline?`\n`?How do I start building my IWE?`"
 
   notes_hint:
-    ru: "📝 *Заметки* — начните с `.` (`.купить книгу по СМ`)"
-    en: "📝 *Notes* — start with `.` (`.buy a book on SM`)"
+    ru: "📝 *Заметка* — начни с `.`\n`.прочитать главу 3 до пятницы`"
+    en: "📝 *Note* — start with `.`\n`.read chapter 3 by Friday`"
 
-  schedule_hint:
-    ru: "⏰ Установите время в /settings — контент придёт по расписанию.\nИли нажмите «Получить тему» в любой момент."
-    en: "⏰ Set time in /settings — content arrives on schedule.\nOr tap «Get topic» anytime."
+  tiers_hint:
+    ru: "📊 *Уровни платформы*\nТы проходишь 4 уровня — от марафона до создания знаний и работы с ИИ-агентами.\nСвой уровень и прогресс смотри в /mydata"
+    en: "📊 *Platform levels*\nYou progress through 4 levels — from marathon to knowledge creation and AI agents.\nCheck your level and progress in /mydata"
 
   ai_questions:
     ru: "В обоих режимах работает функция вопроса к ИИ. Начните сообщение с ? чтобы задать вопрос."
@@ -2248,8 +2248,8 @@ help:
     en: "Subscription"
 
   subscription_info:
-    ru: "Лента, Консультант, Заметки и Планы доступны по подписке (Telegram Stars).\n\nПервые 30 дней — бесплатный пробный период.\nСтоимость подписки повышается каждую неделю. Подписавшись, вы фиксируете свою цену навсегда — Telegram продлевает подписку автоматически по той же цене.\n\n⭐ Звёзды используются для продвижения бота в Telegram — так нас находят новые ученики.\n\nОформить: /settings → Подписка."
-    en: "Feed, Consultant, Notes and Plans require a subscription (Telegram Stars).\n\nFirst 30 days are a free trial.\nThe subscription price increases every week. Once you subscribe, your price is locked forever — Telegram auto-renews at the same rate.\n\n⭐ Stars are used to promote the bot on Telegram — helping new learners find us.\n\nSubscribe: /settings → Subscription."
+    ru: "Лента, консультант, заметки и планы доступны по подписке.\nПервые 30 дней — бесплатно. Оформить: /settings"
+    en: "Feed, consultant, notes and plans require a subscription.\nFirst 30 days free. Subscribe: /settings"
 
   feedback:
     ru: "Замечания и предложения"
@@ -2257,6 +2257,9 @@ help:
   feedback_or:
     ru: "или"
     en: "or"
+  feedback_line:
+    ru: "💬 Обратная связь: /feedback или знак «!», а далее ваш текст."
+    en: "💬 Feedback: /feedback or type \"!\" followed by your message."
 
 # -----------------------------------------------------------------------------
 # Ошибки
