@@ -276,6 +276,9 @@ class ConsultationState(BaseState):
             'interests': getattr(user, 'interests', []),
             'goals': getattr(user, 'goals', ''),
             'assessment_state': getattr(user, 'assessment_state', None),
+            'marathon_status': getattr(user, 'marathon_status', 'not_started'),
+            'marathon_start_date': getattr(user, 'marathon_start_date', None),
+            'active_days_streak': getattr(user, 'active_days_streak', 0),
         }
 
     def _detect_service_intent(self, question: str) -> Optional[str]:
