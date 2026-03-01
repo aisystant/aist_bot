@@ -596,10 +596,11 @@ class ConsultationState(BaseState):
                 typing_task.cancel()
 
                 # Добавляем deep link если вопрос относится к сервису
+                # (пропускаем если LLM уже упомянул команду в ответе)
                 service_id = self._detect_service_intent(question)
                 if service_id:
                     service = registry.get(service_id)
-                    if service and service.command:
+                    if service and service.command and service.command not in response:
                         response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
 
                 # Отправляем ответ с кнопками feedback
