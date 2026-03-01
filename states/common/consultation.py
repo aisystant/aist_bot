@@ -597,11 +597,12 @@ class ConsultationState(BaseState):
 
                 # Добавляем deep link если вопрос относится к сервису
                 # (пропускаем если LLM уже упомянул команду в ответе)
-                service_id = self._detect_service_intent(question)
-                if service_id:
-                    service = registry.get(service_id)
-                    if service and service.command and service.command not in response:
-                        response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
+                if response:
+                    service_id = self._detect_service_intent(question)
+                    if service_id:
+                        service = registry.get(service_id)
+                        if service and service.command and service.command not in response:
+                            response += f"\n\n{service.icon} {t('consultation.try_service', lang)}: {service.command}"
 
                 # Отправляем ответ с кнопками feedback
                 chat_id = self._get_chat_id(user)
