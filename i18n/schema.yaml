@@ -171,6 +171,9 @@ commands:
   report:
     ru: "/report — отчёт дня / недели"
     en: "/report — day / week report"
+  waka:
+    ru: "/waka — статистика рабочего времени (WakaTime)"
+    en: "/waka — work time statistics (WakaTime)"
   bug_report:
     ru: "! — баг-репорт (!текст — быстро)"
     en: "! — bug report (!text — quick)"
@@ -203,9 +206,6 @@ commands:
   section_profile:
     ru: "Профиль и данные"
     en: "Profile & data"
-  section_club:
-    ru: "Клуб"
-    en: "Club"
   section_aisystant:
     ru: "Aisystant"
     en: "Aisystant"
@@ -4643,7 +4643,7 @@ schedule:
 
   # Hub (navigation center)
   hub_title:
-    ru: "📋 *Расписание и каталог*"
+    ru: ""
     en: "📋 *Schedule & Catalog*"
 
   hub_upcoming:
@@ -4655,7 +4655,7 @@ schedule:
     en: "• {course} — {datetime}"
 
   hub_choose:
-    ru: "Куда можно записаться:"
+    ru: "📚 *Куда можно записаться:*"
     en: "Where to enroll:"
 
   # Hub menu button labels

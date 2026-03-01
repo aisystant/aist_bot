@@ -93,7 +93,7 @@ async def _show_hub(message: Message, chat_id: int):
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
-    lines = [t('schedule.hub_title', lang), ""]
+    lines = []
 
     # Ближайшие занятия (для привязанных пользователей)
     aisystant_id = await get_aisystant_id(chat_id)
