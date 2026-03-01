@@ -309,18 +309,23 @@ class MarathonTaskState(BaseState):
                 except Exception as e:
                     logger.warning(f"Evaluation failed for user {chat_id}: {e}")
 
-        # Обновляем прогресс
+        # Обновляем прогресс + гарантируем marathon_status=ACTIVE и корректный mode
         completed = self._get_completed_topics(user) + [topic_index]
         topics_today = self._get_topics_today(user) + 1
         today = moscow_today()
 
         if chat_id:
+            from db.queries.users import derive_mode
+            from config.settings import MarathonStatus
+            feed_status = user.get('feed_status', 'not_started')
             await update_intern(
                 chat_id,
                 completed_topics=completed,
                 current_topic_index=topic_index + 1,
                 topics_today=topics_today,
-                last_topic_date=today
+                last_topic_date=today,
+                marathon_status=MarathonStatus.ACTIVE,
+                mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
             )
 
         # Проверяем статус завершения
