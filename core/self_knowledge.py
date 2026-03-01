@@ -402,6 +402,28 @@ def get_self_knowledge(lang: str = 'ru') -> str:
             "\nStart recommendation with ЛР — it's the entry point for most people."
         )
 
+    # --- Документация IWE (точные ссылки) ---
+    if is_ru:
+        lines.append("\n## Документация IWE")
+        lines.append(
+            "Когда пользователь спрашивает про документацию, экзокортекс, "
+            "настройку, установку, обучение работе с IWE — давай ТОЛЬКО эти ссылки:\n"
+            f"- Быстрый старт (справочник, ~15 мин): {PLATFORM_URLS['iwe_help']}\n"
+            f"- Полный путь обучения (пошагово): {PLATFORM_URLS['iwe_learning_path']}\n"
+            f"- Установка (от нуля до T4): {PLATFORM_URLS['iwe_setup']}\n"
+            f"- Source-of-truth (DP.IWE.001): {PLATFORM_URLS['iwe_entity']}"
+        )
+    else:
+        lines.append("\n## IWE Documentation")
+        lines.append(
+            "When user asks about documentation, exocortex, setup, "
+            "installation, learning to use IWE — provide ONLY these links:\n"
+            f"- Quick start (reference, ~15 min): {PLATFORM_URLS['iwe_help']}\n"
+            f"- Full learning path (step by step): {PLATFORM_URLS['iwe_learning_path']}\n"
+            f"- Setup guide (from zero to T4): {PLATFORM_URLS['iwe_setup']}\n"
+            f"- Source-of-truth (DP.IWE.001): {PLATFORM_URLS['iwe_entity']}"
+        )
+
     result = "\n".join(lines)
     _cache[lang] = result
     return result

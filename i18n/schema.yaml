@@ -3941,8 +3941,8 @@ assessment:
 # -----------------------------------------------------------------------------
 subscription:
   paywall_text:
-    ru: "⭐ Для доступа к этой функции нужна подписка.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально для вас.\n\n🔒 Ранние подписчики сохраняют свою цену навсегда.\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 15 дней — бесплатно. Затем — {price} Stars/мес."
-    en: "⭐ A subscription is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated for you.\n\n🔒 Early subscribers keep their price locked forever.\n💡 All funds go towards product development and promotion.\n\nFirst 15 days are free. Then — {price} Stars/month."
+    ru: "⭐ Для доступа к этой функции нужна подписка.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально для вас.\n\n🔒 Ранние подписчики сохраняют свою цену навсегда.\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно. Затем — {price} Stars/мес."
+    en: "⭐ A subscription is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated for you.\n\n🔒 Early subscribers keep their price locked forever.\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free. Then — {price} Stars/month."
 
   subscribe_button:
     ru: "⭐ Подписаться за {price} Stars/мес"
@@ -4030,8 +4030,8 @@ subscription:
     en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The subscription covers these costs and helps improve the product.\n\n🔒 Early subscribers get their price locked forever — the sooner you subscribe, the cheaper it is.\n\n💰 All funds go towards product development and promotion."
 
   launch_notification:
-    ru: "🚀 *Важное обновление!*\n\nМы вводим подписку на расширенные функции: Лента, Консультант (?), Заметки (.) и Планы.\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 15 бесплатных дней* — попробуйте всё без ограничений.\n🔒 *Ранние подписчики сохраняют цену навсегда* — подпишитесь сейчас по минимальной цене {price} Stars/мес.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что пока остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
-    en: "🚀 *Important update!*\n\nWe're introducing a subscription for advanced features: Feed, Consultant (?), Notes (.) and Plans.\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 15 free days* — try everything without limits.\n🔒 *Early subscribers keep their price forever* — subscribe now at the minimum price of {price} Stars/mo.\n💰 All funds go towards product development and promotion.\n\n*What remains free for now:* Marathon, Assessment, Progress, Profile, Settings."
+    ru: "🚀 *Важное обновление!*\n\nМы вводим подписку на расширенные функции: Лента, Консультант (?), Заметки (.) и Планы.\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n🔒 *Ранние подписчики сохраняют цену навсегда* — подпишитесь сейчас по минимальной цене {price} Stars/мес.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что пока остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
+    en: "🚀 *Important update!*\n\nWe're introducing a subscription for advanced features: Feed, Consultant (?), Notes (.) and Plans.\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 30 free days* — try everything without limits.\n🔒 *Early subscribers keep their price forever* — subscribe now at the minimum price of {price} Stars/mo.\n💰 All funds go towards product development and promotion.\n\n*What remains free for now:* Marathon, Assessment, Progress, Profile, Settings."
 
   settings_label:
     ru: "Подписка"
@@ -4212,8 +4212,8 @@ milestones:
     en: "🎯 *One week with us!*\n\nYou've studied {topics} topics and had {active_days} active days.\n\nGreat start — keep up the pace!"
 
   day_7_trial:
-    ru: "\n\n💡 Напоминаем: первые 15 дней — бесплатный период. После него доступ к Ленте и консультациям сохранится по подписке."
-    en: "\n\n💡 Reminder: the first 15 days are a free trial. After that, Feed and consultations stay available with a subscription."
+    ru: "\n\n💡 Напоминаем: первые 30 дней — бесплатный период. После него доступ к Ленте и консультациям сохранится по подписке."
+    en: "\n\n💡 Reminder: the first 30 days are a free trial. After that, Feed and consultations stay available with a subscription."
 
   day_14:
     ru: "🏃 *Две недели обучения!*\n\n{marathon_status}\n\nВы входите в число самых активных учеников."

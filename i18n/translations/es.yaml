@@ -876,7 +876,7 @@ feedback:
   welcome: "¿Qué ocurrió?"
 
 subscription:
-  paywall_text: "⭐ Se requiere suscripción para esta función.\n\nLa suscripción cubre el costo de tokens IA y personalización — cada respuesta se genera individualmente para ti.\n\n🔒 Los suscriptores tempranos conservan su precio para siempre.\n💡 Todos los fondos se destinan al desarrollo y promoción del producto.\n\nPrimeros 15 días gratis. Luego — {price} Stars/mes."
+  paywall_text: "⭐ Se requiere suscripción para esta función.\n\nLa suscripción cubre el costo de tokens IA y personalización — cada respuesta se genera individualmente para ti.\n\n🔒 Los suscriptores tempranos conservan su precio para siempre.\n💡 Todos los fondos se destinan al desarrollo y promoción del producto.\n\nPrimeros 30 días gratis. Luego — {price} Stars/mes."
   subscribe_button: "⭐ Suscribirse por {price} Stars/mes"
   invoice_title: "Suscripción AIST"
   invoice_description: "Acceso a Feed, Consultor, Notas y Planes por 30 días."
@@ -897,7 +897,7 @@ subscription:
   current_price: "Precio actual: {price} Stars/mes"
   price_locked: "🔒 Tu precio está fijado: {price} Stars/mes"
   why_paid: "💡 *¿Por qué suscripción?*\n\nCada respuesta del bot se genera individualmente con IA — esto cuesta dinero real (tokens API). La suscripción cubre estos costos y permite mejorar el producto.\n\n🔒 Los suscriptores tempranos conservan su precio para siempre.\n\n💰 Todos los fondos se destinan al desarrollo y promoción."
-  launch_notification: "🚀 *¡Actualización importante!*\n\nIntroducimos suscripción para funciones avanzadas: Feed, Consultor (?), Notas (.) y Planes.\n\n*¿Por qué?* Cada solicitud genera una respuesta IA individual que cuesta dinero real.\n\n🎁 *15 días gratis* — prueba todo sin límites.\n🔒 *Los suscriptores tempranos conservan su precio para siempre* — suscríbete ahora por solo {price} Stars/mes.\n💰 Todos los fondos van al desarrollo y promoción.\n\n*Lo que sigue siendo gratuito por ahora:* Maratón, Evaluación, Progreso, Perfil, Ajustes."
+  launch_notification: "🚀 *¡Actualización importante!*\n\nIntroducimos suscripción para funciones avanzadas: Feed, Consultor (?), Notas (.) y Planes.\n\n*¿Por qué?* Cada solicitud genera una respuesta IA individual que cuesta dinero real.\n\n🎁 *30 días gratis* — prueba todo sin límites.\n🔒 *Los suscriptores tempranos conservan su precio para siempre* — suscríbete ahora por solo {price} Stars/mes.\n💰 Todos los fondos van al desarrollo y promoción.\n\n*Lo que sigue siendo gratuito por ahora:* Maratón, Evaluación, Progreso, Perfil, Ajustes."
   settings_label: "Suscripción"
 
 plans:
