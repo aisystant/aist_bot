@@ -220,34 +220,43 @@ async def callback_course_detail(callback: CallbackQuery):
         await callback.message.answer(t('schedule.error', lang))
         return
 
-    course = next((i for i in internships if i.get("code") == code), None)
-    if not course:
-        # Попробуем найти в общем каталоге
-        all_courses = await aisystant.get_available_courses()
-        course = next((c for c in all_courses if c.get("code") == code), None)
+    try:
+        course = next((i for i in internships if i.get("code") == code), None)
+        if not course:
+            all_courses = await aisystant.get_available_courses()
+            course = next((c for c in all_courses if c.get("code") == code), None)
 
-    if not course:
-        await callback.message.answer(t('schedule.catalog_empty', lang))
-        return
+        if not course:
+            await callback.message.answer(t('schedule.catalog_empty', lang))
+            return
 
-    name = course.get("courseName", course.get("name", code))
-    amount = course.get("amount") or course.get("price", 0)
+        name = course.get("courseName", course.get("name", code))
+        raw_amount = course.get("amount") or course.get("price") or 0
+        try:
+            amount = float(raw_amount)
+        except (TypeError, ValueError):
+            amount = 0
 
-    if amount and amount > 0:
-        text = t('schedule.payment_confirm', lang, course=name, amount=int(amount))
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('schedule.btn_pay', lang, amount=int(amount)),
-                callback_data=f"schedule_pay:{code}:{int(amount)}",
-            )],
-            [InlineKeyboardButton(
-                text=t('schedule.btn_cancel', lang),
-                callback_data="schedule_courses",
-            )],
-        ])
-        await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
-    else:
-        await callback.message.answer(f"*{name}*\n\nБесплатный курс.", parse_mode="Markdown")
+        if amount > 0:
+            text = t('schedule.payment_confirm', lang, course=name, amount=int(amount))
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('schedule.btn_pay', lang, amount=int(amount)),
+                    callback_data=f"schedule_pay:{code}:{int(amount)}",
+                )],
+                [InlineKeyboardButton(
+                    text=t('schedule.btn_cancel', lang),
+                    callback_data="schedule_courses",
+                )],
+            ])
+            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+        else:
+            await callback.message.answer(f"*{name}*\n\nБесплатный курс.", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"[Schedule] course_detail error for code={code}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.message.answer(t('schedule.error', lang))
 
 
 @schedule_router.callback_query(F.data.startswith("schedule_pay:"))
