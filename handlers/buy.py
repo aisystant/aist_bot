@@ -76,31 +76,22 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     except Exception as e:
         logger.error(f"[Buy] courses error: {e}")
 
-    # 2. Подписка БР (всегда показываем тарифы — для покупки или продления)
+    # 2. Подписка БР — одна кнопка, выбор периода через /subscription
     try:
         is_active = await aisystant.has_active_subscription(aisystant_id)
-        tariffs = await aisystant.get_subscription_tariffs(aisystant_id)
-        if tariffs:
-            if is_active:
-                lines.append(t('buy.sub_active', lang))
+        if is_active:
+            lines.append(t('buy.sub_active', lang))
+            buttons.append([InlineKeyboardButton(
+                text=t('buy.btn_renew_sub', lang),
+                callback_data="aisystant_subscribe",
+            )])
+        else:
             lines.append(t('buy.sub_section', lang))
-            for tariff in tariffs[:3]:
-                code = tariff.get("code", "")
-                name = tariff.get("name", code)
-                amount = tariff.get("amount", 0)
-                try:
-                    amount = float(amount)
-                except (TypeError, ValueError):
-                    amount = 0
-                period = tariff.get("period", "месяц")
-                lines.append(f"  • {name} — {int(amount)} ₽/{period}")
-                if amount > 0:
-                    btn_prefix = "🔄" if is_active else "💳"
-                    buttons.append([InlineKeyboardButton(
-                        text=f"{btn_prefix} {name} — {int(amount)} ₽",
-                        callback_data=f"sub_pay:{code}:{int(amount)}",
-                    )])
-            lines.append("")
+            buttons.append([InlineKeyboardButton(
+                text=t('buy.btn_buy_sub', lang),
+                callback_data="aisystant_subscribe",
+            )])
+        lines.append("")
     except Exception as e:
         logger.error(f"[Buy] subscription check error: {e}")
 

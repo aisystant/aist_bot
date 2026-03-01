@@ -4755,6 +4755,12 @@ buy:
   courses_section:
     ru: "*📚 Курсы и семинары*"
     en: "*📚 Courses and seminars*"
+  btn_buy_sub:
+    ru: "💳 Оформить подписку"
+    en: "💳 Subscribe"
+  btn_renew_sub:
+    ru: "🔄 Продлить подписку"
+    en: "🔄 Renew subscription"
   nothing_available:
     ru: "Сейчас нет доступных предложений."
     en: "No offers available at the moment."
