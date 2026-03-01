@@ -876,7 +876,7 @@ feedback:
   welcome: "发生了什么？"
 
 subscription:
-  paywall_text: "⭐ 此功能需要订阅。\n\n订阅覆盖AI令牌和个性化成本 — 每个回复都是为您个人生成的。\n\n🔒 早期订阅者永久保留原价。\n💡 所有资金用于产品开发和推广。\n\n前15天免费。之后 — {price} Stars/月。"
+  paywall_text: "⭐ 此功能需要订阅。\n\n订阅覆盖AI令牌和个性化成本 — 每个回复都是为您个人生成的。\n\n🔒 早期订阅者永久保留原价。\n💡 所有资金用于产品开发和推广。\n\n前30天免费。之后 — {price} Stars/月。"
   subscribe_button: "⭐ 订阅 {price} Stars/月"
   invoice_title: "AIST 订阅"
   invoice_description: "30天访问Feed、顾问、笔记和计划。"
@@ -897,7 +897,7 @@ subscription:
   current_price: "当前价格：{price} Stars/月"
   price_locked: "🔒 您的价格已锁定：{price} Stars/月"
   why_paid: "💡 *为什么需要订阅？*\n\n机器人的每个回复都是通过AI个性化生成的 — 这需要实际成本（API令牌）。订阅覆盖这些费用并帮助改进产品。\n\n🔒 早期订阅者永久保留原价。\n\n💰 所有资金用于产品开发和推广。"
-  launch_notification: "🚀 *重要更新！*\n\n我们为高级功能引入订阅：Feed、顾问（?）、笔记（.）和计划。\n\n*为什么？* 每个请求都会生成个性化AI回复，这需要实际成本。\n\n🎁 *15天免费试用* — 无限制体验所有功能。\n🔒 *早期订阅者永久保留原价* — 立即以最低价格 {price} Stars/月订阅。\n💰 所有资金用于产品开发和推广。\n\n*目前仍免费的功能：* 马拉松、评估、进度、个人资料、设置。"
+  launch_notification: "🚀 *重要更新！*\n\n我们为高级功能引入订阅：Feed、顾问（?）、笔记（.）和计划。\n\n*为什么？* 每个请求都会生成个性化AI回复，这需要实际成本。\n\n🎁 *30天免费试用* — 无限制体验所有功能。\n🔒 *早期订阅者永久保留原价* — 立即以最低价格 {price} Stars/月订阅。\n💰 所有资金用于产品开发和推广。\n\n*目前仍免费的功能：* 马拉松、评估、进度、个人资料、设置。"
   settings_label: "订阅"
 
 plans:

@@ -389,6 +389,12 @@ PLATFORM_URLS = {
     "rr": "https://system-school.ru/programs/orgdev",
     "ir": "https://system-school.ru/programs/research",
     "guides": "https://docs.system-school.ru/ru/",
+    # IWE documentation (FMT-exocortex-template/docs/)
+    "iwe_learning_path": "https://github.com/TserenTserenov/FMT-exocortex-template/blob/main/docs/LEARNING-PATH.md",
+    "iwe_help": "https://github.com/TserenTserenov/FMT-exocortex-template/blob/main/docs/IWE-HELP.md",
+    "iwe_setup": "https://github.com/TserenTserenov/FMT-exocortex-template/blob/main/docs/SETUP-GUIDE.md",
+    # Pack source-of-truth
+    "iwe_entity": "https://github.com/TserenTserenov/PACK-digital-platform/blob/main/pack/digital-platform/02-domain-entities/DP.IWE.001-intelligent-working-environment.md",
 }
 
 # ============= WAKATIME (WP-60) =============
