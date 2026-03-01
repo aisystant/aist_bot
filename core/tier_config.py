@@ -67,6 +67,7 @@ KB_LABELS = {
     'subscription': {'ru': '💳 Подписка', 'en': '💳 Subscribe',  'es': '💳 Suscripción','fr': '💳 Abonnement',  'zh': '💳 订阅'},
     'guide':      {'ru': '🧭 Гид',       'en': '🧭 Guide',      'es': '🧭 Guía',       'fr': '🧭 Guide',       'zh': '🧭 指南'},
     'contacts':   {'ru': '📞 Контакты',  'en': '📞 Contacts',   'es': '📞 Contactos',  'fr': '📞 Contacts',    'zh': '📞 联系'},
+    'buy':        {'ru': '🛒 Купить',   'en': '🛒 Buy',        'es': '🛒 Comprar',    'fr': '🛒 Acheter',     'zh': '🛒 购买'},
 }
 
 # Service key → slash command name (for routing)
@@ -90,6 +91,7 @@ SERVICE_TO_COMMAND = {
     'subscription': 'subscription',
     'guide': 'guide',
     'contacts': 'contacts',
+    'buy': 'buy',
 }
 
 
@@ -100,12 +102,12 @@ SERVICE_TO_COMMAND = {
 
 # WP-79: «Главная + Тянет вверх» principle
 TIER_KEYBOARD = {
-    UITier.T1_NEW:             [['schedule',  'link'],          ['test',     'contacts']],
-    UITier.T1_START:           [['marathon',  'subscription'],  ['schedule', 'settings']],
-    UITier.T2_LEARNING:        [['feed',      'guide'],         ['schedule', 'settings']],
-    UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['schedule', 'settings']],
-    UITier.T4_CREATION:        [['plans',     'guide'],         ['schedule', 'settings']],
-    UITier.T5_ADMIN:           [['plans',     'guide'],         ['schedule', 'settings']],
+    UITier.T1_NEW:             [['link',      'buy'],           ['test',     'contacts']],
+    UITier.T1_START:           [['marathon',  'buy'],           ['test',     'settings']],
+    UITier.T2_LEARNING:        [['feed',      'guide'],         ['profile',  'settings']],
+    UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['profile',  'settings']],
+    UITier.T4_CREATION:        [['plans',     'guide'],         ['profile',  'settings']],
+    UITier.T5_ADMIN:           [['plans',     'guide'],         ['profile',  'settings']],
 }
 
 
@@ -115,11 +117,11 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_NEW:             ['link', 'schedule', 'test', 'contacts', 'help'],
-    UITier.T1_START:           ['learn', 'schedule', 'test', 'progress', 'profile', 'settings', 'help'],
-    UITier.T2_LEARNING:        ['feed', 'schedule', 'train', 'learn', 'test', 'progress', 'profile', 'settings', 'help'],
-    UITier.T3_PERSONALIZATION: ['feed', 'schedule', 'train', 'learn', 'test', 'progress', 'mydata', 'settings', 'help'],
-    UITier.T4_CREATION:        ['plan', 'schedule', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'settings', 'start', 'help'],
+    UITier.T1_NEW:             ['buy', 'link', 'test', 'help'],
+    UITier.T1_START:           ['buy', 'learn', 'test', 'mode', 'help'],
+    UITier.T2_LEARNING:        ['buy', 'feed', 'train', 'schedule', 'profile', 'help'],
+    UITier.T3_PERSONALIZATION: ['buy', 'feed', 'train', 'schedule', 'guide', 'progress', 'start', 'help'],
+    UITier.T4_CREATION:        ['buy', 'plan', 'schedule', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -147,6 +149,7 @@ COMMAND_DESCRIPTIONS = {
     'link':      {'ru': 'Привязать Aisystant',           'en': 'Link Aisystant account',    'es': 'Vincular Aisystant',          'fr': 'Lier Aisystant',               'zh': '关联 Aisystant'},
     'schedule':  {'ru': 'Расписание занятий',             'en': 'Class schedule',            'es': 'Horario de clases',           'fr': 'Horaire des cours',            'zh': '课程日程'},
     'contacts':  {'ru': 'Контактная информация',         'en': 'Contact information',       'es': 'Información de contacto',    'fr': 'Coordonnées',                  'zh': '联系信息'},
+    'buy':       {'ru': 'Купить (подписка + курсы)',     'en': 'Buy (subscription + courses)', 'es': 'Comprar (suscripción + cursos)', 'fr': 'Acheter (abonnement + cours)', 'zh': '购买（订阅+课程）'},
 }
 
 
