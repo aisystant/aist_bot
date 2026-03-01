@@ -551,7 +551,9 @@ class EnhancedRetrieval:
             context_parts.append("📚 АКТУАЛЬНЫЕ МАТЕРИАЛЫ:")
             for r in knowledge_results:
                 date_prefix = f"[{r.date}] " if r.date else ""
-                context_parts.append(f"{date_prefix}{r.text}")
+                github_url = r.original_item.get("github_url", "") if r.original_item else ""
+                url_line = f"\n🔗 {github_url}" if github_url else ""
+                context_parts.append(f"{date_prefix}{r.text}{url_line}")
                 if r.source and f"База знаний: {r.source}" not in sources:
                     sources.append(f"База знаний: {r.source}")
 
@@ -560,7 +562,9 @@ class EnhancedRetrieval:
                 context_parts.append("\n---\n")
             context_parts.append("📖 ИЗ РУКОВОДСТВ:")
             for r in guides_results:
-                context_parts.append(r.text)
+                github_url = r.original_item.get("github_url", "") if r.original_item else ""
+                url_line = f"\n🔗 {github_url}" if github_url else ""
+                context_parts.append(f"{r.text}{url_line}")
                 if r.source and f"Руководство: {r.source}" not in sources:
                     sources.append(f"Руководство: {r.source}")
 

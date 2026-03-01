@@ -169,12 +169,17 @@ async def _exec_search_knowledge(input: Dict[str, Any]) -> str:
         formatted = []
         for item in results:
             if isinstance(item, dict):
-                formatted.append({
+                entry = {
                     "text": (item.get("text", item.get("content", "")))[:2000],
                     "source": item.get("source", ""),
                     "source_type": item.get("source_type", "pack"),
                     "score": item.get("score", 0),
-                })
+                }
+                # GitHub URL from MCP (v3.2+)
+                github_url = item.get("github_url")
+                if github_url:
+                    entry["github_url"] = github_url
+                formatted.append(entry)
             elif isinstance(item, str):
                 formatted.append({"text": item[:2000]})
 
