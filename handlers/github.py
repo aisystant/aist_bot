@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 github_router = Router(name="github")
 
-# Ожидание пересылки после ".": user_id -> timestamp (TTL 10 сек)
-_pending_forwards: dict[int, float] = {}
+# Двусторонний pending: "." может прийти ДО или ПОСЛЕ forward
+_pending_forwards: dict[int, float] = {}           # "." → ждём forward
+_pending_forward_messages: dict[int, tuple] = {}    # forward → ждём "."
 _FORWARD_TTL_SECONDS = 10
 
 
@@ -237,9 +238,10 @@ async def handle_fleeting_note(message: Message):
     """Обработка исчезающих заметок.
 
     Сценарии:
-    1. ".текст" — записать текст как заметку
-    2. "." (reply на сообщение) — записать текст из replied сообщения
-    3. "." (без reply) — ожидать пересылку (следующее сообщение)
+    A. reply на сообщение (с текстом после точки или без) — объединить
+    B. forward → "." или ".текст" — объединить forwarded + текст
+    C. "." → forward (ожидание пересылки в течение TTL)
+    D. ".текст" (без reply/forward) — записать как есть
     """
     from clients.github_oauth import github_oauth
     from clients.github_api import github_notes
@@ -261,14 +263,23 @@ async def handle_fleeting_note(message: Message):
     lang = _lang(intern)
     note_text = (message.text or "")[1:].strip()
 
-    # Сценарий 2: "." как reply на сообщение
-    if not note_text and message.reply_to_message:
-        replied = message.reply_to_message
-        note_text = _extract_message_text(replied, lang)
-        if not note_text:
-            return
+    # Сценарий A: reply на сообщение (с текстом после точки или без)
+    if message.reply_to_message:
+        replied_text = _extract_message_text(message.reply_to_message, lang)
+        if replied_text:
+            note_text = f"{replied_text}\n\n{note_text}" if note_text else replied_text
 
-    # Сценарий 3: просто "." — ожидать пересылку (тихо, без сообщения)
+    # Сценарий B: forward → "." (проверяем ожидающую пересылку)
+    if not message.reply_to_message:
+        pending = _pending_forward_messages.pop(telegram_user_id, None)
+        if pending:
+            fwd_msg, fwd_time = pending
+            if (time.time() - fwd_time) <= _FORWARD_TTL_SECONDS:
+                fwd_text = _extract_message_text(fwd_msg, lang)
+                if fwd_text:
+                    note_text = f"{fwd_text}\n\n{note_text}" if note_text else fwd_text
+
+    # Сценарий C: просто "." без контекста → ожидать пересылку ("." → forward)
     if not note_text:
         _pending_forwards[telegram_user_id] = time.time()
         return
@@ -296,32 +307,33 @@ async def handle_forwarded_message(message: Message):
 
     telegram_user_id = message.chat.id
 
-    pending_time = _pending_forwards.get(telegram_user_id)
-    if not pending_time or (time.time() - pending_time) > _FORWARD_TTL_SECONDS:
+    # Вариант 1: "." → forward (pending точка существует)
+    pending_time = _pending_forwards.pop(telegram_user_id, None)
+    if pending_time and (time.time() - pending_time) <= _FORWARD_TTL_SECONDS:
+        if not await github_oauth.is_connected(telegram_user_id):
+            return
+        target_repo = await github_oauth.get_target_repo(telegram_user_id)
+        if not target_repo:
+            return
+
+        intern = await get_intern(telegram_user_id)
+        lang = _lang(intern)
+        note_text = _extract_message_text(message, lang)
+        if not note_text:
+            await message.answer(t('github.no_text', lang))
+            return
+
+        result = await github_notes.append_note(telegram_user_id, note_text)
+
+        if result:
+            url = f"https://github.com/{result['repo']}/blob/main/{result['path']}"
+            await message.answer(t('github.note_saved', lang, url=url))
+        else:
+            await message.answer(t('github.note_error', lang))
         return
 
-    del _pending_forwards[telegram_user_id]
-
-    if not await github_oauth.is_connected(telegram_user_id):
-        return
-    target_repo = await github_oauth.get_target_repo(telegram_user_id)
-    if not target_repo:
-        return
-
-    intern = await get_intern(telegram_user_id)
-    lang = _lang(intern)
-    note_text = _extract_message_text(message, lang)
-    if not note_text:
-        await message.answer(t('github.no_text', lang))
-        return
-
-    result = await github_notes.append_note(telegram_user_id, note_text)
-
-    if result:
-        url = f"https://github.com/{result['repo']}/blob/main/{result['path']}"
-        await message.answer(t('github.note_saved', lang, url=url))
-    else:
-        await message.answer(t('github.note_error', lang))
+    # Вариант 2: forward → "." (сохраняем forward, ждём точку)
+    _pending_forward_messages[telegram_user_id] = (message, time.time())
 
 
 def _extract_message_text(message: Message, lang: str = 'ru') -> str:
