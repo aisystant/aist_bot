@@ -102,8 +102,10 @@ class FeedTopicsState(BaseState):
         intern = self._user_to_intern_dict(user)
         context = context or {}
 
-        # Обновляем режим пользователя
-        await update_intern(chat_id, mode=Mode.FEED, feed_status=FeedStatus.ACTIVE)
+        # Обновляем режим пользователя (derive_mode учитывает marathon_status)
+        from db.queries.users import derive_mode
+        marathon_status = intern.get('marathon_status', 'not_started')
+        await update_intern(chat_id, mode=derive_mode(marathon_status, FeedStatus.ACTIVE), feed_status=FeedStatus.ACTIVE)
 
         # Проверяем текущую неделю
         week = await get_current_feed_week(chat_id)
