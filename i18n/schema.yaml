@@ -89,6 +89,13 @@ welcome:
     ru: "Активность"
     en: "Activity"
 
+  link_reminder:
+    ru: "🔗 Этот бот — часть образовательной платформы Aisystant. Привяжите свой Telegram к аккаунту Aisystant, чтобы получить доступ к расписанию, программам и оплате — нажмите *🔗 Привязать* или /link"
+    en: "🔗 This bot is part of the Aisystant learning platform. Link your Telegram to your Aisystant account to access schedule, programs and payments — press *🔗 Link* or /link"
+    es: "🔗 Este bot es parte de la plataforma educativa Aisystant. Vincula tu Telegram a tu cuenta de Aisystant para acceder a horarios, programas y pagos — pulsa *🔗 Vincular* o /link"
+    fr: "🔗 Ce bot fait partie de la plateforme éducative Aisystant. Liez votre Telegram à votre compte Aisystant pour accéder à l'horaire, aux programmes et aux paiements — appuyez sur *🔗 Lier* ou /link"
+    zh: "🔗 此机器人是 Aisystant 教育平台的一部分。将您的 Telegram 关联到 Aisystant 账户即可访问日程、项目和付款 — 请按 *🔗 关联* 或 /link"
+
 # -----------------------------------------------------------------------------
 # Команды (описания для /help)
 # -----------------------------------------------------------------------------

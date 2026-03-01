@@ -112,10 +112,16 @@ async def cmd_start(message: Message, state: FSMContext):
         if dispatcher and dispatcher.is_sm_active:
             await dispatcher.route_command('mode', intern)
 
+            # Напоминание о привязке Aisystant, если не привязан
+            from db.queries.aisystant import get_aisystant_id
+            lang = intern.get('language', 'ru') or 'ru'
+            aisystant_id = await get_aisystant_id(message.chat.id)
+            if not aisystant_id:
+                await message.answer(t('welcome.link_reminder', lang), parse_mode="Markdown")
+
             # Sync per-user menu commands (hamburger)
             from core.tier_ui import sync_menu_commands
             from core.tier_detector import detect_ui_tier
-            lang = intern.get('language', 'ru') or 'ru'
             tier = await detect_ui_tier(message.chat.id)
             await sync_menu_commands(message.bot, message.chat.id, tier, lang)
             return
@@ -141,10 +147,20 @@ async def cmd_start(message: Message, state: FSMContext):
         tier = await detect_ui_tier(message.chat.id)
         keyboard = build_reply_keyboard(tier, lang)
 
-        await message.answer(
+        # Напоминание о привязке Aisystant, если не привязан
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(message.chat.id)
+
+        text = (
             t('welcome.returning', lang, name=intern['name']) + "\n" +
             f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
-            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}",
+            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}"
+        )
+        if not aisystant_id:
+            text += "\n\n" + t('welcome.link_reminder', lang)
+
+        await message.answer(
+            text,
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
@@ -174,9 +190,8 @@ async def cmd_start(message: Message, state: FSMContext):
     if message.from_user.username:
         await update_intern(message.chat.id, tg_username=message.from_user.username)
 
-    # Автоматически пробуем привязать Aisystant (фоново)
-    import asyncio
-    asyncio.create_task(_try_auto_link(message.chat.id))
+    # Пробуем привязать Aisystant (синхронно, чтобы знать результат)
+    linked = await _try_auto_link(message.chat.id)
 
     # Отправляем приветствие + T1_NEW клавиатуру
     from core.tier_ui import build_reply_keyboard, sync_menu_commands
@@ -184,10 +199,16 @@ async def cmd_start(message: Message, state: FSMContext):
     tier = await detect_ui_tier(message.chat.id)
     keyboard = build_reply_keyboard(tier, lang)
 
-    await message.answer(
+    greeting = (
         t('welcome.greeting', lang) + "\n" +
         t('welcome.intro', lang) + "\n\n" +
-        t('welcome.intro_start', lang),
+        t('welcome.intro_start', lang)
+    )
+    if not linked:
+        greeting += "\n\n" + t('welcome.link_reminder', lang)
+
+    await message.answer(
+        greeting,
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
@@ -463,8 +484,11 @@ async def on_reset_skip(callback: CallbackQuery, state: FSMContext):
 
 # ============= WP-79: AUTO-LINK AISYSTANT =============
 
-async def _try_auto_link(chat_id: int):
-    """Попытка автоматической привязки Aisystant аккаунта при /start (fire-and-forget)."""
+async def _try_auto_link(chat_id: int) -> bool:
+    """Попытка автоматической привязки Aisystant аккаунта при /start.
+
+    Returns True if linked (already was or newly linked), False otherwise.
+    """
     try:
         from db.queries.aisystant import get_aisystant_id, save_aisystant_link
         from clients.aisystant import aisystant
@@ -472,12 +496,15 @@ async def _try_auto_link(chat_id: int):
         # Уже привязан?
         existing = await get_aisystant_id(chat_id)
         if existing:
-            return
+            return True
 
         # Пробуем найти
         aisystant_id = await aisystant.find_user_by_tg(chat_id)
         if aisystant_id:
             await save_aisystant_link(chat_id, aisystant_id)
             logger.info(f"[Onboarding] Auto-linked Aisystant for {chat_id}: {aisystant_id}")
+            return True
+        return False
     except Exception as e:
         logger.debug(f"[Onboarding] Auto-link failed for {chat_id}: {e}")
+        return False
