@@ -42,17 +42,12 @@ _COMPLEXITY_GUIDANCE = {
 def _build_user_profile(intern: dict, lang: str) -> str:
     """Собрать секцию профиля пользователя для system prompt.
 
-    Включает: уровень сложности, интересы, цели, состояние,
-    текущие проблемы, желания, роль, срок обучения.
+    Включает: интересы, цели, состояние, текущие проблемы, желания, роль.
+    complexity_level НЕ показываем — это внутренний параметр марафона,
+    не уровень мышления пользователя. Квалификации будут в ЦД.
     Возвращает пустую строку если данных нет.
     """
     parts = []
-
-    # Уровень сложности → стиль ответа
-    complexity = intern.get('complexity_level', intern.get('bloom_level', 1)) or 1
-    guidance = _COMPLEXITY_GUIDANCE.get(min(complexity, 6), _COMPLEXITY_GUIDANCE[1])
-    lang_key = 'en' if lang == 'en' else 'ru'
-    parts.append(f"Уровень пользователя: {complexity}/6. {guidance[lang_key]}")
 
     # Интересы
     interests = intern.get('interests', [])
@@ -83,11 +78,6 @@ def _build_user_profile(intern: dict, lang: str) -> str:
     desires = intern.get('desires', '')
     if desires:
         parts.append(f"Желания: {desires[:200]}")
-
-    # Срок обучения
-    study_duration = intern.get('study_duration', '')
-    if study_duration:
-        parts.append(f"Срок обучения: {study_duration}")
 
     # Состояние (из теста)
     assessment = intern.get('assessment_state')
