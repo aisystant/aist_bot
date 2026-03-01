@@ -2219,7 +2219,7 @@ help:
     en: "📝 *Note* — start with `.`\n`.read chapter 3 by Friday`"
 
   tiers_hint:
-    ru: "📊 *Уровни платформы*\nТы проходишь 4 уровня — от марафона до создания знаний и работы с ИИ-агентами.\nСвой уровень и прогресс смотри в /mydata"
+    ru: "📊 *Уровни платформы*\nНа платформе 4 уровня — от марафона до создания знаний и работы с ИИ-агентами.\nСвой уровень и прогресс смотри в /mydata"
     en: "📊 *Platform levels*\nYou progress through 4 levels — from marathon to knowledge creation and AI agents.\nCheck your level and progress in /mydata"
 
   ai_questions:
