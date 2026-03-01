@@ -68,15 +68,71 @@ async def collect_personal_claude(
     return ("personal_section", f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}")
 
 
+async def collect_user_progress(
+    intern: dict, lang: str, **kwargs
+) -> CollectorResult:
+    """Прогресс пользователя в обучении из bot DB → {progress_section}.
+
+    Данные берутся из intern dict (уже загружен из БД, 0 доп. запросов).
+    Включает: статус марафона, текущий день, пройденные темы, серию дней.
+    """
+    marathon_status = intern.get('marathon_status', 'not_started')
+    if marathon_status == 'not_started':
+        return ("progress_section", "")
+
+    parts = []
+
+    # Статус марафона
+    status_labels = {
+        'active': 'Активен',
+        'paused': 'На паузе',
+        'completed': 'Завершён',
+    }
+    parts.append(f"Статус марафона: {status_labels.get(marathon_status, marathon_status)}")
+
+    # Текущий день / индекс темы
+    current_topic_index = intern.get('current_topic_index', 0)
+    if current_topic_index is not None:
+        parts.append(f"Текущая тема: #{current_topic_index + 1}")
+
+    # Пройденные темы
+    completed = intern.get('completed_topics', [])
+    if isinstance(completed, str):
+        import json as _json
+        try:
+            completed = _json.loads(completed)
+        except (ValueError, TypeError):
+            completed = []
+    if completed:
+        parts.append(f"Пройдено тем: {len(completed)}")
+
+    # Серия активных дней
+    streak = intern.get('active_days_streak', 0)
+    if streak and streak > 0:
+        parts.append(f"Серия активных дней: {streak}")
+
+    # Дата старта
+    start_date = intern.get('marathon_start_date')
+    if start_date:
+        parts.append(f"Дата начала: {start_date}")
+
+    if not parts:
+        return ("progress_section", "")
+
+    header = "ПРОГРЕСС ПОЛЬЗОВАТЕЛЯ" if lang != 'en' else "USER PROGRESS"
+    body = "\n".join(f"- {p}" for p in parts)
+    return ("progress_section", f"\n{header}:\n{body}")
+
+
 # =============================================================================
 # TIER PIPELINE CONFIG
 # =============================================================================
 
 TIER_PIPELINE: Dict[int, List] = {
-    1: [collect_user_profile, collect_bot_context],
-    2: [collect_user_profile, collect_bot_context, collect_standard_claude],
-    3: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_personal_claude],
-    4: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_personal_claude],
+    1: [collect_user_profile, collect_bot_context, collect_user_progress],
+    2: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_user_progress],
+    3: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_personal_claude, collect_user_progress],
+    4: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_personal_claude, collect_user_progress],
 }
 
 
@@ -127,6 +183,7 @@ async def assemble_context(
         "standard_section": "",
         "personal_section": "",
         "dynamic_sections": "",
+        "progress_section": "",
     }
 
     for result in results:
