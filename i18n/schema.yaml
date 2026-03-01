@@ -575,6 +575,11 @@ buttons:
     en: "Commands"
     max_length: 15
 
+  mydata:
+    ru: "Мои данные"
+    en: "My Data"
+    max_length: 15
+
   select_topics:
     ru: "Выбрать темы на неделю"
     en: "Select week topics"
