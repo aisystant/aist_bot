@@ -4797,6 +4797,10 @@ schedule:
     ru: "✅ Переходите к оплате по ссылке ниже."
     en: "✅ Follow the link below to complete payment."
 
+  payment_direct:
+    ru: "Пройдите по ссылке {url} и следуйте инструкциям платёжной системы."
+    en: "Follow the link {url} and follow the payment system instructions."
+
   installment_success:
     ru: "При оплате в рассрочку полная стоимость курса разделяется на три равные части по 35%. Первый платёж осуществляется сразу, второй — через месяц, третий — за неделю до завершения.\n\nДля оплаты первой части пройдите по ссылке ниже и следуйте инструкциям платёжной системы."
     en: "With installment payment, the full course price is divided into three equal parts of 35%. The first payment is made immediately, the second in a month, the third a week before completion.\n\nTo pay the first part, follow the link below."

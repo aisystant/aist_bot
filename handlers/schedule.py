@@ -621,15 +621,11 @@ async def callback_pay(callback: CallbackQuery):
         return
 
     url = result["confirmationUrl"]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=url)],
-    ])
+    msg = t('schedule.payment_direct', lang, url=url)
     try:
-        await callback.message.edit_text(
-            t('schedule.payment_success', lang),
-            reply_markup=keyboard,
-        )
+        await callback.message.edit_text(msg, parse_mode="Markdown",
+                                          reply_markup=None,
+                                          disable_web_page_preview=True)
     except Exception:
-        await callback.message.answer(
-            t('schedule.payment_success', lang), reply_markup=keyboard,
-        )
+        await callback.message.answer(msg, parse_mode="Markdown",
+                                       disable_web_page_preview=True)
