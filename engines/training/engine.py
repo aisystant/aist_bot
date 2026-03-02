@@ -23,6 +23,7 @@ from db.queries.training import (
     save_training_settings,
     update_training_settings,
     get_training_progress,
+    get_settings_and_progress,
     get_principle_depth,
     advance_principle_depth,
     increment_attempts,
@@ -49,6 +50,7 @@ class TrainingEngine:
         self.chat_id = chat_id
         self._intern = None
         self._settings = None
+        self._progress_map = None
 
     # === User context ===
 
@@ -94,27 +96,36 @@ class TrainingEngine:
         )
         return True
 
+    async def _load_settings_and_progress(self) -> bool:
+        """Загрузить settings + progress одним DB round-trip. Кэширует оба."""
+        if self._settings and self._progress_map is not None:
+            return True
+        result = await get_settings_and_progress(self.chat_id)
+        if not result:
+            return False
+        self._settings, self._progress_map = result
+        return True
+
     async def get_next_principle(self) -> Optional[str]:
         """Определить следующий принцип для тренировки на основе режима."""
-        settings = await self.get_settings()
-        if not settings:
+        if not await self._load_settings_and_progress():
             return None
 
+        settings = self._settings
+        progress_map = self._progress_map
         mode = settings.get('training_mode', 'shuffle')
         enabled = settings.get('enabled_principles', list(ZP_PRINCIPLES))
-        progress_rows = await get_training_progress(self.chat_id)
-        progress_map = {r['principle_id']: r['current_depth'] for r in progress_rows}
 
         if mode == 'single':
             pid = settings.get('single_principle')
-            if pid and progress_map.get(pid, 0) < TRAINING_MAX_DEPTH:
+            if pid and progress_map.get(pid, {}).get('current_depth', 0) < TRAINING_MAX_DEPTH:
                 return pid
             return None
 
         # Собрать непройденные
         incomplete = [
             pid for pid in ZP_PRINCIPLES
-            if pid in enabled and progress_map.get(pid, 0) < TRAINING_MAX_DEPTH
+            if pid in enabled and progress_map.get(pid, {}).get('current_depth', 0) < TRAINING_MAX_DEPTH
         ]
         if not incomplete:
             return None
@@ -149,19 +160,19 @@ class TrainingEngine:
                 enabled_principles=list(ZP_PRINCIPLES),
             )
         self._settings = None
+        self._progress_map = None
         return True
 
     # === Dashboard ===
 
     async def get_dashboard_data(self) -> dict:
         """Данные дашборда: принципы, глубины, статистика."""
-        settings = await self.get_settings()
-        if not settings:
+        if not await self._load_settings_and_progress():
             return {}
 
+        settings = self._settings
+        progress_map = self._progress_map
         enabled = settings.get('enabled_principles', [])
-        progress_rows = await get_training_progress(self.chat_id)
-        progress_map = {r['principle_id']: r for r in progress_rows}
         stats = await get_training_stats(self.chat_id)
 
         from .planner import get_principle_name
@@ -329,6 +340,7 @@ class TrainingEngine:
             return False
         await update_training_settings(self.chat_id, cognitive_level=level)
         self._settings = None
+        self._progress_map = None
         return True
 
     async def toggle_principle(self, principle_id: str) -> bool:
@@ -347,6 +359,7 @@ class TrainingEngine:
             return False  # Нельзя отключить все
         await update_training_settings(self.chat_id, enabled_principles=enabled)
         self._settings = None
+        self._progress_map = None
         return True
 
     async def enable_all_principles(self) -> bool:
@@ -355,6 +368,7 @@ class TrainingEngine:
             self.chat_id, enabled_principles=list(ZP_PRINCIPLES)
         )
         self._settings = None
+        self._progress_map = None
         return True
 
     async def reset_progress(self) -> None:
