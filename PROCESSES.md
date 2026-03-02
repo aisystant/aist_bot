@@ -72,15 +72,29 @@ updated: 2026-02-10
 > Тип: внутренний процесс
 > Владелец: Разработчик
 
-**Вход:** Код в ветке (main или new-architecture)
+### 4.1. Ежедневная разработка (pilot)
+
+**Правило Pilot-First:** Все изменения по умолчанию → ветка `pilot`. На `new-architecture` (прод) — ТОЛЬКО по прямой команде пользователя.
+
+**Вход:** Задача из РП (WP-5, WP-7)
+**Действие:** код → коммит → push в `pilot` → Railway auto-deploy (aist_pilot_bot)
+**Выход:** Изменение на пилоте, в Close-отчёте: «залито на pilot, на new-architecture не заливалось»
+
+### 4.2. Merge на прод (pilot → new-architecture)
+
+**Триггер:** Команда пользователя «мержи на прод» / «заливай на new-architecture».
+**Проверка Стратегом:** В Day Plan Стратег проверяет наличие незалитых коммитов (шаг 3c в day-plan.md).
 
 **Действие:**
-1. Тесты (smoke test + E2E в Telegram)
-2. Merge в целевую ветку
-3. Deploy на сервер (PM2 restart)
-4. Проверка healthcheck
+1. `git checkout new-architecture && git pull origin new-architecture`
+2. `git log new-architecture..pilot --oneline` → показать список коммитов пользователю
+3. Получить подтверждение
+4. `git merge pilot` → разрешить конфликты (если есть)
+5. `git push origin new-architecture`
+6. Проверить Railway деплой прода (aist_me_bot)
+7. Smoke test на проде
 
-**Выход:** Обновлённый бот работает
+**Выход:** Прод обновлён, pilot и new-architecture синхронизированы
 
 ---
 
