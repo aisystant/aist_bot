@@ -69,7 +69,9 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                     amount = 0
                 if amount > 0:
                     lines.append(f"  • {name} — {int(amount)} ₽")
-                    paid_courses.append((code, name[:25], int(amount)))
+                    # Для кнопки убираем префикс программы ("Личное развитие. " и т.п.)
+                    btn_name = name.split(". ", 1)[1] if ". " in name else name
+                    paid_courses.append((code, btn_name[:25], int(amount)))
             if paid_courses:
                 buttons.extend(await _create_course_buttons(
                     aisystant_id, paid_courses, lang, emoji="📚",
