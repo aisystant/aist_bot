@@ -2552,8 +2552,8 @@ marathon:
     en: "Reflection question"
 
   answer_hint:
-    ru: "Напишите ответ в сообщении. Он не проверяется — после получения любого ответа тема считается пройденной."
-    en: "Write your answer in a message. It is not graded — the topic is marked complete after any answer."
+    ru: "Напишите ответ в сообщении. Тема засчитывается после любого ответа — я поделюсь мыслями для размышления."
+    en: "Write your answer in a message. The topic is marked complete after any answer — I'll share some thoughts for reflection."
 
   fallback_question:
     ru: "Как вы понимаете тему «{topic}»? Напишите своими словами."
