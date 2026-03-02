@@ -4761,6 +4761,30 @@ schedule:
     ru: "Оплатить *{course}*?\n\nСумма: *{amount} ₽*"
     en: "Pay for *{course}*?\n\nAmount: *{amount} ₽*"
 
+  pay_choice_header:
+    ru: "Вы выбрали: *{course}*"
+    en: "You selected: *{course}*"
+
+  pay_choice_dates:
+    ru: "Занятия будут проходить с {start} по {end} онлайн."
+    en: "Classes will be held from {start} to {end} online."
+
+  pay_choice_chat:
+    ru: "Если вы решили присоединиться или ещё думаете, вступайте в телеграм-чат мероприятия по этой ссылке: {link}\n\nВ этом чате вы можете задать любые вопросы.\n\nДо даты старта:\n1. Чат открыт для всех\n2. Ссылка на чат будет оставаться доступной при повторном открытии этого раздела"
+    en: "If you'd like to join or are still thinking, join the event Telegram chat: {link}\n\nYou can ask any questions there.\n\nBefore the start date:\n1. The chat is open to everyone\n2. The link will remain available when you reopen this section"
+
+  pay_choice_price:
+    ru: "Стоимость: *{amount} ₽*\n\nВыберите способ оплаты:"
+    en: "Price: *{amount} ₽*\n\nChoose payment method:"
+
+  btn_pay_full:
+    ru: "💳 Оплатить полностью — {amount} ₽"
+    en: "💳 Pay in full — {amount} ₽"
+
+  btn_pay_installment:
+    ru: "📅 Рассрочка (3 платежа по {amount} ₽)"
+    en: "📅 Installment (3 payments of {amount} ₽)"
+
   btn_pay:
     ru: "💳 Оплатить {amount} ₽"
     en: "💳 Pay {amount} ₽"
@@ -4772,6 +4796,14 @@ schedule:
   payment_success:
     ru: "✅ Переходите к оплате по ссылке ниже."
     en: "✅ Follow the link below to complete payment."
+
+  payment_direct:
+    ru: "Пройдите по ссылке {url} и следуйте инструкциям платёжной системы."
+    en: "Follow the link {url} and follow the payment system instructions."
+
+  installment_success:
+    ru: "При оплате в рассрочку полная стоимость курса разделяется на три равные части по 35%. Первый платёж осуществляется сразу, второй — через месяц, третий — за неделю до завершения.\n\nДля оплаты первой части пройдите по ссылке ниже и следуйте инструкциям платёжной системы."
+    en: "With installment payment, the full course price is divided into three equal parts of 35%. The first payment is made immediately, the second in a month, the third a week before completion.\n\nTo pay the first part, follow the link below."
 
   btn_pay_link:
     ru: "💳 Перейти к оплате"

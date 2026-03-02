@@ -91,7 +91,7 @@ class AisystantClient:
             async with session.post(url, auth=self._auth, params=params, json=body) as resp:
                 if resp.status != 200:
                     text = await resp.text()
-                    logger.error(f"Aisystant POST {path} error {resp.status}: {text[:200]}")
+                    logger.error(f"Aisystant POST {path} error {resp.status}: {text[:300]} | body={body}")
                     return None
                 text = await resp.text()
                 return json.loads(text) if text else None
@@ -304,7 +304,11 @@ class AisystantClient:
         }
         return await self._post(
             "/api/subscriptions/create-internship-payment",
-            params={"request-id": request_id, "user-id": aisystant_id},
+            params={
+                "request-id": request_id,
+                "user-id": aisystant_id,
+                "purpose": "INTERNSHIP",
+            },
             body=body,
         )
 

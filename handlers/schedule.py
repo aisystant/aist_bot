@@ -14,7 +14,9 @@ Callbacks:
 - schedule_my                  — мои программы
 - sched_back                   — возврат в хаб
 - schedule_detail:{code}       — детали программы (legacy, backward compat)
-- schedule_pay:{code}:{amount} — создание платежа (прямой вызов из каталога)
+- sched_pay_choice:{code}:{amount} — выбор: полная оплата / рассрочка (>35K)
+- schedule_pay:{code}:{amount} — создание платежа (полная оплата)
+- sched_pay_inst:{code}:{amount} — создание платежа в рассрочку (35%, paymentIndex=0)
 - sub_pay_ws:{code}:{amount}   — платёж за мастерскую
 """
 
@@ -39,6 +41,9 @@ from i18n import t
 logger = logging.getLogger(__name__)
 
 schedule_router = Router(name="schedule")
+
+# Порог для показа выбора "полная оплата / рассрочка" (WP-5)
+INSTALLMENT_THRESHOLD = 35_000
 
 SECTION_NAMES = {
     'personal': 'schedule.section_personal',
@@ -96,9 +101,16 @@ async def _create_course_buttons(
     """Pre-create internship payments → URL buttons (no extra click).
 
     paid_courses: list of (code, short_name, amount).
+    Для курсов >= INSTALLMENT_THRESHOLD — callback-кнопка с выбором способа оплаты.
     Falls back to callback buttons if payment creation fails.
     """
     async def _one(code: str, short_name: str, amount: int):
+        # Дорогие курсы → промежуточный выбор (полная / рассрочка)
+        if amount >= INSTALLMENT_THRESHOLD:
+            return [InlineKeyboardButton(
+                text=f"{emoji} {short_name} — {amount} ₽",
+                callback_data=f"sched_pay_choice:{code}:{amount}",
+            )]
         try:
             result = await aisystant.create_internship_payment(
                 aisystant_id, code, amount,
@@ -109,8 +121,9 @@ async def _create_course_buttons(
                     url=result["confirmationUrl"],
                 )]
         except Exception as e:
-            logger.error(f"[Schedule] pre-create course payment error for {code}: {e}")
-        # Fallback: callback button
+            logger.error(f"[Schedule] pre-create payment error for {code} amount={amount}: {e}")
+        # Fallback: callback button (pre-create не удался → пользователь нажмёт вручную)
+        logger.warning(f"[Schedule] fallback to callback for {code} amount={amount}")
         return [InlineKeyboardButton(
             text=f"{emoji} {short_name} — {amount} ₽",
             callback_data=f"schedule_pay:{code}:{amount}",
@@ -465,9 +478,146 @@ async def callback_course_detail(callback: CallbackQuery):
         await callback.message.answer(t('schedule.error', lang))
 
 
+@schedule_router.callback_query(F.data.startswith("sched_pay_choice:"))
+async def callback_pay_choice(callback: CallbackQuery):
+    """Выбор способа оплаты: полная / рассрочка (для курсов > INSTALLMENT_THRESHOLD)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    amount = int(parts[2])
+
+    await callback.answer()
+
+    # Получаем данные курса для отображения
+    course_name = code
+    course_data = None
+    try:
+        courses = await aisystant.get_available_courses()
+        for c in courses:
+            if c.get("code") == code:
+                course_data = c
+                course_name = c.get("courseName", c.get("name", code))
+                break
+    except Exception:
+        pass
+
+    # Собираем детальное сообщение (как на старом боте)
+    text_parts = [t('schedule.pay_choice_header', lang, course=course_name)]
+
+    if course_data:
+        started = course_data.get("started", "")
+        finished = course_data.get("finished", "")
+        if started and finished:
+            text_parts.append(t('schedule.pay_choice_dates', lang,
+                                start=_format_date(started, lang),
+                                end=_format_date(finished, lang)))
+
+        chat_link = course_data.get("chatLink", "")
+        if chat_link:
+            text_parts.append(t('schedule.pay_choice_chat', lang, link=chat_link))
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    installment_per = int(round(amount * 0.35))
+    text_parts.append(t('schedule.pay_choice_price', lang, amount=amount))
+    text = "\n\n".join(text_parts)
+
+    # Pre-create платежи → URL-кнопки (полная + рассрочка)
+    buttons = []
+
+    # 1. Полная оплата — URL-кнопка (pre-create)
+    if aisystant_id:
+        try:
+            full_result = await aisystant.create_internship_payment(
+                aisystant_id, code, amount,
+            )
+            if full_result and full_result.get("confirmationUrl"):
+                buttons.append([InlineKeyboardButton(
+                    text=t('schedule.btn_pay_full', lang, amount=amount),
+                    url=full_result["confirmationUrl"],
+                )])
+        except Exception as e:
+            logger.error(f"[Schedule] pre-create full payment error for {code}: {e}")
+
+    # Fallback: callback-кнопка если pre-create не удался
+    if not buttons:
+        buttons.append([InlineKeyboardButton(
+            text=t('schedule.btn_pay_full', lang, amount=amount),
+            callback_data=f"schedule_pay:{code}:{amount}",
+        )])
+
+    # 2. Рассрочка — callback (создаётся при нажатии, т.к. другая сумма)
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_pay_installment', lang, amount=installment_per),
+        callback_data=f"sched_pay_inst:{code}:{amount}",
+    )])
+
+    # 3. Назад
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_back', lang),
+        callback_data="sched_back",
+    )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    try:
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+@schedule_router.callback_query(F.data.startswith("sched_pay_inst:"))
+async def callback_pay_installment(callback: CallbackQuery):
+    """Создать платёж за программу в рассрочку (paymentIndex=0, 35% от полной стоимости)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    full_amount = float(parts[2])
+    installment_amount = round(full_amount * 0.35)
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('schedule.no_account', lang))
+        return
+
+    try:
+        result = await aisystant.create_internship_payment(
+            aisystant_id, code, installment_amount, payment_index=0,
+        )
+    except Exception as e:
+        logger.error(f"[Schedule] create_internship_payment (installment) error for {code}: {e}")
+        await callback.message.answer(t('schedule.payment_error', lang))
+        return
+
+    if not result or not result.get("confirmationUrl"):
+        logger.error(f"[Schedule] installment payment no confirmationUrl for {code}, result={result}")
+        await callback.message.answer(t('schedule.payment_error', lang))
+        return
+
+    url = result["confirmationUrl"]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=url)],
+    ])
+    msg = t('schedule.installment_success', lang, url=url)
+    try:
+        await callback.message.edit_text(msg, parse_mode="Markdown",
+                                          reply_markup=keyboard,
+                                          disable_web_page_preview=True)
+    except Exception:
+        await callback.message.answer(msg, parse_mode="Markdown",
+                                       reply_markup=keyboard,
+                                       disable_web_page_preview=True)
+
+
 @schedule_router.callback_query(F.data.startswith("schedule_pay:"))
 async def callback_pay(callback: CallbackQuery):
-    """Создать платёж за программу."""
+    """Создать платёж за программу (полная оплата)."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
@@ -486,24 +636,21 @@ async def callback_pay(callback: CallbackQuery):
     try:
         result = await aisystant.create_internship_payment(aisystant_id, code, amount)
     except Exception as e:
-        logger.error(f"[Schedule] create_internship_payment error: {e}")
+        logger.error(f"[Schedule] create_internship_payment error for {code}: {e}")
         await callback.message.answer(t('schedule.payment_error', lang))
         return
 
     if not result or not result.get("confirmationUrl"):
+        logger.error(f"[Schedule] payment no confirmationUrl for {code}, amount={amount}, result={result}")
         await callback.message.answer(t('schedule.payment_error', lang))
         return
 
     url = result["confirmationUrl"]
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=url)],
-    ])
+    msg = t('schedule.payment_direct', lang, url=url)
     try:
-        await callback.message.edit_text(
-            t('schedule.payment_success', lang),
-            reply_markup=keyboard,
-        )
+        await callback.message.edit_text(msg, parse_mode="Markdown",
+                                          reply_markup=None,
+                                          disable_web_page_preview=True)
     except Exception:
-        await callback.message.answer(
-            t('schedule.payment_success', lang), reply_markup=keyboard,
-        )
+        await callback.message.answer(msg, parse_mode="Markdown",
+                                       disable_web_page_preview=True)
