@@ -519,23 +519,48 @@ async def callback_pay_choice(callback: CallbackQuery):
         if chat_link:
             text_parts.append(t('schedule.pay_choice_chat', lang, link=chat_link))
 
+    aisystant_id = await get_aisystant_id(chat_id)
     installment_per = int(round(amount * 0.35))
     text_parts.append(t('schedule.pay_choice_price', lang, amount=amount))
     text = "\n\n".join(text_parts)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
+
+    # Pre-create платежи → URL-кнопки (полная + рассрочка)
+    buttons = []
+
+    # 1. Полная оплата — URL-кнопка (pre-create)
+    if aisystant_id:
+        try:
+            full_result = await aisystant.create_internship_payment(
+                aisystant_id, code, amount,
+            )
+            if full_result and full_result.get("confirmationUrl"):
+                buttons.append([InlineKeyboardButton(
+                    text=t('schedule.btn_pay_full', lang, amount=amount),
+                    url=full_result["confirmationUrl"],
+                )])
+        except Exception as e:
+            logger.error(f"[Schedule] pre-create full payment error for {code}: {e}")
+
+    # Fallback: callback-кнопка если pre-create не удался
+    if not buttons:
+        buttons.append([InlineKeyboardButton(
             text=t('schedule.btn_pay_full', lang, amount=amount),
             callback_data=f"schedule_pay:{code}:{amount}",
-        )],
-        [InlineKeyboardButton(
-            text=t('schedule.btn_pay_installment', lang, amount=installment_per),
-            callback_data=f"sched_pay_inst:{code}:{amount}",
-        )],
-        [InlineKeyboardButton(
-            text=t('schedule.btn_back', lang),
-            callback_data="sched_back",
-        )],
-    ])
+        )])
+
+    # 2. Рассрочка — callback (создаётся при нажатии, т.к. другая сумма)
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_pay_installment', lang, amount=installment_per),
+        callback_data=f"sched_pay_inst:{code}:{amount}",
+    )])
+
+    # 3. Назад
+    buttons.append([InlineKeyboardButton(
+        text=t('schedule.btn_back', lang),
+        callback_data="sched_back",
+    )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     try:
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception:
