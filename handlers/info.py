@@ -1,9 +1,10 @@
 """
 Info-команды: навигационные landing pages.
 
-/about — О нас (МИМ, бот, платформа Aisystant, с чего начать)
+/about — О нас (экосистема, бот, платформа Aisystant, с чего начать)
 /marathon_info — Марафон (что, зачем, как начать, настройка)
 /feed_info — Лента (что, зачем, для кого, как запустить)
+/train_info — Тренировка (что, зачем, для кого, как запустить)
 
 На T1: info + путь к покупке/привязке.
 На T2+: info + прямой запуск.
@@ -37,7 +38,7 @@ def _lang(intern) -> str:
 
 @info_router.message(Command("about"))
 async def cmd_about(message: Message):
-    """О нас: МИМ, бот, платформа, с чего начать."""
+    """О нас: экосистема, бот, платформа, с чего начать."""
     intern = await get_intern(message.chat.id)
     lang = _lang(intern)
     tier = await detect_ui_tier(message.chat.id)
@@ -69,6 +70,10 @@ async def cmd_about(message: Message):
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_feed', lang),
             callback_data="info_feed",
+        )])
+        buttons.append([InlineKeyboardButton(
+            text=t('info.btn_training', lang),
+            callback_data="info_training",
         )])
 
     buttons.append([InlineKeyboardButton(
@@ -111,25 +116,19 @@ async def _show_marathon_info(message: Message, lang: str, edit: bool = False):
 
     buttons = []
     if tier in (UITier.T1_NEW, UITier.T1_START):
-        # T1: может начать марафон
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_start_marathon', lang),
             callback_data="info_go_learn",
         )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_set_time', lang),
-            callback_data="info_go_settings",
-        )])
     else:
-        # T2+: запустить урок, настроить
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_get_lesson', lang),
             callback_data="info_go_learn",
         )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_set_time', lang),
-            callback_data="info_go_settings",
-        )])
+    buttons.append([InlineKeyboardButton(
+        text=t('info.btn_configure_marathon', lang),
+        callback_data="info_go_profile",
+    )])
 
     text = t('info.marathon_text', lang)
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -168,23 +167,72 @@ async def _show_feed_info(message: Message, lang: str, edit: bool = False):
 
     buttons = []
     if tier >= UITier.T2_LEARNING:
-        # Есть подписка — можно запустить
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_get_digest', lang),
             callback_data="info_go_feed",
         )])
         buttons.append([InlineKeyboardButton(
-            text=t('info.btn_set_time', lang),
-            callback_data="info_go_settings",
+            text=t('info.btn_configure_feed', lang),
+            callback_data="info_go_profile",
         )])
     else:
-        # Нет подписки — предложить купить
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_buy_sub', lang),
             callback_data="info_go_buy",
         )])
 
     text = t('info.feed_text', lang)
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    if edit:
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await message.answer(text, parse_mode="Markdown", reply_markup=kb)
+
+
+# ═══════════════════════════════════════════════════════════
+# /train_info — Тренировка
+# ═══════════════════════════════════════════════════════════
+
+@info_router.message(Command("train_info"))
+async def cmd_train_info(message: Message):
+    """Тренировка: что, зачем, для кого, как запустить."""
+    intern = await get_intern(message.chat.id)
+    lang = _lang(intern)
+    await _show_train_info(message, lang, edit=False)
+
+
+@info_router.callback_query(F.data == "info_training")
+async def cb_train_info(callback: CallbackQuery):
+    """Inline-переход к Training info."""
+    intern = await get_intern(callback.message.chat.id)
+    lang = _lang(intern)
+    await callback.answer()
+    await _show_train_info(callback.message, lang, edit=True)
+
+
+async def _show_train_info(message: Message, lang: str, edit: bool = False):
+    """Показать info о Тренировке с кнопками запуска/покупки."""
+    chat_id = message.chat.id
+    tier = await detect_ui_tier(chat_id)
+
+    buttons = []
+    if tier >= UITier.T2_LEARNING:
+        buttons.append([InlineKeyboardButton(
+            text=t('info.btn_start_training', lang),
+            callback_data="info_go_train",
+        )])
+        buttons.append([InlineKeyboardButton(
+            text=t('info.btn_configure_training', lang),
+            callback_data="info_go_profile",
+        )])
+    else:
+        buttons.append([InlineKeyboardButton(
+            text=t('info.btn_buy_sub', lang),
+            callback_data="info_go_buy",
+        )])
+
+    text = t('info.train_text', lang)
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     if edit:
@@ -245,9 +293,9 @@ async def cb_go_feed(callback: CallbackQuery):
         await callback.message.answer(t('info.use_feed', lang))
 
 
-@info_router.callback_query(F.data == "info_go_settings")
-async def cb_go_settings(callback: CallbackQuery):
-    """Переход к /settings через dispatcher."""
+@info_router.callback_query(F.data == "info_go_train")
+async def cb_go_train(callback: CallbackQuery):
+    """Переход к /train через dispatcher."""
     await callback.answer()
     intern = await get_intern(callback.message.chat.id)
     if not intern:
@@ -255,7 +303,23 @@ async def cb_go_settings(callback: CallbackQuery):
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
     if dispatcher and dispatcher.is_sm_active:
-        await dispatcher.route_command('settings', intern)
+        await dispatcher.route_command('train', intern)
+    else:
+        lang = _lang(intern)
+        await callback.message.answer(t('info.use_train', lang))
+
+
+@info_router.callback_query(F.data == "info_go_profile")
+async def cb_go_profile(callback: CallbackQuery):
+    """Переход к /profile через dispatcher."""
+    await callback.answer()
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.route_command('profile', intern)
     else:
         lang = _lang(intern)
         await callback.message.answer(t('info.use_settings', lang))

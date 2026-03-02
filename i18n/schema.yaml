@@ -205,14 +205,17 @@ commands:
     en: "/buy — shop (subscription + programs)"
 
   about:
-    ru: "/about — о нас (МИМ, бот, платформа)"
-    en: "/about — about us (MIM, bot, platform)"
+    ru: "/about — о нас (экосистема, бот, платформа)"
+    en: "/about — about us (ecosystem, bot, platform)"
   marathon_info:
     ru: "/marathon\\_info — марафон (что, зачем, как начать)"
     en: "/marathon\\_info — marathon (what, why, how to start)"
   feed_info:
     ru: "/feed\\_info — лента (что, зачем, как запустить)"
     en: "/feed\\_info — feed (what, why, how to start)"
+  train_info:
+    ru: "/train\\_info — тренировка (что, зачем, как запустить)"
+    en: "/train\\_info — training (what, why, how to start)"
 
   section_intro:
     ru: "Знакомство"
@@ -5002,18 +5005,23 @@ buy:
 info:
   # --- /about ---
   about_text:
-    ru: "ℹ️ *О нас*\n\n*Школа системного менеджмента (МИМ)* — образовательная организация, которая помогает людям развивать мышление и осваивать современные интеллектуальные практики.\n\n*Что мы даём:*\n• Методы системного саморазвития\n• Ежедневные уроки и тренировки с ИИ\n• Персональный путь обучения\n• Сообщество практиков (systemsworld.club)\n\n*Бот* — часть интеллектуальной рабочей среды (IWE). Через него вы получаете уроки, тренируете принципы, задаёте вопросы ИИ-консультанту и отслеживаете прогресс.\n\n*Платформа Aisystant* — учебная платформа с курсами, расписанием и подпиской.\n\n*С чего начать?*"
-    en: "ℹ️ *About us*\n\n*School of Systems Management (MIM)* — an educational organization that helps people develop thinking and master modern intellectual practices.\n\n*What we offer:*\n• Methods of systematic self-development\n• Daily lessons and training with AI\n• Personal learning path\n• Community of practitioners (systemsworld.club)\n\n*The bot* is part of an Intelligent Working Environment (IWE). Through it you receive lessons, train principles, ask AI consultant questions and track progress.\n\n*Aisystant platform* — learning platform with courses, schedule and subscription.\n\n*Where to start?*"
+    ru: "ℹ️ *О нас*\n\n*Экосистема развития интеллекта* — среда, в которой люди развивают мышление и становятся созидателями: себя, команд, сообществ и общества.\n\n*Что мы даём:*\n• *Мастерская* — практикумы, резидентуры, семинары и разборы для бесконечного развития\n• *Сообщество* — более 13 000 инженеров-менеджеров (systemsworld.club)\n• *ИИ-платформы* — персональный путь, ИИ-консультант, цифровой двойник\n\n*Бот* — часть интеллектуальной рабочей среды. Через него вы получаете уроки, тренируете принципы, задаёте вопросы ИИ-консультанту и отслеживаете прогресс.\n\n*Платформа Aisystant* — расписание, программы и подписка. Подробнее: /help\n\n*С чего начать?*"
+    en: "ℹ️ *About us*\n\n*Ecosystem for Intelligence Development* — an environment where people develop thinking and become creators: of themselves, teams, communities and society.\n\n*What we offer:*\n• *Workshop* — practicums, residencies, seminars and reviews for infinite development\n• *Community* — over 13,000 engineers-managers (systemsworld.club)\n• *AI platforms* — personal path, AI consultant, digital twin\n\n*The bot* is part of an Intelligent Working Environment. Through it you receive lessons, train principles, ask AI consultant questions and track progress.\n\n*Aisystant platform* — schedule, programs and subscription. More: /help\n\n*Where to start?*"
 
   # --- /marathon_info ---
   marathon_text:
-    ru: "📚 *Марафон*\n\n*Что это?*\n14-дневная структурированная программа обучения методам саморазвития.\n\n*Зачем?*\nЗа 14 дней вы пройдёте путь от случайного обучения к систематическому. Каждый день — урок (теория + вопрос на осмысление) и задание с рабочим продуктом.\n\n*Для кого?*\nДля всех, кто хочет начать. Подписка не нужна — марафон бесплатный.\n\n*Как это работает?*\n1. Бот присылает урок в установленное время\n2. Вы изучаете тему (5-25 мин)\n3. Отвечаете на вопрос\n4. Получаете обратную связь от ИИ\n\n*Как настроить?*\nУстановите время получения уроков и длительность через настройки."
-    en: "📚 *Marathon*\n\n*What is it?*\nA 14-day structured self-development learning program.\n\n*Why?*\nIn 14 days you'll go from casual learning to systematic practice. Each day — a lesson (theory + reflection question) and a task with deliverable.\n\n*For whom?*\nFor everyone who wants to start. No subscription needed — the marathon is free.\n\n*How does it work?*\n1. The bot sends a lesson at your scheduled time\n2. You study the topic (5-25 min)\n3. Answer the question\n4. Get AI feedback\n\n*How to configure?*\nSet lesson delivery time and duration in settings."
+    ru: "📚 *Марафон*\n\n*Что это?*\nПерсонализированная 14-дневная программа обучения методам саморазвития. Контент адаптируется под вас — бот учитывает ваш профиль, интересы и цели.\n\n*Зачем?*\nЗа 14 дней вы пройдёте путь от случайного обучения к систематическому. Каждый день — урок (теория + вопрос на осмысление) и задание с рабочим продуктом.\n\n*Для кого?*\nДля всех, кто хочет начать. Подписка не нужна — марафон бесплатный.\n\n*Как это работает?*\n1. Бот присылает урок в установленное время\n2. Вы изучаете тему (5-25 мин)\n3. Отвечаете на вопрос\n4. Получаете обратную связь от ИИ\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения уроков, длительность и сложность — и программа станет по-настоящему вашей."
+    en: "📚 *Marathon*\n\n*What is it?*\nA personalized 14-day self-development learning program. Content adapts to you — the bot considers your profile, interests and goals.\n\n*Why?*\nIn 14 days you'll go from casual learning to systematic practice. Each day — a lesson (theory + reflection question) and a task with deliverable.\n\n*For whom?*\nFor everyone who wants to start. No subscription needed — the marathon is free.\n\n*How does it work?*\n1. The bot sends a lesson at your scheduled time\n2. You study the topic (5-25 min)\n3. Answer the question\n4. Get AI feedback\n\n*Customize it:*\nDescribe yourself in your profile, set lesson delivery time, duration and difficulty — and the program becomes truly yours."
 
   # --- /feed_info ---
   feed_text:
-    ru: "📖 *Лента*\n\n*Что это?*\nГибкий режим обучения — вы выбираете до 3 тем и получаете ежедневные дайджесты.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить обучение в своём ритме. Глубже изучайте интересные темы, получайте персонализированный контент.\n\n*Для кого?*\nДля пользователей с подпиской «Бесконечное развитие».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Как настроить?*\nУстановите время получения дайджестов через настройки."
-    en: "📖 *Feed*\n\n*What is it?*\nA flexible learning mode — choose up to 3 topics and receive daily digests.\n\n*Why?*\nFor those who completed the marathon and want to continue learning at their own pace. Explore topics deeper, get personalized content.\n\n*For whom?*\nFor users with an «Infinite Development» subscription.\n\n*How does it work?*\n1. Choose topics from the catalog\n2. The bot sends a digest at your scheduled time\n3. Study the material (5-25 min)\n4. Write a fixation — your personal takeaway\n\n*How to configure?*\nSet digest delivery time in settings."
+    ru: "📖 *Лента*\n\n*Что это?*\nПерсонализированный режим обучения — вы выбираете до 3 тем и получаете ежедневные дайджесты, адаптированные под ваш профиль и цели.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить развитие в своём ритме. Глубже изучайте интересные темы, получайте контент, созданный для вас.\n\n*Для кого?*\nДля пользователей с подпиской «Бесконечное развитие».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения дайджестов и сложность — и контент будет максимально релевантным."
+    en: "📖 *Feed*\n\n*What is it?*\nA personalized learning mode — choose up to 3 topics and receive daily digests adapted to your profile and goals.\n\n*Why?*\nFor those who completed the marathon and want to continue development at their own pace. Explore topics deeper, get content created for you.\n\n*For whom?*\nFor users with an «Infinite Development» subscription.\n\n*How does it work?*\n1. Choose topics from the catalog\n2. The bot sends a digest at your scheduled time\n3. Study the material (5-25 min)\n4. Write a fixation — your personal takeaway\n\n*Customize it:*\nDescribe yourself in your profile, set digest delivery time and difficulty — and content will be maximally relevant."
+
+  # --- /train_info ---
+  train_text:
+    ru: "🧠 *Тренировка*\n\n*Что это?*\nИнтерактивная тренировка принципов системного мышления. Вопросы адаптируются под ваш уровень и прогресс.\n\n*Зачем?*\nЧтобы принципы из уроков стали частью мышления. Тренировка проверяет понимание, а не запоминание — вы учитесь применять знания к реальным ситуациям.\n\n*Для кого?*\nДля пользователей с подпиской «Бесконечное развитие».\n\n*Как это работает?*\n1. Бот задаёт вопрос по изученным принципам\n2. Вы отвечаете своими словами\n3. ИИ оценивает понимание и даёт обратную связь\n4. После 2 неудачных попыток — показывает пример ответа\n\n*Настройте под себя:*\nОпишите себя в профиле и укажите сложность — тренировка адаптируется под ваш уровень."
+    en: "🧠 *Training*\n\n*What is it?*\nInteractive training on systems thinking principles. Questions adapt to your level and progress.\n\n*Why?*\nSo that principles from lessons become part of your thinking. Training checks understanding, not memorization — you learn to apply knowledge to real situations.\n\n*For whom?*\nFor users with an «Infinite Development» subscription.\n\n*How does it work?*\n1. The bot asks a question about studied principles\n2. You answer in your own words\n3. AI evaluates understanding and gives feedback\n4. After 2 failed attempts — shows an example answer\n\n*Customize it:*\nDescribe yourself in your profile and set difficulty — training adapts to your level."
 
   # --- Кнопки ---
   btn_marathon:
@@ -5023,6 +5031,10 @@ info:
   btn_feed:
     ru: "📖 Лента"
     en: "📖 Feed"
+    max_length: 20
+  btn_training:
+    ru: "🧠 Тренировка"
+    en: "🧠 Training"
     max_length: 20
   btn_link:
     ru: "🔗 Привязать аккаунт"
@@ -5048,9 +5060,21 @@ info:
     ru: "📖 Получить дайджест"
     en: "📖 Get a digest"
     max_length: 25
-  btn_set_time:
-    ru: "⏰ Настроить время"
-    en: "⏰ Set time"
+  btn_start_training:
+    ru: "🧠 Начать тренировку"
+    en: "🧠 Start training"
+    max_length: 25
+  btn_configure_marathon:
+    ru: "⚙️ Настроить марафон"
+    en: "⚙️ Configure marathon"
+    max_length: 25
+  btn_configure_feed:
+    ru: "⚙️ Настроить ленту"
+    en: "⚙️ Configure feed"
+    max_length: 25
+  btn_configure_training:
+    ru: "⚙️ Настроить тренировку"
+    en: "⚙️ Configure training"
     max_length: 25
   btn_buy_sub:
     ru: "🛒 Оформить подписку"
@@ -5067,17 +5091,23 @@ info:
   use_feed:
     ru: "Используйте /feed для получения дайджеста."
     en: "Use /feed to get a digest."
+  use_train:
+    ru: "Используйте /train для тренировки."
+    en: "Use /train to start training."
   use_settings:
     ru: "Используйте /settings для настройки."
     en: "Use /settings to configure."
 
   # --- Команды для /help ---
   cmd_about:
-    ru: "/about — о нас (МИМ, бот, платформа)"
-    en: "/about — about us (MIM, bot, platform)"
+    ru: "/about — о нас (экосистема, бот, платформа)"
+    en: "/about — about us (ecosystem, bot, platform)"
   cmd_marathon_info:
     ru: "/marathon\\_info — марафон (что, зачем, как начать)"
     en: "/marathon\\_info — marathon (what, why, how to start)"
   cmd_feed_info:
     ru: "/feed\\_info — лента (что, зачем, как запустить)"
     en: "/feed\\_info — feed (what, why, how to start)"
+  cmd_train_info:
+    ru: "/train\\_info — тренировка (что, зачем, как запустить)"
+    en: "/train\\_info — training (what, why, how to start)"

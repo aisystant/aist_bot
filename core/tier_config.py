@@ -153,9 +153,10 @@ COMMAND_DESCRIPTIONS = {
     'schedule':  {'ru': 'Расписание занятий',             'en': 'Class schedule',            'es': 'Horario de clases',           'fr': 'Horaire des cours',            'zh': '课程日程'},
     'contacts':  {'ru': 'Контактная информация',         'en': 'Contact information',       'es': 'Información de contacto',    'fr': 'Coordonnées',                  'zh': '联系信息'},
     'buy':       {'ru': 'Купить (подписка + программы)',  'en': 'Buy (subscription + programs)', 'es': 'Comprar (suscripción + programas)', 'fr': 'Acheter (abonnement + programmes)', 'zh': '购买（订阅+项目）'},
-    'about':     {'ru': 'О нас — МИМ, бот, платформа',    'en': 'About us — MIM, bot, platform', 'es': 'Sobre nosotros',                  'fr': 'À propos de nous',                 'zh': '关于我们'},
+    'about':     {'ru': 'О нас — экосистема, бот, платформа', 'en': 'About us — ecosystem, bot, platform', 'es': 'Sobre nosotros',                  'fr': 'À propos de nous',                 'zh': '关于我们'},
     'marathon_info': {'ru': 'Марафон — что это и как начать', 'en': 'Marathon — what it is & how to start', 'es': 'Maratón — qué es', 'fr': 'Marathon — description', 'zh': '马拉松 — 介绍'},
     'feed_info': {'ru': 'Лента — что это и как запустить',  'en': 'Feed — what it is & how to start', 'es': 'Feed — qué es',       'fr': 'Fil — description',      'zh': '信息流 — 介绍'},
+    'train_info': {'ru': 'Тренировка — что это и как запустить', 'en': 'Training — what it is & how to start', 'es': 'Entrenamiento — qué es', 'fr': 'Entraînement — description', 'zh': '训练 — 介绍'},
 }
 
 
