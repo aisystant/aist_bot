@@ -491,20 +491,37 @@ async def callback_pay_choice(callback: CallbackQuery):
 
     await callback.answer()
 
-    # Получаем название курса для отображения
+    # Получаем данные курса для отображения
     course_name = code
+    course_data = None
     try:
         courses = await aisystant.get_available_courses()
         for c in courses:
             if c.get("code") == code:
+                course_data = c
                 course_name = c.get("courseName", c.get("name", code))
                 break
     except Exception:
         pass
 
+    # Собираем детальное сообщение (как на старом боте)
+    text_parts = [t('schedule.pay_choice_header', lang, course=course_name)]
+
+    if course_data:
+        started = course_data.get("started", "")
+        finished = course_data.get("finished", "")
+        if started and finished:
+            text_parts.append(t('schedule.pay_choice_dates', lang,
+                                start=_format_date(started, lang),
+                                end=_format_date(finished, lang)))
+
+        chat_link = course_data.get("chatLink", "")
+        if chat_link:
+            text_parts.append(t('schedule.pay_choice_chat', lang, link=chat_link))
+
     installment_per = int(round(amount * 0.35))
-    text = t('schedule.choose_payment_method', lang,
-             course=course_name, amount=amount, installment_per=installment_per)
+    text_parts.append(t('schedule.pay_choice_price', lang, amount=amount))
+    text = "\n\n".join(text_parts)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=t('schedule.btn_pay_full', lang, amount=amount),
@@ -562,15 +579,15 @@ async def callback_pay_installment(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=url)],
     ])
+    msg = t('schedule.installment_success', lang, url=url)
     try:
-        await callback.message.edit_text(
-            t('schedule.payment_success', lang),
-            reply_markup=keyboard,
-        )
+        await callback.message.edit_text(msg, parse_mode="Markdown",
+                                          reply_markup=keyboard,
+                                          disable_web_page_preview=True)
     except Exception:
-        await callback.message.answer(
-            t('schedule.payment_success', lang), reply_markup=keyboard,
-        )
+        await callback.message.answer(msg, parse_mode="Markdown",
+                                       reply_markup=keyboard,
+                                       disable_web_page_preview=True)
 
 
 @schedule_router.callback_query(F.data.startswith("schedule_pay:"))
