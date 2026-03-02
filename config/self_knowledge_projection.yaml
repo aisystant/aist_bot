@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "f96217a6344325e6ca7d1ee653366b69e2ec6caf0017027cee5404587d261369"
-  synced_at: "2026-02-22T01:01:01Z"
+  source_hash: "e6010cae372af0161fead3ef112ab4aafe46c7b89bcb41be7a4166e9050f9db9"
+  synced_at: "2026-03-01T22:57:39Z"
   generator: "DS-ai-systems/synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -86,7 +86,7 @@ platform: |
   - Заметки (.текст) — сохранение мыслей и идей
   - Планы (/rp /plan /report) — интеграция со Стратегом
   
-  **Подписка:** Telegram Stars. Первые 30 дней — бесплатно (пробный период). Ранние подписчики сохраняют цену навсегда. Оформить: /settings → Подписка.
+  **Подписка:** Telegram Stars. Первые 15 дней — бесплатно (пробный период). Ранние подписчики сохраняют цену навсегда. Оформить: /settings → Подписка.
   
   **🧬 T3 — Персонализация** (подключён Цифровой двойник):
   - Персональные рекомендации на основе целей, проблем и интересов

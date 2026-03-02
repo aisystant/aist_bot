@@ -99,12 +99,20 @@ class SettingsState(BaseState):
         marathon_time = intern.get('schedule_time', '09:00')
         feed_time = intern.get('feed_schedule_time') or marathon_time
 
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(chat_id)
+        aisystant_status = "✅" if aisystant_id else "❌"
+
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
+            f"🔗 Aisystant: {aisystant_status}\n"
             f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔗 " + t('settings.aisystant_label', lang), callback_data="conn_aisystant"),
+            ],
             [
                 InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language"),
             ],
@@ -160,6 +168,12 @@ class SettingsState(BaseState):
             return await self._ask_for_field(user, callback, 'schedule_marathon')
         if data == "upd_schedule_feed":
             return await self._ask_for_field(user, callback, 'schedule_feed')
+
+        if data == "conn_aisystant":
+            return await self._show_aisystant_connection(user, callback)
+
+        if data == "conn_aisystant_check":
+            return await self._aisystant_check(user, callback)
 
         if data == "upd_connections":
             return await self._show_connections(user, callback)
@@ -713,6 +727,102 @@ class SettingsState(BaseState):
             ]),
             parse_mode="Markdown",
         )
+        return None
+
+    async def _show_aisystant_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус подключения Aisystant и кнопки привязки."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+        aisystant_id = await get_aisystant_id(chat_id)
+
+        if aisystant_id:
+            text = t('settings.aisystant_connected_info', lang)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+            ])
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            return None
+
+        # Пробуем найти автоматически
+        from clients.aisystant import aisystant
+        try:
+            found_id = await aisystant.find_user_by_tg(chat_id)
+            if found_id:
+                await save_aisystant_link(chat_id, found_id)
+                text = t('link.found_auto', lang)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+                ])
+                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+                return None
+        except Exception as e:
+            logger.error(f"[Settings] aisystant find_user_by_tg error: {e}")
+
+        # Не привязан — показываем инструкцию + ссылку
+        text = t('settings.aisystant_not_connected_info', lang)
+        buttons = []
+        try:
+            tg_username = callback.from_user.username if callback.from_user else None
+            link_url = await aisystant.get_link_url(chat_id, tg_username)
+            buttons.append([InlineKeyboardButton(text=t('link.btn_link', lang), url=link_url)])
+        except Exception as e:
+            logger.error(f"[Settings] get_link_url error: {e}")
+
+        buttons.append([InlineKeyboardButton(text=t('link.btn_check', lang), callback_data="conn_aisystant_check")])
+        buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _aisystant_check(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Повторная проверка привязки Aisystant из настроек."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+
+        existing = await get_aisystant_id(chat_id)
+        if existing:
+            await callback.answer(t('link.check_success', lang), show_alert=True)
+            text = t('settings.aisystant_connected_info', lang)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+            ])
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            return None
+
+        from clients.aisystant import aisystant
+        try:
+            aisystant_id = await aisystant.find_user_by_tg(chat_id)
+        except Exception as e:
+            logger.error(f"[Settings] aisystant check error: {e}")
+            await callback.answer(t('link.error', lang), show_alert=True)
+            return None
+
+        if aisystant_id:
+            await save_aisystant_link(chat_id, aisystant_id)
+            await callback.answer(t('link.check_success', lang), show_alert=True)
+            text = t('settings.aisystant_connected_info', lang)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
+            ])
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            # Обновляем тир и клавиатуру
+            try:
+                from core.tier_detector import detect_ui_tier
+                from core.tier_ui import build_reply_keyboard, sync_menu_commands
+                tier = await detect_ui_tier(chat_id)
+                kb = build_reply_keyboard(tier, lang)
+                await callback.message.answer("👌", reply_markup=kb)
+                await sync_menu_commands(callback.message.bot, chat_id, tier, lang)
+            except Exception as e:
+                logger.error(f"[Settings] refresh tier error: {e}")
+        else:
+            await callback.answer(t('link.check_not_yet', lang), show_alert=True)
+
         return None
 
     async def _show_connections(self, user, callback: CallbackQuery) -> Optional[str]:
