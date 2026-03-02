@@ -204,6 +204,16 @@ class ClaudeClient:
                                 await asyncio.sleep(2)
                                 continue
                             return None
+                        # Safety net: if max_tokens hit and partial not allowed,
+                        # discard truncated content (e.g. lesson cut mid-sentence)
+                        if stop_reason == 'max_tokens' and not allow_partial:
+                            text = ''.join(collected_text)
+                            logger.warning(
+                                f"Claude API truncated (stop_reason=max_tokens, "
+                                f"{len(text)} chars), allow_partial=False — discarding. "
+                                f"Consider increasing max_tokens."
+                            )
+                            return None
                         return ''.join(collected_text)
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
@@ -716,8 +726,9 @@ class ClaudeClient:
 {lp['use_context'] if mcp_context else ""}"""""
 
         # Adaptive max_tokens: scale with study_duration words
-        # 500w → 750tok, 1000w → 1500tok, 2500w → 3750tok
-        max_tokens = min(int(words * 1.5), 4096)
+        # Russian text ≈ 2-3 tokens per word (Cyrillic BPE encoding)
+        # 300w → 900tok, 900w → 2700tok, 1530w → 4590tok (capped)
+        max_tokens = min(int(words * 3), 8192)
 
         result = await self.generate(
             system_prompt, user_prompt, max_tokens=max_tokens, model=model,
