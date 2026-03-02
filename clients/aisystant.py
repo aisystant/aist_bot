@@ -304,7 +304,11 @@ class AisystantClient:
         }
         return await self._post(
             "/api/subscriptions/create-internship-payment",
-            params={"request-id": request_id, "user-id": aisystant_id},
+            params={
+                "request-id": request_id,
+                "user-id": aisystant_id,
+                "purpose": "INTERNSHIP",
+            },
             body=body,
         )
 

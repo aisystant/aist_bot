@@ -101,12 +101,12 @@ async def _create_course_buttons(
     """Pre-create internship payments → URL buttons (no extra click).
 
     paid_courses: list of (code, short_name, amount).
-    Для курсов > INSTALLMENT_THRESHOLD — callback-кнопка с выбором способа оплаты.
+    Для курсов >= INSTALLMENT_THRESHOLD — callback-кнопка с выбором способа оплаты.
     Falls back to callback buttons if payment creation fails.
     """
     async def _one(code: str, short_name: str, amount: int):
         # Дорогие курсы → промежуточный выбор (полная / рассрочка)
-        if amount > INSTALLMENT_THRESHOLD:
+        if amount >= INSTALLMENT_THRESHOLD:
             return [InlineKeyboardButton(
                 text=f"{emoji} {short_name} — {amount} ₽",
                 callback_data=f"sched_pay_choice:{code}:{amount}",
