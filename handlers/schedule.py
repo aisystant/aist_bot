@@ -232,8 +232,9 @@ async def callback_category(callback: CallbackQuery):
 
         if aisystant_id and price:
             code = course.get("code", "")
-            short_name = name[:25]
-            paid_courses.append((code, short_name, int(price)))
+            dot_pos = name.find(".")
+            btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
+            paid_courses.append((code, btn_name[:25], int(price)))
 
     # Сразу создаём платежи → URL-кнопки без лишнего шага
     if paid_courses:
