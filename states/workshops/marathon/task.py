@@ -188,7 +188,8 @@ class MarathonTaskState(BaseState):
         message += f"📋 *{t('marathon.task', lang)}:*\n{task_text}\n\n"
         message += f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n"
 
-        if examples:
+        bloom_level = self._get_bloom_level(user)
+        if examples and bloom_level >= 2:
             message += f"{t('marathon.wp_examples', lang)}:\n{examples}\n\n"
         else:
             message += "\n"
@@ -286,6 +287,9 @@ class MarathonTaskState(BaseState):
                 complexity_level=bloom_level
             )
 
+        # Сразу подтверждаем — ДО evaluator, чтобы feedback воспринимался как совет
+        await self.send(user, f"✅ *{t('marathon.practice_accepted', lang)}*", parse_mode="Markdown")
+
         # ─── Оценка рабочего продукта + фиксация (DS-evaluator-agent) ───
         if EVALUATION_ENABLED:
             topic = get_topic(topic_index)
@@ -349,7 +353,6 @@ class MarathonTaskState(BaseState):
 
             await self.send(
                 user,
-                f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
                 f"🎉 *{t('marathon.completed', lang)}*\n\n"
                 f"{t('marathon.completed_next_step', lang)}\n\n"
                 f"_{t('marathon.completed_hint', lang)}_",
@@ -387,7 +390,6 @@ class MarathonTaskState(BaseState):
                 ])
                 await self.send(
                     user,
-                    f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
                     f"✅ {t('marathon.day_complete', lang)}\n\n"
                     f"{t('reminders.marathon_catchup_offer', lang)}",
                     parse_mode="Markdown",
@@ -397,7 +399,6 @@ class MarathonTaskState(BaseState):
 
         await self.send(
             user,
-            f"✅ *{t('marathon.practice_accepted', lang)}*\n\n"
             f"✅ {t('marathon.day_complete', lang)}\n\n"
             f"_{t('marathon.come_back_tomorrow', lang)}_",
             parse_mode="Markdown",
