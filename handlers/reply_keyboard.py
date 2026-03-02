@@ -85,6 +85,9 @@ async def _fallback_route(message: Message, state: FSMContext, command: str, int
         elif command == 'buy':
             from handlers.buy import cmd_buy
             await cmd_buy(message)
+        elif command == 'about':
+            from handlers.info import cmd_about
+            await cmd_about(message)
         elif command == 'mydata':
             from handlers.commands import cmd_mydata
             await cmd_mydata(message, state)

@@ -14,7 +14,8 @@ Tier model (payment-first, cumulative):
 
 Keyboard principle «Главная + Тянет вверх» (WP-79 §1):
   Row 1: [main activity for tier] [pulls up to next tier]
-  Row 2: [📅 Расписание] [⚙️ Настройки]  (stable)
+  Row 2: [📅 Расписание] [⚙️ Настройки]  (stable, T2+)
+  T1_NEW Row 2: [ℹ️ О нас] [⚙️ Настройки]
 
 Each tier defines:
   - keyboard: 2x2 ReplyKeyboard buttons
@@ -68,6 +69,7 @@ KB_LABELS = {
     'guide':      {'ru': '🧭 Гид',       'en': '🧭 Guide',      'es': '🧭 Guía',       'fr': '🧭 Guide',       'zh': '🧭 指南'},
     'contacts':   {'ru': '📞 Контакты',  'en': '📞 Contacts',   'es': '📞 Contactos',  'fr': '📞 Contacts',    'zh': '📞 联系'},
     'buy':        {'ru': '🛒 Купить',   'en': '🛒 Buy',        'es': '🛒 Comprar',    'fr': '🛒 Acheter',     'zh': '🛒 购买'},
+    'about':      {'ru': 'ℹ️ О нас',     'en': 'ℹ️ About',      'es': 'ℹ️ Acerca de',  'fr': 'ℹ️ À propos',    'zh': 'ℹ️ 关于我们'},
 }
 
 # Service key → slash command name (for routing)
@@ -92,6 +94,7 @@ SERVICE_TO_COMMAND = {
     'guide': 'guide',
     'contacts': 'contacts',
     'buy': 'buy',
+    'about': 'about',
 }
 
 
@@ -102,7 +105,7 @@ SERVICE_TO_COMMAND = {
 
 # WP-79: «Главная + Тянет вверх» principle
 TIER_KEYBOARD = {
-    UITier.T1_NEW:             [['link',      'buy'],           ['schedule', 'settings']],
+    UITier.T1_NEW:             [['link',      'schedule'],      ['about',    'settings']],
     UITier.T1_START:           [['marathon',  'buy'],           ['schedule', 'settings']],
     UITier.T2_LEARNING:        [['feed',      'guide'],         ['schedule', 'settings']],
     UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['schedule', 'settings']],
@@ -117,8 +120,8 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_NEW:             ['buy', 'link', 'schedule', 'test', 'contacts', 'help'],
-    UITier.T1_START:           ['buy', 'learn', 'schedule', 'test', 'profile', 'mode', 'help'],
+    UITier.T1_NEW:             ['link', 'schedule', 'about', 'test', 'contacts', 'help'],
+    UITier.T1_START:           ['buy', 'learn', 'schedule', 'about', 'feed_info', 'test', 'help'],
     UITier.T2_LEARNING:        ['buy', 'feed', 'train', 'schedule', 'profile', 'help'],
     UITier.T3_PERSONALIZATION: ['buy', 'feed', 'train', 'schedule', 'guide', 'progress', 'start', 'help'],
     UITier.T4_CREATION:        ['buy', 'plan', 'schedule', 'club', 'train', 'feed', 'progress', 'test', 'profile', 'start', 'help'],
@@ -150,6 +153,9 @@ COMMAND_DESCRIPTIONS = {
     'schedule':  {'ru': 'Расписание занятий',             'en': 'Class schedule',            'es': 'Horario de clases',           'fr': 'Horaire des cours',            'zh': '课程日程'},
     'contacts':  {'ru': 'Контактная информация',         'en': 'Contact information',       'es': 'Información de contacto',    'fr': 'Coordonnées',                  'zh': '联系信息'},
     'buy':       {'ru': 'Купить (подписка + программы)',  'en': 'Buy (subscription + programs)', 'es': 'Comprar (suscripción + programas)', 'fr': 'Acheter (abonnement + programmes)', 'zh': '购买（订阅+项目）'},
+    'about':     {'ru': 'О нас — МИМ, бот, платформа',    'en': 'About us — MIM, bot, platform', 'es': 'Sobre nosotros',                  'fr': 'À propos de nous',                 'zh': '关于我们'},
+    'marathon_info': {'ru': 'Марафон — что это и как начать', 'en': 'Marathon — what it is & how to start', 'es': 'Maratón — qué es', 'fr': 'Marathon — description', 'zh': '马拉松 — 介绍'},
+    'feed_info': {'ru': 'Лента — что это и как запустить',  'en': 'Feed — what it is & how to start', 'es': 'Feed — qué es',       'fr': 'Fil — description',      'zh': '信息流 — 介绍'},
 }
 
 
