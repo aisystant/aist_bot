@@ -84,6 +84,51 @@ async def update_training_settings(chat_id: int, **kwargs) -> None:
             )
 
 
+# ============= SETTINGS + PROGRESS (batch) =============
+
+async def get_settings_and_progress(chat_id: int) -> Optional[tuple[dict, dict]]:
+    """Получить настройки И прогресс одним round-trip.
+
+    Returns (settings_dict, progress_map) или None если настроек нет.
+    progress_map: {principle_id: {current_depth, attempts_at_depth}}.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT
+                s.cognitive_level, s.training_mode, s.single_principle,
+                s.enabled_principles,
+                p.principle_id, p.current_depth, p.attempts_at_depth
+            FROM training_settings s
+            LEFT JOIN training_progress p ON p.chat_id = s.chat_id AND p.child_id IS NULL
+            WHERE s.chat_id = $1
+            ORDER BY p.principle_id
+        ''', chat_id)
+
+        if not rows:
+            return None
+
+        # Первая строка содержит settings (одинаковые во всех строках)
+        first = rows[0]
+        settings = {
+            'cognitive_level': first['cognitive_level'],
+            'training_mode': first['training_mode'],
+            'single_principle': first['single_principle'],
+            'enabled_principles': json.loads(first['enabled_principles'] or '[]'),
+        }
+
+        progress_map = {}
+        for r in rows:
+            if r['principle_id']:  # NULL при LEFT JOIN без progress
+                progress_map[r['principle_id']] = {
+                    'principle_id': r['principle_id'],
+                    'current_depth': r['current_depth'],
+                    'attempts_at_depth': r['attempts_at_depth'],
+                }
+
+        return settings, progress_map
+
+
 # ============= PROGRESS =============
 
 async def get_training_progress(chat_id: int) -> list:
