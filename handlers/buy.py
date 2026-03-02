@@ -72,7 +72,6 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                     # Для кнопки убираем префикс программы ("Личное развитие. " и т.п.)
                     dot_pos = name.find(".")
                     btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
-                    logger.info(f"[Buy] courseName={name!r} → btn={btn_name!r}")
                     paid_courses.append((code, btn_name[:25], int(amount)))
             if paid_courses:
                 buttons.extend(await _create_course_buttons(
