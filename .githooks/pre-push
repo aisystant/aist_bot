@@ -1,0 +1,24 @@
+#!/bin/bash
+# Pre-push hook: блокирует push в new-architecture без явного подтверждения.
+# Правило Pilot-First: все изменения сначала на pilot, потом на прод.
+# Обход: FORCE_PROD=1 git push origin new-architecture
+
+PROTECTED_BRANCH="new-architecture"
+remote="$1"
+
+while read local_ref local_sha remote_ref remote_sha; do
+    if echo "$remote_ref" | grep -q "refs/heads/${PROTECTED_BRANCH}"; then
+        if [ "$FORCE_PROD" != "1" ]; then
+            echo ""
+            echo "⛔ PUSH BLOCKED: ветка '${PROTECTED_BRANCH}' защищена (Pilot-First)."
+            echo ""
+            echo "   Все изменения сначала → pilot → проверка → потом прод."
+            echo "   Если уверен: FORCE_PROD=1 git push origin ${PROTECTED_BRANCH}"
+            echo ""
+            exit 1
+        fi
+        echo "⚠️  FORCE_PROD=1 — push в ${PROTECTED_BRANCH} разрешён."
+    fi
+done
+
+exit 0
