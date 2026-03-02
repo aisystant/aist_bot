@@ -204,6 +204,19 @@ commands:
     ru: "/buy — витрина покупок (подписка + программы)"
     en: "/buy — shop (subscription + programs)"
 
+  about:
+    ru: "/about — о нас (МИМ, бот, платформа)"
+    en: "/about — about us (MIM, bot, platform)"
+  marathon_info:
+    ru: "/marathon\\_info — марафон (что, зачем, как начать)"
+    en: "/marathon\\_info — marathon (what, why, how to start)"
+  feed_info:
+    ru: "/feed\\_info — лента (что, зачем, как запустить)"
+    en: "/feed\\_info — feed (what, why, how to start)"
+
+  section_intro:
+    ru: "Знакомство"
+    en: "Getting started"
   section_main:
     ru: "Основные"
     en: "Main"
@@ -799,6 +812,18 @@ settings:
   schedule_feed:
     ru: "Лента"
     en: "Feed"
+
+  aisystant_label:
+    ru: "Подключение Aisystant"
+    en: "Aisystant Connection"
+
+  aisystant_connected_info:
+    ru: "✅ *Аккаунт Aisystant подключён*\n\nВам доступны:\n• 📋 Расписание занятий\n• 📚 Программы обучения\n• 💳 Оплата и подписка\n• 📊 Прогресс обучения"
+    en: "✅ *Aisystant account connected*\n\nYou have access to:\n• 📋 Class schedule\n• 📚 Learning programs\n• 💳 Payments and subscriptions\n• 📊 Learning progress"
+
+  aisystant_not_connected_info:
+    ru: "🔗 *Подключение к Aisystant*\n\nAisystant — образовательная платформа, к которой привязан этот бот.\n\nПосле подключения вам станут доступны:\n• 📋 Расписание занятий\n• 📚 Программы обучения\n• 💳 Оплата и подписка\n• 📊 Прогресс обучения\n\nНажмите кнопку ниже, чтобы привязать аккаунт."
+    en: "🔗 *Connect to Aisystant*\n\nAisystant is the learning platform this bot is linked to.\n\nAfter connecting you'll get access to:\n• 📋 Class schedule\n• 📚 Learning programs\n• 💳 Payments and subscriptions\n• 📊 Learning progress\n\nClick the button below to link your account."
 
   connections_label:
     ru: "Подключения"
@@ -4970,3 +4995,89 @@ buy:
   nothing_available:
     ru: "Сейчас нет доступных предложений."
     en: "No offers available at the moment."
+
+# ═══════════════════════════════════════════════════════════
+# Info-команды: навигационные landing pages
+# ═══════════════════════════════════════════════════════════
+info:
+  # --- /about ---
+  about_text:
+    ru: "ℹ️ *О нас*\n\n*Школа системного менеджмента (МИМ)* — образовательная организация, которая помогает людям развивать мышление и осваивать современные интеллектуальные практики.\n\n*Что мы даём:*\n• Методы системного саморазвития\n• Ежедневные уроки и тренировки с ИИ\n• Персональный путь обучения\n• Сообщество практиков (systemsworld.club)\n\n*Бот* — часть интеллектуальной рабочей среды (IWE). Через него вы получаете уроки, тренируете принципы, задаёте вопросы ИИ-консультанту и отслеживаете прогресс.\n\n*Платформа Aisystant* — учебная платформа с курсами, расписанием и подпиской.\n\n*С чего начать?*"
+    en: "ℹ️ *About us*\n\n*School of Systems Management (MIM)* — an educational organization that helps people develop thinking and master modern intellectual practices.\n\n*What we offer:*\n• Methods of systematic self-development\n• Daily lessons and training with AI\n• Personal learning path\n• Community of practitioners (systemsworld.club)\n\n*The bot* is part of an Intelligent Working Environment (IWE). Through it you receive lessons, train principles, ask AI consultant questions and track progress.\n\n*Aisystant platform* — learning platform with courses, schedule and subscription.\n\n*Where to start?*"
+
+  # --- /marathon_info ---
+  marathon_text:
+    ru: "📚 *Марафон*\n\n*Что это?*\n14-дневная структурированная программа обучения методам саморазвития.\n\n*Зачем?*\nЗа 14 дней вы пройдёте путь от случайного обучения к систематическому. Каждый день — урок (теория + вопрос на осмысление) и задание с рабочим продуктом.\n\n*Для кого?*\nДля всех, кто хочет начать. Подписка не нужна — марафон бесплатный.\n\n*Как это работает?*\n1. Бот присылает урок в установленное время\n2. Вы изучаете тему (5-25 мин)\n3. Отвечаете на вопрос\n4. Получаете обратную связь от ИИ\n\n*Как настроить?*\nУстановите время получения уроков и длительность через настройки."
+    en: "📚 *Marathon*\n\n*What is it?*\nA 14-day structured self-development learning program.\n\n*Why?*\nIn 14 days you'll go from casual learning to systematic practice. Each day — a lesson (theory + reflection question) and a task with deliverable.\n\n*For whom?*\nFor everyone who wants to start. No subscription needed — the marathon is free.\n\n*How does it work?*\n1. The bot sends a lesson at your scheduled time\n2. You study the topic (5-25 min)\n3. Answer the question\n4. Get AI feedback\n\n*How to configure?*\nSet lesson delivery time and duration in settings."
+
+  # --- /feed_info ---
+  feed_text:
+    ru: "📖 *Лента*\n\n*Что это?*\nГибкий режим обучения — вы выбираете до 3 тем и получаете ежедневные дайджесты.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить обучение в своём ритме. Глубже изучайте интересные темы, получайте персонализированный контент.\n\n*Для кого?*\nДля пользователей с подпиской «Бесконечное развитие».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Как настроить?*\nУстановите время получения дайджестов через настройки."
+    en: "📖 *Feed*\n\n*What is it?*\nA flexible learning mode — choose up to 3 topics and receive daily digests.\n\n*Why?*\nFor those who completed the marathon and want to continue learning at their own pace. Explore topics deeper, get personalized content.\n\n*For whom?*\nFor users with an «Infinite Development» subscription.\n\n*How does it work?*\n1. Choose topics from the catalog\n2. The bot sends a digest at your scheduled time\n3. Study the material (5-25 min)\n4. Write a fixation — your personal takeaway\n\n*How to configure?*\nSet digest delivery time in settings."
+
+  # --- Кнопки ---
+  btn_marathon:
+    ru: "📚 Марафон"
+    en: "📚 Marathon"
+    max_length: 20
+  btn_feed:
+    ru: "📖 Лента"
+    en: "📖 Feed"
+    max_length: 20
+  btn_link:
+    ru: "🔗 Привязать аккаунт"
+    en: "🔗 Link account"
+    max_length: 25
+  btn_buy:
+    ru: "🛒 Купить подписку"
+    en: "🛒 Buy subscription"
+    max_length: 25
+  btn_ask:
+    ru: "❓ Задать вопрос ИИ"
+    en: "❓ Ask AI a question"
+    max_length: 25
+  btn_start_marathon:
+    ru: "▶️ Начать марафон"
+    en: "▶️ Start marathon"
+    max_length: 25
+  btn_get_lesson:
+    ru: "📚 Получить урок"
+    en: "📚 Get a lesson"
+    max_length: 25
+  btn_get_digest:
+    ru: "📖 Получить дайджест"
+    en: "📖 Get a digest"
+    max_length: 25
+  btn_set_time:
+    ru: "⏰ Настроить время"
+    en: "⏰ Set time"
+    max_length: 25
+  btn_buy_sub:
+    ru: "🛒 Оформить подписку"
+    en: "🛒 Subscribe"
+    max_length: 25
+  ask_hint_text:
+    ru: "❓ *Спроси что угодно*\n\nНачни сообщение со знака `?` и задай любой вопрос:\n\n• О методах саморазвития\n• О платформе и боте\n• О личном развитии и мышлении\n\nПримеры:\n`?Что такое собранность?`\n`?Как мне начать создавать IWE?`\n`?Чем лента отличается от марафона?`"
+    en: "❓ *Ask anything*\n\nStart your message with `?` and ask any question:\n\n• About self-development methods\n• About the platform and bot\n• About personal development and thinking\n\nExamples:\n`?What is self-discipline?`\n`?How do I start building my IWE?`\n`?What's the difference between feed and marathon?`"
+
+  # --- Fallback команды ---
+  use_learn:
+    ru: "Используйте /learn для получения урока."
+    en: "Use /learn to get a lesson."
+  use_feed:
+    ru: "Используйте /feed для получения дайджеста."
+    en: "Use /feed to get a digest."
+  use_settings:
+    ru: "Используйте /settings для настройки."
+    en: "Use /settings to configure."
+
+  # --- Команды для /help ---
+  cmd_about:
+    ru: "/about — о нас (МИМ, бот, платформа)"
+    en: "/about — about us (MIM, bot, platform)"
+  cmd_marathon_info:
+    ru: "/marathon\\_info — марафон (что, зачем, как начать)"
+    en: "/marathon\\_info — marathon (what, why, how to start)"
+  cmd_feed_info:
+    ru: "/feed\\_info — лента (что, зачем, как запустить)"
+    en: "/feed\\_info — feed (what, why, how to start)"
