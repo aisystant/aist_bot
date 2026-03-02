@@ -14,6 +14,8 @@
 
 **Ветки:** `pilot` (разработка) → `new-architecture` (прод). Правило Pilot-First — см. MEMORY.md.
 
+**Pre-push hook:** `.githooks/pre-push` блокирует push в `new-architecture` без `FORCE_PROD=1`. После clone: `git config core.hooksPath .githooks`.
+
 ---
 
 ## 2. Терминология
