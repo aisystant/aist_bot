@@ -4761,6 +4761,18 @@ schedule:
     ru: "Оплатить *{course}*?\n\nСумма: *{amount} ₽*"
     en: "Pay for *{course}*?\n\nAmount: *{amount} ₽*"
 
+  choose_payment_method:
+    ru: "Вы выбрали: *{course}*\n\nСтоимость: *{amount} ₽*\n\nВыберите способ оплаты:"
+    en: "You selected: *{course}*\n\nPrice: *{amount} ₽*\n\nChoose payment method:"
+
+  btn_pay_full:
+    ru: "💳 Оплатить полностью — {amount} ₽"
+    en: "💳 Pay in full — {amount} ₽"
+
+  btn_pay_installment:
+    ru: "📅 Рассрочка (3 платежа по {amount} ₽)"
+    en: "📅 Installment (3 payments of {amount} ₽)"
+
   btn_pay:
     ru: "💳 Оплатить {amount} ₽"
     en: "💳 Pay {amount} ₽"

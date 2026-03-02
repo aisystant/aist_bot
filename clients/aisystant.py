@@ -91,7 +91,7 @@ class AisystantClient:
             async with session.post(url, auth=self._auth, params=params, json=body) as resp:
                 if resp.status != 200:
                     text = await resp.text()
-                    logger.error(f"Aisystant POST {path} error {resp.status}: {text[:200]}")
+                    logger.error(f"Aisystant POST {path} error {resp.status}: {text[:300]} | body={body}")
                     return None
                 text = await resp.text()
                 return json.loads(text) if text else None
