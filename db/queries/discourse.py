@@ -2,7 +2,7 @@
 DB-запросы для Discourse-интеграции (WP-53).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from db.connection import get_pool
 from config import get_logger
 
@@ -389,7 +389,7 @@ async def reschedule_all_pending(
             slot_time = datetime.combine(
                 check_date,
                 datetime.min.time().replace(hour=hour, minute=minute),
-            )
+            ) - timedelta(hours=3)  # MSK→UTC
             slots.append(slot_time)
             if len(slots) >= len(unique_posts):
                 break

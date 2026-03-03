@@ -260,7 +260,7 @@ async def cmd_club(message: Message, state: FSMContext):
             return
         lines = [f"Перепланировано {len(result)} постов (удалено дублей: {dupes}):\n"]
         for title, slot in result:
-            lines.append(f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}")
+            lines.append(f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}")  # UTC→MSK
         await message.answer("\n".join(lines))
         return
 
@@ -692,7 +692,7 @@ async def _show_schedule(message_or_cb, chat_id: int):
     lines = [f"*График публикаций* ({queue} в очереди):\n"]
     buttons = []
     for i, pub in enumerate(schedule, 1):
-        t = pub["schedule_time"]
+        t = pub["schedule_time"] + timedelta(hours=3)  # UTC→MSK
         time_str = t.strftime("%a %d %b, %H:%M") if hasattr(t, "strftime") else str(t)
         lines.append(f"{i}. «{pub['title']}» — {time_str}")
         buttons.append([
@@ -841,7 +841,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         if reschedule_result:
             lines.append(f"\n📅 Перепланировано {len(reschedule_result)} постов:")
             for title, slot in reschedule_result[:5]:
-                lines.append(f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}")
+                lines.append(f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}")  # UTC→MSK
             if len(reschedule_result) > 5:
                 lines.append(f"  ... и ещё {len(reschedule_result) - 5}")
 
@@ -872,7 +872,7 @@ async def on_club_reschedule(callback: CallbackQuery):
         return
     lines = [f"Перепланировано {len(result)} постов (удалено дублей: {dupes}):\n"]
     for title, slot in result:
-        lines.append(f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}")
+        lines.append(f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}")  # UTC→MSK
     await callback.message.answer("\n".join(lines))
 
 
@@ -1210,7 +1210,7 @@ async def _rebuild_schedule_after_manual(chat_id: int) -> str:
     # Показать оставшийся график
     lines = ["\n\n📅 Обновлённый график:"]
     for pub in schedule[:5]:
-        t = pub["schedule_time"]
+        t = pub["schedule_time"] + timedelta(hours=3)  # UTC→MSK
         time_str = t.strftime("%a %d %b, %H:%M") if hasattr(t, "strftime") else str(t)
         lines.append(f"  • «{pub['title']}» — {time_str}")
     if len(schedule) > 5:

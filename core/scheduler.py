@@ -1713,7 +1713,7 @@ async def _smart_publisher_scan():
                         if wr_date.weekday() == 0:  # Monday
                             break
                         wr_date += timedelta(days=1)
-                    slot_time = datetime.combine(wr_date, datetime.min.time().replace(hour=7, minute=14))
+                    slot_time = datetime.combine(wr_date, datetime.min.time().replace(hour=7, minute=14)) - timedelta(hours=3)  # MSK→UTC
                     raw = strip_frontmatter(wr["content"])
                     tags_json = json.dumps(wr["tags"]) if isinstance(wr["tags"], list) else "[]"
                     await schedule_publication(
@@ -1741,7 +1741,7 @@ async def _smart_publisher_scan():
 
                 for _ in range(max_check):
                     if check_date.weekday() in regular_pub_days and check_date not in occupied_dates:
-                        slot_time = datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute))
+                        slot_time = datetime.combine(check_date, datetime.min.time().replace(hour=hour, minute=minute)) - timedelta(hours=3)  # MSK→UTC
                         slots.append(slot_time)
                         occupied_dates.add(check_date)  # Не дублировать в рамках одного scan
                         if len(slots) >= len(regular):
@@ -1765,7 +1765,7 @@ async def _smart_publisher_scan():
 
                 # Уведомить
                 if scheduled_posts:
-                    lines = [f"  • «{title}» — {slot.strftime('%a %d %b, %H:%M')}" for title, slot in scheduled_posts]
+                    lines = [f"  • «{title}» — {(slot + timedelta(hours=3)).strftime('%a %d %b, %H:%M')}" for title, slot in scheduled_posts]  # UTC→MSK
                     await bot.send_message(
                         chat_id,
                         f"Добавлено в график публикаций ({len(scheduled_posts)}):\n" + "\n".join(lines),
