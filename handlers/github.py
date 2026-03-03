@@ -240,8 +240,8 @@ async def handle_fleeting_note(message: Message):
     Сценарии:
     A. reply на сообщение (с текстом после точки или без) — объединить, записать
     B. forward → "." или ".текст" — объединить forwarded + комментарий, записать
-    C. "." → forward — ждать пересылку (TTL), записать forwarded
-    D. ".текст" → forward — ждать пересылку (TTL), записать комментарий + forwarded
+    C. "." (голая точка) → forward — ждать пересылку (TTL), записать forwarded
+    D. ".текст" (без reply/forward) — записать немедленно
     """
     from clients.github_oauth import github_oauth
     from clients.github_api import github_notes
@@ -281,10 +281,13 @@ async def handle_fleeting_note(message: Message):
                     note_text = f"Мой комментарий: {note_text}\n\n{fwd_text}" if note_text else fwd_text
                     merged_with_forward = True
 
-    # Сценарий C+D: "." или ". комментарий" без reply/forward → ожидать пересылку
+    # Сценарий C: голая "." без reply/forward → ожидать пересылку
+    # Сценарий D: ".текст" без reply/forward → сохранить немедленно (не ждать forward)
     if not message.reply_to_message and not merged_with_forward:
-        _pending_forwards[telegram_user_id] = (note_text or None, time.time())
-        return
+        if not note_text:
+            _pending_forwards[telegram_user_id] = (None, time.time())
+            return
+        # note_text непустой — сохраняем сразу (falls through to append_note)
 
     # Сценарий 1 и 2: записываем
     result = await github_notes.append_note(telegram_user_id, note_text)
