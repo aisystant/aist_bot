@@ -167,4 +167,43 @@ updated: 2026-02-10
 
 ---
 
-*Последнее обновление: 2026-02-21*
+## 7. Kids Curriculum Sync (обновление детского контента)
+
+> Тип: внутренний процесс (ручной, ~10 мин)
+> Владелец: Разработчик
+> Триггер: Денис Асфандияров обновил карточки в `kids-learning-pack`
+
+**Архитектура:**
+```
+kids-learning-pack (Денис, Pack)  →  DS-principles-curriculum (DS)  →  aist_bot (DS-instrument)
+```
+Pack = source-of-truth детской методики. DS-principles-curriculum — промежуточный слой.
+Бот получает данные через `kids_cells.json` (физическая копия, не живая ссылка).
+
+**Вход:** Денис добавил или изменил карточки эпизодов в `github.com/asf-denis-system/kids-learning-pack`
+
+**Действие:**
+1. `cd ~/Github/DS-principles-curriculum`
+2. `python3 scripts/extract_kids_cells.py`
+   - Скрипт читает Z0-Z7 карточки (preschool + school) через GitHub API
+   - Извлекает: сценарий, can_do, transfer_test, criteria, common_errors
+   - Запускает валидацию: ✅ OK → записывает, ❌ FAILED → сообщает о проблеме без записи
+3. Если валидация прошла:
+   - `cp data/curriculum/kids_cells.json ~/Github/DS-IT-systems/aist_bot_newarchitecture/data/curriculum/kids_cells.json`
+   - Коммит в `pilot`: `git add data/curriculum/kids_cells.json && git commit -m "update kids_cells from Denis pack"`
+   - Push → Railway auto-deploy пилота
+4. Проверить что `load_kids_cells()` вернула 8 принципов (логи Railway)
+
+**Выход:** Обновлённый `kids_cells.json` на пилоте, бот использует свежие карточки Дениса
+
+**Если валидация FAILED:**
+- Смотреть на ❌ строки — они указывают на переименованную секцию в карточке
+- Открыть нужный файл в `kids-learning-pack`: `gh api repos/asf-denis-system/kids-learning-pack/contents/03-methods/...`
+- Найти новое название секции → обновить regex в `extract_kids_cells.py`
+- Перезапустить
+
+**Периодичность:** по факту обновлений от Дениса, не реже раза в месяц
+
+---
+
+*Последнее обновление: 2026-03-03*
