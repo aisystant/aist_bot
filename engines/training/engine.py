@@ -399,19 +399,19 @@ class TrainingEngine:
         progress_map = {r['principle_id']: r for r in progress_rows}
         stats = await get_training_stats(self.chat_id, child_id=child_id)
 
-        from .planner import get_principle_name
+        from .planner import get_kid_principle_name
 
         principles = []
-        for pid in ZP_PRINCIPLES:
+        for pid in KID_PRINCIPLES:
             prog = progress_map.get(pid)
             current_depth = prog['current_depth'] if prog else 0
             principles.append({
                 'id': pid,
-                'name': get_principle_name(pid),
+                'name': get_kid_principle_name(pid),
                 'current_depth': current_depth,
-                'max_depth': TRAINING_MAX_DEPTH,
+                'max_depth': KID_MAX_DEPTH,
                 'enabled': True,
-                'completed': current_depth >= TRAINING_MAX_DEPTH,
+                'completed': current_depth >= KID_MAX_DEPTH,
             })
 
         return {
