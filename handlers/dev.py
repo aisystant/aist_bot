@@ -386,7 +386,7 @@ def _format_analytics(report: dict) -> str:
         f"<b>\U0001f4c8 Retention</b>\n"
         f"  D1: {r['d1']}% | D7: {r['d7']}% | D30: {r['d30']}%\n\n"
         f"<b>\U0001f525 Тренды (vs прошлая неделя)</b>\n"
-        f"  {dau_arrow} DAU: {tr['dau_change_pct']:+d}% ({tr['dau_last_week']}\u2192{tr['dau_this_week']})\n"
+        f"  {dau_arrow} WAU: {tr['dau_change_pct']:+d}% ({tr['dau_last_week']}\u2192{tr['dau_this_week']})\n"
         f"  {sess_arrow} Sessions: {tr['sessions_change_pct']:+d}% ({tr['sessions_last_week']}\u2192{tr['sessions_this_week']})\n"
     )
 
