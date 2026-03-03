@@ -29,7 +29,7 @@ github_router = Router(name="github")
 # Двусторонний pending: "." может прийти ДО или ПОСЛЕ forward
 _pending_forwards: dict[int, tuple] = {}            # (comment|None, timestamp) → ждём forward
 _pending_forward_messages: dict[int, tuple] = {}    # forward → ждём "."
-_FORWARD_TTL_SECONDS = 10
+_FORWARD_TTL_SECONDS = 60
 
 
 def _lang(intern) -> str:
@@ -299,12 +299,7 @@ async def handle_fleeting_note(message: Message):
         await message.answer(t('github.note_error', lang))
 
 
-def _is_forwarded(message: Message) -> bool:
-    """Check if message is forwarded (supports both old and new Bot API)."""
-    return bool(message.forward_origin or message.forward_date)
-
-
-@github_router.message(_is_forwarded)
+@github_router.message(F.forward_origin | F.forward_date)
 async def handle_forwarded_message(message: Message):
     """Обработка пересланных сообщений → заметки."""
     from clients.github_oauth import github_oauth
