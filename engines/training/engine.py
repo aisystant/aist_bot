@@ -14,7 +14,9 @@ from typing import Optional
 from config import (
     get_logger,
     ZP_PRINCIPLES,
+    KID_PRINCIPLES,
     TRAINING_MAX_DEPTH,
+    KID_MAX_DEPTH,
     TRAINING_COGNITIVE_LEVELS,
 )
 from db.queries.users import get_intern
@@ -426,11 +428,11 @@ class TrainingEngine:
 
         current_depth = await get_child_principle_depth(self.chat_id, child_id, principle_id)
         target_depth = current_depth + 1
-        if target_depth > TRAINING_MAX_DEPTH:
+        if target_depth > KID_MAX_DEPTH:
             return None
 
-        from .planner import load_zp_cells, generate_child_assignment_text, get_principle_name
-        cells = load_zp_cells()
+        from .planner import load_kids_cells, generate_child_assignment_text, get_kid_principle_name
+        cells = load_kids_cells()
         principle_data = cells.get(principle_id)
         if not principle_data:
             return None
@@ -440,7 +442,7 @@ class TrainingEngine:
             return None
 
         cognitive_level = child.get('cognitive_level', 'concrete_operational')
-        p_name = get_principle_name(principle_id)
+        p_name = get_kid_principle_name(principle_id)
 
         assignment_text = await generate_child_assignment_text(
             depth_data, cognitive_level, child['name'],
@@ -467,8 +469,8 @@ class TrainingEngine:
 
         # Если взрослый ввёл ответ ребёнка — оценить через AI
         if answer_text and len(answer_text) >= 10:
-            from .planner import load_zp_cells, evaluate_training_answer
-            cells = load_zp_cells()
+            from .planner import load_kids_cells, evaluate_training_answer
+            cells = load_kids_cells()
             depth_data = cells.get(principle_id, {}).get('depths', {}).get(str(depth), {})
             result = await evaluate_training_answer(
                 answer_text=answer_text,
@@ -503,8 +505,8 @@ class TrainingEngine:
         progress_map = {r['principle_id']: r['current_depth'] for r in progress_rows}
 
         incomplete = [
-            pid for pid in ZP_PRINCIPLES
-            if progress_map.get(pid, 0) < TRAINING_MAX_DEPTH
+            pid for pid in KID_PRINCIPLES
+            if progress_map.get(pid, 0) < KID_MAX_DEPTH
         ]
         if not incomplete:
             return None

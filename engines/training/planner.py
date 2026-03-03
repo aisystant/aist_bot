@@ -123,6 +123,12 @@ def get_principle_name(principle_id: str) -> str:
     return ZP_PRINCIPLE_NAMES.get(principle_id, principle_id)
 
 
+def get_kid_principle_name(principle_id: str) -> str:
+    """Получить имя детского принципа из kids_cells.json."""
+    cells = load_kids_cells()
+    return cells.get(principle_id, {}).get('name', principle_id)
+
+
 async def generate_assignment_text(
     cell_data: dict,
     cognitive_level: str,
