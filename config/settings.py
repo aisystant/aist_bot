@@ -257,6 +257,11 @@ FEED_TOPICS_TO_SUGGEST = 5  # сколько тем предлагать на в
 # ============= НАСТРОЙКИ ТРЕНИРОВКИ (WP-55) =============
 
 ZP_PRINCIPLES = ["ZP.1", "ZP.2", "ZP.3", "ZP.4", "ZP.5", "ZP.6"]
+
+# Детские Z-принципы (из kids-learning-pack Д. Асфандияров, Pack-source)
+# Маппинг Z0-Z7 → ZP: см. DS-principles-curriculum/data/curriculum/kids_cells.json
+KID_PRINCIPLES = ["Z0", "Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7"]
+KID_MAX_DEPTH = 2
 TRAINING_MAX_DEPTH = 5
 TRAINING_COGNITIVE_LEVELS = {
     "postformal": "Взрослый",

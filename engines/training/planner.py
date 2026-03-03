@@ -79,6 +79,41 @@ _zp_cells_cache: dict = None
 _zp_cells_error_until: float = 0  # monotonic timestamp: suppress retries for 5 min after failure
 
 
+def load_kids_cells() -> dict:
+    """Загрузить детские Z-ячейки из kids_cells.json.
+
+    Источник: DS-principles-curriculum/data/curriculum/kids_cells.json
+    Pack-источник: github.com/asf-denis-system/kids-learning-pack (Д. Асфандияров)
+    Обновление: python scripts/extract_kids_cells.py в DS-principles-curriculum
+    """
+    global _kids_cells_cache, _kids_cells_error_until
+    if _kids_cells_cache is not None:
+        return _kids_cells_cache
+
+    if time.monotonic() < _kids_cells_error_until:
+        return {}
+
+    path = BASE_DIR / "data" / "curriculum" / "kids_cells.json"
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            logger.info(f"Loaded {len(data)} kids cells from {path}")
+            _kids_cells_cache = data
+            return data
+    except FileNotFoundError:
+        logger.error(f"Kids cells file not found: {path}")
+        _kids_cells_error_until = time.monotonic() + 300
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Kids cells JSON error: {e}")
+        _kids_cells_error_until = time.monotonic() + 300
+        return {}
+
+
+_kids_cells_cache: dict = None
+_kids_cells_error_until: float = 0
+
+
 def get_principle_name(principle_id: str) -> str:
     """Получить имя принципа (из JSON или fallback)."""
     cells = load_zp_cells()
