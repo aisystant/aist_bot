@@ -280,8 +280,9 @@ class MarathonQuestionState(BaseState):
 
         # Решаем: бонус или сразу задание
         # Бонус предлагается на основе ИСХОДНОГО уровня (до автоповышения)
-        # Уровень 1 → сразу задание, уровни 2-3 → предложить бонус
-        if original_bloom_level >= 2:
+        # Уровень 1 → сразу задание, уровень 2 → бонус (уровень 3), уровень 3 → сразу задание
+        # (на уровне 3 next_level=3=текущий → тот же вопрос из кэша, бонус бессмысленен)
+        if original_bloom_level == 2:
             # Кнопка «Далее → Бонус»
             bonus_keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
