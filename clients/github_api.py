@@ -219,10 +219,18 @@ class GitHubNotesClient:
                                 f"# Fleeting Notes\n\n"
                             )
                             updated_content = header + "\n".join(note_lines)
+                        elif resp.status in (500, 502, 503, 504) and attempt < max_retries - 1:
+                            logger.warning(
+                                f"GitHub GET {path}: {resp.status} transient, "
+                                f"retry {attempt + 1}/{max_retries}"
+                            )
+                            import asyncio
+                            await asyncio.sleep(1.0 * (attempt + 1))
+                            continue
                         else:
                             error = await resp.text()
                             logger.error(
-                                f"GitHub GET {path}: {resp.status} - {error}"
+                                f"GitHub GET {path}: {resp.status} - {error[:200]}"
                             )
                             return None
 
@@ -259,10 +267,18 @@ class GitHubNotesClient:
                                 f"retry {attempt + 1}/{max_retries}"
                             )
                             continue
+                        elif resp.status in (500, 502, 503, 504) and attempt < max_retries - 1:
+                            logger.warning(
+                                f"GitHub PUT {path}: {resp.status} transient, "
+                                f"retry {attempt + 1}/{max_retries}"
+                            )
+                            import asyncio
+                            await asyncio.sleep(1.0 * (attempt + 1))
+                            continue
                         else:
                             error = await resp.text()
                             logger.error(
-                                f"GitHub PUT {path}: {resp.status} - {error}"
+                                f"GitHub PUT {path}: {resp.status} - {error[:200]}"
                             )
                             return None
 
