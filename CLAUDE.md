@@ -466,6 +466,21 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 ---
 
+### Новый набор учебных ячеек (child/kids curriculum) — чеклист wire-up
+
+**Паттерн:** data-файл + load-функция ≠ работающая фича. При добавлении нового набора ячеек в training flow обновить ВСЕ:
+
+1. `engines/training/engine.py` — импорт `load_*_cells`, `*_PRINCIPLES`, `*_MAX_DEPTH`
+2. `generate_child_assignment()` — `load_*_cells()` + правильный MAX_DEPTH
+3. `report_child_result()` — `load_*_cells()`
+4. `get_child_dashboard_data()` — `*_PRINCIPLES` + `*_MAX_DEPTH` + `get_*_principle_name()`
+5. `get_next_child_principle()` — `*_PRINCIPLES` + `*_MAX_DEPTH`
+6. `states/training/child_assignment.py` — импорт `KID_MAX_DEPTH`, `get_kid_principle_name`
+
+Без wire-up всех 6 мест → фича молча не работает (бот возвращает None и не показывает принципы).
+
+---
+
 ## SOTA: Context Engineering (DP.SOTA.002)
 
 > Бот — surface view над Pack и DDT. Контекст бота = проекция, не копия.
