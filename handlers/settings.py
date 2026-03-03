@@ -189,13 +189,14 @@ async def cb_help_all_commands(callback: CallbackQuery):
         f"{t('commands.about', lang)}\n"
         f"{t('commands.marathon_info', lang)}\n"
         f"{t('commands.feed_info', lang)}\n"
-        f"{t('commands.train_info', lang)}\n\n"
+        f"{t('commands.train_info', lang)}\n"
+        f"{t('commands.test', lang)}\n\n"
 
         f"*{t('commands.section_main', lang)}*\n"
         f"{t('commands.start', lang)}\n"
         f"{t('commands.mode', lang)}\n"
-        f"{t('commands.progress', lang)}\n"
-        f"{t('commands.test', lang)}\n\n"
+        f"{t('commands.schedule', lang)}\n"
+        f"{t('commands.progress', lang)}\n\n"
 
         f"*{t('commands.section_planning', lang)}*\n"
         f"{t('commands.plan', lang)}\n"
