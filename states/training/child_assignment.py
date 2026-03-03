@@ -12,8 +12,8 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, C
 
 from states.base import BaseState
 from engines.training.engine import TrainingEngine
-from engines.training.planner import get_principle_name
-from config import get_logger, TRAINING_MAX_DEPTH, ZP_PRINCIPLES
+from engines.training.planner import get_kid_principle_name
+from config import get_logger, KID_MAX_DEPTH
 
 logger = get_logger(__name__)
 
@@ -112,7 +112,7 @@ class TrainingChildAssignmentState(BaseState):
         assignment = await engine.generate_child_assignment(child_id, principle_id)
 
         if not assignment:
-            p_name = get_principle_name(principle_id)
+            p_name = get_kid_principle_name(principle_id)
             await self.send(user, f"✅ {p_name} — пройден полностью.")
             await self._show_child_dashboard(user, chat_id, child_id)
             return
@@ -183,7 +183,7 @@ class TrainingChildAssignmentState(BaseState):
 
             if result.get('passed'):
                 new_depth = result.get('new_depth', depth)
-                msg = f"✅ *Принято!* Глубина {new_depth}/{TRAINING_MAX_DEPTH}"
+                msg = f"✅ *Принято!* Глубина {new_depth}/{KID_MAX_DEPTH}"
                 if result.get('feedback'):
                     msg += f"\n\n{result['feedback']}"
             else:
@@ -247,10 +247,10 @@ class TrainingChildAssignmentState(BaseState):
             )
 
             new_depth = result.get('new_depth', depth)
-            if new_depth and new_depth >= TRAINING_MAX_DEPTH:
-                msg = f"🎉 *Принцип пройден полностью!* ({new_depth}/{TRAINING_MAX_DEPTH})"
+            if new_depth and new_depth >= KID_MAX_DEPTH:
+                msg = f"🎉 *Принцип пройден полностью!* ({new_depth}/{KID_MAX_DEPTH})"
             else:
-                msg = f"✅ *Отлично!* Глубина {new_depth}/{TRAINING_MAX_DEPTH}"
+                msg = f"✅ *Отлично!* Глубина {new_depth}/{KID_MAX_DEPTH}"
 
             buttons = [
                 [InlineKeyboardButton(text="← К дашборду", callback_data="child_to_dashboard")],
