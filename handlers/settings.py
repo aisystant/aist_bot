@@ -18,6 +18,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
+from db.queries.users import is_onboarded
 from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
@@ -95,7 +96,7 @@ async def cmd_profile(message: Message):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru')
 
-    if not intern['onboarding_completed']:
+    if not await is_onboarded(intern):
         await message.answer(t('profile.first_start', lang))
         return
 

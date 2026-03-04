@@ -15,6 +15,7 @@ from aiogram.fsm.context import FSMContext
 
 from core.tier_config import ALL_KB_TEXTS, REPLY_KB_TEXTS_TO_COMMANDS
 from db.queries import get_intern
+from db.queries.users import is_onboarded
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ async def on_reply_keyboard_press(message: Message, state: FSMContext):
         return
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         return
 
     from handlers import get_dispatcher
