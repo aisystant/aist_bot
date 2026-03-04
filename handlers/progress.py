@@ -14,6 +14,7 @@ from aiogram.fsm.context import FSMContext
 
 from config import MARATHON_DAYS
 from db.queries import get_intern
+from db.queries.users import is_onboarded
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ async def cmd_progress(message: Message, state: FSMContext = None):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('progress.first_start', lang))
         return

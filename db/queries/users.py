@@ -195,6 +195,26 @@ def _get_default_intern(chat_id: int) -> dict:
     }
 
 
+async def is_onboarded(intern: dict) -> bool:
+    """Check if user completed onboarding, auto-heal if active but flag is False.
+
+    Users created before WP-79 slim onboarding may have marathon_status=active
+    but onboarding_completed=False.  Instead of blocking them forever, detect
+    the inconsistency and fix it on the fly.
+    """
+    if not intern:
+        return False
+    if intern.get('onboarding_completed'):
+        return True
+    # Auto-heal: user has active marathon/feed → clearly onboarded
+    if (intern.get('marathon_status', 'not_started') != 'not_started'
+            or intern.get('feed_status', 'not_started') != 'not_started'):
+        await update_intern(intern['chat_id'], onboarding_completed=True)
+        logger.info(f"[auto-heal] onboarding_completed set for chat_id={intern['chat_id']}")
+        return True
+    return False
+
+
 async def update_intern(chat_id: int, **kwargs):
     """Обновить данные пользователя (single batched UPDATE)."""
     if not kwargs:

@@ -15,6 +15,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
 from db.queries import get_intern
+from db.queries.users import is_onboarded
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ async def cmd_mode(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
@@ -61,7 +62,7 @@ async def cmd_learn(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
@@ -81,7 +82,7 @@ async def cmd_feed(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
@@ -101,7 +102,7 @@ async def cmd_train(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
@@ -121,7 +122,7 @@ async def cmd_profile(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('errors.try_again', lang) + " /start")
         return
@@ -142,7 +143,7 @@ async def cmd_settings(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('errors.try_again', lang) + " /start")
         return
@@ -163,7 +164,7 @@ async def cmd_mydata(message: Message, state: FSMContext):
     dispatcher = get_dispatcher()
 
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
@@ -180,7 +181,7 @@ async def cmd_mydata(message: Message, state: FSMContext):
 async def cmd_waka(message: Message, state: FSMContext):
     """WakaTime — статистика рабочего времени пользователя."""
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
@@ -230,7 +231,7 @@ async def cmd_assessment(message: Message, state: FSMContext):
         await message.answer("⚠️ Ошибка загрузки профиля. Попробуйте позже.")
         return
 
-    if not intern or not intern.get('onboarding_completed'):
+    if not await is_onboarded(intern):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('profile.first_start', lang))
         return
