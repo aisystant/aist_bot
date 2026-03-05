@@ -57,7 +57,7 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     try:
         courses = await aisystant.get_available_courses()
         if courses:
-            from handlers.schedule import _create_course_buttons
+            from handlers.schedule import _create_course_buttons, _format_date
             paid_courses = []
             for course in courses[:8]:
                 code = course.get("code", "")
@@ -68,7 +68,8 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                 except (TypeError, ValueError):
                     amount = 0
                 if amount > 0:
-                    lines.append(f"  • {name} — {int(amount)} ₽")
+                    start = _format_date(course.get("started", ""), lang)
+                    lines.append(f"  • {name}\n    Старт: {start} | {int(amount)} ₽")
                     # Для кнопки убираем префикс программы ("Личное развитие. " и т.п.)
                     dot_pos = name.find(".")
                     btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
