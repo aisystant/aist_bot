@@ -36,9 +36,9 @@ async def save_marathon_content(
                    question_content = COALESCE($4, marathon_content.question_content),
                    practice_content = COALESCE($5, marathon_content.practice_content),
                    bloom_level = COALESCE($6, marathon_content.bloom_level),
-                   status = 'pending',
-                   created_at = NOW(),
-                   delivered_at = NULL
+                   status = CASE WHEN marathon_content.status = 'delivered' THEN 'delivered' ELSE 'pending' END,
+                   created_at = CASE WHEN marathon_content.status = 'delivered' THEN marathon_content.created_at ELSE NOW() END,
+                   delivered_at = CASE WHEN marathon_content.status = 'delivered' THEN marathon_content.delivered_at ELSE NULL END
             ''',
             chat_id, topic_index, lesson_content, question_content, practice_json, bloom_level,
         )
