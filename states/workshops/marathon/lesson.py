@@ -249,6 +249,7 @@ class MarathonLessonState(BaseState):
                         return
                     # Сохраняем в БД для повторного использования
                     await save_marathon_content(chat_id, topic_index, lesson_content=content)
+                    await mark_content_delivered(chat_id, topic_index)
                     logger.info(f"Cached on-the-fly lesson for user {chat_id}, topic {topic_index}")
                 except asyncio.TimeoutError:
                     logger.error(f"Content generation timeout ({CONTENT_GENERATION_TIMEOUT}s) for user {chat_id}")
