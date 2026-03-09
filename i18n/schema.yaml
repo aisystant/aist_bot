@@ -39,8 +39,8 @@ welcome:
     en: "📈 *What's next?*\nThe bot is part of an Intelligent Working Environment (IWE) — like an IDE, but for developing thinking. After the marathon you'll unlock:\n• Personalized feed and AI consultant\n• Digital Twin — the bot learns your context\n• Connection with systemsworld.club\n• Knowledge creation and AI agent workflows"
 
   intro_start:
-    ru: "Давай начнём! Настройка займёт 1 минуту."
-    en: "Let's begin! Setup takes 1 minute."
+    ru: "📚 *Марафон* — пошаговые уроки за 14 дней\n📖 *Лента* — свободный темп, выбирайте темы сами (переключить в ⚙️ Настройках)\n\nНажмите кнопку ниже, чтобы начать."
+    en: "📚 *Marathon* — step-by-step lessons over 14 days\n📖 *Feed* — free pace, choose topics yourself (switch in ⚙️ Settings)\n\nPress a button below to start."
 
   marathon_welcome:
     ru: "Добро пожаловать в марафон, {name}!"
@@ -4336,6 +4336,9 @@ github:
   note_error:
     ru: "Не удалось записать заметку. Проверьте /github"
     en: "Failed to save note. Check /github"
+  note_needs_github:
+    ru: "📝 Для заметок подключите GitHub: /github"
+    en: "📝 To save notes, connect GitHub: /github"
   no_text:
     ru: "Нет текста для записи."
     en: "No text to save."
