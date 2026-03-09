@@ -254,9 +254,15 @@ async def handle_fleeting_note(message: Message):
         return
 
     if not await github_oauth.is_connected(telegram_user_id):
+        intern = await get_intern(telegram_user_id)
+        lang = _lang(intern)
+        await message.answer(t('github.note_needs_github', lang))
         return
     target_repo = await github_oauth.get_target_repo(telegram_user_id)
     if not target_repo:
+        intern = await get_intern(telegram_user_id)
+        lang = _lang(intern)
+        await message.answer(t('github.note_needs_github', lang))
         return
 
     intern = await get_intern(telegram_user_id)
