@@ -1,6 +1,6 @@
 # CLAUDE.md — AIST_me_bot (new-architecture)
 
-> **Общие инструкции:** см. `/Users/tserentserenov/Github/CLAUDE.md`
+> **Общие инструкции:** см. `/Users/tserentserenov/IWE/CLAUDE.md`
 >
 > Этот файл содержит только специфику данного репозитория.
 

@@ -238,7 +238,7 @@ async def callback_strat_day_close(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(
         f"{t('strategist.day_close_instruction', lang)}\n\n"
-        "<code>~/Github/DS-strategist-agent/scripts/strategist.sh day-close</code>\n\n"
+        "<code>~/IWE/DS-strategist-agent/scripts/strategist.sh day-close</code>\n\n"
         f"{t('strategist.day_close_notification', lang)}",
         parse_mode="HTML",
     )

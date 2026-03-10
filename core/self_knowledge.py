@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _PROJECTION_PATH = Path(__file__).parent.parent / "config" / "self_knowledge_projection.yaml"
 
 # Fallback: Pack-паспорт бота (source-of-truth)
-# Dev: Pack-репо рядом с ботом ~/Github/PACK-digital-platform/
+# Dev: Pack-репо рядом с ботом ~/IWE/PACK-digital-platform/
 _PACK_PATH = Path(__file__).parent.parent.parent / "PACK-digital-platform" / \
     "pack" / "digital-platform" / "02-domain-entities" / "DP.AISYS.014-aist-bot.md"
 
