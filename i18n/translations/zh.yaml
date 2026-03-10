@@ -197,6 +197,14 @@ settings:
   schedule_marathon: "马拉松"
   twin_coming_soon: "数字双胞胎 — 基于你的数据训练的个人AI助手..."
   twin_label: "数字双胞胎"
+  iwe_updates_label: "IWE更新"
+  iwe_updates_enable: "启用"
+  iwe_updates_disable: "禁用"
+  iwe_updates_enabled_toast: "您将收到IWE模板更新的每日摘要。"
+  iwe_updates_disabled_toast: "IWE更新通知已禁用。"
+  no_active_donations: "无活跃捐赠"
+  reset_marathon_summary: "马拉松：第{day}天"
+  reset_stats_summary: "统计：{total}天，连续{streak}"
 
 progress:
   day: "第{day}天，共{total}天"

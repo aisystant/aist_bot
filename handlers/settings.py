@@ -166,7 +166,8 @@ async def cmd_help(message: Message):
         f"{t('help.notes_hint', lang)}\n\n"
         f"*{t('help.subscription_title', lang)}*\n"
         f"{t('help.subscription_info', lang)}\n\n"
-        f"{t('help.feedback_line', lang)}"
+        f"{t('help.feedback_line', lang)}\n\n"
+        f"{t('help.language_hint', lang)}"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[

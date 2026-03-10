@@ -932,6 +932,39 @@ settings:
     ru: "Сменить индекс знаний"
     en: "Change Knowledge Index"
 
+  # IWE template updates (WP-90)
+  iwe_updates_label:
+    ru: "Обновления IWE"
+    en: "IWE Updates"
+
+  iwe_updates_enable:
+    ru: "включить"
+    en: "enable"
+
+  iwe_updates_disable:
+    ru: "выключить"
+    en: "disable"
+
+  iwe_updates_enabled_toast:
+    ru: "Вы будете получать утренние дайджесты об обновлениях шаблона IWE."
+    en: "You will receive morning digests about IWE template updates."
+
+  iwe_updates_disabled_toast:
+    ru: "Оповещения об обновлениях IWE отключены."
+    en: "IWE update notifications disabled."
+
+  no_active_donations:
+    ru: "нет активных"
+    en: "none active"
+
+  reset_marathon_summary:
+    ru: "Марафон: день {day}"
+    en: "Marathon: day {day}"
+
+  reset_stats_summary:
+    ru: "Статистика: {total} дн., streak {streak}"
+    en: "Stats: {total} days, streak {streak}"
+
   language:
     title:
       ru: "Выбери язык:"
@@ -2322,6 +2355,10 @@ help:
   feedback_line:
     ru: "💬 Обратная связь: /feedback или знак «!», а далее ваш текст."
     en: "💬 Feedback: /feedback or type \"!\" followed by your message."
+
+  language_hint:
+    ru: "💡 Change bot language: /settings → Language"
+    en: "💡 Change bot language: /settings → Language"
 
 # -----------------------------------------------------------------------------
 # Ошибки

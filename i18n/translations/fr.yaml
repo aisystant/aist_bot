@@ -197,6 +197,14 @@ settings:
   schedule_marathon: "Marathon"
   twin_coming_soon: "Jumeau numérique — assistant IA personnel, entraîné sur tes données..."
   twin_label: "Jumeau numérique"
+  iwe_updates_label: "Mises à jour IWE"
+  iwe_updates_enable: "activer"
+  iwe_updates_disable: "désactiver"
+  iwe_updates_enabled_toast: "Vous recevrez des résumés matinaux des mises à jour du modèle IWE."
+  iwe_updates_disabled_toast: "Notifications de mises à jour IWE désactivées."
+  no_active_donations: "aucun don actif"
+  reset_marathon_summary: "Marathon : jour {day}"
+  reset_stats_summary: "Statistiques : {total} jours, série {streak}"
 
 progress:
   day: "Jour {day} sur {total}"

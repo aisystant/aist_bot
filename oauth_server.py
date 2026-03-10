@@ -533,6 +533,80 @@ async def github_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def template_update_handler(request: web.Request) -> web.Response:
+    """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
+
+    POST /api/template-update
+    Headers: X-Webhook-Secret: <TEMPLATE_WEBHOOK_SECRET>
+    Body JSON: {version, changelog, commit_count}
+    """
+    import os
+    import json
+
+    # Аутентификация
+    expected_secret = os.getenv('TEMPLATE_WEBHOOK_SECRET', '')
+    provided_secret = request.headers.get('X-Webhook-Secret', '')
+
+    if not expected_secret or provided_secret != expected_secret:
+        logger.warning("[TemplateUpdate] Invalid or missing webhook secret")
+        return web.Response(text="Forbidden", status=403)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(text="Bad request", status=400)
+
+    version = body.get('version', '')
+    changelog = body.get('changelog', '')
+    commit_count = body.get('commit_count', 0)
+
+    if not commit_count:
+        return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
+
+    # Формируем сообщение
+    message_text = (
+        f"🔄 <b>Exocortex Template {version}</b>\n\n"
+        f"{commit_count} коммит(ов) за последние 24ч\n\n"
+        f"{changelog}\n\n"
+        f"<b>Обновить:</b>\n"
+        f"• Терминал: <code>bash update.sh</code>\n"
+        f"• AI CLI: <i>«обнови мой экзокортекс»</i>\n"
+        f"• Проверить: <code>bash update.sh --check</code>"
+    )
+
+    # Получаем подписчиков
+    from db.queries.users import get_template_update_subscribers
+    subscribers = await get_template_update_subscribers()
+
+    if not subscribers:
+        logger.info("[TemplateUpdate] No subscribers, skipping broadcast")
+        return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
+
+    # Рассылка с батчингом (30 msg/sec TG limit)
+    sent = 0
+    failed = 0
+    for i, chat_id in enumerate(subscribers):
+        try:
+            await _bot_instance.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                parse_mode="HTML",
+            )
+            sent += 1
+        except Exception as e:
+            logger.warning(f"[TemplateUpdate] Failed to send to {chat_id}: {e}")
+            failed += 1
+
+        # TG rate limit: 30 msg/sec → sleep every 25 messages
+        if (i + 1) % 25 == 0:
+            await asyncio.sleep(1)
+
+    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, failed={failed}")
+
+    result = {"ok": True, "sent": sent, "failed": failed}
+    return web.Response(text=json.dumps(result), content_type="application/json")
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -559,6 +633,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
     app.router.add_get("/auth/github/callback", github_callback_handler)
+    app.router.add_post("/api/template-update", template_update_handler)
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:
