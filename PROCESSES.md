@@ -183,13 +183,13 @@ Pack = source-of-truth детской методики. DS-principles-curriculum
 **Вход:** Денис добавил или изменил карточки эпизодов в `github.com/asf-denis-system/kids-learning-pack`
 
 **Действие:**
-1. `cd ~/Github/DS-principles-curriculum`
+1. `cd ~/IWE/DS-principles-curriculum`
 2. `python3 scripts/extract_kids_cells.py`
    - Скрипт читает Z0-Z7 карточки (preschool + school) через GitHub API
    - Извлекает: сценарий, can_do, transfer_test, criteria, common_errors
    - Запускает валидацию: ✅ OK → записывает, ❌ FAILED → сообщает о проблеме без записи
 3. Если валидация прошла:
-   - `cp data/curriculum/kids_cells.json ~/Github/DS-IT-systems/aist_bot_newarchitecture/data/curriculum/kids_cells.json`
+   - `cp data/curriculum/kids_cells.json ~/IWE/DS-IT-systems/aist_bot_newarchitecture/data/curriculum/kids_cells.json`
    - Коммит в `pilot`: `git add data/curriculum/kids_cells.json && git commit -m "update kids_cells from Denis pack"`
    - Push → Railway auto-deploy пилота
 4. Проверить что `load_kids_cells()` вернула 8 принципов (логи Railway)
