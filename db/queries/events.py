@@ -52,7 +52,10 @@ async def log_event(
                 confidence,
                 skill_ids or [],
             )
-            return row['id'] if row else None
+            event_id = row['id'] if row else None
+            if event_id:
+                logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")
+            return event_id
     except Exception as e:
         logger.warning(f"[Events] Failed to log {event_type} for {user_id}: {e}")
         return None
