@@ -590,7 +590,7 @@ async def template_update_handler(request: web.Request) -> web.Response:
     clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
 
     # Формируем сообщение
-    repo_url = "https://github.com/aisystant/FMT-exocortex-template"
+    repo_url = "https://github.com/TserenTserenov/FMT-exocortex-template"
     message_text = (
         f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
         f"{commit_count} коммит(ов) за последние 24ч\n\n"
