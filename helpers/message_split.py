@@ -18,6 +18,35 @@ MAX_TG_LEN = 4000  # 4096 limit, 96 chars margin for safety
 # Placeholder for \n\n inside code blocks during split
 _CODE_BLOCK_NL = "\x00CB\x00"
 
+# Zero-width space to break Telegram auto-linking of filenames
+_ZWS = '\u200B'
+# File extensions that Telegram may auto-link (looks like TLD)
+_FILE_EXT_RE = re.compile(r'(\w)\.(md|sh|yml|yaml|py|json|txt|toml|cfg|js|ts|css|html|xml|env|log|csv)\b')
+
+
+def sanitize_file_extensions(text: str) -> str:
+    """Insert zero-width space before file extensions to prevent TG auto-linking.
+
+    Telegram treats word.ext as a URL when ext resembles a TLD (.md, .sh, .py etc.).
+    ZWS breaks the pattern without visible change to the user.
+
+    Skips content inside <code> and <pre> tags (code should stay exact).
+    """
+    # Protect <code>...</code> and <pre>...</pre> blocks
+    protected = []
+    last_end = 0
+    for m in re.finditer(r'<(?:code|pre)>.*?</(?:code|pre)>', text, flags=re.DOTALL):
+        # Process text before this code block
+        before = text[last_end:m.start()]
+        protected.append(_FILE_EXT_RE.sub(rf'\1{_ZWS}.\2', before))
+        # Keep code block as-is
+        protected.append(m.group(0))
+        last_end = m.end()
+    # Process remaining text after last code block
+    remaining = text[last_end:]
+    protected.append(_FILE_EXT_RE.sub(rf'\1{_ZWS}.\2', remaining))
+    return ''.join(protected)
+
 
 def prepare_html_parts(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
     """Convert Markdown → HTML, then split into Telegram-safe chunks.

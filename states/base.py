@@ -173,6 +173,11 @@ class BaseState(ABC):
             text = md_to_html(text)
             kwargs['parse_mode'] = 'HTML'
 
+        # Sanitize file extensions (prevents TG auto-linking .md/.sh/.py etc.)
+        if kwargs.get('parse_mode') == 'HTML':
+            from helpers.message_split import sanitize_file_extensions
+            text = sanitize_file_extensions(text)
+
         telegram_id = (
             getattr(user, 'telegram_id', None) or
             getattr(user, 'chat_id', None) or
