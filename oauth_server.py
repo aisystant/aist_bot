@@ -577,8 +577,12 @@ async def template_update_handler(request: web.Request) -> web.Response:
     clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
     # Убираем **жирный** markdown → просто текст
     clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
+    # Убираем `code` markdown → просто текст (предотвращает авто-ссылки на .md файлы)
+    clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
     # Убираем markdown-списки (- item → • item)
     clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
+    # Убираем вложенные списки (  - item → • item)
+    clean_changelog = re.sub(r'^\s+-\s+', '  • ', clean_changelog, flags=re.MULTILINE)
     # Убираем пустые строки подряд
     clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
 
@@ -589,9 +593,9 @@ async def template_update_handler(request: web.Request) -> web.Response:
         f"{commit_count} коммит(ов) за последние 24ч\n\n"
         f"{clean_changelog}\n\n"
         f"<b>Как обновить:</b>\n"
-        f"1. AI CLI: <i>«обнови мой экзокортекс»</i>\n"
-        f"2. Терминал: <code>bash update.sh</code>\n"
-        f"3. Проверить: <code>bash update.sh --check</code>\n\n"
+        f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
+        f"2. Или в терминале: <code>bash update.sh</code>\n"
+        f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
         f'<a href="{repo_url}">Репозиторий шаблона</a>'
     )
 
