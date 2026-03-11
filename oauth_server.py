@@ -577,8 +577,11 @@ async def template_update_handler(request: web.Request) -> web.Response:
     clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
     # Убираем **жирный** markdown → просто текст
     clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
-    # Убираем `code` markdown → просто текст (предотвращает авто-ссылки на .md файлы)
+    # Убираем `code` markdown → просто текст
     clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
+    # Разбиваем filename.ext паттерн (TG авто-линкует .md/.sh/.yml и т.д.)
+    # Вставляем zero-width space перед точкой расширения
+    clean_changelog = re.sub(r'(\w)\.(md|sh|yml|yaml|py|json|txt|toml|cfg)\b', r'\1\u200B.\2', clean_changelog)
     # Убираем markdown-списки (- item → • item)
     clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
     # Убираем вложенные списки (  - item → • item)
