@@ -293,6 +293,9 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 Слоты генерируются с проверкой `occupied_dates` — одна дата = один пост. Startup scan имеет 2-часовой cooldown (не дублирует утренний cron).
 
+**Итоги недели** (`итоги-недели` тег) публикуются **сразу** (schedule_time = utcnow+1min → ближайший цикл :07/:37).
+**Интервал:** `PUBLISHER_INTERVAL` (env, default=2) — минимум N дней между обычными публикациями. Влияет на smart_publisher_scan и reschedule_all_pending.
+
 ### 10.7. CJK-строки: outer single quotes
 
 Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `SyntaxError`. CJK-контент оборачивать в single quotes: `'来自"个人发展"项目的主题。'`.
