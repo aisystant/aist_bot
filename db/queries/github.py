@@ -45,13 +45,13 @@ async def save_github_connection(
     logger.info(f"Saved GitHub connection for user {chat_id}")
 
 
-async def update_github_repo(chat_id: int, target_repo: str) -> None:
+async def update_github_repo(chat_id: int, target_repo: str, default_branch: str = "main") -> None:
     """Обновить целевой репозиторий для заметок."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE github_connections SET target_repo = $1, updated_at = NOW() WHERE chat_id = $2',
-            target_repo, chat_id,
+            'UPDATE github_connections SET target_repo = $1, default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
+            target_repo, chat_id, default_branch,
         )
 
 

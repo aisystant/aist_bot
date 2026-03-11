@@ -80,6 +80,7 @@ class GitHubOAuthClient:
                 "notes_path": row.get("notes_path") or "inbox/fleeting-notes.md",
                 "strategy_repo": row.get("strategy_repo"),
                 "knowledge_repo": row.get("knowledge_repo"),
+                "default_branch": row.get("default_branch") or "main",
             }
             return self._cache[telegram_user_id]
         return None
@@ -300,16 +301,25 @@ class GitHubOAuthClient:
         return None
 
     async def set_target_repo(self, telegram_user_id: int, repo_full_name: str):
-        """Устанавливает целевой репо для заметок."""
+        """Устанавливает целевой репо для заметок. Определяет default_branch через API."""
+        # Определяем default_branch через GitHub API
+        default_branch = "main"
+        repo_info = await self.api_request(
+            telegram_user_id, "GET", f"/repos/{repo_full_name}"
+        )
+        if repo_info:
+            default_branch = repo_info.get("default_branch", "main")
+
         data = await self._get_cached(telegram_user_id)
         if data:
             data["target_repo"] = repo_full_name
+            data["default_branch"] = default_branch
 
         from db.queries.github import update_github_repo
 
-        await update_github_repo(telegram_user_id, repo_full_name)
+        await update_github_repo(telegram_user_id, repo_full_name, default_branch)
         logger.info(
-            f"Set target repo for user {telegram_user_id}: {repo_full_name}"
+            f"Set target repo for user {telegram_user_id}: {repo_full_name} (branch: {default_branch})"
         )
 
     async def get_notes_path(self, telegram_user_id: int) -> str:
@@ -318,6 +328,13 @@ class GitHubOAuthClient:
         if data and data.get("notes_path"):
             return data["notes_path"]
         return "inbox/fleeting-notes.md"
+
+    async def get_default_branch(self, telegram_user_id: int) -> str:
+        """Возвращает дефолтную ветку репозитория."""
+        data = await self._get_cached(telegram_user_id)
+        if data and data.get("default_branch"):
+            return data["default_branch"]
+        return "main"
 
     async def set_notes_path(self, telegram_user_id: int, path: str):
         """Устанавливает путь к файлу заметок."""
