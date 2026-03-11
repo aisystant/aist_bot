@@ -7,7 +7,7 @@ Auto-triage для QA feedback (WP-7 F3).
 3. IF severity >= high OR has_comment → TG alert
 
 Роль: R7 Триажёр техдолга (Grade 1 auto-classify).
-Source-of-truth: DP.AGENT.001 R7, PROCESSES.md §6.
+Source-of-truth: DP.ROLE.001 R7, PROCESSES.md §6.
 """
 
 import asyncio
