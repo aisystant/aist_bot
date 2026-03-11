@@ -1,17 +1,17 @@
 """
-UI Tier detection — subscription + connections.
+UI Tier detection — subscription + trial + connections.
 
 Source-of-truth: WP-52 + WP-79
 
 Tier model (cumulative, payment-first):
   T1_NEW (0):  not linked to Aisystant
-  T1_START (1): linked, no БР subscription
-  T2: Aisystant «Бесконечное развитие» subscription active
+  T1_START (1): linked, no БР subscription AND trial expired
+  T2: Aisystant «Бесконечное развитие» subscription active OR 30-day trial
   T3: T2 + Digital Twin connected
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
 
-Tier drops to T1_START if БР subscription expires.
+Tier drops to T1_START if БР subscription expires AND trial expired.
 Tier drops to T1_NEW if aisystant link removed (unlikely).
 
 Tier transitions logged to tier_events table (analytics).
@@ -93,10 +93,10 @@ async def _get_aisystant_id(chat_id: int) -> str | None:
 
 
 async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
-    """Check if user has active Aisystant БР subscription.
+    """Check if user has active Aisystant БР subscription OR is in trial.
 
     WP-79: Primary check = Aisystant «Бесконечное развитие».
-    Fallback = old internal subscription (Telegram Stars) — will be removed in Step 7.
+    Fallback: 30-day trial from registration (access_layer).
     """
     # Primary: Aisystant БР
     try:
@@ -106,7 +106,7 @@ async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     except Exception as e:
         logger.warning(f"[Tier] Aisystant subscription check failed: {e}")
 
-    # Fallback: old internal subscription/trial (to be removed)
+    # Fallback: 30-day trial (T2 features for new users)
     from core.access import access_layer
     return await access_layer.has_access(chat_id, "feed")
 

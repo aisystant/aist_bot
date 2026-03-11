@@ -6,7 +6,7 @@
 - _user_to_dict() — marathon + activity fields в intern dict
 - _build_user_profile() — complexity_level не выводится
 - assemble_context() — progress_section в результате
-- SUBSCRIPTION_LAUNCH_DATE — paywall отложен на 2099
+- FREE_TRIAL_DAYS — триал T2 (30 дней)
 - Tier prompts — {progress_section} placeholder
 
 Запуск: python3 tests/test_user_progress.py
@@ -527,17 +527,17 @@ def test_assemble_context_all_default_keys():
 
 
 # =========================================================================
-# 6. SUBSCRIPTION_LAUNCH_DATE — paywall отложен
+# 6. FREE_TRIAL_DAYS — триал T2 для новых пользователей
 # =========================================================================
 
-def test_subscription_launch_date_in_future():
-    """SUBSCRIPTION_LAUNCH_DATE в далёком будущем (paywall отложен)."""
-    from config.settings import SUBSCRIPTION_LAUNCH_DATE
-    assert SUBSCRIPTION_LAUNCH_DATE > date(2026, 12, 31), (
-        f"SUBSCRIPTION_LAUNCH_DATE={SUBSCRIPTION_LAUNCH_DATE} слишком скоро! "
-        "Stars = донаты, подписка через Aisystant."
+def test_free_trial_days_configured():
+    """FREE_TRIAL_DAYS = 30 (триал T2 для новых пользователей)."""
+    from config.settings import FREE_TRIAL_DAYS
+    assert FREE_TRIAL_DAYS == 30, (
+        f"FREE_TRIAL_DAYS={FREE_TRIAL_DAYS}, ожидалось 30. "
+        "Триал = 30 дней T2-доступа от регистрации."
     )
-    print(f"✅ SUBSCRIPTION_LAUNCH_DATE = {SUBSCRIPTION_LAUNCH_DATE} (далеко в будущем)")
+    print(f"✅ FREE_TRIAL_DAYS = {FREE_TRIAL_DAYS}")
 
 
 # =========================================================================
@@ -628,8 +628,8 @@ if __name__ == "__main__":
         test_assemble_context_progress_populated,
         test_assemble_context_progress_for_feed_user,
         test_assemble_context_all_default_keys,
-        # 6. SUBSCRIPTION_LAUNCH_DATE
-        test_subscription_launch_date_in_future,
+        # 6. FREE_TRIAL_DAYS
+        test_free_trial_days_configured,
         # 7. Tier prompts
         test_tier_prompts_have_progress_placeholder,
         test_tier_prompts_have_progress_rule,

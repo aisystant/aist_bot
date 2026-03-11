@@ -368,24 +368,12 @@ ONTOLOGY_RULES_TOPICS = """
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 
-# ============= ПОДПИСКА (Stars Subscription) =============
+# ============= ПОДПИСКА (Aisystant «Бесконечное развитие») =============
 
-from datetime import date as _date
-
-# Дата запуска подписки (week 0)
-SUBSCRIPTION_LAUNCH_DATE = _date(2099, 1, 1)  # Stars → донаты; подписка будет через Aisystant
-
-# Ценообразование
-SUBSCRIPTION_BASE_PRICE = 50       # Stars на старте
-SUBSCRIPTION_LINEAR_INCREMENT = 5  # +Stars/нед в первый месяц
-SUBSCRIPTION_LINEAR_WEEKS = 4      # недель линейного роста
-SUBSCRIPTION_WEEKLY_MULTIPLIER = 1.05  # множитель после линейной фазы
-MAX_SUBSCRIPTION_PRICE = 500       # ~1000 руб/мес (бизнес-cap)
-
-# Триал
+# Триал: 30 дней T2-доступа для новых пользователей (от trial_started_at)
 FREE_TRIAL_DAYS = 30
 
-# Заблокированные сервисы (без подписки/триала)
+# Заблокированные сервисы (без подписки БР / триала)
 LOCKED_SERVICES = {"feed", "consultation", "notes", "plans"}
 
 # ============= ПЛАТФОРМА (DP.ARCH.002 § 12.9) =============

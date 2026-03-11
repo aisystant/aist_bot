@@ -738,18 +738,8 @@ async def scheduled_check():
         except (ValueError, Exception) as e:
             logger.error(f"[Scheduler] Feedback digest error: {e}")
 
-    # 🚀 Launch day notification (1 мар, 10:00 MSK — одноразово)
-    from config.settings import SUBSCRIPTION_LAUNCH_DATE
-    if (now.date() == SUBSCRIPTION_LAUNCH_DATE
-            and now.hour == 10 and now.minute == 0):
-        try:
-            await send_subscription_launch_notification()
-        except Exception as e:
-            logger.error(f"[Scheduler] Launch notification error: {e}")
-
-    # ⭐ Trial expiry notifications (10:00 MSK daily, только после запуска)
-    if (now.date() > SUBSCRIPTION_LAUNCH_DATE
-            and now.hour == 10 and now.minute == 0):
+    # ⭐ Trial expiry notifications (10:00 MSK daily)
+    if now.hour == 10 and now.minute == 0:
         try:
             await send_trial_expiry_notifications()
         except Exception as e:
@@ -1104,68 +1094,14 @@ async def _sync_dt_connected_users():
 
 
 # ═══════════════════════════════════════════════════════════
-# SUBSCRIPTION LAUNCH NOTIFICATION
-# ═══════════════════════════════════════════════════════════
-
-async def send_subscription_launch_notification():
-    """Одноразовое уведомление всем пользователям о запуске подписки."""
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from core.pricing import get_current_price
-    from db import get_pool
-
-    price = get_current_price()
-    bot = Bot(token=_bot_token)
-    sem = asyncio.Semaphore(25)  # TG rate limit: 30 msg/sec, safe margin
-
-    try:
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                'SELECT chat_id FROM interns WHERE onboarding_completed = TRUE'
-            )
-
-        sent = 0
-
-        async def _send_one(chat_id: int):
-            nonlocal sent
-            async with sem:
-                intern = await get_intern(chat_id)
-                lang = intern.get('language', 'ru') or 'ru'
-                text = t('subscription.launch_notification', lang, price=price)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text=t('subscription.subscribe_button', lang, price=price),
-                        callback_data="subscribe",
-                    )]
-                ])
-                try:
-                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
-                    sent += 1
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-                        from db.queries.users import mark_bot_blocked
-                        await mark_bot_blocked(chat_id)
-                    else:
-                        logger.error(f"[Scheduler] Launch notification error for {chat_id}: {e}")
-
-        await asyncio.gather(*[_send_one(row['chat_id']) for row in rows])
-        logger.info(f"[Scheduler] Subscription launch notification sent to {sent}/{len(rows)} users")
-    finally:
-        await bot.session.close()
-
-
-# ═══════════════════════════════════════════════════════════
 # TRIAL EXPIRY NOTIFICATIONS
 # ═══════════════════════════════════════════════════════════
 
 async def send_trial_expiry_notifications():
     """Уведомить пользователей, чей триал истекает через 1 день или сегодня."""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from core.pricing import get_current_price
     from db.queries.subscription import get_trial_expiring_users
 
-    price = get_current_price()
     bot = Bot(token=_bot_token)
     sem = asyncio.Semaphore(20)  # TG rate limit: 30 msg/sec, safe margin
 
@@ -1180,8 +1116,8 @@ async def send_trial_expiry_notifications():
                     text = t('subscription.trial_expiring', lang) if _days == 1 else t('subscription.trial_expired', lang)
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(
-                            text=t('subscription.subscribe_button', lang, price=price),
-                            callback_data="subscribe",
+                            text=t('aisystant_sub.btn_subscribe', lang),
+                            callback_data="aisystant_subscribe",
                         )]
                     ])
                     try:
@@ -1235,12 +1171,20 @@ async def send_milestone_notifications():
                 bloom = user.get('complexity_level', 1) or 1
 
                 # Базовое сообщение
+                encouragement = ''
+                if day == 7:
+                    if active_days > 0 or topics_count > 0:
+                        encouragement = t('milestones.day_7_active', lang)
+                    else:
+                        encouragement = t('milestones.day_7_inactive', lang)
+
                 text = t(f'milestones.day_{day}', lang,
                          topics=topics_count,
                          active_days=active_days,
                          streak=streak,
                          bloom=bloom,
-                         marathon_status='')
+                         marathon_status='',
+                         encouragement=encouragement)
 
                 # Специальные вставки для day_7 и day_14
                 if day == 7:
