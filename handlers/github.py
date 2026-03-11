@@ -299,7 +299,8 @@ async def handle_fleeting_note(message: Message):
     result = await github_notes.append_note(telegram_user_id, note_text)
 
     if result:
-        url = f"https://github.com/{result['repo']}/blob/main/{result['path']}"
+        branch = result.get('branch', 'main')
+        url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
         await message.answer(t('github.note_saved', lang, url=url))
     else:
         await message.answer(t('github.note_error', lang))

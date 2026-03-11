@@ -262,6 +262,7 @@ class GitHubNotesClient:
                             return {
                                 "repo": repo,
                                 "path": path,
+                                "branch": branch,
                                 "sha": result.get("content", {}).get(
                                     "sha", ""
                                 ),
