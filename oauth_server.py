@@ -572,7 +572,7 @@ async def template_update_handler(request: web.Request) -> web.Response:
         'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
     }
     for en, ru in section_map.items():
-        clean_changelog = re.sub(rf'^#{1,3}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
+        clean_changelog = re.sub(rf'^#{{1,3}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
     # Убираем оставшиеся markdown-заголовки
     clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
     # Убираем **жирный** markdown → просто текст
