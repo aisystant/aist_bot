@@ -112,6 +112,12 @@ from .aisystant import (
     is_aisystant_linked,
 )
 
+from .events import (
+    log_event,
+    get_user_events,
+    get_event_counts,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -200,4 +206,9 @@ __all__ = [
     'save_aisystant_link',
     'remove_aisystant_link',
     'is_aisystant_linked',
+
+    # events (WP-85: ЦД)
+    'log_event',
+    'get_user_events',
+    'get_event_counts',
 ]

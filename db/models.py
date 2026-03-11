@@ -1014,4 +1014,34 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
+        # ═══════════════════════════════════════════════════════════
+        # ЦИФРОВОЙ ДВОЙНИК: schema development + user_events (WP-85)
+        # Append-only event log — основа 3-слойной архитектуры ЦД
+        # (DP.ARCH.003: Events → State → Views)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('CREATE SCHEMA IF NOT EXISTS development')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS development.user_events (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                event_type TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'bot',
+                payload JSONB DEFAULT '{}',
+                confidence REAL DEFAULT 1.0,
+                skill_ids TEXT[] DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_events_user_id
+            ON development.user_events (user_id, created_at DESC)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_events_type
+            ON development.user_events (event_type, created_at DESC)
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

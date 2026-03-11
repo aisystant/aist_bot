@@ -15,6 +15,7 @@ from states.base import BaseState
 from i18n import t
 from helpers.message_split import prepare_html_parts
 from db.queries import update_intern, save_answer
+from db.queries.events import log_event
 from db.queries.answers import get_theory_count_at_level
 from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic
@@ -225,6 +226,12 @@ class MarathonQuestionState(BaseState):
                 answer_type="theory_answer",
                 complexity_level=bloom_level
             )
+            # ЦД: событие marathon_step (WP-85)
+            await log_event(chat_id, 'marathon_step', {
+                'topic_index': topic_index,
+                'complexity_level': bloom_level,
+                'answer_type': 'theory_answer',
+            }, confidence=0.9)
 
         # ─── Оценка ответа (DS-evaluator-agent) ───
         if EVALUATION_ENABLED:

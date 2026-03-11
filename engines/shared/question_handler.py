@@ -18,6 +18,7 @@ from config import get_logger, ONTOLOGY_RULES
 from core.intent import get_question_keywords
 from clients import claude, mcp_knowledge
 from db.queries.qa import save_qa, get_qa_history
+from db.queries.events import log_event
 from .retrieval import enhanced_search, get_retrieval
 from .context import (
     build_dynamic_context,
@@ -224,6 +225,12 @@ async def handle_question(
                 answer=answer,
                 mcp_sources=sources
             )
+            # ЦД: событие ai_chat (WP-85)
+            await log_event(chat_id, 'ai_chat', {
+                'mode': mode,
+                'question_length': len(question),
+                'has_sources': bool(sources),
+            })
         except Exception as e:
             logger.error(f"Ошибка сохранения Q&A: {e}")
 
@@ -586,6 +593,13 @@ async def handle_question_with_tools(
                 answer=answer,
                 mcp_sources=sources
             )
+            # ЦД: событие ai_chat (WP-85)
+            await log_event(chat_id, 'ai_chat', {
+                'mode': mode,
+                'question_length': len(question),
+                'has_sources': bool(sources),
+                'has_tool_use': True,
+            })
         except Exception as e:
             logger.error(f"Ошибка сохранения Q&A: {e}")
 
