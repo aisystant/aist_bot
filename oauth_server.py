@@ -563,15 +563,36 @@ async def template_update_handler(request: web.Request) -> web.Response:
     if not commit_count:
         return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
 
+    # Очищаем changelog от markdown-символов и переводим заголовки
+    import re
+    clean_changelog = changelog
+    # Убираем markdown заголовки (### Added → Добавлено)
+    section_map = {
+        'Added': 'Добавлено', 'Fixed': 'Исправлено', 'Changed': 'Изменено',
+        'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
+    }
+    for en, ru in section_map.items():
+        clean_changelog = re.sub(rf'^#{1,3}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
+    # Убираем оставшиеся markdown-заголовки
+    clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
+    # Убираем **жирный** markdown → просто текст
+    clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
+    # Убираем markdown-списки (- item → • item)
+    clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
+    # Убираем пустые строки подряд
+    clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
+
     # Формируем сообщение
+    repo_url = "https://github.com/aisystant/FMT-exocortex-template"
     message_text = (
-        f"🔄 <b>Exocortex Template {version}</b>\n\n"
+        f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
         f"{commit_count} коммит(ов) за последние 24ч\n\n"
-        f"{changelog}\n\n"
-        f"<b>Обновить:</b>\n"
-        f"• Терминал: <code>bash update.sh</code>\n"
-        f"• AI CLI: <i>«обнови мой экзокортекс»</i>\n"
-        f"• Проверить: <code>bash update.sh --check</code>"
+        f"{clean_changelog}\n\n"
+        f"<b>Как обновить:</b>\n"
+        f"1. AI CLI: <i>«обнови мой экзокортекс»</i>\n"
+        f"2. Терминал: <code>bash update.sh</code>\n"
+        f"3. Проверить: <code>bash update.sh --check</code>\n\n"
+        f'<a href="{repo_url}">Репозиторий шаблона</a>'
     )
 
     # Получаем подписчиков
