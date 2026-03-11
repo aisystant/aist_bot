@@ -3,8 +3,11 @@
 
 Биллинг = слой доступа, не домен в меню (DP.AISYS.014 § 4.4).
 
+Подписка = «Бесконечное развитие» на Aisystant.
+Триал = 30 дней с момента регистрации.
+
 3 типа доступа:
-  - subscription: рекуррентная подписка → набор доступных сервисов
+  - subscription: Aisystant «Бесконечное развитие» → набор доступных сервисов
   - purchase: разовая покупка → открывает конкретную программу
   - feature: paywall на функцию → показывает paywall при доступе
 
@@ -30,18 +33,11 @@ class AccessLayer:
         """Проверяет, имеет ли пользователь доступ к сервису.
 
         Логика:
-        0. До даты запуска подписки → True (open beta)
         1. Бесплатный сервис → True
-        2. Активная подписка → True
-        3. В пределах триала → True
+        2. Активная подписка БР → True
+        3. В пределах триала (30 дней) → True
         4. Иначе → False
         """
-        # До запуска подписки — всё бесплатно
-        from config.settings import SUBSCRIPTION_LAUNCH_DATE
-        from datetime import date
-        if date.today() < SUBSCRIPTION_LAUNCH_DATE:
-            return True
-
         if service_id not in LOCKED_SERVICES:
             return True
 

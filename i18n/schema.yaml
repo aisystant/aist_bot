@@ -4410,12 +4410,20 @@ strategist:
 # -----------------------------------------------------------------------------
 milestones:
   day_7:
-    ru: "🎯 *Неделя с нами!*\n\nВы изучили {topics} тем и провели {active_days} активных дней.\n\nЭто отличный старт — продолжайте в том же темпе!"
-    en: "🎯 *One week with us!*\n\nYou've studied {topics} topics and had {active_days} active days.\n\nGreat start — keep up the pace!"
+    ru: "🎯 *Неделя с нами!*\n\nВы изучили {topics} тем и провели {active_days} активных дней.\n\n{encouragement}"
+    en: "🎯 *One week with us!*\n\nYou've studied {topics} topics and had {active_days} active days.\n\n{encouragement}"
+
+  day_7_active:
+    ru: "Отличный старт — продолжайте в том же темпе!"
+    en: "Great start — keep up the pace!"
+
+  day_7_inactive:
+    ru: "Попробуйте открыть первый урок — это займёт всего пару минут!"
+    en: "Try opening your first lesson — it only takes a couple of minutes!"
 
   day_7_trial:
-    ru: "\n\n💡 Напоминаем: первые 30 дней — бесплатный период. После него доступ к Ленте и консультациям сохранится по подписке."
-    en: "\n\n💡 Reminder: the first 30 days are a free trial. After that, Feed and consultations stay available with a subscription."
+    ru: "\n\n💡 Напоминаем: первые 30 дней — пробный период. После него Лента и консультации доступны по подписке «Бесконечное развитие»."
+    en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Бесконечное развитие» subscription."
 
   day_14:
     ru: "🏃 *Две недели обучения!*\n\n{marathon_status}\n\nВы входите в число самых активных учеников."
