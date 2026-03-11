@@ -34,8 +34,10 @@ MONTHS_RU = {
 class GitHubNotesClient:
     """Клиент для записи заметок в GitHub."""
 
+    _MAX_RETRIES = 3
+
     def __init__(self):
-        self._pending: list[tuple[int, str]] = []
+        self._pending: list[tuple[int, str, int]] = []  # (user_id, text, attempt)
 
     @staticmethod
     def _extract_title(text: str, max_words: int = 7) -> tuple[str, str]:
@@ -149,6 +151,8 @@ class GitHubNotesClient:
         if not access_token:
             return None
 
+        branch = await github_oauth.get_default_branch(telegram_user_id)
+
         now = datetime.now(MOSCOW_TZ)
         note_lines = self._format_note_lines(text, now)
 
@@ -158,11 +162,12 @@ class GitHubNotesClient:
             path=path,
             note_lines=note_lines,
             commit_message=f"note: {text[:50]}",
+            branch=branch,
         )
 
         if not result:
-            self._pending.append((telegram_user_id, text))
-            logger.warning(f"Note queued for retry: {text[:30]}...")
+            self._pending.append((telegram_user_id, text, 1))
+            logger.warning(f"Note queued for retry (1/{self._MAX_RETRIES}): {text[:30]}...")
 
         return result
 
@@ -301,10 +306,15 @@ class GitHubNotesClient:
         pending = self._pending.copy()
         self._pending.clear()
 
-        for user_id, text in pending:
+        for user_id, text, attempt in pending:
             result = await self.append_note(user_id, text)
             if result:
                 logger.info(f"Retry succeeded: {text[:30]}...")
+            elif attempt < self._MAX_RETRIES:
+                self._pending.append((user_id, text, attempt + 1))
+                logger.warning(f"Note retry {attempt + 1}/{self._MAX_RETRIES}: {text[:30]}...")
+            else:
+                logger.error(f"Note dropped after {self._MAX_RETRIES} retries: user={user_id}, text={text[:50]}")
 
     async def clear_notes(self, telegram_user_id: int) -> bool:
         """Очищает файл заметок (сохраняет шапку с описанием)."""
@@ -319,6 +329,8 @@ class GitHubNotesClient:
         if not access_token:
             return False
 
+        branch = await github_oauth.get_default_branch(telegram_user_id)
+
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -331,6 +343,7 @@ class GitHubNotesClient:
                 async with session.get(
                     url,
                     headers=headers,
+                    params={"ref": branch},
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     if resp.status != 200:
@@ -355,6 +368,7 @@ class GitHubNotesClient:
                             clean_content.encode("utf-8")
                         ).decode("ascii"),
                         "sha": current_sha,
+                        "branch": branch,
                     },
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:

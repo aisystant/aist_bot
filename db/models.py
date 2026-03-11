@@ -404,6 +404,7 @@ async def create_tables(pool: asyncpg.Pool):
         github_migrations = [
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS strategy_repo TEXT',
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS knowledge_repo TEXT',
+            "ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS default_branch TEXT DEFAULT 'main'",
         ]
         for migration in github_migrations:
             try:
