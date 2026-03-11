@@ -1508,7 +1508,7 @@ async def _smart_publisher_scan():
         get_scheduled_dates,
         schedule_publication,
     )
-    from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME, PUBLISHER_MIN_QUEUE
+    from config.settings import PUBLISHER_DAYS, PUBLISHER_TIME, PUBLISHER_INTERVAL, PUBLISHER_MIN_QUEUE
 
     knowledge_users = await get_users_with_knowledge_repo()
     if not knowledge_users:
@@ -1650,14 +1650,9 @@ async def _smart_publisher_scan():
 
                 scheduled_posts = []
 
-                # Weekly reviews → ближайший Пн 07:14 МСК
+                # Weekly reviews → публикация сразу (ближайший цикл :07/:37)
                 for wr in weekly_reviews:
-                    wr_date = now_msk.date() + timedelta(days=1)
-                    for _ in range(7):
-                        if wr_date.weekday() == 0:  # Monday
-                            break
-                        wr_date += timedelta(days=1)
-                    slot_time = datetime.combine(wr_date, datetime.min.time().replace(hour=7, minute=14)) - timedelta(hours=3)  # MSK→UTC
+                    slot_time = datetime.utcnow() + timedelta(minutes=1)  # Ближайший цикл подхватит
                     raw = strip_frontmatter(wr["content"])
                     tags_json = json.dumps(wr["tags"]) if isinstance(wr["tags"], list) else "[]"
                     await schedule_publication(
@@ -1690,6 +1685,9 @@ async def _smart_publisher_scan():
                         occupied_dates.add(check_date)  # Не дублировать в рамках одного scan
                         if len(slots) >= len(regular):
                             break
+                        # Пропуск по интервалу (1 раз в N дней)
+                        check_date += timedelta(days=PUBLISHER_INTERVAL)
+                        continue
                     check_date += timedelta(days=1)
 
                 for post, slot in zip(regular, slots):

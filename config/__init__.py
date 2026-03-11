@@ -111,6 +111,9 @@ from .settings import (
     # Markdown sanitizer
     TELEGRAM_MARKDOWN_RULES,
 
+    # Publisher
+    PUBLISHER_INTERVAL,
+
     # WakaTime (WP-60)
     WAKATIME_API_KEY,
 )
@@ -181,5 +184,6 @@ __all__ = [
     'ONTOLOGY_RULES',
     'ONTOLOGY_RULES_TOPICS',
     'TELEGRAM_MARKDOWN_RULES',
+    'PUBLISHER_INTERVAL',
     'WAKATIME_API_KEY',
 ]
