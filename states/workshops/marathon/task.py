@@ -287,6 +287,15 @@ class MarathonTaskState(BaseState):
                 complexity_level=bloom_level
             )
 
+            # ЦД: событие marathon_task (WP-85)
+            from db.queries.events import log_event
+            await log_event(chat_id, 'marathon_task', {
+                'topic_index': topic_index,
+                'complexity_level': bloom_level,
+                'answer_type': 'work_product',
+                'answer_length': len(text),
+            }, confidence=0.9)
+
         # Сразу подтверждаем — ДО evaluator, чтобы feedback воспринимался как совет
         await self.send(user, f"✅ *{t('marathon.practice_accepted', lang)}*", parse_mode="Markdown")
 

@@ -113,6 +113,14 @@ class AssessmentResultState(BaseState):
                 open_response=open_response,
             )
 
+            # ЦД: событие assessment_completed (WP-85)
+            from db.queries.events import log_event
+            await log_event(chat_id, 'assessment_completed', {
+                'assessment_id': assessment_id,
+                'dominant_state': dominant_id,
+                'self_check': self_check,
+            }, confidence=0.9)
+
             from db.queries.users import moscow_today
             from core.helpers import ASSESSMENT_BLOOM_MAP
 

@@ -1044,4 +1044,29 @@ async def create_tables(pool: asyncpg.Pool):
             ON development.user_events (event_type, created_at DESC)
         ''')
 
+        # ─── Layer 2: Engagement View (WP-85, подзадача 7) ───
+        # DROP + CREATE (§10.22: REPLACE запрещён)
+        await conn.execute('DROP VIEW IF EXISTS development.engagement')
+        await conn.execute('''
+            CREATE VIEW development.engagement AS
+            SELECT
+                user_id,
+                COUNT(*) FILTER (WHERE event_type = 'session_start') AS sessions_total,
+                COUNT(*) FILTER (WHERE event_type = 'ai_chat') AS ai_chats_total,
+                COUNT(*) FILTER (WHERE event_type = 'marathon_step') AS marathon_steps_total,
+                COUNT(*) FILTER (WHERE event_type = 'marathon_task') AS marathon_tasks_total,
+                COUNT(*) FILTER (WHERE event_type = 'feed_completed') AS feed_completed_total,
+                COUNT(*) FILTER (WHERE event_type = 'training_attempt') AS training_attempts_total,
+                COUNT(*) FILTER (WHERE event_type = 'training_attempt' AND (payload->>$$passed$$)::boolean = true) AS training_passed_total,
+                COUNT(*) FILTER (WHERE event_type = 'assessment_completed') AS assessments_total,
+                COUNT(*) AS events_total,
+                MIN(created_at) AS first_event_at,
+                MAX(created_at) AS last_event_at,
+                COUNT(DISTINCT created_at::date) AS active_days,
+                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS events_last_7d,
+                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS events_last_30d
+            FROM development.user_events
+            GROUP BY user_id
+        ''')
+
     logger.info("✅ Все таблицы созданы/обновлены")

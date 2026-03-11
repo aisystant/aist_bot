@@ -483,6 +483,15 @@ class FeedDigestState(BaseState):
                 feed_session_id=session_id,
             )
 
+            # ЦД: событие feed_completed (WP-85)
+            from db.queries.events import log_event
+            await log_event(chat_id, 'feed_completed', {
+                'session_id': session_id,
+                'day_number': session.get('day_number', 0) if session else 0,
+                'topic_title': session.get('topic_title') if session else None,
+                'fixation_length': len(text),
+            })
+
             # Записываем активность
             await record_active_day(
                 chat_id=chat_id,

@@ -212,6 +212,16 @@ async def save_training_attempt(
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
         ''', chat_id, principle_id, depth, assignment_text, answer_text, passed, feedback)
+
+        # ЦД: событие training_attempt (WP-85)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'training_attempt', {
+            'principle_id': principle_id,
+            'depth': depth,
+            'passed': passed,
+            'attempt_id': attempt_id,
+        }, confidence=0.9)
+
         return attempt_id
 
 
