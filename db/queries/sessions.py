@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timezone
 
 from db.connection import get_pool
+from db.queries.events import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,9 @@ async def get_or_create_session(chat_id: int, command: str):
             INSERT INTO user_sessions (chat_id, started_at, entry_point, commands)
             VALUES ($1, $2, $3, $4::jsonb)
         ''', chat_id, now, command, json.dumps([command]))
+
+        # ЦД: событие session_start (WP-85)
+        await log_event(chat_id, 'session_start', {'entry_point': command})
 
 
 async def finalize_stale_sessions():
