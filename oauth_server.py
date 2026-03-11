@@ -533,6 +533,108 @@ async def github_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def template_update_handler(request: web.Request) -> web.Response:
+    """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
+
+    POST /api/template-update
+    Headers: X-Webhook-Secret: <TEMPLATE_WEBHOOK_SECRET>
+    Body JSON: {version, changelog, commit_count}
+    """
+    import os
+    import json
+
+    # Аутентификация
+    expected_secret = os.getenv('TEMPLATE_WEBHOOK_SECRET', '')
+    provided_secret = request.headers.get('X-Webhook-Secret', '')
+
+    if not expected_secret or provided_secret != expected_secret:
+        logger.warning("[TemplateUpdate] Invalid or missing webhook secret")
+        return web.Response(text="Forbidden", status=403)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(text="Bad request", status=400)
+
+    version = body.get('version', '')
+    changelog = body.get('changelog', '')
+    commit_count = body.get('commit_count', 0)
+
+    if not commit_count:
+        return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
+
+    # Очищаем changelog от markdown-символов и переводим заголовки
+    import re
+    clean_changelog = changelog
+    # Убираем markdown заголовки (### Added → Добавлено)
+    section_map = {
+        'Added': 'Добавлено', 'Fixed': 'Исправлено', 'Changed': 'Изменено',
+        'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
+    }
+    for en, ru in section_map.items():
+        clean_changelog = re.sub(rf'^#{{1,3}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
+    # Убираем оставшиеся markdown-заголовки
+    clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
+    # Убираем **жирный** markdown → просто текст
+    clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
+    # Убираем `code` markdown → просто текст
+    clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
+    # Разбиваем filename.ext (общая утилита, также в base.py:send)
+    from helpers.message_split import sanitize_file_extensions
+    clean_changelog = sanitize_file_extensions(clean_changelog)
+    # Убираем markdown-списки (- item → • item)
+    clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
+    # Убираем вложенные списки (  - item → • item)
+    clean_changelog = re.sub(r'^\s+-\s+', '  • ', clean_changelog, flags=re.MULTILINE)
+    # Убираем пустые строки подряд
+    clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
+
+    # Формируем сообщение
+    repo_url = "https://github.com/aisystant/FMT-exocortex-template"
+    message_text = (
+        f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
+        f"{commit_count} коммит(ов) за последние 24ч\n\n"
+        f"{clean_changelog}\n\n"
+        f"<b>Как обновить:</b>\n"
+        f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
+        f"2. Или в терминале: <code>bash update.sh</code>\n"
+        f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
+        f'<a href="{repo_url}">Репозиторий шаблона</a>'
+    )
+
+    # Получаем подписчиков
+    from db.queries.users import get_template_update_subscribers
+    subscribers = await get_template_update_subscribers()
+
+    if not subscribers:
+        logger.info("[TemplateUpdate] No subscribers, skipping broadcast")
+        return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
+
+    # Рассылка с батчингом (30 msg/sec TG limit)
+    sent = 0
+    failed = 0
+    for i, chat_id in enumerate(subscribers):
+        try:
+            await _bot_instance.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                parse_mode="HTML",
+            )
+            sent += 1
+        except Exception as e:
+            logger.warning(f"[TemplateUpdate] Failed to send to {chat_id}: {e}")
+            failed += 1
+
+        # TG rate limit: 30 msg/sec → sleep every 25 messages
+        if (i + 1) % 25 == 0:
+            await asyncio.sleep(1)
+
+    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, failed={failed}")
+
+    result = {"ok": True, "sent": sent, "failed": failed}
+    return web.Response(text=json.dumps(result), content_type="application/json")
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -559,6 +661,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
     app.router.add_get("/auth/github/callback", github_callback_handler)
+    app.router.add_post("/api/template-update", template_update_handler)
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:

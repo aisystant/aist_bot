@@ -3,15 +3,11 @@
 
 Биллинг = слой доступа, не домен в меню (DP.AISYS.014 § 4.4).
 
-Подписка = «Бесконечное развитие» на Aisystant.
-Триал = 30 дней с момента регистрации.
-
-3 типа доступа:
-  - subscription: Aisystant «Бесконечное развитие» → набор доступных сервисов
-  - purchase: разовая покупка → открывает конкретную программу
-  - feature: paywall на функцию → показывает paywall при доступе
-
-user.has_access(service) = user.subscription ∪ user.purchases ∪ user.role
+Модель доступа:
+  1. Бесплатный сервис (не в LOCKED_SERVICES) → True
+  2. Подписка «Бесконечное развитие» на Aisystant → True
+  3. В пределах 30-дневного триала → True (T2 features)
+  4. Иначе → False (paywall)
 """
 
 import logging

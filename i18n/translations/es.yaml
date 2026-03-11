@@ -196,6 +196,14 @@ settings:
   schedule_label: "Horario"
   schedule_marathon: "Maratón"
   twin_coming_soon: "Gemelo digital — asistente IA personal, entrenado con tus datos..."
+  iwe_updates_label: "Actualizaciones IWE"
+  iwe_updates_enable: "activar"
+  iwe_updates_disable: "desactivar"
+  iwe_updates_enabled_toast: "Recibirás resúmenes matutinos sobre actualizaciones de la plantilla IWE."
+  iwe_updates_disabled_toast: "Notificaciones de actualizaciones IWE desactivadas."
+  no_active_donations: "sin donaciones activas"
+  reset_marathon_summary: "Maratón: día {day}"
+  reset_stats_summary: "Estadísticas: {total} días, racha {streak}"
   twin_label: "Gemelo digital"
 
 progress:

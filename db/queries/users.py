@@ -127,6 +127,9 @@ def _row_to_dict(row) -> dict:
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
         'language': safe_get('language', 'ru'),
+
+        # IWE template update notifications (WP-90)
+        'notify_template_updates': safe_get('notify_template_updates', False),
     }
 
 
@@ -192,6 +195,8 @@ def _get_default_intern(chat_id: int) -> dict:
 
         'onboarding_completed': False,
         'language': 'ru',
+
+        'notify_template_updates': False,
     }
 
 
@@ -492,3 +497,15 @@ def get_topics_today(intern: dict) -> int:
     if last_date and last_date == today:
         return intern.get('topics_today', 0)
     return 0
+
+
+async def get_template_update_subscribers() -> List[int]:
+    """Получить chat_id пользователей, подписанных на обновления шаблона IWE."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT chat_id FROM interns
+               WHERE notify_template_updates = TRUE
+                 AND bot_blocked IS NOT TRUE'''
+        )
+    return [row['chat_id'] for row in rows]

@@ -87,7 +87,7 @@ class SettingsState(BaseState):
         return {}
 
     async def enter(self, user, context: dict = None) -> None:
-        """Показываем системные настройки."""
+        """Показываем системные настройки — обзорный экран."""
         chat_id = self._get_chat_id(user)
         intern = await get_intern(chat_id)
         if not intern:
@@ -96,34 +96,60 @@ class SettingsState(BaseState):
 
         lang = intern.get('language', 'ru') or 'ru'
 
-        marathon_time = intern.get('schedule_time', '09:00')
-        feed_time = intern.get('feed_schedule_time') or marathon_time
-
+        # --- Подключения: сводка ---
         from db.queries.aisystant import get_aisystant_id
         aisystant_id = await get_aisystant_id(chat_id)
         aisystant_status = "✅" if aisystant_id else "❌"
 
+        from db.queries.github import get_github_connection
+        gh_conn = await get_github_connection(chat_id)
+        github_status = "✅" if gh_conn else "❌"
+
+        notify_iwe = intern.get('notify_template_updates', False)
+        iwe_status = "✅" if notify_iwe else "❌"
+
+        # --- Донаты: сводка ---
+        from db.queries.subscription import get_active_subscription
+        sub = await get_active_subscription(chat_id)
+        if sub:
+            amount = sub.get('stars_amount', 0)
+            donation_line = f"⭐ {amount} Stars/мес"
+        else:
+            donation_line = t('settings.no_active_donations', lang)
+
+        # --- Сброс: сводка ---
+        from core.topics import get_marathon_day
+        marathon_day = get_marathon_day(intern)
+        streak = intern.get('active_days_streak', 0)
+        total_days = intern.get('active_days_total', 0)
+
+        # --- Собираем текст ---
+        connections_summary = f"  • Aisystant: {aisystant_status}\n  • GitHub: {github_status}"
+
+        # IWE Updates — только для T4+
+        from core.tier_detector import detect_ui_tier
+        tier = await detect_ui_tier(chat_id)
+        if tier >= 4:  # T4_CREATION
+            connections_summary += f"\n  • {t('settings.iwe_updates_label', lang)}: {iwe_status}"
+
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
-            f"🔗 Aisystant: {aisystant_status}\n"
-            f"🌐 {t('settings.language_label', lang)}: {get_language_name(lang)}\n"
+            f"🌐 Language: {get_language_name(lang)}\n\n"
+            f"🔗 {t('settings.connections_label', lang)}:\n{connections_summary}\n\n"
+            f"💝 {t('donation.settings_label', lang)}: {donation_line}\n\n"
+            f"🔄 {t('settings.reset_label', lang)}:\n"
+            f"  • {t('settings.reset_marathon_summary', lang, day=marathon_day)}\n"
+            f"  • {t('settings.reset_stats_summary', lang, total=total_days, streak=streak)}"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔗 " + t('settings.aisystant_label', lang), callback_data="conn_aisystant"),
-            ],
-            [
-                InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language"),
-            ],
-            [
+                InlineKeyboardButton(text="🌐 Language", callback_data="upd_language"),
                 InlineKeyboardButton(text="🔗 " + t('settings.connections_label', lang), callback_data="upd_connections"),
             ],
             [
+                InlineKeyboardButton(text="💝 " + t('donation.settings_label', lang), callback_data="upd_subscription"),
                 InlineKeyboardButton(text="🔄 " + t('settings.reset_label', lang), callback_data="show_resets"),
-            ],
-            [
-                InlineKeyboardButton(text="⭐ " + t('donation.settings_label', lang), callback_data="upd_subscription"),
             ],
             [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
@@ -198,6 +224,9 @@ class SettingsState(BaseState):
 
         if data == "conn_waka_disconnect":
             return await self._waka_disconnect(user, callback)
+
+        if data == "conn_iwe_toggle":
+            return await self._toggle_iwe_updates(user, callback)
 
         if data == "github_select_repo":
             return await self._github_select_repo(user, callback)
@@ -831,6 +860,11 @@ class SettingsState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
+        # Aisystant
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(chat_id)
+        aisystant_status = "✅ " + t('settings.connected', lang) if aisystant_id else t('settings.not_connected', lang)
+
         # Проверяем GitHub подключение из github_connections таблицы
         from db.queries.github import get_github_connection
         gh_conn = await get_github_connection(chat_id)
@@ -872,19 +906,35 @@ class SettingsState(BaseState):
 
         text = (
             f"🔗 *{t('settings.connections_label', lang)}*\n\n"
+            f"🔗 Aisystant: {aisystant_status}\n"
             f"🐙 GitHub: {github_status}\n"
             f"🤖 {t('settings.twin_label', lang)}: {twin_status}\n"
             f"🏛 Клуб: {club_status}\n"
             f"📊 WakaTime: {waka_status}\n"
         )
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        buttons = [
+            [InlineKeyboardButton(text="🔗 " + t('settings.aisystant_label', lang), callback_data="conn_aisystant")],
             [InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github")],
             [InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin")],
             [InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club")],
             [InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka")],
-            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")]
-        ])
+        ]
+
+        # IWE Updates — только для T4+
+        from core.tier_detector import detect_ui_tier
+        tier = await detect_ui_tier(chat_id)
+        if tier >= 4:  # T4_CREATION
+            intern = await get_intern(chat_id)
+            notify_iwe = intern.get('notify_template_updates', False)
+            iwe_emoji = "✅" if notify_iwe else "❌"
+            iwe_action = t('settings.iwe_updates_disable', lang) if notify_iwe else t('settings.iwe_updates_enable', lang)
+            text += f"🔔 {t('settings.iwe_updates_label', lang)}: {iwe_emoji}\n"
+            buttons.append([InlineKeyboardButton(text=f"🔔 {t('settings.iwe_updates_label', lang)}: {iwe_action}", callback_data="conn_iwe_toggle")])
+
+        buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         return None
@@ -1319,3 +1369,22 @@ class SettingsState(BaseState):
             ]),
         )
         return None
+
+    async def _toggle_iwe_updates(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Переключить подписку на обновления шаблона IWE."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        intern = await get_intern(chat_id)
+        current = intern.get('notify_template_updates', False)
+        new_value = not current
+
+        await update_intern(chat_id, notify_template_updates=new_value)
+
+        if new_value:
+            await callback.answer(t('settings.iwe_updates_enabled_toast', lang), show_alert=True)
+        else:
+            await callback.answer(t('settings.iwe_updates_disabled_toast', lang))
+
+        # Перерисовать экран подключений
+        return await self._show_connections(user, callback)

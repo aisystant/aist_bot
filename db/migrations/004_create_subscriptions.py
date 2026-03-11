@@ -81,7 +81,7 @@ async def migrate():
             print("Колонка trial_started_at добавлена")
 
         # --- Backfill: trial_started_at для существующих пользователей ---
-        # Используем created_at каждого пользователя как начало триала
+        # Все без trial_started_at получают триал от даты регистрации (created_at)
         updated = await conn.execute('''
             UPDATE interns
             SET trial_started_at = created_at
