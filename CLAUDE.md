@@ -479,6 +479,18 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 Без wire-up всех 6 мест → фича молча не работает (бот возвращает None и не показывает принципы).
 
+### 10.23. f-string + regex quantifier
+
+`rf'^#{1,3}\s*{en}\b'` — Python интерпретирует `{1,3}` как f-string expression (tuple `(1, 3)`), не regex quantifier. Фикс: `rf'^#{{1,3}}\s*{en}\b'` — двойные скобки экранируют.
+
+### 10.24. re.sub не поддерживает \u в replacement
+
+`re.sub(r'...', r'\1\u200B.\2', text)` → `re.error: bad escape \u`. Фикс: вынести символ в переменную: `ZWS = '\u200B'` → `rf'\1{ZWS}.\2'`.
+
+### 10.25. TG auto-linking filenames (sanitize_file_extensions)
+
+Telegram авто-линкует `word.ext` как URL (`.md`, `.sh`, `.py` и т.д.). `helpers/message_split.py:sanitize_file_extensions()` вставляет ZWS перед расширением. Применяется в `base.py:send()` для всех HTML-сообщений. Внутри `<code>`/`<pre>` — не трогает.
+
 ---
 
 ## SOTA: Context Engineering (DP.SOTA.002)
