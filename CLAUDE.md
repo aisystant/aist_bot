@@ -291,7 +291,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 При отмене запланированной публикации (cancel) — **ОБЯЗАТЕЛЬНО** revert frontmatter `status → draft` через GitHub API. Иначе `_smart_publisher_scan` (05:07 МСК) повторно обнаружит `status: ready` и пере-запланирует.
 
-Слоты генерируются с проверкой `occupied_dates` — одна дата = один пост. Startup scan имеет 2-часовой cooldown (не дублирует утренний cron).
+Слоты генерируются с проверкой `occupied_dates` — одна дата = один пост. Startup scan вызывает `_smart_publisher_scan(notify=False)` — только scheduling, без queue-watch уведомлений.
 
 **Итоги недели** (`итоги-недели` тег) публикуются **сразу** (schedule_time = utcnow+1min → ближайший цикл :07/:37).
 **Интервал:** `PUBLISHER_INTERVAL` (env, default=2) — минимум N дней между обычными публикациями. Влияет на smart_publisher_scan и reschedule_all_pending.
