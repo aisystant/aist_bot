@@ -384,6 +384,8 @@ async def reschedule_all_pending(
     slots: list[datetime] = []
     check_date = now_msk.date() + timedelta(days=1)
 
+    from config.settings import PUBLISHER_INTERVAL
+
     for _ in range(60):
         if check_date.weekday() in pub_days:
             slot_time = datetime.combine(
@@ -393,6 +395,9 @@ async def reschedule_all_pending(
             slots.append(slot_time)
             if len(slots) >= len(unique_posts):
                 break
+            # Пропуск по интервалу (1 раз в N дней)
+            check_date += timedelta(days=PUBLISHER_INTERVAL)
+            continue
         check_date += timedelta(days=1)
 
     # Update schedule_time for each post
