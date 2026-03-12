@@ -405,6 +405,7 @@ async def create_tables(pool: asyncpg.Pool):
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS strategy_repo TEXT',
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS knowledge_repo TEXT',
             "ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS default_branch TEXT DEFAULT 'main'",
+            "ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS strategy_default_branch TEXT DEFAULT 'main'",
         ]
         for migration in github_migrations:
             try:
@@ -1068,6 +1069,22 @@ async def create_tables(pool: asyncpg.Pool):
                 COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS events_last_30d
             FROM development.user_events
             GROUP BY user_id
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # ТОКЕНЫ ЦИФРОВОГО ДВОЙНИКА (WP-82: token persistence)
+        # Хранит OAuth токены DT MCP, чтобы подключение не терялось
+        # при редеплое бота
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS dt_tokens (
+                chat_id BIGINT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                dt_user_id TEXT,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
         ''')
 
     logger.info("✅ Все таблицы созданы/обновлены")

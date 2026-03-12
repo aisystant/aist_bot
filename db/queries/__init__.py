@@ -118,6 +118,13 @@ from .events import (
     get_event_counts,
 )
 
+from .dt_tokens import (
+    save_dt_tokens,
+    load_all_dt_tokens,
+    delete_dt_tokens,
+    get_dt_user_id,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -211,4 +218,10 @@ __all__ = [
     'log_event',
     'get_user_events',
     'get_event_counts',
+
+    # dt_tokens (WP-82: token persistence)
+    'save_dt_tokens',
+    'load_all_dt_tokens',
+    'delete_dt_tokens',
+    'get_dt_user_id',
 ]

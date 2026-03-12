@@ -100,9 +100,10 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37')  # Discourse: scheduled posts (offset from :00/:30)
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3,18,33,48')  # Discourse: comment polling (offset from :00/:15/:30/:45)
-    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
-    # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK
-    _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
+    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7, kwargs={'notify': True})  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
+    # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (без уведомлений — только scheduling)
+    _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
+    _scheduler.add_job(_dt_proactive_refresh, 'cron', minute='*/15')  # DT: proactive token refresh every 15 min (WP-82)
     _scheduler.start()
 
     # One-time cleanup: обнулить question_content с текстом ошибки (bug fix)
@@ -1073,6 +1074,25 @@ async def _neon_keep_alive():
             await conn.fetchval('SELECT 1')
     except Exception as e:
         logger.warning(f"[Scheduler] Neon keep-alive failed: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
+# DIGITAL TWIN: PROACTIVE TOKEN REFRESH (WP-82)
+# ═══════════════════════════════════════════════════════════
+
+async def _dt_proactive_refresh():
+    """Обновить DT токены, истекающие в ближайшие 10 минут.
+
+    Запускается каждые 15 мин. Access token TTL = 1 час,
+    поэтому refresh нужен минимум раз в час. 15 мин = запас.
+    """
+    try:
+        from clients.digital_twin import digital_twin
+        refreshed = await digital_twin.refresh_expiring_tokens(margin_seconds=600)
+        if refreshed:
+            logger.info(f"[Scheduler] DT proactive refresh: {refreshed} tokens refreshed")
+    except Exception as e:
+        logger.warning(f"[Scheduler] DT proactive refresh failed: {e}")
 
 
 # ═══════════════════════════════════════════════════════════
