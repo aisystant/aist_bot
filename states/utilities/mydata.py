@@ -705,13 +705,13 @@ class MyDataState(BaseState):
         tiers_info = {
             'ru': {
                 1: ('Бесплатно. Марафон, базовый профиль.', 'Зарегистрироваться в боте'),
-                2: ('Подписка. Лента, консультации, заметки, планы.', 'Оформить подписку Telegram Stars'),
+                2: ('Подписка. Лента, консультации, заметки, планы.', 'Оформить подписку «Бесконечное развитие»'),
                 3: ('ЦД подключён. Персонализация, полный профиль.', 'Подключить Цифровой Двойник (/twin)'),
                 4: ('Локальный экзокортекс. Claude Code, агенты, личная база знаний.', 'Установить Claude Code + fork шаблона'),
             },
             'en': {
                 1: ('Free. Marathon, basic profile.', 'Register in the bot'),
-                2: ('Subscription. Feed, consultations, notes, plans.', 'Subscribe via Telegram Stars'),
+                2: ('Subscription. Feed, consultations, notes, plans.', 'Subscribe to "Endless Development" on Aisystant'),
                 3: ('DT connected. Personalization, full profile.', 'Connect Digital Twin (/twin)'),
                 4: ('Local exocortex. Claude Code, agents, personal knowledge base.', 'Install Claude Code + fork template'),
             },

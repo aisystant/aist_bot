@@ -1,11 +1,12 @@
 """
 Обработка донатов через Telegram Stars.
 
-Два варианта:
+WP-85: Stars = донаты (благодарность), НЕ влияют на тир/доступ.
+Подписка «Бесконечное развитие» (определяет T2) → handlers/subscription.py.
+
+Два варианта донатов:
 - donate_once: разовый донат (без subscription_period)
 - donate_recurring: ежемесячный донат (subscription_period=30 дней)
-
-Подписка на Aisystant «Бесконечное развитие» → handlers/subscription.py (определяет тир T2).
 """
 
 import logging
@@ -124,8 +125,12 @@ async def cb_donate_recurring(callback: CallbackQuery):
 
 @payments_router.callback_query(F.data == "subscribe")
 async def cb_subscribe_legacy(callback: CallbackQuery):
-    """Legacy: старые кнопки подписки → перенаправляем на ежемесячный донат."""
-    await cb_donate_recurring(callback)
+    """Legacy: старые кнопки подписки → перенаправляем на подписку Aisystant.
+
+    WP-85: Stars = донаты. Подписка = «Бесконечное развитие» на Aisystant.
+    """
+    from handlers.subscription import callback_aisystant_subscribe
+    await callback_aisystant_subscribe(callback)
 
 
 # === Pre-checkout: подтверждение платежа ===

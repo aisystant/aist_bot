@@ -416,25 +416,28 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 **mode_select layouts:**
 
 ```
-T1: [📚 Марафон] [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
-T2: [📖 Лента]   [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
-T3: [🧬 ЦД]      [📖 Лента]     / [📊 Прогресс]  [⚙️ Настройки]
-T4: [📋 Мой план] [🏛 Клуб]     / [🧬 ЦД]        [⚙️ Настройки]
-T5: = T4 (keyboard), dev-commands в menu (bot.py)
+T0:  [📚 Марафон] [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
+T1:  [📚 Марафон] [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
+T2:  [📖 Лента]   [🧪 Тест]      / [📊 Прогресс]  [⚙️ Настройки]
+T3:  [🧬 ЦД]      [📖 Лента]     / [📊 Прогресс]  [⚙️ Настройки]
+T4:  [📋 Мой план] [🏛 Клуб]     / [🧬 ЦД]        [⚙️ Настройки]
+TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 ```
 
-**Tier detection (payment-first):**
-- T1: нет подписки (free)
-- T2: подписка Stars / 15-дн. триал
+**Tier detection (payment-first, WP-85):**
+- T0: анонимный / без профиля (T1_NEW)
+- T1: привязан к Aisystant, нет подписки БР и триал истёк (T1_START)
+- T2: подписка «Бесконечное развитие» на Aisystant ИЛИ 30-дн. триал от /start
 - T3: T2 + ЦД подключён
 - T4: T3 + GitHub подключён
-- T5: DEVELOPER_CHAT_ID
-- Тир падает до T1 при истечении подписки
+- TD1: DEVELOPER_CHAT_ID
+- TG Stars = донаты (благодарность), НЕ влияют на тир/доступ
+- Тир падает до T1 при истечении подписки БР и триала
 
 **Правила:**
 - ⚙️ Настройки = universal settings (Language first, Profile link)
 - SM НЕ удаляет KB, а ЗАМЕНЯЕТ на контекстную
-- T5 menu = dev-commands (stats, usage, qa, ...) — set в bot.py, НЕ в tier_config
+- TD1 menu = dev-commands (stats, usage, qa, ...) — set в bot.py, НЕ в tier_config
 - Menu ☰ per-user через `BotCommandScopeChat`
 - Все команды работают на любом тире (видимость ≠ доступность)
 - Paywall text НЕ должен обещать функциональность, которой нет у целевой команды (урок: `/start` не показывает тир-инфо)
