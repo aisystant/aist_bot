@@ -79,6 +79,7 @@ class GitHubOAuthClient:
                 "target_repo": row.get("target_repo"),
                 "notes_path": row.get("notes_path") or "inbox/fleeting-notes.md",
                 "strategy_repo": row.get("strategy_repo"),
+                "strategy_default_branch": row.get("strategy_default_branch") or "main",
                 "knowledge_repo": row.get("knowledge_repo"),
                 "default_branch": row.get("default_branch") or "main",
             }
@@ -354,17 +355,56 @@ class GitHubOAuthClient:
         return None
 
     async def set_strategy_repo(self, telegram_user_id: int, repo_full_name: str):
-        """Устанавливает репо стратега."""
+        """Устанавливает репо стратега. Определяет default_branch через API."""
+        strategy_default_branch = "main"
+        repo_info = await self.api_request(
+            telegram_user_id, "GET", f"/repos/{repo_full_name}"
+        )
+        if repo_info:
+            strategy_default_branch = repo_info.get("default_branch", "main")
+
         data = await self._get_cached(telegram_user_id)
         if data:
             data["strategy_repo"] = repo_full_name
+            data["strategy_default_branch"] = strategy_default_branch
 
         from db.queries.github import update_github_strategy_repo
 
-        await update_github_strategy_repo(telegram_user_id, repo_full_name)
+        await update_github_strategy_repo(telegram_user_id, repo_full_name, strategy_default_branch)
         logger.info(
-            f"Set strategy repo for user {telegram_user_id}: {repo_full_name}"
+            f"Set strategy repo for user {telegram_user_id}: {repo_full_name} (branch: {strategy_default_branch})"
         )
+
+    async def get_strategy_default_branch(self, telegram_user_id: int) -> str:
+        """Возвращает дефолтную ветку strategy-репозитория.
+
+        Lazy backfill: если branch не определён (дефолт 'main') и strategy_repo задан,
+        делает один API-вызов, обновляет кеш и БД. Повторных вызовов не будет.
+        """
+        data = await self._get_cached(telegram_user_id)
+        if not data:
+            return "main"
+
+        stored = data.get("strategy_default_branch") or "main"
+        strategy_repo = data.get("strategy_repo")
+
+        # Lazy backfill: дефолт 'main' + есть repo → проверить через API
+        if stored == "main" and strategy_repo:
+            repo_info = await self.api_request(
+                telegram_user_id, "GET", f"/repos/{strategy_repo}"
+            )
+            if repo_info:
+                real_branch = repo_info.get("default_branch", "main")
+                if real_branch != stored:
+                    data["strategy_default_branch"] = real_branch
+                    from db.queries.github import update_github_strategy_repo
+                    await update_github_strategy_repo(telegram_user_id, strategy_repo, real_branch)
+                    logger.info(
+                        f"Lazy backfill strategy branch for {telegram_user_id}: {stored} → {real_branch}"
+                    )
+                    return real_branch
+
+        return stored
 
     async def get_knowledge_repo(self, telegram_user_id: int) -> Optional[str]:
         """Возвращает репо индекса знаний (owner/repo) для Публикатора."""

@@ -340,7 +340,9 @@ async def handle_forwarded_message(message: Message):
             result = await github_notes.append_note(telegram_user_id, note_text)
 
             if result:
-                url = f"https://github.com/{result['repo']}/blob/main/{result['path']}"
+                from clients.github_oauth import github_oauth
+                branch = await github_oauth.get_default_branch(telegram_user_id)
+                url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
                 await message.answer(t('github.note_saved', lang, url=url))
             else:
                 await message.answer(t('github.note_error', lang))
