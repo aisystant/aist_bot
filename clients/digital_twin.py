@@ -194,6 +194,21 @@ class DigitalTwinClient:
                             "expires_at": time.time() + tokens.get("expires_in", 3600),
                             "created_at": time.time(),
                         }
+                        # WP-82 diagnostic: check if id_token contains ory_id (sub claim)
+                        id_token_raw = tokens.get("id_token")
+                        if id_token_raw:
+                            try:
+                                payload_b64 = id_token_raw.split('.')[1]
+                                # Add padding for base64
+                                payload_b64 += '=' * (4 - len(payload_b64) % 4)
+                                id_payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                                ory_id = id_payload.get("sub")
+                                logger.info(f"DT OAuth: id_token sub (ory_id) = {ory_id}")
+                                logger.info(f"DT OAuth: id_token claims = {list(id_payload.keys())}")
+                            except Exception as e:
+                                logger.warning(f"DT OAuth: failed to parse id_token: {e}")
+                        else:
+                            logger.info("DT OAuth: no id_token in response (keys: %s)", list(tokens.keys()))
                         logger.info(f"DT OAuth: user {telegram_user_id} connected")
                         return self._tokens[telegram_user_id]
                     else:
