@@ -2019,6 +2019,10 @@ profile:
     ru: "не удалось загрузить"
     en: "failed to load"
 
+  select_field_hint:
+    ru: "Нажмите кнопку выше, чтобы выбрать поле для редактирования"
+    en: "Tap a button above to select a field to edit"
+
   your_profile:
     ru: "Ваш профиль"
     en: "Your profile"
@@ -4494,6 +4498,11 @@ milestones:
   btn_twin:
     ru: "🧬 Заполнить Цифровой двойник"
     en: "🧬 Fill Digital Twin"
+    max_length: 40
+
+  btn_mydata:
+    ru: "📁 Мои данные"
+    en: "📁 My data"
     max_length: 40
 
 # -----------------------------------------------------------------------------

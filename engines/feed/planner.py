@@ -638,6 +638,7 @@ async def generate_multi_topic_digest(
         'ru': f"Темы: {topics_str}\nУровень глубины: {depth_level}",
         'en': f"Topics: {topics_str}\nDepth level: {depth_level}",
         'es': f"Temas: {topics_str}\nNivel de profundidad: {depth_level}",
+        'fr': f"Sujets : {topics_str}\nNiveau de profondeur : {depth_level}",
         'zh': f"主题：{topics_str}\n深度级别：{depth_level}"
     }.get(lang, f"Темы: {topics_str}\nУровень глубины: {depth_level}")
 
@@ -794,6 +795,7 @@ async def generate_topic_content(
         'ru': f"Тема: {topic.get('title')}\nОписание: {topic.get('description', '')}",
         'en': f"Topic: {topic.get('title')}\nDescription: {topic.get('description', '')}",
         'es': f"Tema: {topic.get('title')}\nDescripción: {topic.get('description', '')}",
+        'fr': f"Sujet : {topic.get('title')}\nDescription : {topic.get('description', '')}",
         'zh': f"主题：{topic.get('title')}\n描述：{topic.get('description', '')}"
     }.get(lang, f"Тема: {topic.get('title')}\nОписание: {topic.get('description', '')}")
 

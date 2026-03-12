@@ -192,6 +192,19 @@ async def cmd_health(message: Message):
         cnt = r['count'] if r['count'] >= 0 else "ERR"
         table_lines += f"  {r['table']}: {cnt}\n"
 
+    # Scheduler processes info
+    try:
+        from core.scheduler import _scheduler
+        if _scheduler is not None:
+            sched_status = "running" if _scheduler.running else "stopped"
+            job_count = len(_scheduler.get_jobs()) if _scheduler.running else 0
+        else:
+            sched_status = "disabled"
+            job_count = 0
+    except Exception:
+        sched_status = "error"
+        job_count = 0
+
     text = (
         f"<b>Состояние системы</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>Размеры таблиц</b>:\n"
@@ -202,7 +215,18 @@ async def cmd_health(message: Message):
         f"  \U0001f195 Новые: {feedback.get('new_count', 0)}"
         f" | \U0001f534 Плохо: {feedback.get('red_count', 0)}"
         f" | \U0001f7e1 Средне: {feedback.get('yellow_count', 0)}"
-        f" | \U0001f7e2 Хорошо: {feedback.get('green_count', 0)}\n"
+        f" | \U0001f7e2 Хорошо: {feedback.get('green_count', 0)}\n\n"
+        f"<b>Процессы</b> ({sched_status}, {job_count} jobs)\n"
+        f"  Доставка уроков: каждую мин\n"
+        f"  Пре-генерация: каждую мин (3ч ahead)\n"
+        f"  Публикатор: :07,:37 + скан 05:07\n"
+        f"  Discourse comments: :03,:18,:33,:48\n"
+        f"  C3 milestones: 11:00\n"
+        f"  C7 events: 12:00\n"
+        f"  Feed digest: при доставке\n"
+        f"  Trial expiry: 10:00\n"
+        f"  Integrity check: 08:00\n"
+        f"  Feedback digest: 21:00 / Пн 10:00\n"
     )
 
     await message.answer(text, parse_mode="HTML")

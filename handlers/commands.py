@@ -136,7 +136,6 @@ async def cmd_profile(message: Message, state: FSMContext):
 
 
 @commands_router.message(Command("settings"))
-@commands_router.message(Command("update"))
 async def cmd_settings(message: Message, state: FSMContext):
     """Настройки системы через Dispatcher → common.settings."""
     from handlers import get_dispatcher

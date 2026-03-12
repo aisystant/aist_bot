@@ -432,16 +432,16 @@ def test_2_15_change_complexity(bot_client: BotTestClient):
     Сценарий 2.15: Изменение сложности
 
     Шаги:
-    1. Изменить сложность через /update
+    1. Изменить сложность через /settings
     2. Получить следующий урок
 
     Ожидаемый результат:
     - Новая сложность применена
     - Вопросы соответствуют новому уровню
     """
-    responses = run_async(bot_client.command_and_wait('/update', timeout=10))
+    responses = run_async(bot_client.command_and_wait('/settings', timeout=10))
 
-    assert len(responses) >= 1, "Бот не ответил на /update"
+    assert len(responses) >= 1, "Бот не ответил на /settings"
 
     for r in responses:
         if r.has_button('Сложность') or r.has_button('Complexity'):

@@ -9,7 +9,7 @@
 Принцип: настройки = КАК система работает (конфигурация).
 Персональные данные (ЧТО бот знает обо мне) → Profile.
 
-Вход: по кнопке "Настройки" или команде /settings, /update
+Вход: по кнопке "Настройки" или команде /settings
 Выход: saved → mode_select, cancel → _previous
 """
 
@@ -20,22 +20,10 @@ from typing import Optional
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
 from states.base import BaseState
-from i18n import t, SUPPORTED_LANGUAGES
+from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
 
 logger = logging.getLogger(__name__)
-
-
-def get_language_name(code: str) -> str:
-    """Получить название языка по коду."""
-    names = {
-        'ru': '🇷🇺 Русский',
-        'en': '🇬🇧 English',
-        'es': '🇪🇸 Español',
-        'fr': '🇫🇷 Français',
-        'zh': '🇨🇳 中文'
-    }
-    return names.get(code, code)
 
 
 class SettingsState(BaseState):

@@ -388,7 +388,7 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 
         # Сохраняем как pending (не показана пользователю)
         topics_title = ", ".join(topics)
-        await create_feed_session(
+        session = await create_feed_session(
             week_id=week['id'],
             day_number=depth_level,
             topic_title=topics_title,
@@ -396,6 +396,10 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
             session_date=today,
             status='pending',
         )
+        if not session:
+            # UPSERT returned None → active/completed session already exists (race condition guard)
+            logger.info(f"[Scheduler] Feed: session already exists for {chat_id} today (UPSERT skip)")
+            return
         logger.info(f"[Scheduler] Feed: pre-generated digest for {chat_id} "
                      f"(topics: {topics_title}, depth: {depth_level})")
 
@@ -1200,7 +1204,7 @@ async def send_milestone_notifications():
                                completed=topics_count)
                     text = text.replace('{marathon_status}', ms)
 
-                # Кнопки: day_30 и ниже → предложить ЛР, day_60 → twin
+                # Кнопки: day_30 и ниже → предложить ЛР, day_60 → mydata
                 keyboard = None
                 if day in (30, 90):
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1212,8 +1216,8 @@ async def send_milestone_notifications():
                 elif day == 60:
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(
-                            text=t('milestones.btn_twin', lang),
-                            callback_data="cmd_twin",
+                            text=t('milestones.btn_mydata', lang),
+                            callback_data="cmd_mydata",
                         )]
                     ])
                 elif day == 14:

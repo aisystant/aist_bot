@@ -251,7 +251,7 @@ def test_3_8_today_digest(bot_client: BotTestClient):
     - Темы обновлены
     - Оставшиеся дайджесты перепланированы
     """
-    responses = run_async(bot_client.command_and_wait('/update', timeout=10))
+    responses = run_async(bot_client.command_and_wait('/settings', timeout=10))
 
     for r in responses:
         if r.has_button('Темы') or r.has_button('Topics'):
