@@ -162,6 +162,10 @@ class GitHubStrategyClient:
             return f"https://github.com/{repo}"
         return None
 
+    async def get_strategy_branch(self, telegram_user_id: int) -> str:
+        """Возвращает дефолтную ветку strategy-репозитория."""
+        return await github_oauth.get_strategy_default_branch(telegram_user_id)
+
 
 # Singleton instance
 github_strategy = GitHubStrategyClient()

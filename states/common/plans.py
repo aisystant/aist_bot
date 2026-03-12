@@ -53,11 +53,11 @@ class PlansState(BaseState):
     def _truncate(self, text: str) -> str:
         return truncate_safe(text)
 
-    def _format_content(self, content: str, repo_url: str = None) -> str:
+    def _format_content(self, content: str, repo_url: str = None, branch: str = "main") -> str:
         text = format_strategy_content(content)
         text = self._truncate(text)
         if repo_url:
-            text += f'\n\n<a href="{repo_url}/tree/main/current">Открыть в GitHub</a>'
+            text += f'\n\n<a href="{repo_url}/tree/{branch}/current">Открыть в GitHub</a>'
         return text
 
     async def _check_github(self, user) -> tuple[bool, Optional[str]]:
@@ -209,7 +209,8 @@ class PlansState(BaseState):
             return None
 
         repo_url = await github_strategy.get_strategy_repo_url(chat_id)
-        text = self._format_content(content, repo_url)
+        branch = await github_strategy.get_strategy_branch(chat_id)
+        text = self._format_content(content, repo_url, branch)
 
         await self.send(user, text, parse_mode="HTML", reply_markup=keyboard)
         return None

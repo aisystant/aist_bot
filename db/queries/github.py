@@ -65,13 +65,13 @@ async def update_github_notes_path(chat_id: int, notes_path: str) -> None:
         )
 
 
-async def update_github_strategy_repo(chat_id: int, strategy_repo: str) -> None:
+async def update_github_strategy_repo(chat_id: int, strategy_repo: str, strategy_default_branch: str = "main") -> None:
     """Обновить репозиторий стратега."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE github_connections SET strategy_repo = $1, updated_at = NOW() WHERE chat_id = $2',
-            strategy_repo, chat_id,
+            'UPDATE github_connections SET strategy_repo = $1, strategy_default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
+            strategy_repo, chat_id, strategy_default_branch,
         )
 
 

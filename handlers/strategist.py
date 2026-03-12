@@ -58,11 +58,11 @@ def _truncate(text: str, lang: str = 'ru') -> str:
     return truncate_safe(text, suffix=f"\n\n{t('strategist.truncated', lang)}")
 
 
-def _format(content: str, lang: str = 'ru', repo_url: str = None) -> str:
+def _format(content: str, lang: str = 'ru', repo_url: str = None, branch: str = "main") -> str:
     text = format_strategy_content(content)
     text = _truncate(text, lang)
     if repo_url:
-        text += f'\n\n<a href="{repo_url}/tree/main/current">{t("strategist.open_in_github", lang)}</a>'
+        text += f'\n\n<a href="{repo_url}/tree/{branch}/current">{t("strategist.open_in_github", lang)}</a>'
     return text
 
 
@@ -119,7 +119,8 @@ async def cmd_rp(message: Message):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
+    branch = await github_strategy.get_strategy_branch(user_id)
+    await message.answer(_format(content, lang, repo_url, branch), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.message(F.text == "/plan")
@@ -141,7 +142,8 @@ async def cmd_plan(message: Message):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
+    branch = await github_strategy.get_strategy_branch(user_id)
+    await message.answer(_format(content, lang, repo_url, branch), parse_mode="HTML", disable_web_page_preview=True)
 
 
 @strategist_router.message(F.text == "/report")
@@ -159,7 +161,8 @@ async def cmd_report(message: Message):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await message.answer(_format(content, lang, repo_url), parse_mode="HTML", disable_web_page_preview=True)
+    branch = await github_strategy.get_strategy_branch(user_id)
+    await message.answer(_format(content, lang, repo_url, branch), parse_mode="HTML", disable_web_page_preview=True)
 
 
 # --- Callback-кнопки из уведомлений стратега ---
@@ -185,7 +188,8 @@ async def callback_strat_plan(callback: CallbackQuery):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML",
+    branch = await github_strategy.get_strategy_branch(user_id)
+    await callback.message.answer(_format(content, lang, repo_url, branch), parse_mode="HTML",
                                   disable_web_page_preview=True, reply_markup=kb)
 
 
@@ -206,7 +210,8 @@ async def callback_strat_rp(callback: CallbackQuery):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML",
+    branch = await github_strategy.get_strategy_branch(user_id)
+    await callback.message.answer(_format(content, lang, repo_url, branch), parse_mode="HTML",
                                   disable_web_page_preview=True, reply_markup=kb)
 
 
@@ -227,7 +232,8 @@ async def callback_strat_report(callback: CallbackQuery):
         return
 
     repo_url = await github_strategy.get_strategy_repo_url(user_id)
-    await callback.message.answer(_format(content, lang, repo_url), parse_mode="HTML",
+    branch = await github_strategy.get_strategy_branch(user_id)
+    await callback.message.answer(_format(content, lang, repo_url, branch), parse_mode="HTML",
                                   disable_web_page_preview=True, reply_markup=kb)
 
 
