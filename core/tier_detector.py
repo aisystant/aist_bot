@@ -1,18 +1,20 @@
 """
 UI Tier detection — subscription + trial + connections.
 
-Source-of-truth: WP-52 + WP-79
+Source-of-truth: WP-52 + WP-79 + WP-85
 
 Tier model (cumulative, payment-first):
   T1_NEW (0):  not linked to Aisystant
   T1_START (1): linked, no БР subscription AND trial expired
-  T2: Aisystant «Бесконечное развитие» subscription active OR 30-day trial
+  T2: Aisystant «Бесконечное развитие» subscription active OR 30-day trial from /start
   T3: T2 + Digital Twin connected
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
 
 Tier drops to T1_START if БР subscription expires AND trial expired.
 Tier drops to T1_NEW if aisystant link removed (unlikely).
+
+TG Stars = donations only, do NOT affect tier (WP-85 decision 2026-03-12).
 
 Tier transitions logged to tier_events table (analytics).
 Downgrade T2+→T1 triggers user notification.
@@ -95,8 +97,8 @@ async def _get_aisystant_id(chat_id: int) -> str | None:
 async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     """Check if user has active Aisystant БР subscription OR is in trial.
 
-    WP-79: Primary check = Aisystant «Бесконечное развитие».
-    Fallback: 30-day trial from registration (access_layer).
+    WP-85: Aisystant «Бесконечное развитие» OR 30-day trial from /start.
+    TG Stars donations do NOT affect this check.
     """
     # Primary: Aisystant БР
     try:
@@ -106,9 +108,9 @@ async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     except Exception as e:
         logger.warning(f"[Tier] Aisystant subscription check failed: {e}")
 
-    # Fallback: 30-day trial (T2 features for new users)
+    # Fallback: 30-day trial from /start
     from core.access import access_layer
-    return await access_layer.has_access(chat_id, "feed")
+    return await access_layer.is_in_trial(chat_id)
 
 
 async def _is_github_connected(chat_id: int) -> bool:

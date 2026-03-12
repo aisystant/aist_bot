@@ -3,11 +3,13 @@
 
 Биллинг = слой доступа, не домен в меню (DP.AISYS.014 § 4.4).
 
-Модель доступа:
+Модель доступа (WP-85, 2026-03-12):
   1. Бесплатный сервис (не в LOCKED_SERVICES) → True
-  2. Подписка «Бесконечное развитие» на Aisystant → True
-  3. В пределах 30-дневного триала → True (T2 features)
+  2. Подписка «Бесконечное развитие» на Aisystant (system-school.ru) → True
+  3. В пределах 30-дневного триала от /start → True (T2 features)
   4. Иначе → False (paywall)
+
+TG Stars = донаты (благодарность), НЕ влияют на доступ.
 """
 
 import logging
@@ -28,22 +30,37 @@ class AccessLayer:
     async def has_access(self, user_id: int, service_id: str) -> bool:
         """Проверяет, имеет ли пользователь доступ к сервису.
 
-        Логика:
+        Логика (WP-85):
         1. Бесплатный сервис → True
-        2. Активная подписка БР → True
-        3. В пределах триала (30 дней) → True
+        2. Активная подписка БР на Aisystant → True
+        3. В пределах триала (30 дней от /start) → True
         4. Иначе → False
+
+        TG Stars донаты НЕ влияют на доступ.
         """
         if service_id not in LOCKED_SERVICES:
             return True
 
-        from db.queries.subscription import is_subscribed
-        if await is_subscribed(user_id):
+        # Aisystant «Бесконечное развитие»
+        if await self._has_aisystant_subscription(user_id):
             return True
 
-        return await self._is_in_trial(user_id)
+        return await self.is_in_trial(user_id)
 
-    async def _is_in_trial(self, user_id: int) -> bool:
+    async def _has_aisystant_subscription(self, user_id: int) -> bool:
+        """Проверить подписку БР через Aisystant API."""
+        try:
+            from db.queries.aisystant import get_aisystant_id
+            aisystant_id = await get_aisystant_id(user_id)
+            if not aisystant_id:
+                return False
+            from clients.aisystant import aisystant
+            return await aisystant.has_active_subscription(aisystant_id)
+        except Exception as e:
+            logger.warning(f"[Access] Aisystant subscription check failed: {e}")
+            return False
+
+    async def is_in_trial(self, user_id: int) -> bool:
         """Проверить, находится ли пользователь в пределах бесплатного триала."""
         from db.queries import get_intern
         user = await get_intern(user_id)
