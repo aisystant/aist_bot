@@ -111,6 +111,12 @@ async def main():
     from core.error_handler import setup_error_handler
     await setup_error_handler()
 
+    # Загрузка токенов ЦД из DB (WP-82: token persistence)
+    from clients.digital_twin import digital_twin
+    dt_loaded = await digital_twin.load_tokens_from_db()
+    if dt_loaded:
+        logger.info(f"✅ DT: восстановлено {dt_loaded} подключений из DB")
+
     # Создаём bot с transport-layer Markdown→HTML intercept
     from core.safe_bot import SafeBot
     bot = SafeBot(token=BOT_TOKEN)

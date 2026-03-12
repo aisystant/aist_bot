@@ -28,6 +28,7 @@ import hashlib
 import json
 import secrets
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -188,13 +189,16 @@ class DigitalTwinClient:
                 ) as resp:
                     if resp.status == 200:
                         tokens = await resp.json()
+                        expires_at_ts = time.time() + tokens.get("expires_in", 3600)
                         self._tokens[telegram_user_id] = {
                             "access_token": tokens.get("access_token"),
                             "refresh_token": tokens.get("refresh_token"),
-                            "expires_at": time.time() + tokens.get("expires_in", 3600),
+                            "expires_at": expires_at_ts,
                             "created_at": time.time(),
                         }
                         logger.info(f"DT OAuth: user {telegram_user_id} connected")
+                        # Persist to DB (fire-and-forget safe — caller also saves dt_connected_at)
+                        await self._persist_tokens(telegram_user_id)
                         return self._tokens[telegram_user_id]
                     else:
                         error = await resp.text()
@@ -233,6 +237,7 @@ class DigitalTwinClient:
                             "created_at": time.time(),
                         }
                         logger.info(f"DT OAuth: refreshed token for user {telegram_user_id}")
+                        await self._persist_tokens(telegram_user_id)
                         return True
                     else:
                         logger.error(f"DT token refresh failed: {resp.status}")
@@ -249,14 +254,102 @@ class DigitalTwinClient:
         return None
 
     def is_connected(self, telegram_user_id: int) -> bool:
-        """Проверяет, авторизован ли пользователь в Digital Twin."""
-        return telegram_user_id in self._tokens
+        """Проверяет, авторизован ли пользователь в Digital Twin.
+
+        Учитывает наличие refresh_token (access может быть просрочен —
+        refresh восстановит его автоматически при следующем запросе).
+        """
+        token_data = self._tokens.get(telegram_user_id)
+        if not token_data:
+            return False
+        # Есть refresh_token = можно восстановить соединение
+        return bool(token_data.get("refresh_token"))
 
     def disconnect(self, telegram_user_id: int):
         """Отключает пользователя от Digital Twin."""
         if telegram_user_id in self._tokens:
             del self._tokens[telegram_user_id]
             logger.info(f"DT: disconnected user {telegram_user_id}")
+        # Удалить из DB (fire-and-forget)
+        asyncio.ensure_future(self._delete_tokens_from_db(telegram_user_id))
+
+    # =========================================================================
+    # Token persistence (WP-82)
+    # =========================================================================
+
+    async def _persist_tokens(self, telegram_user_id: int) -> None:
+        """Сохранить токены в DB."""
+        token_data = self._tokens.get(telegram_user_id)
+        if not token_data:
+            return
+        try:
+            from db.queries.dt_tokens import save_dt_tokens
+            expires_at = datetime.utcfromtimestamp(token_data["expires_at"])
+            await save_dt_tokens(
+                chat_id=telegram_user_id,
+                access_token=token_data["access_token"],
+                refresh_token=token_data["refresh_token"],
+                expires_at=expires_at,
+                dt_user_id=token_data.get("dt_user_id"),
+            )
+        except Exception as e:
+            logger.error(f"DT: failed to persist tokens for {telegram_user_id}: {e}")
+
+    async def _delete_tokens_from_db(self, telegram_user_id: int) -> None:
+        """Удалить токены из DB."""
+        try:
+            from db.queries.dt_tokens import delete_dt_tokens
+            await delete_dt_tokens(telegram_user_id)
+        except Exception as e:
+            logger.error(f"DT: failed to delete tokens for {telegram_user_id}: {e}")
+
+    async def load_tokens_from_db(self) -> int:
+        """Загрузить токены из DB при старте бота. Возвращает количество загруженных."""
+        try:
+            from db.queries.dt_tokens import load_all_dt_tokens
+            rows = await load_all_dt_tokens()
+            loaded = 0
+            for row in rows:
+                chat_id = row["chat_id"]
+                expires_at_dt = row["expires_at"]
+                # TIMESTAMP naive = UTC (§10.6)
+                expires_at_ts = expires_at_dt.timestamp() if expires_at_dt else 0
+                self._tokens[chat_id] = {
+                    "access_token": row["access_token"],
+                    "refresh_token": row["refresh_token"],
+                    "expires_at": expires_at_ts,
+                    "dt_user_id": row.get("dt_user_id"),
+                    "created_at": time.time(),
+                }
+                loaded += 1
+            logger.info(f"DT: loaded {loaded} tokens from DB")
+            return loaded
+        except Exception as e:
+            logger.error(f"DT: failed to load tokens from DB: {e}")
+            return 0
+
+    async def refresh_expiring_tokens(self, margin_seconds: int = 600) -> int:
+        """Proactive refresh: обновить токены, истекающие в ближайшие margin_seconds.
+
+        Вызывается из scheduler. Возвращает количество обновлённых.
+        """
+        now = time.time()
+        refreshed = 0
+        # Snapshot keys to avoid dict-changed-during-iteration
+        for user_id in list(self._tokens.keys()):
+            token_data = self._tokens.get(user_id)
+            if not token_data:
+                continue
+            expires_at = token_data.get("expires_at", 0)
+            if expires_at - now < margin_seconds:
+                ok = await self._refresh_token(user_id)
+                if ok:
+                    refreshed += 1
+                else:
+                    logger.warning(f"DT: proactive refresh failed for {user_id}")
+        if refreshed:
+            logger.info(f"DT: proactively refreshed {refreshed} tokens")
+        return refreshed
 
     # =========================================================================
     # Circuit breaker
@@ -499,11 +592,15 @@ class DigitalTwinClient:
         return str(value) if not isinstance(value, str) else value
 
     async def sync_profile(self, telegram_user_id: int, intern_data: dict) -> int:
-        """Полный перелив профиля бота → ЦД. Возвращает кол-во записанных полей."""
+        """Полный перелив профиля бота → ЦД. Возвращает кол-во записанных полей.
+
+        Побочный эффект: извлекает dt_user_id из первого write-ответа (WP-82 Фаза 1).
+        """
         if not self.is_connected(telegram_user_id):
             return 0
 
         synced = 0
+        dt_user_id_extracted = False
         for field, dt_path in self.PROFILE_DT_MAPPING.items():
             value = intern_data.get(field)
             if value is None or value == '' or value == '[]':
@@ -515,8 +612,21 @@ class DigitalTwinClient:
                 result = await self.write(dt_path, converted, telegram_user_id)
                 if result is not None:
                     synced += 1
+                    # Extract dt_user_id from write response (WP-82)
+                    if not dt_user_id_extracted and isinstance(result, dict):
+                        user_uuid = result.get("user")
+                        if user_uuid:
+                            token_data = self._tokens.get(telegram_user_id)
+                            if token_data:
+                                token_data["dt_user_id"] = user_uuid
+                            dt_user_id_extracted = True
+                            logger.info(f"DT: extracted dt_user_id={user_uuid} for user {telegram_user_id}")
             except Exception as e:
                 logger.error(f"DT sync field {field} failed: {e}")
+
+        # Persist updated tokens with dt_user_id
+        if dt_user_id_extracted:
+            await self._persist_tokens(telegram_user_id)
 
         logger.info(f"DT sync: user {telegram_user_id}, {synced}/{len(self.PROFILE_DT_MAPPING)} fields")
         return synced
