@@ -177,7 +177,8 @@ class ProfileState(BaseState):
         if waiting_for:
             return await self._handle_text_input(user, waiting_for, text)
 
-        await self.enter(user)
+        lang = self._get_lang(user)
+        await self.send(user, t('profile.select_field_hint', lang))
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:

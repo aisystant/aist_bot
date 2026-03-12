@@ -15,7 +15,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from states.base import BaseState
 from core.tier_ui import build_reply_keyboard, sync_menu_commands
 from core.tier_detector import detect_ui_tier
-from i18n import t, SUPPORTED_LANGUAGES
+from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
 
 
@@ -92,18 +92,11 @@ class ModeSelectState(BaseState):
 
         return None
 
-    def _get_language_name(self, code: str) -> str:
-        names = {
-            'ru': '🇷🇺 Русский', 'en': '🇬🇧 English',
-            'es': '🇪🇸 Español', 'fr': '🇫🇷 Français', 'zh': '🇨🇳 中文',
-        }
-        return names.get(code, code)
-
     async def _show_language_options(self, user, callback: CallbackQuery) -> Optional[str]:
         """Show language selector (backwards compat for old inline messages)."""
         lang = self._get_lang(user)
         buttons = [
-            [InlineKeyboardButton(text=self._get_language_name(l), callback_data=f"lang_{l}")]
+            [InlineKeyboardButton(text=get_language_name(l), callback_data=f"lang_{l}")]
             for l in SUPPORTED_LANGUAGES
         ]
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="lang_back")])

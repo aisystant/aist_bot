@@ -421,7 +421,9 @@ async def generate_answer(
     user_prompts = {
         'ru': f"Вопрос: {question}",
         'en': f"Question: {question}",
-        'es': f"Pregunta: {question}"
+        'es': f"Pregunta: {question}",
+        'fr': f"Question : {question}",
+        'zh': f"问题：{question}"
     }
     user_prompt = user_prompts.get(lang, user_prompts['ru'])
 
@@ -553,7 +555,9 @@ async def handle_question_with_tools(
     user_prompts = {
         'ru': f"Вопрос: {question}",
         'en': f"Question: {question}",
-        'es': f"Pregunta: {question}"
+        'es': f"Pregunta: {question}",
+        'fr': f"Question : {question}",
+        'zh': f"问题：{question}"
     }
     user_prompt = user_prompts.get(lang, user_prompts['ru'])
 
@@ -660,7 +664,9 @@ async def answer_with_context(
     user_prompts = {
         'ru': f"Вопрос: {question}",
         'en': f"Question: {question}",
-        'es': f"Pregunta: {question}"
+        'es': f"Pregunta: {question}",
+        'fr': f"Question : {question}",
+        'zh': f"问题：{question}"
     }
     user_prompt = user_prompts.get(lang, user_prompts['ru'])
 

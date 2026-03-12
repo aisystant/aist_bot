@@ -444,9 +444,11 @@ class TrainingEngine:
         cognitive_level = child.get('cognitive_level', 'concrete_operational')
         p_name = get_kid_principle_name(principle_id)
 
+        intern = await self._get_intern()
+        lang = intern.get('language', 'ru') if intern else 'ru'
         assignment_text = await generate_child_assignment_text(
             depth_data, cognitive_level, child['name'],
-            p_name, target_depth
+            p_name, target_depth, lang=lang
         )
 
         return {

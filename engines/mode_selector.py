@@ -478,55 +478,24 @@ async def marathon_settings_back(callback: CallbackQuery):
 
 @mode_router.callback_query(F.data == "marathon_go_update")
 async def marathon_go_update(callback: CallbackQuery, state: FSMContext):
-    """Переход к обновлению профиля"""
-    from integrations.telegram.keyboards import kb_update_profile
-    from core.topics import get_marathon_day
-    from config import STUDY_DURATIONS, BLOOM_LEVELS
-    from handlers.settings import UpdateStates
-    from i18n import get_language_name
-
+    """Переход к обновлению профиля через SM (ProfileState)"""
     await callback.answer()
+    await callback.message.edit_reply_markup()
+    await state.clear()
 
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
-    lang = intern.get('language', 'ru')
 
-    duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
-    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
-
-    # Получаем дату старта марафона
-    start_date = intern.get('marathon_start_date')
-    if start_date:
-        from datetime import datetime
-        if isinstance(start_date, datetime):
-            start_date = start_date.date()
-        marathon_start_str = start_date.strftime('%d.%m.%Y')
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.go_to(intern, "common.profile")
     else:
-        marathon_start_str = "—"
-
-    marathon_day = get_marathon_day(intern)
-
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else '—'
-    motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or '—'
-    goals_short = intern['goals'][:80] + '...' if len(intern['goals']) > 80 else intern['goals'] or '—'
-
-    text = (
-        f"👤 *{intern['name']}*\n"
-        f"💼 {intern.get('occupation', '') or '—'}\n"
-        f"🎨 {interests_str}\n\n"
-        f"💫 {motivation_short}\n"
-        f"🎯 {goals_short}\n\n"
-        f"{duration.get('emoji', '')} {duration.get('name', '')}\n"
-        f"{bloom['emoji']} {bloom['short_name']}\n"
-        f"🗓 {marathon_start_str} ({t('progress.day', lang, n=marathon_day)})\n"
-        f"⏰ {intern['schedule_time']}\n"
-        f"🌐 {get_language_name(lang)}\n\n"
-        f"*{t('settings.what_to_change', lang)}*"
-    )
-
-    # Редактируем текущее сообщение вместо удаления
-    await callback.message.edit_text(text, reply_markup=kb_update_profile(lang), parse_mode="Markdown")
-    await state.set_state(UpdateStates.choosing_field)
+        from handlers.settings import UpdateStates
+        from integrations.telegram.keyboards import kb_update_profile
+        lang = intern.get('language', 'ru')
+        await callback.message.answer(t('settings.what_to_change', lang))
+        await state.set_state(UpdateStates.choosing_field)
 
 
 @mode_router.callback_query(F.data == "marathon_reminders_input")
@@ -940,55 +909,24 @@ async def select_feed(callback: CallbackQuery):
 
 @mode_router.callback_query(F.data == "feed_go_update")
 async def feed_go_update(callback: CallbackQuery, state: FSMContext):
-    """Переход к обновлению профиля из Ленты"""
-    from integrations.telegram.keyboards import kb_update_profile
-    from core.topics import get_marathon_day
-    from config import STUDY_DURATIONS, BLOOM_LEVELS
-    from handlers.settings import UpdateStates
-    from i18n import get_language_name
-
+    """Переход к обновлению профиля из Ленты через SM (ProfileState)"""
     await callback.answer()
+    await callback.message.edit_reply_markup()
+    await state.clear()
 
     chat_id = callback.message.chat.id
     intern = await get_intern(chat_id)
-    lang = intern.get('language', 'ru')
 
-    duration = STUDY_DURATIONS.get(str(intern['study_duration']), {})
-    bloom = BLOOM_LEVELS.get(intern['bloom_level'], BLOOM_LEVELS[1])
-
-    # Получаем дату старта марафона
-    start_date = intern.get('marathon_start_date')
-    if start_date:
-        from datetime import datetime
-        if isinstance(start_date, datetime):
-            start_date = start_date.date()
-        marathon_start_str = start_date.strftime('%d.%m.%Y')
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.go_to(intern, "common.profile")
     else:
-        marathon_start_str = "—"
-
-    marathon_day = get_marathon_day(intern)
-
-    interests_str = ', '.join(intern['interests']) if intern['interests'] else '—'
-    motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or '—'
-    goals_short = intern['goals'][:80] + '...' if len(intern['goals']) > 80 else intern['goals'] or '—'
-
-    text = (
-        f"👤 *{intern['name']}*\n"
-        f"💼 {intern.get('occupation', '') or '—'}\n"
-        f"🎨 {interests_str}\n\n"
-        f"💫 {motivation_short}\n"
-        f"🎯 {goals_short}\n\n"
-        f"{duration.get('emoji', '')} {duration.get('name', '')}\n"
-        f"{bloom['emoji']} {bloom['short_name']}\n"
-        f"🗓 {marathon_start_str} ({t('progress.day', lang, n=marathon_day)})\n"
-        f"⏰ {intern['schedule_time']}\n"
-        f"🌐 {get_language_name(lang)}\n\n"
-        f"*{t('settings.what_to_change', lang)}*"
-    )
-
-    # Редактируем текущее сообщение вместо удаления
-    await callback.message.edit_text(text, reply_markup=kb_update_profile(lang), parse_mode="Markdown")
-    await state.set_state(UpdateStates.choosing_field)
+        from handlers.settings import UpdateStates
+        from integrations.telegram.keyboards import kb_update_profile
+        lang = intern.get('language', 'ru')
+        await callback.message.answer(t('settings.what_to_change', lang))
+        await state.set_state(UpdateStates.choosing_field)
 
 
 @mode_router.callback_query(F.data == "feed_reminders_input")

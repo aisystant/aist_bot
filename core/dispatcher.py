@@ -21,7 +21,6 @@ _LEGACY_COMMAND_MAP = {
     'feed': 'feed.topics',
     'train': 'training.dashboard',
     'mode': 'common.mode_select',
-    'update': 'common.settings',
     'language': 'common.settings',
     'assessment': 'workshop.assessment.flow',
 }

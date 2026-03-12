@@ -93,7 +93,6 @@ def register_all_services() -> None:
         category="system",
         order=20,
         command="/settings",
-        commands=["/update"],
     ))
 
     registry.register(ServiceDescriptor(

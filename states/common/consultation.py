@@ -144,7 +144,7 @@ def _match_meta_question(question: str, lang: str) -> Optional[str]:
     Returns formatted answer or None. ~0ms, no API calls.
     """
     q = question.lower().strip().rstrip('?!.))')
-    lang_key = 'en' if lang == 'en' else 'ru'
+    lang_key = 'ru' if lang == 'ru' else 'en'
 
     for meta_key, meta in _META_PATTERNS.items():
         patterns = meta.get(f'patterns_{lang_key}', []) + meta.get('patterns_ru', [])

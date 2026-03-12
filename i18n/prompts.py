@@ -161,6 +161,7 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'task_instruction': "Переведи и адаптируй задание под профиль стажера.",
             'wp_instruction': "Сформулируй рабочий продукт. РП начинается с существительного, обозначающего ДОКУМЕНТ, ВЕЩЬ или СИСТЕМУ В ОПРЕДЕЛЁННОМ СОСТОЯНИИ (чек-лист, схема, таблица, текст, пост, описание, план, набор, реестр, система с настроенным X, бот с реализованной функцией Y). ЗАПРЕЩЕНО начинать с отглагольных существительных-процессов (анализ, исследование, обзор, диагностика, сравнение). ЗАПРЕЩЕНО начинать с когнитивных/ментальных актов (идея, наблюдение, помеха, мысль, инсайт, вывод, решение, понимание, осознание, ощущение, намерение). Это НЕ рабочие продукты — это то, что осталось в голове. Тест: можно ли это ФИЗИЧЕСКИ увидеть как файл/документ/артефакт, передать другому человеку, открыть через неделю? Если нет — это не РП.",
             'examples_instruction': "Приведи 2-3 примера РАЗНЫХ по содержанию рабочих продуктов. Каждый пример — это конкретный артефакт (текст, таблица, список, схема), а НЕ «слот», запись в трекере или ментальный акт. ЗАПРЕЩЁННЫЕ форматы примеров: «Идея: ...», «Наблюдение: ...», «Помеха: ...», «Мысль: ...», «Инсайт: ...» — это когнитивные акты, а не рабочие продукты. ПРАВИЛЬНЫЕ форматы: «Текст из 5 строк: ...», «Список из 3 пунктов: ...», «Заполненная таблица: ...», «Схема на бумаге: ...». Примеры должны отличаться друг от друга по ситуации и форме. ЗАПРЕЩЕНО повторять одну и ту же структуру (например, 3 одинаковых шаблона подряд).",
+            'format_instruction': "Выдай ответ СТРОГО в формате:\nINTRO: (2-4 предложения)\nTASK: (переведённое задание)\nWORK_PRODUCT: (рабочий продукт)\nEXAMPLES: (примеры, каждый с новой строки начиная с •)",
             'error_generation': "Не удалось сгенерировать задание. Попробуйте ещё раз.",
         },
         'en': {
@@ -175,6 +176,7 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'task_instruction': "Translate and adapt the task to the student's profile.",
             'wp_instruction': "Describe the expected work product. It must start with a noun denoting a DOCUMENT, THING, or SYSTEM IN A STATE (checklist, diagram, table, text, post, plan, set, registry). NEVER start with process-nouns (analysis, research, review, comparison). NEVER start with cognitive/mental acts (idea, observation, obstacle, thought, insight, conclusion, decision, understanding, intention). These are NOT work products — they stay in the head. Test: can you PHYSICALLY see it as a file/document/artifact, hand it to another person, open it a week later? If not — it's not a work product.",
             'examples_instruction': "Provide 2-3 examples of DIFFERENT work products. Each example is a concrete artifact (text, table, list, diagram), NOT a 'slot', tracker entry, or mental act. FORBIDDEN example formats: 'Idea: ...', 'Observation: ...', 'Obstacle: ...', 'Thought: ...', 'Insight: ...' — these are cognitive acts, not work products. CORRECT formats: 'A 5-line text: ...', 'A list of 3 points: ...', 'A filled table: ...', 'A hand-drawn diagram: ...'. Examples must differ from each other in situation and form. NEVER repeat the same template structure across examples.",
+            'format_instruction': "Respond STRICTLY in this format:\nINTRO: (2-4 sentences)\nTASK: (adapted task)\nWORK_PRODUCT: (work product)\nEXAMPLES: (examples, each on a new line starting with •)",
             'error_generation': "Failed to generate the task. Please try again.",
         },
         'es': {
@@ -189,6 +191,7 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'task_instruction': "Traduce y adapta la tarea al perfil del estudiante.",
             'wp_instruction': "Describe el producto de trabajo esperado. Debe empezar con un sustantivo que denote DOCUMENTO, COSA o SISTEMA EN UN ESTADO (lista, diagrama, tabla, texto, plan, registro). NUNCA usar sustantivos de proceso (análisis, investigación, revisión). NUNCA usar actos cognitivos/mentales (idea, observación, obstáculo, pensamiento, insight, conclusión, decisión, comprensión, intención). Estos NO son productos de trabajo — se quedan en la cabeza. Prueba: ¿se puede FÍSICAMENTE ver como archivo/documento/artefacto, entregar a otra persona, abrir en una semana? Si no — no es un producto de trabajo.",
             'examples_instruction': "Proporciona 2-3 ejemplos de productos de trabajo DIFERENTES. Cada ejemplo es un artefacto concreto (texto, tabla, lista, esquema), NO una 'entrada', registro en un rastreador o acto mental. Formatos PROHIBIDOS: 'Idea: ...', 'Observación: ...', 'Obstáculo: ...', 'Pensamiento: ...', 'Insight: ...' — son actos cognitivos, no productos de trabajo. Formatos CORRECTOS: 'Texto de 5 líneas: ...', 'Lista de 3 puntos: ...', 'Tabla completada: ...', 'Esquema en papel: ...'. Los ejemplos deben diferir entre sí en situación y forma. NUNCA repetir la misma estructura de plantilla.",
+            'format_instruction': "Responde ESTRICTAMENTE en este formato:\nINTRO: (2-4 oraciones)\nTASK: (tarea adaptada)\nWORK_PRODUCT: (producto de trabajo)\nEXAMPLES: (ejemplos, cada uno en nueva línea comenzando con •)",
             'error_generation': "No se pudo generar la tarea. Por favor, inténtelo de nuevo.",
         },
         'fr': {
@@ -203,6 +206,7 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'task_instruction': "Traduis et adapte la tâche au profil de l'étudiant.",
             'wp_instruction': "Décris le produit de travail attendu. Il doit commencer par un nom désignant un DOCUMENT, OBJET ou SYSTÈME DANS UN ÉTAT (liste, schéma, tableau, texte, plan, registre). JAMAIS de noms de processus (analyse, recherche, revue). JAMAIS d'actes cognitifs/mentaux (idée, observation, obstacle, pensée, insight, conclusion, décision, compréhension, intention). Ce ne sont PAS des produits de travail — ils restent dans la tête. Test : peut-on PHYSIQUEMENT le voir comme fichier/document/artefact, le transmettre à une autre personne, l'ouvrir dans une semaine ? Sinon — ce n'est pas un produit de travail.",
             'examples_instruction': "Fournis 2-3 exemples de produits de travail DIFFÉRENTS. Chaque exemple est un artefact concret (texte, tableau, liste, schéma), PAS une 'entrée', un enregistrement dans un suivi ou un acte mental. Formats INTERDITS : 'Idée : ...', 'Observation : ...', 'Obstacle : ...', 'Pensée : ...', 'Insight : ...' — ce sont des actes cognitifs, pas des produits de travail. Formats CORRECTS : 'Texte de 5 lignes : ...', 'Liste de 3 points : ...', 'Tableau rempli : ...', 'Schéma sur papier : ...'. Les exemples doivent différer en situation et en forme. JAMAIS répéter la même structure de modèle.",
+            'format_instruction': "Réponds STRICTEMENT dans ce format :\nINTRO: (2-4 phrases)\nTASK: (tâche adaptée)\nWORK_PRODUCT: (produit de travail)\nEXAMPLES: (exemples, chacun sur une nouvelle ligne commençant par •)",
             'error_generation': "Échec de la génération de la tâche. Veuillez réessayer.",
         },
         'zh': {
@@ -217,6 +221,7 @@ def get_practice_prompts(lang: str) -> Dict[str, str]:
             'task_instruction': "根据学员的个人资料翻译并调整任务。",
             'wp_instruction': "描述预期的工作成果。必须以表示文档、物品或系统状态的名词开头（清单、图表、表格、文本、计划、登记册）。禁止使用过程名词（分析、研究、审查）。禁止使用认知/心理行为（想法、观察、障碍、思考、洞察、结论、决定、理解、意图）。这些不是工作成果——它们留在脑中。测试：能否作为文件/文档/制品被看到，能否交给他人，能否一周后打开？如果不能——就不是工作成果。",
             'examples_instruction': '提供2-3个不同的工作成果示例。每个示例是具体的制品（文本、表格、清单、图表），而不是"时间段"、跟踪记录或心理行为。禁止的示例格式："想法：……"、"观察：……"、"障碍：……"、"思考：……"、"洞察：……"——这些是认知行为，不是工作成果。正确的格式："5行文本：……"、"3点清单：……"、"填写好的表格：……"、"纸上的图表：……"。示例之间在情境和形式上必须不同。禁止重复相同的模板结构。',
+            'format_instruction': '请严格按照以下格式回复：\nINTRO:（2-4句话）\nTASK:（改编后的任务）\nWORK_PRODUCT:（工作成果）\nEXAMPLES:（示例，每个新行以•开头）',
             'error_generation': "无法生成任务。请重试。",
         }
     }

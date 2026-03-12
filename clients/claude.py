@@ -776,11 +776,7 @@ class ClaudeClient:
 {lp['wp_instruction']}
 {lp['examples_instruction']}
 
-Выдай ответ СТРОГО в формате:
-INTRO: (2-4 предложения)
-TASK: (переведённое задание)
-WORK_PRODUCT: (рабочий продукт)
-EXAMPLES: (примеры, каждый с новой строки начиная с •)
+{lp['format_instruction']}
 
 {ONTOLOGY_RULES}
 

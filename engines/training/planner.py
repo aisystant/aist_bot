@@ -32,6 +32,15 @@ BLOOM_LABELS = {
     'Create': 'Создание',
 }
 
+# Language instructions for AI system prompts
+_LANG_INSTRUCTIONS = {
+    'ru': 'Формулируй на русском языке',
+    'en': 'Write in English',
+    'es': 'Escribe en español',
+    'fr': 'Rédige en français',
+    'zh': '用中文撰写',
+}
+
 # Fallback-имена принципов (если JSON не загрузится)
 ZP_PRINCIPLE_NAMES = {
     'ZP.1': 'Аксиоматичность',
@@ -159,10 +168,12 @@ async def generate_assignment_text(
     bloom_label = BLOOM_LABELS.get(bloom_level, bloom_level)
 
     # Профиль пользователя
+    lang = 'ru'
     name = ''
     occupation = ''
     interests = ''
     if intern:
+        lang = intern.get('language', 'ru') or 'ru'
         name = intern.get('name', '')
         occupation = intern.get('occupation', '')
         raw_interests = intern.get('interests', '')
@@ -183,7 +194,7 @@ async def generate_assignment_text(
 - Адаптируй под занятие/интересы пользователя если указаны
 - НЕ давай ответ на задание
 - НЕ используй Markdown-форматирование с ** или __ (Telegram его ломает)
-- Формулируй на русском языке
+- {_LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS['ru'])}
 - Длина: 3-7 предложений
 
 ЦЕЛЕВЫЕ НАВЫКИ (can_do):
@@ -195,11 +206,19 @@ async def generate_assignment_text(
 ФОРМА ДЛЯ КОГНИТИВНОГО УРОВНЯ:
 {form_text}"""
 
-    user_prompt = f"Создай задание для: {name or 'пользователь'}"
+    _labels = {
+        'ru': ("Создай задание для:", "пользователь", "занятие:", "интересы:"),
+        'en': ("Create an assignment for:", "user", "occupation:", "interests:"),
+        'es': ("Crea una tarea para:", "usuario", "ocupación:", "intereses:"),
+        'fr': ("Crée un exercice pour :", "utilisateur", "occupation :", "intérêts :"),
+        'zh': ("创建练习给：", "用户", "职业：", "兴趣："),
+    }
+    l = _labels.get(lang, _labels['ru'])
+    user_prompt = f"{l[0]} {name or l[1]}"
     if occupation:
-        user_prompt += f", занятие: {occupation}"
+        user_prompt += f", {l[2]} {occupation}"
     if interests:
-        user_prompt += f", интересы: {interests}"
+        user_prompt += f", {l[3]} {interests}"
 
     response = await claude.generate(
         system_prompt, user_prompt,
@@ -226,6 +245,7 @@ async def generate_child_assignment_text(
     child_name: str,
     principle_name: str,
     depth: int,
+    lang: str = 'ru',
 ) -> str:
     """Сгенерировать карточку занятия для взрослого, который тренирует ребёнка.
 
@@ -257,7 +277,7 @@ async def generate_child_assignment_text(
 - Укажи: название занятия, длительность (5-20 мин), пошаговую инструкцию (3-5 шагов)
 - В конце — критерий успеха (как понять, что ребёнок усвоил)
 - НЕ используй Markdown с ** или __ (Telegram ломает)
-- Формулируй на русском языке
+- {_LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS['ru'])}
 - Длина: 5-10 предложений
 
 ФОРМАТ ЗАНЯТИЯ (из учебной программы):
@@ -269,7 +289,14 @@ async def generate_child_assignment_text(
 ЦЕЛЕВЫЕ НАВЫКИ (can_do):
 {chr(10).join(f'- {c}' for c in can_do)}"""
 
-    user_prompt = f"Создай карточку занятия для ребёнка {child_name} ({age_label})"
+    _child_labels = {
+        'ru': f"Создай карточку занятия для ребёнка {child_name} ({age_label})",
+        'en': f"Create an activity card for child {child_name} ({age_label})",
+        'es': f"Crea una ficha de actividad para el niño {child_name} ({age_label})",
+        'fr': f"Crée une fiche d'activité pour l'enfant {child_name} ({age_label})",
+        'zh': f"为孩子{child_name}（{age_label}）创建活动卡片",
+    }
+    user_prompt = _child_labels.get(lang, _child_labels['ru'])
 
     response = await claude.generate(
         system_prompt, user_prompt,
@@ -310,43 +337,83 @@ async def evaluate_training_answer(
     common_errors = cell_data.get('common_errors', [])
     can_do = cell_data.get('can_do', [])
 
+    lang = 'ru'
+    if intern:
+        lang = intern.get('language', 'ru') or 'ru'
+
     errors_text = '\n'.join(
         f"- {e.get('error', '')}: {e.get('why', '')}" for e in common_errors
     )
     can_do_text = '\n'.join(f"- {c}" for c in can_do)
 
-    system_prompt = f"""Ты оцениваешь ответ на задание по тренировке мышления.
+    _eval_labels = {
+        'ru': {
+            'role': 'Ты оцениваешь ответ на задание по тренировке мышления.',
+            'assignment': 'ЗАДАНИЕ БЫЛО', 'criteria': 'КРИТЕРИИ ОЦЕНКИ',
+            'skills': 'ЦЕЛЕВЫЕ НАВЫКИ', 'errors': 'ТИПИЧНЫЕ ОШИБКИ (проверь, не допустил ли ученик)',
+            'evaluate': 'ОЦЕНИ ОТВЕТ и верни JSON',
+            'feedback_hint': 'конструктивная обратная связь, 2-4 предложения',
+            'passed_desc': 'ученик демонстрирует навыки из can_do',
+            'partial_desc': 'частично верно, нужна доработка',
+            'fail_desc': 'фундаментальное непонимание',
+            'rules': 'ПРАВИЛА',
+            'r_feedback': 'В feedback объясни ЧТО хорошо и ЧТО доработать',
+            'r_error': 'Если обнаружил типичную ошибку — укажи её мягко',
+            'r_json': 'Верни ТОЛЬКО JSON, без лишнего текста',
+            'answer': 'ОТВЕТ УЧЕНИКА',
+        },
+        'en': {
+            'role': 'You are evaluating a response to a thinking training assignment.',
+            'assignment': 'THE ASSIGNMENT WAS', 'criteria': 'EVALUATION CRITERIA',
+            'skills': 'TARGET SKILLS', 'errors': 'COMMON ERRORS (check if the student made them)',
+            'evaluate': 'EVALUATE THE RESPONSE and return JSON',
+            'feedback_hint': 'constructive feedback, 2-4 sentences',
+            'passed_desc': 'student demonstrates skills from can_do',
+            'partial_desc': 'partially correct, needs improvement',
+            'fail_desc': 'fundamental misunderstanding',
+            'rules': 'RULES',
+            'r_feedback': 'In feedback explain WHAT is good and WHAT to improve',
+            'r_error': 'If you found a common error — point it out gently',
+            'r_json': 'Return ONLY JSON, no extra text',
+            'answer': 'STUDENT RESPONSE',
+        },
+    }
+    el = _eval_labels.get(lang, _eval_labels.get('en', _eval_labels['ru']))
 
-ЗАДАНИЕ БЫЛО:
+    system_prompt = f"""{el['role']}
+
+{el['assignment']}:
 {assignment_text}
 
-КРИТЕРИИ ОЦЕНКИ:
+{el['criteria']}:
 {criteria}
 
-ЦЕЛЕВЫЕ НАВЫКИ:
+{el['skills']}:
 {can_do_text}
 
-ТИПИЧНЫЕ ОШИБКИ (проверь, не допустил ли ученик):
+{el['errors']}:
 {errors_text}
 
-ОЦЕНИ ОТВЕТ и верни JSON:
+{el['evaluate']}:
 {{
-  "score": <число от 0.0 до 1.0>,
-  "passed": <true если score >= {pass_threshold}>,
-  "partial": <true если score >= {partial_threshold} и score < {pass_threshold}>,
-  "feedback": "<конструктивная обратная связь на русском, 2-4 предложения>"
+  "score": <0.0-1.0>,
+  "passed": <true if score >= {pass_threshold}>,
+  "partial": <true if score >= {partial_threshold} and score < {pass_threshold}>,
+  "feedback": "<{el['feedback_hint']}>"
 }}
 
-ПРАВИЛА:
-- score >= {pass_threshold}: PASSED — ученик демонстрирует навыки из can_do
-- score >= {partial_threshold}: PARTIAL — частично верно, нужна доработка
-- score < {partial_threshold}: FAIL — фундаментальное непонимание
-- В feedback объясни ЧТО хорошо и ЧТО доработать
-- Если обнаружил типичную ошибку — укажи её мягко
-- Верни ТОЛЬКО JSON, без лишнего текста"""
+{_LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS['ru'])}
+
+{el['rules']}:
+- score >= {pass_threshold}: PASSED — {el['passed_desc']}
+- score >= {partial_threshold}: PARTIAL — {el['partial_desc']}
+- score < {partial_threshold}: FAIL — {el['fail_desc']}
+- {el['r_feedback']}
+- {el['r_error']}
+- {el['r_json']}"""
 
     response = await claude.generate(
-        system_prompt, f"ОТВЕТ УЧЕНИКА:\n{answer_text}",
+        system_prompt, f"{el['answer']}:\n{answer_text}",
         max_tokens=500, model=CLAUDE_MODEL_HAIKU,
     )
 
