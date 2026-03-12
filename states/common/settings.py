@@ -93,6 +93,18 @@ class SettingsState(BaseState):
         gh_conn = await get_github_connection(chat_id)
         github_status = "✅" if gh_conn else "❌"
 
+        from clients.digital_twin import digital_twin
+        twin_connected = digital_twin.is_connected(chat_id)
+        twin_status = "✅" if twin_connected else "❌"
+
+        from db.queries.discourse import get_discourse_account
+        club_account = await get_discourse_account(chat_id)
+        club_status = "✅" if club_account else "❌"
+
+        from db.queries.wakatime import get_wakatime_connection
+        waka_conn = await get_wakatime_connection(chat_id)
+        waka_status = "✅" if waka_conn else "❌"
+
         notify_iwe = intern.get('notify_template_updates', False)
         iwe_status = "✅" if notify_iwe else "❌"
 
@@ -112,7 +124,13 @@ class SettingsState(BaseState):
         total_days = intern.get('active_days_total', 0)
 
         # --- Собираем текст ---
-        connections_summary = f"  • Aisystant: {aisystant_status}\n  • GitHub: {github_status}"
+        connections_summary = (
+            f"  • Aisystant: {aisystant_status}\n"
+            f"  • {t('settings.twin_label', lang)}: {twin_status}\n"
+            f"  • GitHub: {github_status}\n"
+            f"  • Клуб: {club_status}\n"
+            f"  • WakaTime: {waka_status}"
+        )
 
         # IWE Updates — только для T4+
         from core.tier_detector import detect_ui_tier
