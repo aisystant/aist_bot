@@ -238,7 +238,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 - `GITHUB_BOT_PAT` — только для AutoFix (org `aisystant/aist_bot`). Fine-grained PAT = single owner.
 - Publisher (R21) — per-user OAuth tokens из `github_connections.knowledge_repo`. Singleton deprecated.
 - Добавление нового repo-поля: DB migration → queries → OAuth cache → Settings UI → consumers.
-- **default_branch:** НЕ хардкодить `"main"`. `set_target_repo()` определяет ветку через `GET /repos/{owner}/{repo}` → `default_branch`. Хранится в `github_connections.default_branch`. Retry заметок ограничен 3 попытками (`_MAX_RETRIES`).
+- **default_branch:** НЕ хардкодить `"main"`. `set_target_repo()` определяет ветку через `GET /repos/{owner}/{repo}` → `default_branch`. Хранится в `github_connections.default_branch`. Retry заметок ограничен 3 попытками (`_MAX_RETRIES`). Аналогично для strategy_repo: `strategy_default_branch` + lazy backfill в `get_strategy_default_branch()` (если дефолт `"main"` и repo задан → API → обновить БД).
 
 ### 10.6. Naive datetime для TIMESTAMP колонок
 
