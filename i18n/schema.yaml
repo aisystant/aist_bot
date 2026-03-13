@@ -978,6 +978,14 @@ settings:
       ru: "Язык изменён на русский!"
       en: "Language changed to English!"
 
+    restart_hint:
+      ru: "💡 Нажми /start, чтобы обновить меню на новом языке."
+      en: "💡 Press /start to update the menu in the new language."
+
+  connection_changed_hint:
+    ru: "💡 Нажми /start, чтобы обновить меню бота."
+    en: "💡 Press /start to update the bot menu."
+
 # -----------------------------------------------------------------------------
 # Прогресс
 # -----------------------------------------------------------------------------

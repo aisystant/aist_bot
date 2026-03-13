@@ -172,6 +172,8 @@ settings:
   language:
     title: "Choisis la langue :"
     changed: "Langue changée en français !"
+    restart_hint: "💡 Appuie sur /start pour mettre à jour le menu dans la nouvelle langue."
+  connection_changed_hint: "💡 Appuie sur /start pour mettre à jour le menu du bot."
   coming_soon: "bientôt"
   connected: "connecté"
   connections_label: "Connexions"

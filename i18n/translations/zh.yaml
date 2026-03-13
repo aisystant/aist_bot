@@ -172,6 +172,8 @@ settings:
   language:
     title: "选择语言："
     changed: "语言已切换为中文！"
+    restart_hint: '💡 按 /start 更新菜单为新语言。'
+  connection_changed_hint: '💡 按 /start 更新机器人菜单。'
   coming_soon: "即将推出"
   connected: "已连接"
   connections_label: "连接"

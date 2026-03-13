@@ -124,6 +124,10 @@ class ModeSelectState(BaseState):
             user['language'] = new_lang
 
         await callback.answer(t('settings.language.changed', new_lang))
+
+        # Подсказка: /start обновляет меню на новом языке
+        await self.send(user, t('settings.language.restart_hint', new_lang))
+
         await self.enter(user)
         return None
 

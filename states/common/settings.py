@@ -438,6 +438,9 @@ class SettingsState(BaseState):
         # Toast с подтверждением
         await callback.answer(t('settings.language.changed', new_lang))
 
+        # Подсказка: /start обновляет меню на новом языке
+        await self.send(user, t('settings.language.restart_hint', new_lang))
+
         # Редактируем текущее сообщение обратно в меню настроек (без нового сообщения)
         # Re-enter settings to rebuild with subscription status
         await self.enter(user)
@@ -1177,6 +1180,8 @@ class SettingsState(BaseState):
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
             ]),
         )
+        # Тир мог измениться (T4→T3) — подсказка обновить меню
+        await self.send(user, t('settings.connection_changed_hint', lang))
         return None
 
     async def _handle_twin_connection(self, user, callback: CallbackQuery) -> Optional[str]:
@@ -1331,6 +1336,8 @@ class SettingsState(BaseState):
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
             ]),
         )
+        # Тир мог измениться (T3→T2) — подсказка обновить меню
+        await self.send(user, t('settings.connection_changed_hint', lang))
         return None
 
     # =========== WakaTime ===========
