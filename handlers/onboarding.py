@@ -55,15 +55,14 @@ async def get_lang(state: FSMContext, intern: dict = None) -> str:
 # ============= ВСПОМОГАТЕЛЬНЫЕ (RESET) =============
 
 def _has_learning_data(intern: dict) -> bool:
-    """Есть ли у пользователя учебные данные (марафон или лента)."""
-    completed = intern.get('completed_topics', [])
-    if completed and len(completed) > 0:
-        return True
-    if intern.get('marathon_status') not in ('not_started', None):
-        return True
-    if intern.get('feed_status') not in ('not_started', None):
-        return True
-    return False
+    """Есть ли у пользователя реальный учебный прогресс.
+
+    Проверяем только фактически пройденные темы, НЕ статус марафона/ленты.
+    Пользователь с marathon_status='active' но 0 пройденных тем
+    не имеет данных для сброса.
+    """
+    completed = intern.get('completed_topics') or []
+    return len(completed) > 0
 
 
 # ============= ХЕНДЛЕРЫ =============
