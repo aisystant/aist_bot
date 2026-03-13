@@ -11,6 +11,7 @@ welcome:
   ask_name: "¿Cómo te llamas?"
   returning: "¡Bienvenido de nuevo, {name}!"
   menu_greeting: "¡Hola, {name}! 👋\n{tier_label}\n\n{tip}"
+  mode_menu: "📋 *Menú principal*\nT{tier_num} {tier_label}\n\n{tip}"
   tier_label:
     t0: "🟢 Inicio — vincula Aisystant para desbloquear todas las funciones"
     t1: "🟢 Inicio — prueba todas las funciones gratis por 30 días"

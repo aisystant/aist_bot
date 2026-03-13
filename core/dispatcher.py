@@ -43,10 +43,13 @@ class Dispatcher:
         """State Machine инициализирована и доступна."""
         return self.sm is not None
 
-    async def route_command(self, command: str, user: dict) -> bool:
+    async def route_command(self, command: str, user: dict, context: dict = None) -> bool:
         """Роутинг команды → SM стейт.
 
         Сначала ищет в ServiceRegistry, затем fallback на legacy map.
+
+        Args:
+            context: Дополнительный контекст для стейта (например, source='mode').
 
         Returns:
             True если обработано через SM, False если нет маппинга.
@@ -75,14 +78,14 @@ class Dispatcher:
 
             target = service.get_entry_state(user)
             logger.info(f"[Dispatcher] route_command (registry): /{command} → {target}")
-            await self.sm.go_to(user, target)
+            await self.sm.go_to(user, target, context)
             return True
 
         # 2. Fallback на legacy map
         target = _LEGACY_COMMAND_MAP.get(command)
         if target:
             logger.info(f"[Dispatcher] route_command (legacy): /{command} → {target}")
-            await self.sm.go_to(user, target)
+            await self.sm.go_to(user, target, context)
             return True
 
         return False

@@ -48,7 +48,7 @@ async def cmd_mode(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await _safe_route(message, state, intern, dispatcher.route_command('mode', intern))
+        await _safe_route(message, state, intern, dispatcher.route_command('mode', intern, context={'source': 'mode'}))
         return
 
     lang = intern.get('language', 'ru') or 'ru'

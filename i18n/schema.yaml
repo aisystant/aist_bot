@@ -81,6 +81,10 @@ welcome:
     fr: "Salut, {name} ! 👋\n{tier_label}\n\n{tip}"
     zh: '你好，{name}！👋\n{tier_label}\n\n{tip}'
 
+  mode_menu:
+    ru: "📋 *Главное меню*\nT{tier_num} {tier_label}\n\n{tip}"
+    en: "📋 *Main menu*\nT{tier_num} {tier_label}\n\n{tip}"
+
   # Tier labels for greeting (П1 — прогресс-бар)
   tier_label:
     t0:
