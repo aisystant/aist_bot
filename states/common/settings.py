@@ -919,28 +919,29 @@ class SettingsState(BaseState):
             f"📊 WakaTime: {waka_status}\n"
         )
 
-        buttons = [
-            [
-                InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
-                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
-            ],
-            [
-                InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
-                InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club"),
-            ],
-            [InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka")],
-        ]
-
         # IWE Updates — только для T4+
         from core.tier_detector import detect_ui_tier
         tier = await detect_ui_tier(chat_id)
-        if tier >= 4:  # T4_CREATION
+        iwe_visible = tier >= 4  # T4_CREATION
+        if iwe_visible:
             intern = await get_intern(chat_id)
             notify_iwe = intern.get('notify_template_updates', False)
             iwe_emoji = "✅" if notify_iwe else "❌"
-            iwe_action = t('settings.iwe_updates_disable', lang) if notify_iwe else t('settings.iwe_updates_enable', lang)
             text += f"🔔 {t('settings.iwe_updates_label', lang)}: {iwe_emoji}\n"
-            buttons.append([InlineKeyboardButton(text=f"🔔 {t('settings.iwe_updates_label', lang)}: {iwe_action}", callback_data="conn_iwe_toggle")])
+
+        buttons = [
+            [
+                InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
+                InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club"),
+            ],
+            [
+                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
+                InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
+            ],
+            [
+                InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
+            ] + ([InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle")] if iwe_visible else []),
+        ]
 
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
 
