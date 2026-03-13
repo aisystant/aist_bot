@@ -438,12 +438,12 @@ class SettingsState(BaseState):
         # Toast с подтверждением
         await callback.answer(t('settings.language.changed', new_lang))
 
-        # Подсказка: /start обновляет меню на новом языке
-        await self.send(user, t('settings.language.restart_hint', new_lang))
-
         # Редактируем текущее сообщение обратно в меню настроек (без нового сообщения)
         # Re-enter settings to rebuild with subscription status
         await self.enter(user)
+
+        # Подсказка: /start обновляет меню на новом языке (после меню настроек)
+        await self.send(user, t('settings.language.restart_hint', new_lang))
         return None
 
     async def _show_reset_options(self, user, callback: CallbackQuery) -> Optional[str]:

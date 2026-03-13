@@ -125,10 +125,10 @@ class ModeSelectState(BaseState):
 
         await callback.answer(t('settings.language.changed', new_lang))
 
-        # Подсказка: /start обновляет меню на новом языке
-        await self.send(user, t('settings.language.restart_hint', new_lang))
-
         await self.enter(user)
+
+        # Подсказка: /start обновляет меню на новом языке (после меню)
+        await self.send(user, t('settings.language.restart_hint', new_lang))
         return None
 
     def _get_chat_id(self, user) -> int:
