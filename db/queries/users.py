@@ -30,16 +30,42 @@ async def get_intern(chat_id: int) -> dict:
         row = await conn.fetchrow(
             'SELECT * FROM interns WHERE chat_id = $1', chat_id
         )
-        
+
         if row:
-            return _row_to_dict(row)
+            result = _row_to_dict(row)
+            # Ensure user exists in public.users (WP-82 Phase 2)
+            if not result.get('user_id'):
+                try:
+                    from db.queries.identity import get_or_create_user
+                    user = await get_or_create_user(
+                        chat_id, result.get('name', ''), result.get('language', 'ru'),
+                    )
+                    await conn.execute(
+                        'UPDATE interns SET user_id = $2 WHERE chat_id = $1',
+                        chat_id, user['id'],
+                    )
+                    result['user_id'] = user['id']
+                except Exception as e:
+                    logger.warning(f"Failed to ensure user for {chat_id}: {e}")
+            return result
         else:
-            # Создаём нового пользователя
-            await conn.execute(
-                'INSERT INTO interns (chat_id) VALUES ($1) ON CONFLICT DO NOTHING',
-                chat_id
-            )
-            return _get_default_intern(chat_id)
+            # Создаём нового пользователя в обеих таблицах
+            try:
+                from db.queries.identity import get_or_create_user
+                user = await get_or_create_user(chat_id)
+                await conn.execute(
+                    'INSERT INTO interns (chat_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+                    chat_id, user['id'],
+                )
+                result = _get_default_intern(chat_id)
+                result['user_id'] = user['id']
+                return result
+            except Exception:
+                await conn.execute(
+                    'INSERT INTO interns (chat_id) VALUES ($1) ON CONFLICT DO NOTHING',
+                    chat_id
+                )
+                return _get_default_intern(chat_id)
 
 
 def _row_to_dict(row) -> dict:
@@ -116,6 +142,9 @@ def _row_to_dict(row) -> dict:
         # Сброс статистики
         'stats_reset_date': safe_get('stats_reset_date', None),
 
+        # Identity (WP-82 Phase 2)
+        'user_id': safe_get('user_id', None),
+
         # Подписка / DT
         'trial_started_at': safe_get('trial_started_at', None),
         'dt_connected_at': safe_get('dt_connected_at', None),
@@ -187,6 +216,8 @@ def _get_default_intern(chat_id: int) -> dict:
         'assessment_date': None,
 
         'stats_reset_date': None,
+
+        'user_id': None,
 
         'trial_started_at': None,
         'dt_connected_at': None,

@@ -125,6 +125,15 @@ from .dt_tokens import (
     get_dt_user_id,
 )
 
+from .identity import (
+    get_or_create_user,
+    get_user_by_telegram,
+    get_user_uuid,
+    link_ory,
+    update_user_dt,
+    update_user_tier,
+)
+
 __all__ = [
     # users
     'get_intern',
@@ -224,4 +233,12 @@ __all__ = [
     'load_all_dt_tokens',
     'delete_dt_tokens',
     'get_dt_user_id',
+
+    # identity (WP-82 Phase 2)
+    'get_or_create_user',
+    'get_user_by_telegram',
+    'get_user_uuid',
+    'link_ory',
+    'update_user_dt',
+    'update_user_tier',
 ]

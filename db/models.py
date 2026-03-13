@@ -1069,6 +1069,7 @@ async def create_tables(pool: asyncpg.Pool):
             CREATE VIEW development.engagement AS
             SELECT
                 user_id,
+                user_uuid,
                 COUNT(*) FILTER (WHERE event_type = 'session_start') AS sessions_total,
                 COUNT(*) FILTER (WHERE event_type = 'ai_chat') AS ai_chats_total,
                 COUNT(*) FILTER (WHERE event_type = 'marathon_step') AS marathon_steps_total,
@@ -1084,7 +1085,7 @@ async def create_tables(pool: asyncpg.Pool):
                 COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS events_last_7d,
                 COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS events_last_30d
             FROM development.user_events
-            GROUP BY user_id
+            GROUP BY user_id, user_uuid
         ''')
 
         # ═══════════════════════════════════════════════════════════
@@ -1102,5 +1103,85 @@ async def create_tables(pool: asyncpg.Pool):
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # ЕДИНАЯ ТАБЛИЦА ИДЕНТИЧНОСТИ (WP-82 Phase 2)
+        # Identity layer: telegram_id → ory_id → dt_user_id
+        # Все бот-таблицы — часть ЦД. T0 без Ory, T1+ с ory_id.
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS public.users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                ory_id UUID UNIQUE,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                dt_user_id TEXT UNIQUE,
+                email TEXT,
+                name TEXT,
+                language TEXT DEFAULT 'ru',
+                timezone TEXT DEFAULT 'Europe/Moscow',
+                tier TEXT DEFAULT 'T0',
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+                updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc')
+            )
+        ''')
+
+        # Миграция: interns.user_id → FK на users.id
+        try:
+            await conn.execute(
+                'ALTER TABLE interns ADD COLUMN IF NOT EXISTS user_id UUID'
+            )
+        except Exception:
+            pass
+
+        # Backfill: создать записи в users из interns (если ещё нет)
+        try:
+            inserted = await conn.execute('''
+                INSERT INTO public.users (telegram_id, dt_user_id, name, language)
+                SELECT i.chat_id, i.dt_user_id, i.name, i.language
+                FROM interns i
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.users u WHERE u.telegram_id = i.chat_id
+                )
+            ''')
+            if inserted and inserted != 'INSERT 0':
+                logger.info(f"[Migration] Backfill users from interns: {inserted}")
+        except Exception as e:
+            logger.warning(f"[Migration] Backfill users skipped: {e}")
+
+        # Backfill: записать user_id в interns из users
+        try:
+            updated = await conn.execute('''
+                UPDATE interns SET user_id = u.id
+                FROM public.users u
+                WHERE interns.chat_id = u.telegram_id
+                  AND interns.user_id IS NULL
+            ''')
+            if updated and updated != 'UPDATE 0':
+                logger.info(f"[Migration] Backfill interns.user_id: {updated}")
+        except Exception as e:
+            logger.warning(f"[Migration] Backfill interns.user_id skipped: {e}")
+
+        # Миграция user_events: user_id BIGINT → user_uuid UUID (WP-82 Phase 2)
+        try:
+            await conn.execute(
+                'ALTER TABLE development.user_events '
+                'ADD COLUMN IF NOT EXISTS user_uuid UUID'
+            )
+        except Exception:
+            pass
+
+        # Backfill: user_events.user_uuid из users по telegram_id
+        try:
+            updated = await conn.execute('''
+                UPDATE development.user_events e
+                SET user_uuid = u.id
+                FROM public.users u
+                WHERE e.user_id = u.telegram_id
+                  AND e.user_uuid IS NULL
+            ''')
+            if updated and updated != 'UPDATE 0':
+                logger.info(f"[Migration] Backfill user_events.user_uuid: {updated}")
+        except Exception as e:
+            logger.warning(f"[Migration] Backfill user_events.user_uuid skipped: {e}")
 
     logger.info("✅ Все таблицы созданы/обновлены")
