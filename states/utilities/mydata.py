@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 # ─── Tier detection helpers ────────────────────────────────────────────────
 
 TIER_NAMES = {
-    'ru': {1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание', 5: 'T5 — Админ'},
-    'en': {1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation', 5: 'T5 — Admin'},
+    'ru': {0: 'T0 — Новый', 1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание', 5: 'T5 — Админ'},
+    'en': {0: 'T0 — New', 1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation', 5: 'T5 — Admin'},
 }
 
-TIER_EMOJI = {1: '🟢', 2: '📘', 3: '🧬', 4: '🚀', 5: '⚡'}
+TIER_EMOJI = {0: '⚪', 1: '🟢', 2: '📘', 3: '🧬', 4: '🚀', 5: '⚡'}
 
 # ─── Categories by tier ────────────────────────────────────────────────────
 
@@ -288,6 +288,11 @@ class MyDataState(BaseState):
 
         if data == "mydata_sec_tiers":
             await self._show_tier_progression(user, callback)
+            return None
+
+        if data == "mydata_action_link":
+            lang = self._get_lang(user)
+            await self.send(user, t('mydata.action_link_hint', lang))
             return None
 
         if data == "mydata_action_twin":
@@ -718,22 +723,24 @@ class MyDataState(BaseState):
 
         tiers_info = {
             'ru': {
-                1: ('Бесплатно. Марафон, базовый профиль.', 'Зарегистрироваться в боте'),
-                2: ('Подписка. Лента, консультации, заметки, планы.', 'Оформить подписку «Бесконечное развитие»'),
-                3: ('ЦД подключён. Персонализация, полный профиль.', 'Подключить Цифровой Двойник (/twin)'),
+                0: ('Новый пользователь. Марафон, тест, прогресс. Trial 30 дней.', 'Привязать аккаунт Aisystant (/link)'),
+                1: ('Привязан к Aisystant. Марафон, базовый профиль.', 'Оформить подписку «Бесконечное развитие»'),
+                2: ('Подписка. Лента, консультации, заметки, планы.', 'Подключить Цифровой Двойник (/twin)'),
+                3: ('ЦД подключён. Персонализация, полный профиль.', 'Подключить GitHub (/github)'),
                 4: ('Локальный экзокортекс. Claude Code, агенты, личная база знаний.', 'Установить Claude Code + fork шаблона'),
             },
             'en': {
-                1: ('Free. Marathon, basic profile.', 'Register in the bot'),
-                2: ('Subscription. Feed, consultations, notes, plans.', 'Subscribe to "Endless Development" on Aisystant'),
-                3: ('DT connected. Personalization, full profile.', 'Connect Digital Twin (/twin)'),
+                0: ('New user. Marathon, test, progress. 30-day trial.', 'Link Aisystant account (/link)'),
+                1: ('Linked to Aisystant. Marathon, basic profile.', 'Subscribe to "Infinite Development" on Aisystant'),
+                2: ('Subscription. Feed, consultations, notes, plans.', 'Connect Digital Twin (/twin)'),
+                3: ('DT connected. Personalization, full profile.', 'Connect GitHub (/github)'),
                 4: ('Local exocortex. Claude Code, agents, personal knowledge base.', 'Install Claude Code + fork template'),
             },
         }
 
         info = tiers_info.get(lang, tiers_info['en'])
 
-        for tier_num in range(1, 5):
+        for tier_num in range(0, 5):
             emoji = TIER_EMOJI[tier_num]
             name = tier_names[tier_num]
             desc, how = info[tier_num]
@@ -773,11 +780,13 @@ class MyDataState(BaseState):
         """Return (button_text, callback_data) for the next tier unlock action."""
         actions = {
             'ru': {
+                0: ("🔗 Привязать Aisystant", "mydata_action_link"),
                 1: ("💳 Оформить подписку «Бесконечное развитие»", "aisystant_subscribe"),
                 2: ("🧬 Подключить Цифровой Двойник", "mydata_action_twin"),
                 3: ("🔗 Подключить GitHub", "mydata_action_github"),
             },
             'en': {
+                0: ("🔗 Link Aisystant", "mydata_action_link"),
                 1: ("💳 Subscribe to «Infinite Development»", "aisystant_subscribe"),
                 2: ("🧬 Connect Digital Twin", "mydata_action_twin"),
                 3: ("🔗 Connect GitHub", "mydata_action_github"),
