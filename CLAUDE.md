@@ -425,8 +425,8 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 ```
 
 **Tier detection (payment-first, WP-85):**
-- T0: анонимный / без профиля (T1_NEW)
-- T1: привязан к Aisystant, нет подписки БР и триал истёк (T1_START)
+- T0: анонимный / без профиля (UITier.T0)
+- T1: привязан к Aisystant, нет подписки БР и триал истёк (UITier.T1)
 - T2: подписка «Бесконечное развитие» на Aisystant ИЛИ 30-дн. триал от /start
 - T3: T2 + ЦД подключён
 - T4: T3 + GitHub подключён
