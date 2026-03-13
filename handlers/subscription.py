@@ -148,6 +148,8 @@ async def cmd_subscription(message: Message):
         if amount > 0:
             paid_tariffs.append((code, amount, period))
 
+    lines.append(t('buy.payment_note', lang))
+
     # Сразу создаём платежи для всех тарифов → URL-кнопки без лишнего шага
     if paid_tariffs:
         buttons.extend(await _create_tariff_buttons(aisystant_id, paid_tariffs, lang))
@@ -237,6 +239,8 @@ async def callback_aisystant_subscribe(callback: CallbackQuery):
         lines.append(f"  • {period} — {amount} ₽")
         if amount > 0:
             paid_tariffs.append((code, amount, period))
+
+    lines.append(t('buy.payment_note', lang))
 
     # Сразу создаём платежи для всех тарифов → URL-кнопки без лишнего шага
     if paid_tariffs:
