@@ -90,7 +90,7 @@ async def link_ory(telegram_id: int, ory_id: str, email: Optional[str] = None) -
 
 
 async def update_user_dt(telegram_id: int, dt_user_id: str) -> bool:
-    """Обновить dt_user_id в users (синхронизация с interns)."""
+    """Обновить dt_user_id в users."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''

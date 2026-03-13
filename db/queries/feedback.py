@@ -50,9 +50,9 @@ async def get_pending_reports(severity: str, since_hours: int = 24) -> List[dict
         rows = await conn.fetch('''
             SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
                    f.message, f.created_at,
-                   i.name AS user_name, i.tg_username
+                   u.name AS user_name, u.tg_username
             FROM feedback_reports f
-            LEFT JOIN interns i ON i.chat_id = f.chat_id
+            LEFT JOIN public.users u ON u.telegram_id = f.chat_id
             WHERE f.status = 'new' AND f.severity = $1
               AND f.created_at >= NOW() - make_interval(hours => $2)
             ORDER BY f.created_at
@@ -80,9 +80,9 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
             rows = await conn.fetch('''
                 SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
                        f.message, f.status, f.created_at,
-                       i.name AS user_name, i.tg_username
+                       u.name AS user_name, u.tg_username
                 FROM feedback_reports f
-                LEFT JOIN interns i ON i.chat_id = f.chat_id
+                LEFT JOIN public.users u ON u.telegram_id = f.chat_id
                 WHERE f.created_at >= NOW() - make_interval(hours => $1)
                 ORDER BY f.created_at DESC
                 LIMIT $2
@@ -91,9 +91,9 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
             rows = await conn.fetch('''
                 SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
                        f.message, f.status, f.created_at,
-                       i.name AS user_name, i.tg_username
+                       u.name AS user_name, u.tg_username
                 FROM feedback_reports f
-                LEFT JOIN interns i ON i.chat_id = f.chat_id
+                LEFT JOIN public.users u ON u.telegram_id = f.chat_id
                 ORDER BY f.created_at DESC
                 LIMIT $1
             ''', limit)

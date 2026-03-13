@@ -1,5 +1,11 @@
 """
-Запросы для работы с пользователями (таблица interns).
+Запросы для работы с пользователями.
+
+ЦД-native (WP-82 Phase 3):
+  public.users — identity + profile
+  development.user_state — bot state
+
+get_intern() и update_intern() — адаптеры, возвращающие тот же dict-формат.
 """
 
 import asyncio
@@ -12,6 +18,18 @@ from db.connection import get_pool
 
 logger = get_logger(__name__)
 
+# ─── Field routing: какие поля в какой таблице ───
+
+PROFILE_FIELDS = frozenset({
+    'name', 'occupation', 'role', 'domain', 'interests', 'motivation', 'goals',
+    'language', 'experience_level', 'difficulty_preference', 'learning_style',
+    'study_duration', 'current_problems', 'desires', 'tg_username',
+    'aisystant_id', 'aisystant_linked_at', 'dt_connected_at', 'dt_user_id',
+    'tier', 'email', 'timezone',
+})
+
+# All other fields → development.user_state
+
 
 def moscow_now() -> datetime:
     """Получить текущее время по Москве"""
@@ -23,67 +41,91 @@ def moscow_today() -> date:
     return moscow_now().date()
 
 
+# ─── SQL для JOIN users + user_state ───
+
+_SELECT_JOINED = '''
+    SELECT
+        u.id AS user_id, u.telegram_id AS chat_id,
+        u.name, u.occupation, u.role, u.domain, u.interests,
+        u.motivation, u.goals, u.language, u.experience_level,
+        u.difficulty_preference, u.learning_style, u.study_duration,
+        u.current_problems, u.desires, u.tg_username,
+        u.aisystant_id, u.aisystant_linked_at, u.dt_connected_at,
+        u.dt_user_id, u.tier, u.email, u.timezone, u.created_at,
+        s.mode, s.current_context, s.current_state, s.topic_order,
+        s.schedule_time, s.schedule_time_2, s.feed_schedule_time,
+        s.marathon_status, s.marathon_start_date, s.marathon_paused_at,
+        s.current_topic_index, s.completed_topics, s.topics_today,
+        s.last_topic_date, s.complexity_level, s.topics_at_current_complexity,
+        s.feed_status, s.feed_started_at,
+        s.active_days_total, s.active_days_streak, s.longest_streak,
+        s.last_active_date, s.bot_blocked, s.bot_blocked_at,
+        s.trial_started_at, s.assessment_state, s.assessment_date,
+        s.stats_reset_date, s.notify_template_updates,
+        s.onboarding_completed,
+        COALESCE(s.updated_at, u.updated_at) AS updated_at
+    FROM public.users u
+    LEFT JOIN development.user_state s ON s.user_id = u.id
+    WHERE u.telegram_id = $1
+'''
+
+
 async def get_intern(chat_id: int) -> dict:
-    """Получить профиль пользователя из БД"""
+    """Получить профиль + состояние пользователя из БД.
+
+    Создаёт записи в users и user_state если не существуют.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            'SELECT * FROM interns WHERE chat_id = $1', chat_id
-        )
+        row = await conn.fetchrow(_SELECT_JOINED, chat_id)
 
         if row:
             result = _row_to_dict(row)
-            # Ensure user exists in public.users (WP-82 Phase 2)
-            if not result.get('user_id'):
-                try:
-                    from db.queries.identity import get_or_create_user
-                    user = await get_or_create_user(
-                        chat_id, result.get('name', ''), result.get('language', 'ru'),
-                    )
-                    await conn.execute(
-                        'UPDATE interns SET user_id = $2 WHERE chat_id = $1',
-                        chat_id, user['id'],
-                    )
-                    result['user_id'] = user['id']
-                except Exception as e:
-                    logger.warning(f"Failed to ensure user for {chat_id}: {e}")
+            # user exists but no state → create state
+            if result.get('mode') is None:
+                await conn.execute('''
+                    INSERT INTO development.user_state (user_id, chat_id)
+                    VALUES ($1, $2) ON CONFLICT DO NOTHING
+                ''', result['user_id'], chat_id)
+                result.update(_get_default_state())
             return result
-        else:
-            # Создаём нового пользователя в обеих таблицах
-            try:
-                from db.queries.identity import get_or_create_user
-                user = await get_or_create_user(chat_id)
-                await conn.execute(
-                    'INSERT INTO interns (chat_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-                    chat_id, user['id'],
-                )
-                result = _get_default_intern(chat_id)
-                result['user_id'] = user['id']
-                return result
-            except Exception:
-                await conn.execute(
-                    'INSERT INTO interns (chat_id) VALUES ($1) ON CONFLICT DO NOTHING',
-                    chat_id
-                )
-                return _get_default_intern(chat_id)
+
+        # No user → create both
+        user_row = await conn.fetchrow('''
+            INSERT INTO public.users (telegram_id)
+            VALUES ($1)
+            ON CONFLICT (telegram_id) DO UPDATE SET telegram_id = EXCLUDED.telegram_id
+            RETURNING id
+        ''', chat_id)
+        user_id = user_row['id']
+
+        await conn.execute('''
+            INSERT INTO development.user_state (user_id, chat_id)
+            VALUES ($1, $2) ON CONFLICT DO NOTHING
+        ''', user_id, chat_id)
+
+        result = _get_default_intern(chat_id)
+        result['user_id'] = user_id
+        return result
 
 
 def _row_to_dict(row) -> dict:
     """Преобразовать строку БД в словарь"""
     def safe_get(key, default=''):
         return row[key] if key in row.keys() and row[key] is not None else default
-    
+
     def safe_json(key, default=None):
         if default is None:
             default = []
         val = safe_get(key, '[]')
         try:
             return json.loads(val) if isinstance(val, str) else val
-        except:
+        except Exception:
             return default
 
     return {
         'chat_id': row['chat_id'],
+        'user_id': safe_get('user_id', None),
         'name': safe_get('name', ''),
         'occupation': safe_get('occupation', ''),
         'role': safe_get('role', ''),
@@ -100,14 +142,14 @@ def _row_to_dict(row) -> dict:
         'schedule_time': safe_get('schedule_time', '09:00'),
         'schedule_time_2': safe_get('schedule_time_2', None),
         'topic_order': safe_get('topic_order', 'default'),
-        
+
         # Режимы
         'mode': safe_get('mode', 'marathon'),
         'current_context': safe_json('current_context', {}),
 
         # State Machine
         'current_state': safe_get('current_state', None),
-        
+
         # Марафон
         'marathon_status': safe_get('marathon_status', 'not_started'),
         'marathon_start_date': safe_get('marathon_start_date', None),
@@ -116,34 +158,31 @@ def _row_to_dict(row) -> dict:
         'completed_topics': safe_json('completed_topics', []),
         'topics_today': safe_get('topics_today', 0),
         'last_topic_date': safe_get('last_topic_date', None),
-        
-        # Сложность (используем coalesce-логику, но с учётом 0 как валидного значения)
-        'complexity_level': safe_get('complexity_level', None) if safe_get('complexity_level', None) is not None else (safe_get('bloom_level', 1) or 1),
-        'topics_at_current_complexity': safe_get('topics_at_current_complexity', None) if safe_get('topics_at_current_complexity', None) is not None else (safe_get('topics_at_current_bloom', 0) or 0),
-        # Для обратной совместимости (синхронизируем значения)
-        'bloom_level': safe_get('complexity_level', None) if safe_get('complexity_level', None) is not None else (safe_get('bloom_level', 1) or 1),
-        'topics_at_current_bloom': safe_get('topics_at_current_complexity', None) if safe_get('topics_at_current_complexity', None) is not None else (safe_get('topics_at_current_bloom', 0) or 0),
-        
+
+        # Сложность
+        'complexity_level': safe_get('complexity_level', None) if safe_get('complexity_level', None) is not None else 1,
+        'topics_at_current_complexity': safe_get('topics_at_current_complexity', None) if safe_get('topics_at_current_complexity', None) is not None else 0,
+        # Обратная совместимость (aliases)
+        'bloom_level': safe_get('complexity_level', None) if safe_get('complexity_level', None) is not None else 1,
+        'topics_at_current_bloom': safe_get('topics_at_current_complexity', None) if safe_get('topics_at_current_complexity', None) is not None else 0,
+
         # Лента
         'feed_status': safe_get('feed_status', 'not_started'),
         'feed_started_at': safe_get('feed_started_at', None),
         'feed_schedule_time': safe_get('feed_schedule_time', None),
-        
+
         # Систематичность
         'active_days_total': safe_get('active_days_total', 0),
         'active_days_streak': safe_get('active_days_streak', 0),
         'longest_streak': safe_get('longest_streak', 0),
         'last_active_date': safe_get('last_active_date', None),
-        
+
         # Оценка
         'assessment_state': safe_get('assessment_state', None),
         'assessment_date': safe_get('assessment_date', None),
 
         # Сброс статистики
         'stats_reset_date': safe_get('stats_reset_date', None),
-
-        # Identity (WP-82 Phase 2)
-        'user_id': safe_get('user_id', None),
 
         # Подписка / DT
         'trial_started_at': safe_get('trial_started_at', None),
@@ -162,10 +201,47 @@ def _row_to_dict(row) -> dict:
     }
 
 
+def _get_default_state() -> dict:
+    """Дефолтные значения для state-полей (когда user_state только создан)."""
+    return {
+        'mode': 'marathon',
+        'current_context': {},
+        'current_state': None,
+        'topic_order': 'default',
+        'schedule_time': '09:00',
+        'schedule_time_2': None,
+        'feed_schedule_time': None,
+        'marathon_status': 'not_started',
+        'marathon_start_date': None,
+        'marathon_paused_at': None,
+        'current_topic_index': 0,
+        'completed_topics': [],
+        'topics_today': 0,
+        'last_topic_date': None,
+        'complexity_level': 1,
+        'topics_at_current_complexity': 0,
+        'bloom_level': 1,
+        'topics_at_current_bloom': 0,
+        'feed_status': 'not_started',
+        'feed_started_at': None,
+        'active_days_total': 0,
+        'active_days_streak': 0,
+        'longest_streak': 0,
+        'last_active_date': None,
+        'assessment_state': None,
+        'assessment_date': None,
+        'stats_reset_date': None,
+        'trial_started_at': None,
+        'onboarding_completed': False,
+        'notify_template_updates': False,
+    }
+
+
 def _get_default_intern(chat_id: int) -> dict:
     """Получить дефолтные значения для нового пользователя"""
-    return {
+    result = {
         'chat_id': chat_id,
+        'user_id': None,
         'name': '',
         'occupation': '',
         'role': '',
@@ -179,65 +255,17 @@ def _get_default_intern(chat_id: int) -> dict:
         'current_problems': '',
         'desires': '',
         'goals': '',
-        'schedule_time': '09:00',
-        'schedule_time_2': None,
-        'topic_order': 'default',
-        
-        'mode': 'marathon',
-        'current_context': {},
-
-        # State Machine
-        'current_state': None,
-
-        'marathon_status': 'not_started',
-        'marathon_start_date': None,
-        'marathon_paused_at': None,
-        'current_topic_index': 0,
-        'completed_topics': [],
-        'topics_today': 0,
-        'last_topic_date': None,
-        
-        'complexity_level': 1,
-        'topics_at_current_complexity': 0,
-        'bloom_level': 1,
-        'topics_at_current_bloom': 0,
-        
-        'feed_status': 'not_started',
-        'feed_started_at': None,
-        'feed_schedule_time': None,
-
-        'active_days_total': 0,
-        'active_days_streak': 0,
-        'longest_streak': 0,
-        'last_active_date': None,
-
-        'assessment_state': None,
-        'assessment_date': None,
-
-        'stats_reset_date': None,
-
-        'user_id': None,
-
-        'trial_started_at': None,
         'dt_connected_at': None,
         'created_at': None,
-
         'tg_username': None,
-
-        'onboarding_completed': False,
         'language': 'ru',
-
-        'notify_template_updates': False,
     }
+    result.update(_get_default_state())
+    return result
 
 
 async def is_onboarded(intern: dict) -> bool:
-    """Check if user completed onboarding, auto-heal if active but flag is False.
-
-    Users created before WP-79 slim onboarding may have marathon_status=active
-    but onboarding_completed=False.  Instead of blocking them forever, detect
-    the inconsistency and fix it on the fly.
-    """
+    """Check if user completed onboarding, auto-heal if active but flag is False."""
     if not intern:
         return False
     if intern.get('onboarding_completed'):
@@ -252,7 +280,7 @@ async def is_onboarded(intern: dict) -> bool:
 
 
 async def update_intern(chat_id: int, **kwargs):
-    """Обновить данные пользователя (single batched UPDATE)."""
+    """Обновить данные пользователя (роутинг: profile → users, state → user_state)."""
     if not kwargs:
         return
 
@@ -280,19 +308,31 @@ async def update_intern(chat_id: int, **kwargs):
     if not columns:
         return
 
-    # Single UPDATE: SET col1=$2, col2=$3, ... WHERE chat_id=$1
-    set_parts = []
-    params = [chat_id]  # $1
-    for i, (col, val) in enumerate(columns.items(), start=2):
-        set_parts.append(f"{col} = ${i}")
-        params.append(val)
-    set_parts.append("updated_at = NOW()")
-
-    query = f"UPDATE interns SET {', '.join(set_parts)} WHERE chat_id = $1"
+    # Split into profile and state updates
+    profile_updates = {k: v for k, v in columns.items() if k in PROFILE_FIELDS}
+    state_updates = {k: v for k, v in columns.items() if k not in PROFILE_FIELDS}
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(query, *params)
+        if profile_updates:
+            set_parts = []
+            params = [chat_id]  # $1 = telegram_id
+            for i, (col, val) in enumerate(profile_updates.items(), start=2):
+                set_parts.append(f"{col} = ${i}")
+                params.append(val)
+            set_parts.append("updated_at = (NOW() AT TIME ZONE 'utc')")
+            query = f"UPDATE public.users SET {', '.join(set_parts)} WHERE telegram_id = $1"
+            await conn.execute(query, *params)
+
+        if state_updates:
+            set_parts = []
+            params = [chat_id]  # $1 = chat_id
+            for i, (col, val) in enumerate(state_updates.items(), start=2):
+                set_parts.append(f"{col} = ${i}")
+                params.append(val)
+            set_parts.append("updated_at = (NOW() AT TIME ZONE 'utc')")
+            query = f"UPDATE development.user_state SET {', '.join(set_parts)} WHERE chat_id = $1"
+            await conn.execute(query, *params)
 
     # Инкрементальный sync в ЦД (fire-and-forget)
     try:
@@ -306,11 +346,11 @@ async def update_intern(chat_id: int, **kwargs):
 
 
 async def update_tg_username(chat_id: int, username: str) -> None:
-    """Обновить tg_username если изменился (IS DISTINCT FROM — пишет только при изменении)."""
+    """Обновить tg_username если изменился."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE interns SET tg_username = $1 WHERE chat_id = $2 AND tg_username IS DISTINCT FROM $1',
+            "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1",
             username, chat_id,
         )
 
@@ -320,8 +360,8 @@ async def mark_bot_blocked(chat_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            """UPDATE interns
-               SET bot_blocked = TRUE, bot_blocked_at = NOW()
+            """UPDATE development.user_state
+               SET bot_blocked = TRUE, bot_blocked_at = (NOW() AT TIME ZONE 'utc')
                WHERE chat_id = $1 AND bot_blocked IS NOT TRUE""",
             chat_id,
         )
@@ -333,7 +373,7 @@ async def clear_bot_blocked(chat_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            """UPDATE interns
+            """UPDATE development.user_state
                SET bot_blocked = FALSE, bot_blocked_at = NULL
                WHERE chat_id = $1 AND bot_blocked = TRUE""",
             chat_id,
@@ -343,27 +383,18 @@ async def clear_bot_blocked(chat_id: int) -> None:
 
 
 async def update_user_state(chat_id: int, state_name: str) -> None:
-    """
-    Обновить текущее состояние пользователя (для State Machine).
-
-    Args:
-        chat_id: ID чата пользователя
-        state_name: Имя нового состояния (например, "common.start")
-    """
+    """Обновить текущее состояние пользователя (для State Machine)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE interns SET current_state = $1, updated_at = NOW() WHERE chat_id = $2',
+            "UPDATE development.user_state SET current_state = $1, updated_at = (NOW() AT TIME ZONE 'utc') WHERE chat_id = $2",
             state_name, chat_id
         )
     logger.debug(f"[SM] User {chat_id} state updated to: {state_name}")
 
 
 def derive_mode(marathon_status: str, feed_status: str) -> str:
-    """Вычислить эффективный режим из независимых статусов.
-
-    Returns 'both', 'feed' или 'marathon' (по умолчанию).
-    """
+    """Вычислить эффективный режим из независимых статусов."""
     m_active = marathon_status in ('active', 'completed')
     f_active = feed_status == 'active'
     if m_active and f_active:
@@ -374,15 +405,12 @@ def derive_mode(marathon_status: str, feed_status: str) -> str:
 
 
 async def get_marathon_users_at_time(hour: int, minute: int) -> list:
-    """Получить chat_id пользователей марафона, запланированных на указанное время.
-
-    Используется для пре-генерации контента за N часов до доставки.
-    """
+    """Получить chat_id пользователей марафона, запланированных на указанное время."""
     pool = await get_pool()
     time_str = f"{hour:02d}:{minute:02d}"
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT chat_id FROM interns
+            '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
                  AND onboarding_completed = TRUE''',
@@ -392,17 +420,13 @@ async def get_marathon_users_at_time(hour: int, minute: int) -> list:
 
 
 async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
-    """Получить пользователей для отправки по расписанию.
-
-    Returns:
-        list of (chat_id, send_type) где send_type = 'marathon' | 'feed' | 'both'
-    """
+    """Получить пользователей для отправки по расписанию."""
     pool = await get_pool()
     time_str = f"{hour:02d}:{minute:02d}"
     async with pool.acquire() as conn:
         # Марафон: schedule_time совпадает, марафон активен
         marathon_rows = await conn.fetch(
-            '''SELECT chat_id FROM interns
+            '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
                  AND onboarding_completed = TRUE
@@ -413,7 +437,7 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
 
         # Лента: feed_schedule_time совпадает, лента активна
         feed_rows = await conn.fetch(
-            '''SELECT chat_id FROM interns
+            '''SELECT chat_id FROM development.user_state
                WHERE feed_schedule_time = $1
                  AND feed_status = 'active'
                  AND onboarding_completed = TRUE
@@ -424,7 +448,7 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
 
         # Fallback: feed_schedule_time не задан → используем schedule_time
         fallback_rows = await conn.fetch(
-            '''SELECT chat_id FROM interns
+            '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND feed_schedule_time IS NULL
                  AND feed_status = 'active'
@@ -452,11 +476,7 @@ MAX_USERS_PER_SLOT = 50
 
 
 async def get_slot_load(target_time: str, window_minutes: int = 5) -> dict[str, int]:
-    """Подсчитать количество пользователей на каждом минутном слоте вокруг target_time.
-
-    Returns:
-        dict вида {"09:00": 42, "09:01": 3, "09:02": 0, ...}
-    """
+    """Подсчитать количество пользователей на каждом минутном слоте."""
     h, m = map(int, target_time.split(":"))
     slots = []
     for delta in range(-window_minutes, window_minutes + 1):
@@ -472,7 +492,7 @@ async def get_slot_load(target_time: str, window_minutes: int = 5) -> dict[str, 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT schedule_time, COUNT(*) as cnt
-               FROM interns
+               FROM development.user_state
                WHERE schedule_time = ANY($1)
                  AND onboarding_completed = TRUE
                GROUP BY schedule_time''',
@@ -485,28 +505,20 @@ async def get_slot_load(target_time: str, window_minutes: int = 5) -> dict[str, 
 
 
 async def find_best_slot(target_time: str) -> tuple[str, bool]:
-    """Найти оптимальный слот для пользователя.
-
-    Если целевой слот не перегружен — вернуть его.
-    Иначе — ближайший слот с наименьшей нагрузкой в окне ±5 мин.
-
-    Returns:
-        (slot_time, was_shifted) — время слота и был ли сдвиг
-    """
+    """Найти оптимальный слот для пользователя."""
     counts = await get_slot_load(target_time)
     target_count = counts.get(target_time, 0)
 
     if target_count < MAX_USERS_PER_SLOT:
         return target_time, False
 
-    # Сортируем по расстоянию от целевого, потом по загрузке
     h, m = map(int, target_time.split(":"))
     target_total = h * 60 + m
 
     def sort_key(slot: str) -> tuple[int, int]:
         sh, sm = map(int, slot.split(":"))
         dist = abs((sh * 60 + sm) - target_total)
-        if dist > 720:  # Обработка перехода через полночь
+        if dist > 720:
             dist = 1440 - dist
         return (dist, counts[slot])
 
@@ -515,7 +527,6 @@ async def find_best_slot(target_time: str) -> tuple[str, bool]:
         if counts[slot] < MAX_USERS_PER_SLOT:
             return slot, slot != target_time
 
-    # Все слоты заполнены — берём наименее загруженный
     best = min(counts.keys(), key=lambda s: counts[s])
     return best, best != target_time
 
@@ -535,7 +546,7 @@ async def get_template_update_subscribers() -> List[int]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT chat_id FROM interns
+            '''SELECT chat_id FROM development.user_state
                WHERE notify_template_updates = TRUE
                  AND bot_blocked IS NOT TRUE'''
         )

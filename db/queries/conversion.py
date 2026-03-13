@@ -103,21 +103,22 @@ async def get_milestone_eligible_users(milestone_day: int) -> list[dict]:
     async with pool.acquire() as conn:
         milestone = f"day_{milestone_day}"
         rows = await conn.fetch(
-            '''SELECT i.chat_id, i.language, i.mode,
-                      i.completed_topics, i.marathon_status,
-                      i.active_days_total, i.longest_streak,
-                      i.complexity_level, i.feed_status
-               FROM interns i
-               WHERE i.onboarding_completed = TRUE
-                 AND i.created_at IS NOT NULL
-                 AND i.created_at + INTERVAL '1 day' * $1 <= NOW()
-                 AND i.created_at + INTERVAL '1 day' * ($1 + 1) > NOW()
-                 AND i.chat_id NOT IN (
+            '''SELECT s.chat_id, u.language, s.mode,
+                      s.completed_topics, s.marathon_status,
+                      s.active_days_total, s.longest_streak,
+                      s.complexity_level, s.feed_status
+               FROM development.user_state s
+               JOIN public.users u ON u.telegram_id = s.chat_id
+               WHERE s.onboarding_completed = TRUE
+                 AND u.created_at IS NOT NULL
+                 AND u.created_at + INTERVAL '1 day' * $1 <= NOW()
+                 AND u.created_at + INTERVAL '1 day' * ($1 + 1) > NOW()
+                 AND s.chat_id NOT IN (
                      SELECT ce.chat_id FROM conversion_events ce
                      WHERE ce.trigger_type = 'C3'
                        AND ce.milestone = $2
                  )
-                 AND i.chat_id NOT IN (
+                 AND s.chat_id NOT IN (
                      SELECT ce2.chat_id FROM conversion_events ce2
                      WHERE ce2.shown_at > NOW() - INTERVAL '7 days'
                  )''',

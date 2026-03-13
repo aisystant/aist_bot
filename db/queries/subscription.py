@@ -115,7 +115,7 @@ async def get_trial_expiring_users(days_ahead: int = 0) -> list[int]:
     async with pool.acquire() as conn:
         from config.settings import FREE_TRIAL_DAYS
         rows = await conn.fetch(
-            '''SELECT chat_id FROM interns
+            '''SELECT chat_id FROM development.user_state
                WHERE onboarding_completed = TRUE
                  AND trial_started_at IS NOT NULL
                  AND trial_started_at + INTERVAL '1 day' * $1 <= NOW()

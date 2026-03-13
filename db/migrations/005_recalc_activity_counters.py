@@ -73,7 +73,7 @@ async def migrate():
                         break
 
             await conn.execute('''
-                UPDATE interns
+                UPDATE development.user_state
                 SET active_days_total = $2,
                     active_days_streak = $3,
                     longest_streak = $4,
@@ -87,7 +87,7 @@ async def migrate():
         # Проверка: показать итоговые значения
         check = await conn.fetch('''
             SELECT chat_id, active_days_total, active_days_streak, longest_streak, last_active_date
-            FROM interns
+            FROM development.user_state
             WHERE active_days_total > 0
             ORDER BY active_days_total DESC
             LIMIT 10

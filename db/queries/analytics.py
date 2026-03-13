@@ -2,7 +2,7 @@
 Аналитические запросы для /analytics команды.
 
 Агрегирует данные из нескольких таблиц:
-- interns + activity_log → DAU/WAU/MAU, retention
+- public.users + development.user_state + activity_log → DAU/WAU/MAU, retention
 - user_sessions → сессии (длина, частота, entry/exit)
 - request_traces → latency, quality
 - qa_history → helpful rate
@@ -51,14 +51,15 @@ async def _get_user_metrics(conn) -> dict:
     """DAU/WAU/MAU + новые пользователи."""
     row = await conn.fetchrow('''
         SELECT
-            COUNT(*) FILTER (WHERE last_active_date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) as dau,
-            COUNT(*) FILTER (WHERE last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6) as wau,
-            COUNT(*) FILTER (WHERE last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 29) as mau,
+            COUNT(*) FILTER (WHERE s.last_active_date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) as dau,
+            COUNT(*) FILTER (WHERE s.last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6) as wau,
+            COUNT(*) FILTER (WHERE s.last_active_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 29) as mau,
             COUNT(*) as total,
-            COUNT(*) FILTER (WHERE created_at::date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) as new_today,
-            COUNT(*) FILTER (WHERE created_at::date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6) as new_week
-        FROM interns
-        WHERE onboarding_completed = TRUE
+            COUNT(*) FILTER (WHERE u.created_at::date = (NOW() AT TIME ZONE 'Europe/Moscow')::date) as new_today,
+            COUNT(*) FILTER (WHERE u.created_at::date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6) as new_week
+        FROM development.user_state s
+        JOIN public.users u ON u.telegram_id = s.chat_id
+        WHERE s.onboarding_completed = TRUE
     ''')
     return dict(row) if row else {
         'dau': 0, 'wau': 0, 'mau': 0, 'total': 0,
@@ -132,15 +133,16 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
 
 
 async def _get_retention_metrics(conn) -> dict:
-    """Retention D1/D7/D30 на основе activity_log и interns.created_at."""
+    """Retention D1/D7/D30 на основе activity_log и users.created_at."""
     result = {}
     for days, label in [(1, 'd1'), (7, 'd7'), (30, 'd30')]:
         row = await conn.fetchrow('''
             WITH cohort AS (
-                SELECT chat_id, created_at::date as cohort_date
-                FROM interns
-                WHERE onboarding_completed = TRUE
-                  AND created_at < NOW() - make_interval(days := $1)
+                SELECT s.chat_id, u.created_at::date as cohort_date
+                FROM development.user_state s
+                JOIN public.users u ON u.telegram_id = s.chat_id
+                WHERE s.onboarding_completed = TRUE
+                  AND u.created_at < NOW() - make_interval(days := $1)
             ),
             retained AS (
                 SELECT DISTINCT c.chat_id

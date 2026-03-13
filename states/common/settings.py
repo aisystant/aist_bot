@@ -1321,7 +1321,7 @@ class SettingsState(BaseState):
             from db import get_pool
             pool = await get_pool()
             async with pool.acquire() as conn:
-                await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', chat_id)
+                await conn.execute('UPDATE public.users SET dt_connected_at = NULL WHERE telegram_id = $1', chat_id)
         except Exception:
             pass
 
