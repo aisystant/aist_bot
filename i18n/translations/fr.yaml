@@ -220,6 +220,8 @@ settings:
   schedule_marathon: "Marathon"
   twin_coming_soon: "Jumeau numérique — assistant IA personnel, entraîné sur tes données..."
   twin_label: "Jumeau numérique"
+  club_label: "Club"
+  active_donation: "⭐ {amount} Stars/mois"
   iwe_updates_label: "Mises à jour IWE"
   iwe_updates_enable: "activer"
   iwe_updates_disable: "désactiver"

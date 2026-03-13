@@ -908,6 +908,14 @@ settings:
     ru: "Цифровой двойник"
     en: "Digital Twin"
 
+  club_label:
+    ru: "Клуб"
+    en: "Club"
+
+  active_donation:
+    ru: "⭐ {amount} Stars/мес"
+    en: "⭐ {amount} Stars/mo"
+
   twin_coming_soon:
     ru: "Цифровой двойник — персональный ИИ-ассистент, обученный на ваших данных. Эта функция находится в разработке."
     en: "Digital Twin — a personal AI assistant trained on your data. This feature is under development."

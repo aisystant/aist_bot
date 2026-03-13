@@ -113,7 +113,7 @@ class SettingsState(BaseState):
         sub = await get_active_subscription(chat_id)
         if sub:
             amount = sub.get('stars_amount', 0)
-            donation_line = f"⭐ {amount} Stars/мес"
+            donation_line = t('settings.active_donation', lang, amount=amount)
         else:
             donation_line = t('settings.no_active_donations', lang)
 
@@ -128,7 +128,7 @@ class SettingsState(BaseState):
             f"  • Aisystant: {aisystant_status}\n"
             f"  • {t('settings.twin_label', lang)}: {twin_status}\n"
             f"  • GitHub: {github_status}\n"
-            f"  • Клуб: {club_status}\n"
+            f"  • {t('settings.club_label', lang)}: {club_status}\n"
             f"  • WakaTime: {waka_status}"
         )
 
@@ -925,7 +925,7 @@ class SettingsState(BaseState):
             f"🔗 Aisystant: {aisystant_status}\n"
             f"🐙 GitHub: {github_status}\n"
             f"🤖 {t('settings.twin_label', lang)}: {twin_status}\n"
-            f"🏛 Клуб: {club_status}\n"
+            f"🏛 {t('settings.club_label', lang)}: {club_status}\n"
             f"📊 WakaTime: {waka_status}\n"
         )
 
@@ -942,7 +942,7 @@ class SettingsState(BaseState):
         buttons = [
             [
                 InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
-                InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club"),
+                InlineKeyboardButton(text="🏛 " + t('settings.club_label', lang), callback_data="conn_club"),
             ],
             [
                 InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
@@ -1258,7 +1258,7 @@ class SettingsState(BaseState):
 
             posts = await get_published_posts(chat_id)
 
-            lines = [f"🏛 *Клуб — подключён*\n"]
+            lines = [f"🏛 *{t('settings.club_label', lang)} — {t('settings.connected', lang)}*\n"]
             lines.append(f"Username: *{username}*")
             if cat_id:
                 lines.append(f"Блог: категория {cat_id}")
@@ -1280,7 +1280,7 @@ class SettingsState(BaseState):
             from clients.discourse import discourse
             if not discourse:
                 await callback.message.edit_text(
-                    "🏛 *Клуб*\n\nИнтеграция не настроена.",
+                    f"🏛 *{t('settings.club_label', lang)}*\n\n{t('settings.not_connected', lang)}.",
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
@@ -1309,7 +1309,7 @@ class SettingsState(BaseState):
         await unlink_discourse_account(chat_id)
 
         await callback.message.edit_text(
-            "🏛 Клуб: " + t('settings.not_connected', lang),
+            f"🏛 {t('settings.club_label', lang)}: " + t('settings.not_connected', lang),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
             ]),

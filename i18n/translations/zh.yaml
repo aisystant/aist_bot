@@ -220,6 +220,8 @@ settings:
   schedule_marathon: "马拉松"
   twin_coming_soon: "数字双胞胎 — 基于你的数据训练的个人AI助手..."
   twin_label: "数字双胞胎"
+  club_label: "俱乐部"
+  active_donation: '⭐ {amount} Stars/月'
   iwe_updates_label: "IWE更新"
   iwe_updates_enable: "启用"
   iwe_updates_disable: "禁用"
