@@ -306,6 +306,25 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     except Exception as e:
         logger.error(f"DT initial sync failed for user {telegram_user_id}: {e}")
 
+    # Persist dt_user_id in interns + public.users (WP-82 Phase 1+2)
+    try:
+        from db.queries.dt_tokens import get_dt_user_id
+        dt_uid = await get_dt_user_id(telegram_user_id)
+        if dt_uid:
+            from db import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    'UPDATE interns SET dt_user_id = $2 WHERE chat_id = $1',
+                    telegram_user_id, dt_uid,
+                )
+            # Sync to public.users
+            from db.queries.identity import update_user_dt
+            await update_user_dt(telegram_user_id, dt_uid)
+            logger.info(f"DT: saved dt_user_id={dt_uid} to interns+users for {telegram_user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to persist dt_user_id for {telegram_user_id}: {e}")
+
     if _bot_instance:
         try:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[

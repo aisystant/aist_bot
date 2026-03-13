@@ -38,11 +38,19 @@ async def log_event(
     """
     try:
         pool = await get_pool()
+        # Resolve user_uuid from public.users (WP-82 Phase 2)
+        user_uuid = None
+        try:
+            from db.queries.identity import get_user_uuid
+            user_uuid = await get_user_uuid(user_id)
+        except Exception:
+            pass
+
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
                 INSERT INTO development.user_events
-                    (user_id, event_type, source, payload, confidence, skill_ids)
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+                    (user_id, event_type, source, payload, confidence, skill_ids, user_uuid)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
                 RETURNING id
             ''',
                 user_id,
@@ -51,6 +59,7 @@ async def log_event(
                 json.dumps(payload) if payload else '{}',
                 confidence,
                 skill_ids or [],
+                user_uuid,
             )
             event_id = row['id'] if row else None
             if event_id:
