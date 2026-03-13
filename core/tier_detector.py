@@ -78,8 +78,12 @@ async def detect_ui_tier(chat_id: int) -> int:
     if prev_tier is not None and prev_tier != new_tier:
         reason = _infer_reason(prev_tier, new_tier)
         asyncio.create_task(_log_tier_transition(chat_id, prev_tier, new_tier, reason))
+        asyncio.create_task(_persist_tier(chat_id, new_tier))
         if new_tier < prev_tier:
             asyncio.create_task(_notify_downgrade(chat_id, prev_tier, new_tier))
+    elif prev_tier is None:
+        # First detection after deploy — persist current tier
+        asyncio.create_task(_persist_tier(chat_id, new_tier))
     _tier_cache[chat_id] = new_tier
 
     return new_tier
@@ -134,6 +138,20 @@ async def _is_dt_connected(chat_id: int) -> bool:
             return row is not None and row['dt_connected_at'] is not None
     except Exception:
         return False
+
+
+# ═══════════════════════════════════════════════════════════
+# TIER PERSISTENCE (WP-85: sync public.users.tier)
+# ═══════════════════════════════════════════════════════════
+
+async def _persist_tier(chat_id: int, tier: int) -> None:
+    """Persist computed tier to public.users (fire-and-forget)."""
+    try:
+        from db.queries.identity import update_user_tier
+        tier_name = f"T{tier}"
+        await update_user_tier(chat_id, tier_name)
+    except Exception as e:
+        logger.warning(f"[Tier] Failed to persist tier for {chat_id}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════

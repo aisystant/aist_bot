@@ -36,7 +36,7 @@ class UITier:
 # Tier display names for user-facing messages (greeting, etc.)
 TIER_DISPLAY = {
     UITier.T0:             "T0 — New",
-    UITier.T1:           "T1 — Start",
+    UITier.T1:             "T1 — Start",
     UITier.T2_LEARNING:        "T2 — Learning",
     UITier.T3_PERSONALIZATION: "T3 — Personalization",
     UITier.T4_CREATION:        "T4 — Creation",
