@@ -1046,6 +1046,15 @@ async def create_tables(pool: asyncpg.Pool):
             ON development.user_events (event_type, created_at DESC)
         ''')
 
+        # Миграция user_events: user_uuid (WP-82 Phase 2) — ДО создания view
+        try:
+            await conn.execute(
+                'ALTER TABLE development.user_events '
+                'ADD COLUMN IF NOT EXISTS user_uuid UUID'
+            )
+        except Exception:
+            pass
+
         # ─── Layer 2: Engagement View (WP-85, подзадача 7) ───
         # DROP + CREATE (§10.22: REPLACE запрещён)
         await conn.execute('DROP VIEW IF EXISTS development.engagement')
@@ -1144,15 +1153,6 @@ async def create_tables(pool: asyncpg.Pool):
                 logger.info(f"[Migration] Backfill interns.user_id: {updated}")
         except Exception as e:
             logger.warning(f"[Migration] Backfill interns.user_id skipped: {e}")
-
-        # Миграция user_events: user_id BIGINT → user_uuid UUID (WP-82 Phase 2)
-        try:
-            await conn.execute(
-                'ALTER TABLE development.user_events '
-                'ADD COLUMN IF NOT EXISTS user_uuid UUID'
-            )
-        except Exception:
-            pass
 
         # Backfill: user_events.user_uuid из users по telegram_id
         try:
