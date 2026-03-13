@@ -44,12 +44,12 @@ async def cmd_about(message: Message):
     tier = await detect_ui_tier(message.chat.id)
 
     buttons = []
-    if tier == UITier.T1_NEW:
+    if tier == UITier.T0:
         buttons.append([
             InlineKeyboardButton(text=t('info.btn_marathon', lang), callback_data="info_marathon"),
             InlineKeyboardButton(text=t('info.btn_link', lang), callback_data="info_go_link"),
         ])
-    elif tier == UITier.T1_START:
+    elif tier == UITier.T1:
         buttons.append([
             InlineKeyboardButton(text=t('info.btn_marathon', lang), callback_data="info_marathon"),
             InlineKeyboardButton(text=t('info.btn_buy', lang), callback_data="info_go_buy"),
@@ -64,7 +64,7 @@ async def cmd_about(message: Message):
             InlineKeyboardButton(text=t('info.btn_ask', lang), callback_data="info_ask_hint"),
         ])
 
-    if tier in (UITier.T1_NEW, UITier.T1_START):
+    if tier in (UITier.T0, UITier.T1):
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_ask', lang),
             callback_data="info_ask_hint",
@@ -104,7 +104,7 @@ async def _show_marathon_info(message: Message, lang: str, edit: bool = False):
     tier = await detect_ui_tier(chat_id)
 
     buttons = []
-    if tier in (UITier.T1_NEW, UITier.T1_START):
+    if tier in (UITier.T0, UITier.T1):
         buttons.append([
             InlineKeyboardButton(text=t('info.btn_start_marathon', lang), callback_data="info_go_learn"),
             InlineKeyboardButton(text=t('info.btn_configure_marathon', lang), callback_data="info_go_profile"),

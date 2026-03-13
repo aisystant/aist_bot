@@ -8,6 +8,7 @@
 Сервисы не на клавиатуре доступны через /command или /help.
 """
 
+import random
 from typing import Optional
 
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -15,8 +16,68 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from states.base import BaseState
 from core.tier_ui import build_reply_keyboard, sync_menu_commands
 from core.tier_detector import detect_ui_tier
+from core.tier_config import UITier
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
+
+
+# Tier → i18n key suffix for tier label
+_TIER_LABEL_KEY = {
+    UITier.T0: 't0',
+    UITier.T1: 't1',
+    UITier.T2_LEARNING: 't2',
+    UITier.T3_PERSONALIZATION: 't3',
+    UITier.T4_CREATION: 't4',
+    UITier.T5_ADMIN: 't4',
+}
+
+# Tier → i18n tips key suffix
+_TIER_TIPS_KEY = {
+    UITier.T0: 't0',
+    UITier.T1: 't1',
+    UITier.T2_LEARNING: 't2',
+    UITier.T3_PERSONALIZATION: 't3',
+    UITier.T4_CREATION: 't4',
+    UITier.T5_ADMIN: 't4',
+}
+
+# Track last tip index per user to avoid consecutive repeats
+_last_tip: dict[int, int] = {}
+
+
+def _get_tier_label(tier: int, lang: str) -> str:
+    """Get tier label string for greeting."""
+    key = _TIER_LABEL_KEY.get(tier, 't1')
+    return t(f'welcome.tier_label.{key}', lang)
+
+
+def _get_random_tip(tier: int, lang: str, chat_id: int) -> str:
+    """Get a random tip for the tier, avoiding consecutive repeats.
+
+    Tips are stored as numbered i18n keys: welcome.tips.t{N}_{idx}
+    """
+    key_prefix = _TIER_TIPS_KEY.get(tier, 't1')
+
+    # Collect all tips for this tier (t0_0, t0_1, ...)
+    tip_texts = []
+    for idx in range(10):  # max 10 tips per tier
+        text = t(f'welcome.tips.{key_prefix}_{idx}', lang)
+        if text.startswith('welcome.tips.'):
+            break  # key not found = end of tips
+        tip_texts.append(text)
+
+    if not tip_texts:
+        return ""
+
+    # Avoid repeating last tip for this user
+    last = _last_tip.get(chat_id, -1)
+    if len(tip_texts) > 1:
+        candidates = [i for i in range(len(tip_texts)) if i != last]
+        idx = random.choice(candidates)
+    else:
+        idx = 0
+    _last_tip[chat_id] = idx
+    return tip_texts[idx]
 
 
 class ModeSelectState(BaseState):
@@ -69,8 +130,9 @@ class ModeSelectState(BaseState):
         keyboard = build_reply_keyboard(tier, lang)
 
         name = user_dict.get('name', '')
-        tier_num = min(tier, 4)  # T5 (admin) shows as 4
-        greeting = t('welcome.menu_greeting', lang, name=name, tier_num=tier_num)
+        tier_label = _get_tier_label(tier, lang)
+        tip = _get_random_tip(tier, lang, chat_id)
+        greeting = t('welcome.menu_greeting', lang, name=name, tier_label=tier_label, tip=tip)
         await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
         await sync_menu_commands(self.bot, chat_id, tier, lang)
 

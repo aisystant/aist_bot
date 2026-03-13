@@ -5,8 +5,8 @@ Source-of-truth: WP-52 + WP-79 (unified bot UX)
 Architecture ref: DP.ARCH.002 (service tiers)
 
 Tier model (payment-first, cumulative):
-  T1_NEW:  not linked to Aisystant (brand new user)
-  T1_START: linked to Aisystant, no БР subscription
+  T0:  not linked to Aisystant (brand new user)
+  T1: linked to Aisystant, no БР subscription
   T2: Aisystant «Бесконечное развитие» subscription active
   T3: T2 + DT connected
   T4: T3 + GitHub connected
@@ -15,7 +15,7 @@ Tier model (payment-first, cumulative):
 Keyboard principle «Главная + Тянет вверх» (WP-79 §1):
   Row 1: [main activity for tier] [pulls up to next tier]
   Row 2: [📅 Расписание] [⚙️ Настройки]  (stable, T2+)
-  T1_NEW Row 2: [ℹ️ О нас] [⚙️ Настройки]
+  T0 Row 2: [ℹ️ О нас] [⚙️ Настройки]
 
 Each tier defines:
   - keyboard: 2x2 ReplyKeyboard buttons
@@ -25,8 +25,8 @@ Each tier defines:
 
 class UITier:
     """UI tier constants."""
-    T1_NEW = 0             # WP-79: not linked to Aisystant
-    T1_START = 1           # linked, no subscription
+    T0 = 0                 # not linked to Aisystant (DP.ARCH.002)
+    T1 = 1                 # linked, no subscription
     T2_LEARNING = 2
     T3_PERSONALIZATION = 3
     T4_CREATION = 4
@@ -35,8 +35,8 @@ class UITier:
 
 # Tier display names for user-facing messages (greeting, etc.)
 TIER_DISPLAY = {
-    UITier.T1_NEW:             "T1 — New",
-    UITier.T1_START:           "T1 — Start",
+    UITier.T0:             "T1 — New",
+    UITier.T1:           "T1 — Start",
     UITier.T2_LEARNING:        "T2 — Learning",
     UITier.T3_PERSONALIZATION: "T3 — Personalization",
     UITier.T4_CREATION:        "T4 — Creation",
@@ -105,8 +105,8 @@ SERVICE_TO_COMMAND = {
 
 # WP-79: «Главная + Тянет вверх» principle
 TIER_KEYBOARD = {
-    UITier.T1_NEW:             [['link',      'schedule'],      ['about',    'settings']],
-    UITier.T1_START:           [['marathon',  'buy'],           ['schedule', 'settings']],
+    UITier.T0:             [['link',      'schedule'],      ['about',    'settings']],
+    UITier.T1:           [['marathon',  'buy'],           ['schedule', 'settings']],
     UITier.T2_LEARNING:        [['feed',      'guide'],         ['schedule', 'settings']],
     UITier.T3_PERSONALIZATION: [['guide',     'plans'],         ['schedule', 'settings']],
     UITier.T4_CREATION:        [['plans',     'guide'],         ['schedule', 'settings']],
@@ -120,8 +120,8 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T1_NEW:             ['link', 'schedule', 'about', 'test', 'contacts', 'help'],
-    UITier.T1_START:           ['schedule', 'buy', 'learn', 'about', 'feed_info', 'test', 'help'],
+    UITier.T0:             ['link', 'schedule', 'about', 'test', 'contacts', 'help'],
+    UITier.T1:           ['schedule', 'buy', 'learn', 'about', 'feed_info', 'test', 'help'],
     UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'train', 'profile', 'help'],
     UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'train', 'guide', 'progress', 'start', 'help'],
     UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'club', 'train', 'feed', 'progress', 'mode', 'profile', 'start', 'help'],

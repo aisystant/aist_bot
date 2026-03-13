@@ -4,15 +4,15 @@ UI Tier detection — subscription + trial + connections.
 Source-of-truth: WP-52 + WP-79 + WP-85
 
 Tier model (cumulative, payment-first):
-  T1_NEW (0):  not linked to Aisystant
-  T1_START (1): linked, no БР subscription AND trial expired
+  T0 (0):  not linked to Aisystant
+  T1 (1): linked, no БР subscription AND trial expired
   T2: Aisystant «Бесконечное развитие» subscription active OR 30-day trial from /start
   T3: T2 + Digital Twin connected
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
 
-Tier drops to T1_START if БР subscription expires AND trial expired.
-Tier drops to T1_NEW if aisystant link removed (unlikely).
+Tier drops to T1 if БР subscription expires AND trial expired.
+Tier drops to T0 if aisystant link removed (unlikely).
 
 TG Stars = donations only, do NOT affect tier (WP-85 decision 2026-03-12).
 
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 _tier_cache: dict[int, int] = {}
 
 _TIER_NAMES = {
-    UITier.T1_NEW: "New",
-    UITier.T1_START: "Start",
+    UITier.T0: "New",
+    UITier.T1: "Start",
     UITier.T2_LEARNING: "Learning",
     UITier.T3_PERSONALIZATION: "Personalization",
     UITier.T4_CREATION: "Creation",
@@ -63,9 +63,9 @@ async def detect_ui_tier(chat_id: int) -> int:
     aisystant_id = await _get_aisystant_id(chat_id)
 
     if not aisystant_id:
-        new_tier = UITier.T1_NEW
+        new_tier = UITier.T0
     elif not await _has_active_subscription(chat_id, aisystant_id):
-        new_tier = UITier.T1_START
+        new_tier = UITier.T1
     elif await _is_github_connected(chat_id):
         new_tier = UITier.T4_CREATION
     elif await _is_dt_connected(chat_id):
@@ -143,13 +143,13 @@ async def _is_dt_connected(chat_id: int) -> bool:
 
 def _infer_reason(from_tier: int, to_tier: int) -> str:
     """Infer the reason for a tier transition."""
-    if to_tier == UITier.T1_NEW:
+    if to_tier == UITier.T0:
         return "aisystant_unlinked"
-    if to_tier == UITier.T1_START and from_tier >= UITier.T2_LEARNING:
+    if to_tier == UITier.T1 and from_tier >= UITier.T2_LEARNING:
         return "subscription_expired"
-    if to_tier == UITier.T1_START and from_tier == UITier.T1_NEW:
+    if to_tier == UITier.T1 and from_tier == UITier.T0:
         return "aisystant_linked"
-    if to_tier == UITier.T2_LEARNING and from_tier <= UITier.T1_START:
+    if to_tier == UITier.T2_LEARNING and from_tier <= UITier.T1:
         return "subscription_activated"
     if to_tier == UITier.T3_PERSONALIZATION:
         return "dt_connected"
@@ -189,7 +189,7 @@ async def _notify_downgrade(chat_id: int, from_tier: int, to_tier: int) -> None:
             return
 
         # Only notify on meaningful downgrades (T2+→T1 = subscription expired)
-        if to_tier > UITier.T1_START:
+        if to_tier > UITier.T1:
             return
 
         from_name = _TIER_NAMES.get(from_tier, f"T{from_tier}")

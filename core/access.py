@@ -97,11 +97,22 @@ class AccessLayer:
 
         WP-79: Paywall ведёт на Aisystant «Бесконечное развитие».
         Telegram Stars = донаты (не подписка).
+        П2: Контекстный paywall — описание конкретного сервиса.
 
         Returns:
             (text, keyboard) — сообщение и кнопка подписки.
         """
-        text = t('aisystant_sub.title', lang) + "\n\n" + t('aisystant_sub.desc', lang)
+        # Контекстное описание сервиса (если есть)
+        context_key = f'paywall.{service_id}'
+        context_text = t(context_key, lang)
+        if context_text.startswith('paywall.'):
+            # Ключ не найден — fallback на generic
+            context_text = ""
+
+        if context_text:
+            text = context_text + "\n\n" + t('paywall.trial_hint', lang)
+        else:
+            text = t('aisystant_sub.title', lang) + "\n\n" + t('aisystant_sub.desc', lang)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
