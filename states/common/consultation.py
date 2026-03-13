@@ -541,6 +541,10 @@ class ConsultationState(BaseState):
                 user_chat_id = self._get_chat_id(user)
                 tier, has_github, has_dt = await self._detect_tier(user_chat_id)
 
+                # UITier для контекста (anti-hallucination: Claude должен знать точный тир)
+                from core.tier_detector import detect_ui_tier
+                ui_tier = await detect_ui_tier(user_chat_id) if user_chat_id else -1
+
                 # Proactive DT injection: detect personal query → fetch DT data
                 if has_dt:
                     from engines.shared.personal_detector import detect_personal_query, fetch_dt_context
@@ -587,6 +591,7 @@ class ConsultationState(BaseState):
                     tier=tier,
                     is_refinement=is_refinement,
                     conversation_messages=history_messages,
+                    ui_tier=ui_tier,
                 )
                 logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
                 _answer_for_history = answer

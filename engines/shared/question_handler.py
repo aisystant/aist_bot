@@ -447,6 +447,7 @@ async def handle_question_with_tools(
     tier: int = 1,
     is_refinement: bool = False,
     conversation_messages: Optional[List[Dict]] = None,
+    ui_tier: int = -1,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
@@ -524,6 +525,7 @@ async def handle_question_with_tools(
         lang=lang,
         bot_context=bot_context or "",
         personal_claude_md=personal_claude_md or "",
+        ui_tier=ui_tier,
     )
 
     # Загружаем шаблон промпта и подставляем переменные
