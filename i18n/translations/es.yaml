@@ -228,6 +228,8 @@ settings:
   reset_marathon_summary: "Maratón: día {day}"
   reset_stats_summary: "Estadísticas: {total} días, racha {streak}"
   twin_label: "Gemelo digital"
+  club_label: "Club"
+  active_donation: "⭐ {amount} Stars/mes"
 
 progress:
   day: "Día {day} de {total}"
