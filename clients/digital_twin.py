@@ -59,11 +59,11 @@ class DigitalTwinClient:
     DEFAULT_TIMEOUT = 10  # секунд
     MAX_RETRIES = 1
 
-    # Circuit breaker
-    FAILURE_THRESHOLD = 2
-    RECOVERY_TIME = 60
+    # Circuit breaker (per-user)
+    FAILURE_THRESHOLD = 3
+    RECOVERY_TIME = 120
 
-    _circuit_state: Dict[str, Any] = {}
+    _circuit_state: Dict[int, Dict[str, Any]] = {}  # per-user, keyed by telegram_user_id
 
     def __init__(self, url: str = DIGITAL_TWIN_MCP_URL):
         self.base_url = url
@@ -75,13 +75,6 @@ class DigitalTwinClient:
 
         # OAuth: telegram_user_id -> {access_token, refresh_token, expires_at}
         self._tokens: Dict[int, Dict[str, Any]] = {}
-
-        if url not in DigitalTwinClient._circuit_state:
-            DigitalTwinClient._circuit_state[url] = {
-                "failures": 0,
-                "last_failure": 0,
-                "open": False
-            }
 
     # =========================================================================
     # OAuth2 PKCE
@@ -346,7 +339,19 @@ class DigitalTwinClient:
                 if ok:
                     refreshed += 1
                 else:
-                    logger.warning(f"DT: proactive refresh failed for {user_id}")
+                    logger.warning(f"DT: proactive refresh failed for {user_id}, disconnecting")
+                    self.disconnect(user_id)
+                    # Notify user about disconnection
+                    try:
+                        from bot import bot_instance
+                        if bot_instance:
+                            await bot_instance.send_message(
+                                user_id,
+                                "Подключение к Цифровому двойнику потеряно.\n"
+                                "Переподключитесь: /twin",
+                            )
+                    except Exception:
+                        pass  # Best-effort notification
         if refreshed:
             logger.info(f"DT: proactively refreshed {refreshed} tokens")
         return refreshed
@@ -359,27 +364,38 @@ class DigitalTwinClient:
         self._request_id += 1
         return self._request_id
 
-    def _is_circuit_open(self) -> bool:
-        state = DigitalTwinClient._circuit_state[self.base_url]
+    def _get_cb_state(self, user_id: int) -> Dict[str, Any]:
+        """Get or create circuit breaker state for a specific user."""
+        if user_id not in DigitalTwinClient._circuit_state:
+            DigitalTwinClient._circuit_state[user_id] = {
+                "failures": 0, "last_failure": 0, "open": False,
+            }
+        return DigitalTwinClient._circuit_state[user_id]
+
+    def _is_circuit_open(self, user_id: int = 0) -> bool:
+        state = self._get_cb_state(user_id)
         if not state["open"]:
             return False
         if time.time() - state["last_failure"] > self.RECOVERY_TIME:
-            logger.info(f"{self.name}: circuit breaker half-open, trying to recover")
+            # Half-open → reset and allow retry
+            state["open"] = False
+            state["failures"] = 0
+            logger.info(f"{self.name}: circuit breaker RESET for user {user_id}")
             return False
         return True
 
-    def _record_failure(self):
-        state = DigitalTwinClient._circuit_state[self.base_url]
+    def _record_failure(self, user_id: int = 0):
+        state = self._get_cb_state(user_id)
         state["failures"] += 1
         state["last_failure"] = time.time()
         if state["failures"] >= self.FAILURE_THRESHOLD:
             state["open"] = True
-            logger.warning(f"{self.name}: circuit breaker OPEN")
+            logger.warning(f"{self.name}: circuit breaker OPEN for user {user_id}")
 
-    def _record_success(self):
-        state = DigitalTwinClient._circuit_state[self.base_url]
+    def _record_success(self, user_id: int = 0):
+        state = self._get_cb_state(user_id)
         if state["failures"] > 0 or state["open"]:
-            logger.info(f"{self.name}: circuit breaker CLOSED")
+            logger.info(f"{self.name}: circuit breaker CLOSED for user {user_id}")
         state["failures"] = 0
         state["open"] = False
 
@@ -398,8 +414,9 @@ class DigitalTwinClient:
         Returns:
             Результат или None при ошибке
         """
-        if self._is_circuit_open():
-            logger.debug(f"{self.name}: circuit breaker open, skipping")
+        uid = telegram_user_id or 0
+        if self._is_circuit_open(uid):
+            logger.debug(f"{self.name}: circuit breaker open for user {uid}, skipping")
             return None
 
         # Собираем заголовки
@@ -446,10 +463,10 @@ class DigitalTwinClient:
                             if "error" in data:
                                 error_msg = data["error"].get("message", str(data["error"]))
                                 logger.error(f"{self.name} error: {error_msg}")
-                                self._record_failure()
+                                self._record_failure(uid)
                                 return None
                             if "result" in data:
-                                self._record_success()
+                                self._record_success(uid)
                                 content = data["result"].get("content", [])
                                 if content and len(content) > 0:
                                     text = content[0].get("text", "")
@@ -460,16 +477,16 @@ class DigitalTwinClient:
                                 return data["result"]
                         else:
                             logger.error(f"{self.name} HTTP {resp.status}")
-                            self._record_failure()
+                            self._record_failure(uid)
             except asyncio.TimeoutError:
                 if attempt < self.MAX_RETRIES:
                     logger.warning(f"{self.name} timeout, retry {attempt + 1}/{self.MAX_RETRIES}")
                     await asyncio.sleep(1)
                     continue
-                self._record_failure()
+                self._record_failure(uid)
             except Exception as e:
                 logger.error(f"{self.name} exception: {e}")
-                self._record_failure()
+                self._record_failure(uid)
                 return None
 
         logger.warning(f"{self.name}: unavailable, continuing without Digital Twin")
