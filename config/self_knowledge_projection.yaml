@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "523d1432166301e66e835d813d00b1e6bcfadd04553f6aa4d2ad3746b74eec18"
-  synced_at: "2026-03-03T22:00:21Z"
+  source_hash: "718627fd30ad2d623dc2e60f5e80d95ef009f24f0c6320902f61bad15532ba43"
+  synced_at: "2026-03-12T22:06:42Z"
   generator: "DS-ai-systems/synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -67,22 +67,25 @@ faq: |
   | 11 | Как сбросить марафон? | How to reset the marathon? | сброс, сбросить, reset, обнулить, заново, restart | Открой `/settings` → кнопка «Сброс» → «Сбросить марафон» → подтверди. Прогресс обнулится, марафон начнётся с 1-го дня. Также можно сбросить через `/profile`. | Open `/settings` → "Reset" button → "Reset marathon" → confirm. Progress resets, marathon starts from day 1. You can also reset via `/profile`. |
   | 12 | Как сбросить статистику? | How to reset statistics? | сброс стат, статистик, reset stats, обнулить стат | Открой `/settings` → кнопка «Сброс» → «Сбросить статистику» → подтверди. Сбрасываются серии активных дней. Ответы и прогресс сохраняются. | Open `/settings` → "Reset" button → "Reset statistics" → confirm. Active day streaks are reset. Answers and progress are preserved. |
   | 13 | Как работает персонализация? | How does personalization work? | персонал, адапт, подстра, adapt, personaliz, customize | Бот хранит твой профиль в одном месте (БД бота) и использует его при генерации контента.\n\nПрофиль (/profile) — имя, профессия, интересы, цели. Бот подстраивает примеры, стиль и контент.\n\nТест систематичности (/test) — определяет состояние (Хаос/Тупик/Поворот) и адаптирует стиль уроков, сложность и темы Ленты.\n\nОпционально: Цифровой двойник — при подключении профиль экспортируется в ЦД для построения индивидуальной траектории. Это однонаправленный экспорт (бот → ЦД), не отдельный «уровень» хранения. | The bot stores your profile in one place (bot DB) and uses it when generating content.\n\nProfile (/profile) — name, occupation, interests, goals. The bot tailors examples, style, and content.\n\nSystematicity test (/test) — determines your state (Chaos/Deadlock/Turning Point) and adapts lesson style, difficulty, and Feed topics.\n\nOptionally: Digital twin — when connected, the profile is exported to the DT for building an individual trajectory. This is a one-way export (bot → DT), not a separate storage "level". |
+  | 14 | Что делает бот в составе IWE? | What does the bot do in IWE? | бот, iwe, роль, зачем, что делает, purpose, role, what does | @aist_me_bot — платформенный сервис (L2), общий для всех. Не нужно разворачивать своего. Бот делает: Марафон (14-дневная программа), Лента (дайджесты по выбранным темам), Консультации (ответы по базе ~5300 документов), Заметки (быстрые мысли, которые потом обрабатывает Стратег), Планы (дневной/недельный план через GitHub strategy-репо), Прогресс (streak, сложность), Тест систематичности, Цифровой двойник, интеграции (GitHub, WakaTime). Бот — один из интерфейсов платформы, не центр. Центр — экзокортекс и агенты. Бот, Claude Code, веб — разные окна в одну среду. | @aist_me_bot is a platform service (L2), shared by all users. No need to deploy your own. The bot provides: Marathon (14-day program), Feed (digests on chosen topics), Consultations (answers from ~5300 docs), Notes (quick thoughts processed by Strategist), Plans (daily/weekly via GitHub strategy repo), Progress (streak, complexity), Systematicity Test, Digital Twin, integrations (GitHub, WakaTime). The bot is one of the platform's interfaces, not the center. The center is the exocortex and agents. Bot, Claude Code, web — different windows into one environment. |
+  | 15 | Нужен ли мне свой бот? | Do I need my own bot? | свой бот, own bot, развернуть, deploy, разработать, build | Зависит от цели. Если хочешь пользоваться марафоном, лентой, консультациями — @aist_me_bot уже работает, свой не нужен. Если хочешь Стратега с планами — это работает через IWE-шаблон (экзокортекс + Claude Code), бот подтягивает результат. Если хочешь разрабатывать свою платформу — тогда свой бот имеет смысл, но это другая задача. | Depends on your goal. If you want to use marathon, feed, consultations — @aist_me_bot already works, no need for your own. If you want a Strategist with plans — that works through the IWE template (exocortex + Claude Code), the bot pulls the result. If you want to develop your own platform — then your own bot makes sense, but that's a different task. |
 
 platform: |
   
   > Когда пользователь спрашивает о своём «уровне», «статусе», «доступе», «тарифе», «подписке», «возможностях», «что доступно», «как расти», «что бесплатно», «сколько стоит» — он спрашивает об этой модели.
 
-  Платформа имеет 6 уровней обслуживания (тиров, T0-T5). Каждый следующий включает всё из предыдущего. T0-T4 доступны пользователям, T5 — владельцу платформы.
+  Платформа имеет 5 основных тиров учащегося (T0-T4) и 3 ортогональные оси: TM (наставники), TA (администраторы), TD (разработчики). Каждый следующий T-тир включает всё из предыдущего. T5-T9 зарезервированы.
 
   **⚪ T0 — Новый** (не привязан к Aisystant):
-  - Марафон 14 дней (/learn) — структурированная программа обучения
+  - Марафон 14 дней (/learn) — бесплатно навсегда
   - Тест систематичности (/test) — определяет состояние и адаптирует контент
   - Прогресс (/progress) — статистика обучения
   - Профиль (/profile) и Настройки (/settings)
+  - **Trial 30 дней от /start:** все функции бота бесплатно (лента, консультации, заметки, планы)
   - Следующий шаг: привязать аккаунт Aisystant (/link)
 
-  **🟢 T1 — Старт** (привязан к Aisystant, нет подписки БР):
-  - Всё из T0
+  **🟢 T1 — Старт** (привязан к Aisystant, нет подписки БР, триал истёк):
+  - Всё из T0 (без trial-функций: лента, консультации, заметки, планы — заблокированы)
   - Следующий шаг: оформить подписку «Бесконечное развитие» на Aisystant (system-school.ru)
 
   **📘 T2 — Изучение** (подписка «Бесконечное развитие» на Aisystant ИЛИ 30-дн. триал от /start):
@@ -91,7 +94,7 @@ platform: |
   - Заметки (.текст) — сохранение мыслей и идей
   - Планы (/rp /plan /report) — интеграция со Стратегом
 
-  **Подписка:** «Бесконечное развитие» на Aisystant (system-school.ru). Первые 30 дней — бесплатно (пробный период). Telegram Stars = донаты (благодарность), НЕ влияют на доступ.
+  **Подписка:** «Бесконечное развитие» (БР) на Aisystant (system-school.ru) — единственная подписка. TG Stars — опциональные донаты (благодарность), НЕ влияют на доступ. Trial 30 дней от /start даёт попробовать все функции бесплатно.
 
   **🧬 T3 — Персонализация** (T2 + подключён Цифровой двойник):
   - Персональные рекомендации на основе целей, проблем и интересов
@@ -104,9 +107,10 @@ platform: |
   - Личная база знаний (Pack)
   - GitHub-интеграция (/settings → Подключения)
 
-  **⚙️ T5 — Администрирование** (владелец платформы):
-  - Управление всеми системами, агентами и инфраструктурой
-  - Полный доступ к аналитике, конфигурации и деплою
+  **Ортогональные оси** (назначаются владельцем):
+  - **TA1-TA4** — администраторы: управление потоками и финансами
+  - **TM1-TM3** — наставники: проверка ДЗ и обратная связь
+  - **TD1** — разработчик: исходный код, деплой, управление standard/
 
   **Цифровой двойник:** персональное хранилище целей, проблем, интересов и самооценки. Позволяет боту давать индивидуальные рекомендации.
 
@@ -116,22 +120,23 @@ platform: |
   - Исследовательское развитие (ИР) — для исследователей
 
   Посмотреть свои данные и текущий уровень: /mydata.
-  
+
   [EN]
-  
+
   When a user asks about their "level", "status", "access", "plan", "subscription", "capabilities", "what's available", "how to grow", "what's free", "how much" — they are asking about this model.
 
-  The platform has 6 service tiers (T0-T5). Each tier includes everything from the previous one. T0-T4 are available to users, T5 is for the platform owner.
+  The platform has 5 learner tiers (T0-T4) and 3 orthogonal axes: TM (mentors), TA (admins), TD (developers). Each T-tier includes everything from the previous one. T5-T9 are reserved.
 
   **⚪ T0 — New** (not linked to Aisystant):
-  - 14-day Marathon (/learn) — structured learning program
+  - 14-day Marathon (/learn) — free forever
   - Systematicity Test (/test) — identifies state and adapts content
   - Progress (/progress) — learning statistics
   - Profile (/profile) and Settings (/settings)
+  - **30-day trial from /start:** all bot features free (feed, consultations, notes, plans)
   - Next step: link Aisystant account (/link)
 
-  **🟢 T1 — Start** (linked to Aisystant, no БР subscription):
-  - Everything from T0
+  **🟢 T1 — Start** (linked to Aisystant, no БР subscription, trial expired):
+  - Everything from T0 (without trial features: feed, consultations, notes, plans — locked)
   - Next step: subscribe to «Infinite Development» on Aisystant (system-school.ru)
 
   **📘 T2 — Learning** (Aisystant «Бесконечное развитие» subscription OR 30-day trial from /start):
@@ -140,7 +145,7 @@ platform: |
   - Notes (.text) — saving thoughts and ideas
   - Plans (/rp /plan /report) — Strategist integration
 
-  **Subscription:** «Infinite Development» on Aisystant (system-school.ru). First 30 days free (trial). Telegram Stars = donations (thank you), do NOT affect tier/access.
+  **Subscription:** «Infinite Development» (БР) on Aisystant (system-school.ru) — the only subscription. TG Stars are optional donations (thank you), do NOT affect tier/access. 30-day trial from /start lets you try all features for free.
 
   **🧬 T3 — Personalization** (T2 + Digital Twin connected):
   - Personal recommendations based on goals, problems and interests
@@ -153,9 +158,10 @@ platform: |
   - Personal knowledge base (Pack)
   - GitHub integration (/settings → Connections)
 
-  **⚙️ T5 — Administration** (platform owner):
-  - Full management of all systems, agents, and infrastructure
-  - Complete access to analytics, configuration, and deployment
+  **Orthogonal axes** (assigned by owner):
+  - **TA1-TA4** — admins: stream management and finances
+  - **TM1-TM3** — mentors: homework review and feedback
+  - **TD1** — developer: source code, deploy, standard/ management
 
   **Digital Twin:** personal storage for goals, problems, interests, and self-assessment. Enables the bot to give individual recommendations.
 
