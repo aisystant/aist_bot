@@ -10,6 +10,7 @@ welcome:
   intro_start: "Commençons ! La configuration prend 1 minute."
   ask_name: "Comment t'appelles-tu ?"
   returning: "Content de te revoir, {name} !"
+  menu_greeting: "Salut, {name} ! 👋\n{tier_label}\n\n{tip}"
   tier_label:
     t0: "🟢 Départ — lie Aisystant pour débloquer toutes les fonctions"
     t1: "🟢 Départ — essaie toutes les fonctions gratuitement pendant 30 jours"

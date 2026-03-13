@@ -10,6 +10,7 @@ welcome:
   intro_start: "开始吧！设置只需1分钟。"
   ask_name: "你叫什么名字？"
   returning: "欢迎回来，{name}！"
+  menu_greeting: '你好，{name}！👋\n{tier_label}\n\n{tip}'
   tier_label:
     t0: "🟢 起步 — 绑定Aisystant解锁所有功能"
     t1: "🟢 起步 — 免费试用所有功能30天"
