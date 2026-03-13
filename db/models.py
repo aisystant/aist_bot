@@ -2,6 +2,9 @@
 Модели базы данных (SQL схемы).
 
 Содержит CREATE TABLE и миграции.
+ЦД-native архитектура (WP-82 Phase 3):
+  public.users — identity + profile
+  development.user_state — bot state (replaces interns)
 """
 
 import asyncpg
@@ -14,12 +17,23 @@ async def create_tables(pool: asyncpg.Pool):
     """Создание всех таблиц и применение миграций"""
     async with pool.acquire() as conn:
         # ═══════════════════════════════════════════════════════════
-        # ОСНОВНАЯ ТАБЛИЦА ПОЛЬЗОВАТЕЛЕЙ
+        # DEVELOPMENT SCHEMA
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('CREATE SCHEMA IF NOT EXISTS development')
+
+        # ═══════════════════════════════════════════════════════════
+        # ЕДИНАЯ ТАБЛИЦА ИДЕНТИЧНОСТИ + ПРОФИЛЬ (WP-82 Phase 3)
+        # Identity + Profile: telegram_id → ory_id → dt_user_id
+        # T0 без Ory, T1+ с ory_id.
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS interns (
-                chat_id BIGINT PRIMARY KEY,
-                
+            CREATE TABLE IF NOT EXISTS public.users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                ory_id UUID UNIQUE,
+                telegram_id BIGINT UNIQUE NOT NULL,
+                dt_user_id TEXT UNIQUE,
+                email TEXT,
+
                 -- Профиль
                 name TEXT DEFAULT '',
                 occupation TEXT DEFAULT '',
@@ -28,25 +42,77 @@ async def create_tables(pool: asyncpg.Pool):
                 interests TEXT DEFAULT '[]',
                 motivation TEXT DEFAULT '',
                 goals TEXT DEFAULT '',
-                
+
                 -- Предпочтения
                 language TEXT DEFAULT 'ru',
+                timezone TEXT DEFAULT 'Europe/Moscow',
                 experience_level TEXT DEFAULT '',
                 difficulty_preference TEXT DEFAULT '',
                 learning_style TEXT DEFAULT '',
                 study_duration INTEGER DEFAULT 15,
-                schedule_time TEXT DEFAULT '09:00',
                 current_problems TEXT DEFAULT '',
                 desires TEXT DEFAULT '',
-                topic_order TEXT DEFAULT 'default',
-                
-                -- Режимы (NEW)
+
+                -- Интеграции
+                tg_username TEXT,
+                aisystant_id TEXT,
+                aisystant_linked_at TIMESTAMP,
+                dt_connected_at TIMESTAMP,
+
+                -- Статус
+                tier TEXT DEFAULT 'T0',
+
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+                updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc')
+            )
+        ''')
+
+        # Миграции для users (добавление профильных полей — Phase 3)
+        user_profile_migrations = [
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS occupation TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS domain TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS interests TEXT DEFAULT '[]'",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS motivation TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS goals TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS experience_level TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS difficulty_preference TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS learning_style TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS study_duration INTEGER DEFAULT 15",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS current_problems TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS desires TEXT DEFAULT ''",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS tg_username TEXT",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS aisystant_id TEXT",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS aisystant_linked_at TIMESTAMP",
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS dt_connected_at TIMESTAMP",
+        ]
+        for migration in user_profile_migrations:
+            try:
+                await conn.execute(migration)
+            except Exception as e:
+                if 'already exists' not in str(e).lower():
+                    logger.warning(f"User migration skipped: {e}")
+
+        # ═══════════════════════════════════════════════════════════
+        # BOT STATE (replaces interns, WP-82 Phase 3)
+        # Состояние бота: марафон, лента, SM, расписание, стрики
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS development.user_state (
+                user_id UUID PRIMARY KEY REFERENCES public.users(id),
+                chat_id BIGINT UNIQUE NOT NULL,
+
+                -- Режимы
                 mode TEXT DEFAULT 'marathon',
                 current_context TEXT DEFAULT '{}',
-
-                -- State Machine (текущее состояние)
                 current_state TEXT DEFAULT NULL,
-                
+                topic_order TEXT DEFAULT 'default',
+
+                -- Расписание
+                schedule_time TEXT DEFAULT '09:00',
+                schedule_time_2 TEXT DEFAULT NULL,
+                feed_schedule_time TEXT DEFAULT NULL,
+
                 -- Марафон
                 marathon_status TEXT DEFAULT 'not_started',
                 marathon_start_date DATE DEFAULT NULL,
@@ -55,113 +121,39 @@ async def create_tables(pool: asyncpg.Pool):
                 completed_topics TEXT DEFAULT '[]',
                 topics_today INTEGER DEFAULT 0,
                 last_topic_date DATE DEFAULT NULL,
-                
-                -- Сложность (бывш. Bloom)
+
+                -- Сложность
                 complexity_level INTEGER DEFAULT 1,
                 topics_at_current_complexity INTEGER DEFAULT 0,
-                
-                -- Лента (NEW)
+
+                -- Лента
                 feed_status TEXT DEFAULT 'not_started',
                 feed_started_at DATE DEFAULT NULL,
-                
-                -- Систематичность (NEW)
+
+                -- Систематичность
                 active_days_total INTEGER DEFAULT 0,
                 active_days_streak INTEGER DEFAULT 0,
                 longest_streak INTEGER DEFAULT 0,
                 last_active_date DATE DEFAULT NULL,
-                
+
                 -- Статусы
                 onboarding_completed BOOLEAN DEFAULT FALSE,
-                
-                -- Временные метки
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
+                bot_blocked BOOLEAN DEFAULT FALSE,
+                bot_blocked_at TIMESTAMP DEFAULT NULL,
+                trial_started_at TIMESTAMP DEFAULT NULL,
+
+                -- Оценка
+                assessment_state TEXT DEFAULT NULL,
+                assessment_date DATE DEFAULT NULL,
+                stats_reset_date DATE DEFAULT NULL,
+
+                -- Уведомления
+                notify_template_updates BOOLEAN DEFAULT FALSE,
+
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+                updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc')
             )
         ''')
-
-        # ═══════════════════════════════════════════════════════════
-        # МИГРАЦИИ ДЛЯ СУЩЕСТВУЮЩИХ ТАБЛИЦ
-        # ═══════════════════════════════════════════════════════════
-        
-        # Старые миграции (для совместимости)
-        migrations = [
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS study_duration INTEGER DEFAULT 15',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS occupation TEXT DEFAULT \'\'',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS motivation TEXT DEFAULT \'\'',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS topic_order TEXT DEFAULT \'default\'',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_start_date DATE DEFAULT NULL',
-            
-            # Переименование bloom -> complexity (с сохранением старых для совместимости)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS complexity_level INTEGER DEFAULT 1',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS topics_at_current_complexity INTEGER DEFAULT 0',
-            
-            # Новые поля для режимов
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT \'marathon\'',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_context TEXT DEFAULT \'{}\'',
-
-            # State Machine
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS current_state TEXT DEFAULT NULL',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_status TEXT DEFAULT \'not_started\'',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS marathon_paused_at DATE DEFAULT NULL',
-            
-            # Лента
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_status TEXT DEFAULT \'not_started\'',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_started_at DATE DEFAULT NULL',
-            
-            # Систематичность
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_total INTEGER DEFAULT 0',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS active_days_streak INTEGER DEFAULT 0',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS longest_streak INTEGER DEFAULT 0',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS last_active_date DATE DEFAULT NULL',
-
-            # Язык пользователя
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS language TEXT DEFAULT \'ru\'',
-
-            # Второе напоминание
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS schedule_time_2 TEXT DEFAULT NULL',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS feed_schedule_time TEXT DEFAULT NULL',
-
-            # Telegram username (@handle)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS tg_username TEXT DEFAULT NULL',
-
-            # DT connection persistence (DP.D.028)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_connected_at TIMESTAMP DEFAULT NULL',
-            # DT user identity (WP-82 Phase 1)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_user_id TEXT DEFAULT NULL',
-
-            # Bot blocked flag (WP-7: scheduler skip blocked users)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked_at TIMESTAMP DEFAULT NULL',
-
-            # Aisystant account linking (WP-79: единый бот)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS aisystant_id TEXT DEFAULT NULL',
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS aisystant_linked_at TIMESTAMP DEFAULT NULL',
-
-            # IWE template update notifications (WP-90)
-            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS notify_template_updates BOOLEAN DEFAULT FALSE',
-        ]
-        
-        for migration in migrations:
-            try:
-                await conn.execute(migration)
-            except Exception as e:
-                # Игнорируем ошибки "колонка уже существует"
-                if 'already exists' not in str(e).lower():
-                    logger.warning(f"Миграция пропущена: {e}")
-
-        # Backfill: dt_user_id из dt_tokens → interns (WP-82)
-        try:
-            updated = await conn.execute('''
-                UPDATE interns SET dt_user_id = dt_tokens.dt_user_id
-                FROM dt_tokens
-                WHERE interns.chat_id = dt_tokens.chat_id
-                  AND dt_tokens.dt_user_id IS NOT NULL
-                  AND interns.dt_user_id IS NULL
-            ''')
-            if updated and updated != 'UPDATE 0':
-                logger.info(f"[Migration] Backfill dt_user_id: {updated}")
-        except Exception as e:
-            logger.warning(f"[Migration] Backfill dt_user_id skipped: {e}")
 
         # ═══════════════════════════════════════════════════════════
         # ОТВЕТЫ И РАБОЧИЕ ПРОДУКТЫ
@@ -170,25 +162,25 @@ async def create_tables(pool: asyncpg.Pool):
             CREATE TABLE IF NOT EXISTS answers (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
-                
+
                 -- Контекст
                 mode TEXT DEFAULT 'marathon',
                 topic_index INTEGER,
                 topic_id TEXT,
                 feed_session_id INTEGER,
-                
+
                 -- Ответ
                 answer_type TEXT DEFAULT 'theory_answer',
                 answer TEXT,
                 work_product_category TEXT,
-                
+
                 -- Метаданные
                 complexity_level INTEGER,
-                
+
                 created_at TIMESTAMP DEFAULT NOW()
             )
         ''')
-        
+
         # Миграции для answers
         answer_migrations = [
             'ALTER TABLE answers ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT \'marathon\'',
@@ -199,7 +191,7 @@ async def create_tables(pool: asyncpg.Pool):
             'ALTER TABLE answers ADD COLUMN IF NOT EXISTS complexity_level INTEGER',
             'ALTER TABLE answers ADD COLUMN IF NOT EXISTS feedback TEXT',
         ]
-        
+
         for migration in answer_migrations:
             try:
                 await conn.execute(migration)
@@ -221,7 +213,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # ЛЕНТА: НЕДЕЛЬНЫЕ ПЛАНЫ (NEW)
+        # ЛЕНТА: НЕДЕЛЬНЫЕ ПЛАНЫ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS feed_weeks (
@@ -242,7 +234,6 @@ async def create_tables(pool: asyncpg.Pool):
             )
         ''')
 
-        # Миграции для feed_weeks
         feed_week_migrations = [
             'ALTER TABLE feed_weeks ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP',
         ]
@@ -253,7 +244,7 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
-        # ЛЕНТА: СЕССИИ (NEW)
+        # ЛЕНТА: СЕССИИ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS feed_sessions (
@@ -273,7 +264,6 @@ async def create_tables(pool: asyncpg.Pool):
             )
         ''')
 
-        # Миграции для feed_sessions (добавляем недостающие колонки)
         feed_session_migrations = [
             'ALTER TABLE feed_sessions ADD COLUMN IF NOT EXISTS topic_title TEXT',
             'ALTER TABLE feed_sessions ADD COLUMN IF NOT EXISTS session_date DATE',
@@ -338,32 +328,31 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # ЛОГ АКТИВНОСТИ (NEW)
+        # ЛОГ АКТИВНОСТИ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS activity_log (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
-                
+
                 activity_date DATE,
                 activity_type TEXT,
                 mode TEXT,
                 reference_id INTEGER,
-                
+
                 created_at TIMESTAMP DEFAULT NOW(),
-                
+
                 UNIQUE(chat_id, activity_date, activity_type)
             )
         ''')
-        
-        # Индекс для быстрых запросов
+
         await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_activity_date 
+            CREATE INDEX IF NOT EXISTS idx_activity_date
             ON activity_log(chat_id, activity_date)
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # ВОПРОСЫ И ОТВЕТЫ (NEW)
+        # ВОПРОСЫ И ОТВЕТЫ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS qa_history (
@@ -381,13 +370,11 @@ async def create_tables(pool: asyncpg.Pool):
             )
         ''')
 
-        # Индекс для быстрого поиска по chat_id
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_qa_history_chat_id
             ON qa_history(chat_id)
         ''')
 
-        # Миграции qa_history
         qa_migrations = [
             'ALTER TABLE qa_history ADD COLUMN IF NOT EXISTS helpful BOOLEAN',
             'ALTER TABLE qa_history ADD COLUMN IF NOT EXISTS user_comment TEXT',
@@ -416,7 +403,6 @@ async def create_tables(pool: asyncpg.Pool):
             )
         ''')
 
-        # Миграции для github_connections
         github_migrations = [
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS strategy_repo TEXT',
             'ALTER TABLE github_connections ADD COLUMN IF NOT EXISTS knowledge_repo TEXT',
@@ -431,10 +417,11 @@ async def create_tables(pool: asyncpg.Pool):
 
         # ═══════════════════════════════════════════════════════════
         # WAKATIME ПОДКЛЮЧЕНИЯ (per-user API keys, WP-60)
+        # FK removed (WP-82 Phase 3: interns dropped)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS wakatime_connections (
-                chat_id BIGINT PRIMARY KEY REFERENCES interns(chat_id),
+                chat_id BIGINT PRIMARY KEY,
                 api_key TEXT NOT NULL,
                 wakatime_username TEXT,
                 connected_at TIMESTAMP DEFAULT NOW()
@@ -464,18 +451,6 @@ async def create_tables(pool: asyncpg.Pool):
             CREATE INDEX IF NOT EXISTS idx_assessments_chat_id
             ON assessments(chat_id)
         ''')
-
-        # Миграции для interns — поля последней оценки + сброс статистики
-        assessment_migrations = [
-            "ALTER TABLE interns ADD COLUMN IF NOT EXISTS assessment_state TEXT DEFAULT NULL",
-            "ALTER TABLE interns ADD COLUMN IF NOT EXISTS assessment_date DATE DEFAULT NULL",
-            "ALTER TABLE interns ADD COLUMN IF NOT EXISTS stats_reset_date DATE DEFAULT NULL",
-        ]
-        for migration in assessment_migrations:
-            try:
-                await conn.execute(migration)
-            except Exception:
-                pass
 
         # ═══════════════════════════════════════════════════════════
         # ОБРАТНАЯ СВЯЗЬ (feedback_reports)
@@ -594,14 +569,6 @@ async def create_tables(pool: asyncpg.Pool):
             ON subscriptions(chat_id, status)
         ''')
 
-        # Миграция interns: trial_started_at
-        try:
-            await conn.execute(
-                'ALTER TABLE interns ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMP DEFAULT NULL'
-            )
-        except Exception:
-            pass
-
         # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
@@ -618,50 +585,52 @@ async def create_tables(pool: asyncpg.Pool):
         # АГРЕГИРОВАННЫЙ ПРОФИЛЬ ЗНАНИЙ (VIEW)
         # PG не позволяет менять порядок/имена колонок через REPLACE →
         # всегда DROP + CREATE (view stateless, данные не теряются)
+        # WP-82 Phase 3: JOIN users + user_state
         # ═══════════════════════════════════════════════════════════
         await conn.execute('DROP VIEW IF EXISTS user_knowledge_profile')
         await conn.execute('''
             CREATE VIEW user_knowledge_profile AS
             SELECT
-                i.chat_id,
-                i.name, i.occupation, i.role, i.domain,
-                i.interests, i.goals, i.motivation,
-                i.language, i.experience_level,
+                s.chat_id,
+                u.name, u.occupation, u.role, u.domain,
+                u.interests, u.goals, u.motivation,
+                u.language, u.experience_level,
                 -- Learning state
-                i.mode, i.marathon_status, i.feed_status,
-                i.current_topic_index, i.complexity_level,
-                i.assessment_state, i.assessment_date,
+                s.mode, s.marathon_status, s.feed_status,
+                s.current_topic_index, s.complexity_level,
+                s.assessment_state, s.assessment_date,
                 -- Systematicity
-                i.active_days_total, i.active_days_streak, i.longest_streak,
-                i.last_active_date,
+                s.active_days_total, s.active_days_streak, s.longest_streak,
+                s.last_active_date,
                 -- Timestamps / DT
-                i.created_at, i.updated_at, i.dt_connected_at, i.dt_user_id,
+                u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id,
                 -- Aggregates: answers
                 (SELECT COUNT(*) FROM answers a
-                 WHERE a.chat_id = i.chat_id AND a.answer_type = 'theory_answer')
+                 WHERE a.chat_id = s.chat_id AND a.answer_type = 'theory_answer')
                     AS theory_answers_count,
                 (SELECT COUNT(*) FROM answers a
-                 WHERE a.chat_id = i.chat_id AND a.answer_type = 'work_product')
+                 WHERE a.chat_id = s.chat_id AND a.answer_type = 'work_product')
                     AS work_products_count,
                 -- Aggregates: QA
                 (SELECT COUNT(*) FROM qa_history q
-                 WHERE q.chat_id = i.chat_id)
+                 WHERE q.chat_id = s.chat_id)
                     AS qa_count,
                 -- Aggregates: Feed
                 (SELECT COUNT(*) FROM feed_sessions fs
                  JOIN feed_weeks fw ON fs.week_id = fw.id
-                 WHERE fw.chat_id = i.chat_id)
+                 WHERE fw.chat_id = s.chat_id)
                     AS total_digests,
                 (SELECT COUNT(*) FROM feed_sessions fs
                  JOIN feed_weeks fw ON fs.week_id = fw.id
-                 WHERE fw.chat_id = i.chat_id AND fs.status = 'completed')
+                 WHERE fw.chat_id = s.chat_id AND fs.status = 'completed')
                     AS total_fixations,
                 -- Current feed topics
                 (SELECT fw2.accepted_topics FROM feed_weeks fw2
-                 WHERE fw2.chat_id = i.chat_id AND fw2.status = 'active'
+                 WHERE fw2.chat_id = s.chat_id AND fw2.status = 'active'
                  ORDER BY fw2.created_at DESC LIMIT 1)
                     AS current_feed_topics
-            FROM interns i
+            FROM development.user_state s
+            JOIN public.users u ON u.id = s.user_id
         ''')
 
         # ═══════════════════════════════════════════════════════════
@@ -719,7 +688,7 @@ async def create_tables(pool: asyncpg.Pool):
             ON error_logs (alerted, last_seen_at DESC)
         ''')
 
-        # Classifier columns (WP-45 Phase 2: DP.RUNBOOK.001 classification)
+        # Classifier columns (WP-45 Phase 2)
         for col, typedef in [
             ('category', 'TEXT'),
             ('severity', 'TEXT'),
@@ -736,7 +705,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # L2 AUTO-FIX: предложения исправлений с подтверждением (WP-45)
+        # L2 AUTO-FIX (WP-45)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS pending_fixes (
@@ -762,7 +731,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # КЕШ КОНТЕНТА (экономия Claude API на повторной генерации)
+        # КЕШ КОНТЕНТА
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS content_cache (
@@ -779,7 +748,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # СЕССИИ ПОЛЬЗОВАТЕЛЕЙ (аналитика: длина, частота, entry/exit)
+        # СЕССИИ ПОЛЬЗОВАТЕЛЕЙ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS user_sessions (
@@ -831,10 +800,11 @@ async def create_tables(pool: asyncpg.Pool):
 
         # ═══════════════════════════════════════════════════════════
         # DISCOURSE: АККАУНТЫ И ПУБЛИКАЦИИ (WP-53)
+        # FK removed (WP-82 Phase 3: interns dropped)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS discourse_accounts (
-                chat_id BIGINT PRIMARY KEY REFERENCES interns(chat_id),
+                chat_id BIGINT PRIMARY KEY,
                 discourse_username TEXT NOT NULL,
                 blog_category_id INTEGER,
                 blog_category_slug TEXT,
@@ -889,7 +859,6 @@ async def create_tables(pool: asyncpg.Pool):
             WHERE status = 'pending'
         ''')
 
-        # Migration: source_file for smart publisher (WP-53 Phase 3)
         try:
             await conn.execute(
                 'ALTER TABLE scheduled_publications ADD COLUMN IF NOT EXISTS source_file TEXT'
@@ -898,7 +867,7 @@ async def create_tables(pool: asyncpg.Pool):
             pass
 
         # ═══════════════════════════════════════════════════════════
-        # TIER EVENTS: аналитика переходов между тирами (WP-52)
+        # TIER EVENTS (WP-52)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS tier_events (
@@ -916,7 +885,6 @@ async def create_tables(pool: asyncpg.Pool):
             ON tier_events (chat_id, created_at DESC)
         ''')
 
-        # Migration: comment_check_failures for published_posts (WP-7: skip deleted topics)
         try:
             await conn.execute(
                 'ALTER TABLE published_posts ADD COLUMN IF NOT EXISTS comment_check_failures INTEGER DEFAULT 0'
@@ -926,7 +894,6 @@ async def create_tables(pool: asyncpg.Pool):
 
         # ============= ТРЕНИРОВКА (WP-55) =============
 
-        # Настройки тренировки (когнитивный уровень + включённые принципы)
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS training_settings (
                 chat_id BIGINT PRIMARY KEY,
@@ -937,7 +904,6 @@ async def create_tables(pool: asyncpg.Pool):
             )
         ''')
 
-        # Прогресс по принципам (текущая глубина каждого принципа)
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS training_progress (
                 id SERIAL PRIMARY KEY,
@@ -956,7 +922,6 @@ async def create_tables(pool: asyncpg.Pool):
             ON training_progress (chat_id)
         ''')
 
-        # Попытки (история ответов на задания)
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS training_attempts (
                 id SERIAL PRIMARY KEY,
@@ -976,7 +941,6 @@ async def create_tables(pool: asyncpg.Pool):
             ON training_attempts (chat_id, principle_id)
         ''')
 
-        # Миграция: training_mode + single_principle (WP-55 v2)
         try:
             await conn.execute('''
                 ALTER TABLE training_settings
@@ -987,11 +951,10 @@ async def create_tables(pool: asyncpg.Pool):
                 ADD COLUMN IF NOT EXISTS single_principle TEXT
             ''')
         except Exception:
-            pass  # Колонки уже существуют
+            pass
 
         # ============= ТРЕНИРОВКА РЕБЁНКА (WP-55 Phase 2) =============
 
-        # Профили детей (дочерние ЦД)
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS training_children (
                 id SERIAL PRIMARY KEY,
@@ -1007,7 +970,6 @@ async def create_tables(pool: asyncpg.Pool):
             ON training_children (chat_id)
         ''')
 
-        # Миграция: child_id в training_progress и training_attempts
         try:
             await conn.execute('''
                 ALTER TABLE training_progress
@@ -1020,9 +982,6 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
-        # Обновить UNIQUE constraint для training_progress (chat_id, principle_id, child_id)
-        # Старый: UNIQUE(chat_id, principle_id) — оставляем для NULL child_id (взрослый)
-        # Новый индекс для child_id != NULL
         try:
             await conn.execute('''
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_training_progress_child
@@ -1033,11 +992,8 @@ async def create_tables(pool: asyncpg.Pool):
             pass
 
         # ═══════════════════════════════════════════════════════════
-        # ЦИФРОВОЙ ДВОЙНИК: schema development + user_events (WP-85)
-        # Append-only event log — основа 3-слойной архитектуры ЦД
-        # (DP.ARCH.003: Events → State → Views)
+        # ЦИФРОВОЙ ДВОЙНИК: user_events (WP-85)
         # ═══════════════════════════════════════════════════════════
-        await conn.execute('CREATE SCHEMA IF NOT EXISTS development')
 
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS development.user_events (
@@ -1062,7 +1018,6 @@ async def create_tables(pool: asyncpg.Pool):
             ON development.user_events (event_type, created_at DESC)
         ''')
 
-        # Миграция user_events: user_uuid (WP-82 Phase 2) — ДО создания view
         try:
             await conn.execute(
                 'ALTER TABLE development.user_events '
@@ -1071,8 +1026,7 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
-        # ─── Layer 2: Engagement View (WP-85, подзадача 7) ───
-        # DROP + CREATE (§10.22: REPLACE запрещён)
+        # ─── Layer 2: Engagement View ───
         await conn.execute('DROP VIEW IF EXISTS development.engagement')
         await conn.execute('''
             CREATE VIEW development.engagement AS
@@ -1098,9 +1052,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # ТОКЕНЫ ЦИФРОВОГО ДВОЙНИКА (WP-82: token persistence)
-        # Хранит OAuth токены DT MCP, чтобы подключение не терялось
-        # при редеплое бота
+        # ТОКЕНЫ ЦИФРОВОГО ДВОЙНИКА (WP-82)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS dt_tokens (
@@ -1114,74 +1066,141 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # ЕДИНАЯ ТАБЛИЦА ИДЕНТИЧНОСТИ (WP-82 Phase 2)
-        # Identity layer: telegram_id → ory_id → dt_user_id
-        # Все бот-таблицы — часть ЦД. T0 без Ory, T1+ с ory_id.
+        # МИГРАЦИЯ: interns → users + user_state (WP-82 Phase 3)
+        # Одноразовая миграция при первом запуске после обновления.
         # ═══════════════════════════════════════════════════════════
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS public.users (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                ory_id UUID UNIQUE,
-                telegram_id BIGINT UNIQUE NOT NULL,
-                dt_user_id TEXT UNIQUE,
-                email TEXT,
-                name TEXT,
-                language TEXT DEFAULT 'ru',
-                timezone TEXT DEFAULT 'Europe/Moscow',
-                tier TEXT DEFAULT 'T0',
-                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
-                updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc')
+        has_interns = await conn.fetchval('''
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'interns' AND table_schema = 'public'
             )
         ''')
 
-        # Миграция: interns.user_id → FK на users.id
-        try:
-            await conn.execute(
-                'ALTER TABLE interns ADD COLUMN IF NOT EXISTS user_id UUID'
-            )
-        except Exception:
-            pass
+        if has_interns:
+            logger.info("[Migration] Found interns table — migrating to users + user_state...")
 
-        # Backfill: создать записи в users из interns (если ещё нет)
-        try:
-            inserted = await conn.execute('''
-                INSERT INTO public.users (telegram_id, dt_user_id, name, language)
-                SELECT i.chat_id, i.dt_user_id, i.name, i.language
-                FROM interns i
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM public.users u WHERE u.telegram_id = i.chat_id
-                )
-            ''')
-            if inserted and inserted != 'INSERT 0':
-                logger.info(f"[Migration] Backfill users from interns: {inserted}")
-        except Exception as e:
-            logger.warning(f"[Migration] Backfill users skipped: {e}")
+            # Step 1: Backfill users with profile data from interns
+            try:
+                inserted = await conn.execute('''
+                    INSERT INTO public.users (
+                        telegram_id, dt_user_id, name, occupation, role, domain,
+                        interests, motivation, goals, language, experience_level,
+                        difficulty_preference, learning_style, study_duration,
+                        current_problems, desires, tg_username,
+                        aisystant_id, aisystant_linked_at, dt_connected_at, created_at
+                    )
+                    SELECT
+                        i.chat_id, i.dt_user_id, i.name, i.occupation, i.role, i.domain,
+                        i.interests, i.motivation, i.goals, i.language, i.experience_level,
+                        i.difficulty_preference, i.learning_style, i.study_duration,
+                        i.current_problems, i.desires, i.tg_username,
+                        i.aisystant_id, i.aisystant_linked_at, i.dt_connected_at, i.created_at
+                    FROM interns i
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM public.users u WHERE u.telegram_id = i.chat_id
+                    )
+                ''')
+                if inserted and inserted != 'INSERT 0':
+                    logger.info(f"[Migration] Users backfill: {inserted}")
 
-        # Backfill: записать user_id в interns из users
+                # Update existing users with profile data from interns
+                await conn.execute('''
+                    UPDATE public.users u SET
+                        name = COALESCE(NULLIF(i.name, ''), u.name),
+                        occupation = COALESCE(NULLIF(i.occupation, ''), u.occupation),
+                        role = COALESCE(NULLIF(i.role, ''), u.role),
+                        domain = COALESCE(NULLIF(i.domain, ''), u.domain),
+                        interests = CASE WHEN i.interests != '[]' THEN i.interests ELSE u.interests END,
+                        motivation = COALESCE(NULLIF(i.motivation, ''), u.motivation),
+                        goals = COALESCE(NULLIF(i.goals, ''), u.goals),
+                        language = COALESCE(NULLIF(i.language, ''), u.language),
+                        experience_level = COALESCE(NULLIF(i.experience_level, ''), u.experience_level),
+                        difficulty_preference = COALESCE(NULLIF(i.difficulty_preference, ''), u.difficulty_preference),
+                        learning_style = COALESCE(NULLIF(i.learning_style, ''), u.learning_style),
+                        study_duration = COALESCE(i.study_duration, u.study_duration),
+                        current_problems = COALESCE(NULLIF(i.current_problems, ''), u.current_problems),
+                        desires = COALESCE(NULLIF(i.desires, ''), u.desires),
+                        tg_username = COALESCE(i.tg_username, u.tg_username),
+                        aisystant_id = COALESCE(i.aisystant_id, u.aisystant_id),
+                        aisystant_linked_at = COALESCE(i.aisystant_linked_at, u.aisystant_linked_at),
+                        dt_connected_at = COALESCE(i.dt_connected_at, u.dt_connected_at),
+                        dt_user_id = COALESCE(i.dt_user_id, u.dt_user_id)
+                    FROM interns i
+                    WHERE u.telegram_id = i.chat_id
+                ''')
+            except Exception as e:
+                logger.warning(f"[Migration] Users profile backfill error: {e}")
+
+            # Step 2: Backfill user_state from interns
+            try:
+                inserted = await conn.execute('''
+                    INSERT INTO development.user_state (
+                        user_id, chat_id, mode, current_context, current_state, topic_order,
+                        schedule_time, schedule_time_2, feed_schedule_time,
+                        marathon_status, marathon_start_date, marathon_paused_at,
+                        current_topic_index, completed_topics, topics_today, last_topic_date,
+                        complexity_level, topics_at_current_complexity,
+                        feed_status, feed_started_at,
+                        active_days_total, active_days_streak, longest_streak, last_active_date,
+                        onboarding_completed, bot_blocked, bot_blocked_at, trial_started_at,
+                        assessment_state, assessment_date, stats_reset_date,
+                        notify_template_updates, created_at
+                    )
+                    SELECT
+                        u.id, i.chat_id, i.mode, i.current_context, i.current_state, i.topic_order,
+                        i.schedule_time, i.schedule_time_2, i.feed_schedule_time,
+                        i.marathon_status, i.marathon_start_date, i.marathon_paused_at,
+                        i.current_topic_index, i.completed_topics, i.topics_today, i.last_topic_date,
+                        i.complexity_level, i.topics_at_current_complexity,
+                        i.feed_status, i.feed_started_at,
+                        i.active_days_total, i.active_days_streak, i.longest_streak, i.last_active_date,
+                        i.onboarding_completed, i.bot_blocked, i.bot_blocked_at, i.trial_started_at,
+                        i.assessment_state, i.assessment_date, i.stats_reset_date,
+                        i.notify_template_updates, i.created_at
+                    FROM interns i
+                    JOIN public.users u ON u.telegram_id = i.chat_id
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM development.user_state s WHERE s.chat_id = i.chat_id
+                    )
+                ''')
+                if inserted and inserted != 'INSERT 0':
+                    logger.info(f"[Migration] user_state backfill: {inserted}")
+            except Exception as e:
+                logger.warning(f"[Migration] user_state backfill error: {e}")
+
+            # Step 3: Backfill user_events.user_uuid
+            try:
+                updated = await conn.execute('''
+                    UPDATE development.user_events e
+                    SET user_uuid = u.id
+                    FROM public.users u
+                    WHERE e.user_id = u.telegram_id
+                      AND e.user_uuid IS NULL
+                ''')
+                if updated and updated != 'UPDATE 0':
+                    logger.info(f"[Migration] user_events.user_uuid backfill: {updated}")
+            except Exception as e:
+                logger.warning(f"[Migration] user_events.user_uuid backfill skipped: {e}")
+
+            # Step 4: Drop interns (CASCADE removes FK from wakatime/discourse)
+            try:
+                await conn.execute('DROP TABLE IF EXISTS interns CASCADE')
+                logger.info("[Migration] Dropped interns table")
+            except Exception as e:
+                logger.warning(f"[Migration] Failed to drop interns: {e}")
+
+        # Backfill: dt_user_id из dt_tokens → users (WP-82)
         try:
             updated = await conn.execute('''
-                UPDATE interns SET user_id = u.id
-                FROM public.users u
-                WHERE interns.chat_id = u.telegram_id
-                  AND interns.user_id IS NULL
+                UPDATE public.users SET dt_user_id = dt_tokens.dt_user_id
+                FROM dt_tokens
+                WHERE public.users.telegram_id = dt_tokens.chat_id
+                  AND dt_tokens.dt_user_id IS NOT NULL
+                  AND public.users.dt_user_id IS NULL
             ''')
             if updated and updated != 'UPDATE 0':
-                logger.info(f"[Migration] Backfill interns.user_id: {updated}")
+                logger.info(f"[Migration] Backfill dt_user_id: {updated}")
         except Exception as e:
-            logger.warning(f"[Migration] Backfill interns.user_id skipped: {e}")
+            logger.warning(f"[Migration] Backfill dt_user_id skipped: {e}")
 
-        # Backfill: user_events.user_uuid из users по telegram_id
-        try:
-            updated = await conn.execute('''
-                UPDATE development.user_events e
-                SET user_uuid = u.id
-                FROM public.users u
-                WHERE e.user_id = u.telegram_id
-                  AND e.user_uuid IS NULL
-            ''')
-            if updated and updated != 'UPDATE 0':
-                logger.info(f"[Migration] Backfill user_events.user_uuid: {updated}")
-        except Exception as e:
-            logger.warning(f"[Migration] Backfill user_events.user_uuid skipped: {e}")
-
-    logger.info("✅ Все таблицы созданы/обновлены")
+    logger.info("All tables created/updated")

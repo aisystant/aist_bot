@@ -31,7 +31,7 @@ async def get_user_stats() -> dict:
                 ROUND(AVG(active_days_streak) FILTER (WHERE active_days_streak > 0), 1) AS avg_streak,
                 MAX(longest_streak) AS max_streak,
                 ROUND(AVG(complexity_level), 1) AS avg_complexity
-            FROM interns
+            FROM development.user_state
             WHERE onboarding_completed = TRUE
         ''')
         return dict(row) if row else {}
@@ -42,9 +42,11 @@ async def get_language_distribution() -> List[dict]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT COALESCE(language, 'ru') AS lang, COUNT(*) AS cnt
-            FROM interns WHERE onboarding_completed = TRUE
-            GROUP BY language ORDER BY cnt DESC
+            SELECT COALESCE(u.language, 'ru') AS lang, COUNT(*) AS cnt
+            FROM development.user_state s
+            JOIN public.users u ON u.telegram_id = s.chat_id
+            WHERE s.onboarding_completed = TRUE
+            GROUP BY u.language ORDER BY cnt DESC
         ''')
         return [dict(r) for r in rows]
 
@@ -55,7 +57,7 @@ async def get_complexity_distribution() -> List[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT complexity_level AS lvl, COUNT(*) AS cnt
-            FROM interns WHERE onboarding_completed = TRUE
+            FROM development.user_state WHERE onboarding_completed = TRUE
             GROUP BY complexity_level ORDER BY complexity_level
         ''')
         return [dict(r) for r in rows]
@@ -103,7 +105,7 @@ async def get_schedule_distribution() -> List[dict]:
             SELECT
                 COALESCE(schedule_time, '09:00')::TEXT AS hour,
                 COUNT(*) AS cnt
-            FROM interns
+            FROM development.user_state
             WHERE onboarding_completed = TRUE
               AND (marathon_status = 'active' OR feed_status = 'active')
             GROUP BY schedule_time
@@ -154,8 +156,8 @@ async def get_table_sizes() -> List[dict]:
     """Количество записей в каждой таблице."""
     pool = await get_pool()
     tables = [
-        'interns', 'answers', 'activity_log', 'qa_history',
-        'feed_weeks', 'feed_sessions', 'assessments',
+        'public.users', 'development.user_state', 'answers', 'activity_log',
+        'qa_history', 'feed_weeks', 'feed_sessions', 'assessments',
         'feedback_reports', 'github_connections', 'service_usage',
         'marathon_content',
     ]
@@ -194,11 +196,12 @@ async def get_delivery_report() -> dict:
 
         # Active marathon users
         active = await conn.fetch('''
-            SELECT i.chat_id, i.tg_username, i.schedule_time
-            FROM interns i
-            WHERE i.marathon_status = 'active'
-              AND i.onboarding_completed = TRUE
-            ORDER BY i.schedule_time
+            SELECT s.chat_id, u.tg_username, s.schedule_time
+            FROM development.user_state s
+            JOIN public.users u ON u.telegram_id = s.chat_id
+            WHERE s.marathon_status = 'active'
+              AND s.onboarding_completed = TRUE
+            ORDER BY s.schedule_time
         ''')
 
         # Today's marathon_content per user (latest status)

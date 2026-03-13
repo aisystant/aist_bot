@@ -947,16 +947,16 @@ async def _catch_up_missed_deliveries():
     pool = await get_pool()
     async with pool.acquire() as conn:
         missed = await conn.fetch('''
-            SELECT i.chat_id
-            FROM interns i
-            WHERE i.marathon_status = 'active'
-              AND i.onboarding_completed = TRUE
-              AND i.schedule_time IS NOT NULL
-              AND i.schedule_time <= $1
-              AND i.bot_blocked IS NOT TRUE
+            SELECT s.chat_id
+            FROM development.user_state s
+            WHERE s.marathon_status = 'active'
+              AND s.onboarding_completed = TRUE
+              AND s.schedule_time IS NOT NULL
+              AND s.schedule_time <= $1
+              AND s.bot_blocked IS NOT TRUE
               AND NOT EXISTS (
                   SELECT 1 FROM marathon_content mc
-                  WHERE mc.chat_id = i.chat_id
+                  WHERE mc.chat_id = s.chat_id
                     AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
               )
         ''', time_str)
@@ -1008,28 +1008,30 @@ async def _check_schedule_integrity(now) -> Optional[str]:
     async with pool.acquire() as conn:
         # 1. Non-zero-padded times
         bad_times = await conn.fetch('''
-            SELECT chat_id, tg_username, schedule_time, feed_schedule_time
-            FROM interns
-            WHERE onboarding_completed = TRUE
-              AND (schedule_time ~ '^[0-9]:' OR feed_schedule_time ~ '^[0-9]:')
+            SELECT s.chat_id, u.tg_username, s.schedule_time, s.feed_schedule_time
+            FROM development.user_state s
+            JOIN public.users u ON u.telegram_id = s.chat_id
+            WHERE s.onboarding_completed = TRUE
+              AND (s.schedule_time ~ '^[0-9]:' OR s.feed_schedule_time ~ '^[0-9]:')
         ''')
         if bad_times:
             for r in bad_times:
                 issues.append(f"⚠️ {r['tg_username'] or r['chat_id']}: "
                               f"schedule={r['schedule_time']}, feed={r['feed_schedule_time']} (no leading zero)")
             # Auto-fix
-            await conn.execute("UPDATE interns SET schedule_time = LPAD(schedule_time, 5, '0') WHERE schedule_time ~ '^[0-9]:'")
-            await conn.execute("UPDATE interns SET feed_schedule_time = LPAD(feed_schedule_time, 5, '0') WHERE feed_schedule_time ~ '^[0-9]:'")
+            await conn.execute("UPDATE development.user_state SET schedule_time = LPAD(schedule_time, 5, '0') WHERE schedule_time ~ '^[0-9]:'")
+            await conn.execute("UPDATE development.user_state SET feed_schedule_time = LPAD(feed_schedule_time, 5, '0') WHERE feed_schedule_time ~ '^[0-9]:'")
 
         # 2. Contradictory states: has progress but status = 'not_started'
         contradictions = await conn.fetch('''
-            SELECT chat_id, tg_username, marathon_status, feed_status,
-                   current_topic_index, completed_topics, marathon_start_date
-            FROM interns
-            WHERE onboarding_completed = TRUE
+            SELECT s.chat_id, u.tg_username, s.marathon_status, s.feed_status,
+                   s.current_topic_index, s.completed_topics, s.marathon_start_date
+            FROM development.user_state s
+            JOIN public.users u ON u.telegram_id = s.chat_id
+            WHERE s.onboarding_completed = TRUE
               AND (
-                (marathon_status = 'not_started' AND marathon_start_date IS NOT NULL)
-                OR (marathon_status = 'not_started' AND current_topic_index > 0)
+                (s.marathon_status = 'not_started' AND s.marathon_start_date IS NOT NULL)
+                OR (s.marathon_status = 'not_started' AND s.current_topic_index > 0)
               )
         ''')
         # Auto-fix: users with start_date <= today and marathon_status='not_started' → set to 'active'
@@ -1039,7 +1041,7 @@ async def _check_schedule_integrity(now) -> Optional[str]:
         if fixable:
             fix_ids = [r['chat_id'] for r in fixable]
             await conn.execute(
-                "UPDATE interns SET marathon_status = 'active' WHERE chat_id = ANY($1::bigint[])",
+                "UPDATE development.user_state SET marathon_status = 'active' WHERE chat_id = ANY($1::bigint[])",
                 fix_ids,
             )
             for r in fixable:
@@ -1293,8 +1295,10 @@ async def send_event_notifications():
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT chat_id, language FROM interns
-               WHERE onboarding_completed = TRUE'''
+            '''SELECT s.chat_id, u.language
+               FROM development.user_state s
+               JOIN public.users u ON u.telegram_id = s.chat_id
+               WHERE s.onboarding_completed = TRUE'''
         )
 
     bot = Bot(token=_bot_token)

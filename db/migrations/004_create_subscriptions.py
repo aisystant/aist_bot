@@ -63,30 +63,33 @@ async def migrate():
 
             print("Таблица subscriptions успешно создана")
 
-        # --- trial_started_at column ---
+        # --- trial_started_at column (now in development.user_state) ---
         col_exists = await conn.fetchval("""
             SELECT EXISTS (
                 SELECT FROM information_schema.columns
-                WHERE table_name = 'interns' AND column_name = 'trial_started_at'
+                WHERE table_schema = 'development'
+                  AND table_name = 'user_state'
+                  AND column_name = 'trial_started_at'
             )
         """)
 
         if col_exists:
-            print("Колонка trial_started_at уже существует")
+            print("Колонка trial_started_at уже существует в user_state")
         else:
-            print("Добавление колонки trial_started_at...")
+            print("Добавление колонки trial_started_at в user_state...")
             await conn.execute(
-                'ALTER TABLE interns ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMP DEFAULT NULL'
+                'ALTER TABLE development.user_state ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMP DEFAULT NULL'
             )
             print("Колонка trial_started_at добавлена")
 
         # --- Backfill: trial_started_at для существующих пользователей ---
-        # Все без trial_started_at получают триал от даты регистрации (created_at)
         updated = await conn.execute('''
-            UPDATE interns
-            SET trial_started_at = created_at
-            WHERE trial_started_at IS NULL
-              AND onboarding_completed = TRUE
+            UPDATE development.user_state s
+            SET trial_started_at = u.created_at
+            FROM public.users u
+            WHERE u.telegram_id = s.chat_id
+              AND s.trial_started_at IS NULL
+              AND s.onboarding_completed = TRUE
         ''')
         print(f"Backfill trial_started_at → created_at: {updated}")
 

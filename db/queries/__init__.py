@@ -2,7 +2,7 @@
 Функции для работы с базой данных.
 
 Модули:
-- users.py: работа с таблицей interns
+- users.py: работа с public.users + development.user_state
 - answers.py: работа с таблицей answers
 - feed.py: работа с Лентой (feed_weeks, feed_sessions)
 - activity.py: отслеживание активности и систематичности

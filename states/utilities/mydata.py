@@ -815,7 +815,7 @@ class MyDataState(BaseState):
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                '''UPDATE interns SET
+                '''UPDATE development.user_state SET
                     active_days_total = 0, active_days_streak = 0,
                     longest_streak = 0, last_active_date = NULL
                    WHERE chat_id = $1''',

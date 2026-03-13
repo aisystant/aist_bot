@@ -103,7 +103,7 @@ async def cmd_twin(message: Message):
                 from db import get_pool
                 pool = await get_pool()
                 async with pool.acquire() as conn:
-                    await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', telegram_user_id)
+                    await conn.execute('UPDATE public.users SET dt_connected_at = NULL WHERE telegram_id = $1', telegram_user_id)
             except Exception:
                 pass
             await message.answer(t('twin.disconnected', lang))
@@ -188,7 +188,7 @@ async def callback_twin_profile(callback: CallbackQuery):
             pool = await get_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    'SELECT dt_connected_at FROM interns WHERE chat_id = $1',
+                    'SELECT dt_connected_at FROM public.users WHERE telegram_id = $1',
                     telegram_user_id,
                 )
                 if row and row['dt_connected_at'] is not None:
@@ -263,7 +263,7 @@ async def callback_twin_disconnect(callback: CallbackQuery):
         from db import get_pool
         pool = await get_pool()
         async with pool.acquire() as conn:
-            await conn.execute('UPDATE interns SET dt_connected_at = NULL WHERE chat_id = $1', telegram_user_id)
+            await conn.execute('UPDATE public.users SET dt_connected_at = NULL WHERE telegram_id = $1', telegram_user_id)
     except Exception:
         pass
     await callback.answer(t('twin.disconnected_alert', lang), show_alert=True)

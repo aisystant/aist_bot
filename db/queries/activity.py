@@ -23,7 +23,7 @@ async def touch_last_active_date(chat_id: int):
     today = moscow_today()
     async with pool.acquire() as conn:
         await conn.execute('''
-            UPDATE interns
+            UPDATE development.user_state
             SET last_active_date = $2
             WHERE chat_id = $1
               AND (last_active_date IS NULL OR last_active_date < $2)

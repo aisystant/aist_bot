@@ -80,7 +80,7 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
             pool = await get_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    'SELECT dt_connected_at FROM interns WHERE chat_id = $1', chat_id,
+                    'SELECT dt_connected_at FROM public.users WHERE telegram_id = $1', chat_id,
                 )
                 if row and row['dt_connected_at'] is not None:
                     await message.answer(t('twin.reconnect_needed', lang), parse_mode="Markdown")

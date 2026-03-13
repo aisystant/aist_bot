@@ -1,7 +1,7 @@
 """
 DB-запросы для привязки Aisystant аккаунта (WP-79).
 
-Хранит aisystant_id в таблице interns для:
+Хранит aisystant_id в public.users для:
 - Проверки подписки БР (определяет T2)
 - Запросов к Aisystant API (программы, оплата, занятия)
 """
@@ -17,7 +17,7 @@ async def get_aisystant_id(chat_id: int) -> str | None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT aisystant_id FROM interns WHERE chat_id = $1',
+            'SELECT aisystant_id FROM public.users WHERE telegram_id = $1',
             chat_id,
         )
         if row and row['aisystant_id']:
@@ -30,11 +30,11 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''UPDATE interns
+            '''UPDATE public.users
                SET aisystant_id = $2,
                    aisystant_linked_at = NOW(),
                    updated_at = NOW()
-               WHERE chat_id = $1''',
+               WHERE telegram_id = $1''',
             chat_id, aisystant_id,
         )
     logger.info(f"Aisystant linked: chat_id={chat_id}, aisystant_id={aisystant_id}")
@@ -45,11 +45,11 @@ async def remove_aisystant_link(chat_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''UPDATE interns
+            '''UPDATE public.users
                SET aisystant_id = NULL,
                    aisystant_linked_at = NULL,
                    updated_at = NOW()
-               WHERE chat_id = $1''',
+               WHERE telegram_id = $1''',
             chat_id,
         )
     logger.info(f"Aisystant unlinked: chat_id={chat_id}")

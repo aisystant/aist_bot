@@ -34,7 +34,7 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
 async def delete_all_user_data(chat_id: int) -> dict:
     """Каскадное удаление ВСЕХ данных пользователя из всех таблиц.
 
-    Порядок: зависимые таблицы → основная (interns).
+    Порядок: зависимые таблицы → user_state → users.
     Возвращает dict с количеством удалённых строк по таблицам.
 
     Ref: DP.D.028 (User Data Tiers — протокол удаления).
@@ -73,11 +73,23 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result[table] = _parse_delete_count(deleted)
 
-            # Основная таблица — последняя
+            # development.user_events
             deleted = await conn.execute(
-                'DELETE FROM interns WHERE chat_id = $1', chat_id
+                'DELETE FROM development.user_events WHERE user_id = $1', chat_id
             )
-            result['interns'] = _parse_delete_count(deleted)
+            result['user_events'] = _parse_delete_count(deleted)
+
+            # Bot state
+            deleted = await conn.execute(
+                'DELETE FROM development.user_state WHERE chat_id = $1', chat_id
+            )
+            result['user_state'] = _parse_delete_count(deleted)
+
+            # Identity — последняя (FK от user_state)
+            deleted = await conn.execute(
+                'DELETE FROM public.users WHERE telegram_id = $1', chat_id
+            )
+            result['users'] = _parse_delete_count(deleted)
 
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")
@@ -119,9 +131,9 @@ async def reset_learning_data(chat_id: int) -> dict:
                 )
                 result[table] = _parse_delete_count(deleted)
 
-            # Сбрасываем поля прогресса в interns (профиль сохраняется)
+            # Сбрасываем поля прогресса в user_state (профиль в users сохраняется)
             await conn.execute('''
-                UPDATE interns SET
+                UPDATE development.user_state SET
                     marathon_status = 'not_started',
                     marathon_start_date = NULL,
                     marathon_paused_at = NULL,
@@ -145,7 +157,7 @@ async def reset_learning_data(chat_id: int) -> dict:
                     updated_at = NOW()
                 WHERE chat_id = $1
             ''', chat_id)
-            result['interns_reset'] = 1
+            result['user_state_reset'] = 1
 
     total = sum(result.values())
     logger.info(f"[RESET] user {chat_id}: learning data reset, {total} rows affected across {len(result)} tables")
