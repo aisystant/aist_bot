@@ -1083,14 +1083,14 @@ async def create_tables(pool: asyncpg.Pool):
             try:
                 inserted = await conn.execute('''
                     INSERT INTO public.users (
-                        telegram_id, dt_user_id, name, occupation, role, domain,
+                        telegram_id, name, occupation, role, domain,
                         interests, motivation, goals, language, experience_level,
                         difficulty_preference, learning_style, study_duration,
                         current_problems, desires, tg_username,
                         aisystant_id, aisystant_linked_at, dt_connected_at, created_at
                     )
                     SELECT
-                        i.chat_id, i.dt_user_id, i.name, i.occupation, i.role, i.domain,
+                        i.chat_id, i.name, i.occupation, i.role, i.domain,
                         i.interests, i.motivation, i.goals, i.language, i.experience_level,
                         i.difficulty_preference, i.learning_style, i.study_duration,
                         i.current_problems, i.desires, i.tg_username,
@@ -1123,8 +1123,7 @@ async def create_tables(pool: asyncpg.Pool):
                         tg_username = COALESCE(i.tg_username, u.tg_username),
                         aisystant_id = COALESCE(i.aisystant_id, u.aisystant_id),
                         aisystant_linked_at = COALESCE(i.aisystant_linked_at, u.aisystant_linked_at),
-                        dt_connected_at = COALESCE(i.dt_connected_at, u.dt_connected_at),
-                        dt_user_id = COALESCE(i.dt_user_id, u.dt_user_id)
+                        dt_connected_at = COALESCE(i.dt_connected_at, u.dt_connected_at)
                     FROM interns i
                     WHERE u.telegram_id = i.chat_id
                 ''')
