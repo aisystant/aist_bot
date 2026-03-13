@@ -129,7 +129,7 @@ async def _is_dt_connected(chat_id: int) -> bool:
         pool = await get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                'SELECT dt_connected_at FROM interns WHERE chat_id = $1', chat_id,
+                'SELECT dt_connected_at FROM public.users WHERE telegram_id = $1', chat_id,
             )
             return row is not None and row['dt_connected_at'] is not None
     except Exception:
