@@ -111,22 +111,26 @@ class PlansState(BaseState):
             return
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('plans.day_plan', lang),
-                callback_data="plans_day",
-            )],
-            [InlineKeyboardButton(
-                text=t('plans.week_plan', lang),
-                callback_data="plans_rp",
-            )],
-            [InlineKeyboardButton(
-                text=t('plans.week_report', lang),
-                callback_data="plans_report",
-            )],
-            [InlineKeyboardButton(
-                text=t('buttons.back', lang),
-                callback_data="plans_back",
-            )],
+            [
+                InlineKeyboardButton(
+                    text=t('plans.day_plan', lang),
+                    callback_data="plans_day",
+                ),
+                InlineKeyboardButton(
+                    text=t('plans.week_plan', lang),
+                    callback_data="plans_rp",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=t('plans.week_report', lang),
+                    callback_data="plans_report",
+                ),
+                InlineKeyboardButton(
+                    text=t('buttons.back', lang),
+                    callback_data="plans_back",
+                ),
+            ],
         ])
 
         await self.send(user, t('plans.title', lang), reply_markup=keyboard)

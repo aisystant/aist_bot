@@ -309,8 +309,10 @@ class SettingsState(BaseState):
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"📚 {t('settings.schedule_marathon', lang)}", callback_data="upd_schedule_marathon")],
-            [InlineKeyboardButton(text=f"📖 {t('settings.schedule_feed', lang)}", callback_data="upd_schedule_feed")],
+            [
+                InlineKeyboardButton(text=f"📚 {t('settings.schedule_marathon', lang)}", callback_data="upd_schedule_marathon"),
+                InlineKeyboardButton(text=f"📖 {t('settings.schedule_feed', lang)}", callback_data="upd_schedule_feed"),
+            ],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
         ])
 
@@ -453,8 +455,10 @@ class SettingsState(BaseState):
         text = f"🔄 *{t('settings.reset_title', lang)}*\n\n{t('settings.reset_description', lang)}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="reset_marathon_confirm")],
-            [InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="reset_stats_confirm")],
+            [
+                InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="reset_marathon_confirm"),
+                InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="reset_stats_confirm"),
+            ],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
         ])
 
