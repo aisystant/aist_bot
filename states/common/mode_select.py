@@ -114,6 +114,7 @@ class ModeSelectState(BaseState):
         Показываем tier-based ReplyKeyboard.
 
         Если context содержит day_completed=True — не показываем меню.
+        Если context содержит source='mode' — показываем информативное меню с тиром.
         """
         context = context or {}
         lang = self._get_lang(user)
@@ -129,10 +130,17 @@ class ModeSelectState(BaseState):
         tier = await detect_ui_tier(chat_id)
         keyboard = build_reply_keyboard(tier, lang)
 
-        name = user_dict.get('name', '')
         tier_label = _get_tier_label(tier, lang)
         tip = _get_random_tip(tier, lang, chat_id)
-        greeting = t('welcome.menu_greeting', lang, name=name, tier_label=tier_label, tip=tip)
+
+        if context.get('source') == 'mode':
+            # /mode — информативное сообщение с номером тира
+            greeting = t('welcome.mode_menu', lang, tier_num=tier, tier_label=tier_label, tip=tip)
+        else:
+            # /start и другие входы — приветствие с именем
+            name = user_dict.get('name', '')
+            greeting = t('welcome.menu_greeting', lang, name=name, tier_label=tier_label, tip=tip)
+
         await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
         await sync_menu_commands(self.bot, chat_id, tier, lang)
 
