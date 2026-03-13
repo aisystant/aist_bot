@@ -121,10 +121,10 @@ TIER_KEYBOARD = {
 
 TIER_MENU_COMMANDS = {
     UITier.T1_NEW:             ['link', 'schedule', 'about', 'test', 'contacts', 'help'],
-    UITier.T1_START:           ['buy', 'learn', 'schedule', 'about', 'feed_info', 'test', 'help'],
-    UITier.T2_LEARNING:        ['buy', 'feed', 'train', 'schedule', 'profile', 'help'],
-    UITier.T3_PERSONALIZATION: ['buy', 'feed', 'train', 'schedule', 'guide', 'progress', 'start', 'help'],
-    UITier.T4_CREATION:        ['buy', 'plan', 'schedule', 'club', 'train', 'feed', 'progress', 'mode', 'profile', 'start', 'help'],
+    UITier.T1_START:           ['schedule', 'buy', 'learn', 'about', 'feed_info', 'test', 'help'],
+    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'train', 'profile', 'help'],
+    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'train', 'guide', 'progress', 'start', 'help'],
+    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'club', 'train', 'feed', 'progress', 'mode', 'profile', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
