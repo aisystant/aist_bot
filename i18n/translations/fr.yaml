@@ -933,6 +933,9 @@ subscription:
   launch_notification: "🚀 *Mise à jour importante !*\n\nNous introduisons un abonnement pour les fonctionnalités avancées : Feed, Consultant (?), Notes (.) et Plans.\n\n*Pourquoi ?* Chaque demande génère une réponse IA individuelle qui coûte de l'argent réel.\n\n🎁 *15 jours gratuits* — essayez tout sans limites.\n🔒 *Les premiers abonnés conservent leur prix pour toujours* — abonnez-vous maintenant pour seulement {price} Stars/mois.\n💰 Tous les fonds vont au développement et à la promotion.\n\n*Ce qui reste gratuit pour l'instant :* Marathon, Évaluation, Progrès, Profil, Paramètres."
   settings_label: "Abonnement"
 
+donation:
+  settings_label: "Dons"
+
 plans:
   day_plan: "Plan du jour"
   github_not_connected: "Pour voir les plans, connecte GitHub dans /settings -> Connexions."
