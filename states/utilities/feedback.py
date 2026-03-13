@@ -182,14 +182,16 @@ class FeedbackState(BaseState):
     async def _show_severity(self, user, lang: str, callback: CallbackQuery):
         """Показать выбор серьёзности."""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"\U0001f534 {t('feedback.severity_red', lang)}",
-                callback_data="feedback:severity:red",
-            )],
-            [InlineKeyboardButton(
-                text=f"\U0001f7e1 {t('feedback.severity_yellow', lang)}",
-                callback_data="feedback:severity:yellow",
-            )],
+            [
+                InlineKeyboardButton(
+                    text=f"\U0001f534 {t('feedback.severity_red', lang)}",
+                    callback_data="feedback:severity:red",
+                ),
+                InlineKeyboardButton(
+                    text=f"\U0001f7e1 {t('feedback.severity_yellow', lang)}",
+                    callback_data="feedback:severity:yellow",
+                ),
+            ],
             [InlineKeyboardButton(
                 text=f"\u2190 {t('buttons.back', lang)}",
                 callback_data="feedback:cancel",

@@ -187,32 +187,36 @@ class MyDataState(BaseState):
         text += f"{TIER_EMOJI[tier]} {t('mydata.your_tier', lang)}: *{tier_name}*\n"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"📊 {t('mydata.sec_metrics', lang)}",
-                callback_data="mydata_sec_metrics",
-            )],
-            [InlineKeyboardButton(
-                text=f"🎯 {t('mydata.sec_how', lang)}",
-                callback_data="mydata_sec_how",
-            )],
-            [InlineKeyboardButton(
-                text=f"🔒 {t('mydata.sec_privacy', lang)}",
-                callback_data="mydata_sec_privacy",
-            )],
             [
+                InlineKeyboardButton(
+                    text=f"📊 {t('mydata.sec_metrics', lang)}",
+                    callback_data="mydata_sec_metrics",
+                ),
+                InlineKeyboardButton(
+                    text=f"🎯 {t('mydata.sec_how', lang)}",
+                    callback_data="mydata_sec_how",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🔒 {t('mydata.sec_privacy', lang)}",
+                    callback_data="mydata_sec_privacy",
+                ),
                 InlineKeyboardButton(
                     text=f"🏆 {t('mydata.sec_tiers', lang)}",
                     callback_data="mydata_sec_tiers",
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     text=f"🗑 {t('mydata.sec_manage', lang)}",
                     callback_data="mydata_sec_manage",
                 ),
+                InlineKeyboardButton(
+                    text=t('buttons.back', lang),
+                    callback_data="mydata_back",
+                ),
             ],
-            [InlineKeyboardButton(
-                text=t('buttons.back', lang),
-                callback_data="mydata_back",
-            )],
         ])
 
         await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
