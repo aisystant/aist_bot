@@ -933,6 +933,9 @@ subscription:
   launch_notification: "🚀 *重要更新！*\n\n我们为高级功能引入订阅：Feed、顾问（?）、笔记（.）和计划。\n\n*为什么？* 每个请求都会生成个性化AI回复，这需要实际成本。\n\n🎁 *30天免费试用* — 无限制体验所有功能。\n🔒 *早期订阅者永久保留原价* — 立即以最低价格 {price} Stars/月订阅。\n💰 所有资金用于产品开发和推广。\n\n*目前仍免费的功能：* 马拉松、评估、进度、个人资料、设置。"
   settings_label: "订阅"
 
+donation:
+  settings_label: "捐赠"
+
 plans:
   day_plan: "每日计划"
   github_not_connected: "要查看计划，请在 /settings -> 连接 中连接GitHub。"
