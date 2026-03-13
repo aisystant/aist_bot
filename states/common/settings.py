@@ -920,10 +920,14 @@ class SettingsState(BaseState):
         )
 
         buttons = [
-            [InlineKeyboardButton(text="🔗 " + t('settings.aisystant_label', lang), callback_data="conn_aisystant")],
-            [InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github")],
-            [InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin")],
-            [InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club")],
+            [
+                InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
+                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
+            ],
+            [
+                InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
+                InlineKeyboardButton(text="🏛 Клуб", callback_data="conn_club"),
+            ],
             [InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka")],
         ]
 

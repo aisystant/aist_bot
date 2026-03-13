@@ -45,41 +45,30 @@ async def cmd_about(message: Message):
 
     buttons = []
     if tier == UITier.T1_NEW:
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_marathon', lang),
-            callback_data="info_marathon",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_link', lang),
-            callback_data="info_go_link",
-        )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_marathon', lang), callback_data="info_marathon"),
+            InlineKeyboardButton(text=t('info.btn_link', lang), callback_data="info_go_link"),
+        ])
     elif tier == UITier.T1_START:
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_marathon', lang),
-            callback_data="info_marathon",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_buy', lang),
-            callback_data="info_go_buy",
-        )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_marathon', lang), callback_data="info_marathon"),
+            InlineKeyboardButton(text=t('info.btn_buy', lang), callback_data="info_go_buy"),
+        ])
     else:
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_marathon', lang),
-            callback_data="info_marathon",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_feed', lang),
-            callback_data="info_feed",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_training', lang),
-            callback_data="info_training",
-        )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_marathon', lang), callback_data="info_marathon"),
+            InlineKeyboardButton(text=t('info.btn_feed', lang), callback_data="info_feed"),
+        ])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_training', lang), callback_data="info_training"),
+            InlineKeyboardButton(text=t('info.btn_ask', lang), callback_data="info_ask_hint"),
+        ])
 
-    buttons.append([InlineKeyboardButton(
-        text=t('info.btn_ask', lang),
-        callback_data="info_ask_hint",
-    )])
+    if tier in (UITier.T1_NEW, UITier.T1_START):
+        buttons.append([InlineKeyboardButton(
+            text=t('info.btn_ask', lang),
+            callback_data="info_ask_hint",
+        )])
 
     await message.answer(
         t('info.about_text', lang),
@@ -116,19 +105,15 @@ async def _show_marathon_info(message: Message, lang: str, edit: bool = False):
 
     buttons = []
     if tier in (UITier.T1_NEW, UITier.T1_START):
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_start_marathon', lang),
-            callback_data="info_go_learn",
-        )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_start_marathon', lang), callback_data="info_go_learn"),
+            InlineKeyboardButton(text=t('info.btn_configure_marathon', lang), callback_data="info_go_profile"),
+        ])
     else:
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_get_lesson', lang),
-            callback_data="info_go_learn",
-        )])
-    buttons.append([InlineKeyboardButton(
-        text=t('info.btn_configure_marathon', lang),
-        callback_data="info_go_profile",
-    )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_get_lesson', lang), callback_data="info_go_learn"),
+            InlineKeyboardButton(text=t('info.btn_configure_marathon', lang), callback_data="info_go_profile"),
+        ])
 
     text = t('info.marathon_text', lang)
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -167,14 +152,10 @@ async def _show_feed_info(message: Message, lang: str, edit: bool = False):
 
     buttons = []
     if tier >= UITier.T2_LEARNING:
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_get_digest', lang),
-            callback_data="info_go_feed",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_configure_feed', lang),
-            callback_data="info_go_profile",
-        )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_get_digest', lang), callback_data="info_go_feed"),
+            InlineKeyboardButton(text=t('info.btn_configure_feed', lang), callback_data="info_go_profile"),
+        ])
     else:
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_buy_sub', lang),
@@ -218,14 +199,10 @@ async def _show_train_info(message: Message, lang: str, edit: bool = False):
 
     buttons = []
     if tier >= UITier.T2_LEARNING:
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_start_training', lang),
-            callback_data="info_go_train",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text=t('info.btn_configure_training', lang),
-            callback_data="info_go_profile",
-        )])
+        buttons.append([
+            InlineKeyboardButton(text=t('info.btn_start_training', lang), callback_data="info_go_train"),
+            InlineKeyboardButton(text=t('info.btn_configure_training', lang), callback_data="info_go_profile"),
+        ])
     else:
         buttons.append([InlineKeyboardButton(
             text=t('info.btn_buy_sub', lang),
