@@ -69,18 +69,25 @@ async def collect_personal_claude(
 
 
 async def collect_user_progress(
-    intern: dict, lang: str, **kwargs
+    intern: dict, lang: str, ui_tier: int = -1, **kwargs
 ) -> CollectorResult:
     """Прогресс пользователя в обучении из bot DB → {progress_section}.
 
     Данные берутся из intern dict (уже загружен из БД, 0 доп. запросов).
     Показывает прогресс ВСЕГДА, если есть хоть какие-то данные:
+    - UITier (текущий уровень платформы)
     - Активность (дни, серия, рекорд)
     - Марафон (статус, день, темы)
     - Лента (статус)
     - Дата регистрации
     """
     parts = []
+
+    # --- UITier (anti-hallucination: Claude должен знать точный тир) ---
+    if ui_tier >= 0:
+        from core.tier_config import TIER_DISPLAY
+        tier_label = TIER_DISPLAY.get(ui_tier, f"T{ui_tier}")
+        parts.append(f"Текущий уровень платформы: {tier_label}")
 
     # --- Активность (показываем всегда, если есть) ---
     total_days = intern.get('active_days_total', 0)
@@ -178,6 +185,7 @@ async def assemble_context(
     lang: str,
     bot_context: str = "",
     personal_claude_md: str = "",
+    ui_tier: int = -1,
 ) -> Dict[str, str]:
     """Запускает collectors для тира параллельно, возвращает dict placeholder → value.
 
@@ -187,6 +195,7 @@ async def assemble_context(
         lang: язык пользователя
         bot_context: self-knowledge бота
         personal_claude_md: personal CLAUDE.md из GitHub
+        ui_tier: UITier (0-5) для включения в контекст (anti-hallucination)
 
     Returns:
         Dict с ключами для fill_tier_prompt:
@@ -200,6 +209,7 @@ async def assemble_context(
         lang=lang,
         bot_context=bot_context,
         personal_claude_md=personal_claude_md,
+        ui_tier=ui_tier,
     )
 
     # Запускаем параллельно
