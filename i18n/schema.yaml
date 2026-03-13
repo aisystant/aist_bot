@@ -3487,6 +3487,9 @@ mydata:
   how_to_unlock:
     ru: "Как получить"
     en: "How to unlock"
+  action_link_hint:
+    ru: "Для привязки аккаунта Aisystant используйте команду /link"
+    en: "To link your Aisystant account, use the /link command"
   action_twin_hint:
     ru: "Для подключения Цифрового Двойника используйте команду /twin"
     en: "To connect your Digital Twin, use the /twin command"
