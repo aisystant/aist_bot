@@ -75,11 +75,71 @@ welcome:
     en: "Welcome back, {name}!"
 
   menu_greeting:
-    ru: "Привет, {name}! 👋\nТвой уровень на платформе — {tier_num} (из 4)\nВыбери действие ↓"
-    en: "Hi, {name}! 👋\nYour platform level — {tier_num} (of 4)\nChoose an action ↓"
-    es: "Hola, {name}! 👋\nTu nivel en la plataforma — {tier_num} (de 4)\nElige una acción ↓"
-    fr: "Salut, {name} ! 👋\nTon niveau sur la plateforme — {tier_num} (sur 4)\nChoisis une action ↓"
-    zh: "你好，{name}！👋\n你的平台等级 — {tier_num}（共 4 级）\n选择操作 ↓"
+    ru: "Привет, {name}! 👋\n{tier_label}\n\n{tip}"
+    en: "Hi, {name}! 👋\n{tier_label}\n\n{tip}"
+    es: "Hola, {name}! 👋\n{tier_label}\n\n{tip}"
+    fr: "Salut, {name} ! 👋\n{tier_label}\n\n{tip}"
+    zh: '你好，{name}！👋\n{tier_label}\n\n{tip}'
+
+  # Tier labels for greeting (П1 — прогресс-бар)
+  tier_label:
+    t0:
+      ru: "🟢 Старт — привяжи Aisystant чтобы открыть все функции"
+      en: "🟢 Start — link Aisystant to unlock all features"
+    t1:
+      ru: "🟢 Старт — попробуй все функции бесплатно 30 дней"
+      en: "🟢 Start — try all features free for 30 days"
+    t2:
+      ru: "📘 Изучение — подписка активна"
+      en: "📘 Learning — subscription active"
+    t3:
+      ru: "🧬 Персонализация — ЦД подключён"
+      en: "🧬 Personalization — DT connected"
+    t4:
+      ru: "🚀 Созидание — все возможности открыты"
+      en: "🚀 Creation — all features unlocked"
+
+  # Tier tips — ротация подсказок (П4). Numbered keys (loader не поддерживает lists).
+  tips:
+    t0_0:
+      ru: "🔗 Привяжи аккаунт Aisystant → нажми «Привязать» на клавиатуре"
+      en: "🔗 Link your Aisystant account → tap «Link» on the keyboard"
+    t0_1:
+      ru: "📚 Марафон 14 дней — бесплатно, даже без привязки"
+      en: "📚 14-day Marathon — free, even without linking"
+    t1_0:
+      ru: "📖 Попробуй Ленту — дайджесты по темам, которые выбираешь сам → /feed"
+      en: "📖 Try the Feed — digests on topics you choose → /feed"
+    t1_1:
+      ru: "❓ Задай вопрос консультанту — начни с ? → ?Что такое системное мышление?"
+      en: "❓ Ask the consultant — start with ? → ?What is systems thinking?"
+    t1_2:
+      ru: "📝 Сохрани мысль заметкой — напиши точку и текст → .Интересная идея"
+      en: "📝 Save a thought as a note — type dot and text → .Interesting idea"
+    t1_3:
+      ru: "🧪 Пройди тест систематичности — бот адаптирует контент под тебя → /test"
+      en: "🧪 Take the systematicity test — bot adapts content for you → /test"
+    t2_0:
+      ru: "🧬 Подключи Цифровой двойник — бот учтёт твои цели и интересы → /twin"
+      en: "🧬 Connect Digital Twin — bot considers your goals and interests → /twin"
+    t2_1:
+      ru: "🧪 Пройди тест повторно — посмотри свой прогресс → /test"
+      en: "🧪 Retake the test — check your progress → /test"
+    t2_2:
+      ru: "📊 Посмотри свои данные и как бот тебя видит → /mydata"
+      en: "📊 See your data and how the bot sees you → /mydata"
+    t3_0:
+      ru: "🚀 Подключи GitHub для работы с планами и экзокортексом → /settings"
+      en: "🚀 Connect GitHub for plans and exocortex → /settings"
+    t3_1:
+      ru: "📋 Попробуй планирование — /plan для недельного плана"
+      en: "📋 Try planning — /plan for weekly plan"
+    t4_0:
+      ru: "📋 Все возможности открыты! /plan — план, /rp — рабочие продукты"
+      en: "📋 All features unlocked! /plan — plan, /rp — work products"
+    t4_1:
+      ru: "📊 Посмотри аналитику своего обучения → /mydata"
+      en: "📊 Check your learning analytics → /mydata"
 
   current_mode:
     ru: "Режим"
@@ -3427,6 +3487,12 @@ mydata:
   how_to_unlock:
     ru: "Как получить"
     en: "How to unlock"
+  action_twin_hint:
+    ru: "Для подключения Цифрового Двойника используйте команду /twin"
+    en: "To connect your Digital Twin, use the /twin command"
+  action_github_hint:
+    ru: "Для подключения GitHub используйте команду /github"
+    en: "To connect GitHub, use the /github command"
 
   # ── Section titles ──
   sec_metrics:
@@ -4075,12 +4141,12 @@ assessment:
 # -----------------------------------------------------------------------------
 subscription:
   paywall_text:
-    ru: "⭐ Для доступа к этой функции нужна подписка.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально для вас.\n\n🔒 Ранние подписчики сохраняют свою цену навсегда.\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно. Затем — {price} Stars/мес."
-    en: "⭐ A subscription is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated for you.\n\n🔒 Early subscribers keep their price locked forever.\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free. Then — {price} Stars/month."
+    ru: "💳 Для доступа к этой функции нужна подписка «Бесконечное развитие» на Aisystant.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально.\n\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно."
+    en: "💳 An «Infinite Development» subscription on Aisystant is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated.\n\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free."
 
   subscribe_button:
-    ru: "⭐ Подписаться за {price} Stars/мес"
-    en: "⭐ Subscribe for {price} Stars/mo"
+    ru: "💳 Оформить подписку"
+    en: "💳 Subscribe"
     max_length: 40
 
   invoice_title:
@@ -4093,12 +4159,12 @@ subscription:
     en: "Access to Feed, Consultant, Notes, and Plans for 30 days."
 
   invoice_text:
-    ru: "Нажмите кнопку ниже для оплаты подписки ({price} Stars)."
-    en: "Press the button below to pay for the subscription ({price} Stars)."
+    ru: "Оформите подписку «Бесконечное развитие» на Aisystant (system-school.ru)."
+    en: "Subscribe to «Infinite Development» on Aisystant (system-school.ru)."
 
   pay_button:
-    ru: "💳 Оплатить {price} Stars"
-    en: "💳 Pay {price} Stars"
+    ru: "💳 Оформить подписку"
+    en: "💳 Subscribe"
     max_length: 30
 
   success:
@@ -4152,20 +4218,20 @@ subscription:
     max_length: 20
 
   current_price:
-    ru: "Текущая цена: {price} Stars/мес"
-    en: "Current price: {price} Stars/mo"
+    ru: "Подписка «Бесконечное развитие» на Aisystant"
+    en: "«Infinite Development» subscription on Aisystant"
 
   price_locked:
-    ru: "🔒 Ваша цена зафиксирована: {price} Stars/мес"
-    en: "🔒 Your price is locked: {price} Stars/mo"
+    ru: "🔒 Подписка активна"
+    en: "🔒 Subscription active"
 
   why_paid:
-    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка покрывает эти расходы и позволяет улучшать продукт.\n\n🔒 Для ранних подписчиков цена фиксируется навсегда — чем раньше подпишетесь, тем дешевле.\n\n💰 Все средства идут на развитие и популяризацию продукта."
-    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The subscription covers these costs and helps improve the product.\n\n🔒 Early subscribers get their price locked forever — the sooner you subscribe, the cheaper it is.\n\n💰 All funds go towards product development and promotion."
+    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка «Бесконечное развитие» на Aisystant покрывает эти расходы и позволяет улучшать продукт.\n\n💰 Все средства идут на развитие и популяризацию продукта."
+    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The «Infinite Development» subscription on Aisystant covers these costs and helps improve the product.\n\n💰 All funds go towards product development and promotion."
 
   launch_notification:
-    ru: "🚀 *Важное обновление!*\n\nМы вводим подписку на расширенные функции: Лента, Консультант (?), Заметки (.) и Планы.\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n🔒 *Ранние подписчики сохраняют цену навсегда* — подпишитесь сейчас по минимальной цене {price} Stars/мес.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что пока остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
-    en: "🚀 *Important update!*\n\nWe're introducing a subscription for advanced features: Feed, Consultant (?), Notes (.) and Plans.\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 30 free days* — try everything without limits.\n🔒 *Early subscribers keep their price forever* — subscribe now at the minimum price of {price} Stars/mo.\n💰 All funds go towards product development and promotion.\n\n*What remains free for now:* Marathon, Assessment, Progress, Profile, Settings."
+    ru: "🚀 *Важное обновление!*\n\nДля расширенных функций (Лента, Консультант, Заметки, Планы) нужна подписка «Бесконечное развитие» на Aisystant (system-school.ru).\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
+    en: "🚀 *Important update!*\n\nAdvanced features (Feed, Consultant, Notes, Plans) require an «Infinite Development» subscription on Aisystant (system-school.ru).\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 30 free days* — try everything without limits.\n💰 All funds go towards product development and promotion.\n\n*What remains free:* Marathon, Assessment, Progress, Profile, Settings."
 
   settings_label:
     ru: "Подписка"
@@ -5018,6 +5084,26 @@ guide:
   unavailable:
     ru: "Гид временно недоступен. Попробуйте позже."
     en: "Guide is temporarily unavailable. Please try again later."
+
+# ═══════════════════════════════════════════════════════════
+# Contextual paywall — per-service descriptions (П2)
+# ═══════════════════════════════════════════════════════════
+paywall:
+  feed:
+    ru: "📖 *Лента* даёт ежедневные дайджесты по темам, которые ты выбираешь сам. Бот адаптирует глубину под твой уровень."
+    en: "📖 *Feed* delivers daily digests on topics you choose. The bot adapts depth to your level."
+  consultation:
+    ru: "❓ *Консультант* отвечает на вопросы по базе из 5300+ документов. Начни с ? и задай любой вопрос."
+    en: "❓ *Consultant* answers questions using 5300+ documents. Start with ? and ask anything."
+  notes:
+    ru: "📝 *Заметки* сохраняют мысли прямо в боте. Напиши точку и текст → .Интересная идея"
+    en: "📝 *Notes* save your thoughts right in the bot. Type dot and text → .Interesting idea"
+  plans:
+    ru: "📋 *Планы* помогают организовать работу: /plan — недельный план, /rp — рабочие продукты."
+    en: "📋 *Plans* help organize work: /plan — weekly plan, /rp — work products."
+  trial_hint:
+    ru: "Попробуй бесплатно 30 дней → оформи подписку «Бесконечное развитие» на Aisystant."
+    en: "Try free for 30 days → subscribe to «Infinite Development» on Aisystant."
 
 # ═══════════════════════════════════════════════════════════
 # WP-79: Aisystant subscription (БР)

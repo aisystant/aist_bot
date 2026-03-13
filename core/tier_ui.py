@@ -42,7 +42,7 @@ def build_reply_keyboard(tier: int, lang: str = 'ru') -> ReplyKeyboardMarkup:
     Returns:
         ReplyKeyboardMarkup with 2x2 grid, persistent
     """
-    layout = TIER_KEYBOARD.get(tier, TIER_KEYBOARD[UITier.T1_NEW])
+    layout = TIER_KEYBOARD.get(tier, TIER_KEYBOARD[UITier.T0])
 
     keyboard = []
     for row in layout:
@@ -70,7 +70,7 @@ async def sync_menu_commands(bot: Bot, user_id: int, tier: int, lang: str = 'ru'
     if tier == UITier.T5_ADMIN:
         return
 
-    command_keys = TIER_MENU_COMMANDS.get(tier, TIER_MENU_COMMANDS[UITier.T1_NEW])
+    command_keys = TIER_MENU_COMMANDS.get(tier, TIER_MENU_COMMANDS[UITier.T0])
 
     commands = []
     for cmd_key in command_keys:

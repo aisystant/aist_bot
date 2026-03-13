@@ -193,7 +193,7 @@ async def cmd_start(message: Message, state: FSMContext):
     # Пробуем привязать Aisystant (синхронно, чтобы знать результат)
     linked = await _try_auto_link(message.chat.id)
 
-    # Отправляем приветствие + T1_NEW клавиатуру
+    # Отправляем приветствие + T0 клавиатуру
     from core.tier_ui import build_reply_keyboard, sync_menu_commands
     from core.tier_detector import detect_ui_tier
     tier = await detect_ui_tier(message.chat.id)

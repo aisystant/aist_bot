@@ -290,6 +290,16 @@ class MyDataState(BaseState):
             await self._show_tier_progression(user, callback)
             return None
 
+        if data == "mydata_action_twin":
+            lang = self._get_lang(user)
+            await self.send(user, t('mydata.action_twin_hint', lang))
+            return None
+
+        if data == "mydata_action_github":
+            lang = self._get_lang(user)
+            await self.send(user, t('mydata.action_github_hint', lang))
+            return None
+
         if data == "mydata_sec_manage":
             await self._show_manage(user, callback)
             return None
@@ -739,11 +749,18 @@ class MyDataState(BaseState):
                 text += f"  {desc}\n"
                 text += f"  _{t('mydata.how_to_unlock', lang)}: {how}_\n\n"
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
-            )],
-        ])
+        # Action button for next tier (П1: progress bar with CTA)
+        buttons = []
+        next_tier_action = self._get_next_tier_action(current_tier, lang)
+        if next_tier_action:
+            btn_text, btn_data = next_tier_action
+            buttons.append([InlineKeyboardButton(text=btn_text, callback_data=btn_data)])
+
+        buttons.append([InlineKeyboardButton(
+            text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
         try:
             await callback.message.edit_text(
@@ -751,6 +768,23 @@ class MyDataState(BaseState):
             )
         except Exception:
             await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    def _get_next_tier_action(self, current_tier: int, lang: str) -> tuple[str, str] | None:
+        """Return (button_text, callback_data) for the next tier unlock action."""
+        actions = {
+            'ru': {
+                1: ("💳 Оформить подписку «Бесконечное развитие»", "aisystant_subscribe"),
+                2: ("🧬 Подключить Цифровой Двойник", "mydata_action_twin"),
+                3: ("🔗 Подключить GitHub", "mydata_action_github"),
+            },
+            'en': {
+                1: ("💳 Subscribe to «Infinite Development»", "aisystant_subscribe"),
+                2: ("🧬 Connect Digital Twin", "mydata_action_twin"),
+                3: ("🔗 Connect GitHub", "mydata_action_github"),
+            },
+        }
+        tier_actions = actions.get(lang, actions['en'])
+        return tier_actions.get(current_tier)
 
     # ═══ Section: Manage Data ══════════════════════════════════════════
 
