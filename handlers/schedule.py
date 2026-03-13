@@ -249,6 +249,9 @@ async def callback_category(callback: CallbackQuery):
             btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
             paid_courses.append((code, btn_name[:25], int(price)))
 
+    if paid_courses:
+        lines.append(t('buy.payment_note', lang))
+
     # Сразу создаём платежи → URL-кнопки без лишнего шага
     if paid_courses:
         buttons.extend(await _create_course_buttons(aisystant_id, paid_courses, lang))
@@ -303,6 +306,7 @@ async def callback_workshop(callback: CallbackQuery):
                     if amount > 0:
                         paid_tariffs.append((code, amount, period))
                 if paid_tariffs:
+                    lines.append(t('buy.payment_note', lang))
                     buttons.extend(await _create_tariff_buttons(
                         aisystant_id, paid_tariffs, lang, purpose="WORKSHOP",
                     ))
@@ -358,6 +362,7 @@ async def callback_ws_tariffs(callback: CallbackQuery):
             paid_tariffs.append((code, amount, period))
 
     if paid_tariffs:
+        lines.append(t('buy.payment_note', lang))
         buttons.extend(await _create_tariff_buttons(
             aisystant_id, paid_tariffs, lang, purpose="WORKSHOP",
         ))

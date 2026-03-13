@@ -103,6 +103,8 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
 
     if not buttons:
         lines.append(t('buy.nothing_available', lang))
+    else:
+        lines.append(t('buy.payment_note', lang))
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     await message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
