@@ -953,6 +953,10 @@ settings:
     ru: "Оповещения об обновлениях IWE отключены."
     en: "IWE update notifications disabled."
 
+  iwe_updates_description:
+    ru: "🔔 *Обновления IWE*\n\nУтренний дайджест об изменениях в шаблоне IWE Template: новые файлы, обновлённые протоколы, структурные изменения.\n\nПолезно, чтобы держать свою рабочую среду в актуальном состоянии."
+    en: "🔔 *IWE Updates*\n\nMorning digest about changes in IWE Template: new files, updated protocols, structural changes.\n\nUseful to keep your working environment up to date."
+
   no_active_donations:
     ru: "нет активных"
     en: "none active"

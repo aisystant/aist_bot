@@ -232,6 +232,9 @@ class SettingsState(BaseState):
             return await self._waka_disconnect(user, callback)
 
         if data == "conn_iwe_toggle":
+            return await self._show_iwe_details(user, callback)
+
+        if data == "conn_iwe_do_toggle":
             return await self._toggle_iwe_updates(user, callback)
 
         if data == "github_select_repo":
@@ -1381,6 +1384,36 @@ class SettingsState(BaseState):
         )
         return None
 
+    async def _show_iwe_details(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показать описание IWE Updates с кнопкой включения/выключения."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        intern = await get_intern(chat_id)
+        current = intern.get('notify_template_updates', False)
+        status = "✅" if current else "❌"
+        action = t('settings.iwe_updates_disable', lang) if current else t('settings.iwe_updates_enable', lang)
+
+        status_label = "Статус" if lang == 'ru' else "Status"
+        text = (
+            t('settings.iwe_updates_description', lang) + "\n\n"
+            f"*{status_label}:* {status}"
+        )
+
+        buttons = [
+            [InlineKeyboardButton(
+                text=f"{'🔕' if current else '🔔'} {action.capitalize()}",
+                callback_data="conn_iwe_do_toggle",
+            )],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+        ]
+
+        await callback.message.edit_text(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        )
+        return None
+
     async def _toggle_iwe_updates(self, user, callback: CallbackQuery) -> Optional[str]:
         """Переключить подписку на обновления шаблона IWE."""
         lang = self._get_lang(user)
@@ -1397,5 +1430,5 @@ class SettingsState(BaseState):
         else:
             await callback.answer(t('settings.iwe_updates_disabled_toast', lang))
 
-        # Перерисовать экран подключений
-        return await self._show_connections(user, callback)
+        # Перерисовать экран деталей IWE
+        return await self._show_iwe_details(user, callback)
