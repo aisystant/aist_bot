@@ -126,6 +126,8 @@ async def create_tables(pool: asyncpg.Pool):
 
             # DT connection persistence (DP.D.028)
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_connected_at TIMESTAMP DEFAULT NULL',
+            # DT user identity (WP-82 Phase 1)
+            'ALTER TABLE interns ADD COLUMN IF NOT EXISTS dt_user_id TEXT DEFAULT NULL',
 
             # Bot blocked flag (WP-7: scheduler skip blocked users)
             'ALTER TABLE interns ADD COLUMN IF NOT EXISTS bot_blocked BOOLEAN DEFAULT FALSE',
@@ -146,6 +148,20 @@ async def create_tables(pool: asyncpg.Pool):
                 # Игнорируем ошибки "колонка уже существует"
                 if 'already exists' not in str(e).lower():
                     logger.warning(f"Миграция пропущена: {e}")
+
+        # Backfill: dt_user_id из dt_tokens → interns (WP-82)
+        try:
+            updated = await conn.execute('''
+                UPDATE interns SET dt_user_id = dt_tokens.dt_user_id
+                FROM dt_tokens
+                WHERE interns.chat_id = dt_tokens.chat_id
+                  AND dt_tokens.dt_user_id IS NOT NULL
+                  AND interns.dt_user_id IS NULL
+            ''')
+            if updated and updated != 'UPDATE 0':
+                logger.info(f"[Migration] Backfill dt_user_id: {updated}")
+        except Exception as e:
+            logger.warning(f"[Migration] Backfill dt_user_id skipped: {e}")
 
         # ═══════════════════════════════════════════════════════════
         # ОТВЕТЫ И РАБОЧИЕ ПРОДУКТЫ
@@ -619,7 +635,7 @@ async def create_tables(pool: asyncpg.Pool):
                 i.active_days_total, i.active_days_streak, i.longest_streak,
                 i.last_active_date,
                 -- Timestamps / DT
-                i.created_at, i.updated_at, i.dt_connected_at,
+                i.created_at, i.updated_at, i.dt_connected_at, i.dt_user_id,
                 -- Aggregates: answers
                 (SELECT COUNT(*) FROM answers a
                  WHERE a.chat_id = i.chat_id AND a.answer_type = 'theory_answer')
