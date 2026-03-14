@@ -4788,6 +4788,21 @@ twin:
   disconnected_desc:
     ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
     en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
+  btn_insights:
+    ru: "Как у меня дела?"
+    en: "How am I doing?"
+  insights_loading:
+    ru: "Анализирую ваши данные..."
+    en: "Analyzing your data..."
+  insights_no_dt:
+    ru: "Для анализа нужен подключённый Digital Twin.\nИспользуйте /twin чтобы подключиться."
+    en: "A connected Digital Twin is required for analysis.\nUse /twin to connect."
+  insights_no_data:
+    ru: "Пока недостаточно данных для анализа. Продолжайте учиться, и данные появятся!"
+    en: "Not enough data for analysis yet. Keep learning, and data will appear!"
+  insights_error:
+    ru: "Не удалось сгенерировать анализ. Попробуйте позже."
+    en: "Failed to generate analysis. Try again later."
 
 # -----------------------------------------------------------------------------
 # Сброс прогресса (авто-детект при /start)

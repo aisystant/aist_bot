@@ -125,6 +125,27 @@ async def sync_engagement_to_dt() -> dict:
     return stats
 
 
+async def get_engagement_data(user_uuid: str) -> dict | None:
+    """Прочитать engagement проекции пользователя из digital_twins.
+
+    Returns:
+        dict с ключами 2_1_account..2_4_time или None если нет данных.
+    """
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT data->'2_collected' AS collected FROM digital_twins WHERE user_id = $1",
+                user_uuid,
+            )
+            if row and row['collected']:
+                data = row['collected']
+                return json.loads(data) if isinstance(data, str) else data
+    except Exception as e:
+        logger.warning(f"[DT Sync] get_engagement_data failed for {user_uuid}: {e}")
+    return None
+
+
 def _ts(val) -> str | None:
     """Конвертировать datetime в ISO string для JSONB."""
     if val is None:

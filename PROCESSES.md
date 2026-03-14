@@ -206,4 +206,41 @@ Pack = source-of-truth детской методики. DS-principles-curriculum
 
 ---
 
-*Последнее обновление: 2026-03-03*
+## 8. DT Engagement Sync (WP-85 Phase 4)
+
+**Вход:** Ежедневный cron 04:30 MSK (scheduler) ИЛИ `/dt_sync` dev-команда
+
+**Источник:** `development.engagement` SQL View (15 метрик из `user_events`)
+
+**Приёмник:** `digital_twins` таблица (JSONB), та же Neon DB. DT MCP читает при запросе пользователя.
+
+**Поток данных:**
+
+```
+development.user_events (append-only, все каналы)
+        ↓ SQL View
+development.engagement (15 агрегатов на user_uuid)
+        ↓ sync_engagement_to_dt()
+digital_twins.data JSONB (INSERT ON CONFLICT → deep merge)
+        ↓ DT MCP read()
+Пользователь видит проекции через /twin или MCP-клиент
+```
+
+**4 группы проекций (выравнены с метамоделью `2_collected/`):**
+
+| Группа | Индикаторы |
+|--------|------------|
+| `2_1_account` | sessions_total, first_event_at, last_event_at, events_total |
+| `2_2_courses` | marathon_steps_total, feed_completed_total |
+| `2_3_practice` | training_attempts_total, training_passed_total, assessments_total, marathon_tasks_total |
+| `2_4_time` | active_days, events_last_7d, events_last_30d, ai_chats_total |
+
+**Файлы:** `db/queries/dt_sync.py`, `core/scheduler.py` (line ~107)
+
+**Фильтрация:** `WHERE user_uuid IS NOT NULL` — только T1+ (с Ory UUID). T0-пользователи копят события по chat_id; при получении Ory UUID следующий sync подхватит автоматически.
+
+**Выход:** Лог `[Scheduler] DT engagement sync: {synced: N, skipped: N, errors: N}`
+
+---
+
+*Последнее обновление: 2026-03-14*
