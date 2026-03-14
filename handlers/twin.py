@@ -369,8 +369,12 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
 
     system_prompt = (
         "You are a personal learning advisor analyzing a student's Digital Twin data. "
-        "Give a brief, encouraging progress summary and ONE specific actionable recommendation. "
+        "Give a brief, encouraging activity summary and ONE specific actionable recommendation. "
         "Be warm but honest. Use Telegram Markdown formatting (*bold*, _italic_). "
+        "IMPORTANT: Do NOT use # headers — Telegram does not support them. "
+        "Use *bold* for section titles instead. "
+        "Key principle: at the start of learning, consistency and regularity matter more than quality. "
+        "Encourage systematic daily engagement over perfection. "
         f"Keep response under 200 words. {lang_instruction}"
     )
 
@@ -380,7 +384,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         f"{'Learning goals: ' + goals if goals else ''}\n\n"
         f"Engagement data:\n{data_summary}\n\n"
         "Analyze this data and provide:\n"
-        "1. Brief progress summary (what's going well, what needs attention)\n"
+        f"1. Brief activity summary (title it 'Анализ активности {name}', use *bold* not #). "
+        "What's going well, what needs attention.\n"
         "2. One specific recommendation for the next step"
     )
 
