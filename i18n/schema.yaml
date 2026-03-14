@@ -4789,8 +4789,8 @@ twin:
     ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
     en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
   btn_insights:
-    ru: "Как у меня дела?"
-    en: "How am I doing?"
+    ru: "📈 Моя активность"
+    en: "📈 My activity"
   insights_loading:
     ru: "Анализирую ваши данные..."
     en: "Analyzing your data..."
