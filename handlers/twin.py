@@ -155,6 +155,10 @@ async def cmd_twin(message: Message):
             await message.answer(t('twin.degrees_error', lang))
         return
 
+    if subcommand == "insights":
+        await _handle_insights(message, intern, lang)
+        return
+
     # По умолчанию: показать профиль
     await message.answer(t('twin.loading_profile', lang))
     profile = await digital_twin.get_user_profile(telegram_user_id)
@@ -164,6 +168,7 @@ async def cmd_twin(message: Message):
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('twin.btn_insights', lang), callback_data="twin_insights")],
         [InlineKeyboardButton(text=t('twin.btn_update_profile', lang), callback_data="twin_profile")],
         [InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees")],
         [InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect")],
@@ -245,6 +250,16 @@ async def callback_twin_degrees(callback: CallbackQuery):
         await callback.message.answer(t('twin.degrees_error', lang))
 
 
+@twin_router.callback_query(F.data == "twin_insights")
+async def callback_twin_insights(callback: CallbackQuery):
+    telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+    await _handle_insights(callback.message, intern, lang)
+
+
 @twin_router.callback_query(F.data == "twin_disconnect")
 async def callback_twin_disconnect(callback: CallbackQuery):
     from clients.digital_twin import digital_twin
@@ -271,3 +286,92 @@ async def callback_twin_disconnect(callback: CallbackQuery):
         t('twin.disconnected_desc', lang),
         parse_mode="Markdown"
     )
+
+
+async def _handle_insights(message: Message, intern: dict, lang: str):
+    """Генерирует AI-интерпретацию engagement данных из ЦД (Phase 5A)."""
+    from db.queries.dt_sync import get_engagement_data
+    from db.queries.dt_tokens import get_dt_user_id
+
+    telegram_user_id = message.chat.id
+
+    # Получить user_uuid для чтения digital_twins
+    dt_user_id = await get_dt_user_id(telegram_user_id)
+    if not dt_user_id:
+        await message.answer(t('twin.insights_no_dt', lang))
+        return
+
+    await message.answer(t('twin.insights_loading', lang))
+
+    engagement = await get_engagement_data(dt_user_id)
+    if not engagement:
+        await message.answer(t('twin.insights_no_data', lang))
+        return
+
+    # Собрать контекст для промпта
+    name = (intern or {}).get('name', '')
+    goals = (intern or {}).get('goals', '')
+    occupation = (intern or {}).get('occupation', '')
+
+    account = engagement.get('2_1_account', {})
+    courses = engagement.get('2_2_courses', {})
+    practice = engagement.get('2_3_practice', {})
+    time_data = engagement.get('2_4_time', {})
+
+    data_summary = (
+        f"Sessions: {account.get('sessions_total', 0)}, "
+        f"Events: {account.get('events_total', 0)}, "
+        f"First activity: {account.get('first_event_at', 'N/A')}, "
+        f"Last activity: {account.get('last_event_at', 'N/A')}\n"
+        f"Marathon steps: {courses.get('marathon_steps_total', 0)}, "
+        f"Feed digests: {courses.get('feed_completed_total', 0)}\n"
+        f"Training attempts: {practice.get('training_attempts_total', 0)}, "
+        f"Passed: {practice.get('training_passed_total', 0)}, "
+        f"Assessments: {practice.get('assessments_total', 0)}, "
+        f"Marathon tasks: {practice.get('marathon_tasks_total', 0)}\n"
+        f"Active days: {time_data.get('active_days', 0)}, "
+        f"Events last 7d: {time_data.get('events_last_7d', 0)}, "
+        f"Events last 30d: {time_data.get('events_last_30d', 0)}, "
+        f"AI chats: {time_data.get('ai_chats_total', 0)}"
+    )
+
+    lang_instruction = "Отвечай на русском." if lang == 'ru' else f"Answer in {lang}."
+
+    system_prompt = (
+        "You are a personal learning advisor analyzing a student's Digital Twin data. "
+        "Give a brief, encouraging progress summary and ONE specific actionable recommendation. "
+        "Be warm but honest. Use Telegram Markdown formatting (*bold*, _italic_). "
+        f"Keep response under 200 words. {lang_instruction}"
+    )
+
+    user_prompt = (
+        f"Student: {name}\n"
+        f"{'Occupation: ' + occupation if occupation else ''}\n"
+        f"{'Learning goals: ' + goals if goals else ''}\n\n"
+        f"Engagement data:\n{data_summary}\n\n"
+        "Analyze this data and provide:\n"
+        "1. Brief progress summary (what's going well, what needs attention)\n"
+        "2. One specific recommendation for the next step"
+    )
+
+    try:
+        from bot import claude
+        from config import CLAUDE_MODEL_HAIKU
+
+        result = await claude.generate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=600,
+            model=CLAUDE_MODEL_HAIKU,
+        )
+
+        if result:
+            try:
+                await message.answer(result, parse_mode="Markdown")
+            except Exception:
+                await message.answer(result)
+        else:
+            await message.answer(t('twin.insights_error', lang))
+    except Exception as e:
+        logger.error(f"[Twin Insights] Failed: {e}")
+        await message.answer(t('twin.insights_error', lang))

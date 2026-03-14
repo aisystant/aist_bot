@@ -444,6 +444,20 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 ---
 
+## 12b. DT Engagement Sync (WP-85 Phase 4)
+
+**Файлы:** `db/queries/dt_sync.py`, `core/scheduler.py` (cron 04:30 MSK)
+
+**Принцип:** Бот пишет события в `development.user_events` → SQL View `development.engagement` агрегирует 15 метрик → `sync_engagement_to_dt()` записывает в `digital_twins` JSONB (INSERT ON CONFLICT, deep merge) → DT MCP читает при запросе.
+
+**4 группы в `2_collected/`:** `2_1_account` (сессии), `2_2_courses` (обучение), `2_3_practice` (практика), `2_4_time` (ритм).
+
+**Identity model:** `digital_twins.user_id` = Ory UUID. Sync фильтрует `WHERE user_uuid IS NOT NULL` (T1+). T0 копят события по chat_id — при появлении UUID sync подхватит автоматически.
+
+**Dev-команда:** `/dt_sync` — ручной запуск sync (TD1 only).
+
+---
+
 ## 13. Данные: schedule_time и marathon_content
 
 ### schedule_time — строго HH:MM (zero-padded)
