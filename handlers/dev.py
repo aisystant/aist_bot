@@ -585,6 +585,8 @@ async def cmd_dt_sync(message: Message):
             f"⏭ Skipped: {stats['skipped']}\n"
             f"❌ Errors: {stats['errors']}"
         )
+        if stats.get('first_error'):
+            text += f"\n\n<b>First error:</b>\n<code>{stats['first_error'][:500]}</code>"
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"[Dev] /dt_sync error: {e}", exc_info=True)
