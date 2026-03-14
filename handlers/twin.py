@@ -194,10 +194,14 @@ async def cmd_twin(message: Message):
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t('twin.btn_insights', lang), callback_data="twin_insights")],
-        [InlineKeyboardButton(text=t('twin.btn_update_profile', lang), callback_data="twin_profile")],
-        [InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees")],
-        [InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect")],
+        [
+            InlineKeyboardButton(text=t('twin.btn_insights', lang), callback_data="twin_insights"),
+            InlineKeyboardButton(text=t('twin.btn_update_profile', lang), callback_data="twin_profile"),
+        ],
+        [
+            InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees"),
+            InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect"),
+        ],
     ])
 
     await message.answer(_profile_text(profile, lang, intern=intern), parse_mode="Markdown", reply_markup=keyboard)

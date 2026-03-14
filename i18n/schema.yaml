@@ -4690,16 +4690,16 @@ linear:
 # -----------------------------------------------------------------------------
 twin:
   disconnected:
-    ru: "Digital Twin отключён."
+    ru: "Цифровой двойник отключён."
     en: "Digital Twin disconnected."
   not_connected:
-    ru: "Digital Twin не был подключён."
+    ru: "Цифровой двойник не был подключён."
     en: "Digital Twin was not connected."
   btn_connect:
-    ru: "Подключить Digital Twin"
-    en: "Connect Digital Twin"
+    ru: "🔗 Подключить Цифровой двойник"
+    en: "🔗 Connect Digital Twin"
   connect_title:
-    ru: "Подключение к Digital Twin"
+    ru: "Подключение к Цифровому двойнику"
     en: "Connect to Digital Twin"
   connect_desc:
     ru: "Нажмите кнопку ниже, чтобы авторизоваться.\nПосле авторизации вы сможете просматривать и редактировать свой профиль."
@@ -4711,28 +4711,28 @@ twin:
     ru: "Цель обучения обновлена:\n*{objective}*"
     en: "Learning objective updated:\n*{objective}*"
   objective_error:
-    ru: "Не удалось сохранить цель. Digital Twin недоступен."
+    ru: "Не удалось сохранить цель. Цифровой двойник недоступен."
     en: "Failed to save objective. Digital Twin unavailable."
   roles_title:
     ru: "Ваши роли:"
     en: "Your roles:"
   roles_empty:
-    ru: "Роли не заданы или Digital Twin недоступен."
+    ru: "Роли не заданы или Цифровой двойник недоступен."
     en: "No roles set or Digital Twin unavailable."
   degrees_title:
     ru: "Степени квалификации:"
     en: "Qualification degrees:"
   degrees_error:
-    ru: "Не удалось получить степени. Digital Twin недоступен."
+    ru: "Не удалось получить степени. Цифровой двойник недоступен."
     en: "Failed to get degrees. Digital Twin unavailable."
   loading_profile:
-    ru: "Загружаю профиль из Digital Twin..."
+    ru: "Загружаю профиль из Цифрового двойника..."
     en: "Loading profile from Digital Twin..."
   unavailable:
-    ru: "Digital Twin недоступен или профиль не найден.\n\nПопробуйте переподключиться: /twin disconnect, затем /twin"
+    ru: "Цифровой двойник недоступен или профиль не найден.\n\nПопробуйте переподключиться: /twin disconnect, затем /twin"
     en: "Digital Twin unavailable or profile not found.\n\nTry reconnecting: /twin disconnect, then /twin"
   unavailable_short:
-    ru: "Digital Twin недоступен. Попробуйте позже."
+    ru: "Цифровой двойник недоступен. Попробуйте позже."
     en: "Digital Twin unavailable. Try again later."
   not_set:
     ru: "не задана"
@@ -4744,7 +4744,7 @@ twin:
     ru: "не задан"
     en: "not set"
   profile_title:
-    ru: "Ваш Digital Twin"
+    ru: "Ваш Цифровой двойник"
     en: "Your Digital Twin"
   degree_label:
     ru: "Степень"
@@ -4765,28 +4765,28 @@ twin:
     ru: "ч/нед"
     en: "h/week"
   btn_update_profile:
-    ru: "Обновить профиль"
-    en: "Update profile"
+    ru: "🔄 Обновить профиль"
+    en: "🔄 Update profile"
   btn_degrees:
-    ru: "Степени"
-    en: "Degrees"
+    ru: "📐 Степени"
+    en: "📐 Degrees"
   btn_disconnect:
-    ru: "Отключить"
-    en: "Disconnect"
+    ru: "🔌 Отключить"
+    en: "🔌 Disconnect"
   reconnect_needed:
     ru: "Сессия ЦД истекла после обновления бота. Переподключитесь: /twin"
     en: "DT session expired after bot update. Reconnect: /twin"
   not_connected_alert:
-    ru: "Digital Twin не подключён"
+    ru: "Цифровой двойник не подключён"
     en: "Digital Twin not connected"
   already_disconnected:
-    ru: "Digital Twin уже отключён"
+    ru: "Цифровой двойник уже отключён"
     en: "Digital Twin already disconnected"
   disconnected_alert:
-    ru: "Digital Twin отключён"
+    ru: "Цифровой двойник отключён"
     en: "Digital Twin disconnected"
   disconnected_desc:
-    ru: "*Digital Twin отключён*\n\nИспользуйте /twin чтобы подключиться снова."
+    ru: "*Цифровой двойник отключён*\n\nИспользуйте /twin чтобы подключиться снова."
     en: "*Digital Twin disconnected*\n\nUse /twin to connect again."
   btn_insights:
     ru: "📈 Моя активность"
@@ -4795,7 +4795,7 @@ twin:
     ru: "Анализирую ваши данные..."
     en: "Analyzing your data..."
   insights_no_dt:
-    ru: "Для анализа нужен подключённый Digital Twin.\nИспользуйте /twin чтобы подключиться."
+    ru: "Для анализа нужен подключённый Цифровой двойник.\nИспользуйте /twin чтобы подключиться."
     en: "A connected Digital Twin is required for analysis.\nUse /twin to connect."
   insights_no_data:
     ru: "Пока недостаточно данных для анализа. Продолжайте учиться, и данные появятся!"
