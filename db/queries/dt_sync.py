@@ -23,13 +23,23 @@ async def sync_engagement_to_dt() -> dict:
     пишет в digital_twins.data JSONB через INSERT ON CONFLICT.
 
     Returns:
-        {"synced": N, "skipped": N, "errors": N}
+        {"synced": N, "skipped": N, "errors": N, "first_error": str|None}
     """
     pool = await get_pool()
-    stats = {"synced": 0, "skipped": 0, "errors": 0}
+    stats = {"synced": 0, "skipped": 0, "errors": 0, "first_error": None}
 
     try:
         async with pool.acquire() as conn:
+            # Ensure table exists (same schema as DT MCP worker)
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS digital_twins (
+                    user_id TEXT PRIMARY KEY,
+                    data JSONB NOT NULL DEFAULT '{}',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            ''')
+
             # Только пользователи с user_uuid (T1+ с Ory identity)
             rows = await conn.fetch('''
                 SELECT
@@ -99,10 +109,14 @@ async def sync_engagement_to_dt() -> dict:
                 except Exception as e:
                     logger.warning(f"[DT Sync] Failed for user {row['user_uuid']}: {e}")
                     stats["errors"] += 1
+                    if not stats["first_error"]:
+                        stats["first_error"] = f"{row['user_uuid']}: {e}"
 
     except Exception as e:
         logger.error(f"[DT Sync] Fatal error: {e}")
         stats["errors"] += 1
+        if not stats["first_error"]:
+            stats["first_error"] = str(e)
 
     logger.info(
         f"[DT Sync] Done: {stats['synced']} synced, "
