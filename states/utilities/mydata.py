@@ -184,7 +184,13 @@ class MyDataState(BaseState):
 
         text = f"*{t('mydata.title', lang)}*\n"
         text += f"{t('mydata.summary', lang)}\n\n"
-        text += f"{TIER_EMOJI[tier]} {t('mydata.your_tier', lang)}: *{tier_name}*\n"
+        text += f"{TIER_EMOJI[tier]} {t('mydata.your_tier', lang)}: *{tier_name}*\n\n"
+        text += f"📊 *{t('mydata.sec_metrics', lang)}* — {t('mydata.sec_metrics_desc', lang)}\n"
+        text += f"📈 *{t('mydata.sec_activity', lang)}* — {t('mydata.sec_activity_desc', lang)}\n"
+        text += f"🔒 *{t('mydata.sec_privacy', lang)}* — {t('mydata.sec_privacy_desc', lang)}\n"
+        text += f"🏆 *{t('mydata.sec_tiers', lang)}* — {t('mydata.sec_tiers_desc', lang)}\n"
+        text += f"🗑 *{t('mydata.sec_manage', lang)}* — {t('mydata.sec_manage_desc', lang)}\n"
+        text += f"🎯 *{t('mydata.sec_how', lang)}* — {t('mydata.sec_how_desc', lang)}\n"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [

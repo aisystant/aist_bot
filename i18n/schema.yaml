@@ -3528,6 +3528,26 @@ mydata:
     ru: "Управление"
     en: "Manage"
 
+  # ── Hub section descriptions ──
+  sec_metrics_desc:
+    ru: "профиль, серии, ответы, дайджесты"
+    en: "profile, streaks, answers, digests"
+  sec_activity_desc:
+    ru: "AI-анализ твоего прогресса"
+    en: "AI analysis of your progress"
+  sec_privacy_desc:
+    ru: "что собираем и как храним"
+    en: "what we collect and how we store it"
+  sec_tiers_desc:
+    ru: "прогрессия T0→T4 и как перейти дальше"
+    en: "T0→T4 progression and how to advance"
+  sec_manage_desc:
+    ru: "сброс данных, отключение сервисов"
+    en: "reset data, disconnect services"
+  sec_how_desc:
+    ru: "какие данные попадают в промпт бота"
+    en: "what data goes into the bot prompt"
+
   # ── Category names ──
   cat_profile:
     ru: "Профиль"
