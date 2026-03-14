@@ -19,6 +19,34 @@ logger = logging.getLogger(__name__)
 twin_router = Router(name="twin")
 
 
+def _format_degrees(raw: str) -> str:
+    """Конвертирует markdown-таблицу степеней в читаемый формат для Telegram."""
+    lines = raw.strip().split('\n')
+    result_parts = []
+    for line in lines:
+        line = line.strip()
+        # Пропускаем разделитель таблицы и заголовок колонок
+        if line.startswith('|--') or line.startswith('| Code'):
+            continue
+        # Строка таблицы → форматируем
+        if line.startswith('|') and line.endswith('|'):
+            cells = [c.strip() for c in line.strip('|').split('|')]
+            if len(cells) >= 4:
+                code, order, name, desc = cells[0], cells[1], cells[2], cells[3]
+                result_parts.append(f"*{order}. {name}*\n{desc}")
+            continue
+        # Заголовок — берём только русское название
+        if line.startswith('# '):
+            continue
+        if 'Степени квалификации' in line and not line.startswith('|'):
+            result_parts.insert(0, f"*{line}*")
+            continue
+        # Пропускаем Version и пустые строки
+        if line.startswith('Version:') or not line:
+            continue
+    return '\n\n'.join(result_parts)
+
+
 def _lang(intern) -> str:
     if not intern:
         return 'ru'
@@ -145,9 +173,7 @@ async def cmd_twin(message: Message):
     if subcommand == "degrees":
         degrees = await digital_twin.get_degrees(telegram_user_id)
         if degrees:
-            # describe_by_path возвращает markdown-текст
-            text = degrees if isinstance(degrees, str) else str(degrees)
-            # Ограничить длину для TG (4096 символов)
+            text = _format_degrees(degrees if isinstance(degrees, str) else str(degrees))
             if len(text) > 4000:
                 text = text[:4000] + "\n..."
             await message.answer(text, parse_mode="Markdown")
@@ -242,7 +268,7 @@ async def callback_twin_degrees(callback: CallbackQuery):
 
     degrees = await digital_twin.get_degrees(telegram_user_id)
     if degrees:
-        text = degrees if isinstance(degrees, str) else str(degrees)
+        text = _format_degrees(degrees if isinstance(degrees, str) else str(degrees))
         if len(text) > 4000:
             text = text[:4000] + "\n..."
         await callback.message.answer(text, parse_mode="Markdown")
@@ -291,19 +317,19 @@ async def callback_twin_disconnect(callback: CallbackQuery):
 async def _handle_insights(message: Message, intern: dict, lang: str):
     """Генерирует AI-интерпретацию engagement данных из ЦД (Phase 5A)."""
     from db.queries.dt_sync import get_engagement_data
-    from db.queries.dt_tokens import get_dt_user_id
+    from db.queries.identity import get_user_uuid
 
     telegram_user_id = message.chat.id
 
-    # Получить user_uuid для чтения digital_twins
-    dt_user_id = await get_dt_user_id(telegram_user_id)
-    if not dt_user_id:
+    # digital_twins.user_id = public.users.id (bot UUID, NOT dt_tokens.dt_user_id)
+    user_uuid = await get_user_uuid(telegram_user_id)
+    if not user_uuid:
         await message.answer(t('twin.insights_no_dt', lang))
         return
 
     await message.answer(t('twin.insights_loading', lang))
 
-    engagement = await get_engagement_data(dt_user_id)
+    engagement = await get_engagement_data(str(user_uuid))
     if not engagement:
         await message.answer(t('twin.insights_no_data', lang))
         return
