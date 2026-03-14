@@ -104,6 +104,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
     _scheduler.add_job(_dt_proactive_refresh, 'cron', minute='*/15')  # DT: proactive token refresh every 15 min (WP-82)
+    _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)  # DT: sync engagement → digital_twins daily 04:30 MSK (WP-85 Phase 4)
     _scheduler.start()
 
     # One-time cleanup: обнулить question_content с текстом ошибки (bug fix)
@@ -1095,6 +1096,24 @@ async def _dt_proactive_refresh():
             logger.info(f"[Scheduler] DT proactive refresh: {refreshed} tokens refreshed")
     except Exception as e:
         logger.warning(f"[Scheduler] DT proactive refresh failed: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
+# DIGITAL TWIN ENGAGEMENT SYNC (WP-85 Phase 4)
+# ═══════════════════════════════════════════════════════════
+
+async def _dt_sync_engagement():
+    """Синхронизировать engagement данные → digital_twins JSONB.
+
+    Запускается ежедневно в 04:30 MSK. Читает development.engagement view,
+    пишет в digital_twins таблицу (та же Neon БД). DT MCP читает при запросе.
+    """
+    try:
+        from db.queries.dt_sync import sync_engagement_to_dt
+        stats = await sync_engagement_to_dt()
+        logger.info(f"[Scheduler] DT engagement sync: {stats}")
+    except Exception as e:
+        logger.error(f"[Scheduler] DT engagement sync failed: {e}")
 
 
 # ═══════════════════════════════════════════════════════════
