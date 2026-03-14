@@ -157,7 +157,7 @@ class ProfileState(BaseState):
             ],
             [
                 InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="profile_schedule"),
-                InlineKeyboardButton(text="📊 " + t('buttons.mydata', lang), callback_data="go_mydata")
+                InlineKeyboardButton(text="📁 " + t('buttons.mydata', lang), callback_data="go_mydata")
             ],
             [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
