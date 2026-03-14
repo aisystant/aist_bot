@@ -280,6 +280,9 @@ commands:
   train_info:
     ru: "/train\\_info — тренировка (что, зачем, как запустить)"
     en: "/train\\_info — training (what, why, how to start)"
+  features:
+    ru: "/features — возможности платформы (статус, тиры)"
+    en: "/features — platform features (status, tiers)"
 
   section_intro:
     ru: "Знакомство"
@@ -2443,6 +2446,10 @@ help:
   feedback_line:
     ru: "💬 Обратная связь: /feedback или знак «!», а далее ваш текст."
     en: "💬 Feedback: /feedback or type \"!\" followed by your message."
+
+  about_hint:
+    ru: "ℹ️ О платформе и экосистеме: /about"
+    en: "ℹ️ About the platform and ecosystem: /about"
 
   language_hint:
     ru: "💡 Change bot language: /settings → Language"
