@@ -819,6 +819,7 @@ mydata:
   sec_how: "Cómo funciona"
   sec_privacy: "Privacidad"
   sec_tiers: "Mi nivel"
+  sec_activity: "Mi actividad"
   sec_manage: "Gestión"
   cat_profile: "Perfil"
   cat_learning: "Aprendizaje"
