@@ -565,3 +565,27 @@ async def cb_autofix(callback: CallbackQuery):
             f"\u274c <b>Fix #{fix_id} rejected</b>",
             parse_mode="HTML",
         )
+
+
+@dev_router.message(Command("dt_sync"))
+async def cmd_dt_sync(message: Message):
+    """/dt_sync — ручной запуск sync engagement → digital_twins."""
+    if not _is_developer(message.chat.id):
+        return
+
+    await message.answer("⏳ Запускаю sync engagement → digital_twins...")
+
+    try:
+        from db.queries.dt_sync import sync_engagement_to_dt
+        stats = await sync_engagement_to_dt()
+
+        text = (
+            f"<b>DT Sync</b> ({_msk_now()})\n\n"
+            f"✅ Synced: <b>{stats['synced']}</b>\n"
+            f"⏭ Skipped: {stats['skipped']}\n"
+            f"❌ Errors: {stats['errors']}"
+        )
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"[Dev] /dt_sync error: {e}", exc_info=True)
+        await message.answer(f"<b>/dt_sync error:</b>\n<code>{e}</code>", parse_mode="HTML")
