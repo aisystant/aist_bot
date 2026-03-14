@@ -120,11 +120,11 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T0:             ['link', 'schedule', 'about', 'test', 'contacts', 'help'],
-    UITier.T1:           ['schedule', 'buy', 'learn', 'about', 'feed_info', 'test', 'help'],
-    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'train', 'profile', 'help'],
-    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'train', 'guide', 'progress', 'start', 'help'],
-    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'club', 'train', 'feed', 'progress', 'mode', 'profile', 'start', 'help'],
+    UITier.T0:             ['link', 'schedule', 'about', 'features', 'test', 'contacts', 'help'],
+    UITier.T1:           ['schedule', 'buy', 'learn', 'features', 'about', 'feed_info', 'test', 'help'],
+    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'train', 'features', 'profile', 'help'],
+    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'train', 'features', 'guide', 'progress', 'start', 'help'],
+    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'club', 'train', 'feed', 'features', 'progress', 'mode', 'profile', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -157,6 +157,7 @@ COMMAND_DESCRIPTIONS = {
     'marathon_info': {'ru': 'Марафон — что это и как начать', 'en': 'Marathon — what it is & how to start', 'es': 'Maratón — qué es', 'fr': 'Marathon — description', 'zh': '马拉松 — 介绍'},
     'feed_info': {'ru': 'Лента — что это и как запустить',  'en': 'Feed — what it is & how to start', 'es': 'Feed — qué es',       'fr': 'Fil — description',      'zh': '信息流 — 介绍'},
     'train_info': {'ru': 'Тренировка — что это и как запустить', 'en': 'Training — what it is & how to start', 'es': 'Entrenamiento — qué es', 'fr': 'Entraînement — description', 'zh': '训练 — 介绍'},
+    'features': {'ru': 'Возможности платформы',             'en': 'Platform features',          'es': 'Funciones de la plataforma', 'fr': 'Fonctionnalités',              'zh': '平台功能'},
 }
 
 

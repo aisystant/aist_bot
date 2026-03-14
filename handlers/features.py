@@ -136,7 +136,7 @@ async def cmd_features(message: Message):
 
 @features_router.callback_query(F.data == "features_next_tier")
 async def cb_next_tier(callback: CallbackQuery):
-    """Show what's needed for the next tier."""
+    """Show what's needed for the next tier — as a separate message (catalog stays)."""
     await callback.answer()
     intern = await get_intern(callback.message.chat.id)
     lang = _lang(intern)
@@ -153,48 +153,10 @@ async def cb_next_tier(callback: CallbackQuery):
     else:
         text = t('features.max_tier', lang)
 
-    await callback.message.edit_text(
+    # Send as a NEW message so the catalog remains visible
+    await callback.message.answer(
         text,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text=t('features.btn_back', lang),
-                callback_data="features_back",
-            ),
-        ]]),
-    )
-
-
-@features_router.callback_query(F.data == "features_back")
-async def cb_back(callback: CallbackQuery):
-    """Return to features list."""
-    await callback.answer()
-    intern = await get_intern(callback.message.chat.id)
-    lang = _lang(intern)
-    tier = await detect_ui_tier(callback.message.chat.id)
-
-    text = await _build_features_text(callback.message.chat.id, lang)
-
-    buttons = []
-    if tier < UITier.T2_LEARNING:
-        buttons.append([InlineKeyboardButton(
-            text=t('features.btn_upgrade', lang),
-            callback_data="features_go_buy",
-        )])
-    if tier < UITier.T4_CREATION:
-        buttons.append([InlineKeyboardButton(
-            text=t('features.btn_next_tier', lang),
-            callback_data="features_next_tier",
-        )])
-    buttons.append([InlineKeyboardButton(
-        text=t('features.btn_about', lang),
-        callback_data="features_go_about",
-    )])
-
-    await callback.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
 
 
