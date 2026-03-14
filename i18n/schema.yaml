@@ -5345,12 +5345,12 @@ features:
     ru: "Интеграции"
     en: "Integrations"
   cat_automation:
-    ru: "Автоматизация (IWE)"
-    en: "Automation (IWE)"
+    ru: "На вашем компьютере"
+    en: "On your computer"
 
   legend:
-    ru: "✅ подключено  ❌ не подключено  🔒 нужен выше тир  ⚙️ внешнее"
-    en: "✅ connected  ❌ not connected  🔒 higher tier needed  ⚙️ external"
+    ru: "✅ подключено  ❌ не подключено  🔒 нужен выше тир  💻 настраивается на компьютере"
+    en: "✅ connected  ❌ not connected  🔒 higher tier needed  💻 set up on your computer"
 
   btn_upgrade:
     ru: "🔓 Подключить подписку"

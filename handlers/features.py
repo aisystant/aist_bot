@@ -5,7 +5,7 @@ Shows all platform features with per-user status:
   ✅ Connected / available
   🔒 Requires higher tier
   ❌ Not connected (action needed)
-  ⚙️ External (check on your machine)
+  💻 External (set up on your computer)
 
 Groups by category: Learning, Productivity, Integration, Automation.
 """
@@ -51,7 +51,7 @@ async def _get_feature_status(feature: PlatformFeature, chat_id: int, tier: int)
         try:
             result = await feature.status_check(chat_id)
             if result is None:
-                return "⚙️"  # external, can't detect
+                return "💻"  # external, set up on computer
             return "✅" if result else "❌"
         except Exception:
             return "❓"
