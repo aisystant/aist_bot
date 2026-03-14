@@ -3484,8 +3484,8 @@ service:
 # -----------------------------------------------------------------------------
 mydata:
   title:
-    ru: "📊 Мои данные"
-    en: "📊 My Data"
+    ru: "📁 Мои данные"
+    en: "📁 My Data"
   summary:
     ru: "Персональный дата-центр — все данные о тебе в одном месте."
     en: "Personal data center — all your data in one place."
