@@ -821,6 +821,12 @@ mydata:
   sec_tiers: "我的等级"
   sec_activity: '我的活动'
   sec_manage: "管理"
+  sec_metrics_desc: '个人资料、连续天数、回答、摘要'
+  sec_activity_desc: 'AI分析你的进度'
+  sec_privacy_desc: '我们收集什么以及如何存储'
+  sec_tiers_desc: 'T0→T4进阶以及如何升级'
+  sec_manage_desc: '重置数据、断开服务'
+  sec_how_desc: '哪些数据会进入机器人提示'
   cat_profile: "档案"
   cat_learning: "学习"
   cat_activity: "活动"
