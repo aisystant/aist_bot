@@ -196,64 +196,15 @@ async def cmd_twin(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text=t('twin.btn_insights', lang), callback_data="twin_insights"),
-            InlineKeyboardButton(text=t('twin.btn_update_profile', lang), callback_data="twin_profile"),
+            InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees"),
         ],
         [
-            InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees"),
             InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect"),
         ],
     ])
 
     await message.answer(_profile_text(profile, lang, intern=intern), parse_mode="Markdown", reply_markup=keyboard)
 
-
-@twin_router.callback_query(F.data == "twin_profile")
-async def callback_twin_profile(callback: CallbackQuery):
-    from clients.digital_twin import digital_twin
-
-    telegram_user_id = callback.from_user.id
-    intern = await get_intern(telegram_user_id)
-    lang = _lang(intern)
-
-    # Persistent check: dt_connected_at survives redeploy
-    connected = digital_twin.is_connected(telegram_user_id)
-    if not connected:
-        try:
-            from db import get_pool
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT dt_connected_at FROM public.users WHERE telegram_id = $1',
-                    telegram_user_id,
-                )
-                if row and row['dt_connected_at'] is not None:
-                    # DT was connected but tokens lost after redeploy
-                    await callback.answer()
-                    await callback.message.answer(
-                        t('twin.reconnect_needed', lang),
-                        parse_mode="Markdown",
-                    )
-                    return
-        except Exception:
-            pass
-        await callback.answer(t('twin.not_connected_alert', lang), show_alert=True)
-        return
-
-    await callback.answer()
-
-    profile = await digital_twin.get_user_profile(telegram_user_id)
-    if profile is None:
-        await callback.message.answer(t('twin.unavailable_short', lang))
-        return
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t('twin.btn_degrees', lang), callback_data="twin_degrees")],
-        [InlineKeyboardButton(text=t('twin.btn_disconnect', lang), callback_data="twin_disconnect")],
-    ])
-
-    await callback.message.answer(
-        _profile_text(profile, lang, intern=intern), parse_mode="Markdown", reply_markup=keyboard,
-    )
 
 
 @twin_router.callback_query(F.data == "twin_degrees")
