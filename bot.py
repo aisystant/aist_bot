@@ -210,6 +210,7 @@ async def main():
         BotCommand(command="train", description="Тренировка принципов"),
         BotCommand(command="test", description="Тест систематичности"),
         BotCommand(command="progress", description="Мой прогресс"),
+        BotCommand(command="features", description="Возможности платформы"),
         BotCommand(command="profile", description="Мой профиль"),
         BotCommand(command="help", description="Справка"),
     ])
@@ -218,6 +219,7 @@ async def main():
         BotCommand(command="train", description="Principles training"),
         BotCommand(command="test", description="Systematicity test"),
         BotCommand(command="progress", description="My progress"),
+        BotCommand(command="features", description="Platform features"),
         BotCommand(command="profile", description="My profile"),
         BotCommand(command="help", description="Help"),
     ], language_code="en")
@@ -226,6 +228,7 @@ async def main():
         BotCommand(command="train", description="Entrenamiento de principios"),
         BotCommand(command="test", description="Test de sistematicidad"),
         BotCommand(command="progress", description="Mi progreso"),
+        BotCommand(command="features", description="Funciones de la plataforma"),
         BotCommand(command="profile", description="Mi perfil"),
         BotCommand(command="help", description="Ayuda"),
     ], language_code="es")
@@ -234,6 +237,7 @@ async def main():
         BotCommand(command="train", description="Entraînement des principes"),
         BotCommand(command="test", description="Test de systématicité"),
         BotCommand(command="progress", description="Mon progrès"),
+        BotCommand(command="features", description="Fonctionnalités"),
         BotCommand(command="profile", description="Mon profil"),
         BotCommand(command="help", description="Aide"),
     ], language_code="fr")
@@ -242,6 +246,7 @@ async def main():
         BotCommand(command="train", description="原则训练"),
         BotCommand(command="test", description="系统性测试"),
         BotCommand(command="progress", description="我的进度"),
+        BotCommand(command="features", description="平台功能"),
         BotCommand(command="profile", description="我的档案"),
         BotCommand(command="help", description="帮助"),
     ], language_code="zh")
