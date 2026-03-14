@@ -167,6 +167,7 @@ async def cmd_help(message: Message):
         f"*{t('help.subscription_title', lang)}*\n"
         f"{t('help.subscription_info', lang)}\n\n"
         f"{t('help.feedback_line', lang)}\n\n"
+        f"{t('help.about_hint', lang)}\n\n"
         f"{t('help.language_hint', lang)}"
     )
 
@@ -189,6 +190,7 @@ async def cb_help_all_commands(callback: CallbackQuery):
 
         f"*{t('commands.section_intro', lang)}*\n"
         f"{t('commands.about', lang)}\n"
+        f"{t('commands.features', lang)}\n"
         f"{t('commands.marathon_info', lang)}\n"
         f"{t('commands.feed_info', lang)}\n"
         f"{t('commands.train_info', lang)}\n"
