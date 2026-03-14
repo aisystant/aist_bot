@@ -193,8 +193,8 @@ class MyDataState(BaseState):
                     callback_data="mydata_sec_metrics",
                 ),
                 InlineKeyboardButton(
-                    text=f"🎯 {t('mydata.sec_how', lang)}",
-                    callback_data="mydata_sec_how",
+                    text=f"📈 {t('mydata.sec_activity', lang)}",
+                    callback_data="mydata_sec_activity",
                 ),
             ],
             [
@@ -212,6 +212,12 @@ class MyDataState(BaseState):
                     text=f"🗑 {t('mydata.sec_manage', lang)}",
                     callback_data="mydata_sec_manage",
                 ),
+                InlineKeyboardButton(
+                    text=f"🎯 {t('mydata.sec_how', lang)}",
+                    callback_data="mydata_sec_how",
+                ),
+            ],
+            [
                 InlineKeyboardButton(
                     text=t('buttons.back', lang),
                     callback_data="mydata_back",
@@ -272,6 +278,10 @@ class MyDataState(BaseState):
         # ── Sections ──
         if data == "mydata_sec_metrics":
             await self._show_metrics_hub(user, callback)
+            return None
+
+        if data == "mydata_sec_activity":
+            await self._show_activity(user, callback)
             return None
 
         if data == "mydata_sec_how":
@@ -593,6 +603,19 @@ class MyDataState(BaseState):
             await self.send(user, answer, reply_markup=keyboard, parse_mode="Markdown")
         except Exception:
             await self.send(user, answer, reply_markup=keyboard)
+
+    # ═══ Section: Activity (twin insights) ══════════════════════════════
+
+    async def _show_activity(self, user, callback: CallbackQuery) -> None:
+        """Показать AI-анализ активности из Digital Twin."""
+        from handlers.twin import _handle_insights
+        from db.queries import get_intern
+
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        intern = await get_intern(chat_id)
+
+        await _handle_insights(callback.message, intern, lang)
 
     # ═══ Section: How it works ═════════════════════════════════════════
 
