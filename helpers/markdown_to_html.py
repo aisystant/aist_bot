@@ -57,6 +57,10 @@ def md_to_html(text: str) -> str:
     # Phase 2: Extract inline code (` ... `)
     text = re.sub(r"`([^`]+)`", _save_inline_code, text)
 
+    # Phase 2b: Convert Markdown headers (# ## ###) → bold text
+    # Must run BEFORE html.escape() so we can match raw # symbols
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"**\1**", text, flags=re.MULTILINE)
+
     # Phase 3: html.escape() everything remaining
     # (placeholders contain \x00 which html.escape won't touch)
     text = html.escape(text)
