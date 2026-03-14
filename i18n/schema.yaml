@@ -5316,3 +5316,159 @@ info:
   cmd_train_info:
     ru: "/train\\_info — тренировка (что, зачем, как запустить)"
     en: "/train\\_info — training (what, why, how to start)"
+
+# -----------------------------------------------------------------------------
+# /features — Каталог функций платформы
+# -----------------------------------------------------------------------------
+features:
+  header:
+    ru: "🗂 *Функции платформы*"
+    en: "🗂 *Platform Features*"
+  tier_info:
+    ru: "Ваш тир: T{tier}"
+    en: "Your tier: T{tier}"
+
+  cat_learning:
+    ru: "Обучение"
+    en: "Learning"
+  cat_productivity:
+    ru: "Продуктивность"
+    en: "Productivity"
+  cat_integration:
+    ru: "Интеграции"
+    en: "Integrations"
+  cat_automation:
+    ru: "Автоматизация (IWE)"
+    en: "Automation (IWE)"
+
+  legend:
+    ru: "✅ подключено  ❌ не подключено  🔒 нужен выше тир  ⚙️ внешнее"
+    en: "✅ connected  ❌ not connected  🔒 higher tier needed  ⚙️ external"
+
+  btn_upgrade:
+    ru: "🔓 Подключить подписку"
+    en: "🔓 Get subscription"
+  btn_next_tier:
+    ru: "⬆️ Следующий тир"
+    en: "⬆️ Next tier"
+  btn_about:
+    ru: "ℹ️ О платформе"
+    en: "ℹ️ About platform"
+  btn_back:
+    ru: "← Назад"
+    en: "← Back"
+
+  next_t1:
+    ru: "Для *T1* привяжите аккаунт Aisystant.\n\nКоманда: /link"
+    en: "For *T1* link your Aisystant account.\n\nCommand: /link"
+  next_t2:
+    ru: "Для *T2* нужна подписка «Бесконечное развитие» на Aisystant.\n\nОткроет: Ленту, Планы, Расписание."
+    en: "For *T2* you need an active subscription on Aisystant.\n\nUnlocks: Feed, Plans, Schedule."
+  next_t3:
+    ru: "Для *T3* подключите Цифровой Двойник.\n\nКоманда: /twin\n\nДаст персонализацию контента."
+    en: "For *T3* connect your Digital Twin.\n\nCommand: /twin\n\nEnables personalization."
+  next_t4:
+    ru: "Для *T4* подключите GitHub.\n\nКоманда: /github\n\nОткроет: заметки в репо, IWE Template, Стратег, Помодоро."
+    en: "For *T4* connect GitHub.\n\nCommand: /github\n\nUnlocks: repo notes, IWE Template, Strategist, Pomodoro."
+  max_tier:
+    ru: "Вы на максимальном тире! Все функции доступны."
+    en: "Maximum tier reached! All features available."
+
+  marathon:
+    name:
+      ru: "Марафон"
+      en: "Marathon"
+    desc:
+      ru: "14-дневная программа обучения"
+      en: "14-day learning program"
+  feed:
+    name:
+      ru: "Лента"
+      en: "Feed"
+    desc:
+      ru: "Ежедневные дайджесты по темам"
+      en: "Daily topic digests"
+  training:
+    name:
+      ru: "Тренировка"
+      en: "Training"
+    desc:
+      ru: "Практика принципов"
+      en: "Principles practice"
+  assessment:
+    name:
+      ru: "Тест"
+      en: "Assessment"
+    desc:
+      ru: "Оценка уровня владения"
+      en: "Skill level assessment"
+  progress:
+    name:
+      ru: "Прогресс"
+      en: "Progress"
+    desc:
+      ru: "Статистика обучения"
+      en: "Learning statistics"
+  plans:
+    name:
+      ru: "Планы"
+      en: "Plans"
+    desc:
+      ru: "День и неделя"
+      en: "Day and week plans"
+  schedule:
+    name:
+      ru: "Расписание"
+      en: "Schedule"
+    desc:
+      ru: "Время доставки уроков"
+      en: "Lesson delivery time"
+  aisystant:
+    name:
+      ru: "Aisystant"
+      en: "Aisystant"
+    desc:
+      ru: "Платформа обучения"
+      en: "Learning platform"
+  digital_twin:
+    name:
+      ru: "Цифровой Двойник"
+      en: "Digital Twin"
+    desc:
+      ru: "Персонализация контента"
+      en: "Content personalization"
+  github:
+    name:
+      ru: "GitHub"
+      en: "GitHub"
+    desc:
+      ru: "Заметки, публикации, IWE"
+      en: "Notes, publishing, IWE"
+  iwe_template:
+    name:
+      ru: "IWE Template"
+      en: "IWE Template"
+    desc:
+      ru: "Экзокортекс + Claude Code"
+      en: "Exocortex + Claude Code"
+  strategist:
+    name:
+      ru: "Стратег"
+      en: "Strategist"
+    desc:
+      ru: "Автоматические планы"
+      en: "Automated planning"
+  pomodoro:
+    name:
+      ru: "Помодоро"
+      en: "Pomodoro"
+    desc:
+      ru: "Напоминания о перерывах (WakaTime)"
+      en: "Break reminders (WakaTime)"
+  wakatime:
+    name:
+      ru: "WakaTime"
+      en: "WakaTime"
+    desc:
+      ru: "Трекинг времени работы"
+      en: "Work time tracking"
