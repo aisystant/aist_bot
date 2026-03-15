@@ -298,6 +298,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
     courses = engagement.get('2_2_courses', {})
     practice = engagement.get('2_3_practice', {})
     time_data = engagement.get('2_4_time', {})
+    coding = engagement.get('2_6_coding', {})
+    iwe = engagement.get('2_7_iwe', {})
 
     data_summary = (
         f"Sessions: {account.get('sessions_total', 0)}, "
@@ -316,6 +318,29 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         f"AI chats: {time_data.get('ai_chats_total', 0)}"
     )
 
+    # Coding activity (WakaTime — IND.2.6)
+    if coding:
+        data_summary += (
+            f"\nCoding today: {coding.get('coding_time_today_min', 0)} min, "
+            f"7d: {coding.get('coding_time_7d_min', 0)} min, "
+            f"30d: {coding.get('coding_time_30d_min', 0)} min\n"
+            f"Top languages: {coding.get('top_languages', 'N/A')}, "
+            f"Top projects: {coding.get('top_projects', 'N/A')}"
+        )
+
+    # IWE activity (git, sessions, WPs — IND.2.7)
+    if iwe:
+        data_summary += (
+            f"\nGit commits today: {iwe.get('commits_today', 0)}, "
+            f"7d: {iwe.get('commits_7d', 0)}, "
+            f"30d: {iwe.get('commits_30d', 0)}\n"
+            f"Active repos: {iwe.get('repos_active_today', 'N/A')}, "
+            f"Claude sessions today: {iwe.get('claude_sessions_today', 0)}\n"
+            f"WPs in progress: {iwe.get('wp_in_progress', 0)}, "
+            f"WPs done: {iwe.get('wp_done', 0)}, "
+            f"WPs total: {iwe.get('wp_total', 0)}"
+        )
+
     lang_instruction = "Отвечай на русском." if lang == 'ru' else f"Answer in {lang}."
 
     system_prompt = (
@@ -326,7 +351,9 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "Use *bold* for section titles instead. "
         "Key principle: at the start of learning, consistency and regularity matter more than quality. "
         "Encourage systematic daily engagement over perfection. "
-        f"Keep response under 200 words. {lang_instruction}"
+        "If coding or IWE activity data is present, include it in the analysis — "
+        "show how practice (coding, commits, sessions) complements theory (courses, training). "
+        f"Keep response under 250 words. {lang_instruction}"
     )
 
     user_prompt = (
