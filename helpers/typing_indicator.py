@@ -1,32 +1,54 @@
 """
-Typing indicator helper — показывает «бот печатает...» перед долгими операциями.
-
-Паттерн: после loading-сообщения → пауза TYPING_DELAY сек → typing action (5 сек).
-Повторный вызов send_typing() перед Claude API / MCP / external API обновляет индикатор.
+Typing indicator — непрерывный «бот печатает...» на всё время долгой операции.
 
 Использование:
-    from helpers.typing_indicator import delayed_typing, send_typing
+    from helpers.typing_indicator import keep_typing
 
     await message.answer(t('loading_key', lang))
-    await delayed_typing(message)           # sleep + typing
-    ...подготовка данных...
-    await send_typing(message)              # обновить перед тяжёлым вызовом
-    result = await claude.generate(...)
+    async with keep_typing(message):
+        data = await fetch_data()
+        result = await claude.generate(...)
+    # typing автоматически прекращается при выходе из блока
+
+Как работает:
+- При входе в `async with` сразу отправляет typing action
+- Фоновая задача обновляет typing каждые 4 сек (TG typing длится ~5 сек)
+- При выходе из блока (ответ готов или ошибка) задача отменяется → индикатор пропадает
 """
 
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 
 from aiogram.types import Message
 
-TYPING_DELAY = 3  # секунд между loading-сообщением и typing indicator
+logger = logging.getLogger(__name__)
+
+TYPING_INTERVAL = 4  # секунд между обновлениями (typing длится ~5 сек)
 
 
-async def send_typing(message: Message) -> None:
-    """Отправляет chat action 'typing' (длится ~5 сек или до следующего сообщения)."""
-    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+@asynccontextmanager
+async def keep_typing(message: Message):
+    """Context manager: показывает typing indicator на всё время блока."""
+    chat_id = message.chat.id
+    bot = message.bot
 
+    async def _loop():
+        try:
+            while True:
+                await bot.send_chat_action(chat_id=chat_id, action="typing")
+                await asyncio.sleep(TYPING_INTERVAL)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"typing indicator error: {e}")
 
-async def delayed_typing(message: Message, delay: float = TYPING_DELAY) -> None:
-    """Пауза delay сек → typing action. Для вызова сразу после loading-сообщения."""
-    await asyncio.sleep(delay)
-    await send_typing(message)
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass

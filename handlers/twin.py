@@ -12,7 +12,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from db.queries import get_intern
-from helpers.typing_indicator import delayed_typing, send_typing
+from helpers.typing_indicator import keep_typing
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -188,8 +188,8 @@ async def cmd_twin(message: Message):
 
     # По умолчанию: показать профиль
     await message.answer(t('twin.loading_profile', lang))
-    await delayed_typing(message)
-    profile = await digital_twin.get_user_profile(telegram_user_id)
+    async with keep_typing(message):
+        profile = await digital_twin.get_user_profile(telegram_user_id)
 
     if profile is None:
         await message.answer(t('twin.unavailable', lang))
@@ -369,7 +369,6 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         return
 
     await message.answer(t('twin.insights_loading', lang))
-    await delayed_typing(message)
 
     engagement = await get_engagement_data(str(user_uuid))
     if not engagement:
@@ -488,13 +487,13 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         from bot import claude
         from config import CLAUDE_MODEL_SONNET
 
-        await send_typing(message)
-        result = await claude.generate(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=1200,
-            model=CLAUDE_MODEL_SONNET,
-        )
+        async with keep_typing(message):
+            result = await claude.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=1200,
+                model=CLAUDE_MODEL_SONNET,
+            )
 
         if result:
             from helpers.message_split import prepare_html_parts
@@ -537,7 +536,6 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
         return
 
     await message.answer(t('twin.insights_detailed_loading', lang))
-    await delayed_typing(message)
 
     engagement = await get_engagement_data(str(user_uuid))
     if not engagement:
@@ -656,13 +654,13 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
         from bot import claude
         from config import CLAUDE_MODEL_SONNET
 
-        await send_typing(message)
-        result = await claude.generate(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=1500,
-            model=CLAUDE_MODEL_SONNET,
-        )
+        async with keep_typing(message):
+            result = await claude.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=1500,
+                model=CLAUDE_MODEL_SONNET,
+            )
 
         if result:
             from helpers.message_split import prepare_html_parts
