@@ -346,6 +346,8 @@ _IWE_PLATFORM_CONTEXT = (
     "Most work happens via Claude Code sessions (AI-assisted), which WakaTime may attribute to "
     "'Github' or 'IWE' umbrella project, NOT to individual repos like PACK-*. "
     "So low WakaTime hours for PACK-* does NOT mean Pack is neglected — it means work was done via Claude Code.\n"
+    "- 'Other' language in WakaTime = Claude Code CLI/terminal sessions where WakaTime cannot detect file type. "
+    "This is NORMAL and expected for AI-assisted development. Do NOT flag it as suspicious or distraction.\n"
     "- Bot training/course metrics (marathon, feed, assessments) = usage of THIS bot's learning features. "
     "Zero bot-training does NOT mean zero learning — this user learns primarily through practice "
     "(building the platform, writing Pack documents, coding). Do NOT flag zero bot-training as a problem.\n\n"
