@@ -336,7 +336,7 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 | Модель | Когда | Почему |
 |--------|-------|--------|
 | **Haiku** | feed «why» (planner.py), /mydata объяснения | Структурированный вывод, latency <3с, стоимость ×10 ниже |
-| **Sonnet** | Уроки, практика, все консультации (unified L3 + tool_use), tool_use | Креативный/сложный вывод, нужен reasoning |
+| **Sonnet** | Уроки, практика, консультации (L3 + tool_use), /twin insights | Креативный/сложный вывод, нужен reasoning, следование FORBIDDEN-правилам |
 
 > **Unified L3 (2026-02-28):** L2 bot-question path удалён. Все вопросы идут через единый L3 путь (tool_use). LLM сам выбирает tool: `search_knowledge`, `search_guides`, `get_bot_info`. Keyword classifier `_BOT_KEYWORDS` удалён — вызывал ложные срабатывания на доменных вопросах.
 
