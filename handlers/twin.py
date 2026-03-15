@@ -346,9 +346,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
     system_prompt = (
         "You are a personal learning advisor analyzing a student's Digital Twin data. "
         "Give a brief, encouraging activity summary and ONE specific actionable recommendation. "
-        "Be warm but honest. Use Telegram Markdown formatting (*bold*, _italic_). "
-        "IMPORTANT: Do NOT use # headers — Telegram does not support them. "
-        "Use *bold* for section titles instead. "
+        "Be warm but honest. Use standard Markdown formatting (**bold**, *italic*). "
+        "Use ## for section titles. "
         "Key principle: at the start of learning, consistency and regularity matter more than quality. "
         "Encourage systematic daily engagement over perfection. "
         "If coding or IWE activity data is present, include it in the analysis — "
@@ -362,7 +361,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         f"{'Learning goals: ' + goals if goals else ''}\n\n"
         f"Engagement data:\n{data_summary}\n\n"
         "Analyze this data and provide:\n"
-        f"1. Brief activity summary (title it 'Анализ активности {name}', use *bold* not #). "
+        f"1. Brief activity summary (title it '## Анализ активности {name}'). "
         "What's going well, what needs attention.\n"
         "2. One specific recommendation for the next step"
     )
@@ -379,10 +378,13 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         )
 
         if result:
-            try:
-                await message.answer(result, parse_mode="Markdown")
-            except Exception:
-                await message.answer(result)
+            from helpers.message_split import prepare_html_parts
+            parts = prepare_html_parts(result)
+            for part in parts:
+                try:
+                    await message.answer(part, parse_mode="HTML")
+                except Exception:
+                    await message.answer(part)
         else:
             await message.answer(t('twin.insights_error', lang))
     except Exception as e:
