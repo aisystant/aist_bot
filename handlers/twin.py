@@ -279,6 +279,80 @@ async def callback_twin_disconnect(callback: CallbackQuery):
     )
 
 
+def _annotate_repos(repos_list: list) -> str:
+    """Annotate repo names with their type for LLM context."""
+    _REPO_TYPES = {
+        'DS-my-strategy': 'governance (plans, reviews, personal strategy)',
+        'DS-ecosystem-development': 'governance (coordination, processes)',
+        'DS-IT-systems': 'instrument (bots, MCP servers, tools)',
+        'DS-ai-systems': 'instrument (AI system descriptions)',
+        'DS-principles-curriculum': 'surface (courses, curriculum)',
+        'DS-Knowledge-Index': 'instrument (knowledge index)',
+    }
+    _REPO_PREFIXES = {
+        'PACK-': 'pack (domain knowledge, source-of-truth)',
+        'FMT-': 'template (reusable formats)',
+        'SPF': 'base (second-level framework)',
+        'FPF': 'base (first principles framework)',
+        'ZP': 'base (zero principles)',
+    }
+
+    if not repos_list or not isinstance(repos_list, list):
+        return 'N/A'
+
+    parts = []
+    for item in repos_list[:10]:
+        if isinstance(item, dict):
+            name = item.get('name', '?')
+            commits = item.get('commits', 0)
+            seconds = item.get('seconds', 0)
+        else:
+            name = str(item)
+            commits, seconds = 0, 0
+
+        # Determine type
+        repo_type = _REPO_TYPES.get(name, '')
+        if not repo_type:
+            for prefix, rtype in _REPO_PREFIXES.items():
+                if name.startswith(prefix):
+                    repo_type = rtype
+                    break
+
+        label = f" [{repo_type}]" if repo_type else ""
+        if commits:
+            parts.append(f"{name}{label}: {commits} commits")
+        elif seconds:
+            hrs = seconds / 3600
+            parts.append(f"{name}{label}: {hrs:.1f}h")
+        else:
+            parts.append(f"{name}{label}")
+
+    return '; '.join(parts)
+
+
+# Shared IWE platform context for insights prompts
+_IWE_PLATFORM_CONTEXT = (
+    "\n\nPLATFORM CONTEXT (critical for accurate recommendations):\n"
+    "This user builds IWE — a personal development platform using a structured methodology.\n"
+    "The platform has a specific repo architecture:\n"
+    "- PACK-* repos = domain knowledge (source-of-truth). Architecture is ALREADY documented here.\n"
+    "- DS-my-strategy = GOVERNANCE repo (daily plans, weekly reviews, personal strategy). "
+    "High commit count is NORMAL — it reflects daily planning rituals, NOT that it's the 'main product'.\n"
+    "- FMT-* = reusable templates. DS-IT-systems = instruments (bots, tools).\n"
+    "- All repos form ONE ecosystem. Commit count does NOT indicate importance.\n"
+    "- 'Claude Code' as top editor means AI-assisted development (normal for this platform).\n"
+    "- 'Github' or 'IWE' as WakaTime project = umbrella tracking across multiple repos.\n\n"
+    "RECOMMENDATION RULES:\n"
+    "- Do NOT recommend creating Design Documents, architecture docs, or README — they exist in Pack repos\n"
+    "- Do NOT give startup/investor/team-scaling advice — this is a personal platform\n"
+    "- Do NOT treat high commit counts in governance repos as 'key components' needing documentation\n"
+    "- Focus recommendations on: learning-practice balance, knowledge capture quality, "
+    "consistency of daily rituals (WP completion rate, active days), skill depth vs breadth\n"
+    "- Good recommendations: deepen a specific practice area, improve test coverage, "
+    "balance theory consumption with hands-on practice, optimize daily rhythm\n"
+)
+
+
 async def _handle_insights(message: Message, intern: dict, lang: str):
     """Генерирует AI-интерпретацию engagement данных из ЦД (Phase 5A)."""
     from db.queries.dt_sync import get_engagement_data
@@ -340,7 +414,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
             f"30d: {month_hrs:.1f} hrs, "
             f"Active days (30d): {coding.get('coding_active_days_30d', 0)}\n"
             f"Top languages: {coding.get('top_languages', 'N/A')}\n"
-            f"Top projects: {coding.get('top_projects', 'N/A')}\n"
+            f"Top projects (with repo types): {_annotate_repos(coding.get('top_projects', []))}\n"
             f"Top editors: {coding.get('top_editors', 'N/A')}"
         )
 
@@ -350,7 +424,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
             f"\nGit commits today: {iwe.get('commits_today', 0)}, "
             f"7d: {iwe.get('commits_7d', 0)}, "
             f"30d: {iwe.get('commits_30d', 0)}\n"
-            f"Active repos (7d): {iwe.get('repos_active_7d', 'N/A')}\n"
+            f"Active repos (7d, with types): {_annotate_repos(iwe.get('repos_active_7d', []))}\n"
             f"Files changed (7d): {iwe.get('files_changed_7d', 0)}, "
             f"Lines +{iwe.get('lines_added_7d', 0)} / -{iwe.get('lines_removed_7d', 0)}\n"
             f"Claude sessions (7d): {iwe.get('claude_sessions_7d', 0)}, "
@@ -386,6 +460,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "- Multiple IWE repos = one ecosystem, not fragmentation\n"
         "- Focus on the balance between theory (courses, training) and practice (coding, commits)\n"
         "- If coding or IWE data is present, it shows the MAIN activity — bot data is supplementary"
+        + _IWE_PLATFORM_CONTEXT
     )
 
     user_prompt = (
@@ -496,7 +571,7 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
             f"30d: {month_hrs:.1f} hrs, "
             f"Active days (30d): {coding.get('coding_active_days_30d', 0)}\n"
             f"Top languages: {coding.get('top_languages', 'N/A')}\n"
-            f"Top projects: {coding.get('top_projects', 'N/A')}\n"
+            f"Top projects (with repo types): {_annotate_repos(coding.get('top_projects', []))}\n"
             f"Top editors: {coding.get('top_editors', 'N/A')}"
         )
 
@@ -505,7 +580,7 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
             f"\nGit commits today: {iwe.get('commits_today', 0)}, "
             f"7d: {iwe.get('commits_7d', 0)}, "
             f"30d: {iwe.get('commits_30d', 0)}\n"
-            f"Active repos (7d): {iwe.get('repos_active_7d', 'N/A')}\n"
+            f"Active repos (7d, with types): {_annotate_repos(iwe.get('repos_active_7d', []))}\n"
             f"Files changed (7d): {iwe.get('files_changed_7d', 0)}, "
             f"Lines +{iwe.get('lines_added_7d', 0)} / -{iwe.get('lines_removed_7d', 0)}\n"
             f"Claude sessions (7d): {iwe.get('claude_sessions_7d', 0)}, "
@@ -542,6 +617,7 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
         "- Analyze EACH group: bot activity, learning (courses+practice), coding, IWE ecosystem\n"
         "- Compare 7d vs 30d trends where data allows\n"
         "- Give 2-3 specific, actionable recommendations at the end"
+        + _IWE_PLATFORM_CONTEXT
     )
 
     user_prompt = (
