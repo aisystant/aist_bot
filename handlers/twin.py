@@ -358,6 +358,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "Give a brief, encouraging activity summary and ONE specific actionable recommendation. "
         "Be warm but honest. Use standard Markdown formatting (**bold**, *italic*). "
         "Use ## for section titles. "
+        "Use emojis for visual structure: ✅ for achievements, ⚠️ for attention points, "
+        "📊 for data highlights, 🎯 for recommendations, 💡 for tips. "
         f"Keep response under 250 words. {lang_instruction}\n\n"
         "DATA DICTIONARY (interpret numbers correctly):\n"
         "- 'Sessions/Events/Active days/AI chats' = activity IN THIS BOT only, NOT total activity\n"
@@ -384,7 +386,9 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "Analyze this data and provide:\n"
         f"1. Brief activity summary (title it '## Анализ активности {name}'). "
         "What's going well, what needs attention.\n"
-        "2. One specific recommendation for the next step"
+        "2. One specific recommendation for the next step\n"
+        "3. End with a brief CTA line suggesting the user can explore more: "
+        "e.g. 'Для подробных данных: /twin' (keep it one short line)"
     )
 
     try:
