@@ -2,6 +2,7 @@
 Хендлеры интеграции с Digital Twin.
 """
 
+import asyncio
 import logging
 
 from aiogram import Router, F
@@ -367,6 +368,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         return
 
     await message.answer(t('twin.insights_loading', lang))
+    await asyncio.sleep(3)
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
     engagement = await get_engagement_data(str(user_uuid))
     if not engagement:
@@ -459,7 +462,13 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "- Do NOT flag normal coding amounts as burnout risk\n"
         "- Multiple IWE repos = one ecosystem, not fragmentation\n"
         "- Focus on the balance between theory (courses, training) and practice (coding, commits)\n"
-        "- If coding or IWE data is present, it shows the MAIN activity — bot data is supplementary"
+        "- If coding or IWE data is present, it shows the MAIN activity — bot data is supplementary\n"
+        "- EVERY number MUST include its time period explicitly: '4 активных дня за последние 30 дней', "
+        "NOT just '4 дня'. '285 коммитов за неделю', NOT '285 коммитов'. No bare numbers.\n"
+        "- Write in natural Russian. Do NOT use English words unless they are established "
+        "platform terms (WP, Claude Code, WakaTime, Exocortex, Pack). "
+        "For example: 'критерии завершения', NOT 'Definition of Done'; "
+        "'кодовая база', NOT 'codebase'; 'обзор кода', NOT 'code review'."
         + _IWE_PLATFORM_CONTEXT
     )
 
@@ -478,6 +487,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         from bot import claude
         from config import CLAUDE_MODEL_SONNET
 
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
         result = await claude.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -526,6 +536,8 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
         return
 
     await message.answer(t('twin.insights_detailed_loading', lang))
+    await asyncio.sleep(3)
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
     engagement = await get_engagement_data(str(user_uuid))
     if not engagement:
@@ -616,7 +628,13 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
         "- Multiple IWE repos = one ecosystem, not fragmentation\n"
         "- Analyze EACH group: bot activity, learning (courses+practice), coding, IWE ecosystem\n"
         "- Compare 7d vs 30d trends where data allows\n"
-        "- Give 2-3 specific, actionable recommendations at the end"
+        "- Give 2-3 specific, actionable recommendations at the end\n"
+        "- EVERY number MUST include its time period explicitly: '4 активных дня за последние 30 дней', "
+        "NOT just '4 дня'. '285 коммитов за неделю', NOT '285 коммитов'. No bare numbers.\n"
+        "- Write in natural Russian. Do NOT use English words unless they are established "
+        "platform terms (WP, Claude Code, WakaTime, Exocortex, Pack). "
+        "For example: 'критерии завершения', NOT 'Definition of Done'; "
+        "'кодовая база', NOT 'codebase'; 'обзор кода', NOT 'code review'."
         + _IWE_PLATFORM_CONTEXT
     )
 
@@ -637,6 +655,7 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
         from bot import claude
         from config import CLAUDE_MODEL_SONNET
 
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
         result = await claude.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
