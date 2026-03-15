@@ -95,7 +95,10 @@ PERSONAL_PATTERNS: Dict[str, Dict[str, Any]] = {
         'patterns': [
             "мой профиль", "обо мне", "расскажи обо мне",
             "всё о мне", "мои данные в двойнике",
+            "цд", "цифровой двойник", "цифрового двойника",
+            "в двойнике", "что в цд", "покажи цд",
             "my profile", "about me", "tell me about myself",
+            "digital twin", "my twin",
         ],
         'paths': ["1_declarative"],
         'label': "Полный профиль",
