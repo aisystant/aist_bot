@@ -302,20 +302,21 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
     iwe = engagement.get('2_7_iwe', {})
 
     data_summary = (
-        f"Sessions: {account.get('sessions_total', 0)}, "
-        f"Events: {account.get('events_total', 0)}, "
-        f"First activity: {account.get('first_event_at', 'N/A')}, "
-        f"Last activity: {account.get('last_event_at', 'N/A')}\n"
+        f"[BOT ACTIVITY — only interactions with this Telegram bot]\n"
+        f"Bot sessions: {account.get('sessions_total', 0)}, "
+        f"Bot events: {account.get('events_total', 0)}, "
+        f"First bot activity: {account.get('first_event_at', 'N/A')}, "
+        f"Last bot activity: {account.get('last_event_at', 'N/A')}\n"
         f"Marathon steps: {courses.get('marathon_steps_total', 0)}, "
         f"Feed digests: {courses.get('feed_completed_total', 0)}\n"
         f"Training attempts: {practice.get('training_attempts_total', 0)}, "
         f"Passed: {practice.get('training_passed_total', 0)}, "
         f"Assessments: {practice.get('assessments_total', 0)}, "
         f"Marathon tasks: {practice.get('marathon_tasks_total', 0)}\n"
-        f"Active days: {time_data.get('active_days', 0)}, "
-        f"Events last 7d: {time_data.get('events_last_7d', 0)}, "
-        f"Events last 30d: {time_data.get('events_last_30d', 0)}, "
-        f"AI chats: {time_data.get('ai_chats_total', 0)}"
+        f"Bot active days: {time_data.get('active_days', 0)} (bot only, not total), "
+        f"Bot events last 7d: {time_data.get('events_last_7d', 0)}, "
+        f"Bot events last 30d: {time_data.get('events_last_30d', 0)}, "
+        f"AI chats in bot: {time_data.get('ai_chats_total', 0)}"
     )
 
     # Coding activity (WakaTime — IND.2.6)
@@ -357,11 +358,22 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "Give a brief, encouraging activity summary and ONE specific actionable recommendation. "
         "Be warm but honest. Use standard Markdown formatting (**bold**, *italic*). "
         "Use ## for section titles. "
-        "Key principle: at the start of learning, consistency and regularity matter more than quality. "
-        "Encourage systematic daily engagement over perfection. "
-        "If coding or IWE activity data is present, include it in the analysis — "
-        "show how practice (coding, commits, sessions) complements theory (courses, training). "
-        f"Keep response under 250 words. {lang_instruction}"
+        f"Keep response under 250 words. {lang_instruction}\n\n"
+        "DATA DICTIONARY (interpret numbers correctly):\n"
+        "- 'Sessions/Events/Active days/AI chats' = activity IN THIS BOT only, NOT total activity\n"
+        "- 'Coding today/7d/30d' = WakaTime tracked coding time (all editors, all projects)\n"
+        "- 'Coding active days (30d)' = days with ANY coding activity in last 30 days\n"
+        "- 'Git commits' = commits across ALL IWE repos (one ecosystem, not separate projects)\n"
+        "- 'Active repos (7d)' = repos within ONE IWE workspace (Pack, DS, FMT are modules, not separate projects)\n"
+        "- 'Claude sessions' = Claude Code AI-assisted coding sessions\n"
+        "- 'WPs' = Work Products (managed deliverables with deadlines)\n"
+        "- 'Exocortex uptime' = days since personal knowledge system was set up\n\n"
+        "RULES:\n"
+        "- Do NOT confuse bot active days with total activity — coding/git data shows the full picture\n"
+        "- Do NOT flag normal coding amounts as burnout risk\n"
+        "- Multiple IWE repos = one ecosystem, not fragmentation\n"
+        "- Focus on the balance between theory (courses, training) and practice (coding, commits)\n"
+        "- If coding or IWE data is present, it shows the MAIN activity — bot data is supplementary"
     )
 
     user_prompt = (
