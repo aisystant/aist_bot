@@ -752,9 +752,8 @@ async def show_today_session(message: Message, engine: FeedEngine, state: FSMCon
         logger.info("show_today_session: получаем дайджест")
 
         # Показываем индикатор "печатает..." пока генерируем контент
-        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-
-        session, intro_msg = await engine.get_today_session()
+        async with keep_typing(message):
+            session, intro_msg = await engine.get_today_session()
 
         if not session:
             await message.answer(intro_msg)

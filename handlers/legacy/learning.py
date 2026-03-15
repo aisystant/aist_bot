@@ -31,6 +31,7 @@ from integrations.telegram.keyboards import (
 from clients.mcp import mcp_knowledge
 from clients.claude import ClaudeClient
 from helpers.message_split import prepare_html_parts
+from helpers.typing_indicator import keep_typing
 
 logger = logging.getLogger(__name__)
 
@@ -658,19 +659,19 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     lang = intern.get('language', 'ru')
     bloom_level = intern['bloom_level']
 
-    await bot.send_chat_action(chat_id=chat_id, action="typing")
     await bot.send_message(chat_id, f"⏳ {t('marathon.generating_material', lang)}")
 
     content = None
-    try:
-        content = await asyncio.wait_for(
-            b['claude'].generate_content(topic, intern, mcp_client=mcp_knowledge),
-            timeout=60.0
-        )
-    except asyncio.TimeoutError:
-        logger.error(f"[send_theory_topic] Таймаут генерации контента для chat_id={chat_id}, topic={topic.get('title')}")
-    except Exception as e:
-        logger.error(f"[send_theory_topic] Ошибка генерации контента: {e}")
+    async with keep_typing(bot, chat_id):
+        try:
+            content = await asyncio.wait_for(
+                b['claude'].generate_content(topic, intern, mcp_client=mcp_knowledge),
+                timeout=60.0
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"[send_theory_topic] Таймаут генерации контента для chat_id={chat_id}, topic={topic.get('title')}")
+        except Exception as e:
+            logger.error(f"[send_theory_topic] Ошибка генерации контента: {e}")
 
     if not content:
         await bot.send_message(
@@ -728,7 +729,6 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     topic_day = topic.get('day', marathon_day)
     lang = intern.get('language', 'ru')
 
-    await bot.send_chat_action(chat_id=chat_id, action="typing")
     await bot.send_message(chat_id, f"⏳ {t('marathon.preparing_practice', lang)}")
 
     intro = ""
@@ -736,21 +736,22 @@ async def send_practice_topic(chat_id: int, topic: dict, intern: dict, state: Op
     work_product = topic.get('work_product', '')
     examples = topic.get('work_product_examples', [])
 
-    try:
-        practice_data = await asyncio.wait_for(
-            b['claude'].generate_practice_intro(topic, intern),
-            timeout=30.0
-        )
-        if isinstance(practice_data, dict):
-            intro = practice_data.get('intro', '')
-            task = practice_data.get('task', '') or task
-            work_product = practice_data.get('work_product', '') or work_product
-        elif isinstance(practice_data, str):
-            intro = practice_data
-    except asyncio.TimeoutError:
-        logger.warning(f"[send_practice_topic] Таймаут генерации intro для chat_id={chat_id}")
-    except Exception as e:
-        logger.error(f"[send_practice_topic] Ошибка генерации intro: {e}")
+    async with keep_typing(bot, chat_id):
+        try:
+            practice_data = await asyncio.wait_for(
+                b['claude'].generate_practice_intro(topic, intern),
+                timeout=30.0
+            )
+            if isinstance(practice_data, dict):
+                intro = practice_data.get('intro', '')
+                task = practice_data.get('task', '') or task
+                work_product = practice_data.get('work_product', '') or work_product
+            elif isinstance(practice_data, str):
+                intro = practice_data
+        except asyncio.TimeoutError:
+            logger.warning(f"[send_practice_topic] Таймаут генерации intro для chat_id={chat_id}")
+        except Exception as e:
+            logger.error(f"[send_practice_topic] Ошибка генерации intro: {e}")
 
     examples_text = ""
     if examples:
