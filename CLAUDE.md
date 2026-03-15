@@ -514,6 +514,20 @@ Telegram авто-линкует `word.ext` как URL (`.md`, `.sh`, `.py` и �
 
 ---
 
+### 10.26. Typing indicator для долгих операций
+
+**Модуль:** `helpers/typing_indicator.py` — `delayed_typing(message)` и `send_typing(message)`.
+
+**Правило:** При отправке loading-сообщения (`t('*.loading*')`, `t('shared.thinking')` и т.п.) перед долгой операцией (Claude API, MCP search, external API) — **ОБЯЗАТЕЛЬНО** добавить typing indicator:
+
+1. **После loading-сообщения:** `await delayed_typing(message)` — пауза 3 сек + typing (пользователь читает сообщение, потом видит индикатор)
+2. **Перед Claude API / тяжёлым вызовом:** `await send_typing(message)` — обновить typing (если прошло >5 сек с предыдущего)
+3. **Transient loading** (loading_msg → delete): `await send_typing(message)` без delay (сообщение и так видно)
+
+**Не нужен:** если операция <3 сек (простой DB-запрос) или если есть `_keep_typing()` цикл (consultation.py).
+
+---
+
 ## SOTA: Context Engineering (DP.SOTA.002)
 
 > Бот — surface view над Pack и DDT. Контекст бота = проекция, не копия.

@@ -17,6 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from config import get_logger
 from i18n import t
 from helpers.message_split import prepare_html_parts
+from helpers.typing_indicator import send_typing
 from .engine import FeedEngine
 from db.queries.users import get_intern
 from engines.shared import handle_question
@@ -117,6 +118,7 @@ async def cmd_feed(message: Message, state: FSMContext):
             # Неделя в планировании — перегенерируем темы из каталога
             logger.info(f"Перегенерируем темы (planning) для {chat_id}")
             loading_msg = await message.answer(t('loading.generating_topics', lang))
+            await send_typing(message)
             topics, msg = await engine.suggest_topics()
             await loading_msg.delete()
             if not topics:
@@ -127,6 +129,7 @@ async def cmd_feed(message: Message, state: FSMContext):
         else:
             # Нет недели или завершена — запускаем новую
             loading_msg = await message.answer(t('loading.generating_topics', lang))
+            await send_typing(message)
 
             logger.info(f"Запускаем feed для {chat_id}")
             success, msg = await engine.start_feed()
@@ -854,6 +857,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
 
         # Обрабатываем вопрос
         await message.answer(t('shared.thinking', lang))
+        await send_typing(message)
 
         answer, sources = await handle_question(
             question=question,
