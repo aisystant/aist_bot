@@ -476,13 +476,13 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
 
     try:
         from bot import claude
-        from config import CLAUDE_MODEL_HAIKU
+        from config import CLAUDE_MODEL_SONNET
 
         result = await claude.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=1200,
-            model=CLAUDE_MODEL_HAIKU,
+            model=CLAUDE_MODEL_SONNET,
         )
 
         if result:
@@ -635,13 +635,13 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
 
     try:
         from bot import claude
-        from config import CLAUDE_MODEL_HAIKU
+        from config import CLAUDE_MODEL_SONNET
 
         result = await claude.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=1500,
-            model=CLAUDE_MODEL_HAIKU,
+            model=CLAUDE_MODEL_SONNET,
         )
 
         if result:
