@@ -4826,6 +4826,12 @@ twin:
   insights_error:
     ru: "Не удалось сгенерировать анализ. Попробуйте позже."
     en: "Failed to generate analysis. Try again later."
+  btn_insights_detailed:
+    ru: "📊 Подробнее"
+    en: "📊 Details"
+  insights_detailed_loading:
+    ru: "Готовлю детальный анализ..."
+    en: "Preparing detailed analysis..."
 
 # -----------------------------------------------------------------------------
 # Сброс прогресса (авто-детект при /start)

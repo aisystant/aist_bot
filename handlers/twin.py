@@ -241,6 +241,16 @@ async def callback_twin_insights(callback: CallbackQuery):
     await _handle_insights(callback.message, intern, lang)
 
 
+@twin_router.callback_query(F.data == "twin_insights_detailed")
+async def callback_twin_insights_detailed(callback: CallbackQuery):
+    telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+    await _handle_insights_detailed(callback.message, intern, lang)
+
+
 @twin_router.callback_query(F.data == "twin_disconnect")
 async def callback_twin_disconnect(callback: CallbackQuery):
     from clients.digital_twin import digital_twin
@@ -386,9 +396,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "Analyze this data and provide:\n"
         f"1. Brief activity summary (title it '## Анализ активности {name}'). "
         "What's going well, what needs attention.\n"
-        "2. One specific recommendation for the next step\n"
-        "3. End with a brief CTA line suggesting the user can explore more: "
-        "e.g. 'Для подробных данных: /twin' (keep it one short line)"
+        "2. One specific recommendation for the next step"
     )
 
     try:
@@ -405,6 +413,164 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         if result:
             from helpers.message_split import prepare_html_parts
             parts = prepare_html_parts(result)
+            detail_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('twin.btn_insights_detailed', lang),
+                    callback_data="twin_insights_detailed",
+                )]
+            ])
+            for i, part in enumerate(parts):
+                is_last = (i == len(parts) - 1)
+                try:
+                    await message.answer(
+                        part, parse_mode="HTML",
+                        reply_markup=detail_kb if is_last else None,
+                    )
+                except Exception:
+                    await message.answer(
+                        part,
+                        reply_markup=detail_kb if is_last else None,
+                    )
+        else:
+            await message.answer(t('twin.insights_error', lang))
+    except Exception as e:
+        logger.error(f"[Twin Insights] Failed: {e}")
+        await message.answer(t('twin.insights_error', lang))
+
+
+async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
+    """Расширенный AI-анализ engagement данных — детальный разбор по каждой метрике."""
+    from db.queries.dt_sync import get_engagement_data
+    from db.queries.identity import get_user_uuid
+
+    telegram_user_id = message.chat.id
+
+    user_uuid = await get_user_uuid(telegram_user_id)
+    if not user_uuid:
+        await message.answer(t('twin.insights_no_dt', lang))
+        return
+
+    await message.answer(t('twin.insights_detailed_loading', lang))
+
+    engagement = await get_engagement_data(str(user_uuid))
+    if not engagement:
+        await message.answer(t('twin.insights_no_data', lang))
+        return
+
+    name = (intern or {}).get('name', '')
+    goals = (intern or {}).get('goals', '')
+    occupation = (intern or {}).get('occupation', '')
+
+    account = engagement.get('2_1_account', {})
+    courses = engagement.get('2_2_courses', {})
+    practice = engagement.get('2_3_practice', {})
+    time_data = engagement.get('2_4_time', {})
+    coding = engagement.get('2_6_coding', {})
+    iwe = engagement.get('2_7_iwe', {})
+
+    data_summary = (
+        f"[BOT ACTIVITY — only interactions with this Telegram bot]\n"
+        f"Bot sessions: {account.get('sessions_total', 0)}, "
+        f"Bot events: {account.get('events_total', 0)}, "
+        f"First bot activity: {account.get('first_event_at', 'N/A')}, "
+        f"Last bot activity: {account.get('last_event_at', 'N/A')}\n"
+        f"Marathon steps: {courses.get('marathon_steps_total', 0)}, "
+        f"Feed digests: {courses.get('feed_completed_total', 0)}\n"
+        f"Training attempts: {practice.get('training_attempts_total', 0)}, "
+        f"Passed: {practice.get('training_passed_total', 0)}, "
+        f"Assessments: {practice.get('assessments_total', 0)}, "
+        f"Marathon tasks: {practice.get('marathon_tasks_total', 0)}\n"
+        f"Bot active days: {time_data.get('active_days', 0)} (bot only, not total), "
+        f"Bot events last 7d: {time_data.get('events_last_7d', 0)}, "
+        f"Bot events last 30d: {time_data.get('events_last_30d', 0)}, "
+        f"AI chats in bot: {time_data.get('ai_chats_total', 0)}"
+    )
+
+    if coding:
+        today_min = coding.get('coding_seconds_today', 0) // 60
+        week_hrs = coding.get('coding_seconds_7d', 0) / 3600
+        month_hrs = coding.get('coding_seconds_30d', 0) / 3600
+        data_summary += (
+            f"\nCoding today: {today_min} min, "
+            f"7d: {week_hrs:.1f} hrs, "
+            f"30d: {month_hrs:.1f} hrs, "
+            f"Active days (30d): {coding.get('coding_active_days_30d', 0)}\n"
+            f"Top languages: {coding.get('top_languages', 'N/A')}\n"
+            f"Top projects: {coding.get('top_projects', 'N/A')}\n"
+            f"Top editors: {coding.get('top_editors', 'N/A')}"
+        )
+
+    if iwe:
+        data_summary += (
+            f"\nGit commits today: {iwe.get('commits_today', 0)}, "
+            f"7d: {iwe.get('commits_7d', 0)}, "
+            f"30d: {iwe.get('commits_30d', 0)}\n"
+            f"Active repos (7d): {iwe.get('repos_active_7d', 'N/A')}\n"
+            f"Files changed (7d): {iwe.get('files_changed_7d', 0)}, "
+            f"Lines +{iwe.get('lines_added_7d', 0)} / -{iwe.get('lines_removed_7d', 0)}\n"
+            f"Claude sessions (7d): {iwe.get('claude_sessions_7d', 0)}, "
+            f"total: {iwe.get('claude_sessions_total', 0)}\n"
+            f"WPs completed: {iwe.get('wp_completed_total', 0)}, "
+            f"in progress: {iwe.get('wp_in_progress_count', 0)}\n"
+            f"Scheduler health: {iwe.get('scheduler_health', 'N/A')}, "
+            f"Exocortex uptime: {iwe.get('exocortex_uptime_days', 0)} days"
+        )
+
+    lang_instruction = "Отвечай на русском." if lang == 'ru' else f"Answer in {lang}."
+
+    system_prompt = (
+        "You are a personal learning advisor providing a DETAILED analysis of a student's Digital Twin data. "
+        "Go through EACH metric group separately with specific numbers and interpretation. "
+        "Use standard Markdown formatting (**bold**, *italic*). "
+        "Use ## for section titles and ### for subsections. "
+        "Use emojis for visual structure: ✅ for achievements, ⚠️ for attention points, "
+        "📊 for data highlights, 🎯 for recommendations, 💡 for tips, 🔍 for deep dives. "
+        f"Be thorough — 500-800 words. {lang_instruction}\n\n"
+        "DATA DICTIONARY (interpret numbers correctly):\n"
+        "- 'Sessions/Events/Active days/AI chats' = activity IN THIS BOT only, NOT total activity\n"
+        "- 'Coding today/7d/30d' = WakaTime tracked coding time (all editors, all projects)\n"
+        "- 'Coding active days (30d)' = days with ANY coding activity in last 30 days\n"
+        "- 'Git commits' = commits across ALL IWE repos (one ecosystem, not separate projects)\n"
+        "- 'Active repos (7d)' = repos within ONE IWE workspace (Pack, DS, FMT are modules, not separate projects)\n"
+        "- 'Claude sessions' = Claude Code AI-assisted coding sessions\n"
+        "- 'WPs' = Work Products (managed deliverables with deadlines)\n"
+        "- 'Exocortex uptime' = days since personal knowledge system was set up\n\n"
+        "RULES:\n"
+        "- Do NOT confuse bot active days with total activity — coding/git data shows the full picture\n"
+        "- Do NOT flag normal coding amounts as burnout risk\n"
+        "- Multiple IWE repos = one ecosystem, not fragmentation\n"
+        "- Analyze EACH group: bot activity, learning (courses+practice), coding, IWE ecosystem\n"
+        "- Compare 7d vs 30d trends where data allows\n"
+        "- Give 2-3 specific, actionable recommendations at the end"
+    )
+
+    user_prompt = (
+        f"Student: {name}\n"
+        f"{'Occupation: ' + occupation if occupation else ''}\n"
+        f"{'Learning goals: ' + goals if goals else ''}\n\n"
+        f"Engagement data:\n{data_summary}\n\n"
+        "Provide a DETAILED analysis with:\n"
+        f"1. Title: '## Детальный анализ активности {name}'\n"
+        "2. Separate subsection for each data group (### Бот, ### Обучение, ### Кодирование, ### IWE экосистема)\n"
+        "3. For each group: key numbers, trends, interpretation\n"
+        "4. Overall assessment: balance between theory and practice\n"
+        "5. 2-3 specific recommendations with concrete next steps"
+    )
+
+    try:
+        from bot import claude
+        from config import CLAUDE_MODEL_HAIKU
+
+        result = await claude.generate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1500,
+            model=CLAUDE_MODEL_HAIKU,
+        )
+
+        if result:
+            from helpers.message_split import prepare_html_parts
+            parts = prepare_html_parts(result)
             for part in parts:
                 try:
                     await message.answer(part, parse_mode="HTML")
@@ -413,5 +579,5 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         else:
             await message.answer(t('twin.insights_error', lang))
     except Exception as e:
-        logger.error(f"[Twin Insights] Failed: {e}")
+        logger.error(f"[Twin Insights Detailed] Failed: {e}")
         await message.answer(t('twin.insights_error', lang))
