@@ -20,6 +20,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+from aiogram import Bot
 from aiogram.types import Message
 
 logger = logging.getLogger(__name__)
@@ -28,10 +29,18 @@ TYPING_INTERVAL = 4  # секунд между обновлениями (typing 
 
 
 @asynccontextmanager
-async def keep_typing(message: Message):
-    """Context manager: показывает typing indicator на всё время блока."""
-    chat_id = message.chat.id
-    bot = message.bot
+async def keep_typing(message_or_bot, chat_id: int = None):
+    """Context manager: показывает typing indicator на всё время блока.
+
+    Два варианта вызова:
+        async with keep_typing(message):         # из handler с Message
+        async with keep_typing(bot, chat_id):    # из legacy кода с bot + chat_id
+    """
+    if isinstance(message_or_bot, Message):
+        chat_id = message_or_bot.chat.id
+        bot = message_or_bot.bot
+    else:
+        bot = message_or_bot
 
     async def _loop():
         try:
