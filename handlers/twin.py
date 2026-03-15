@@ -320,12 +320,17 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
 
     # Coding activity (WakaTime — IND.2.6)
     if coding:
+        today_min = coding.get('coding_seconds_today', 0) // 60
+        week_hrs = coding.get('coding_seconds_7d', 0) / 3600
+        month_hrs = coding.get('coding_seconds_30d', 0) / 3600
         data_summary += (
-            f"\nCoding today: {coding.get('coding_time_today_min', 0)} min, "
-            f"7d: {coding.get('coding_time_7d_min', 0)} min, "
-            f"30d: {coding.get('coding_time_30d_min', 0)} min\n"
-            f"Top languages: {coding.get('top_languages', 'N/A')}, "
-            f"Top projects: {coding.get('top_projects', 'N/A')}"
+            f"\nCoding today: {today_min} min, "
+            f"7d: {week_hrs:.1f} hrs, "
+            f"30d: {month_hrs:.1f} hrs, "
+            f"Active days (30d): {coding.get('coding_active_days_30d', 0)}\n"
+            f"Top languages: {coding.get('top_languages', 'N/A')}\n"
+            f"Top projects: {coding.get('top_projects', 'N/A')}\n"
+            f"Top editors: {coding.get('top_editors', 'N/A')}"
         )
 
     # IWE activity (git, sessions, WPs — IND.2.7)
@@ -334,11 +339,15 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
             f"\nGit commits today: {iwe.get('commits_today', 0)}, "
             f"7d: {iwe.get('commits_7d', 0)}, "
             f"30d: {iwe.get('commits_30d', 0)}\n"
-            f"Active repos: {iwe.get('repos_active_today', 'N/A')}, "
-            f"Claude sessions today: {iwe.get('claude_sessions_today', 0)}\n"
-            f"WPs in progress: {iwe.get('wp_in_progress', 0)}, "
-            f"WPs done: {iwe.get('wp_done', 0)}, "
-            f"WPs total: {iwe.get('wp_total', 0)}"
+            f"Active repos (7d): {iwe.get('repos_active_7d', 'N/A')}\n"
+            f"Files changed (7d): {iwe.get('files_changed_7d', 0)}, "
+            f"Lines +{iwe.get('lines_added_7d', 0)} / -{iwe.get('lines_removed_7d', 0)}\n"
+            f"Claude sessions (7d): {iwe.get('claude_sessions_7d', 0)}, "
+            f"total: {iwe.get('claude_sessions_total', 0)}\n"
+            f"WPs completed: {iwe.get('wp_completed_total', 0)}, "
+            f"in progress: {iwe.get('wp_in_progress_count', 0)}\n"
+            f"Scheduler health: {iwe.get('scheduler_health', 'N/A')}, "
+            f"Exocortex uptime: {iwe.get('exocortex_uptime_days', 0)} days"
         )
 
     lang_instruction = "Отвечай на русском." if lang == 'ru' else f"Answer in {lang}."
