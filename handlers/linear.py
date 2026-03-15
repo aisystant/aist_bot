@@ -5,6 +5,7 @@
 import logging
 
 from aiogram import Router, F
+from helpers.typing_indicator import delayed_typing
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -54,6 +55,7 @@ async def cmd_linear(message: Message):
             return
 
         await message.answer(t('linear.loading_tasks', lang))
+        await delayed_typing(message)
         issues = await linear_oauth.get_my_issues(telegram_user_id, limit=10)
 
         if issues is None:
