@@ -332,36 +332,24 @@ def _annotate_repos(repos_list: list) -> str:
 
 # Shared IWE platform context for insights prompts
 _IWE_PLATFORM_CONTEXT = (
-    "\n\nPLATFORM CONTEXT (critical for accurate recommendations):\n"
-    "This user builds IWE — a personal development platform using a structured methodology.\n"
-    "The platform has a specific repo architecture:\n"
-    "- PACK-* repos = domain knowledge (source-of-truth). Architecture is ALREADY documented here.\n"
-    "- DS-my-strategy = GOVERNANCE repo (daily plans, weekly reviews, personal strategy). "
-    "High commit count is NORMAL — it reflects daily planning rituals, NOT that it's the 'main product'.\n"
-    "- FMT-* = reusable templates. DS-IT-systems = instruments (bots, tools).\n"
-    "- All repos form ONE ecosystem. Commit count does NOT indicate importance.\n"
-    "- 'Claude Code' as top editor means AI-assisted development (normal for this platform).\n"
-    "- 'Github' or 'IWE' as WakaTime project = umbrella tracking across multiple repos.\n"
-    "- WakaTime tracks editor time, NOT total work on a repo. "
-    "Most work happens via Claude Code sessions (AI-assisted), which WakaTime may attribute to "
-    "'Github' or 'IWE' umbrella project, NOT to individual repos like PACK-*. "
-    "So low WakaTime hours for PACK-* does NOT mean Pack is neglected — it means work was done via Claude Code.\n"
-    "- 'Other' language in WakaTime = Claude Code CLI/terminal sessions where WakaTime cannot detect file type. "
-    "This is NORMAL and expected for AI-assisted development. Do NOT flag it as suspicious or distraction.\n"
-    "- Bot training/course metrics (marathon, feed, assessments) = usage of THIS bot's learning features. "
-    "Zero bot-training does NOT mean zero learning — this user learns primarily through practice "
-    "(building the platform, writing Pack documents, coding). Do NOT flag zero bot-training as a problem.\n\n"
-    "RECOMMENDATION RULES:\n"
-    "- Do NOT recommend creating Design Documents, architecture docs, or README — they exist in Pack repos\n"
-    "- Do NOT give startup/investor/team-scaling advice — this is a personal platform\n"
-    "- Do NOT treat high commit counts in governance repos as 'key components' needing documentation\n"
-    "- Do NOT call any repo 'forgotten', 'neglected', or 'getting only X hours' based on WakaTime hours — "
-    "WakaTime per-project hours are MISLEADING because Claude Code work is attributed to umbrella projects\n"
-    "- Do NOT flag zero bot-training as 'theory-practice imbalance' — bot is one channel, not the only one\n"
-    "- Focus recommendations on: learning-practice balance, knowledge capture quality, "
-    "consistency of daily rituals (WP completion rate, active days), skill depth vs breadth\n"
-    "- Good recommendations: deepen a specific practice area, improve test coverage, "
-    "balance theory consumption with hands-on practice, optimize daily rhythm\n"
+    "\n\nPLATFORM CONTEXT:\n"
+    "User builds IWE — personal development platform. All repos = ONE ecosystem.\n"
+    "Repo types: PACK-* = domain knowledge (source-of-truth, ALREADY documented), "
+    "DS-my-strategy = governance (plans/reviews, high commits = daily rituals, NORMAL), "
+    "FMT-* = templates, DS-IT-systems = instruments.\n"
+    "WakaTime CAVEATS: 'Other' language = Claude Code CLI (normal). "
+    "'Github'/'IWE' project = umbrella. Per-repo hours are UNRELIABLE — "
+    "Claude Code work is attributed to umbrella, not individual repos. "
+    "NEVER cite per-repo WakaTime hours or call repos 'neglected'.\n"
+    "Zero bot-training = normal (learns through practice, not bot courses).\n\n"
+    "FORBIDDEN in recommendations:\n"
+    "- Creating docs/Design Documents/README (exist in Pack)\n"
+    "- Startup/investor/team advice (personal platform)\n"
+    "- Citing WakaTime per-repo hours as evidence\n"
+    "- Flagging zero bot-training as problem\n"
+    "- 'Pack Knowledge Audit' or similar (Pack is maintained via Claude Code)\n\n"
+    "GOOD recommendations: daily rhythm consistency, WP completion rate, "
+    "skill depth in a specific area, test coverage, code quality practices\n"
 )
 
 
@@ -456,7 +444,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "Use ## for section titles. "
         "Use emojis for visual structure: ✅ for achievements, ⚠️ for attention points, "
         "📊 for data highlights, 🎯 for recommendations, 💡 for tips. "
-        f"Keep response under 250 words. {lang_instruction}\n\n"
+        f"Keep response under 350 words. Complete the recommendation fully — do not cut off mid-sentence. {lang_instruction}\n\n"
         "DATA DICTIONARY (interpret numbers correctly):\n"
         "- 'Sessions/Events/Active days/AI chats' = activity IN THIS BOT only, NOT total activity\n"
         "- 'Coding today/7d/30d' = WakaTime tracked coding time (all editors, all projects)\n"
@@ -493,7 +481,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         result = await claude.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            max_tokens=800,
+            max_tokens=1200,
             model=CLAUDE_MODEL_HAIKU,
         )
 
