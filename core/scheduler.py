@@ -102,7 +102,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3,18,33,48')  # Discourse: comment polling (offset from :00/:15/:30/:45)
     _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
-    _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={"notify": False})
+    _scheduler.add_job(lambda: _smart_publisher_scan(notify=False), 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
     _scheduler.add_job(_dt_proactive_refresh, 'cron', minute='*/15')  # DT: proactive token refresh every 15 min (WP-82)
     _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)  # DT: sync engagement → digital_twins daily 04:30 MSK (WP-85 Phase 4)
     _scheduler.start()
