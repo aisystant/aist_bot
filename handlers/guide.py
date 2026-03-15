@@ -13,7 +13,7 @@
 import logging
 
 from aiogram import Router, F
-from helpers.typing_indicator import delayed_typing
+from helpers.typing_indicator import keep_typing
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -102,9 +102,8 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
         return
 
     await message.answer(t('guide.loading', lang))
-    await delayed_typing(message)
-
-    profile = await digital_twin.get_user_profile(chat_id)
+    async with keep_typing(message):
+        profile = await digital_twin.get_user_profile(chat_id)
     if profile is None:
         await message.answer(t('guide.unavailable', lang))
         return

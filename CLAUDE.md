@@ -516,15 +516,22 @@ Telegram авто-линкует `word.ext` как URL (`.md`, `.sh`, `.py` и �
 
 ### 10.26. Typing indicator для долгих операций
 
-**Модуль:** `helpers/typing_indicator.py` — `delayed_typing(message)` и `send_typing(message)`.
+**Модуль:** `helpers/typing_indicator.py` — context manager `keep_typing(message)`.
 
-**Правило:** При отправке loading-сообщения (`t('*.loading*')`, `t('shared.thinking')` и т.п.) перед долгой операцией (Claude API, MCP search, external API) — **ОБЯЗАТЕЛЬНО** добавить typing indicator:
+**Правило:** При долгой операции (Claude API, MCP search, external API) — **ОБЯЗАТЕЛЬНО** обернуть в `keep_typing`:
 
-1. **После loading-сообщения:** `await delayed_typing(message)` — пауза 3 сек + typing (пользователь читает сообщение, потом видит индикатор)
-2. **Перед Claude API / тяжёлым вызовом:** `await send_typing(message)` — обновить typing (если прошло >5 сек с предыдущего)
-3. **Transient loading** (loading_msg → delete): `await send_typing(message)` без delay (сообщение и так видно)
+```python
+from helpers.typing_indicator import keep_typing
 
-**Не нужен:** если операция <3 сек (простой DB-запрос) или если есть `_keep_typing()` цикл (consultation.py).
+await message.answer(t('loading_key', lang))
+async with keep_typing(message):
+    result = await claude.generate(...)  # typing виден всё время
+# typing автоматически прекращается при выходе
+```
+
+**Как работает:** фоновая задача отправляет `send_chat_action("typing")` каждые 4 сек. При выходе из `async with` (ответ готов / ошибка / early return) — задача отменяется, индикатор пропадает.
+
+**Не нужен:** если операция <3 сек (простой DB-запрос) или если есть свой `_keep_typing()` цикл (consultation.py).
 
 ---
 
