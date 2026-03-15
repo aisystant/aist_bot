@@ -355,7 +355,8 @@ _IWE_PLATFORM_CONTEXT = (
     "- Do NOT recommend creating Design Documents, architecture docs, or README — they exist in Pack repos\n"
     "- Do NOT give startup/investor/team-scaling advice — this is a personal platform\n"
     "- Do NOT treat high commit counts in governance repos as 'key components' needing documentation\n"
-    "- Do NOT call any repo 'forgotten' or 'neglected' based on WakaTime hours alone\n"
+    "- Do NOT call any repo 'forgotten', 'neglected', or 'getting only X hours' based on WakaTime hours — "
+    "WakaTime per-project hours are MISLEADING because Claude Code work is attributed to umbrella projects\n"
     "- Do NOT flag zero bot-training as 'theory-practice imbalance' — bot is one channel, not the only one\n"
     "- Focus recommendations on: learning-practice balance, knowledge capture quality, "
     "consistency of daily rituals (WP completion rate, active days), skill depth vs breadth\n"
@@ -492,7 +493,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         result = await claude.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            max_tokens=600,
+            max_tokens=800,
             model=CLAUDE_MODEL_HAIKU,
         )
 
