@@ -99,6 +99,31 @@ class LoggingMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+class ConsultationPassthroughMiddleware(BaseMiddleware):
+    """Пробрасывает ?-вопросы в SM consultation, даже если активен FSM state.
+
+    Проблема: aiogram FSM-хендлеры (ClubStates, UpdateStates, OnboardingStates)
+    перехватывают ВСЕ сообщения пользователя, блокируя global events SM.
+    Решение: middleware очищает FSM state для ?-сообщений ДО роутинга,
+    поэтому ни один FSM-хендлер не сматчит → fallback → SM → consultation.
+    """
+
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        if isinstance(event, Message) and event.text and event.text.strip().startswith("?"):
+            from aiogram.fsm.context import FSMContext
+            state: FSMContext = data.get('state')
+            if state:
+                current = await state.get_state()
+                if current is not None:
+                    logger.info(
+                        f"[ConsultationPassthrough] Clearing FSM state '{current}' "
+                        f"for ?-question from user {event.from_user.id}"
+                    )
+                    await state.clear()
+
+        return await handler(event, data)
+
+
 class TracingMiddleware(BaseMiddleware):
     """Middleware для трейсинга: замер полного времени обработки запроса.
 

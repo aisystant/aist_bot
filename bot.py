@@ -80,7 +80,7 @@ from core.topics import (
 
 # ============= ИНФРАСТРУКТУРА (из core/) =============
 from core.storage import PostgresStorage
-from core.middleware import MaintenanceMiddleware, LoggingMiddleware, TracingMiddleware
+from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware
 
 # ============= СОСТОЯНИЯ FSM (re-exports для обратной совместимости) =============
 from handlers.onboarding import OnboardingStates
@@ -180,10 +180,11 @@ async def main():
                 return True
         return False
 
-    # Регистрируем middleware (порядок важен: Maintenance → Logging → Tracing)
+    # Регистрируем middleware (порядок важен: Maintenance → Logging → Passthrough → Tracing)
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
     dp.message.middleware(LoggingMiddleware())
+    dp.message.middleware(ConsultationPassthroughMiddleware())
     dp.message.middleware(TracingMiddleware())
     dp.callback_query.middleware(TracingMiddleware())
 
