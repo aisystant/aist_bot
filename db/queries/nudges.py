@@ -39,7 +39,7 @@ async def get_nudge_candidates() -> list[dict]:
         rows = await conn.fetch('''
             SELECT
                 s.chat_id,
-                s.language,
+                u.language,
                 s.name,
                 s.last_active_date,
                 s.active_days_total,
