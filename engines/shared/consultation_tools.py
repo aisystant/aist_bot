@@ -111,9 +111,11 @@ TOOL_READ_DIGITAL_TWIN = {
 TOOL_GET_BOT_INFO = {
     "name": "get_bot_info",
     "description": (
-        "Информация о боте AIST: возможности, команды, сценарии, FAQ. "
-        "Используй когда пользователь спрашивает о самом боте: "
-        "что умеет, как пользоваться, какие команды доступны."
+        "Информация о боте AIST: команды, FAQ, устранение проблем. "
+        "Используй ТОЛЬКО когда пользователь КОНКРЕТНО спрашивает о командах бота, "
+        "его функциях или как пользоваться ботом. "
+        "НЕ используй для предметных вопросов (системное мышление, IWE, установка, архитектура, "
+        "философия, обучение) — для них используй search_knowledge или search_guides."
     ),
     "input_schema": {
         "type": "object",
@@ -167,10 +169,33 @@ async def execute_tool(
 
 
 def _exec_get_bot_info() -> str:
-    """Возвращает self-knowledge бота (сценарии, FAQ, идентичность)."""
+    """Возвращает компактную справку о боте (идентичность + FAQ, без полного списка сценариев).
+
+    Полный self-knowledge слишком большой (~4000 chars) и содержит список всех
+    сценариев с командами. Claude, получив его, склонен цитировать команды
+    вместо ответа по существу → off-topic_response (WP-7 urgent fix).
+    """
     from core.self_knowledge import get_self_knowledge
     knowledge = get_self_knowledge('ru')
-    return json.dumps({"bot_info": knowledge[:4000]}, ensure_ascii=False)
+    # Обрезаем до секции FAQ (убираем полный список сценариев)
+    # Структура: identity → scenarios → platform → FAQ → troubleshooting → integrations → programs
+    # Нужны: identity + FAQ + troubleshooting (без scenarios и platform)
+    lines = knowledge.split('\n')
+    compact_parts = []
+    skip = False
+    for line in lines:
+        # Пропускаем секцию сценариев (громоздкий список команд)
+        if line.strip().startswith('## Сценарии') or line.strip().startswith('## Scenarios'):
+            skip = True
+            compact_parts.append("## Основные команды: /learn, /feed, /test, /progress, /mode, /settings, /profile, /help, ?вопрос, .заметка")
+            continue
+        # Возобновляем после секции сценариев
+        if skip and line.strip().startswith('## '):
+            skip = False
+        if not skip:
+            compact_parts.append(line)
+    compact = '\n'.join(compact_parts)
+    return json.dumps({"bot_info": compact[:3000]}, ensure_ascii=False)
 
 
 async def _exec_search_knowledge(input: Dict[str, Any]) -> str:
