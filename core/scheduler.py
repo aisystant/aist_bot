@@ -765,6 +765,13 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Event notification error: {e}")
 
+    # 🔔 Engagement nudges (13:00 MSK daily — WP-85 Phase 5C)
+    if now.hour == 13 and now.minute == 0:
+        try:
+            await send_engagement_nudges()
+        except Exception as e:
+            logger.error(f"[Scheduler] Engagement nudge error: {e}")
+
     # 🔍 Schedule integrity check: 08:00 MSK daily — detect silent delivery failures
     if now.hour == 8 and now.minute == 0 and dev_chat_id:
         try:
@@ -1293,6 +1300,99 @@ async def send_milestone_notifications():
 
     if total_sent > 0:
         logger.info(f"[Scheduler] Milestone notifications: {total_sent} sent")
+
+
+# ═══════════════════════════════════════════════════════════
+# ENGAGEMENT NUDGES (WP-85 Phase 5C)
+# ═══════════════════════════════════════════════════════════
+
+async def send_engagement_nudges():
+    """Проанализировать engagement-данные T3+ и отправить nudge-уведомления."""
+    import json
+    from core.engagement_analyzer import analyze
+    from db.queries.nudges import (
+        ensure_nudge_tables, get_nudge_candidates,
+        was_nudge_sent_recently, log_nudge_sent,
+    )
+    from i18n import t
+
+    await ensure_nudge_tables()
+
+    candidates = await get_nudge_candidates()
+    if not candidates:
+        return
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for user in candidates:
+            chat_id = user['chat_id']
+            lang = user.get('language', 'ru') or 'ru'
+
+            # Parse engagement JSONB
+            engagement = user.get('engagement')
+            if engagement and isinstance(engagement, str):
+                try:
+                    engagement = json.loads(engagement)
+                except (json.JSONDecodeError, TypeError):
+                    engagement = {}
+            engagement = engagement or {}
+
+            # User meta for analyzer
+            user_meta = {
+                'last_active_date': user.get('last_active_date'),
+                'active_days_total': user.get('active_days_total'),
+                'active_days_streak': user.get('active_days_streak'),
+                'longest_streak': user.get('longest_streak'),
+                'marathon_status': user.get('marathon_status'),
+            }
+
+            # Run rules
+            nudges = analyze(engagement, user_meta)
+            if not nudges:
+                continue
+
+            # Pick first applicable (respecting cooldown)
+            for nudge in nudges:
+                rule_id = nudge['rule_id']
+                nudge_key = nudge['nudge_key']
+                cooldown = nudge['cooldown_days']
+
+                if await was_nudge_sent_recently(chat_id, nudge_key, cooldown):
+                    continue
+
+                # Build message
+                i18n_key = f'nudges.{nudge_key}'
+                text = t(i18n_key, lang,
+                         name=user.get('name', ''),
+                         active_days=user_meta.get('active_days_total', 0),
+                         streak=user_meta.get('longest_streak', 0))
+
+                # Skip if i18n key missing (returns raw key)
+                if text == i18n_key or nudge_key in text:
+                    logger.warning(f"[Nudge] Missing i18n key: {i18n_key}")
+                    continue
+
+                try:
+                    await bot.send_message(chat_id, text, parse_mode="Markdown")
+                    await log_nudge_sent(chat_id, rule_id, nudge_key)
+                    total_sent += 1
+                    logger.info(f"[Nudge] Sent {nudge_key} to {chat_id}")
+                    break  # One nudge per user per day
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if any(x in error_msg for x in ('blocked', 'deactivated', 'chat not found')):
+                        from db.queries.users import mark_bot_blocked
+                        await mark_bot_blocked(chat_id)
+                    else:
+                        logger.error(f"[Nudge] Error for {chat_id}: {e}")
+                    break  # Don't retry other nudges for this user
+    finally:
+        await bot.session.close()
+
+    if total_sent > 0:
+        logger.info(f"[Nudge] Total sent: {total_sent}")
 
 
 # ═══════════════════════════════════════════════════════════

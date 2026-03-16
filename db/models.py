@@ -149,10 +149,17 @@ async def create_tables(pool: asyncpg.Pool):
 
                 -- Уведомления
                 notify_template_updates BOOLEAN DEFAULT FALSE,
+                notify_nudges BOOLEAN DEFAULT TRUE,
 
                 created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
                 updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc')
             )
+        ''')
+
+        # Migration: add notify_nudges column if missing
+        await conn.execute('''
+            ALTER TABLE development.user_state
+            ADD COLUMN IF NOT EXISTS notify_nudges BOOLEAN DEFAULT TRUE
         ''')
 
         # ═══════════════════════════════════════════════════════════

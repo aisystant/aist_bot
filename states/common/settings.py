@@ -237,6 +237,9 @@ class SettingsState(BaseState):
         if data == "conn_iwe_do_toggle":
             return await self._toggle_iwe_updates(user, callback)
 
+        if data == "conn_nudges_toggle":
+            return await self._toggle_nudges(user, callback)
+
         if data == "github_select_repo":
             return await self._github_select_repo(user, callback)
 
@@ -929,12 +932,20 @@ class SettingsState(BaseState):
             f"📊 WakaTime: {waka_status}\n"
         )
 
-        # IWE Updates — только для T4+
+        # Notification toggles per tier
         from core.tier_detector import detect_ui_tier
         tier = await detect_ui_tier(chat_id)
         iwe_visible = tier >= 4  # T4_CREATION
+        nudges_visible = tier >= 3  # T3_PERSONALIZATION
+
+        intern = await get_intern(chat_id)
+
+        if nudges_visible:
+            notify_nudges = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
+            nudges_emoji = "✅" if notify_nudges else "❌"
+            text += f"🔔 {t('nudges.settings_nudges_on' if notify_nudges else 'nudges.settings_nudges_off', lang).split('.')[0]}... {nudges_emoji}\n"
+
         if iwe_visible:
-            intern = await get_intern(chat_id)
             notify_iwe = intern.get('notify_template_updates', False)
             iwe_emoji = "✅" if notify_iwe else "❌"
             text += f"🔔 {t('settings.iwe_updates_label', lang)}: {iwe_emoji}\n"
@@ -950,7 +961,9 @@ class SettingsState(BaseState):
             ],
             [
                 InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
-            ] + ([InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle")] if iwe_visible else []),
+            ]
+            + ([InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle")] if iwe_visible else [])
+            + ([InlineKeyboardButton(text="🔔 Nudges", callback_data="conn_nudges_toggle")] if nudges_visible else []),
         ]
 
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
@@ -1443,3 +1456,22 @@ class SettingsState(BaseState):
 
         # Перерисовать экран деталей IWE
         return await self._show_iwe_details(user, callback)
+
+    async def _toggle_nudges(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Переключить engagement nudge-уведомления (WP-85 5C)."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        intern = await get_intern(chat_id)
+        current = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
+        new_value = not current
+
+        await update_intern(chat_id, notify_nudges=new_value)
+
+        if new_value:
+            await callback.answer(t('nudges.settings_nudges_on', lang), show_alert=True)
+        else:
+            await callback.answer(t('nudges.settings_nudges_off', lang))
+
+        # Перерисовать экран подключений
+        return await self._handle_connections(user, callback)
