@@ -120,6 +120,9 @@ class ConsultationPassthroughMiddleware(BaseMiddleware):
                         f"for ?-question from user {event.from_user.id}"
                     )
                     await state.clear()
+                    # aiogram caches state in data['raw_state'] for StateFilter
+                    # before outer middleware runs — must reset it too
+                    data['raw_state'] = None
 
         return await handler(event, data)
 
