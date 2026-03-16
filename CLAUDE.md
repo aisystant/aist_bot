@@ -533,6 +533,12 @@ async with keep_typing(message):
 
 **Не нужен:** если операция <3 сек (простой DB-запрос) или если есть свой `_keep_typing()` цикл (consultation.py).
 
+### 10.27. FSM-стейты блокируют SM global events
+
+aiogram FSM-хендлеры (`@router.message(State)`) перехватывают ВСЕ сообщения, блокируя SM global events (включая `?`-консультацию). `ConsultationPassthroughMiddleware` (core/middleware.py) решает это на middleware-уровне: очищает FSM state + сбрасывает `data['raw_state']` для `?`-сообщений ДО роутинга.
+
+**Важно:** aiogram кэширует FSM state в `data['raw_state']` до outer middleware. `state.clear()` обновляет DB, но `StateFilter` использует кэш. Обязательно: `data['raw_state'] = None` после `state.clear()`.
+
 ---
 
 ## SOTA: Context Engineering (DP.SOTA.002)
