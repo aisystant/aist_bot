@@ -39,8 +39,8 @@ async def get_nudge_candidates() -> list[dict]:
         rows = await conn.fetch('''
             SELECT
                 s.chat_id,
-                u.language,
-                u.name,
+                s.language,
+                s.name,
                 s.last_active_date,
                 s.active_days_total,
                 s.active_days_streak,
@@ -48,12 +48,12 @@ async def get_nudge_candidates() -> list[dict]:
                 s.marathon_status,
                 s.bot_blocked,
                 s.notify_nudges,
-                u.tier,
+                u.current_tier,
                 dt.data->'2_collected' AS engagement
             FROM development.user_state s
             JOIN public.users u ON u.telegram_id = s.chat_id
             LEFT JOIN digital_twins dt ON dt.user_id = u.id::text
-            WHERE u.tier IN ('T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9')
+            WHERE u.current_tier >= 3
               AND s.bot_blocked = FALSE
               AND COALESCE(s.notify_nudges, TRUE) = TRUE
         ''')
