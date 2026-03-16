@@ -188,6 +188,14 @@ async def cmd_club(message: Message, state: FSMContext):
                 return
             elif username:
                 # Only username — verify, then ask for URL
+                if re.match(r'^blogs-user-\d+$', username):
+                    await message.answer(
+                        f"`{username}` — это slug категории, а не username.\n"
+                        "Пришли ссылку на блог целиком или свой username в клубе.",
+                        parse_mode="Markdown",
+                    )
+                    await state.set_state(ClubStates.waiting_connect_input)
+                    return
                 user = await discourse.get_user(username)
                 if not user:
                     await message.answer(
@@ -340,6 +348,13 @@ async def on_connect_input(message: Message, state: FSMContext):
 
     if username:
         # Verify username, ask for blog URL
+        if re.match(r'^blogs-user-\d+$', username):
+            await message.answer(
+                f"`{username}` — это slug категории, а не username.\n"
+                "Пришли ссылку на блог целиком или свой username в клубе.",
+                parse_mode="Markdown",
+            )
+            return
         user = await discourse.get_user(username)
         if not user:
             await message.answer(
@@ -398,9 +413,46 @@ async def on_blog_url_input(message: Message, state: FSMContext):
     await _connect_full(message, username, category_id)
 
 
+async def _resolve_username_from_category(discourse, category_id: int, slug: str) -> str | None:
+    """Resolve real username from blogs-user-* slug via category name + user search."""
+    cat = await discourse.get_category(category_id)
+    if not cat:
+        return None
+    # Category name: "Aleksandr Teterin (блоги)" → "Aleksandr Teterin"
+    cat_name = cat.get("name", "")
+    # Strip typical suffixes: "(блоги)", "(blogs)"
+    clean_name = re.sub(r'\s*\((?:блоги|blogs)\)\s*$', '', cat_name).strip()
+    if not clean_name:
+        return None
+    # Search Discourse users by name
+    results = await discourse.search_users(clean_name)
+    if results and len(results) == 1:
+        return results[0].get("username")
+    # Multiple results — try exact name match
+    for u in results:
+        if u.get("name", "").lower() == clean_name.lower():
+            return u.get("username")
+    return None
+
+
 async def _connect_full(message: Message, username: str, category_id: int):
     """Verify username + category and save. Max 2 API calls."""
     from clients.discourse import discourse
+
+    # 0. Resolve blogs-user-* slug → real username
+    if re.match(r'^blogs-user-\d+$', username):
+        resolved = await _resolve_username_from_category(discourse, category_id, username)
+        if resolved:
+            logger.info(f"Resolved slug '{username}' → username '{resolved}'")
+            username = resolved
+        else:
+            await message.answer(
+                f"Ссылка содержит slug категории `{username}`, а не username.\n"
+                "Не удалось определить владельца блога автоматически.\n\n"
+                "Попробуй: `/club connect <твой-username-в-клубе>`",
+                parse_mode="Markdown",
+            )
+            return
 
     # 1. Verify username
     user = await discourse.get_user(username)
