@@ -92,7 +92,15 @@ def _build_user_profile(intern: dict, lang: str) -> str:
         parts.append(f"Состояние: {label}")
 
     if not parts:
-        return ""
+        # Явно указываем, что данных нет — иначе Claude выдумывает профиль
+        header = "ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ" if lang != 'en' else "USER PROFILE"
+        no_data = ("Профиль не заполнен. О пользователе ничего не известно. "
+                   "НЕ выдумывай данные о пользователе (имя, роль, интересы). "
+                   "Если спрашивают — скажи, что профиль пуст, и предложи заполнить через /profile."
+                   ) if lang != 'en' else (
+                   "Profile is empty. Nothing is known about the user. "
+                   "Do NOT fabricate user data. Suggest filling profile via /profile.")
+        return f"\n{header}:\n- {no_data}"
 
     header = "ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ" if lang != 'en' else "USER PROFILE"
     return f"\n{header}:\n" + "\n".join(f"- {p}" for p in parts)
@@ -571,7 +579,9 @@ async def handle_question_with_tools(
         messages = [{"role": "user", "content": user_prompt}]
 
     # Refinement: больше токенов для развёрнутого ответа
-    token_limit = 4000 if is_refinement else 1500
+    # WP-7 fix: 1500 слишком мало для русского языка (2-3 tok/word) + tool_use overhead
+    # → ответ обрывался на полуслове (stop_reason=max_tokens)
+    token_limit = 4000 if is_refinement else 2500
 
     answer = await claude.generate_with_tools(
         system_prompt=system_prompt,
