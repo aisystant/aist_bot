@@ -94,6 +94,20 @@ PATTERNS: list[dict] = [
      "pattern": r"(?i)can't parse entities|Unsupported start tag|parse.*entities.*error",
      "action": "Экранировать HTML в тексте сообщения (html.escape)"},
 
+    # --- Digital Twin (§ 3.5a) — DT MCP OAuth/token errors ---
+    {"category": "dt", "severity": "L1",
+     "pattern": r"(?i)DT.*token.*refresh.*fail|DT.*proactive refresh failed",
+     "action": "Auto: disconnect + notify user to /twin"},
+    {"category": "dt", "severity": "L2",
+     "pattern": r"(?i)DT.*token.*exchange.*fail|DT OAuth.*fail",
+     "action": "Check DT MCP server status"},
+    {"category": "dt", "severity": "L1",
+     "pattern": r"(?i)DT.*persist.*fail|DT.*failed to persist|DT.*failed to delete",
+     "action": "Check Neon connection"},
+    {"category": "dt", "severity": "L1",
+     "pattern": r"(?i)DigitalTwin.*circuit breaker|DT.*circuit breaker",
+     "action": "Per-user CB: auto-recovery after 120s"},
+
     # --- MCP (§ 3.5) — before DB (MCP connection fail ≠ db connection fail) ---
     {"category": "mcp", "severity": "L3",
      "pattern": r"(?i)MCP.*connection.*fail|MCP.*connect.*error|MCP.*refused",

@@ -292,7 +292,7 @@ Lesson state (theory) **не должен** менять `current_topic_index` �
 
 При отмене запланированной публикации (cancel) — **ОБЯЗАТЕЛЬНО** revert frontmatter `status → draft` через GitHub API. Иначе `_smart_publisher_scan` (05:07 МСК) повторно обнаружит `status: ready` и пере-запланирует.
 
-Слоты генерируются с проверкой `occupied_dates` — одна дата = один пост. Startup scan имеет 2-часовой cooldown (не дублирует утренний cron).
+Слоты генерируются с проверкой `occupied_dates` — одна дата = один пост. Startup scan вызывает `_smart_publisher_scan(notify=False)` — только scheduling, без queue-watch уведомлений.
 
 **Итоги недели** (`итоги-недели` тег) публикуются **сразу** (schedule_time = utcnow+1min → ближайший цикл :07/:37).
 **Интервал:** `PUBLISHER_INTERVAL` (env, default=2) — минимум N дней между обычными публикациями. Влияет на smart_publisher_scan и reschedule_all_pending.
@@ -532,6 +532,12 @@ async with keep_typing(message):
 **Как работает:** фоновая задача отправляет `send_chat_action("typing")` каждые 4 сек. При выходе из `async with` (ответ готов / ошибка / early return) — задача отменяется, индикатор пропадает.
 
 **Не нужен:** если операция <3 сек (простой DB-запрос) или если есть свой `_keep_typing()` цикл (consultation.py).
+
+### 10.27. FSM-стейты блокируют SM global events
+
+aiogram FSM-хендлеры (`@router.message(State)`) перехватывают ВСЕ сообщения, блокируя SM global events (включая `?`-консультацию). `ConsultationPassthroughMiddleware` (core/middleware.py) решает это на middleware-уровне: очищает FSM state + сбрасывает `data['raw_state']` для `?`-сообщений ДО роутинга.
+
+**Важно:** aiogram кэширует FSM state в `data['raw_state']` до outer middleware. `state.clear()` обновляет DB, но `StateFilter` использует кэш. Обязательно: `data['raw_state'] = None` после `state.clear()`.
 
 ---
 

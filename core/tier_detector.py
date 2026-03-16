@@ -127,15 +127,16 @@ async def _is_github_connected(chat_id: int) -> bool:
 
 
 async def _is_dt_connected(chat_id: int) -> bool:
-    """Check if Digital Twin is connected."""
+    """Check if Digital Twin is connected (has valid tokens, not just dt_connected_at)."""
     try:
-        from db import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT dt_connected_at FROM public.users WHERE telegram_id = $1', chat_id,
-            )
-            return row is not None and row['dt_connected_at'] is not None
+        # First check in-memory (fastest)
+        from clients.digital_twin import digital_twin
+        if digital_twin.is_connected(chat_id):
+            return True
+        # Fallback: check DB tokens (after redeploy, before load)
+        from db.queries.dt_tokens import get_dt_user_id
+        dt_uid = await get_dt_user_id(chat_id)
+        return dt_uid is not None
     except Exception:
         return False
 

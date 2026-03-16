@@ -187,6 +187,7 @@ def _row_to_dict(row) -> dict:
         # Подписка / DT
         'trial_started_at': safe_get('trial_started_at', None),
         'dt_connected_at': safe_get('dt_connected_at', None),
+        'dt_user_id': safe_get('dt_user_id', None),
         'created_at': safe_get('created_at', None),
 
         # Telegram
@@ -256,6 +257,7 @@ def _get_default_intern(chat_id: int) -> dict:
         'desires': '',
         'goals': '',
         'dt_connected_at': None,
+        'dt_user_id': None,
         'created_at': None,
         'tg_username': None,
         'language': 'ru',

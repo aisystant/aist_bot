@@ -1520,11 +1520,7 @@ async def _discourse_scheduled_publish():
         await bot.session.close()
 
 
-_last_publisher_scan: datetime | None = None
-_PUBLISHER_SCAN_COOLDOWN = timedelta(hours=2)
-
-
-async def _smart_publisher_scan():
+async def _smart_publisher_scan(*, notify: bool = True):
     """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (05:07 МСК).
 
     Цикл:
@@ -1532,16 +1528,11 @@ async def _smart_publisher_scan():
     2. Для каждого: scan GitHub index → найти ready+club посты
     3. Reconciliation: сверить с published_posts и scheduled_publications
     4. Auto-schedule новые посты на ближайшие свободные слоты
-    5. Queue Watch: если pending < min_queue → уведомить
-    """
-    global _last_publisher_scan
+    5. Queue Watch: если pending < min_queue → уведомить (только при notify=True)
 
-    # Cooldown: не запускать повторно если scan был < 2 часов назад (startup vs cron)
-    now = datetime.now(MOSCOW_TZ)
-    if _last_publisher_scan and (now - _last_publisher_scan) < _PUBLISHER_SCAN_COOLDOWN:
-        logger.info(f"[Publisher] Scan skipped: last scan was {now - _last_publisher_scan} ago (cooldown={_PUBLISHER_SCAN_COOLDOWN})")
-        return
-    _last_publisher_scan = now
+    Args:
+        notify: Отправлять ли queue-watch уведомления. Cron (05:07) = True, startup scan = False.
+    """
 
     from clients.github_content import create_content_client, parse_frontmatter
     from db.queries.github import get_users_with_knowledge_repo
@@ -1655,19 +1646,20 @@ async def _smart_publisher_scan():
 
                 if not candidates:
                     logger.info(f"[Publisher] No new candidates for chat_id={chat_id} (total posts={len(all_posts)}, published_files={len(published_files)}, published_titles={len(published_titles)}, scheduled_titles={len(scheduled_titles)})")
-                    # Проверить queue watch
-                    queue_count = await get_scheduled_count(chat_id)
-                    if queue_count < PUBLISHER_MIN_QUEUE:
-                        drafts = [p["title"] for p in all_posts
-                                  if p["status"] == "draft" and p["target"] == "club"]
-                        draft_hint = ""
-                        if drafts:
-                            draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
-                        await bot.send_message(
-                            chat_id,
-                            f"В очереди публикаций: {queue_count} (мин. {PUBLISHER_MIN_QUEUE}).\n"
-                            f"Нужны новые посты со status: ready и target: club.{draft_hint}",
-                        )
+                    # Queue watch (только при notify=True, т.е. из cron, не из startup scan)
+                    if notify:
+                        queue_count = await get_scheduled_count(chat_id)
+                        if queue_count < PUBLISHER_MIN_QUEUE:
+                            drafts = [p["title"] for p in all_posts
+                                      if p["status"] == "draft" and p["target"] == "club"]
+                            draft_hint = ""
+                            if drafts:
+                                draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
+                            await bot.send_message(
+                                chat_id,
+                                f"В очереди публикаций: {queue_count} (мин. {PUBLISHER_MIN_QUEUE}).\n"
+                                f"Нужны новые посты со status: ready и target: club.{draft_hint}",
+                            )
                     continue
 
                 # Auto-schedule: распределить по ближайшим слотам
@@ -1760,18 +1752,19 @@ async def _smart_publisher_scan():
                         f"Добавлено в график публикаций ({len(scheduled_posts)}):\n" + "\n".join(lines),
                     )
 
-                # Queue Watch
-                new_queue = await get_scheduled_count(chat_id)
-                if new_queue < PUBLISHER_MIN_QUEUE:
-                    drafts = [p["title"] for p in all_posts
-                              if p["status"] == "draft" and p["target"] == "club"]
-                    draft_hint = ""
-                    if drafts:
-                        draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
-                    await bot.send_message(
-                        chat_id,
-                        f"В очереди: {new_queue} (мин. {PUBLISHER_MIN_QUEUE}). Нужны новые посты!{draft_hint}",
-                    )
+                # Queue Watch (только при notify=True)
+                if notify:
+                    new_queue = await get_scheduled_count(chat_id)
+                    if new_queue < PUBLISHER_MIN_QUEUE:
+                        drafts = [p["title"] for p in all_posts
+                                  if p["status"] == "draft" and p["target"] == "club"]
+                        draft_hint = ""
+                        if drafts:
+                            draft_hint = "\n\nДрафты для клуба:\n" + "\n".join(f"  • {t}" for t in drafts[:5])
+                        await bot.send_message(
+                            chat_id,
+                            f"В очереди: {new_queue} (мин. {PUBLISHER_MIN_QUEUE}). Нужны новые посты!{draft_hint}",
+                        )
 
             except Exception as e:
                 logger.error(f"[Publisher] Scan error for chat_id={chat_id}, repo={knowledge_repo}: {e}", exc_info=True)

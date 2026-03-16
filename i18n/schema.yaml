@@ -36,7 +36,7 @@ welcome:
 
   intro_tiers:
     ru: "📈 *Что дальше?*\nБот — часть интеллектуальной рабочей среды (IWE), как IDE, но для развития мышления. После марафона откроются:\n• Персональная лента и ИИ-консультант\n• Цифровой двойник — бот учитывает твой контекст\n• Связь с клубом systemsworld.club\n• Создание знаний и работа с ИИ-агентами"
-    en: "📈 *What's next?*\nThe bot is part of an Intelligent Working Environment (IWE) — like an IDE, but for developing thinking. After the marathon you'll unlock:\n• Personalized feed and AI consultant\n• Digital Twin — the bot learns your context\n• Connection with systemsworld.club\n• Knowledge creation and AI agent workflows"
+    en: "📈 *What's next?*\nThe bot is part of an Intellectual Work Environment (IWE) — like an IDE, but for developing thinking. After the marathon you'll unlock:\n• Personalized feed and AI consultant\n• Digital Twin — the bot learns your context\n• Connection with systemsworld.club\n• Knowledge creation and AI agent workflows"
 
   intro_start:
     ru: "📚 *Марафон* — пошаговые уроки за 14 дней\n📖 *Лента* — свободный темп, выбирайте темы сами (переключить в ⚙️ Настройках)\n\nНажмите кнопку ниже, чтобы начать."
@@ -2327,7 +2327,7 @@ help:
 
   intro:
     ru: "Бот — часть интеллектуальной рабочей среды для развития мышления.\nЕжедневные уроки, тренировки, ИИ-консультант и цифровой двойник — всё в одном месте."
-    en: "The bot is part of an Intelligent Working Environment for developing thinking.\nDaily lessons, training, AI consultant and digital twin — all in one place."
+    en: "The bot is part of an Intellectual Work Environment for developing thinking.\nDaily lessons, training, AI consultant and digital twin — all in one place."
 
   getting_started:
     ru: "🚀 С чего начать"
@@ -5262,7 +5262,7 @@ info:
   # --- /about ---
   about_text:
     ru: "ℹ️ *О нас*\n\n*Экосистема развития интеллекта* — среда, в которой люди развивают мышление и становятся созидателями: себя, команд, сообществ и общества.\n\n*Что мы даём:*\n• *Мастерская* — практикумы, резидентуры, семинары и разборы для бесконечного развития\n• *Сообщество* — более 13 000 инженеров-менеджеров (systemsworld.club)\n• *ИИ-платформа* — персональный путь, ИИ-консультант, цифровой двойник (ЦД) — интеллектуальная рабочая среда (IWE)\n\n*Бот* — часть IWE. Через него вы получаете уроки, тренируете принципы, задаёте вопросы ИИ-консультанту, отслеживаете прогресс, управляете расписанием и оплатой, а также получаете доступ к ЦД и программам обучения. Подробнее: /help\n\n*С чего начать?*"
-    en: "ℹ️ *About us*\n\n*Ecosystem for Intelligence Development* — an environment where people develop thinking and become creators: of themselves, teams, communities and society.\n\n*What we offer:*\n• *Workshop* — practicums, residencies, seminars and reviews for infinite development\n• *Community* — over 13,000 engineers-managers (systemsworld.club)\n• *AI platform* — personal path, AI consultant, digital twin (DT) — Intelligent Working Environment (IWE)\n\n*The bot* is part of IWE. Through it you receive lessons, train principles, ask AI consultant questions, track progress, manage schedule and payments, and access your DT and learning programs. More: /help\n\n*Where to start?*"
+    en: "ℹ️ *About us*\n\n*Ecosystem for Intelligence Development* — an environment where people develop thinking and become creators: of themselves, teams, communities and society.\n\n*What we offer:*\n• *Workshop* — practicums, residencies, seminars and reviews for infinite development\n• *Community* — over 13,000 engineers-managers (systemsworld.club)\n• *AI platform* — personal path, AI consultant, digital twin (DT) — Intellectual Work Environment (IWE)\n\n*The bot* is part of IWE. Through it you receive lessons, train principles, ask AI consultant questions, track progress, manage schedule and payments, and access your DT and learning programs. More: /help\n\n*Where to start?*"
 
   # --- /marathon_info ---
   marathon_text:
