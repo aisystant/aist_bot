@@ -40,31 +40,35 @@ async def sync_engagement_to_dt() -> dict:
                 )
             ''')
 
-            # Только пользователи с user_uuid (T1+ с Ory identity)
+            # Пользователи с user_uuid (T1+). Если есть dt_user_id (OAuth) —
+            # писать по нему (worker ищет по этому ключу). Fallback на user_uuid.
             rows = await conn.fetch('''
                 SELECT
-                    user_uuid,
-                    sessions_total,
-                    ai_chats_total,
-                    marathon_steps_total,
-                    marathon_tasks_total,
-                    feed_completed_total,
-                    training_attempts_total,
-                    training_passed_total,
-                    assessments_total,
-                    events_total,
-                    first_event_at,
-                    last_event_at,
-                    active_days,
-                    events_last_7d,
-                    events_last_30d
-                FROM development.engagement
-                WHERE user_uuid IS NOT NULL
+                    e.user_uuid,
+                    dt.dt_user_id,
+                    e.sessions_total,
+                    e.ai_chats_total,
+                    e.marathon_steps_total,
+                    e.marathon_tasks_total,
+                    e.feed_completed_total,
+                    e.training_attempts_total,
+                    e.training_passed_total,
+                    e.assessments_total,
+                    e.events_total,
+                    e.first_event_at,
+                    e.last_event_at,
+                    e.active_days,
+                    e.events_last_7d,
+                    e.events_last_30d
+                FROM development.engagement e
+                LEFT JOIN dt_tokens dt ON dt.chat_id = e.user_id
+                WHERE e.user_uuid IS NOT NULL
             ''')
 
             for row in rows:
                 try:
-                    user_id = str(row['user_uuid'])
+                    # Prefer dt_user_id (Ory OAuth) — worker reads by this key
+                    user_id = str(row['dt_user_id'] or row['user_uuid'])
                     now_iso = datetime.now(timezone.utc).isoformat()
 
                     collected_data = {

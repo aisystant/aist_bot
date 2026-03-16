@@ -591,3 +591,20 @@ async def cmd_dt_sync(message: Message):
     except Exception as e:
         logger.error(f"[Dev] /dt_sync error: {e}", exc_info=True)
         await message.answer(f"<b>/dt_sync error:</b>\n<code>{e}</code>", parse_mode="HTML")
+
+
+@dev_router.message(Command("nudge_test"))
+async def cmd_nudge_test(message: Message):
+    """/nudge_test — ручной запуск engagement nudges (WP-85 5C)."""
+    if not _is_developer(message.chat.id):
+        return
+
+    await message.answer("⏳ Запускаю engagement nudges...")
+
+    try:
+        from core.scheduler import send_engagement_nudges
+        await send_engagement_nudges()
+        await message.answer("✅ Nudges отправлены. Проверьте логи.", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"[Dev] /nudge_test error: {e}", exc_info=True)
+        await message.answer(f"<b>/nudge_test error:</b>\n<code>{e}</code>", parse_mode="HTML")

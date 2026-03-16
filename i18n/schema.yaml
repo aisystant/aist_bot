@@ -4629,6 +4629,62 @@ milestones:
     max_length: 40
 
 # -----------------------------------------------------------------------------
+# Engagement Nudges (WP-85 Phase 5C)
+# -----------------------------------------------------------------------------
+nudges:
+  nudge_inactivity:
+    ru: "👋 Привет! Мы заметили, что вас не было несколько дней. Как дела? Возвращайтесь — ваш прогресс ждёт вас."
+    en: "👋 Hi there! We noticed you haven't been around for a few days. How are things? Come back — your progress is waiting."
+
+  nudge_streak_drop:
+    ru: "🔥 Ваш рекорд серии — {streak} дней подряд. Сейчас серия прервана. Один урок сегодня — и вы снова в деле!"
+    en: "🔥 Your best streak was {streak} days in a row. It's currently broken. One lesson today and you're back on track!"
+
+  nudge_low_engagement:
+    ru: "📊 За последнюю неделю активность была низкой. Даже 5 минут с одним дайджестом помогут удержать ритм."
+    en: "📊 Activity was low this past week. Even 5 minutes with one digest helps maintain your rhythm."
+
+  nudge_marathon_stalled:
+    ru: "🏃 Ваш марафон ждёт продолжения! Следующий урок готов — нажмите /learn."
+    en: "🏃 Your marathon is waiting! The next lesson is ready — tap /learn."
+
+  nudge_sessions_10:
+    ru: "🎉 10 сессий! Отличный старт. Продолжайте — каждая сессия укрепляет навыки."
+    en: "🎉 10 sessions! Great start. Keep going — every session builds your skills."
+
+  nudge_sessions_25:
+    ru: "🌟 25 сессий — вы уже в числе активных учеников! Попробуйте /twin для обзора прогресса."
+    en: "🌟 25 sessions — you're among active learners! Try /twin for a progress overview."
+
+  nudge_sessions_50:
+    ru: "💪 50 сессий! Это серьёзный результат. Ваш цифровой двойник отражает ваш рост."
+    en: "💪 50 sessions! That's a solid achievement. Your digital twin reflects your growth."
+
+  nudge_sessions_100:
+    ru: "🏆 100 сессий! Вы — один из самых систематичных учеников платформы."
+    en: "🏆 100 sessions! You're one of the most systematic learners on the platform."
+
+  nudge_active_days_7:
+    ru: "📅 7 активных дней! Первая неделя систематичной работы — отличная основа."
+    en: "📅 7 active days! Your first week of systematic work — a great foundation."
+
+  nudge_active_days_14:
+    ru: "📅 14 активных дней — две недели практики. Навыки начинают закрепляться!"
+    en: "📅 14 active days — two weeks of practice. Skills are starting to stick!"
+
+  nudge_active_days_30:
+    ru: "🎯 30 активных дней! Месяц систематичного обучения — это уже привычка."
+    en: "🎯 30 active days! A month of systematic learning — it's a habit now."
+
+  settings_nudges_on:
+    ru: "🔔 Уведомления об активности включены."
+    en: "🔔 Activity notifications enabled."
+
+  settings_nudges_off:
+    ru: "🔕 Уведомления об активности отключены."
+    en: "🔕 Activity notifications disabled."
+
+# -----------------------------------------------------------------------------
 # Linear интеграция
 # -----------------------------------------------------------------------------
 linear:
