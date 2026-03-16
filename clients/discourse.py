@@ -69,6 +69,17 @@ class DiscourseClient:
             data = await resp.json()
             return data.get("user")
 
+    async def search_users(self, term: str) -> list[dict]:
+        """Поиск пользователей по имени/username. Возвращает список user dicts."""
+        session = await self._get_session()
+        url = f"{self.base_url}/u/search/users.json?term={term}"
+        async with session.get(url, headers=self._headers()) as resp:
+            if resp.status >= 400:
+                logger.error(f"Discourse search_users error {resp.status}")
+                return []
+            data = await resp.json()
+            return data.get("users", [])
+
     # ── Categories ─────────────────────────────────────────
 
     async def get_category(self, category_id: int) -> dict | None:
