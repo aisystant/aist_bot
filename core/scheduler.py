@@ -415,6 +415,12 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
         _schedule_retry(chat_id, 'feed')
         return
 
+    # Перепроверяем перед отправкой: другой поток мог уже отправить (race guard)
+    recheck = await get_feed_session(week['id'], today)
+    if recheck and recheck.get('status') != 'pending':
+        logger.info(f"[Scheduler] Feed: {chat_id} — session already active/completed before notification, skip")
+        return
+
     # Отправляем уведомление с кнопкой «Получить дайджест»
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")]
@@ -652,45 +658,56 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
 
 
 async def check_reminders():
-    """Проверяет и отправляет запланированные напоминания."""
+    """Проверяет и отправляет запланированные напоминания.
+
+    Использует SELECT FOR UPDATE SKIP LOCKED для предотвращения дублей:
+    если предыдущий scheduled_check ещё обрабатывает напоминания,
+    следующий цикл (через 1 мин) пропустит уже залоченные строки.
+    """
     from db import get_pool
 
     now = moscow_now()
     now_naive = now.replace(tzinfo=None)
 
-    async with (await get_pool()).acquire() as conn:
-        rows = await conn.fetch(
-            '''SELECT id, chat_id, reminder_type FROM reminders
-               WHERE sent = FALSE AND scheduled_for <= $1''',
-            now_naive
-        )
+    pool = await get_pool()
+    bot = Bot(token=_bot_token)
 
-        if not rows:
-            return
-
-        bot = Bot(token=_bot_token)
-
-        for row in rows:
-            try:
-                await send_reminder(row['chat_id'], row['reminder_type'], bot)
-                await conn.execute(
-                    'UPDATE reminders SET sent = TRUE WHERE id = $1',
-                    row['id']
+    try:
+        async with pool.acquire() as conn:
+            # Обрабатываем по одному в транзакции: claim → send → mark sent
+            while True:
+                row = await conn.fetchrow(
+                    '''UPDATE reminders SET sent = TRUE
+                       WHERE id = (
+                           SELECT id FROM reminders
+                           WHERE sent = FALSE AND scheduled_for <= $1
+                           ORDER BY scheduled_for
+                           LIMIT 1
+                           FOR UPDATE SKIP LOCKED
+                       )
+                       RETURNING id, chat_id, reminder_type''',
+                    now_naive
                 )
-                logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
-            except Exception as e:
-                error_msg = str(e).lower()
-                if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-                    logger.warning(f"User {row['chat_id']} blocked bot, marking reminder {row['id']} as sent")
-                    await conn.execute(
-                        'UPDATE reminders SET sent = TRUE WHERE id = $1',
-                        row['id']
-                    )
-                    from db.queries.users import mark_bot_blocked
-                    await mark_bot_blocked(row['chat_id'])
-                else:
-                    logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
+                if not row:
+                    break
 
+                try:
+                    await send_reminder(row['chat_id'], row['reminder_type'], bot)
+                    logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+                        logger.warning(f"User {row['chat_id']} blocked bot, marking reminder {row['id']} as sent")
+                        from db.queries.users import mark_bot_blocked
+                        await mark_bot_blocked(row['chat_id'])
+                    else:
+                        # Отправка не удалась — откатываем sent=TRUE чтобы retry на след. цикле
+                        await conn.execute(
+                            'UPDATE reminders SET sent = FALSE WHERE id = $1',
+                            row['id']
+                        )
+                        logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
+    finally:
         await bot.session.close()
 
 
@@ -1197,10 +1214,16 @@ async def send_trial_expiry_notifications():
     sem = asyncio.Semaphore(20)  # TG rate limit: 30 msg/sec, safe margin
 
     try:
+        sent_chat_ids = set()  # dedup: один пользователь может попасть в оба days_ahead (UTC/MSK стык)
+
         for days_ahead in [1, 0]:
             chat_ids = await get_trial_expiring_users(days_ahead)
 
             async def _send_one(chat_id: int, _days=days_ahead):
+                if chat_id in sent_chat_ids:
+                    return
+                sent_chat_ids.add(chat_id)
+
                 async with sem:
                     intern = await get_intern(chat_id)
                     lang = intern.get('language', 'ru') or 'ru'
@@ -1318,12 +1341,13 @@ async def send_milestone_notifications():
                         ])
 
                 try:
+                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry
+                    await log_conversion_event(chat_id, 'C3', milestone)
                     await bot.send_message(
                         chat_id, text,
                         reply_markup=keyboard,
                         parse_mode="Markdown",
                     )
-                    await log_conversion_event(chat_id, 'C3', milestone)
                     total_sent += 1
                     logger.info(f"[Scheduler] Milestone {milestone} sent to {chat_id}")
                 except Exception as e:
@@ -1414,8 +1438,9 @@ async def send_engagement_nudges():
                     continue
 
                 try:
-                    await bot.send_message(chat_id, text, parse_mode="Markdown")
+                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry
                     await log_nudge_sent(chat_id, rule_id, nudge_key)
+                    await bot.send_message(chat_id, text, parse_mode="Markdown")
                     total_sent += 1
                     logger.info(f"[Nudge] Sent {nudge_key} to {chat_id}")
                     break  # One nudge per user per day
@@ -1500,8 +1525,10 @@ async def send_event_notifications():
                 ])
 
                 try:
-                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
+                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry:
+                    # send_message OK → log fail → next run: was_milestone_sent=False → дубль
                     await log_conversion_event(chat_id, 'C7', milestone_key)
+                    await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
                     total_sent += 1
                 except Exception as e:
                     error_msg = str(e).lower()
