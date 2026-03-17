@@ -4676,13 +4676,29 @@ nudges:
     ru: "🎯 30 активных дней! Месяц систематичного обучения — это уже привычка."
     en: "🎯 30 active days! A month of systematic learning — it's a habit now."
 
+  settings_nudges_button:
+    ru: "Подбадривание"
+    en: "Nudges"
+
+  settings_nudges_description:
+    ru: "Бот подбадривает вас на основе вашей активности: поздравляет с достижениями, напоминает о незавершённых уроках и помогает не терять темп обучения."
+    en: "Bot encourages you based on your activity: celebrates achievements, reminds about incomplete lessons, and helps maintain your learning pace."
+
+  settings_nudges_enable:
+    ru: "Включить"
+    en: "Enable"
+
+  settings_nudges_disable:
+    ru: "Выключить"
+    en: "Disable"
+
   settings_nudges_on:
-    ru: "🔔 Уведомления об активности включены."
-    en: "🔔 Activity notifications enabled."
+    ru: "🔔 Подбадривание включено."
+    en: "🔔 Nudges enabled."
 
   settings_nudges_off:
-    ru: "🔕 Уведомления об активности отключены."
-    en: "🔕 Activity notifications disabled."
+    ru: "🔕 Подбадривание отключено."
+    en: "🔕 Nudges disabled."
 
 # -----------------------------------------------------------------------------
 # Linear интеграция
