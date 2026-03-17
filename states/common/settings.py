@@ -946,7 +946,7 @@ class SettingsState(BaseState):
         if nudges_visible:
             notify_nudges = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
             nudges_emoji = "✅" if notify_nudges else "❌"
-            text += f"🔔 {t('nudges.settings_nudges_button', lang)}: {nudges_emoji}\n"
+            text += f"💪 {t('nudges.settings_nudges_button', lang)}: {nudges_emoji}\n"
 
         if iwe_visible:
             notify_iwe = intern.get('notify_template_updates', False)
@@ -956,18 +956,21 @@ class SettingsState(BaseState):
         buttons = [
             [
                 InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
+                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
                 InlineKeyboardButton(text="🏛 " + t('settings.club_label', lang), callback_data="conn_club"),
             ],
             [
-                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
                 InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
-            ],
-            [
                 InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
-            ]
-            + ([InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle")] if iwe_visible else [])
-            + ([InlineKeyboardButton(text="🔔 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle")] if nudges_visible else []),
+            ],
         ]
+        if iwe_visible or nudges_visible:
+            row = []
+            if iwe_visible:
+                row.append(InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle"))
+            if nudges_visible:
+                row.append(InlineKeyboardButton(text="💪 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"))
+            buttons.append(row)
 
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
 
@@ -1472,7 +1475,7 @@ class SettingsState(BaseState):
         action = t('nudges.settings_nudges_disable', lang) if current else t('nudges.settings_nudges_enable', lang)
 
         text = (
-            f"🔔 *{t('nudges.settings_nudges_button', lang)}* {status}\n\n"
+            f"💪 *{t('nudges.settings_nudges_button', lang)}* {status}\n\n"
             f"{t('nudges.settings_nudges_description', lang)}"
         )
 
