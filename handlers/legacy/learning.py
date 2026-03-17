@@ -624,6 +624,11 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
         if completed_count >= total_topics:
             progress = b['get_lessons_tasks_progress'](intern['completed_topics'])
 
+            # Завершаем марафон ПЕРВЫМ — исключаем из scheduler ДО отправки сообщения
+            feed_status = intern.get('feed_status', 'not_started')
+            new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
+            await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
+
             await bot.send_message(
                 chat_id,
                 f"🎉 *{t('marathon.congratulations_completed', lang)}*\n\n"
@@ -634,10 +639,6 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
                 f"{t('marathon.workshop_link', lang)}",
                 parse_mode="Markdown"
             )
-            # Завершаем марафон — исключаем из scheduler
-            feed_status = intern.get('feed_status', 'not_started')
-            new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
-            await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
             return
 
         await bot.send_message(

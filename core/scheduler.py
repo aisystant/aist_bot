@@ -495,22 +495,28 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
                 )],
             ])
 
-            await bot.send_message(
-                chat_id,
-                f"🎉 *{t('marathon.congratulations_completed', lang)}*\n\n"
-                f"{t('marathon.completed_all_days', lang, days=MARATHON_DAYS, topics=total)}\n\n"
-                f"📊 *{t('marathon.your_statistics', lang)}:*\n"
-                f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
-                f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
-                f"{t('marathon.completed_next_step', lang)}",
-                parse_mode="Markdown",
-                reply_markup=keyboard,
-            )
-            # Завершаем марафон — исключаем из scheduler (marathon_status='active' → 'completed')
+            # Завершаем марафон ПЕРВЫМ — исключаем из scheduler ДО отправки сообщения.
+            # Иначе: send_message OK → update_intern fail → catch-up через 30 мин
+            # повторно находит user (status=active, нет marathon_content) → дубль поздравления.
             feed_status = intern.get('feed_status', 'not_started')
             new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
             await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
             logger.info(f"[Scheduler] {chat_id}: marathon completed, status → completed, mode → {new_mode}")
+
+            try:
+                await bot.send_message(
+                    chat_id,
+                    f"🎉 *{t('marathon.congratulations_completed', lang)}*\n\n"
+                    f"{t('marathon.completed_all_days', lang, days=MARATHON_DAYS, topics=total)}\n\n"
+                    f"📊 *{t('marathon.your_statistics', lang)}:*\n"
+                    f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
+                    f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n\n"
+                    f"{t('marathon.completed_next_step', lang)}",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+            except Exception as e:
+                logger.error(f"[Scheduler] {chat_id}: marathon completed but send_message failed: {e}")
         return
 
     # НЕ обновляем current_topic_index здесь — scheduler только пре-генерирует контент.
@@ -961,7 +967,7 @@ async def _catch_up_missed_deliveries():
     pool = await get_pool()
     async with pool.acquire() as conn:
         missed = await conn.fetch('''
-            SELECT s.chat_id
+            SELECT s.chat_id, s.completed_topics
             FROM development.user_state s
             WHERE s.marathon_status = 'active'
               AND s.onboarding_completed = TRUE
@@ -978,7 +984,34 @@ async def _catch_up_missed_deliveries():
     if not missed:
         return
 
-    logger.warning(f"[Scheduler] Catch-up: {len(missed)} missed marathon deliveries, re-triggering")
+    # Фильтруем пользователей, которые завершили все темы — их marathon_content
+    # не создаётся (нет следующей темы), но catch-up не должен слать им поздравления.
+    from core.topics import get_total_topics
+    total = get_total_topics()
+    filtered = []
+    for row in missed:
+        try:
+            completed = json.loads(row['completed_topics'] or '[]')
+        except (ValueError, TypeError):
+            completed = []
+        if len(completed) >= total:
+            logger.info(f"[Scheduler] Catch-up skip {row['chat_id']}: marathon already completed ({len(completed)}/{total} topics), fixing status")
+            # Auto-fix: обновляем статус, который не был обновлён ранее
+            try:
+                intern = await get_intern(row['chat_id'])
+                feed_status = intern.get('feed_status', 'not_started') if intern else 'not_started'
+                new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
+                await update_intern(row['chat_id'], marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
+                logger.info(f"[Scheduler] Auto-fixed {row['chat_id']}: marathon_status → completed")
+            except Exception as e:
+                logger.error(f"[Scheduler] Auto-fix failed for {row['chat_id']}: {e}")
+        else:
+            filtered.append(row['chat_id'])
+
+    if not filtered:
+        return
+
+    logger.warning(f"[Scheduler] Catch-up: {len(filtered)} missed marathon deliveries, re-triggering")
 
     bot = Bot(token=_bot_token)
     sem = asyncio.Semaphore(10)
@@ -997,7 +1030,7 @@ async def _catch_up_missed_deliveries():
                     logger.error(f"[Scheduler] Catch-up failed for {chat_id}: {e}")
 
     try:
-        await asyncio.gather(*[_deliver_one(r['chat_id']) for r in missed])
+        await asyncio.gather(*[_deliver_one(cid) for cid in filtered])
     finally:
         await bot.session.close()
 
