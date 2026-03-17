@@ -21,7 +21,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from db.queries import get_intern, update_intern, get_topics_today
 from db.queries.answers import save_answer
-from db.queries.users import moscow_today
+from db.queries.users import moscow_today, derive_mode
 from config import MARATHON_DAYS, MAX_TOPICS_PER_DAY, MarathonStatus
 from i18n import t
 from engines.shared import handle_question, ProcessingStage
@@ -634,6 +634,10 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
                 f"{t('marathon.workshop_link', lang)}",
                 parse_mode="Markdown"
             )
+            # Завершаем марафон — исключаем из scheduler
+            feed_status = intern.get('feed_status', 'not_started')
+            new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
+            await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
             return
 
         await bot.send_message(
