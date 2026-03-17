@@ -574,44 +574,90 @@ async def template_update_handler(request: web.Request) -> web.Response:
     if not commit_count:
         return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
 
-    # Очищаем changelog от markdown-символов и переводим заголовки
-    import re
-    clean_changelog = changelog
-    # Убираем markdown заголовки (### Added → Добавлено)
-    section_map = {
-        'Added': 'Добавлено', 'Fixed': 'Исправлено', 'Changed': 'Изменено',
-        'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
-    }
-    for en, ru in section_map.items():
-        clean_changelog = re.sub(rf'^#{{1,3}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
-    # Убираем оставшиеся markdown-заголовки
-    clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
-    # Убираем **жирный** markdown → просто текст
-    clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
-    # Убираем `code` markdown → просто текст
-    clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
-    # Разбиваем filename.ext (общая утилита, также в base.py:send)
-    from helpers.message_split import sanitize_file_extensions
-    clean_changelog = sanitize_file_extensions(clean_changelog)
-    # Убираем markdown-списки (- item → • item)
-    clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
-    # Убираем вложенные списки (  - item → • item)
-    clean_changelog = re.sub(r'^\s+-\s+', '  • ', clean_changelog, flags=re.MULTILINE)
-    # Убираем пустые строки подряд
-    clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
-
-    # Формируем сообщение
+    # LLM-переработка changelog в user-friendly release notes
+    # Fallback: regex-очистка (прежнее поведение) при любой ошибке LLM
     repo_url = "https://github.com/TserenTserenov/FMT-exocortex-template"
-    message_text = (
-        f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
-        f"{commit_count} коммит(ов) за последние 24ч\n\n"
-        f"{clean_changelog}\n\n"
-        f"<b>Как обновить:</b>\n"
-        f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
-        f"2. Или в терминале: <code>bash update.sh</code>\n"
-        f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
-        f'<a href="{repo_url}">Репозиторий шаблона</a>'
-    )
+    rewritten_body = None
+
+    try:
+        from clients.claude import claude
+        from config import CLAUDE_MODEL_HAIKU
+
+        release_note_prompt = (
+            "Ты — копирайтер, пишущий release notes для продукта IWE "
+            "(Intellectual Work Environment — интеллектуальная рабочая среда, шаблон экзокортекса для Claude Code).\n\n"
+            "Перепиши технический changelog в user-friendly release notes на русском языке.\n\n"
+            "Правила:\n"
+            "1. Нумерованные пункты на верхнем уровне (1, 2, 3...), вложенные — буллеты (•)\n"
+            "2. Объясняй СУТЬ изменения для пользователя, не начинай с имён файлов\n"
+            "3. Убери внутренние номера (WP-102 и т.п.) — пользователи их не знают\n"
+            "4. Секции: Добавлено, Изменено, Исправлено (только те, что есть в changelog)\n"
+            "5. Формат вывода — HTML для Telegram: <b>жирный</b> для заголовков секций, "
+            "без markdown. Не используй <ul>/<ol>/<li> — Telegram их не поддерживает\n"
+            "6. Кратко, по делу, без воды. Максимум 20 строк\n"
+            "7. НЕ добавляй ничего от себя — только переформулируй то, что есть в changelog\n"
+            "8. НЕ добавляй заголовок, приветствие или заключение — только тело release notes"
+        )
+
+        rewritten_body = await claude.generate(
+            system_prompt=release_note_prompt,
+            user_prompt=changelog,
+            max_tokens=1500,
+            model=CLAUDE_MODEL_HAIKU,
+        )
+
+        if rewritten_body:
+            rewritten_body = rewritten_body.strip()
+            logger.info("[TemplateUpdate] LLM rewrite successful (%d chars)", len(rewritten_body))
+        else:
+            logger.warning("[TemplateUpdate] LLM returned empty, falling back to regex")
+
+    except Exception as e:
+        logger.warning("[TemplateUpdate] LLM rewrite failed (%s), falling back to regex", e)
+        rewritten_body = None
+
+    if rewritten_body:
+        # LLM-переработанный вариант
+        from helpers.message_split import sanitize_file_extensions
+        rewritten_body = sanitize_file_extensions(rewritten_body)
+        message_text = (
+            f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
+            f"{rewritten_body}\n\n"
+            f"<b>Как обновить:</b>\n"
+            f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
+            f"2. Или в терминале: <code>bash update.sh</code>\n"
+            f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
+            f'<a href="{repo_url}">Репозиторий шаблона</a>'
+        )
+    else:
+        # Fallback: regex-очистка (прежнее поведение)
+        import re
+        clean_changelog = changelog
+        section_map = {
+            'Added': 'Добавлено', 'Fixed': 'Исправлено', 'Changed': 'Изменено',
+            'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
+        }
+        for en, ru in section_map.items():
+            clean_changelog = re.sub(rf'^#{{1,3}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
+        clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
+        clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
+        clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
+        from helpers.message_split import sanitize_file_extensions
+        clean_changelog = sanitize_file_extensions(clean_changelog)
+        clean_changelog = re.sub(r'^-\s+', '• ', clean_changelog, flags=re.MULTILINE)
+        clean_changelog = re.sub(r'^\s+-\s+', '  • ', clean_changelog, flags=re.MULTILINE)
+        clean_changelog = re.sub(r'\n{3,}', '\n\n', clean_changelog).strip()
+
+        message_text = (
+            f"🔄 <b>Обновление шаблона IWE {version}</b>\n\n"
+            f"{commit_count} коммит(ов) за последние 24ч\n\n"
+            f"{clean_changelog}\n\n"
+            f"<b>Как обновить:</b>\n"
+            f'1. Скажите своему Claude: <i>«обнови мой экзокортекс»</i>\n'
+            f"2. Или в терминале: <code>bash update.sh</code>\n"
+            f"3. Проверить версию: <code>bash update.sh --check</code>\n\n"
+            f'<a href="{repo_url}">Репозиторий шаблона</a>'
+        )
 
     # Получаем подписчиков
     from db.queries.users import get_template_update_subscribers
