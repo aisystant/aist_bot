@@ -140,6 +140,15 @@ class MarathonLessonState(BaseState):
 
         # Проверка: марафон завершён
         if len(completed) >= total_topics or len(completed) >= 28:
+            # Обновляем статус если ещё не completed (guard — повторный вход)
+            if chat_id and user.get('marathon_status') != 'completed':
+                from db.queries.users import derive_mode
+                from config import MarathonStatus
+                feed_status = user.get('feed_status', 'not_started')
+                await update_intern(chat_id,
+                    marathon_status=MarathonStatus.COMPLETED,
+                    mode=derive_mode(MarathonStatus.COMPLETED, feed_status),
+                )
             await self.send(user, t('marathon.completed', lang))
             return "marathon_complete"
 

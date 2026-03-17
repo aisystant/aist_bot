@@ -346,7 +346,14 @@ class MarathonTaskState(BaseState):
         marathon_completed = len(completed) >= total_topics or len(completed) >= 28
 
         if marathon_completed:
-            # Марафон полностью завершён — C1 конверсия в программы
+            # Марафон полностью завершён — обновляем статус + C1 конверсия в программы
+            if chat_id:
+                feed_status = user.get('feed_status', 'not_started')
+                await update_intern(chat_id,
+                    marathon_status=MarathonStatus.COMPLETED,
+                    mode=derive_mode(MarathonStatus.COMPLETED, feed_status),
+                )
+
             from config.settings import PLATFORM_URLS
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
