@@ -315,7 +315,17 @@ Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `Syntax
 
 Кнопка "Назад" из подменю (edit_text) НЕ должна вызывать голый `self.enter(user)` — это отправляет НОВОЕ сообщение, оставляя старое. Паттерн: `callback.message.delete()` → `self.enter(user)`.
 
-### 10.10. Scheduler = read-only для user state
+### 10.10. Scheduler notifications: log-before-send + dedup
+
+**Правило idempotent notifications:** При отправке любого уведомления из scheduler — СНАЧАЛА записать факт отправки в БД (`log_conversion_event`, `log_nudge_sent`, `UPDATE sent=TRUE`), ПОТОМ `send_message`. Иначе: send OK → log fail → next run отправит дубль.
+
+**Правило dedup:** Если scheduler обрабатывает пользователей в цикле с несколькими итерациями (напр. `for days_ahead in [1, 0]`) — вести `sent_chat_ids: set()` для исключения дублей на стыке условий.
+
+**Правило concurrent access:** Для таблиц с `sent=FALSE` (reminders) — использовать `UPDATE...RETURNING` + `FOR UPDATE SKIP LOCKED`, а не SELECT+loop+UPDATE. Scheduler запускается каждую минуту, предыдущий цикл может ещё обрабатывать.
+
+**Правило status-before-message:** При завершении марафона (или аналогичном изменении статуса) — `update_intern(status=COMPLETED)` ДО `send_message(поздравление)`. Иначе catch-up (каждые 30 мин) найдёт user с active status и отправит повторно.
+
+### 10.10b. Scheduler = read-only для user state
 
 Scheduler (`core/scheduler.py`) **НЕ ИМЕЕТ ПРАВА** менять поля прогресса пользователя: `current_topic_index`, `completed_topics`, `bloom_level`. Эти поля — собственность FSM states (lesson/question/task). Scheduler может читать состояние и генерировать контент, но запись в прогресс — только при реальном взаимодействии.
 
