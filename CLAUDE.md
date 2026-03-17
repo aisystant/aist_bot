@@ -468,9 +468,11 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 **Нормализация на записи:** `zfill(5)` в `update_intern()`, `settings.py`, `profile.py`. Integrity check: `_check_schedule_integrity()` в `core/scheduler.py`, ежедневно 08:00 MSK.
 
-### marathon_status lifecycle — ИСПРАВЛЕНО (2026-02-27)
+### marathon_status lifecycle — ИСПРАВЛЕНО (2026-02-27, дополнено 2026-03-17)
 
 **Правило:** `marathon_start_date` и `marathon_status` — связанная пара. Любой `update_intern(marathon_start_date=...)` ОБЯЗАН также ставить `marathon_status=MarathonStatus.ACTIVE`. Исправлено в 5 местах: onboarding.py, settings.py, mode_selector.py (2x), legacy/learning.py. `_check_schedule_integrity()` auto-fix расширен: фиксит пользователей с `start_date <= today` даже без прогресса.
+
+**Завершение марафона (4 code paths):** При `completed_topics >= total` ОБЯЗАН ставить `marathon_status=MarathonStatus.COMPLETED` + `mode=derive_mode(COMPLETED, feed_status)`. Без этого scheduler повторно отправляет поздравление. Все 4 пути: (1) `core/scheduler.py` — scheduled delivery, (2) `handlers/legacy/learning.py` — legacy, (3) `states/.../task.py` — SM основной путь, (4) `states/.../lesson.py` — SM guard при повторном входе.
 
 ### marathon_content.status — семантика
 
