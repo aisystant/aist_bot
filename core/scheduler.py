@@ -17,8 +17,9 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
+from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content, cleanup_error_questions
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
@@ -505,6 +506,11 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
+            # Завершаем марафон — исключаем из scheduler (marathon_status='active' → 'completed')
+            feed_status = intern.get('feed_status', 'not_started')
+            new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
+            await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
+            logger.info(f"[Scheduler] {chat_id}: marathon completed, status → completed, mode → {new_mode}")
         return
 
     # НЕ обновляем current_topic_index здесь — scheduler только пре-генерирует контент.
