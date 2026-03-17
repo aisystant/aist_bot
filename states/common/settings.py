@@ -238,6 +238,9 @@ class SettingsState(BaseState):
             return await self._toggle_iwe_updates(user, callback)
 
         if data == "conn_nudges_toggle":
+            return await self._show_nudges_details(user, callback)
+
+        if data == "conn_nudges_do_toggle":
             return await self._toggle_nudges(user, callback)
 
         if data == "github_select_repo":
@@ -943,7 +946,7 @@ class SettingsState(BaseState):
         if nudges_visible:
             notify_nudges = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
             nudges_emoji = "✅" if notify_nudges else "❌"
-            text += f"🔔 {t('nudges.settings_nudges_on' if notify_nudges else 'nudges.settings_nudges_off', lang).split('.')[0]}... {nudges_emoji}\n"
+            text += f"🔔 {t('nudges.settings_nudges_button', lang)}: {nudges_emoji}\n"
 
         if iwe_visible:
             notify_iwe = intern.get('notify_template_updates', False)
@@ -963,7 +966,7 @@ class SettingsState(BaseState):
                 InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
             ]
             + ([InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle")] if iwe_visible else [])
-            + ([InlineKeyboardButton(text="🔔 Nudges", callback_data="conn_nudges_toggle")] if nudges_visible else []),
+            + ([InlineKeyboardButton(text="🔔 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle")] if nudges_visible else []),
         ]
 
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
@@ -1457,6 +1460,33 @@ class SettingsState(BaseState):
         # Перерисовать экран деталей IWE
         return await self._show_iwe_details(user, callback)
 
+    async def _show_nudges_details(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показать описание подбадривания с кнопкой вкл/выкл."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        intern = await get_intern(chat_id)
+        current = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
+
+        status = "✅" if current else "❌"
+        action = t('nudges.settings_nudges_disable', lang) if current else t('nudges.settings_nudges_enable', lang)
+
+        text = (
+            f"🔔 *{t('nudges.settings_nudges_button', lang)}* {status}\n\n"
+            f"{t('nudges.settings_nudges_description', lang)}"
+        )
+
+        buttons = [
+            [InlineKeyboardButton(
+                text=f"{'🔕' if current else '🔔'} {action}",
+                callback_data="conn_nudges_do_toggle",
+            )],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+        ]
+
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="Markdown")
+        return None
+
     async def _toggle_nudges(self, user, callback: CallbackQuery) -> Optional[str]:
         """Переключить engagement nudge-уведомления (WP-85 5C)."""
         lang = self._get_lang(user)
@@ -1468,10 +1498,5 @@ class SettingsState(BaseState):
 
         await update_intern(chat_id, notify_nudges=new_value)
 
-        if new_value:
-            await callback.answer(t('nudges.settings_nudges_on', lang), show_alert=True)
-        else:
-            await callback.answer(t('nudges.settings_nudges_off', lang))
-
-        # Перерисовать экран подключений
-        return await self._handle_connections(user, callback)
+        # Перерисовать экран деталей nudges
+        return await self._show_nudges_details(user, callback)
