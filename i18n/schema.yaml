@@ -2106,6 +2106,18 @@ profile:
     ru: "не удалось загрузить"
     en: "failed to load"
 
+  active_days:
+    ru: "акт. дн."
+    en: "active days"
+
+  streak:
+    ru: "дн. подряд"
+    en: "days in a row"
+
+  active_day_hint:
+    ru: "Активный день = ответ на урок, задание, дайджест или вопрос"
+    en: "Active day = answer a lesson, task, digest, or question"
+
   select_field_hint:
     ru: "Нажмите кнопку выше, чтобы выбрать поле для редактирования"
     en: "Tap a button above to select a field to edit"
@@ -4503,6 +4515,36 @@ github:
   note_needs_github:
     ru: "📝 Для заметок подключите GitHub: /github"
     en: "📝 To save notes, connect GitHub: /github"
+  knowledge_repo_label:
+    ru: "Индекс знаний"
+    en: "Knowledge Index"
+  no_knowledge_repo:
+    ru: "Индекс знаний не выбран."
+    en: "Knowledge Index not selected."
+  btn_select_knowledge_repo:
+    ru: "Выбрать индекс знаний"
+    en: "Select Knowledge Index"
+  btn_change_knowledge_repo:
+    ru: "Сменить индекс знаний"
+    en: "Change Knowledge Index"
+  select_knowledge_repo_title:
+    ru: "Выберите репозиторий для индекса знаний:"
+    en: "Select a repository for Knowledge Index:"
+  select_knowledge_repo_desc:
+    ru: "Индекс знаний используется для публикации постов в клубе."
+    en: "Knowledge Index is used to publish posts to the club."
+  knowledge_repo_selected:
+    ru: "Индекс знаний выбран!"
+    en: "Knowledge Index selected!"
+  knowledge_repo_configured:
+    ru: "Индекс знаний настроен"
+    en: "Knowledge Index configured"
+  next_step_knowledge_repo:
+    ru: "Следующий шаг — выберите репозиторий для индекса знаний:"
+    en: "Next step — select a repository for Knowledge Index:"
+  all_configured:
+    ru: "Всё настроено! Отправляйте заметки с точкой в начале: `.текст`"
+    en: "All set! Send notes starting with a dot: `.text`"
   no_text:
     ru: "Нет текста для записи."
     en: "No text to save."
