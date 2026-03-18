@@ -132,10 +132,10 @@ class SettingsState(BaseState):
             f"  • WakaTime: {waka_status}"
         )
 
-        # IWE Updates — только для T4+
+        # IWE Updates — для T2+ (подписка БР)
         from core.tier_detector import detect_ui_tier
         tier = await detect_ui_tier(chat_id)
-        if tier >= 4:  # T4_CREATION
+        if tier >= 2:  # T2_LEARNING
             connections_summary += f"\n  • {t('settings.iwe_updates_label', lang)}: {iwe_status}"
 
         text = (
@@ -938,7 +938,7 @@ class SettingsState(BaseState):
         # Notification toggles per tier
         from core.tier_detector import detect_ui_tier
         tier = await detect_ui_tier(chat_id)
-        iwe_visible = tier >= 4  # T4_CREATION
+        iwe_visible = tier >= 2  # T2_LEARNING
         nudges_visible = tier >= 3  # T3_PERSONALIZATION
 
         intern = await get_intern(chat_id)
