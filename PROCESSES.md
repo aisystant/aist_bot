@@ -11,6 +11,16 @@ updated: 2026-02-10
 > Межсистемные сценарии → `ecosystem-development/PROCESSES.md`.
 > Детальная документация: `docs/scenarios/`, `docs/processes/`, `docs/data/`.
 
+## Реализуемые обещания (SC)
+
+| SC | Обещание | Сервисы бота |
+|----|----------|--------------|
+| [SC.003](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.003-learning-and-development.md) | Обучение и развитие | S12 Q&A, S13 DZ-Check, S14 Content Pre-Gen, S15 Feed Delivery, S16 Marathon Step, S37 Bloom Eval |
+| [SC.005](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.005-content-publishing.md) | Публикация контента | S25 Daily Scan, S26 Scheduled Publish, S27 Manual Publish, S28 Comment Check |
+| [SC.007](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.007-triage-and-techdebt.md) | Триаж и техдолг | S29 Auto-Triage, S30 Triage Session |
+| [SC.008](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.008-self-healing.md) | Самовосстановление | S31 L1 Unstick, S32 L2 Auto-Fix, S33 L3 Restart, S34 L4 Escalate |
+| [SC.012](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.012-onboarding.md) | Онбординг | S12 (первый вопрос), Onboarding flow |
+
 ---
 
 ## 1. FSM Routing (обработка сообщения)
