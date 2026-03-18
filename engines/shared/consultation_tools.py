@@ -462,6 +462,7 @@ def load_tier_prompt(tier: int) -> str:
         "{lang_instruction}\n\n"
         "Используй tools для поиска информации.\n"
         "НЕ выдумывай факты.\n\n"
+        "{knowledge_section}\n"
         "{lang_reminder}"
     )
     logger.warning(f"Tier prompt T{tier} not found at {path}, using fallback")

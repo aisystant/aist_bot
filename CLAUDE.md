@@ -184,6 +184,7 @@ aist_bot/
 - **Streaming SSE** (`_api_call_streaming`) для `generate()`. Non-streaming (`_api_call`) — только для `generate_with_tools()`.
 - **Inactivity timeout** вместо total: `sock_read = max(15, max_tokens / 200)`. Total timeout (45s) не масштабируется с длиной вывода.
 - **Adaptive max_tokens** в `generate_content`: `min(words × 1.5, 4096)`. Не hardcode 4000.
+- **Force-text fallback** в `generate_with_tools()`: при исчерпании `max_tool_rounds` без текстового ответа — финальный запрос БЕЗ tools (контекст из tool_use уже в conversation). Гарантирует ответ вместо `None`. Не увеличивает latency на happy path.
 - **Scheduler retry**: при фейле пре-генерации → `_schedule_retry()` ставит one-off job на +30 мин (APScheduler `date` trigger, dedup по job_id).
 - **Content Budget Model (DP.D.027)** — 3 независимые оси генерации контента:
   - **Ось 1 (Длина):** `words = duration × WPM_BASE(60) × BLOOM_MULTIPLIER[bloom]` (множители: 1→1.0, 2→1.3, 3→1.7). Функция: `config.calc_words()`.

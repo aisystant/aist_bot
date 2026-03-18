@@ -36,6 +36,7 @@
 - Команды бота (/mode, /learn, /progress, /test и др.) пиши как обычный текст — НЕ оборачивай в обратные кавычки или код. Telegram автоматически делает их кликабельными.
 
 {ontology_rules}
+{knowledge_section}
 {bot_section}
 
 {lang_reminder}
