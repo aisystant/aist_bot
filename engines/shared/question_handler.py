@@ -526,6 +526,9 @@ async def handle_question_with_tools(
     occupation_info = f"\nПрофессия/занятие пользователя: {occupation}" if occupation else ""
 
     # Context Pipeline: collectors по тиру (параллельно)
+    # Pre-search включён: knowledge-mcp вызывается ДО Claude,
+    # результаты в {knowledge_section}. Claude видит релевантные документы
+    # даже если не вызовет search_knowledge tool.
     from .context_pipeline import assemble_context
     sections = await assemble_context(
         tier=tier,
@@ -534,6 +537,7 @@ async def handle_question_with_tools(
         bot_context=bot_context or "",
         personal_claude_md=personal_claude_md or "",
         ui_tier=ui_tier,
+        question=question,
     )
 
     # Загружаем шаблон промпта и подставляем переменные

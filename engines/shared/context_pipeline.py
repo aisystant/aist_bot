@@ -5,8 +5,13 @@ Tier Context Pipeline — сборка контекста для system prompt �
 TIER_PIPELINE определяет, какие collectors запускаются для каждого тира.
 Collectors запускаются параллельно через asyncio.gather.
 
+Pre-search (search-first pattern):
+- collect_pre_search вызывает knowledge-mcp ДО Claude, результаты в {knowledge_section}.
+- Гарантирует, что Claude видит релевантные документы даже без вызова tool.
+- Решает проблему: Claude мог не вызвать search_knowledge и отвечать "не знаю".
+
 Архитектурное решение (DP.ARCH.002):
-- T1 Expert: user_profile + bot_context
+- T1 Expert: user_profile + bot_context + pre_search
 - T2 Mentor: + standard_claude
 - T3 Co-thinker: + personal_claude
 - T4 Architect: = T3 (future: + progress, plans)
@@ -66,6 +71,53 @@ async def collect_personal_claude(
     if not personal_claude_md:
         return ("personal_section", "")
     return ("personal_section", f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}")
+
+
+async def collect_pre_search(
+    intern: dict, lang: str, question: str = "", **kwargs
+) -> CollectorResult:
+    """Pre-search: вызывает knowledge-mcp ДО Claude → {knowledge_section}.
+
+    Гарантирует, что Claude видит релевантные документы из базы знаний
+    без необходимости вызывать tool. Решает проблему routing reliability:
+    Claude мог не вызвать search_knowledge и ответить "такой возможности нет".
+    """
+    if not question:
+        return ("knowledge_section", "")
+
+    try:
+        from clients import mcp_knowledge
+
+        results = await mcp_knowledge.search(query=question, limit=5)
+
+        if not results:
+            return ("knowledge_section", "")
+
+        # Форматируем компактно
+        parts = []
+        for item in results[:5]:
+            if isinstance(item, dict):
+                content = item.get('content', item.get('text', ''))
+                source = item.get('source', '')
+                filename = item.get('filename', '')
+                if content:
+                    header = f"[{filename}]" if filename else f"[{source}]"
+                    parts.append(f"{header}\n{content[:1500]}")
+
+        if not parts:
+            return ("knowledge_section", "")
+
+        context = "\n\n---\n\n".join(parts)
+        section = (
+            f"\n\nИНФОРМАЦИЯ ИЗ БАЗЫ ЗНАНИЙ (pre-search):\n{context}\n\n"
+            "Используй эту информацию для ответа. Если нужно больше деталей — "
+            "вызови search_knowledge или search_guides для уточняющего поиска."
+        )
+        logger.info(f"Pre-search: {len(parts)} results, {len(section)} chars for question '{question[:50]}...'")
+        return ("knowledge_section", section)
+    except Exception as e:
+        logger.warning(f"Pre-search error: {e}")
+        return ("knowledge_section", "")
 
 
 async def collect_user_progress(
@@ -168,10 +220,10 @@ async def collect_user_progress(
 # =============================================================================
 
 TIER_PIPELINE: Dict[int, List] = {
-    1: [collect_user_profile, collect_bot_context, collect_user_progress],
-    2: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_user_progress],
-    3: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_personal_claude, collect_user_progress],
-    4: [collect_user_profile, collect_bot_context, collect_standard_claude, collect_personal_claude, collect_user_progress],
+    1: [collect_user_profile, collect_bot_context, collect_pre_search, collect_user_progress],
+    2: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_user_progress],
+    3: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_personal_claude, collect_user_progress],
+    4: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_personal_claude, collect_user_progress],
 }
 
 
@@ -186,6 +238,7 @@ async def assemble_context(
     bot_context: str = "",
     personal_claude_md: str = "",
     ui_tier: int = -1,
+    question: str = "",
 ) -> Dict[str, str]:
     """Запускает collectors для тира параллельно, возвращает dict placeholder → value.
 
@@ -196,10 +249,12 @@ async def assemble_context(
         bot_context: self-knowledge бота
         personal_claude_md: personal CLAUDE.md из GitHub
         ui_tier: UITier (0-5) для включения в контекст (anti-hallucination)
+        question: вопрос пользователя (для pre-search)
 
     Returns:
         Dict с ключами для fill_tier_prompt:
-        {user_profile, bot_section, standard_section, personal_section, dynamic_sections}
+        {user_profile, bot_section, standard_section, personal_section,
+         dynamic_sections, knowledge_section}
     """
     collectors = TIER_PIPELINE.get(tier, TIER_PIPELINE[1])
 
@@ -210,6 +265,7 @@ async def assemble_context(
         bot_context=bot_context,
         personal_claude_md=personal_claude_md,
         ui_tier=ui_tier,
+        question=question,
     )
 
     # Запускаем параллельно
@@ -226,6 +282,7 @@ async def assemble_context(
         "personal_section": "",
         "dynamic_sections": "",
         "progress_section": "",
+        "knowledge_section": "",
     }
 
     for result in results:
