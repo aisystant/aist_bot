@@ -574,6 +574,29 @@ class ClaudeClient:
             for block in content_blocks:
                 if block.get("type") == "text":
                     return block["text"]
+
+            # Force-text fallback: контекст из tool_use уже в conversation,
+            # делаем финальный запрос БЕЗ tools — Claude обязан ответить текстом
+            logger.info("Claude force-text: final request without tools (tool rounds exhausted)")
+            force_msg = {
+                "role": "user",
+                "content": "Ответь на вопрос пользователя на основе уже найденной информации. Не ищи дополнительно."
+            }
+            conversation.append(force_msg)
+            async with self._semaphore:
+                force_payload = {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "system": system_prompt,
+                    "messages": conversation,
+                }
+                data = await self._api_call_streaming_full(
+                    force_payload, inactivity_timeout=inactivity_timeout
+                )
+            if data:
+                text_parts = [b["text"] for b in data.get("content", []) if b.get("type") == "text"]
+                if text_parts:
+                    return "\n".join(text_parts)
             return None
 
     async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None, model=None) -> str:
