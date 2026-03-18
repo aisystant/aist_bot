@@ -30,19 +30,23 @@ def sanitize_file_extensions(text: str) -> str:
     Telegram treats word.ext as a URL when ext resembles a TLD (.md, .sh, .py etc.).
     ZWS breaks the pattern without visible change to the user.
 
-    Skips content inside <code> and <pre> tags (code should stay exact).
+    Skips content inside <code>, <pre>, and <a href="..."> tags.
     """
-    # Protect <code>...</code> and <pre>...</pre> blocks
+    # Protect <code>...</code>, <pre>...</pre>, and <a ...>...</a> blocks
+    _PROTECTED_RE = re.compile(
+        r'<(?:code|pre)>.*?</(?:code|pre)>|<a\s[^>]*>.*?</a>',
+        flags=re.DOTALL,
+    )
     protected = []
     last_end = 0
-    for m in re.finditer(r'<(?:code|pre)>.*?</(?:code|pre)>', text, flags=re.DOTALL):
-        # Process text before this code block
+    for m in _PROTECTED_RE.finditer(text):
+        # Process text before this protected block
         before = text[last_end:m.start()]
         protected.append(_FILE_EXT_RE.sub(rf'\1{_ZWS}.\2', before))
-        # Keep code block as-is
+        # Keep protected block as-is
         protected.append(m.group(0))
         last_end = m.end()
-    # Process remaining text after last code block
+    # Process remaining text after last protected block
     remaining = text[last_end:]
     protected.append(_FILE_EXT_RE.sub(rf'\1{_ZWS}.\2', remaining))
     return ''.join(protected)
