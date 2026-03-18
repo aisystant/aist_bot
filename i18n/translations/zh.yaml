@@ -426,6 +426,9 @@ profile:
   first_start: "请先 /start"
   not_found: "未找到档案。请使用 /start"
   topics_load_error: "无法加载"
+  active_days: "活跃天数"
+  streak: "连续天数"
+  active_day_hint: '活跃日 = 回答课程、任务、摘要或提问'
   your_profile: "你的档案"
   name_label: "姓名"
   occupation_label: "职业"

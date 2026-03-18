@@ -107,6 +107,23 @@ class ProfileState(BaseState):
         goals = intern.get('goals', '') or ''
         goals_short = goals[:80] + '...' if len(goals) > 80 else goals or '—'
 
+        # Тир + активность
+        from core.tier_detector import detect_ui_tier
+        from states.utilities.mydata import TIER_NAMES, TIER_EMOJI
+        tier = await detect_ui_tier(chat_id)
+        tier_name = TIER_NAMES.get(lang, TIER_NAMES['en']).get(tier, f'T{tier}')
+        tier_emoji = TIER_EMOJI.get(tier, '⚪')
+
+        total_days = intern.get('active_days_total', 0) or 0
+        streak = intern.get('active_days_streak', 0) or 0
+
+        activity_parts = []
+        if total_days > 0:
+            activity_parts.append(f"{total_days} {t('profile.active_days', lang)}")
+        if streak > 1:
+            activity_parts.append(f"🔥 {streak} {t('profile.streak', lang)}")
+        activity_line = f"\n📊 {' • '.join(activity_parts)}" if activity_parts else ""
+
         # Результат теста систематичности
         assessment_line = ""
         assessment_state = intern.get('assessment_state')
@@ -127,10 +144,14 @@ class ProfileState(BaseState):
             except Exception:
                 pass
 
+        active_day_hint = t('profile.active_day_hint', lang)
+
         text = (
             f"👤 *{intern.get('name', '—')}*\n"
             f"💼 {intern.get('occupation', '') or '—'}\n"
             f"🎨 {interests_str}\n\n"
+            f"{tier_emoji} {tier_name}"
+            f"{activity_line}\n\n"
             f"💫 {motivation_short}\n"
             f"🎯 {goals_short}\n\n"
             f"{t(f'duration.minutes_{study_duration}', lang)}\n"
@@ -139,6 +160,7 @@ class ProfileState(BaseState):
             f"⏰ {t('settings.schedule_marathon', lang)}: {intern.get('schedule_time', '09:00')}, "
             f"{t('settings.schedule_feed', lang)}: {intern.get('feed_schedule_time') or intern.get('schedule_time', '09:00')} (МСК)"
             f"{assessment_line}\n\n"
+            f"_{active_day_hint}_\n\n"
             f"*{t('settings.what_to_change', lang)}*"
         )
 

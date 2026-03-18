@@ -81,6 +81,7 @@ async def cmd_github(message: Message):
         login = user_info.get("login", "user") if user_info else "user"
         target_repo = await github_oauth.get_target_repo(telegram_user_id)
         notes_path = await github_oauth.get_notes_path(telegram_user_id)
+        knowledge_repo = await github_oauth.get_knowledge_repo(telegram_user_id)
 
         status_lines = [
             f"*{t('github.connected_title', lang)}*\n",
@@ -92,8 +93,6 @@ async def cmd_github(message: Message):
         if target_repo:
             status_lines.append(f"{t('github.repo_label', lang)}: `{target_repo}`")
             status_lines.append(f"{t('github.path_label', lang)}: `{notes_path}`")
-            status_lines.append(f"\n{t('github.note_instruction', lang)}")
-            status_lines.append(t('github.note_example', lang))
         else:
             status_lines.append(f"\n{t('github.no_repo', lang)}")
             buttons.append(
@@ -104,6 +103,31 @@ async def cmd_github(message: Message):
                     )
                 ]
             )
+
+        if knowledge_repo:
+            status_lines.append(f"{t('github.knowledge_repo_label', lang)}: `{knowledge_repo}`")
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=t('github.btn_change_knowledge_repo', lang),
+                        callback_data="github_select_knowledge_repo",
+                    )
+                ]
+            )
+        else:
+            status_lines.append(f"\n{t('github.no_knowledge_repo', lang)}")
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=t('github.btn_select_knowledge_repo', lang),
+                        callback_data="github_select_knowledge_repo",
+                    )
+                ]
+            )
+
+        if target_repo and knowledge_repo:
+            status_lines.append(f"\n{t('github.note_instruction', lang)}")
+            status_lines.append(t('github.note_example', lang))
 
         buttons.append(
             [
@@ -196,16 +220,101 @@ async def callback_github_repo_selected(callback: CallbackQuery):
 
     await github_oauth.set_target_repo(telegram_user_id, repo_full_name)
     notes_path = await github_oauth.get_notes_path(telegram_user_id)
+    knowledge_repo = await github_oauth.get_knowledge_repo(telegram_user_id)
 
     await callback.answer(t('github.repo_selected', lang), show_alert=True)
 
-    await callback.message.edit_text(
+    text = (
         f"*{t('github.repo_configured', lang)}*\n\n"
         f"{t('github.repo_label', lang)}: `{repo_full_name}`\n"
         f"{t('github.path_label', lang)}: `{notes_path}`\n\n"
         f"{t('github.repo_configured_desc', lang)}\n"
         f"{t('github.note_example', lang)}\n\n"
-        f"{t('github.note_will_be_saved', lang, repo=repo_full_name, path=notes_path)}",
+        f"{t('github.note_will_be_saved', lang, repo=repo_full_name, path=notes_path)}"
+    )
+
+    buttons = []
+    if not knowledge_repo:
+        text += f"\n\n{t('github.next_step_knowledge_repo', lang)}"
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=t('github.btn_select_knowledge_repo', lang),
+                    callback_data="github_select_knowledge_repo",
+                )
+            ]
+        )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
+@github_router.callback_query(F.data == "github_select_knowledge_repo")
+async def callback_github_select_knowledge_repo(callback: CallbackQuery):
+    """Показывает список репозиториев для выбора индекса знаний."""
+    from clients.github_oauth import github_oauth
+
+    telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+
+    if not await github_oauth.is_connected(telegram_user_id):
+        await callback.answer(t('github.not_connected_alert', lang), show_alert=True)
+        return
+
+    await callback.answer()
+
+    repos = await github_oauth.get_repos(telegram_user_id, limit=20)
+    if not repos:
+        await callback.message.answer(t('github.repos_error', lang))
+        return
+
+    buttons = []
+    for repo in repos[:10]:
+        full_name = repo.get("full_name", "")
+        name = repo.get("name", "")
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=name,
+                    callback_data=f"github_knowledge_repo:{full_name}",
+                )
+            ]
+        )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await callback.message.edit_text(
+        f"*{t('github.select_knowledge_repo_title', lang)}*\n\n"
+        f"{t('github.select_knowledge_repo_desc', lang)}",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
+@github_router.callback_query(F.data.startswith("github_knowledge_repo:"))
+async def callback_github_knowledge_repo_selected(callback: CallbackQuery):
+    """Обработка выбора репозитория индекса знаний."""
+    from clients.github_oauth import github_oauth
+
+    telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+    repo_full_name = callback.data.split(":", 1)[1]
+
+    await github_oauth.set_knowledge_repo(telegram_user_id, repo_full_name)
+
+    await callback.answer(t('github.knowledge_repo_selected', lang), show_alert=True)
+
+    await callback.message.edit_text(
+        f"✅ *{t('github.knowledge_repo_configured', lang)}*\n\n"
+        f"{t('github.knowledge_repo_label', lang)}: `{repo_full_name}`\n\n"
+        f"{t('github.all_configured', lang)}",
         parse_mode="Markdown",
     )
 
