@@ -4483,8 +4483,8 @@ github:
     ru: "Выберите репозиторий для заметок:"
     en: "Select a repository for notes:"
   select_repo_desc:
-    ru: "Заметки будут записываться в файл `inbox/fleeting-notes.md`"
-    en: "Notes will be saved to `inbox/fleeting-notes.md`"
+    ru: "Выберите свой репозиторий — туда будут сохраняться ваши заметки из Telegram (в файл `inbox/fleeting-notes.md`)."
+    en: "Select your repository — your Telegram notes will be saved there (to `inbox/fleeting-notes.md`)."
   repo_selected:
     ru: "Репозиторий выбран!"
     en: "Repository selected!"
@@ -4492,8 +4492,8 @@ github:
     ru: "Репозиторий настроен!"
     en: "Repository configured!"
   repo_configured_desc:
-    ru: "Теперь отправляйте сообщения с точкой в начале:"
-    en: "Now send messages starting with a dot:"
+    ru: "Готово! Теперь вы можете записывать заметки прямо из Telegram.\n\nКак это работает:\n• Напишите точку и текст — `.купить книгу`\n• Ответьте точкой на чужое сообщение — оно станет заметкой\n• Перешлите сообщение, затем отправьте `.` — пересланное сохранится\n\nПример:"
+    en: "Done! Now you can save notes directly from Telegram.\n\nHow it works:\n• Type a dot and text — `.buy a book`\n• Reply with a dot to someone's message — it becomes a note\n• Forward a message, then send `.` — the forwarded text will be saved\n\nExample:"
   note_will_be_saved:
     ru: "Заметка будет записана в `{repo}/{path}`"
     en: "Note will be saved to `{repo}/{path}`"
