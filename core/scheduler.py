@@ -1758,8 +1758,23 @@ async def _smart_publisher_scan(*, notify: bool = True):
                     except (ValueError, IndexError):
                         return True
 
-                files = await client.list_files(f"docs/{current_year}")
-                for f in files:
+                # Рекурсивный обход: год → месячные папки → файлы + подпапки (мультиканальные посты)
+                year_path = f"docs/{current_year}"
+                month_dirs = await client.list_dirs(year_path)
+                # Fallback: если нет подпапок — сканировать плоско (обратная совместимость)
+                scan_paths = [f"{year_path}/{d}" for d in month_dirs] if month_dirs else [year_path]
+
+                all_files = []
+                for scan_path in scan_paths:
+                    files_in_dir = await client.list_files(scan_path)
+                    all_files.extend(files_in_dir)
+                    # Проверяем подпапки (мультиканальные посты)
+                    sub_dirs = await client.list_dirs(scan_path)
+                    for sd in sub_dirs:
+                        sub_files = await client.list_files(f"{scan_path}/{sd}")
+                        all_files.extend(sub_files)
+
+                for f in all_files:
                     if f["name"] == "README.md" or not _is_recent(f["name"]):
                         continue
                     result = await client.read_file(f["path"])
