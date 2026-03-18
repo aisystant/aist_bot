@@ -7,15 +7,15 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "aa5fcb3070ee53361b72da86a49965197c69a1aa761c5ca59689ea7c96e95a9d"
-  synced_at: "2026-03-15T22:00:25Z"
+  source_hash: "e65f803da15a60dd73da852f1aa008449f80eda085e44bd9df44ec7990031163"
+  synced_at: "2026-03-18T06:56:34Z"
   generator: "DS-ai-systems/synchronizer/scripts/pack-project.sh"
 
 identity: |
   
   **Имя:** AIST Bot (@aist_me_bot)
   
-  **Назначение (ru):** Бот-наставник для систематического обучения и личного развития. Помогает изучать системное мышление через структурированные программы, отвечает на вопросы, ведёт заметки и отслеживает прогресс.
+  **Назначение (ru):** Бот-наставник для систематического развития. Помогает изучать системное мышление через структурированные программы, отвечает на вопросы, ведёт заметки и отслеживает прогресс.
   
   **Назначение (en):** Mentor bot for systematic learning and personal development. Helps study systems thinking through structured programs, answers questions, keeps notes, and tracks progress.
   
