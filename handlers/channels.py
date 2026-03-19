@@ -46,6 +46,9 @@ channels_router = Router(name="channels")
 _cooldown: dict[tuple[int, int], float] = {}  # (channel_id, chat_id) → timestamp
 _COOLDOWN_SEC = 30
 
+# Каналы, для которых уже выполнялся auto-discovery (чтобы не повторять)
+_discovered_channels: set[int] = set()
+
 
 def _is_cooled_down(channel_id: int, chat_id: int) -> bool:
     """Проверить cooldown для пары канал+пользователь."""
@@ -208,6 +211,52 @@ async def on_group_message(message: Message, bot: Bot):
     await _process_channel_message(message, bot)
 
 
+async def _auto_discover_admins(channel_id: int, channel_title: str, bot: Bot):
+    """Автоматически найти админов канала среди пользователей бота и создать мониторы.
+
+    Вызывается при первом сообщении из канала, где нет мониторов.
+    Telegram Bot API не даёт список каналов бота, поэтому discovery
+    происходит лениво — при первом channel_post.
+    """
+    from db.connection import get_pool
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Получить всех пользователей бота с заполненным tg_username
+        users = await conn.fetch('''
+            SELECT u.id AS user_id, u.telegram_id AS chat_id, u.tg_username, u.name, u.language,
+                   s.onboarding_completed
+            FROM public.users u
+            LEFT JOIN development.user_state s ON s.user_id = u.id
+            WHERE s.onboarding_completed = TRUE
+              AND u.tg_username IS NOT NULL
+              AND u.tg_username != ''
+        ''')
+
+    registered = 0
+    for user in users:
+        try:
+            member = await bot.get_chat_member(channel_id, user['chat_id'])
+            if isinstance(member, (ChatMemberAdministrator, ChatMemberOwner)):
+                await upsert_monitor(
+                    channel_id=channel_id,
+                    channel_title=channel_title,
+                    user_id=str(user['user_id']),
+                    chat_id=user['chat_id'],
+                    is_admin=True,
+                )
+                registered += 1
+                logger.info(f"[SC.118] Auto-discovered admin {user['chat_id']} for channel {channel_id}")
+        except Exception:
+            # Пользователь не в канале или бот не может проверить — пропускаем
+            continue
+
+    if registered:
+        logger.info(f"[SC.118] Auto-discovered {registered} admins for channel {channel_title} ({channel_id})")
+
+    return registered
+
+
 async def _process_channel_message(message: Message, bot: Bot):
     """Общая логика обработки сообщений из каналов/групп."""
     if not message.text:
@@ -218,7 +267,16 @@ async def _process_channel_message(message: Message, bot: Bot):
     # Получить мониторы для этого канала
     monitors = await get_monitors_for_channel(channel_id)
     if not monitors:
-        return
+        # Автодискавери: первое сообщение из канала — найти админов среди пользователей бота
+        if channel_id not in _discovered_channels:
+            _discovered_channels.add(channel_id)
+            discovered = await _auto_discover_admins(
+                channel_id, message.chat.title or str(channel_id), bot
+            )
+            if discovered:
+                monitors = await get_monitors_for_channel(channel_id)
+        if not monitors:
+            return
 
     # Детектировать упоминания
     matches = detect_mentions(message, monitors)
