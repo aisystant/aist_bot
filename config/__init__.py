@@ -28,6 +28,11 @@ from .settings import (
     GITHUB_CLIENT_SECRET,
     GITHUB_REDIRECT_URI,
 
+    # Google Calendar OAuth (WP-128)
+    GOOGLE_CALENDAR_CLIENT_ID,
+    GOOGLE_CALENDAR_CLIENT_SECRET,
+    GOOGLE_CALENDAR_REDIRECT_URI,
+
     # L2 Auto-Fix (WP-45)
     GITHUB_BOT_PAT,
     AUTOFIX_REPO,
@@ -117,6 +122,10 @@ from .settings import (
 
     # WakaTime (WP-60)
     WAKATIME_API_KEY,
+
+    # Channel contexts (SC.118)
+    CHANNEL_CONTEXTS,
+    get_channel_context,
 )
 
 __all__ = [
@@ -136,6 +145,9 @@ __all__ = [
     'GITHUB_CLIENT_ID',
     'GITHUB_CLIENT_SECRET',
     'GITHUB_REDIRECT_URI',
+    'GOOGLE_CALENDAR_CLIENT_ID',
+    'GOOGLE_CALENDAR_CLIENT_SECRET',
+    'GOOGLE_CALENDAR_REDIRECT_URI',
     'GITHUB_BOT_PAT',
     'AUTOFIX_REPO',
     'AUTOFIX_BRANCH_BASE',
@@ -190,4 +202,6 @@ __all__ = [
     'TELEGRAM_MARKDOWN_RULES',
     'PUBLISHER_INTERVAL',
     'WAKATIME_API_KEY',
+    'CHANNEL_CONTEXTS',
+    'get_channel_context',
 ]

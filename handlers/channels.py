@@ -22,7 +22,7 @@ from aiogram.filters import Command
 
 from clients.claude import ClaudeClient
 from clients.mcp import mcp_knowledge
-from config.settings import CLAUDE_MODEL_OPUS
+from config.settings import CLAUDE_MODEL_OPUS, get_channel_context
 from db.queries import get_intern
 from db.queries.users import is_onboarded
 from db.queries.channels import (
@@ -411,23 +411,26 @@ async def _send_draft_notification(message: Message, bot: Bot, match: MentionMat
     if message.reply_to_message and message.reply_to_message.text:
         context_text = f"Исходное сообщение: {message.reply_to_message.text[:300]}\n\nОтвет: {msg_text}"
 
-    # Поиск знаний через knowledge-mcp
-    knowledge_context = ''
-    try:
-        results = await mcp_knowledge.search(msg_text[:200], limit=3)
-        if results:
-            snippets = []
-            for r in results[:3]:
-                content = r.get('content', r.get('text', ''))
-                if content:
-                    snippets.append(content[:300])
-            if snippets:
-                knowledge_context = '\n\n'.join(snippets)
-    except Exception as e:
-        logger.warning(f"[SC.118] Knowledge search failed: {e}")
+    # Контекст канала из конфига
+    channel_ctx = get_channel_context(channel_title)
 
-    # Генерация черновика через Claude (Haiku для скорости)
-    draft = await _generate_draft(context_text, knowledge_context, lang)
+    # Контекст владельца из ЦД (graceful fallback)
+    owner_context = ''
+    try:
+        owner_context = await _get_owner_context(match.chat_id)
+    except Exception as e:
+        logger.warning(f"[SC.118] Owner context fetch failed: {e}")
+
+    # Поиск знаний через knowledge-mcp (расширенный)
+    knowledge_context = await _search_knowledge(msg_text, channel_ctx)
+
+    # Генерация черновика через Claude
+    draft = await _generate_draft(
+        context_text, knowledge_context, lang,
+        owner_context=owner_context,
+        channel_context=channel_ctx,
+        channel_title=channel_title,
+    )
 
     # Формируем уведомление
     text = t('channels.draft_notification', lang,
@@ -452,34 +455,143 @@ async def _send_draft_notification(message: Message, bot: Bot, match: MentionMat
         logger.warning(f"[SC.118] Failed to send draft to {match.chat_id}: {e}")
 
 
-async def _generate_draft(context: str, knowledge: str, lang: str) -> str:
-    """Сгенерировать черновик ответа через Claude Haiku."""
+async def _get_owner_context(chat_id: int) -> str:
+    """Получить контекст владельца из ЦД для system prompt."""
+    from clients.digital_twin import digital_twin
+
+    if not digital_twin.is_connected(chat_id):
+        return ''
+
+    profile = await digital_twin.read('1_declarative', chat_id)
+    if not profile or not isinstance(profile, dict):
+        return ''
+
+    parts = []
+    # Извлекаем ключевые поля из ЦД
+    p = profile.get('1_1_profile', {}) or {}
+    name = p.get('02_Имя', '')
+    occupation = p.get('01_Занятие', '')
+    if name:
+        parts.append(f"Имя: {name}")
+    if occupation:
+        parts.append(f"Занятие: {occupation}")
+
+    goals = profile.get('1_2_goals', {}) or {}
+    interests = goals.get('01_Интересы', '')
+    if interests:
+        parts.append(f"Интересы: {interests}")
+
+    selfeval = profile.get('1_3_selfeval', {}) or {}
+    roles = selfeval.get('06_Роли', '')
+    if roles:
+        parts.append(f"Роли: {roles}")
+
+    if not parts:
+        return ''
+
+    return '\n'.join(parts)
+
+
+async def _search_knowledge(msg_text: str, channel_ctx: dict) -> str:
+    """Расширенный поиск знаний: по тексту + по темам канала."""
+    snippets = []
+
+    # Основной поиск по тексту вопроса
+    try:
+        results = await mcp_knowledge.search(msg_text[:300], limit=5)
+        if results:
+            for r in results[:5]:
+                content = r.get('content', r.get('text', ''))
+                if content:
+                    snippets.append(content[:500])
+    except Exception as e:
+        logger.warning(f"[SC.118] Knowledge search failed: {e}")
+
+    # Дополнительный поиск по темам канала (если мало результатов)
+    if len(snippets) < 3:
+        topics = channel_ctx.get('topics', [])
+        for topic in topics[:2]:
+            try:
+                extra = await mcp_knowledge.search(f"{topic} {msg_text[:100]}", limit=2)
+                if extra:
+                    for r in extra[:2]:
+                        content = r.get('content', r.get('text', ''))
+                        if content and content[:100] not in [s[:100] for s in snippets]:
+                            snippets.append(content[:500])
+            except Exception:
+                pass
+            if len(snippets) >= 5:
+                break
+
+    return '\n\n---\n\n'.join(snippets) if snippets else ''
+
+
+async def _generate_draft(
+    context: str,
+    knowledge: str,
+    lang: str,
+    owner_context: str = '',
+    channel_context: dict = None,
+    channel_title: str = '',
+) -> str:
+    """Сгенерировать черновик ответа через Claude."""
     claude = ClaudeClient()
 
-    knowledge_block = ''
-    if knowledge:
-        knowledge_block = f"\n\nРелевантные знания из базы:\n{knowledge}"
+    # Собираем system prompt с контекстом
+    system_parts = []
 
-    system = (
-        "Ты — ассистент, помогающий подготовить ответ на сообщение в Telegram-канале. "
-        "Пиши от первого лица, как будто отвечает владелец канала. "
-        "Ответ должен быть кратким (2-4 предложения), по существу. "
-        "Если есть релевантные знания из базы — используй их. "
-        "Не используй форматирование Markdown. Пиши простым текстом."
-        f"{knowledge_block}"
+    # 1. Роль и задача
+    system_parts.append(
+        "Ты помогаешь подготовить черновик ответа на вопрос в Telegram-чате. "
+        "Пиши от первого лица, как будто отвечает автор/владелец канала."
     )
+
+    # 2. Контекст владельца из ЦД
+    if owner_context:
+        system_parts.append(f"\nПрофиль автора ответа:\n{owner_context}")
+
+    # 3. Контекст канала
+    if channel_context:
+        ch_desc = channel_context.get('description', '')
+        ch_audience = channel_context.get('audience', '')
+        ch_tone = channel_context.get('tone', '')
+        if ch_desc or ch_audience:
+            ch_block = f"\nКанал: {channel_title}"
+            if ch_desc:
+                ch_block += f"\nОписание: {ch_desc.strip()}"
+            if ch_audience:
+                ch_block += f"\nАудитория: {ch_audience}"
+            if ch_tone:
+                ch_block += f"\nТон ответа: {ch_tone}"
+            system_parts.append(ch_block)
+
+    # 4. Knowledge base
+    if knowledge:
+        system_parts.append(f"\nРелевантные знания из базы (используй для ответа):\n{knowledge}")
+
+    # 5. Правила
+    system_parts.append(
+        "\nПравила:"
+        "\n- Отвечай по существу на конкретный вопрос, НЕ перефразируй вопрос обратно"
+        "\n- Используй знания из базы и контекст канала для содержательного ответа"
+        "\n- Если в базе знаний нет точного ответа — ответь на основе контекста канала и профиля"
+        "\n- Краткость: 2-5 предложений"
+        "\n- Простой текст без Markdown"
+    )
+
+    system = '\n'.join(system_parts)
 
     payload = {
         "model": CLAUDE_MODEL_OPUS,
-        "max_tokens": 500,
+        "max_tokens": 800,
         "system": system,
         "messages": [
-            {"role": "user", "content": f"Подготовь черновик ответа на это сообщение:\n\n{context[:1000]}"},
+            {"role": "user", "content": f"Подготовь черновик ответа на этот вопрос:\n\n{context[:1500]}"},
         ],
     }
 
     try:
-        result = await claude._api_call(payload, timeout=15)
+        result = await claude._api_call(payload, timeout=20)
         if result and result.get('content'):
             for block in result['content']:
                 if block.get('type') == 'text':

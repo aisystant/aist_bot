@@ -55,6 +55,11 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
 
+# ============= GOOGLE CALENDAR OAUTH (WP-128) =============
+GOOGLE_CALENDAR_CLIENT_ID = os.getenv("GOOGLE_CALENDAR_CLIENT_ID")
+GOOGLE_CALENDAR_CLIENT_SECRET = os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET")
+GOOGLE_CALENDAR_REDIRECT_URI = os.getenv("GOOGLE_CALENDAR_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/google-calendar/callback")
+
 # ============= L2 AUTO-FIX (WP-45 Phase 3) =============
 GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
 AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "aisystant/aist_bot")
@@ -108,6 +113,36 @@ MOSCOW_TZ = timezone(timedelta(hours=3))
 BASE_DIR = Path(__file__).parent.parent
 TOPICS_DIR = BASE_DIR / "topics"
 KNOWLEDGE_STRUCTURE_PATH = BASE_DIR / "knowledge_structure.yaml"
+CHANNEL_CONTEXTS_PATH = BASE_DIR / "config" / "channel_contexts.yaml"
+
+# ============= КОНТЕКСТЫ КАНАЛОВ (SC.118) =============
+
+def _load_channel_contexts() -> dict:
+    """Загрузить описания каналов из YAML."""
+    import re
+    import yaml
+    path = CHANNEL_CONTEXTS_PATH
+    if not path.exists():
+        return {"default": {}, "channels": []}
+    with open(path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f) or {}
+    # Прекомпилировать regex паттерны
+    for ch in data.get("channels", []):
+        pattern = ch.get("title_pattern", "")
+        if pattern:
+            ch["_compiled_pattern"] = re.compile(pattern, re.IGNORECASE)
+    return data
+
+CHANNEL_CONTEXTS = _load_channel_contexts()
+
+
+def get_channel_context(channel_title: str) -> dict:
+    """Найти контекст канала по названию. Fallback на default."""
+    for ch in CHANNEL_CONTEXTS.get("channels", []):
+        compiled = ch.get("_compiled_pattern")
+        if compiled and compiled.search(channel_title):
+            return ch
+    return CHANNEL_CONTEXTS.get("default", {})
 
 # ============= РЕЖИМЫ РАБОТЫ =============
 

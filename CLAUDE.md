@@ -572,7 +572,12 @@ aiogram FSM-хендлеры (`@router.message(State)`) перехватываю
 
 **Auto-discovery:** При первом сообщении из канала без мониторов → `getChatMember` для всех пользователей бота → создание мониторов для найденных админов. Кэш `_discovered_channels` предотвращает повторный перебор.
 
-**Правила:** Cooldown 30 сек. Log-before-send дедупликация. `is_onboarded()` — async, вызывать с await.
+**Контекст черновика (3 источника):**
+1. **Владелец** — профиль из ЦД (`1_declarative`): имя, занятие, роли, интересы. Graceful fallback при отсутствии ЦД.
+2. **Канал** — `config/channel_contexts.yaml`: описание, аудитория, тон, темы. Матчинг по `title_pattern` (regex). Fallback на `default`.
+3. **Knowledge** — расширенный поиск: до 5 результатов по 500 символов + дополнительный поиск по темам канала.
+
+**Правила:** Cooldown 30 сек. Log-before-send дедупликация. `is_onboarded()` — async, вызывать с await. При добавлении нового канала — добавить запись в `config/channel_contexts.yaml`.
 
 ---
 
