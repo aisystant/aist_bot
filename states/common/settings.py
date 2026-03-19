@@ -1489,9 +1489,16 @@ class SettingsState(BaseState):
                 from clients.wakatime_oauth import wakatime_oauth
                 auth_url, state = wakatime_oauth.get_authorization_url(chat_id)
                 buttons.append([InlineKeyboardButton(text="Подключить WakaTime", url=auth_url)])
-                text += "\n\nИли вручную — введите API-ключ (wakatime.com/settings/api-key):"
+                text += (
+                    "\n\nНужен аккаунт на wakatime.com (бесплатная регистрация).\n\n"
+                    "Для подключения *нажмите кнопку под сообщением* "
+                    "(или вручную — введите API-ключ wakatime.com/settings/api-key):"
+                )
             except Exception:
-                text += f"\n\n{t('settings.waka_enter_key', lang)}"
+                text += (
+                    "\n\nНужен аккаунт на wakatime.com (бесплатная регистрация).\n\n"
+                    f"{t('settings.waka_enter_key', lang)}"
+                )
 
             buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")])
             keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
