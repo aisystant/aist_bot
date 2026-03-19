@@ -40,8 +40,12 @@ class WakaTimeClient:
 
     @staticmethod
     def _make_headers(api_key: str) -> dict:
-        encoded = base64.b64encode(api_key.encode()).decode()
-        return {"Authorization": f"Basic {encoded}"}
+        # API key (waka_xxx) → Basic Auth. OAuth token → Bearer Auth.
+        if api_key.startswith("waka_"):
+            encoded = base64.b64encode(api_key.encode()).decode()
+            return {"Authorization": f"Basic {encoded}"}
+        else:
+            return {"Authorization": f"Bearer {api_key}"}
 
     async def _fetch(self, url: str, api_key: str) -> dict | None:
         session = await self._get_session()
