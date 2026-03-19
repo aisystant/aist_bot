@@ -5620,6 +5620,34 @@ features:
     desc:
       ru: "Заметки, публикации, IWE"
       en: "Notes, publishing, IWE"
+  club:
+    name:
+      ru: "Клуб"
+      en: "Club"
+    desc:
+      ru: "Публикации в сообществе"
+      en: "Community publishing"
+  gcal:
+    name:
+      ru: "Календарь Google"
+      en: "Google Calendar"
+    desc:
+      ru: "Расписание и события"
+      en: "Schedule and events"
+  consultation:
+    name:
+      ru: "Консультант"
+      en: "Consultant"
+    desc:
+      ru: "Вопросы по базе знаний"
+      en: "Knowledge base Q&A"
+  notes:
+    name:
+      ru: "Заметки"
+      en: "Notes"
+    desc:
+      ru: "Быстрая запись мыслей в GitHub"
+      en: "Quick thoughts to GitHub"
   iwe_template:
     name:
       ru: "IWE Template"
