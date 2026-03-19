@@ -55,6 +55,11 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
 
+# ============= GOOGLE CALENDAR OAUTH (WP-128) =============
+GOOGLE_CALENDAR_CLIENT_ID = os.getenv("GOOGLE_CALENDAR_CLIENT_ID")
+GOOGLE_CALENDAR_CLIENT_SECRET = os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET")
+GOOGLE_CALENDAR_REDIRECT_URI = os.getenv("GOOGLE_CALENDAR_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/google-calendar/callback")
+
 # ============= L2 AUTO-FIX (WP-45 Phase 3) =============
 GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
 AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "aisystant/aist_bot")
