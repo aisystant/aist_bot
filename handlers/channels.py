@@ -22,7 +22,7 @@ from aiogram.filters import Command
 
 from clients.claude import ClaudeClient
 from clients.mcp import mcp_knowledge
-from config.settings import CLAUDE_MODEL_SONNET
+from config.settings import CLAUDE_MODEL_OPUS
 from db.queries import get_intern
 from db.queries.users import is_onboarded
 from db.queries.channels import (
@@ -461,7 +461,7 @@ async def _generate_draft(context: str, knowledge: str, lang: str) -> str:
     )
 
     payload = {
-        "model": CLAUDE_MODEL_SONNET,
+        "model": CLAUDE_MODEL_OPUS,
         "max_tokens": 500,
         "system": system,
         "messages": [
