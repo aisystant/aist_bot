@@ -76,18 +76,39 @@ async def cmd_wakatime(message: Message):
             "WakaTime подключён.\n\n"
             "Что даёт:\n"
             "• Время работы в IWE учитывается в вашем цифровом двойнике\n"
+            "• На основе этих данных считается мультипликатор IWE — "
+            "сколько результатов вы создаёте на час работы\n"
             "• Данные поступают автоматически — ничего дополнительно делать не нужно\n"
             "• /waka — посмотреть статистику за сегодня и неделю",
             reply_markup=keyboard,
         )
     else:
+        # OAuth-кнопка (если настроен) + fallback на /settings
+        from clients.wakatime_oauth import wakatime_oauth
+        buttons = []
+        try:
+            auth_url, state = wakatime_oauth.get_authorization_url(telegram_user_id)
+            buttons.append([
+                InlineKeyboardButton(
+                    text="Подключить WakaTime",
+                    url=auth_url,
+                )
+            ])
+        except (ValueError, Exception):
+            pass  # OAuth не настроен — только текстовая инструкция
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+
         await message.answer(
             "WakaTime — трекинг времени работы в IWE.\n\n"
             "Что даёт:\n"
             "• Автоматический учёт времени работы в VS Code\n"
             "• Данные попадают в цифровой двойник для аналитики\n"
+            "• На основе этих данных считается мультипликатор IWE — "
+            "сколько результатов вы создаёте на час работы\n"
             "• Статистика доступна через /waka\n\n"
-            "Подключить: /settings → WakaTime → ввести API-ключ с wakatime.com/settings/api-key",
+            "Или вручную: /settings → WakaTime → API-ключ",
+            reply_markup=keyboard,
         )
 
 
