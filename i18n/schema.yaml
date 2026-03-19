@@ -5637,3 +5637,43 @@ features:
     desc:
       ru: "Трекинг времени работы"
       en: "Work time tracking"
+
+# -----------------------------------------------------------------------------
+# Мониторинг каналов (SC.118)
+# -----------------------------------------------------------------------------
+channels:
+  not_onboarded:
+    ru: "Сначала пройдите онбординг через /start"
+    en: "Please complete onboarding first via /start"
+
+  no_monitors:
+    ru: "У вас нет отслеживаемых каналов.\n\nДобавьте бота как админа в свой канал или группу — мониторинг включится автоматически."
+    en: "You have no monitored channels.\n\nAdd the bot as admin to your channel or group — monitoring will be enabled automatically."
+
+  list_header:
+    ru: "📡 <b>Мониторинг каналов</b>\n"
+    en: "📡 <b>Channel monitoring</b>\n"
+
+  auto_registered:
+    ru: "📡 Бот добавлен в канал <b>{channel}</b>.\n\nМониторинг упоминаний включён. Когда вас упомянут — получите уведомление с черновиком ответа.\n\nУправление: /channels"
+    en: "📡 Bot added to channel <b>{channel}</b>.\n\nMention monitoring enabled. When you're mentioned — you'll get a notification with a draft reply.\n\nManage: /channels"
+
+  mention_notification:
+    ru: "📩 Вас упомянули в <b>{channel}</b>\n\n👤 Автор: {author}\n💬 «{message}»"
+    en: "📩 You were mentioned in <b>{channel}</b>\n\n👤 Author: {author}\n💬 \"{message}\""
+
+  reply_notification:
+    ru: "💬 На ваше сообщение ответили в <b>{channel}</b>\n\n📝 Ваше сообщение:\n«{original_text}»\n\n👤 Ответ от: {author}\n💬 «{reply_text}»"
+    en: "💬 Someone replied to your message in <b>{channel}</b>\n\n📝 Your message:\n\"{original_text}\"\n\n👤 Reply from: {author}\n💬 \"{reply_text}\""
+
+  draft_notification:
+    ru: "📩 Упоминание в <b>{channel}</b>\n\n👤 Автор: {author}\n💬 Сообщение:\n«{message}»\n\n───────────────────\n✏️ Черновик ответа:\n\n{draft}\n\n───────────────────"
+    en: "📩 Mention in <b>{channel}</b>\n\n👤 Author: {author}\n💬 Message:\n\"{message}\"\n\n───────────────────\n✏️ Draft reply:\n\n{draft}\n\n───────────────────"
+
+  draft_failed:
+    ru: "Не удалось сгенерировать черновик. Попробуйте ответить вручную."
+    en: "Failed to generate draft. Try replying manually."
+
+  copy_draft_btn:
+    ru: "Скопировать черновик"
+    en: "Copy draft"

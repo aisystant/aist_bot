@@ -1,0 +1,476 @@
+"""
+Ассистент упоминаний в каналах (SC.118).
+
+/channels — настройка мониторинга каналов
+channel_post — детекция упоминаний → уведомление / черновик в личку
+
+Изолированный модуль: собственный Router, не влияет на существующие handlers.
+"""
+
+import asyncio
+import logging
+import os
+from datetime import datetime, timezone
+
+from aiogram import Router, F, Bot
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ChatMemberAdministrator, ChatMemberOwner,
+)
+from aiogram.filters import Command
+
+from clients.claude import ClaudeClient
+from clients.mcp import mcp_knowledge
+from config.settings import CLAUDE_MODEL_HAIKU
+from db.queries import get_intern
+from db.queries.users import is_onboarded
+from db.queries.channels import (
+    get_monitors_for_channel,
+    get_user_monitors,
+    upsert_monitor,
+    deactivate_monitor,
+    is_mention_logged,
+    log_mention,
+    find_user_by_username,
+    find_user_by_name,
+)
+from core.mention_detector import detect_mentions, MentionMatch
+from i18n import t
+
+logger = logging.getLogger(__name__)
+
+channels_router = Router(name="channels")
+
+# Cooldown: не чаще 1 уведомления в 30 сек на канал (per-user)
+_cooldown: dict[tuple[int, int], float] = {}  # (channel_id, chat_id) → timestamp
+_COOLDOWN_SEC = 30
+
+
+def _is_cooled_down(channel_id: int, chat_id: int) -> bool:
+    """Проверить cooldown для пары канал+пользователь."""
+    key = (channel_id, chat_id)
+    last = _cooldown.get(key, 0)
+    now = datetime.now(timezone.utc).timestamp()
+    if now - last < _COOLDOWN_SEC:
+        return False
+    _cooldown[key] = now
+    return True
+
+
+# ═══════════════════════════════════════════════════════════
+# /channels — настройка мониторинга
+# ═══════════════════════════════════════════════════════════
+
+@channels_router.message(Command("channels"))
+async def cmd_channels(message: Message, bot: Bot):
+    """Показать список отслеживаемых каналов и управление ими."""
+    intern = await get_intern(message.chat.id)
+    if not intern or not is_onboarded(intern):
+        await message.answer(t('channels.not_onboarded', intern.get('language', 'ru') if intern else 'ru'))
+        return
+
+    monitors = await get_user_monitors(message.chat.id)
+    lang = intern.get('language', 'ru')
+
+    if not monitors:
+        await message.answer(t('channels.no_monitors', lang))
+        return
+
+    # Список каналов с кнопками вкл/выкл
+    lines = [t('channels.list_header', lang)]
+    buttons = []
+    for m in monitors:
+        status = '🟢' if m['active'] else '🔴'
+        admin_badge = ' 👑' if m['is_admin'] else ''
+        lines.append(f"{status} <b>{m['channel_title'] or m['channel_id']}</b>{admin_badge}")
+
+        action = 'off' if m['active'] else 'on'
+        action_label = '🔴 Выкл' if m['active'] else '🟢 Вкл'
+        buttons.append([InlineKeyboardButton(
+            text=f"{action_label} {m['channel_title'] or m['channel_id']}",
+            callback_data=f"chmon:{action}:{m['channel_id']}",
+        )])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+    await message.answer('\n'.join(lines), reply_markup=kb, parse_mode='HTML')
+
+
+@channels_router.callback_query(F.data.startswith("chmon:"))
+async def cb_channel_monitor(callback: CallbackQuery):
+    """Вкл/выкл мониторинг канала."""
+    parts = callback.data.split(':')
+    if len(parts) != 3:
+        await callback.answer("❌")
+        return
+
+    action, channel_id_str = parts[1], parts[2]
+    try:
+        channel_id = int(channel_id_str)
+    except ValueError:
+        await callback.answer("❌")
+        return
+
+    chat_id = callback.from_user.id
+
+    if action == 'off':
+        await deactivate_monitor(channel_id, chat_id)
+        await callback.answer("🔴 Мониторинг выключен")
+    else:
+        # Реактивация
+        intern = await get_intern(chat_id)
+        if intern:
+            await upsert_monitor(
+                channel_id=channel_id,
+                channel_title='',
+                user_id=str(intern['user_id']),
+                chat_id=chat_id,
+            )
+        await callback.answer("🟢 Мониторинг включён")
+
+    # Обновить сообщение
+    await cmd_channels(callback.message, callback.message.bot)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+
+# ═══════════════════════════════════════════════════════════
+# my_chat_member — автоматическая регистрация при добавлении бота в канал
+# ═══════════════════════════════════════════════════════════
+
+@channels_router.my_chat_member()
+async def on_bot_added_to_channel(update):
+    """Когда бота добавляют в канал/группу как админа — предложить мониторинг."""
+    new_member = update.new_chat_member
+    old_member = update.old_chat_member
+
+    # Бот стал админом?
+    is_now_admin = isinstance(new_member, (ChatMemberAdministrator, ChatMemberOwner))
+    was_admin = isinstance(old_member, (ChatMemberAdministrator, ChatMemberOwner))
+
+    if not is_now_admin or was_admin:
+        return  # Не новое назначение админом
+
+    chat = update.chat
+    added_by = update.from_user
+
+    if not added_by:
+        return
+
+    # Найти пользователя бота, который добавил
+    intern = await get_intern(added_by.id)
+    if not intern or not is_onboarded(intern):
+        return
+
+    # Определить, является ли добавивший владельцем/админом
+    is_admin = True  # Раз добавил бота — скорее всего админ
+
+    # Автоматически создать монитор
+    await upsert_monitor(
+        channel_id=chat.id,
+        channel_title=chat.title or str(chat.id),
+        user_id=str(intern['user_id']),
+        chat_id=added_by.id,
+        is_admin=is_admin,
+    )
+
+    # Уведомить пользователя в личку
+    lang = intern.get('language', 'ru')
+    try:
+        bot = update.bot
+        await bot.send_message(
+            added_by.id,
+            t('channels.auto_registered', lang, channel=chat.title or str(chat.id)),
+            parse_mode='HTML',
+        )
+    except Exception as e:
+        logger.warning(f"[SC.118] Failed to notify {added_by.id} about channel registration: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
+# channel_post / message в группах — детекция упоминаний
+# ═══════════════════════════════════════════════════════════
+
+@channels_router.channel_post()
+async def on_channel_post(message: Message, bot: Bot):
+    """Обработка сообщений в каналах — детекция упоминаний."""
+    await _process_channel_message(message, bot)
+
+
+@channels_router.message(F.chat.type.in_({"group", "supergroup"}))
+async def on_group_message(message: Message, bot: Bot):
+    """Обработка сообщений в группах — детекция упоминаний."""
+    # Не реагировать на команды бота
+    if message.text and message.text.startswith('/'):
+        return
+    await _process_channel_message(message, bot)
+
+
+async def _process_channel_message(message: Message, bot: Bot):
+    """Общая логика обработки сообщений из каналов/групп."""
+    if not message.text:
+        return
+
+    channel_id = message.chat.id
+
+    # Получить мониторы для этого канала
+    monitors = await get_monitors_for_channel(channel_id)
+    if not monitors:
+        return
+
+    # Детектировать упоминания
+    matches = detect_mentions(message, monitors)
+    if not matches:
+        # Проверить reply на сообщение пользователя бота (для участников без монитора)
+        if message.reply_to_message and message.reply_to_message.from_user:
+            reply_user_id = message.reply_to_message.from_user.id
+            # Ищем в БД бота
+            for m in monitors:
+                if m['chat_id'] == reply_user_id:
+                    break
+            else:
+                # Пользователь не в мониторах, но может быть участником бота
+                await _notify_reply_to_bot_user(message, bot, reply_user_id)
+        return
+
+    # Обработать каждое упоминание
+    for match in matches:
+        # Cooldown
+        if not _is_cooled_down(channel_id, match.chat_id):
+            continue
+
+        # Дедупликация (log-before-send)
+        if await is_mention_logged(channel_id, message.message_id, match.chat_id):
+            continue
+
+        # Записать лог ДО отправки (idempotent notifications, rule 10.10)
+        await log_mention(
+            channel_id=channel_id,
+            message_id=message.message_id,
+            mentioned_chat_id=match.chat_id,
+            mention_type=match.mention_type,
+            draft_sent=match.is_admin,
+        )
+
+        if match.is_admin:
+            # Админ/владелец — черновик ответа
+            asyncio.create_task(
+                _send_draft_notification(message, bot, match)
+            )
+        else:
+            # Обычный участник — простое уведомление
+            await _send_simple_notification(message, bot, match)
+
+
+async def _notify_reply_to_bot_user(message: Message, bot: Bot, reply_user_id: int):
+    """Уведомить участника бота, если на его сообщение ответили (даже без монитора)."""
+    intern = await get_intern(reply_user_id)
+    if not intern or not is_onboarded(intern):
+        return
+
+    channel_id = message.chat.id
+
+    # Cooldown + dedup
+    if not _is_cooled_down(channel_id, reply_user_id):
+        return
+    if await is_mention_logged(channel_id, message.message_id, reply_user_id):
+        return
+
+    await log_mention(
+        channel_id=channel_id,
+        message_id=message.message_id,
+        mentioned_chat_id=reply_user_id,
+        mention_type='reply',
+        draft_sent=False,
+    )
+
+    lang = intern.get('language', 'ru')
+    channel_title = message.chat.title or str(channel_id)
+    author = _format_author(message.from_user)
+    original_text = (message.reply_to_message.text or '')[:200]
+    reply_text = (message.text or '')[:500]
+
+    text = t('channels.reply_notification', lang,
+             channel=channel_title,
+             original_text=original_text,
+             author=author,
+             reply_text=reply_text)
+
+    try:
+        await bot.send_message(reply_user_id, text, parse_mode='HTML')
+    except Exception as e:
+        logger.warning(f"[SC.118] Failed to send reply notification to {reply_user_id}: {e}")
+
+
+async def _send_simple_notification(message: Message, bot: Bot, match: MentionMatch):
+    """Отправить простое уведомление об упоминании."""
+    lang = match.monitor.get('language', 'ru')
+    channel_title = message.chat.title or str(message.chat.id)
+    author = _format_author(message.from_user)
+    msg_text = (message.text or '')[:500]
+
+    if match.mention_type == 'reply':
+        original_text = ''
+        if message.reply_to_message and message.reply_to_message.text:
+            original_text = message.reply_to_message.text[:200]
+        text = t('channels.reply_notification', lang,
+                 channel=channel_title,
+                 original_text=original_text,
+                 author=author,
+                 reply_text=msg_text)
+    else:
+        text = t('channels.mention_notification', lang,
+                 channel=channel_title,
+                 author=author,
+                 message=msg_text)
+
+    try:
+        await bot.send_message(match.chat_id, text, parse_mode='HTML')
+    except Exception as e:
+        logger.warning(f"[SC.118] Failed to send mention notification to {match.chat_id}: {e}")
+
+
+async def _send_draft_notification(message: Message, bot: Bot, match: MentionMatch):
+    """Сгенерировать черновик ответа и отправить админу/владельцу."""
+    lang = match.monitor.get('language', 'ru')
+    channel_title = message.chat.title or str(message.chat.id)
+    author = _format_author(message.from_user)
+    msg_text = message.text or ''
+
+    # Контекст: последние сообщения в треде (если reply)
+    context_text = msg_text
+    if message.reply_to_message and message.reply_to_message.text:
+        context_text = f"Исходное сообщение: {message.reply_to_message.text[:300]}\n\nОтвет: {msg_text}"
+
+    # Поиск знаний через knowledge-mcp
+    knowledge_context = ''
+    try:
+        results = await mcp_knowledge.search(msg_text[:200], limit=3)
+        if results:
+            snippets = []
+            for r in results[:3]:
+                content = r.get('content', r.get('text', ''))
+                if content:
+                    snippets.append(content[:300])
+            if snippets:
+                knowledge_context = '\n\n'.join(snippets)
+    except Exception as e:
+        logger.warning(f"[SC.118] Knowledge search failed: {e}")
+
+    # Генерация черновика через Claude (Haiku для скорости)
+    draft = await _generate_draft(context_text, knowledge_context, lang)
+
+    # Формируем уведомление
+    text = t('channels.draft_notification', lang,
+             channel=channel_title,
+             author=author,
+             message=msg_text[:500],
+             draft=draft or t('channels.draft_failed', lang))
+
+    # Кнопка копирования (Telegram не поддерживает copy — просто показываем)
+    kb = None
+    if draft:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text='📋 ' + t('channels.copy_draft_btn', lang),
+                callback_data=f"chdraft:copy:{message.chat.id}:{message.message_id}",
+            ),
+        ]])
+
+    try:
+        await bot.send_message(match.chat_id, text, reply_markup=kb, parse_mode='HTML')
+    except Exception as e:
+        logger.warning(f"[SC.118] Failed to send draft to {match.chat_id}: {e}")
+
+
+async def _generate_draft(context: str, knowledge: str, lang: str) -> str:
+    """Сгенерировать черновик ответа через Claude Haiku."""
+    claude = ClaudeClient()
+
+    knowledge_block = ''
+    if knowledge:
+        knowledge_block = f"\n\nРелевантные знания из базы:\n{knowledge}"
+
+    system = (
+        "Ты — ассистент, помогающий подготовить ответ на сообщение в Telegram-канале. "
+        "Пиши от первого лица, как будто отвечает владелец канала. "
+        "Ответ должен быть кратким (2-4 предложения), по существу. "
+        "Если есть релевантные знания из базы — используй их. "
+        "Не используй форматирование Markdown. Пиши простым текстом."
+        f"{knowledge_block}"
+    )
+
+    payload = {
+        "model": CLAUDE_MODEL_HAIKU,
+        "max_tokens": 500,
+        "system": system,
+        "messages": [
+            {"role": "user", "content": f"Подготовь черновик ответа на это сообщение:\n\n{context[:1000]}"},
+        ],
+    }
+
+    try:
+        result = await claude._api_call(payload, timeout=15)
+        if result and result.get('content'):
+            for block in result['content']:
+                if block.get('type') == 'text':
+                    return block['text']
+    except Exception as e:
+        logger.error(f"[SC.118] Draft generation failed: {e}")
+
+    return ''
+
+
+@channels_router.callback_query(F.data.startswith("chdraft:copy:"))
+async def cb_copy_draft(callback: CallbackQuery):
+    """Показать черновик в отдельном сообщении для удобного копирования."""
+    # Извлекаем черновик из текущего сообщения (секция после ✏️)
+    text = callback.message.text or callback.message.html_text or ''
+    draft_marker = '✏️'
+    separator = '───'
+
+    # Ищем черновик между маркерами
+    draft_start = text.find(draft_marker)
+    if draft_start == -1:
+        await callback.answer("Черновик не найден")
+        return
+
+    # Берём текст после маркера черновика до следующего разделителя
+    after_marker = text[draft_start:]
+    lines = after_marker.split('\n')
+    draft_lines = []
+    started = False
+    for line in lines:
+        if separator in line:
+            if started:
+                break
+            started = True
+            continue
+        if started:
+            draft_lines.append(line)
+
+    # Если не нашли по разделителям, берём всё после маркера
+    if not draft_lines:
+        draft_lines = lines[1:]  # Пропускаем строку с маркером
+
+    draft = '\n'.join(draft_lines).strip()
+    if not draft:
+        await callback.answer("Черновик не найден")
+        return
+
+    await callback.message.answer(f"<code>{draft}</code>", parse_mode='HTML')
+    await callback.answer("📋 Скопируйте текст выше")
+
+
+def _format_author(user) -> str:
+    """Форматировать имя автора сообщения."""
+    if not user:
+        return 'Аноним'
+    parts = []
+    if user.first_name:
+        parts.append(user.first_name)
+    if user.last_name:
+        parts.append(user.last_name)
+    return ' '.join(parts) if parts else (user.username or 'Аноним')

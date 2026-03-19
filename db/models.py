@@ -1209,4 +1209,50 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception as e:
             logger.warning(f"[Migration] Backfill dt_user_id skipped: {e}")
 
+        # ═══════════════════════════════════════════════════════════
+        # МОНИТОРИНГ КАНАЛОВ (SC.118)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS channel_monitors (
+                id SERIAL PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                channel_title TEXT,
+                user_id UUID NOT NULL REFERENCES public.users(id),
+                chat_id BIGINT NOT NULL,
+
+                -- Настройки мониторинга
+                is_admin BOOLEAN DEFAULT FALSE,
+                track_username BOOLEAN DEFAULT TRUE,
+                track_reply BOOLEAN DEFAULT TRUE,
+                track_name BOOLEAN DEFAULT TRUE,
+                active BOOLEAN DEFAULT TRUE,
+
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+                updated_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+
+                UNIQUE(channel_id, chat_id)
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS channel_mentions_log (
+                id SERIAL PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                message_id BIGINT NOT NULL,
+                mentioned_chat_id BIGINT NOT NULL,
+
+                mention_type TEXT NOT NULL,
+                draft_sent BOOLEAN DEFAULT FALSE,
+
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+
+                UNIQUE(channel_id, message_id, mentioned_chat_id)
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_channel_monitors_channel
+            ON channel_monitors(channel_id) WHERE active = TRUE
+        ''')
+
     logger.info("All tables created/updated")
