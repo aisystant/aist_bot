@@ -63,24 +63,44 @@ async def log_event(
         external_id = _make_external_id(user_id, event_type)
 
         async with pool.acquire() as conn:
-            row = await conn.fetchrow('''
-                INSERT INTO development.user_events
-                    (user_id, event_type, source, payload, confidence,
-                     skill_ids, user_uuid, external_id)
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
-                ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
-                DO NOTHING
-                RETURNING id
-            ''',
-                user_id,
-                event_type,
-                source,
-                json.dumps(payload) if payload else '{}',
-                confidence,
-                skill_ids or [],
-                user_uuid,
-                external_id,
-            )
+            # Попытка 1: с external_id + dedup (Neon с миграцией Hub)
+            try:
+                row = await conn.fetchrow('''
+                    INSERT INTO development.user_events
+                        (user_id, event_type, source, payload, confidence,
+                         skill_ids, user_uuid, external_id)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
+                    ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
+                    DO NOTHING
+                    RETURNING id
+                ''',
+                    user_id,
+                    event_type,
+                    source,
+                    json.dumps(payload) if payload else '{}',
+                    confidence,
+                    skill_ids or [],
+                    user_uuid,
+                    external_id,
+                )
+            except Exception:
+                # Fallback: без external_id (pilot DB без миграции Hub)
+                row = await conn.fetchrow('''
+                    INSERT INTO development.user_events
+                        (user_id, event_type, source, payload, confidence,
+                         skill_ids, user_uuid)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+                    RETURNING id
+                ''',
+                    user_id,
+                    event_type,
+                    source,
+                    json.dumps(payload) if payload else '{}',
+                    confidence,
+                    skill_ids or [],
+                    user_uuid,
+                )
+
             event_id = row['id'] if row else None
             if event_id:
                 logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")

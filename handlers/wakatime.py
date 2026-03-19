@@ -43,7 +43,10 @@ async def cmd_wakatime(message: Message):
     parts = text.strip().split(maxsplit=1)
     subcommand = parts[1].lower() if len(parts) > 1 else None
 
-    is_connected = await wakatime_oauth.is_connected(telegram_user_id)
+    try:
+        is_connected = await wakatime_oauth.is_connected(telegram_user_id)
+    except Exception:
+        is_connected = False
 
     if subcommand == "disconnect":
         if is_connected:
