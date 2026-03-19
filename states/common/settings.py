@@ -1457,10 +1457,16 @@ class SettingsState(BaseState):
 
         if waka_conn:
             waka_user = waka_conn.get('wakatime_username', '')
-            text = f"📊 *WakaTime {t('settings.connected', lang)}*\n"
+            text = "📊 *WakaTime подключён*\n"
             if waka_user:
                 text += f"User: *{waka_user}*\n"
-            text += f"\n/waka — {t('settings.waka_check_stats', lang)}"
+            text += (
+                "\nЧто даёт:\n"
+                "• Время работы в IWE учитывается в цифровом двойнике\n"
+                "• На основе этих данных считается мультипликатор IWE\n"
+                "• Данные поступают автоматически\n"
+                f"\n/waka — {t('settings.waka_check_stats', lang)}"
+            )
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('settings.waka_disconnect', lang), callback_data="conn_waka_disconnect")],
@@ -1468,13 +1474,27 @@ class SettingsState(BaseState):
             ])
         else:
             text = (
-                f"📊 *WakaTime*\n\n"
-                f"{t('settings.waka_intro', lang)}\n\n"
-                f"{t('settings.waka_enter_key', lang)}"
+                "📊 *WakaTime* — трекинг времени работы в IWE\n\n"
+                "Что даёт:\n"
+                "• Автоматический учёт времени работы в VS Code\n"
+                "• Данные попадают в цифровой двойник для аналитики\n"
+                "• На основе этих данных считается мультипликатор IWE — "
+                "сколько результатов вы создаёте на час работы\n"
+                "• Статистика доступна через /waka"
             )
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
-            ])
+
+            # OAuth-кнопка (если настроен) + fallback на ввод API-ключа
+            buttons = []
+            try:
+                from clients.wakatime_oauth import wakatime_oauth
+                auth_url, state = wakatime_oauth.get_authorization_url(chat_id)
+                buttons.append([InlineKeyboardButton(text="Подключить WakaTime", url=auth_url)])
+                text += "\n\nИли вручную — введите API-ключ (wakatime.com/settings/api-key):"
+            except Exception:
+                text += f"\n\n{t('settings.waka_enter_key', lang)}"
+
+            buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
             await self._set_waiting(user, 'wakatime_key')
 
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
