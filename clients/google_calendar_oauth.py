@@ -334,6 +334,18 @@ class GoogleCalendarOAuthClient:
             time_max=end.isoformat(),
         )
 
+    async def get_week_events(self, telegram_user_id: int) -> Optional[List[Dict[str, Any]]]:
+        """Получает события на 7 дней вперёд (МСК)."""
+        now_msk = datetime.now(MOSCOW_TZ)
+        start = now_msk.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=7)
+
+        return await self.get_events(
+            telegram_user_id,
+            time_min=start.isoformat(),
+            time_max=end.isoformat(),
+        )
+
     async def get_calendar_list(self, telegram_user_id: int) -> Optional[List[Dict[str, Any]]]:
         """Получает список всех календарей пользователя."""
         access_token = await self.get_access_token(telegram_user_id)
@@ -515,6 +527,46 @@ def format_events_message(events: List[Dict[str, Any]], title: str = "Сегод
         cal_name = ev.get("_calendar_summary", "")
         cal_suffix = f" <i>({cal_name})</i>" if cal_name else ""
         lines.append(f"• {time_str} — {summary}{cal_suffix}")
+
+    lines.append(f"\n<i>Всего: {len(events)}</i>")
+    return "\n".join(lines)
+
+
+DAY_NAMES_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+MONTH_NAMES_RU = ["", "янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+
+def format_week_events_message(events: List[Dict[str, Any]]) -> str:
+    """Форматирует события за 7 дней, группируя по дням."""
+    if not events:
+        return "<b>7 дней</b>\n\nСобытий нет."
+
+    # Группируем по дате
+    days: Dict[str, List[Dict[str, Any]]] = {}
+    for ev in events:
+        start = ev.get("start", {})
+        dt_str = start.get("dateTime", start.get("date", ""))
+        if not dt_str:
+            continue
+        try:
+            dt = datetime.fromisoformat(dt_str)
+            date_key = dt.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            continue
+        days.setdefault(date_key, []).append(ev)
+
+    lines = ["<b>7 дней</b>\n"]
+    for date_key in sorted(days.keys()):
+        dt = datetime.strptime(date_key, "%Y-%m-%d")
+        day_name = DAY_NAMES_RU[dt.weekday()]
+        month_name = MONTH_NAMES_RU[dt.month]
+        lines.append(f"\n<b>{dt.day} {month_name} ({day_name})</b>")
+        for ev in days[date_key]:
+            time_str = format_event_time(ev)
+            summary = ev.get("summary", "Без названия")
+            cal_name = ev.get("_calendar_summary", "")
+            cal_suffix = f" <i>({cal_name})</i>" if cal_name else ""
+            lines.append(f"  • {time_str} — {summary}{cal_suffix}")
 
     lines.append(f"\n<i>Всего: {len(events)}</i>")
     return "\n".join(lines)

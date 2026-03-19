@@ -51,10 +51,8 @@ async def cmd_calendar(message: Message):
 
     # Проверяем подключение
     if await google_calendar_oauth.is_connected(telegram_user_id):
-        # Показываем события на сегодня
         await _show_today_events(message, telegram_user_id)
     else:
-        # Предлагаем подключить
         await _show_connect(message, telegram_user_id)
 
 
@@ -71,7 +69,7 @@ async def cb_gcal_today(callback: CallbackQuery):
         return
 
     text = format_events_message(events, title="Сегодня")
-    keyboard = _events_keyboard()
+    keyboard = _kb_from_today()
 
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
@@ -93,7 +91,29 @@ async def cb_gcal_tomorrow(callback: CallbackQuery):
         return
 
     text = format_events_message(events, title="Завтра")
-    keyboard = _events_keyboard()
+    keyboard = _kb_from_tomorrow()
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@gcal_router.callback_query(F.data == "gcal_week")
+async def cb_gcal_week(callback: CallbackQuery):
+    """Callback: показать события на 7 дней."""
+    from clients.google_calendar_oauth import google_calendar_oauth, format_week_events_message
+
+    telegram_user_id = callback.from_user.id
+    events = await google_calendar_oauth.get_week_events(telegram_user_id)
+
+    if events is None:
+        await callback.answer("Не удалось получить события. Попробуйте /calendar", show_alert=True)
+        return
+
+    text = format_week_events_message(events)
+    keyboard = _kb_from_week()
 
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
@@ -156,20 +176,43 @@ async def _show_today_events(message: Message, telegram_user_id: int):
         return
 
     text = format_events_message(events, title="Сегодня")
-    keyboard = _events_keyboard()
+    keyboard = _kb_from_today()
     await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
 
-def _events_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для переключения день/завтра + отключение."""
+# --- Контекстные клавиатуры ---
+
+def _kb_from_today() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Завтра", callback_data="gcal_tomorrow"),
+                InlineKeyboardButton(text="7 дней", callback_data="gcal_week"),
+            ],
+            [InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect")],
+        ]
+    )
+
+
+def _kb_from_tomorrow() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Сегодня", callback_data="gcal_today"),
+                InlineKeyboardButton(text="7 дней", callback_data="gcal_week"),
+            ],
+            [InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect")],
+        ]
+    )
+
+
+def _kb_from_week() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="Сегодня", callback_data="gcal_today"),
                 InlineKeyboardButton(text="Завтра", callback_data="gcal_tomorrow"),
             ],
-            [
-                InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect"),
-            ],
+            [InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect")],
         ]
     )
