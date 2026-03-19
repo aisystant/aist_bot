@@ -227,6 +227,9 @@ commands:
   github:
     ru: "/github — подключение GitHub"
     en: "/github — GitHub integration"
+  channels:
+    ru: "/channels — мониторинг каналов"
+    en: "/channels — channel monitoring"
   club:
     ru: "/club — публикация в клубе"
     en: "/club — club publishing"
@@ -5645,6 +5648,10 @@ channels:
   not_onboarded:
     ru: "Сначала пройдите онбординг через /start"
     en: "Please complete onboarding first via /start"
+
+  tier_required:
+    ru: "Мониторинг каналов доступен с подпиской «Бесконечное развитие».\n\n/buy — оформить подписку"
+    en: "Channel monitoring requires an active «Infinite Development» subscription.\n\n/buy — subscribe"
 
   no_monitors:
     ru: "У вас нет отслеживаемых каналов.\n\nДобавьте бота как админа в свой канал или группу — мониторинг включится автоматически."
