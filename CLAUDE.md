@@ -556,6 +556,26 @@ aiogram FSM-хендлеры (`@router.message(State)`) перехватываю
 
 ---
 
+### 10.28. Webhook allowed_updates (SC.118)
+
+`set_webhook()` по умолчанию НЕ включает `channel_post` и `my_chat_member`. Без явного `allowed_updates=[..., "channel_post", "my_chat_member"]` Telegram не отправляет эти updates боту. При добавлении нового типа update — обновить список в bot.py (оба места: основной + re-register).
+
+### 10.29. Fallback не обрабатывает каналы/группы
+
+`fallback.py:on_unknown_message` игнорирует `chat.type in ('channel', 'group', 'supergroup')`. Без этого fallback создаёт «пользователя» для chat_id канала и запускает onboarding в канал.
+
+### 10.30. SC.118 Channel Mentions Assistant
+
+**Модуль:** `handlers/channels.py`, `core/mention_detector.py`, `db/queries/channels.py`
+
+**Как работает:** Бот как админ в группе → `channel_post`/`message` → `detect_mentions()` (username, reply, имя) → admin: черновик через Opus + knowledge-mcp → личка. Участник: простое уведомление.
+
+**Auto-discovery:** При первом сообщении из канала без мониторов → `getChatMember` для всех пользователей бота → создание мониторов для найденных админов. Кэш `_discovered_channels` предотвращает повторный перебор.
+
+**Правила:** Cooldown 30 сек. Log-before-send дедупликация. `is_onboarded()` — async, вызывать с await.
+
+---
+
 ## SOTA: Context Engineering (DP.SOTA.002)
 
 > Бот — surface view над Pack и DDT. Контекст бота = проекция, не копия.
