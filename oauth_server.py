@@ -789,6 +789,18 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
 
     logger.info(f"User {telegram_user_id} connected to WakaTime")
 
+    # Dual write: сохранить OAuth-токен и в wakatime_connections (для /waka)
+    try:
+        from db.queries.wakatime import save_wakatime_connection
+        access_token = tokens.get("access_token")
+        if access_token:
+            await save_wakatime_connection(
+                chat_id=telegram_user_id,
+                api_key=access_token,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to sync WakaTime to wakatime_connections: {e}")
+
     if _bot_instance:
         try:
             keyboard = InlineKeyboardMarkup(
