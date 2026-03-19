@@ -36,6 +36,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .progress import progress_router
     from .twin import twin_router
     from .github import github_router
+    from .google_calendar import gcal_router
     from .strategist import strategist_router
     from .feedback import feedback_router
     from .dev import dev_router
@@ -62,6 +63,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(dev_router)
     dp.include_router(feedback_router)
     dp.include_router(github_router)
+    dp.include_router(gcal_router)
     dp.include_router(discourse_router)
     dp.include_router(link_router)
     dp.include_router(schedule_router)
