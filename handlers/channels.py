@@ -69,7 +69,7 @@ def _is_cooled_down(channel_id: int, chat_id: int) -> bool:
 async def cmd_channels(message: Message, bot: Bot):
     """Показать список отслеживаемых каналов и управление ими."""
     intern = await get_intern(message.chat.id)
-    if not intern or not is_onboarded(intern):
+    if not intern or not await is_onboarded(intern):
         await message.answer(t('channels.not_onboarded', intern.get('language', 'ru') if intern else 'ru'))
         return
 
@@ -164,7 +164,7 @@ async def on_bot_added_to_channel(update):
 
     # Найти пользователя бота, который добавил
     intern = await get_intern(added_by.id)
-    if not intern or not is_onboarded(intern):
+    if not intern or not await is_onboarded(intern):
         return
 
     # Определить, является ли добавивший владельцем/админом
@@ -325,7 +325,7 @@ async def _process_channel_message(message: Message, bot: Bot):
 async def _notify_reply_to_bot_user(message: Message, bot: Bot, reply_user_id: int):
     """Уведомить участника бота, если на его сообщение ответили (даже без монитора)."""
     intern = await get_intern(reply_user_id)
-    if not intern or not is_onboarded(intern):
+    if not intern or not await is_onboarded(intern):
         return
 
     channel_id = message.chat.id
