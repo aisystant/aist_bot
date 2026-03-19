@@ -1,18 +1,32 @@
 """
-Запись событий в development.user_events (WP-85, DP.ARCH.003).
+Запись событий в development.user_events (WP-85, DP.ARCH.003, WP-109).
 
 Append-only event log — Layer 1 архитектуры ЦД.
 Единая точка записи для всех событий бота.
 Fire-and-forget: ошибка записи НЕ ломает основной flow.
+
+Integrity Pipeline (WP-109 Bot Adapter):
+- external_id для dedup (ON CONFLICT DO NOTHING)
+- Совместимость с Activity Hub (общий unique index на source+external_id)
 """
 
 import json
 import logging
+import time
 from typing import Optional
 
 from db.connection import get_pool
 
 logger = logging.getLogger(__name__)
+
+
+def _make_external_id(user_id: int, event_type: str) -> str:
+    """Генерация unique external_id для dedup.
+
+    Формат: bot-{user_id}-{event_type}-{timestamp_ns}
+    Наносекундная точность гарантирует уникальность при быстрых вызовах.
+    """
+    return f"bot-{user_id}-{event_type}-{time.time_ns()}"
 
 
 async def log_event(
@@ -23,7 +37,7 @@ async def log_event(
     skill_ids: Optional[list] = None,
     source: str = 'bot',
 ) -> Optional[int]:
-    """Записать событие в development.user_events.
+    """Записать событие в development.user_events через Integrity Pipeline.
 
     Args:
         user_id: chat_id пользователя (пока без FK на public.users)
@@ -34,7 +48,7 @@ async def log_event(
         source: продьюсер ('bot', 'lms', 'club', 'web_app')
 
     Returns:
-        id записи или None при ошибке
+        id записи или None при ошибке/dedup
     """
     try:
         pool = await get_pool()
@@ -46,11 +60,16 @@ async def log_event(
         except Exception:
             pass
 
+        external_id = _make_external_id(user_id, event_type)
+
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
                 INSERT INTO development.user_events
-                    (user_id, event_type, source, payload, confidence, skill_ids, user_uuid)
-                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+                    (user_id, event_type, source, payload, confidence,
+                     skill_ids, user_uuid, external_id)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
+                ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
+                DO NOTHING
                 RETURNING id
             ''',
                 user_id,
@@ -60,10 +79,13 @@ async def log_event(
                 confidence,
                 skill_ids or [],
                 user_uuid,
+                external_id,
             )
             event_id = row['id'] if row else None
             if event_id:
                 logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")
+            else:
+                logger.debug(f"[Events] {event_type} dedup skip for {user_id}")
             return event_id
     except Exception as e:
         logger.warning(f"[Events] Failed to log {event_type} for {user_id}: {e}")

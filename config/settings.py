@@ -60,6 +60,11 @@ GOOGLE_CALENDAR_CLIENT_ID = os.getenv("GOOGLE_CALENDAR_CLIENT_ID")
 GOOGLE_CALENDAR_CLIENT_SECRET = os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET")
 GOOGLE_CALENDAR_REDIRECT_URI = os.getenv("GOOGLE_CALENDAR_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/google-calendar/callback")
 
+# ============= WAKATIME OAUTH (WP-109) =============
+WAKATIME_CLIENT_ID = os.getenv("WAKATIME_CLIENT_ID")
+WAKATIME_CLIENT_SECRET = os.getenv("WAKATIME_CLIENT_SECRET")
+WAKATIME_REDIRECT_URI = os.getenv("WAKATIME_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/wakatime/callback")
+
 # ============= L2 AUTO-FIX (WP-45 Phase 3) =============
 GITHUB_BOT_PAT = os.getenv("GITHUB_BOT_PAT")
 AUTOFIX_REPO = os.getenv("AUTOFIX_REPO", "aisystant/aist_bot")

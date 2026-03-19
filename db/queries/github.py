@@ -103,3 +103,47 @@ async def delete_github_connection(chat_id: int) -> None:
             'DELETE FROM github_connections WHERE chat_id = $1', chat_id
         )
     logger.info(f"Deleted GitHub connection for user {chat_id}")
+
+
+async def sync_github_to_user_integrations(
+    chat_id: int,
+    access_token: str,
+    github_username: str,
+    scope: str = 'repo',
+) -> None:
+    """Dual write: синхронизировать GitHub-токен в development.user_integrations.
+
+    Activity Hub IWE-адаптер читает токены из user_integrations (WP-109).
+    Эта функция вызывается при GitHub OAuth callback для dual write.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Резолвим user_uuid из public.users
+        row = await conn.fetchrow(
+            'SELECT id FROM public.users WHERE telegram_id = $1', chat_id
+        )
+        if not row or not row['id']:
+            logger.warning(
+                f"sync_github_to_user_integrations: no user_uuid for chat_id={chat_id}, skipping"
+            )
+            return
+
+        user_uuid = row['id']
+
+        await conn.execute('''
+            INSERT INTO development.user_integrations
+                (user_uuid, service, access_token, scope, metadata, connected_at, updated_at, active)
+            VALUES ($1, 'github', $2, $3, $4, NOW(), NOW(), TRUE)
+            ON CONFLICT (user_uuid, service) DO UPDATE SET
+                access_token = $2,
+                scope = $3,
+                metadata = $4,
+                updated_at = NOW(),
+                active = TRUE
+        ''',
+            user_uuid,
+            access_token,
+            scope,
+            f'{{"github_username": "{github_username}"}}',
+        )
+        logger.info(f"Synced GitHub token to user_integrations for chat_id={chat_id}")

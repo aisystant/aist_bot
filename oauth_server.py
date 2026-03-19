@@ -1,14 +1,15 @@
 """
 OAuth callback сервер.
 
-Обрабатывает OAuth callbacks от Linear, Digital Twin, GitHub, Google Calendar.
+Обрабатывает OAuth callbacks от Linear, Digital Twin, GitHub, Google Calendar, WakaTime.
 Запускается параллельно с ботом на порту 8080.
 
 Endpoints:
 - GET /auth/linear/callback — OAuth callback от Linear
 - GET /auth/twin/callback — OAuth callback от Digital Twin
-- GET /auth/github/callback — OAuth callback от GitHub
+- GET /auth/github/callback — OAuth callback от GitHub (+ dual write в user_integrations, WP-109)
 - GET /auth/google-calendar/callback — OAuth callback от Google Calendar
+- GET /auth/wakatime/callback — OAuth callback от WakaTime (WP-109 Activity Hub)
 - GET /health — health check для Railway
 """
 
@@ -21,6 +22,7 @@ from clients.linear_oauth import linear_oauth
 from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
 from clients.google_calendar_oauth import google_calendar_oauth
+from clients.wakatime_oauth import wakatime_oauth
 
 logger = get_logger(__name__)
 
@@ -454,7 +456,7 @@ async def github_callback_handler(request: web.Request) -> web.Response:
     github_login = user_info.get("login", "user") if user_info else "user"
 
     if user_info and github_login != "user":
-        from db.queries.github import save_github_connection
+        from db.queries.github import save_github_connection, sync_github_to_user_integrations
         access_token = await github_oauth.get_access_token(telegram_user_id)
         if access_token:
             await save_github_connection(
@@ -462,6 +464,15 @@ async def github_callback_handler(request: web.Request) -> web.Response:
                 access_token=access_token,
                 github_username=github_login,
             )
+            # Dual write: Activity Hub IWE-адаптер (WP-109)
+            try:
+                await sync_github_to_user_integrations(
+                    chat_id=telegram_user_id,
+                    access_token=access_token,
+                    github_username=github_login,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to sync GitHub to user_integrations: {e}")
 
     logger.info(
         f"User {telegram_user_id} connected to GitHub as {github_login}"
@@ -705,6 +716,149 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
     )
 
 
+async def wakatime_callback_handler(request: web.Request) -> web.Response:
+    """Обрабатывает OAuth callback от WakaTime (WP-109 Activity Hub)."""
+    code = request.query.get("code")
+    state = request.query.get("state")
+    error = request.query.get("error")
+
+    if error:
+        error_description = request.query.get("error_description", "Unknown error")
+        logger.error(f"WakaTime OAuth error: {error} - {error_description}")
+        return web.Response(
+            text=f"""
+            <html>
+            <head><title>Ошибка авторизации</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка авторизации WakaTime</h1>
+                <p>{error_description}</p>
+                <p>Вернитесь в Telegram и попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    if not code or not state:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Неверный запрос</h1>
+                <p>Отсутствуют необходимые параметры.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    telegram_user_id = wakatime_oauth.validate_state(state)
+    if not telegram_user_id:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Сессия истекла</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Сессия авторизации истекла</h1>
+                <p>Вернитесь в Telegram и начните авторизацию заново.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    tokens = await wakatime_oauth.exchange_code(code, state)
+    if not tokens:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка получения токена</h1>
+                <p>Не удалось завершить авторизацию WakaTime.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=500,
+        )
+
+    logger.info(f"User {telegram_user_id} connected to WakaTime")
+
+    if _bot_instance:
+        try:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Отключить WakaTime",
+                            callback_data="wakatime_disconnect",
+                        )
+                    ],
+                ]
+            )
+
+            await _bot_instance.send_message(
+                chat_id=telegram_user_id,
+                text=(
+                    "*WakaTime подключён!*\n\n"
+                    "Теперь Activity Hub будет автоматически собирать данные о вашем времени в IDE."
+                ),
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to send WakaTime notification to user {telegram_user_id}: {e}"
+            )
+
+    return web.Response(
+        text=f"""
+        <html>
+        <head>
+            <title>WakaTime подключён!</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background: linear-gradient(135deg, #2595e5 0%, #2dd4bf 100%);
+                    min-height: 100vh;
+                    margin: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .card {{
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    max-width: 400px;
+                }}
+                h1 {{ color: #2595e5; }}
+                p {{ color: #666; line-height: 1.6; }}
+                .success-icon {{ font-size: 64px; margin-bottom: 16px; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="success-icon">✅</div>
+                <h1>WakaTime подключён!</h1>
+                <p>Можете закрыть эту страницу и вернуться в Telegram.</p>
+            </div>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=200,
+    )
+
+
 async def template_update_handler(request: web.Request) -> web.Response:
     """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
 
@@ -892,6 +1046,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
     app.router.add_get("/auth/github/callback", github_callback_handler)
     app.router.add_get("/auth/google-calendar/callback", google_calendar_callback_handler)
+    app.router.add_get("/auth/wakatime/callback", wakatime_callback_handler)
     app.router.add_post("/api/template-update", template_update_handler)
 
     # Webhook route (WP-44: polling → webhooks)
