@@ -305,6 +305,11 @@ async def main():
                 url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
                 secret_token=WEBHOOK_SECRET,
                 drop_pending_updates=False,
+                allowed_updates=[
+                    "message", "callback_query", "inline_query",
+                    "channel_post", "my_chat_member",
+                    "chat_member", "edited_message",
+                ],
             )
             # Verify webhook is reachable (getWebhookInfo diagnostic)
             info = await bot.get_webhook_info()
@@ -343,6 +348,11 @@ async def main():
                         url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
                         secret_token=WEBHOOK_SECRET,
                         drop_pending_updates=False,
+                        allowed_updates=[
+                            "message", "callback_query", "inline_query",
+                            "channel_post", "my_chat_member",
+                            "chat_member", "edited_message",
+                        ],
                     )
                     logger.info("✅ Webhook re-registered (post-deploy safety)")
                 except Exception as e:
