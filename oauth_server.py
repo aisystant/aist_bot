@@ -1,13 +1,14 @@
 """
 OAuth callback сервер.
 
-Обрабатывает OAuth callbacks от Linear, Digital Twin, GitHub.
+Обрабатывает OAuth callbacks от Linear, Digital Twin, GitHub, Google Calendar.
 Запускается параллельно с ботом на порту 8080.
 
 Endpoints:
 - GET /auth/linear/callback — OAuth callback от Linear
 - GET /auth/twin/callback — OAuth callback от Digital Twin
 - GET /auth/github/callback — OAuth callback от GitHub
+- GET /auth/google-calendar/callback — OAuth callback от Google Calendar
 - GET /health — health check для Railway
 """
 
@@ -19,6 +20,7 @@ from config import get_logger, OAUTH_SERVER_PORT
 from clients.linear_oauth import linear_oauth
 from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
+from clients.google_calendar_oauth import google_calendar_oauth
 
 logger = get_logger(__name__)
 
@@ -544,6 +546,165 @@ async def github_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def google_calendar_callback_handler(request: web.Request) -> web.Response:
+    """Обрабатывает OAuth callback от Google Calendar."""
+    code = request.query.get("code")
+    state = request.query.get("state")
+    error = request.query.get("error")
+
+    if error:
+        error_description = request.query.get("error_description", "Unknown error")
+        logger.error(f"Google Calendar OAuth error: {error} - {error_description}")
+        return web.Response(
+            text=f"""
+            <html>
+            <head><title>Ошибка авторизации</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка авторизации Google Calendar</h1>
+                <p>{error_description}</p>
+                <p>Вернитесь в Telegram и попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    if not code or not state:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Неверный запрос</h1>
+                <p>Отсутствуют необходимые параметры.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    telegram_user_id = google_calendar_oauth.validate_state(state)
+    if not telegram_user_id:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Сессия истекла</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Сессия авторизации истекла</h1>
+                <p>Вернитесь в Telegram и начните авторизацию заново (/calendar).</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
+    tokens = await google_calendar_oauth.exchange_code(code, state)
+    if not tokens:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка получения токена</h1>
+                <p>Не удалось завершить авторизацию Google Calendar.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=500,
+        )
+
+    email = tokens.get("email", "")
+    logger.info(f"User {telegram_user_id} connected to Google Calendar ({email})")
+
+    if _bot_instance:
+        try:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="Сегодня",
+                            callback_data="gcal_today",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Завтра",
+                            callback_data="gcal_tomorrow",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="Отключить",
+                            callback_data="gcal_disconnect",
+                        )
+                    ],
+                ]
+            )
+
+            email_line = f"\nАккаунт: *{email}*" if email else ""
+
+            await _bot_instance.send_message(
+                chat_id=telegram_user_id,
+                text=(
+                    f"*Google Calendar подключён!*{email_line}\n\n"
+                    f"Используйте /calendar для просмотра событий."
+                ),
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to send Google Calendar notification to user {telegram_user_id}: {e}"
+            )
+
+    return web.Response(
+        text=f"""
+        <html>
+        <head>
+            <title>Google Calendar подключён!</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background: linear-gradient(135deg, #4285f4 0%, #34a853 100%);
+                    min-height: 100vh;
+                    margin: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                .card {{
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    max-width: 400px;
+                }}
+                h1 {{ color: #4285f4; }}
+                p {{ color: #666; line-height: 1.6; }}
+                .success-icon {{ font-size: 64px; margin-bottom: 16px; }}
+                .email {{ font-weight: bold; color: #333; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="success-icon">✅</div>
+                <h1>Google Calendar подключён!</h1>
+                <p>Можете закрыть эту страницу и вернуться в Telegram.</p>
+            </div>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=200,
+    )
+
+
 async def template_update_handler(request: web.Request) -> web.Response:
     """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
 
@@ -730,6 +891,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
     app.router.add_get("/auth/github/callback", github_callback_handler)
+    app.router.add_get("/auth/google-calendar/callback", google_calendar_callback_handler)
     app.router.add_post("/api/template-update", template_update_handler)
 
     # Webhook route (WP-44: polling → webhooks)

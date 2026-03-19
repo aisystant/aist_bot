@@ -423,6 +423,21 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
+        # GOOGLE CALENDAR ПОДКЛЮЧЕНИЯ (OAuth tokens, WP-128)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS google_calendar_connections (
+                chat_id BIGINT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at TIMESTAMP,
+                email TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # WAKATIME ПОДКЛЮЧЕНИЯ (per-user API keys, WP-60)
         # FK removed (WP-82 Phase 3: interns dropped)
         # ═══════════════════════════════════════════════════════════
