@@ -87,26 +87,30 @@ class SettingsState(BaseState):
         # --- Подключения: сводка ---
         from db.queries.aisystant import get_aisystant_id
         aisystant_id = await get_aisystant_id(chat_id)
-        aisystant_status = "✅" if aisystant_id else "❌"
+        aisystant_status = "✅" if aisystant_id else "☐"
 
         from db.queries.github import get_github_connection
         gh_conn = await get_github_connection(chat_id)
-        github_status = "✅" if gh_conn else "❌"
+        github_status = "✅" if gh_conn else "☐"
 
         from clients.digital_twin import digital_twin
         twin_connected = digital_twin.is_connected(chat_id)
-        twin_status = "✅" if twin_connected else "❌"
+        twin_status = "✅" if twin_connected else "☐"
 
         from db.queries.discourse import get_discourse_account
         club_account = await get_discourse_account(chat_id)
-        club_status = "✅" if club_account else "❌"
+        club_status = "✅" if club_account else "☐"
 
         from db.queries.wakatime import get_wakatime_connection
         waka_conn = await get_wakatime_connection(chat_id)
-        waka_status = "✅" if waka_conn else "❌"
+        waka_status = "✅" if waka_conn else "☐"
+
+        from clients.google_calendar_oauth import google_calendar_oauth
+        gcal_connected = await google_calendar_oauth.is_connected(chat_id)
+        gcal_status = "✅" if gcal_connected else "☐"
 
         notify_iwe = intern.get('notify_template_updates', False)
-        iwe_status = "✅" if notify_iwe else "❌"
+        iwe_status = "✅" if notify_iwe else "☐"
 
         # --- Донаты: сводка ---
         from db.queries.subscription import get_active_subscription
@@ -125,11 +129,12 @@ class SettingsState(BaseState):
 
         # --- Собираем текст ---
         connections_summary = (
-            f"  • Aisystant: {aisystant_status}\n"
-            f"  • {t('settings.twin_label', lang)}: {twin_status}\n"
-            f"  • GitHub: {github_status}\n"
-            f"  • {t('settings.club_label', lang)}: {club_status}\n"
-            f"  • WakaTime: {waka_status}"
+            f"  {aisystant_status} Aisystant\n"
+            f"  {github_status} GitHub\n"
+            f"  {twin_status} {t('settings.twin_label', lang)}\n"
+            f"  {club_status} {t('settings.club_label', lang)}\n"
+            f"  {waka_status} WakaTime\n"
+            f"  {gcal_status} Календарь Google"
         )
 
         # IWE Updates — для T2+ (подписка БР)
@@ -230,6 +235,12 @@ class SettingsState(BaseState):
 
         if data == "conn_waka_disconnect":
             return await self._waka_disconnect(user, callback)
+
+        if data == "conn_gcal":
+            return await self._handle_gcal_connection(user, callback)
+
+        if data == "conn_gcal_disconnect":
+            return await self._gcal_disconnect(user, callback)
 
         if data == "conn_iwe_toggle":
             return await self._show_iwe_details(user, callback)
@@ -926,13 +937,19 @@ class SettingsState(BaseState):
         else:
             waka_status = t('settings.not_connected', lang)
 
+        # Проверяем Google Calendar подключение
+        from clients.google_calendar_oauth import google_calendar_oauth
+        gcal_connected = await google_calendar_oauth.is_connected(chat_id)
+        gcal_status = "✅ " + t('settings.connected', lang) if gcal_connected else t('settings.not_connected', lang)
+
         text = (
-            f"🔗 *{t('settings.connections_label', lang)}*\n\n"
-            f"🔗 Aisystant: {aisystant_status}\n"
-            f"🐙 GitHub: {github_status}\n"
-            f"🤖 {t('settings.twin_label', lang)}: {twin_status}\n"
-            f"🏛 {t('settings.club_label', lang)}: {club_status}\n"
-            f"📊 WakaTime: {waka_status}\n"
+            f"*{t('settings.connections_label', lang)}*\n\n"
+            f"Aisystant: {aisystant_status}\n"
+            f"GitHub: {github_status}\n"
+            f"{t('settings.club_label', lang)}: {club_status}\n"
+            f"{t('settings.twin_label', lang)}: {twin_status}\n"
+            f"WakaTime: {waka_status}\n"
+            f"Календарь Google: {gcal_status}\n"
         )
 
         # Notification toggles per tier
@@ -955,23 +972,20 @@ class SettingsState(BaseState):
 
         buttons = [
             [
-                InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
-                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
-                InlineKeyboardButton(text="🏛 " + t('settings.club_label', lang), callback_data="conn_club"),
+                InlineKeyboardButton(text="Aisystant", callback_data="conn_aisystant"),
+                InlineKeyboardButton(text="GitHub", callback_data="conn_github"),
+                InlineKeyboardButton(text=t('settings.club_label', lang), callback_data="conn_club"),
             ],
             [
-                InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
-                InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
+                InlineKeyboardButton(text=t('settings.twin_label', lang), callback_data="conn_twin"),
+                InlineKeyboardButton(text="IWE", callback_data="conn_iwe_toggle"),
+                InlineKeyboardButton(text="WakaTime", callback_data="conn_waka"),
+            ],
+            [
+                InlineKeyboardButton(text="Календарь Google", callback_data="conn_gcal"),
+                InlineKeyboardButton(text=t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"),
             ],
         ]
-        if iwe_visible or nudges_visible:
-            row = []
-            if iwe_visible:
-                row.append(InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle"))
-            if nudges_visible:
-                row.append(InlineKeyboardButton(text="💪 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"))
-            buttons.append(row)
-
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -1361,6 +1375,61 @@ class SettingsState(BaseState):
         )
         # Тир мог измениться (T3→T2) — подсказка обновить меню
         await self.send(user, t('settings.connection_changed_hint', lang))
+        return None
+
+    # =========== Google Calendar ===========
+
+    async def _handle_gcal_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показываем статус Google Calendar или предлагаем подключить."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.google_calendar_oauth import google_calendar_oauth
+
+        if await google_calendar_oauth.is_connected(chat_id):
+            data = await google_calendar_oauth._get_cached(chat_id)
+            email = data.get('email', '') if data else ''
+            email_line = f"\nАккаунт: *{email}*" if email else ""
+            text = f"*Календарь Google {t('settings.connected', lang)}*{email_line}\n\n/calendar — просмотр событий"
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('settings.waka_disconnect', lang), callback_data="conn_gcal_disconnect")],
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ])
+        else:
+            try:
+                auth_url, state = google_calendar_oauth.get_authorization_url(chat_id)
+            except ValueError:
+                await callback.message.edit_text(
+                    "Календарь Google не настроен.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                    ]),
+                )
+                return None
+
+            text = "*Календарь Google*\n\nПодключите для просмотра событий через бота.\nБот получит доступ только для чтения."
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Подключить", url=auth_url)],
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _gcal_disconnect(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Отключить Google Calendar."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.google_calendar_oauth import google_calendar_oauth
+        await google_calendar_oauth.disconnect(chat_id)
+
+        await callback.message.edit_text(
+            f"Календарь Google: {t('settings.not_connected', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+            ]),
+        )
         return None
 
     # =========== WakaTime ===========
