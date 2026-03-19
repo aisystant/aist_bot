@@ -18,7 +18,7 @@ updated: 2026-03-16
 | 1 | **WP-7** — Техдолг: unsatisfied-questions 6 urgent + feedback_triage кластеры | 3-4h | in_progress |
 | 2 | **WP-79** — Единый бот UX: cherry-pick pilot→prod + мониторинг | 1-2h | in_progress |
 | 3 | **WP-110** — Синхронизация веток (pilot ↔ new-architecture) | 2-3h | pending |
-| 4 | **WP-24** — Интеграция экзокортекса: /plan /ask в боте | ~3h | in_progress |
+| ~~4~~ | ~~**WP-24** — Интеграция экзокортекса: done 11 мар. /ask → расширение ? в WP-5~~ | ~~—~~ | ~~done~~ |
 | 5 | **WP-5** — Бот: развитие (зонтичный) | ongoing | in_progress |
 
 ---
@@ -30,7 +30,7 @@ updated: 2026-03-16
 | **WP-7** — unsatisfied-questions urgent (off-topic, hallucination, incomplete) | 3-4h | in_progress | W12 |
 | **WP-79** — cherry-pick pilot→prod | 1-2h | in_progress | W12 |
 | WP-110 — синхронизация веток (88/103 коммитов расхождение) | 2-3h | pending | W13 |
-| WP-24 — /plan /ask в боте | ~3h | in_progress | W13 |
+| ~~WP-24 — done 11 мар. /ask → расширение ? в WP-5~~ | ~~—~~ | ~~done~~ | ~~W13~~ |
 
 ## Done (март)
 
