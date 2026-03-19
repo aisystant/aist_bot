@@ -115,6 +115,7 @@ buttons:
   start_tomorrow: "📅 明天"
   start_day_after: "📅 后天"
   continue_learning: "继续学习"
+  profile: "档案"
   name: "姓名"
   occupation: "职业"
   interests: "兴趣"

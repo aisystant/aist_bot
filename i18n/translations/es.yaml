@@ -115,6 +115,7 @@ buttons:
   start_tomorrow: "📅 Mañana"
   start_day_after: "📅 Pasado mañana"
   continue_learning: "Continuar aprendiendo"
+  profile: "Perfil"
   name: "Nombre"
   occupation: "Ocupación"
   interests: "Intereses"

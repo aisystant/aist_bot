@@ -155,11 +155,14 @@ class SettingsState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
+                InlineKeyboardButton(text="👤 " + t('buttons.profile', lang), callback_data="go_profile"),
                 InlineKeyboardButton(text="🌐 Language", callback_data="upd_language"),
-                InlineKeyboardButton(text="🔗 " + t('settings.connections_label', lang), callback_data="upd_connections"),
             ],
             [
+                InlineKeyboardButton(text="🔗 " + t('settings.connections_label', lang), callback_data="upd_connections"),
                 InlineKeyboardButton(text="💝 " + t('donation.settings_label', lang), callback_data="upd_subscription"),
+            ],
+            [
                 InlineKeyboardButton(text="🔄 " + t('settings.reset_label', lang), callback_data="show_resets"),
             ],
             [
@@ -195,6 +198,13 @@ class SettingsState(BaseState):
 
         if data == "settings_back":
             return "cancel"
+
+        if data == "go_profile":
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            return "profile"
 
         if data == "upd_language":
             return await self._show_language_options(user, callback)
