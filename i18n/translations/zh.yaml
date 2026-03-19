@@ -53,6 +53,7 @@ commands:
   consultation: "? — 向机器人提问（?后面输入文字）"
   feedback: "/feedback — 反馈（!文字 — 快捷方式）"
   github: "/github — 连接GitHub"
+  channels: "/channels — 频道监控"
   notes: ". — 笔记（.后面输入文字）"
   plan: "/plan — 计划和报告"
   section_main: "主要"

@@ -53,6 +53,7 @@ commands:
   consultation: "? — question au bot (texte après ?)"
   feedback: "/feedback — retour d'expérience (!texte — rapide)"
   github: "/github — connecter GitHub"
+  channels: "/channels — surveillance des chaînes"
   notes: ". — note (texte après le point)"
   plan: "/plan — plans et rapports"
   section_main: "Principaux"

@@ -67,10 +67,19 @@ def _is_cooled_down(channel_id: int, chat_id: int) -> bool:
 
 @channels_router.message(Command("channels"))
 async def cmd_channels(message: Message, bot: Bot):
-    """Показать список отслеживаемых каналов и управление ими."""
+    """Показать список отслеживаемых каналов и управление ими (T2+)."""
     intern = await get_intern(message.chat.id)
     if not intern or not await is_onboarded(intern):
         await message.answer(t('channels.not_onboarded', intern.get('language', 'ru') if intern else 'ru'))
+        return
+
+    # Tier gate: T2+ (requires active subscription or trial)
+    from core.tier_detector import detect_ui_tier
+    from core.tier_config import UITier
+    tier = await detect_ui_tier(message.chat.id)
+    if tier < UITier.T2_LEARNING:
+        lang = intern.get('language', 'ru')
+        await message.answer(t('channels.tier_required', lang))
         return
 
     monitors = await get_user_monitors(message.chat.id)
