@@ -53,10 +53,11 @@ states:
     allow_global: [consultation, notes]
 
   common.settings:
-    description: "Настройки системы (язык, расписание, подключения)"
+    description: "Настройки системы (язык, расписание, подключения, профиль)"
     events:
       saved: common.mode_select
       cancel: _previous
+      profile: common.profile
     allow_global: [consultation, notes]
 
   common.plans:

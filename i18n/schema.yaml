@@ -522,6 +522,14 @@ buttons:
     max_length: 25
 
   # Кнопки профиля
+  profile:
+    ru: "Профиль"
+    en: "Profile"
+    es: "Perfil"
+    fr: "Profil"
+    zh: "档案"
+    max_length: 20
+
   name:
     ru: "Имя"
     en: "Name"
