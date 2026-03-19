@@ -947,12 +947,12 @@ class SettingsState(BaseState):
 
         text = (
             f"*{t('settings.connections_label', lang)}*\n\n"
-            f"{chk(aisystant_id)} Aisystant: {aisystant_status}\n"
-            f"{chk(gh_conn)} GitHub: {github_status}\n"
-            f"{chk(club_account)} {t('settings.club_label', lang)}: {club_status}\n"
-            f"{chk(twin_connected)} {t('settings.twin_label', lang)}: {twin_status}\n"
-            f"{chk(waka_conn)} WakaTime: {waka_status}\n"
-            f"{chk(gcal_connected)} Календарь Google: {gcal_status}\n"
+            f"{chk(aisystant_id)} Aisystant\n"
+            f"{chk(gh_conn)} GitHub\n"
+            f"{chk(club_account)} {t('settings.club_label', lang)}\n"
+            f"{chk(twin_connected)} {t('settings.twin_label', lang)}\n"
+            f"{chk(waka_conn)} WakaTime\n"
+            f"{chk(gcal_connected)} Календарь Google\n"
         )
 
         # Notification toggles per tier
