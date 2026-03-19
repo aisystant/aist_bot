@@ -417,8 +417,10 @@ class SettingsState(BaseState):
                 await self.send(user, t('settings.waka_invalid_key', lang))
                 return None
 
-            from db.queries.wakatime import save_wakatime_connection
+            from db.queries.wakatime import save_wakatime_connection, sync_wakatime_to_user_integrations
             await save_wakatime_connection(chat_id, key, waka_user.get('username'))
+            # Dual write: Activity Hub IWE-адаптер (WP-109)
+            await sync_wakatime_to_user_integrations(chat_id, key)
 
             username = waka_user.get('username') or waka_user.get('display_name') or ''
             await self.send(user, f"✅ WakaTime {t('settings.connected', lang)}: *{username}*\n/waka — {t('settings.waka_check_stats', lang)}", parse_mode="Markdown")

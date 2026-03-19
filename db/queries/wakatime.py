@@ -49,3 +49,44 @@ async def delete_wakatime_connection(chat_id: int) -> None:
             'DELETE FROM wakatime_connections WHERE chat_id = $1', chat_id
         )
     logger.info(f"Deleted WakaTime connection for user {chat_id}")
+
+
+async def sync_wakatime_to_user_integrations(
+    chat_id: int,
+    api_key: str,
+) -> None:
+    """Dual write: синхронизировать WakaTime API key в development.user_integrations.
+
+    Activity Hub IWE-адаптер читает токены из user_integrations (WP-109).
+    WakaTime API использует api_key через Basic Auth — тот же формат.
+    """
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT id FROM public.users WHERE telegram_id = $1', chat_id
+            )
+            if not row or not row['id']:
+                logger.warning(
+                    f"sync_wakatime_to_user_integrations: no user_uuid for chat_id={chat_id}"
+                )
+                return
+
+            user_uuid = row['id']
+
+            await conn.execute('''
+                INSERT INTO development.user_integrations
+                    (user_uuid, service, access_token, scope, metadata,
+                     connected_at, updated_at, active)
+                VALUES ($1, 'wakatime', $2, 'read_stats', '{}', NOW(), NOW(), TRUE)
+                ON CONFLICT (user_uuid, service) DO UPDATE SET
+                    access_token = $2,
+                    updated_at = NOW(),
+                    active = TRUE
+            ''',
+                user_uuid,
+                api_key,
+            )
+            logger.info(f"Synced WakaTime API key to user_integrations for chat_id={chat_id}")
+    except Exception as e:
+        logger.warning(f"sync_wakatime_to_user_integrations failed: {e}")
