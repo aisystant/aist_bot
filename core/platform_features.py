@@ -62,6 +62,21 @@ async def _check_github(chat_id: int) -> bool:
     return await _is_github_connected(chat_id)
 
 
+async def _check_club(chat_id: int) -> bool:
+    from db.queries.discourse import get_discourse_account
+    return bool(await get_discourse_account(chat_id))
+
+
+async def _check_wakatime(chat_id: int) -> bool:
+    from db.queries.wakatime import get_wakatime_connection
+    return bool(await get_wakatime_connection(chat_id))
+
+
+async def _check_gcal(chat_id: int) -> bool:
+    from clients.google_calendar_oauth import google_calendar_oauth
+    return await google_calendar_oauth.is_connected(chat_id)
+
+
 async def _check_always(_chat_id: int) -> bool:
     return True
 
@@ -149,6 +164,26 @@ PLATFORM_FEATURES: list[PlatformFeature] = [
         command="/schedule",
         status_check=_check_subscription,
     ),
+    PlatformFeature(
+        id="consultation",
+        icon="💬",
+        i18n_key="consultation",
+        category="productivity",
+        min_tier=0,
+        order=40,
+        command="?",
+        status_check=_check_always,
+    ),
+    PlatformFeature(
+        id="notes",
+        icon="📝",
+        i18n_key="notes",
+        category="productivity",
+        min_tier=UITier.T4_CREATION,
+        order=50,
+        command=".",
+        status_check=_check_github,
+    ),
 
     # --- INTEGRATIONS ---
     PlatformFeature(
@@ -181,6 +216,35 @@ PLATFORM_FEATURES: list[PlatformFeature] = [
         command="/github",
         status_check=_check_github,
     ),
+    PlatformFeature(
+        id="club",
+        icon="🏛",
+        i18n_key="club",
+        category="integration",
+        min_tier=UITier.T2_LEARNING,
+        order=40,
+        command="/club",
+        status_check=_check_club,
+    ),
+    PlatformFeature(
+        id="wakatime",
+        icon="⏱",
+        i18n_key="wakatime",
+        category="integration",
+        min_tier=UITier.T4_CREATION,
+        order=50,
+        status_check=_check_wakatime,
+    ),
+    PlatformFeature(
+        id="gcal",
+        icon="📅",
+        i18n_key="gcal",
+        category="integration",
+        min_tier=UITier.T2_LEARNING,
+        order=60,
+        command="/calendar",
+        status_check=_check_gcal,
+    ),
 
     # --- AUTOMATION (IWE / external) ---
     PlatformFeature(
@@ -210,16 +274,6 @@ PLATFORM_FEATURES: list[PlatformFeature] = [
         category="automation",
         min_tier=UITier.T4_CREATION,
         order=30,
-        external=True,
-        status_check=_check_external,
-    ),
-    PlatformFeature(
-        id="wakatime",
-        icon="⏱",
-        i18n_key="wakatime",
-        category="automation",
-        min_tier=UITier.T4_CREATION,
-        order=40,
         external=True,
         status_check=_check_external,
     ),
