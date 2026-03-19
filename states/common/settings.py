@@ -1491,8 +1491,8 @@ class SettingsState(BaseState):
                 buttons.append([InlineKeyboardButton(text="Подключить WakaTime", url=auth_url)])
                 text += (
                     "\n\nНужен аккаунт на wakatime.com (бесплатная регистрация).\n\n"
-                    "Для подключения *нажмите кнопку под сообщением* "
-                    "(или вручную — введите API-ключ wakatime.com/settings/api-key):"
+                    "Для подключения нажмите кнопку под сообщением "
+                    "(или вручную — введите API-ключ):"
                 )
             except Exception:
                 text += (
