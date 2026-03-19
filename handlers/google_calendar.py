@@ -2,9 +2,8 @@
 Хендлеры интеграции с Google Calendar (OAuth, просмотр событий).
 
 Команды:
-- /calendar — подключение/статус/просмотр
+- /calendar — подключение/статус/просмотр событий
 - /calendar disconnect — отключить
-- /events — события на сегодня
 """
 
 import logging
@@ -57,20 +56,6 @@ async def cmd_calendar(message: Message):
     else:
         # Предлагаем подключить
         await _show_connect(message, telegram_user_id)
-
-
-@gcal_router.message(Command("events"))
-async def cmd_events(message: Message):
-    """Команда /events — быстрый просмотр событий на сегодня."""
-    from clients.google_calendar_oauth import google_calendar_oauth
-
-    telegram_user_id = message.chat.id
-
-    if not await google_calendar_oauth.is_connected(telegram_user_id):
-        await _show_connect(message, telegram_user_id)
-        return
-
-    await _show_today_events(message, telegram_user_id)
 
 
 @gcal_router.callback_query(F.data == "gcal_today")
