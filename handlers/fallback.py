@@ -74,6 +74,10 @@ async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
 @fallback_router.message()
 async def on_unknown_message(message: Message, state: FSMContext):
     """Обработка сообщений — делегирование в State Machine."""
+    # SC.118: Не обрабатывать сообщения из каналов и групп в fallback
+    if message.chat.type in ('channel', 'group', 'supergroup'):
+        return
+
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
