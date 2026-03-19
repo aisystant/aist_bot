@@ -942,14 +942,17 @@ class SettingsState(BaseState):
         gcal_connected = await google_calendar_oauth.is_connected(chat_id)
         gcal_status = "✅ " + t('settings.connected', lang) if gcal_connected else t('settings.not_connected', lang)
 
+        # Чекбоксы: ✅ или ☐
+        def chk(connected): return "✅" if connected else "☐"
+
         text = (
             f"*{t('settings.connections_label', lang)}*\n\n"
-            f"Aisystant: {aisystant_status}\n"
-            f"GitHub: {github_status}\n"
-            f"{t('settings.club_label', lang)}: {club_status}\n"
-            f"{t('settings.twin_label', lang)}: {twin_status}\n"
-            f"WakaTime: {waka_status}\n"
-            f"Календарь Google: {gcal_status}\n"
+            f"{chk(aisystant_id)} Aisystant: {aisystant_status}\n"
+            f"{chk(gh_conn)} GitHub: {github_status}\n"
+            f"{chk(club_account)} {t('settings.club_label', lang)}: {club_status}\n"
+            f"{chk(twin_connected)} {t('settings.twin_label', lang)}: {twin_status}\n"
+            f"{chk(waka_conn)} WakaTime: {waka_status}\n"
+            f"{chk(gcal_connected)} Календарь Google: {gcal_status}\n"
         )
 
         # Notification toggles per tier
@@ -960,30 +963,28 @@ class SettingsState(BaseState):
 
         intern = await get_intern(chat_id)
 
-        if nudges_visible:
-            notify_nudges = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
-            nudges_emoji = "✅" if notify_nudges else "❌"
-            text += f"💪 {t('nudges.settings_nudges_button', lang)}: {nudges_emoji}\n"
-
         if iwe_visible:
             notify_iwe = intern.get('notify_template_updates', False)
-            iwe_emoji = "✅" if notify_iwe else "❌"
-            text += f"🔔 {t('settings.iwe_updates_label', lang)}: {iwe_emoji}\n"
+            text += f"{chk(notify_iwe)} {t('settings.iwe_updates_label', lang)}\n"
+
+        if nudges_visible:
+            notify_nudges = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
+            text += f"{chk(notify_nudges)} {t('nudges.settings_nudges_button', lang)}\n"
 
         buttons = [
             [
-                InlineKeyboardButton(text="Aisystant", callback_data="conn_aisystant"),
-                InlineKeyboardButton(text="GitHub", callback_data="conn_github"),
-                InlineKeyboardButton(text=t('settings.club_label', lang), callback_data="conn_club"),
+                InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
+                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
+                InlineKeyboardButton(text="🏛 " + t('settings.club_label', lang), callback_data="conn_club"),
             ],
             [
-                InlineKeyboardButton(text=t('settings.twin_label', lang), callback_data="conn_twin"),
-                InlineKeyboardButton(text="IWE", callback_data="conn_iwe_toggle"),
-                InlineKeyboardButton(text="WakaTime", callback_data="conn_waka"),
+                InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
+                InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle"),
+                InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
             ],
             [
-                InlineKeyboardButton(text="Календарь Google", callback_data="conn_gcal"),
-                InlineKeyboardButton(text=t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"),
+                InlineKeyboardButton(text="📅 Календарь Google", callback_data="conn_gcal"),
+                InlineKeyboardButton(text="💪 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"),
             ],
         ]
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
