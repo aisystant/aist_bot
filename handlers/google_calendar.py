@@ -7,7 +7,6 @@
 """
 
 import logging
-from datetime import datetime, timedelta
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -52,10 +51,8 @@ async def cmd_calendar(message: Message):
 
     # Проверяем подключение
     if await google_calendar_oauth.is_connected(telegram_user_id):
-        # Показываем события на сегодня
         await _show_today_events(message, telegram_user_id)
     else:
-        # Предлагаем подключить
         await _show_connect(message, telegram_user_id)
 
 
@@ -184,9 +181,6 @@ async def _show_today_events(message: Message, telegram_user_id: int):
 
 
 # --- Контекстные клавиатуры ---
-# Под «Сегодня» → кнопки «Завтра» и «Неделя»
-# Под «Завтра» → кнопки «Сегодня» и «Неделя»
-# Под «Неделя» → кнопки «Сегодня» и «Завтра»
 
 def _kb_from_today() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(

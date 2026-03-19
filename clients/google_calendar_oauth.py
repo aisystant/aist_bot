@@ -346,27 +346,13 @@ class GoogleCalendarOAuthClient:
             time_max=end.isoformat(),
         )
 
-    async def get_events(
-        self,
-        telegram_user_id: int,
-        time_min: str,
-        time_max: str,
-        max_results: int = 20,
-    ) -> Optional[List[Dict[str, Any]]]:
-        """Получает события из primary календаря."""
+    async def get_calendar_list(self, telegram_user_id: int) -> Optional[List[Dict[str, Any]]]:
+        """Получает список всех календарей пользователя."""
         access_token = await self.get_access_token(telegram_user_id)
         if not access_token:
             return None
 
-        params = {
-            "timeMin": time_min,
-            "timeMax": time_max,
-            "maxResults": max_results,
-            "singleEvents": "true",
-            "orderBy": "startTime",
-        }
-
-        url = f"{GOOGLE_CALENDAR_API}/calendars/primary/events?{urlencode(params)}"
+        url = f"{GOOGLE_CALENDAR_API}/users/me/calendarList"
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -383,14 +369,95 @@ class GoogleCalendarOAuthClient:
                         return data.get("items", [])
                     else:
                         error = await resp.text()
-                        logger.error(
-                            f"Google Calendar API failed for {telegram_user_id}: {resp.status} - {error}"
-                        )
+                        logger.error(f"Google Calendar list failed: {resp.status} - {error}")
                         return None
-
         except Exception as e:
-            logger.error(f"Google Calendar API exception: {e}")
+            logger.error(f"Google Calendar list exception: {e}")
             return None
+
+    async def _get_events_from_calendar(
+        self,
+        access_token: str,
+        calendar_id: str,
+        time_min: str,
+        time_max: str,
+        max_results: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Получает события из одного календаря."""
+        params = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "maxResults": max_results,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+        }
+
+        encoded_id = quote(calendar_id, safe='')
+        url = f"{GOOGLE_CALENDAR_API}/calendars/{encoded_id}/events?{urlencode(params)}"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/json",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data.get("items", [])
+                    else:
+                        logger.warning(f"Calendar {calendar_id}: {resp.status}")
+                        return []
+        except Exception as e:
+            logger.warning(f"Calendar {calendar_id} exception: {e}")
+            return []
+
+    async def get_events(
+        self,
+        telegram_user_id: int,
+        time_min: str,
+        time_max: str,
+        max_results: int = 50,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Получает события из ВСЕХ календарей пользователя."""
+        access_token = await self.get_access_token(telegram_user_id)
+        if not access_token:
+            return None
+
+        # Получаем список календарей
+        calendars = await self.get_calendar_list(telegram_user_id)
+        if calendars is None:
+            return None
+
+        # Собираем события из всех календарей
+        all_events = []
+        for cal in calendars:
+            cal_id = cal.get("id")
+            if not cal_id:
+                continue
+            # Пропускаем праздники и дни рождения (шум)
+            if cal.get("accessRole") == "reader" and "#holiday" in cal_id:
+                continue
+            if "birthdaysCalendar" in (cal.get("id") or ""):
+                continue
+
+            events = await self._get_events_from_calendar(
+                access_token, cal_id, time_min, time_max, max_results=max_results,
+            )
+            for ev in events:
+                ev["_calendar_summary"] = cal.get("summary", "")
+            all_events.extend(events)
+
+        # Сортируем по времени начала
+        def sort_key(ev):
+            start = ev.get("start", {})
+            return start.get("dateTime", start.get("date", ""))
+
+        all_events.sort(key=sort_key)
+        return all_events
 
     async def disconnect(self, telegram_user_id: int):
         """Отключает пользователя от Google Calendar."""
@@ -457,8 +524,11 @@ def format_events_message(events: List[Dict[str, Any]], title: str = "Сегод
     for ev in events:
         time_str = format_event_time(ev)
         summary = ev.get("summary", "Без названия")
-        lines.append(f"• {time_str} — {summary}")
+        cal_name = ev.get("_calendar_summary", "")
+        cal_suffix = f" <i>({cal_name})</i>" if cal_name else ""
+        lines.append(f"• {time_str} — {summary}{cal_suffix}")
 
+    lines.append(f"\n<i>Всего: {len(events)}</i>")
     return "\n".join(lines)
 
 
