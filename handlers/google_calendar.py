@@ -2,12 +2,12 @@
 Хендлеры интеграции с Google Calendar (OAuth, просмотр событий).
 
 Команды:
-- /calendar — подключение/статус/просмотр
+- /calendar — подключение/статус/просмотр событий
 - /calendar disconnect — отключить
-- /events — события на сегодня
 """
 
 import logging
+from datetime import datetime, timedelta
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -59,20 +59,6 @@ async def cmd_calendar(message: Message):
         await _show_connect(message, telegram_user_id)
 
 
-@gcal_router.message(Command("events"))
-async def cmd_events(message: Message):
-    """Команда /events — быстрый просмотр событий на сегодня."""
-    from clients.google_calendar_oauth import google_calendar_oauth
-
-    telegram_user_id = message.chat.id
-
-    if not await google_calendar_oauth.is_connected(telegram_user_id):
-        await _show_connect(message, telegram_user_id)
-        return
-
-    await _show_today_events(message, telegram_user_id)
-
-
 @gcal_router.callback_query(F.data == "gcal_today")
 async def cb_gcal_today(callback: CallbackQuery):
     """Callback: показать события на сегодня."""
@@ -86,7 +72,7 @@ async def cb_gcal_today(callback: CallbackQuery):
         return
 
     text = format_events_message(events, title="Сегодня")
-    keyboard = _events_keyboard()
+    keyboard = _kb_from_today()
 
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
@@ -108,7 +94,29 @@ async def cb_gcal_tomorrow(callback: CallbackQuery):
         return
 
     text = format_events_message(events, title="Завтра")
-    keyboard = _events_keyboard()
+    keyboard = _kb_from_tomorrow()
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@gcal_router.callback_query(F.data == "gcal_week")
+async def cb_gcal_week(callback: CallbackQuery):
+    """Callback: показать события на 7 дней."""
+    from clients.google_calendar_oauth import google_calendar_oauth, format_week_events_message
+
+    telegram_user_id = callback.from_user.id
+    events = await google_calendar_oauth.get_week_events(telegram_user_id)
+
+    if events is None:
+        await callback.answer("Не удалось получить события. Попробуйте /calendar", show_alert=True)
+        return
+
+    text = format_week_events_message(events)
+    keyboard = _kb_from_week()
 
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
@@ -171,20 +179,46 @@ async def _show_today_events(message: Message, telegram_user_id: int):
         return
 
     text = format_events_message(events, title="Сегодня")
-    keyboard = _events_keyboard()
+    keyboard = _kb_from_today()
     await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
 
-def _events_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для переключения день/завтра + отключение."""
+# --- Контекстные клавиатуры ---
+# Под «Сегодня» → кнопки «Завтра» и «Неделя»
+# Под «Завтра» → кнопки «Сегодня» и «Неделя»
+# Под «Неделя» → кнопки «Сегодня» и «Завтра»
+
+def _kb_from_today() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Завтра", callback_data="gcal_tomorrow"),
+                InlineKeyboardButton(text="7 дней", callback_data="gcal_week"),
+            ],
+            [InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect")],
+        ]
+    )
+
+
+def _kb_from_tomorrow() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Сегодня", callback_data="gcal_today"),
+                InlineKeyboardButton(text="7 дней", callback_data="gcal_week"),
+            ],
+            [InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect")],
+        ]
+    )
+
+
+def _kb_from_week() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="Сегодня", callback_data="gcal_today"),
                 InlineKeyboardButton(text="Завтра", callback_data="gcal_tomorrow"),
             ],
-            [
-                InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect"),
-            ],
+            [InlineKeyboardButton(text="Отключить", callback_data="gcal_disconnect")],
         ]
     )
