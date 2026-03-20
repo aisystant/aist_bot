@@ -188,6 +188,43 @@ class DiscourseClient:
         )
         return None
 
+    # ── Uploads ────────────────────────────────────────────
+
+    async def upload_image(
+        self,
+        filename: str,
+        image_bytes: bytes,
+        username: str = "system",
+    ) -> str | None:
+        """Загрузить изображение в Discourse. Вернуть markdown-строку ![](url) или None."""
+        session = await self._get_session()
+        headers = {
+            "Api-Key": self.api_key,
+            "Api-Username": username,
+        }
+        data = aiohttp.FormData()
+        data.add_field("type", "composer")
+        data.add_field(
+            "file",
+            image_bytes,
+            filename=filename,
+            content_type="image/png",
+        )
+
+        url = f"{self.base_url}/uploads.json"
+        async with session.post(url, data=data, headers=headers) as resp:
+            if resp.status >= 400:
+                text = await resp.text()
+                logger.error(f"Discourse upload_image error {resp.status}: {text[:500]}")
+                return None
+            result = await resp.json()
+            short_url = result.get("short_url") or result.get("url")
+            if not short_url:
+                logger.error(f"Discourse upload_image: no URL in response: {result}")
+                return None
+            logger.info(f"Discourse image uploaded: {filename} → {short_url}")
+            return f"![{filename}]({short_url})"
+
     # ── Topics ─────────────────────────────────────────────
 
     async def create_topic(

@@ -1622,10 +1622,38 @@ async def _discourse_scheduled_publish():
     try:
         for pub in pubs:
             try:
+                raw = pub["raw"]
+
+                # Загрузить cover.png если есть (S48)
+                source_file = pub.get("source_file")
+                if source_file:
+                    try:
+                        from pathlib import Path as _Path
+                        from clients.github_content import create_content_client
+                        from clients.github_oauth import github_oauth
+                        _token = await github_oauth.get_access_token(pub["chat_id"])
+                        _repo = await github_oauth.get_knowledge_repo(pub["chat_id"])
+                        if _token and _repo:
+                            _client = create_content_client(_token, _repo)
+                            try:
+                                cover_path = str(_Path(source_file).parent / "cover.png")
+                                cover_bytes = await _client.read_binary_file(cover_path)
+                                if cover_bytes:
+                                    cover_md = await discourse.upload_image(
+                                        "cover.png", cover_bytes, pub["discourse_username"]
+                                    )
+                                    if cover_md:
+                                        raw = f"{cover_md}\n\n{raw}"
+                                        logger.info(f"[Publisher] Cover image prepended: {pub['title']!r}")
+                            finally:
+                                await _client.close()
+                    except Exception as cover_err:
+                        logger.warning(f"[Publisher] Cover skip: {cover_err}")
+
                 result = await discourse.create_topic(
                     category_id=pub["category_id"],
                     title=pub["title"],
-                    raw=pub["raw"],
+                    raw=raw,
                     username=pub["discourse_username"],
                 )
                 topic_id = result.get("topic_id")

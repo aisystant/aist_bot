@@ -15,6 +15,7 @@ import json
 import re
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from aiogram import Router
 from aiogram.types import (
@@ -823,10 +824,36 @@ async def on_schedule_publish_now(callback: CallbackQuery):
     # Публикуем в Discourse
     await callback.message.answer(f"⏳ Публикую «{pub['title']}»...")
     try:
+        raw = pub["raw"]
+
+        # Загрузить cover.png если есть (S48)
+        source_file = pub.get("source_file")
+        if source_file:
+            try:
+                from clients.github_content import create_content_client
+                from clients.github_oauth import github_oauth
+                token = await github_oauth.get_access_token(chat_id)
+                knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
+                if token and knowledge_repo:
+                    cover_client = create_content_client(token, knowledge_repo)
+                    try:
+                        cover_path = str(Path(source_file).parent / "cover.png")
+                        cover_bytes = await cover_client.read_binary_file(cover_path)
+                        if cover_bytes:
+                            cover_md = await discourse.upload_image(
+                                "cover.png", cover_bytes, pub["discourse_username"]
+                            )
+                            if cover_md:
+                                raw = f"{cover_md}\n\n{raw}"
+                    finally:
+                        await cover_client.close()
+            except Exception as cover_err:
+                logger.warning(f"Cover image skip (scheduled): {cover_err}")
+
         result = await discourse.create_topic(
             category_id=pub["category_id"],
             title=pub["title"],
-            raw=pub["raw"],
+            raw=raw,
             username=pub["discourse_username"],
         )
         topic_id = result.get("topic_id")
@@ -1174,6 +1201,20 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
         content, sha = file_result
         raw = strip_frontmatter(content)
+
+        # Загрузить cover.png если есть (S48)
+        cover_path = str(Path(post["path"]).parent / "cover.png")
+        try:
+            cover_bytes = await client.read_binary_file(cover_path)
+            if cover_bytes:
+                cover_md = await discourse.upload_image(
+                    "cover.png", cover_bytes, username
+                )
+                if cover_md:
+                    raw = f"{cover_md}\n\n{raw}"
+                    logger.info(f"Cover image prepended to post")
+        except Exception as cover_err:
+            logger.warning(f"Cover image skip: {cover_err}")
 
         # Публикуем
         result = await discourse.create_topic(
