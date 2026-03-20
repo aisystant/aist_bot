@@ -438,17 +438,9 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # WAKATIME ПОДКЛЮЧЕНИЯ (per-user API keys, WP-60)
-        # FK removed (WP-82 Phase 3: interns dropped)
+        # WAKATIME: таблица wakatime_connections удалена (WP-109/WP-7).
+        # Все данные хранятся в development.user_integrations (service='wakatime').
         # ═══════════════════════════════════════════════════════════
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS wakatime_connections (
-                chat_id BIGINT PRIMARY KEY,
-                api_key TEXT NOT NULL,
-                wakatime_username TEXT,
-                connected_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
 
         # ═══════════════════════════════════════════════════════════
         # ОЦЕНКИ / ТЕСТЫ (assessments)
