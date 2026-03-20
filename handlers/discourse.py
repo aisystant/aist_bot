@@ -858,8 +858,9 @@ async def on_schedule_publish_now(callback: CallbackQuery):
     try:
         raw = pub["raw"]
         source_file = pub.get("source_file")
+        gh_client = None
 
-        # Единый GitHub-клиент для cover + frontmatter (S48 refactor)
+        # Единый GitHub-клиент для cover + frontmatter (S48)
         if source_file:
             try:
                 from clients.github_content import create_content_client, update_frontmatter_field
