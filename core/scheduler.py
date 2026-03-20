@@ -1622,10 +1622,40 @@ async def _discourse_scheduled_publish():
     try:
         for pub in pubs:
             try:
+                raw = pub["raw"]
+                source_file = pub.get("source_file")
+                gh_client = None
+
+                # Единый GitHub-клиент для cover + frontmatter (S48)
+                if source_file:
+                    try:
+                        from pathlib import Path as _Path
+                        from clients.github_content import create_content_client, update_frontmatter_field
+                        from clients.github_oauth import github_oauth
+                        _token = await github_oauth.get_access_token(pub["chat_id"])
+                        _repo = await github_oauth.get_knowledge_repo(pub["chat_id"])
+                        if _token and _repo:
+                            gh_client = create_content_client(_token, _repo)
+                            # Cover (S48)
+                            try:
+                                cover_path = str(_Path(source_file).parent / "cover.png")
+                                cover_bytes = await gh_client.read_binary_file(cover_path)
+                                if cover_bytes:
+                                    cover_md = await discourse.upload_image(
+                                        "cover.png", cover_bytes, pub["discourse_username"]
+                                    )
+                                    if cover_md:
+                                        raw = f"{cover_md}\n\n{raw}"
+                                        logger.info(f"[Publisher] Cover image prepended: {pub['title']!r}")
+                            except Exception as cover_err:
+                                logger.warning(f"[Publisher] Cover skip: {cover_err}")
+                    except Exception as gh_err:
+                        logger.warning(f"[Publisher] GitHub client init failed: {gh_err}")
+
                 result = await discourse.create_topic(
                     category_id=pub["category_id"],
                     title=pub["title"],
-                    raw=pub["raw"],
+                    raw=raw,
                     username=pub["discourse_username"],
                 )
                 topic_id = result.get("topic_id")
@@ -1638,32 +1668,28 @@ async def _discourse_scheduled_publish():
                     discourse_post_id=post_id,
                     title=pub["title"],
                     category_id=pub["category_id"],
-                    source_file=pub.get("source_file"),
+                    source_file=source_file,
                 )
 
-                # Обновить frontmatter (status → published) если есть source_file
-                source_file = pub.get("source_file")
-                if source_file:
+                # Обновить frontmatter → published (тот же gh_client)
+                if source_file and gh_client:
                     try:
-                        from clients.github_content import create_content_client, update_frontmatter_field
-                        from clients.github_oauth import github_oauth
-                        user_token = await github_oauth.get_access_token(pub["chat_id"])
-                        user_knowledge_repo = await github_oauth.get_knowledge_repo(pub["chat_id"])
-                        if user_token and user_knowledge_repo:
-                            client = create_content_client(user_token, user_knowledge_repo)
-                            try:
-                                file_result = await client.read_file(source_file)
-                                if file_result:
-                                    content, sha = file_result
-                                    new_content = update_frontmatter_field(content, "status", "published")
-                                    await client.update_file(
-                                        source_file, new_content, sha,
-                                        f"Published to club: {pub['title']}"
-                                    )
-                            finally:
-                                await client.close()
+                        file_result = await gh_client.read_file(source_file)
+                        if file_result:
+                            content, sha = file_result
+                            new_content = update_frontmatter_field(content, "status", "published")
+                            await gh_client.update_file(
+                                source_file, new_content, sha,
+                                f"Published to club: {pub['title']}"
+                            )
                     except Exception as fm_err:
                         logger.warning(f"[Publisher] Frontmatter update failed for {source_file}: {fm_err}")
+
+                if gh_client:
+                    try:
+                        await gh_client.close()
+                    except Exception:
+                        pass
 
                 # Уведомить пользователя
                 slug = result.get("topic_slug", "")

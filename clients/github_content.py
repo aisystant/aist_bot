@@ -105,6 +105,17 @@ class GitHubContentClient:
                 return content, data["sha"]
         return None
 
+    async def read_binary_file(self, path: str) -> bytes | None:
+        """Прочитать бинарный файл (изображение). Возвращает bytes или None."""
+        session = await self._get_session()
+        url = f"{self.base_url}/repos/{self.repo}/contents/{path}"
+        async with session.get(url, headers=self._headers()) as resp:
+            if resp.status >= 400:
+                logger.debug(f"GitHub read_binary_file {path}: {resp.status}")
+                return None
+            data = await resp.json()
+            return base64.b64decode(data["content"])
+
     async def update_file(self, path: str, content: str, sha: str, message: str) -> bool:
         """Обновить файл (git commit). Возвращает True при успехе."""
         session = await self._get_session()
