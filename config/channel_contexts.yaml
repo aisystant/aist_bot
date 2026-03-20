@@ -18,6 +18,8 @@ default:
     - "IWE платформа"
     - "личное развитие"
     - "методы мышления"
+  thinking_tools:
+    - "fpf_distinctions"
 
 channels:
   # Чаты по тематике — матчинг по title_pattern (case-insensitive regex)
@@ -35,6 +37,8 @@ channels:
       - "стейкхолдеры"
       - "роли"
       - "жизненное мастерство"
+    thinking_tools:
+      - "fpf_distinctions"
 
   - title_pattern: "МС для жизни"
     description: >
