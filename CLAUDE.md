@@ -579,6 +579,10 @@ aiogram FSM-хендлеры (`@router.message(State)`) перехватываю
 
 **Правила:** Cooldown 30 сек. Log-before-send дедупликация. `is_onboarded()` — async, вызывать с await. При добавлении нового канала — добавить запись в `config/channel_contexts.yaml`.
 
+### 10.31. GitHub Contents API: файлы >1 MB
+
+`read_binary_file()` (`clients/github_content.py`): GitHub Contents API возвращает `content` (base64) только для файлов **≤1 MB**. Для крупных файлов (cover.png ~2 MB) — `content` отсутствует, только `download_url`. Обязательно: `data.get("content")` → fallback на `data.get("download_url")`. Без fallback — `KeyError` молча ловится в `except` → функция пропускается.
+
 ---
 
 ## SOTA: Context Engineering (DP.SOTA.002)
