@@ -128,8 +128,13 @@ def _parse_blog_input(text: str) -> tuple[str | None, int | None]:
 
 
 _CONNECT_PROMPT = (
-    "Пришли *ссылку на свой блог* в клубе.\n\n"
-    "Зайди на systemsworld.club → свой блог → скопируй URL.\n\n"
+    "Пришли *URL страницы своего блога* в клубе — "
+    "именно туда будут публиковаться ваши посты.\n\n"
+    "Как найти:\n"
+    "1. Зайди на [systemsworld.club](https://systemsworld.club)\n"
+    "2. В левом меню открой свой блог "
+    "(или через профиль → Activity → блог)\n"
+    "3. Скопируй URL из адресной строки браузера\n\n"
     "Пример: `https://systemsworld.club/c/blogs/username/37`"
 )
 
@@ -206,7 +211,10 @@ async def cmd_club(message: Message, state: FSMContext):
                 await state.update_data(discourse_username=username)
                 await message.answer(
                     f"*{username}* найден.\n\n"
-                    "Теперь пришли ссылку на свой блог в клубе.\n\n"
+                    "Теперь пришли URL страницы своего блога в клубе — "
+                    "именно туда будут публиковаться ваши посты.\n\n"
+                    "Открой свой блог на systemsworld.club и скопируй URL "
+                    "из адресной строки.\n\n"
                     "Пример: `https://systemsworld.club/c/blogs/username/37`",
                     parse_mode="Markdown",
                 )
@@ -365,7 +373,10 @@ async def on_connect_input(message: Message, state: FSMContext):
         await state.update_data(discourse_username=username)
         await message.answer(
             f"*{username}* найден.\n\n"
-            "Теперь пришли ссылку на свой блог.\n\n"
+            "Теперь пришли URL страницы своего блога в клубе — "
+            "именно туда будут публиковаться ваши посты.\n\n"
+            "Открой свой блог на systemsworld.club и скопируй URL "
+            "из адресной строки.\n\n"
             "Пример: `https://systemsworld.club/c/blogs/username/37`",
             parse_mode="Markdown",
         )
