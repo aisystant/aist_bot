@@ -331,12 +331,7 @@ async def cmd_club(message: Message, state: FSMContext):
         await message.answer(
             "*Подключение к systemsworld.club*\n\n"
             "Привяжи аккаунт, чтобы публиковать посты "
-            "в личный блог клуба.\n\n"
-            "Пришли URL страницы своего блога — "
-            "именно туда будут публиковаться ваши посты.\n\n"
-            "Как найти: зайди на systemsworld.club → "
-            "открой свой блог → скопируй URL из адресной строки.\n\n"
-            "Пример: `https://systemsworld.club/c/blogs/username/37`",
+            "в личный блог клуба прямо из бота.",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
