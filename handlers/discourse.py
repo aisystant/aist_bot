@@ -15,6 +15,7 @@ import json
 import re
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from aiogram import Router
 from aiogram.types import (
@@ -327,8 +328,13 @@ async def cmd_club(message: Message, state: FSMContext):
         ])
         await message.answer(
             "*Подключение к systemsworld.club*\n\n"
-            "Привяжи свой аккаунт, чтобы публиковать посты в личный блог клуба.\n\n"
-            "Для подключения нужна ссылка на твой блог в клубе.",
+            "Привяжи аккаунт, чтобы публиковать посты "
+            "в личный блог клуба.\n\n"
+            "Пришли URL страницы своего блога — "
+            "именно туда будут публиковаться ваши посты.\n\n"
+            "Как найти: зайди на systemsworld.club → "
+            "открой свой блог → скопируй URL из адресной строки.\n\n"
+            "Пример: `https://systemsworld.club/c/blogs/username/37`",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
@@ -834,10 +840,38 @@ async def on_schedule_publish_now(callback: CallbackQuery):
     # Публикуем в Discourse
     await callback.message.answer(f"⏳ Публикую «{pub['title']}»...")
     try:
+        raw = pub["raw"]
+        source_file = pub.get("source_file")
+        gh_client = None
+
+        # Единый GitHub-клиент для cover + frontmatter (S48)
+        if source_file:
+            try:
+                from clients.github_content import create_content_client, update_frontmatter_field
+                from clients.github_oauth import github_oauth
+                token = await github_oauth.get_access_token(chat_id)
+                knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
+                if token and knowledge_repo:
+                    gh_client = create_content_client(token, knowledge_repo)
+                    # Cover (S48)
+                    try:
+                        cover_path = str(Path(source_file).parent / "cover.png")
+                        cover_bytes = await gh_client.read_binary_file(cover_path)
+                        if cover_bytes:
+                            cover_md = await discourse.upload_image(
+                                "cover.png", cover_bytes, pub["discourse_username"]
+                            )
+                            if cover_md:
+                                raw = f"{cover_md}\n\n{raw}"
+                    except Exception as cover_err:
+                        logger.warning(f"Cover image skip (scheduled): {cover_err}")
+            except Exception as gh_err:
+                logger.warning(f"GitHub client init failed: {gh_err}")
+
         result = await discourse.create_topic(
             category_id=pub["category_id"],
             title=pub["title"],
-            raw=pub["raw"],
+            raw=raw,
             username=pub["discourse_username"],
         )
         topic_id = result.get("topic_id")
@@ -852,32 +886,28 @@ async def on_schedule_publish_now(callback: CallbackQuery):
             discourse_post_id=post_id,
             title=pub["title"],
             category_id=pub["category_id"],
-            source_file=pub.get("source_file"),
+            source_file=source_file,
         )
 
-        # Обновить frontmatter → published (если есть source_file)
-        source_file = pub.get("source_file")
-        if source_file:
+        # Обновить frontmatter → published (тот же gh_client)
+        if source_file and gh_client:
             try:
-                from clients.github_content import create_content_client, update_frontmatter_field
-                from clients.github_oauth import github_oauth
-                token = await github_oauth.get_access_token(chat_id)
-                knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
-                if token and knowledge_repo:
-                    client = create_content_client(token, knowledge_repo)
-                    try:
-                        file_result = await client.read_file(source_file)
-                        if file_result:
-                            content, sha = file_result
-                            new_content = update_frontmatter_field(content, "status", "published")
-                            await client.update_file(
-                                source_file, new_content, sha,
-                                f"Published to club: {pub['title']}"
-                            )
-                    finally:
-                        await client.close()
+                file_result = await gh_client.read_file(source_file)
+                if file_result:
+                    content, sha = file_result
+                    new_content = update_frontmatter_field(content, "status", "published")
+                    await gh_client.update_file(
+                        source_file, new_content, sha,
+                        f"Published to club: {pub['title']}"
+                    )
             except Exception as fm_err:
                 logger.warning(f"Frontmatter update failed: {fm_err}")
+
+        if gh_client:
+            try:
+                await gh_client.close()
+            except Exception:
+                pass
 
         url = f"https://systemsworld.club/t/{slug}/{topic_id}"
 
@@ -1185,6 +1215,20 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
         content, sha = file_result
         raw = strip_frontmatter(content)
+
+        # Загрузить cover.png если есть (S48)
+        try:
+            cover_path = str(Path(post["path"]).parent / "cover.png")
+            cover_bytes = await client.read_binary_file(cover_path)
+            if cover_bytes:
+                cover_md = await discourse.upload_image(
+                    "cover.png", cover_bytes, username
+                )
+                if cover_md:
+                    raw = f"{cover_md}\n\n{raw}"
+                    logger.info("Cover image prepended to post")
+        except Exception as cover_err:
+            logger.warning(f"Cover image skip: {cover_err}")
 
         # Публикуем
         result = await discourse.create_topic(
