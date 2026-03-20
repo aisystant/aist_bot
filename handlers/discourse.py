@@ -433,26 +433,38 @@ async def on_blog_url_input(message: Message, state: FSMContext):
 
 
 async def _resolve_username_from_category(discourse, category_id: int, slug: str) -> str | None:
-    """Resolve real username from blogs-user-* slug via category name + user search."""
+    """Resolve real username from blogs-user-* slug via category name + user search.
+
+    Strategy:
+    1. Get category by ID → extract name (e.g. "Tseren Tserenov")
+    2. Slugify name → guess username (e.g. "tseren-tserenov")
+    3. Verify via get_user (always works, unlike search_users which may 403)
+    4. Fallback: search_users if slugified guess didn't match
+    """
     cat = await discourse.get_category(category_id)
-    logger.info(f"[resolve] get_category({category_id}) → {cat is not None}")
     if not cat:
+        logger.info(f"[resolve] get_category({category_id}) → None")
         return None
-    # Category name: "Aleksandr Teterin (блоги)" → "Aleksandr Teterin"
     cat_name = cat.get("name", "")
     logger.info(f"[resolve] cat_name='{cat_name}'")
     # Strip typical suffixes: "(блоги)", "(blogs)"
     clean_name = re.sub(r'\s*\((?:блоги|blogs)\)\s*$', '', cat_name).strip()
     if not clean_name:
-        logger.warning(f"[resolve] clean_name is empty after strip")
         return None
-    # Search Discourse users by name
+
+    # Strategy 1: slugify name → verify via get_user (no special scope needed)
+    guessed = re.sub(r'[^a-zA-Z0-9]+', '-', clean_name).strip('-').lower()
+    if guessed:
+        logger.info(f"[resolve] trying guessed username '{guessed}'")
+        user = await discourse.get_user(guessed)
+        if user:
+            return guessed
+
+    # Strategy 2: search_users (may 403 depending on API key scope)
     results = await discourse.search_users(clean_name)
-    logger.info(f"[resolve] search_users('{clean_name}') → {len(results)} results: "
-                f"{[u.get('username') for u in results[:5]]}")
+    logger.info(f"[resolve] search_users('{clean_name}') → {len(results)} results")
     if results and len(results) == 1:
         return results[0].get("username")
-    # Multiple results — try exact name match
     for u in results:
         if u.get("name", "").lower() == clean_name.lower():
             return u.get("username")
