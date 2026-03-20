@@ -1090,8 +1090,21 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
                 "content": content,
             }
 
-        files = await client.list_files(f"docs/{current_year}")
-        files = [f for f in files if f["name"] != "README.md" and _is_recent(f["name"])]
+        # Рекурсивный обход: docs/2026 → месяцы → файлы + подпапки постов
+        all_files = []
+        month_dirs = await client.list_dirs(f"docs/{current_year}")
+        for month_dir in month_dirs:
+            month_path = f"docs/{current_year}/{month_dir}"
+            # Файлы прямо в месяце (одиночные посты)
+            month_files = await client.list_files(month_path)
+            all_files.extend(month_files)
+            # Подпапки (мультиканальные посты)
+            post_dirs = await client.list_dirs(month_path)
+            for post_dir in post_dirs:
+                post_files = await client.list_files(f"{month_path}/{post_dir}")
+                all_files.extend(post_files)
+
+        files = [f for f in all_files if f["name"] != "README.md" and _is_recent(f["name"])]
 
         if files:
             # Параллельное чтение файлов
