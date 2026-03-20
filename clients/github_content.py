@@ -106,7 +106,10 @@ class GitHubContentClient:
         return None
 
     async def read_binary_file(self, path: str) -> bytes | None:
-        """Прочитать бинарный файл (изображение). Возвращает bytes или None."""
+        """Прочитать бинарный файл (изображение). Возвращает bytes или None.
+
+        Файлы >1 MB не содержат `content` — используем `download_url`.
+        """
         session = await self._get_session()
         url = f"{self.base_url}/repos/{self.repo}/contents/{path}"
         async with session.get(url, headers=self._headers()) as resp:
@@ -114,7 +117,17 @@ class GitHubContentClient:
                 logger.debug(f"GitHub read_binary_file {path}: {resp.status}")
                 return None
             data = await resp.json()
-            return base64.b64decode(data["content"])
+            # Файлы ≤1 MB — content в base64
+            if data.get("content"):
+                return base64.b64decode(data["content"])
+            # Файлы >1 MB — скачиваем по download_url
+            download_url = data.get("download_url")
+            if download_url:
+                async with session.get(download_url) as dl_resp:
+                    if dl_resp.status == 200:
+                        return await dl_resp.read()
+                    logger.warning(f"GitHub download_url {path}: {dl_resp.status}")
+            return None
 
     async def update_file(self, path: str, content: str, sha: str, message: str) -> bool:
         """Обновить файл (git commit). Возвращает True при успехе."""
