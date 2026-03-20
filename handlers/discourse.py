@@ -435,16 +435,21 @@ async def on_blog_url_input(message: Message, state: FSMContext):
 async def _resolve_username_from_category(discourse, category_id: int, slug: str) -> str | None:
     """Resolve real username from blogs-user-* slug via category name + user search."""
     cat = await discourse.get_category(category_id)
+    logger.info(f"[resolve] get_category({category_id}) → {cat is not None}")
     if not cat:
         return None
     # Category name: "Aleksandr Teterin (блоги)" → "Aleksandr Teterin"
     cat_name = cat.get("name", "")
+    logger.info(f"[resolve] cat_name='{cat_name}'")
     # Strip typical suffixes: "(блоги)", "(blogs)"
     clean_name = re.sub(r'\s*\((?:блоги|blogs)\)\s*$', '', cat_name).strip()
     if not clean_name:
+        logger.warning(f"[resolve] clean_name is empty after strip")
         return None
     # Search Discourse users by name
     results = await discourse.search_users(clean_name)
+    logger.info(f"[resolve] search_users('{clean_name}') → {len(results)} results: "
+                f"{[u.get('username') for u in results[:5]]}")
     if results and len(results) == 1:
         return results[0].get("username")
     # Multiple results — try exact name match
