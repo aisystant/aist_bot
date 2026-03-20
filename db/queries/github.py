@@ -130,20 +130,26 @@ async def sync_github_to_user_integrations(
 
         user_uuid = row['id']
 
-        await conn.execute('''
-            INSERT INTO development.user_integrations
-                (user_uuid, service, access_token, scope, metadata, connected_at, updated_at, active)
-            VALUES ($1, 'github', $2, $3, $4, NOW(), NOW(), TRUE)
-            ON CONFLICT (user_uuid, service) DO UPDATE SET
-                access_token = $2,
-                scope = $3,
-                metadata = $4,
-                updated_at = NOW(),
-                active = TRUE
-        ''',
-            user_uuid,
-            access_token,
-            scope,
-            f'{{"github_username": "{github_username}"}}',
-        )
-        logger.info(f"Synced GitHub token to user_integrations for chat_id={chat_id}")
+        try:
+            await conn.execute('''
+                INSERT INTO development.user_integrations
+                    (user_uuid, service, access_token, scope, metadata, connected_at, updated_at, active)
+                VALUES ($1, 'github', $2, $3, $4, NOW(), NOW(), TRUE)
+                ON CONFLICT (user_uuid, service) DO UPDATE SET
+                    access_token = $2,
+                    scope = $3,
+                    metadata = $4,
+                    updated_at = NOW(),
+                    active = TRUE
+            ''',
+                user_uuid,
+                access_token,
+                scope,
+                f'{{"github_username": "{github_username}"}}',
+            )
+            logger.info(f"Synced GitHub token to user_integrations for chat_id={chat_id}")
+        except Exception as e:
+            if 'does not exist' in str(e):
+                logger.warning(f"user_integrations table missing (pilot?): {e}")
+            else:
+                raise

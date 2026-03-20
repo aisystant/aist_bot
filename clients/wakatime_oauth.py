@@ -195,51 +195,69 @@ class WakaTimeOAuthClient:
 
             user_uuid = row['id']
 
-            await conn.execute('''
-                INSERT INTO development.user_integrations
-                    (user_uuid, service, access_token, refresh_token, scope,
-                     metadata, connected_at, updated_at, active)
-                VALUES ($1, 'wakatime', $2, $3, $4, '{}', NOW(), NOW(), TRUE)
-                ON CONFLICT (user_uuid, service) DO UPDATE SET
-                    access_token = $2,
-                    refresh_token = COALESCE($3, development.user_integrations.refresh_token),
-                    scope = $4,
-                    updated_at = NOW(),
-                    active = TRUE
-            ''',
-                user_uuid,
-                access_token,
-                refresh_token,
-                scope,
-            )
-            logger.info(f"Saved WakaTime connection for chat_id={telegram_user_id}")
+            try:
+                await conn.execute('''
+                    INSERT INTO development.user_integrations
+                        (user_uuid, service, access_token, refresh_token, scope,
+                         metadata, connected_at, updated_at, active)
+                    VALUES ($1, 'wakatime', $2, $3, $4, '{}', NOW(), NOW(), TRUE)
+                    ON CONFLICT (user_uuid, service) DO UPDATE SET
+                        access_token = $2,
+                        refresh_token = COALESCE($3, development.user_integrations.refresh_token),
+                        scope = $4,
+                        updated_at = NOW(),
+                        active = TRUE
+                ''',
+                    user_uuid,
+                    access_token,
+                    refresh_token,
+                    scope,
+                )
+                logger.info(f"Saved WakaTime connection for chat_id={telegram_user_id}")
+            except Exception as e:
+                if 'does not exist' in str(e):
+                    logger.warning(f"user_integrations table missing (pilot?): {e}")
+                else:
+                    raise
 
     async def is_connected(self, telegram_user_id: int) -> bool:
         """Проверяет, подключён ли пользователь к WakaTime."""
         from db.connection import get_pool
 
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow('''
-                SELECT 1 FROM development.user_integrations ui
-                JOIN public.users u ON u.id = ui.user_uuid
-                WHERE u.telegram_id = $1 AND ui.service = 'wakatime' AND ui.active = TRUE
-            ''', telegram_user_id)
-            return row is not None
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow('''
+                    SELECT 1 FROM development.user_integrations ui
+                    JOIN public.users u ON u.id = ui.user_uuid
+                    WHERE u.telegram_id = $1 AND ui.service = 'wakatime' AND ui.active = TRUE
+                ''', telegram_user_id)
+                return row is not None
+        except Exception as e:
+            if 'does not exist' in str(e):
+                logger.warning(f"user_integrations table missing (pilot?): {e}")
+                return False
+            raise
 
     async def disconnect(self, telegram_user_id: int) -> None:
         """Отключает пользователя от WakaTime."""
         from db.connection import get_pool
 
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute('''
-                UPDATE development.user_integrations
-                SET active = FALSE, updated_at = NOW()
-                WHERE user_uuid = (SELECT id FROM public.users WHERE telegram_id = $1)
-                    AND service = 'wakatime'
-            ''', telegram_user_id)
-        logger.info(f"Disconnected user {telegram_user_id} from WakaTime")
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute('''
+                    UPDATE development.user_integrations
+                    SET active = FALSE, updated_at = NOW()
+                    WHERE user_uuid = (SELECT id FROM public.users WHERE telegram_id = $1)
+                        AND service = 'wakatime'
+                ''', telegram_user_id)
+            logger.info(f"Disconnected user {telegram_user_id} from WakaTime")
+        except Exception as e:
+            if 'does not exist' in str(e):
+                logger.warning(f"user_integrations table missing (pilot?): {e}")
+            else:
+                raise
 
 
 # Singleton instance
