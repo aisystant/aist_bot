@@ -197,7 +197,9 @@ async def cmd_club(message: Message, state: FSMContext):
                 if re.match(r'^blogs-user-\d+$', username):
                     await message.answer(
                         f"`{username}` — это slug категории, а не username.\n"
-                        "Пришли ссылку на блог целиком или свой username в клубе.",
+                        "Напиши свой username в клубе "
+                        "(его можно найти в профиле на systemsworld.club).\n\n"
+                        "Например: `tseren-tserenov`",
                         parse_mode="Markdown",
                     )
                     await state.set_state(ClubStates.waiting_connect_input)
@@ -466,7 +468,9 @@ async def _connect_full(message: Message, username: str, category_id: int):
             await message.answer(
                 f"Ссылка содержит slug категории `{username}`, а не username.\n"
                 "Не удалось определить владельца блога автоматически.\n\n"
-                "Попробуй: `/club connect <твой-username-в-клубе>`",
+                "Напиши свой username в клубе (без угловых скобок).\n"
+                "Его можно найти на systemsworld.club в профиле.\n\n"
+                "Например: `/club connect tseren-tserenov`",
                 parse_mode="Markdown",
             )
             return
