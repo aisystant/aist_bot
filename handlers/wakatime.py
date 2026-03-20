@@ -41,7 +41,7 @@ async def cmd_wakatime(message: Message):
     parts = text.strip().split(maxsplit=1)
     subcommand = parts[1].lower() if len(parts) > 1 else None
 
-    # Проверяем подключение в wakatime_connections (основной flow через /settings)
+    # Проверяем подключение в user_integrations
     from db.queries.wakatime import get_wakatime_connection
     waka_conn = await get_wakatime_connection(telegram_user_id)
     is_connected = waka_conn is not None
