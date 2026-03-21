@@ -77,6 +77,28 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
         await bot.session.close()
 
 
+# --- Blocked user detection ---
+
+_USER_UNAVAILABLE_PHRASES = (
+    'blocked', 'deactivated', 'chat not found', 'forbidden',
+    'user is deactivated', 'have no rights', 'bot was kicked',
+    'not enough rights', 'chat_not_found', 'bot_blocked',
+)
+
+
+def _is_user_unavailable(error: Exception) -> bool:
+    """Check if Telegram error indicates user is permanently unreachable."""
+    error_msg = str(error).lower()
+    return any(phrase in error_msg for phrase in _USER_UNAVAILABLE_PHRASES)
+
+
+async def _handle_unavailable_user(chat_id: int, context: str = ""):
+    """Mark user as blocked and log."""
+    from db.queries.users import mark_bot_blocked
+    await mark_bot_blocked(chat_id)
+    logger.warning(f"[Scheduler] User {chat_id} unavailable ({context}), marked as blocked")
+
+
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
     """Инициализировать и вернуть планировщик.
 
@@ -436,10 +458,8 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
         )
         logger.info(f"[Scheduler] Sent feed notification to {chat_id}")
     except Exception as e:
-        error_msg = str(e).lower()
-        if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-            from db.queries.users import mark_bot_blocked
-            await mark_bot_blocked(chat_id)
+        if _is_user_unavailable(e):
+            await _handle_unavailable_user(chat_id, "feed notification")
         else:
             logger.error(f"[Scheduler] Error sending feed notification to {chat_id}: {e}")
 
@@ -695,15 +715,18 @@ async def check_reminders():
     try:
         async with pool.acquire() as conn:
             # Обрабатываем по одному в транзакции: claim → send → mark sent
+            # JOIN user_state — исключаем заблокированных пользователей
             while True:
                 row = await conn.fetchrow(
                     '''UPDATE reminders SET sent = TRUE
                        WHERE id = (
-                           SELECT id FROM reminders
-                           WHERE sent = FALSE AND scheduled_for <= $1
-                           ORDER BY scheduled_for
+                           SELECT r.id FROM reminders r
+                           JOIN development.user_state s ON s.chat_id = r.chat_id
+                           WHERE r.sent = FALSE AND r.scheduled_for <= $1
+                             AND s.bot_blocked IS NOT TRUE
+                           ORDER BY r.scheduled_for
                            LIMIT 1
-                           FOR UPDATE SKIP LOCKED
+                           FOR UPDATE OF r SKIP LOCKED
                        )
                        RETURNING id, chat_id, reminder_type''',
                     now_naive
@@ -715,18 +738,25 @@ async def check_reminders():
                     await send_reminder(row['chat_id'], row['reminder_type'], bot)
                     logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
+                    if _is_user_unavailable(e):
                         logger.warning(f"User {row['chat_id']} blocked bot, marking reminder {row['id']} as sent")
-                        from db.queries.users import mark_bot_blocked
-                        await mark_bot_blocked(row['chat_id'])
+                        await _handle_unavailable_user(row['chat_id'], f"reminder {row['reminder_type']}")
                     else:
-                        # Отправка не удалась — откатываем sent=TRUE чтобы retry на след. цикле
-                        await conn.execute(
-                            'UPDATE reminders SET sent = FALSE WHERE id = $1',
+                        # Retry limit: increment fail_count, give up after 3 attempts
+                        fail_count = await conn.fetchval(
+                            'SELECT COALESCE(fail_count, 0) FROM reminders WHERE id = $1',
                             row['id']
                         )
-                        logger.error(f"Failed to send reminder to {row['chat_id']}: {e}")
+                        if fail_count is not None and fail_count >= 2:
+                            # 3rd failure — give up, leave sent=TRUE
+                            logger.error(f"Reminder {row['id']} to {row['chat_id']} failed 3 times, giving up: {e}")
+                        else:
+                            # Откатываем sent=TRUE и инкрементируем fail_count для retry
+                            await conn.execute(
+                                'UPDATE reminders SET sent = FALSE, fail_count = COALESCE(fail_count, 0) + 1 WHERE id = $1',
+                                row['id']
+                            )
+                            logger.error(f"Failed to send reminder to {row['chat_id']} (attempt {(fail_count or 0) + 1}/3): {e}")
     finally:
         await bot.session.close()
 
@@ -757,11 +787,8 @@ async def scheduled_check():
                     await pre_generate_feed_digest(chat_id, bot)
                 logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
             except Exception as e:
-                error_msg = str(e).lower()
-                if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-                    logger.warning(f"[Scheduler] User {chat_id} blocked bot, skipping")
-                    from db.queries.users import mark_bot_blocked
-                    await mark_bot_blocked(chat_id)
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, f"scheduled {send_type}")
                 else:
                     logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
@@ -1062,10 +1089,8 @@ async def _catch_up_missed_deliveries():
                 await send_scheduled_topic(chat_id, bot)
                 logger.info(f"[Scheduler] Catch-up delivered to {chat_id}")
             except Exception as e:
-                error_msg = str(e).lower()
-                if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-                    from db.queries.users import mark_bot_blocked
-                    await mark_bot_blocked(chat_id)
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, "catch-up")
                 else:
                     logger.error(f"[Scheduler] Catch-up failed for {chat_id}: {e}")
 
@@ -1261,10 +1286,8 @@ async def send_trial_expiry_notifications():
                         await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
                         logger.info(f"[Scheduler] Trial expiry notification sent to {chat_id} (days_ahead={_days})")
                     except Exception as e:
-                        error_msg = str(e).lower()
-                        if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-                            from db.queries.users import mark_bot_blocked
-                            await mark_bot_blocked(chat_id)
+                        if _is_user_unavailable(e):
+                            await _handle_unavailable_user(chat_id, "trial expiry")
                         else:
                             logger.error(f"[Scheduler] Trial notification error for {chat_id}: {e}")
 
@@ -1374,11 +1397,8 @@ async def send_milestone_notifications():
                     total_sent += 1
                     logger.info(f"[Scheduler] Milestone {milestone} sent to {chat_id}")
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if any(x in error_msg for x in ('blocked', 'deactivated', 'chat not found')):
-                        logger.warning(f"[Scheduler] Milestone {milestone}: user {chat_id} unavailable, skipping")
-                        from db.queries.users import mark_bot_blocked
-                        await mark_bot_blocked(chat_id)
+                    if _is_user_unavailable(e):
+                        await _handle_unavailable_user(chat_id, f"milestone {milestone}")
                     else:
                         logger.error(f"[Scheduler] Milestone {milestone} error for {chat_id}: {e}")
     finally:
@@ -1468,10 +1488,8 @@ async def send_engagement_nudges():
                     logger.info(f"[Nudge] Sent {nudge_key} to {chat_id}")
                     break  # One nudge per user per day
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if any(x in error_msg for x in ('blocked', 'deactivated', 'chat not found')):
-                        from db.queries.users import mark_bot_blocked
-                        await mark_bot_blocked(chat_id)
+                    if _is_user_unavailable(e):
+                        await _handle_unavailable_user(chat_id, "nudge")
                     else:
                         logger.error(f"[Nudge] Error for {chat_id}: {e}")
                     break  # Don't retry other nudges for this user
@@ -1554,10 +1572,8 @@ async def send_event_notifications():
                     await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
                     total_sent += 1
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if 'blocked' in error_msg or 'deactivated' in error_msg or 'chat not found' in error_msg:
-                        from db.queries.users import mark_bot_blocked
-                        await mark_bot_blocked(chat_id)
+                    if _is_user_unavailable(e):
+                        await _handle_unavailable_user(chat_id, "event notification")
                     else:
                         logger.error(f"[Scheduler] Event notification error for {chat_id}: {e}")
     finally:
