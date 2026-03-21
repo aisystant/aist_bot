@@ -290,16 +290,6 @@ async def _process_channel_message(message: Message, bot: Bot):
     # Детектировать упоминания
     matches = detect_mentions(message, monitors)
     if not matches:
-        # Проверить reply на сообщение пользователя бота (для участников без монитора)
-        if message.reply_to_message and message.reply_to_message.from_user:
-            reply_user_id = message.reply_to_message.from_user.id
-            # Ищем в БД бота
-            for m in monitors:
-                if m['chat_id'] == reply_user_id:
-                    break
-            else:
-                # Пользователь не в мониторах, но может быть участником бота
-                await _notify_reply_to_bot_user(message, bot, reply_user_id)
         return
 
     # Обработать каждое упоминание
