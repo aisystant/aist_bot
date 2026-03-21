@@ -3747,6 +3747,47 @@ mydata:
   btn_delete_all:
     ru: "Удалить все данные"
     en: "Delete all data"
+
+  # ── Confirmation dialogs ──
+  confirm_yes:
+    ru: "Да, подтверждаю"
+    en: "Yes, confirm"
+  confirm_cancel:
+    ru: "Отмена"
+    en: "Cancel"
+  confirm_reset_stats:
+    ru: "Сбросить статистику?"
+    en: "Reset statistics?"
+  confirm_reset_stats_detail:
+    ru: "Будут обнулены: активные дни, текущая серия, лучшая серия."
+    en: "Will be reset: active days, current streak, longest streak."
+  confirm_clear_qa:
+    ru: "Очистить историю Q&A?"
+    en: "Clear Q&A history?"
+  confirm_clear_qa_detail:
+    ru: "Все вопросы и ответы консультанту будут удалены."
+    en: "All consultant questions and answers will be deleted."
+  confirm_reset_learning:
+    ru: "Сбросить прогресс обучения?"
+    en: "Reset learning progress?"
+  confirm_reset_learning_detail:
+    ru: |
+      Будут сброшены:
+      • Марафон (прогресс, ответы)
+      • Лента (сессии, фиксации)
+      • Статистика активности
+      • Оценки
+
+      Профиль и настройки сохранятся.
+    en: |
+      Will be reset:
+      • Marathon (progress, answers)
+      • Feed (sessions, fixations)
+      • Activity statistics
+      • Assessments
+
+      Profile and settings will be preserved.
+
   stats_reset_done:
     ru: "Статистика сброшена."
     en: "Statistics reset."
@@ -3764,6 +3805,9 @@ mydata:
   delete_keyword:
     ru: "Удалить."
     en: "Delete."
+  delete_confirm_phrase:
+    ru: "Удалить мои данные и имя"
+    en: "Delete my data and name"
   delete_warning_title:
     ru: "Удаление всех данных"
     en: "Delete all data"
@@ -3785,8 +3829,8 @@ mydata:
       • Connections (GitHub, DT)
       • Subscription
   delete_instruction:
-    ru: "Для подтверждения напишите"
-    en: "To confirm, type"
+    ru: "Для подтверждения напишите точную фразу"
+    en: "To confirm, type the exact phrase"
   delete_mismatch:
     ru: "Текст не совпал. Удаление отменено."
     en: "Text did not match. Deletion cancelled."

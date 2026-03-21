@@ -246,8 +246,7 @@ class MyDataState(BaseState):
             return None
 
         text = (message.text or '').strip()
-        expected_name = context.get('delete_confirm_name', '')
-        expected = f"{t('mydata.delete_keyword', lang)} {expected_name}"
+        expected = t('mydata.delete_confirm_phrase', lang)
 
         if text == expected:
             await self._execute_delete(user, chat_id, lang)
@@ -342,16 +341,29 @@ class MyDataState(BaseState):
             await self._explain_category(user, category, "improve")
             return None
 
-        # ── Manage: delete actions ──
+        # ── Manage: confirm actions ──
         if data == "mydata_reset_stats":
-            await self._reset_stats(user)
+            await self._confirm_action(user, callback, "reset_stats")
             return None
 
         if data == "mydata_clear_qa":
-            await self._clear_qa(user)
+            await self._confirm_action(user, callback, "clear_qa")
             return None
 
         if data == "mydata_reset_learning":
+            await self._confirm_action(user, callback, "reset_learning")
+            return None
+
+        # ── Manage: confirmed actions ──
+        if data == "mydata_confirm_reset_stats":
+            await self._reset_stats(user)
+            return None
+
+        if data == "mydata_confirm_clear_qa":
+            await self._clear_qa(user)
+            return None
+
+        if data == "mydata_confirm_reset_learning":
             await self._reset_learning(user)
             return None
 
@@ -881,6 +893,42 @@ class MyDataState(BaseState):
                 parse_mode="Markdown",
             )
 
+    # ─── Manage: confirmation step ─────────────────────────────────────
+
+    async def _confirm_action(self, user, callback: CallbackQuery, action: str) -> None:
+        """Показать подтверждение перед деструктивным действием."""
+        lang = self._get_lang(user)
+
+        confirm_keys = {
+            'reset_stats': ('mydata.confirm_reset_stats', 'mydata.confirm_reset_stats_detail'),
+            'clear_qa': ('mydata.confirm_clear_qa', 'mydata.confirm_clear_qa_detail'),
+            'reset_learning': ('mydata.confirm_reset_learning', 'mydata.confirm_reset_learning_detail'),
+        }
+        title_key, detail_key = confirm_keys[action]
+
+        text = f"⚠️ *{t(title_key, lang)}*\n\n"
+        text += t(detail_key, lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✅ {t('mydata.confirm_yes', lang)}",
+                    callback_data=f"mydata_confirm_{action}",
+                ),
+                InlineKeyboardButton(
+                    text=f"❌ {t('mydata.confirm_cancel', lang)}",
+                    callback_data="mydata_sec_manage",
+                ),
+            ],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                text, reply_markup=keyboard, parse_mode="Markdown",
+            )
+        except Exception:
+            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
     # ─── Manage: individual actions ────────────────────────────────────
 
     async def _reset_stats(self, user) -> None:
@@ -963,16 +1011,8 @@ class MyDataState(BaseState):
         """Начать процедуру полного удаления данных."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
-        profile = await self._get_profile(chat_id)
 
-        name = (profile or {}).get('name', '')
-        if not name:
-            # Fallback: tg username или chat_id
-            tg_username = (profile or {}).get('tg_username', '')
-            name = tg_username if tg_username else str(chat_id)
-
-        keyword = t('mydata.delete_keyword', lang)
-        confirm_text = f"{keyword} {name}"
+        confirm_text = t('mydata.delete_confirm_phrase', lang)
 
         text = f"⚠️ *{t('mydata.delete_warning_title', lang)}*\n\n"
         text += t('mydata.delete_warning_body', lang) + "\n\n"
@@ -982,7 +1022,6 @@ class MyDataState(BaseState):
         # Сохраняем контекст ожидания подтверждения
         await self._save_context(chat_id, {
             'awaiting_delete': True,
-            'delete_confirm_name': name,
         })
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
