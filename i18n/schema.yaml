@@ -1052,7 +1052,7 @@ settings:
     en: "Marathon: day {day}"
 
   reset_stats_summary:
-    ru: "Статистика: {total} дн., streak {streak}"
+    ru: "Статистика: {total} дн., серия {streak}"
     en: "Stats: {total} days, streak {streak}"
 
   language:
@@ -3642,7 +3642,7 @@ mydata:
     ru: "Claude НЕ получает:"
     en: "Claude does NOT receive:"
   how_not_sent_list:
-    ru: "chat\\_id, streak, историю ответов, данные сессий, GitHub токены"
+    ru: "chat\\_id, серию, историю ответов, данные сессий, GitHub токены"
     en: "chat\\_id, streak, answer history, session data, GitHub tokens"
   dt_section:
     ru: "Цифровой Двойник"
@@ -3693,7 +3693,7 @@ mydata:
       *Что мы собираем:*
       • Профиль (имя, профессия, интересы, цели)
       • Прогресс (ответы, фиксации, пройденные темы)
-      • Активность (дни, streak, время сессий)
+      • Активность (дни, серия, время сессий)
       • Консультации (вопросы и ответы)
       • Техническое (ID чата, язык, состояние FSM)
 
@@ -3733,7 +3733,7 @@ mydata:
     ru: "Ты полностью контролируешь свои данные. Выбери действие:"
     en: "You have full control over your data. Choose an action:"
   btn_reset_stats:
-    ru: "🔄 Сбросить статистику (streak, дни)"
+    ru: "🔄 Сбросить статистику (серия, дни)"
     en: "🔄 Reset statistics (streak, days)"
   btn_clear_qa:
     ru: "💬 Очистить историю Q&A"
