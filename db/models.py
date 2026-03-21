@@ -344,6 +344,15 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
+        # Миграция: добавить fail_count в reminders для retry limit
+        try:
+            await conn.execute('''
+                ALTER TABLE reminders
+                ADD COLUMN IF NOT EXISTS fail_count INTEGER DEFAULT 0
+            ''')
+        except Exception:
+            pass
+
         # ═══════════════════════════════════════════════════════════
         # ЛОГ АКТИВНОСТИ
         # ═══════════════════════════════════════════════════════════
