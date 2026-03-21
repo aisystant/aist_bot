@@ -74,6 +74,21 @@ async def get_marathon_content(chat_id: int, topic_index: int) -> dict | None:
     return result
 
 
+async def mark_notification_sent(chat_id: int, topic_index: int):
+    """Записать факт отправки уведомления (idempotency guard).
+
+    Вызывается ПЕРЕД send_message — log-before-send (§10.10).
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''UPDATE marathon_content
+               SET notification_sent_at = NOW()
+               WHERE chat_id = $1 AND topic_index = $2''',
+            chat_id, topic_index,
+        )
+
+
 async def mark_content_delivered(chat_id: int, topic_index: int):
     """Отметить контент как доставленный."""
     pool = await get_pool()
