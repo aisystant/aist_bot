@@ -141,7 +141,7 @@ class SettingsState(BaseState):
         from core.tier_detector import detect_ui_tier
         tier = await detect_ui_tier(chat_id)
         if tier >= 2:  # T2_LEARNING
-            connections_summary += f"\n  • {t('settings.iwe_updates_label', lang)}: {iwe_status}"
+            connections_summary += f"\n  {iwe_status} {t('settings.iwe_updates_label', lang)}"
 
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
