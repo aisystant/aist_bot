@@ -20,7 +20,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
-from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content, cleanup_error_questions
+from db.queries.marathon import save_marathon_content, get_marathon_content, mark_notification_sent, cleanup_expired_content, cleanup_error_questions
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
@@ -528,8 +528,16 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     # НЕ обновляем current_topic_index здесь — scheduler только пре-генерирует контент.
     # current_topic_index обновляется в lesson.py при реальном взаимодействии пользователя.
 
-    # ─── Проверяем: контент уже пре-генерирован (за 3h)? ───
+    # ─── Idempotency early guard: уведомление уже отправлено сегодня? (§10.10) ───
     existing = await get_marathon_content(chat_id, topic_index)
+    if existing and existing.get('notification_sent_at'):
+        sent_date = existing['notification_sent_at'].date()
+        today = moscow_now().date()
+        if sent_date >= today:
+            logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip (early guard)")
+            return
+
+    # ─── Проверяем: контент уже пре-генерирован (за 3h)? ───
     if existing and existing.get('status') == 'pending' and existing.get('lesson_content'):
         logger.info(f"[Scheduler] Pre-generated content found for {chat_id}, topic {topic_index} — skip generation")
     else:
@@ -550,11 +558,23 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             _schedule_retry(chat_id, 'marathon')
             return
 
+    # ─── Idempotency guard: уведомление уже отправлено сегодня? (§10.10) ───
+    existing = await get_marathon_content(chat_id, topic_index)
+    if existing and existing.get('notification_sent_at'):
+        sent_date = existing['notification_sent_at'].date()
+        today = moscow_now().date()
+        if sent_date >= today:
+            logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip")
+            return
+
     # Планируем напоминания (+1ч и +3ч)
     await schedule_reminders(chat_id, intern)
 
     # Определяем: catch-up (урок с прошлого дня) или обычный
     is_catchup = topic['day'] < marathon_day
+
+    # Log-before-send: записываем факт отправки ДО send_message (§10.10)
+    await mark_notification_sent(chat_id, topic_index)
 
     # Отправляем уведомление с кнопкой «Получить урок»
     topic_title = get_topic_title(topic, lang)
@@ -970,11 +990,14 @@ async def scheduled_check():
 
 async def _catch_up_missed_deliveries():
     """Компенсирующая доставка: найти пользователей, чьё время уже прошло,
-    но marathon_content за сегодня нет → перезапустить доставку.
+    но уведомление за сегодня не отправлено → перезапустить доставку.
 
     Запускается каждые 30 минут. Покрывает случаи:
     - Редеплой Railway (потеря cron-джобов)
     - Таймаут Claude API при пре-генерации + исчерпание retry
+
+    Использует notification_sent_at (не created_at) для проверки —
+    контент может быть пре-генерирован заранее, но уведомление не отправлено.
     """
     from db.connection import get_pool
 
@@ -994,7 +1017,7 @@ async def _catch_up_missed_deliveries():
               AND NOT EXISTS (
                   SELECT 1 FROM marathon_content mc
                   WHERE mc.chat_id = s.chat_id
-                    AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                    AND mc.notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
               )
         ''', time_str)
 

@@ -485,12 +485,15 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 **Завершение марафона (4 code paths):** При `completed_topics >= total` ОБЯЗАН ставить `marathon_status=MarathonStatus.COMPLETED` + `mode=derive_mode(COMPLETED, feed_status)`. Без этого scheduler повторно отправляет поздравление. Все 4 пути: (1) `core/scheduler.py` — scheduled delivery, (2) `handlers/legacy/learning.py` — legacy, (3) `states/.../task.py` — SM основной путь, (4) `states/.../lesson.py` — SM guard при повторном входе.
 
-### marathon_content.status — семантика
+### marathon_content — семантика полей
 
-| DB status | Значение | Кто ставит |
-|-----------|---------|-----------|
-| `pending` | Контент отправлен, пользователь **не открыл** | pre-gen (insert) |
-| `delivered` | Пользователь **открыл** урок | `mark_content_delivered()` в lesson.py |
+| DB поле | Значение | Кто ставит |
+|---------|---------|-----------|
+| `status = 'pending'` | Контент сгенерирован, пользователь **не открыл** | pre-gen (insert) |
+| `status = 'delivered'` | Пользователь **открыл** урок | `mark_content_delivered()` в lesson.py |
+| `notification_sent_at` | Когда уведомление отправлено пользователю | `mark_notification_sent()` в scheduler.py (log-before-send) |
+
+**Idempotency:** `notification_sent_at` — guard против повторной отправки. Scheduler проверяет `notification_sent_at >= today` ДО отправки. Catch-up (`_catch_up_missed_deliveries`) ищет пользователей без `notification_sent_at` за сегодня (не `created_at` — контент может быть пре-генерирован заранее).
 
 `/delivery` dev-команда показывает эту разницу: 🟢 прочитано / 🟡 отправлено, не открыт.
 

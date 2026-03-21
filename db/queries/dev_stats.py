@@ -205,12 +205,17 @@ async def get_delivery_report() -> dict:
         ''')
 
         # Today's marathon_content per user (latest status)
+        # notification_sent_at = когда уведомление отправлено (idempotency field)
+        # Fallback на created_at для старых записей без notification_sent_at
         content_today = await conn.fetch('''
             SELECT DISTINCT ON (mc.chat_id)
-                mc.chat_id, mc.status, mc.created_at
+                mc.chat_id, mc.status, mc.created_at,
+                mc.notification_sent_at
             FROM marathon_content mc
-            WHERE mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
-            ORDER BY mc.chat_id, mc.created_at DESC
+            WHERE mc.notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+               OR (mc.notification_sent_at IS NULL
+                   AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date)
+            ORDER BY mc.chat_id, COALESCE(mc.notification_sent_at, mc.created_at) DESC
         ''')
         content_map = {r['chat_id']: r for r in content_today}
 
@@ -228,8 +233,9 @@ async def get_delivery_report() -> dict:
 
             c = content_map.get(chat_id)
             if c:
-                created_msk = c['created_at'] + timedelta(hours=3) if c['created_at'].tzinfo is None else c['created_at'].astimezone(MOSCOW_TZ)
-                entry['time'] = created_msk.strftime('%H:%M')
+                ts = c['notification_sent_at'] or c['created_at']
+                ts_msk = ts + timedelta(hours=3) if ts.tzinfo is None else ts.astimezone(MOSCOW_TZ)
+                entry['time'] = ts_msk.strftime('%H:%M')
                 # DB: 'delivered' = user opened lesson, 'pending' = sent but not opened yet
                 if c['status'] == 'delivered':
                     entry['status'] = 'sent_read'

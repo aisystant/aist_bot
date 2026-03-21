@@ -329,10 +329,20 @@ async def create_tables(pool: asyncpg.Pool):
 
                 created_at TIMESTAMP DEFAULT NOW(),
                 delivered_at TIMESTAMP,
+                notification_sent_at TIMESTAMP,
 
                 UNIQUE(chat_id, topic_index)
             )
         ''')
+
+        # Миграция: добавить notification_sent_at если отсутствует
+        try:
+            await conn.execute('''
+                ALTER TABLE marathon_content
+                ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMP
+            ''')
+        except Exception:
+            pass
 
         # ═══════════════════════════════════════════════════════════
         # ЛОГ АКТИВНОСТИ
