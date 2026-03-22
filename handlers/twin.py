@@ -616,12 +616,49 @@ _IWE_PLATFORM_CONTEXT = (
 )
 
 
+import time as _time
+
+# In-memory cache for insights: {telegram_id: (timestamp, html_result)}
+_insights_cache: dict[int, tuple[float, str]] = {}
+_INSIGHTS_CACHE_TTL = 1800  # 30 minutes
+
+
 async def _handle_insights(message: Message, intern: dict, lang: str):
     """Генерирует AI-интерпретацию engagement данных из ЦД (Phase 5A)."""
     from db.queries.dt_sync import get_engagement_data
     from db.queries.identity import get_user_uuid
 
     telegram_user_id = message.chat.id
+
+    # Check cache
+    cached = _insights_cache.get(telegram_user_id)
+    if cached:
+        cached_at, cached_result = cached
+        if _time.time() - cached_at < _INSIGHTS_CACHE_TTL:
+            logger.info(f"[Twin Insights] Cache hit for {telegram_user_id}")
+            from helpers.message_split import prepare_html_parts
+            parts = prepare_html_parts(cached_result)
+            detail_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('twin.btn_insights_detailed', lang),
+                    callback_data="twin_insights_detailed",
+                )]
+            ])
+            for i, part in enumerate(parts):
+                is_last = (i == len(parts) - 1)
+                try:
+                    await message.answer(
+                        part, parse_mode="HTML",
+                        reply_markup=detail_kb if is_last else None,
+                    )
+                except Exception:
+                    await message.answer(
+                        part,
+                        reply_markup=detail_kb if is_last else None,
+                    )
+            return
+        else:
+            del _insights_cache[telegram_user_id]
 
     # digital_twins.user_id = public.users.id (bot UUID, NOT dt_tokens.dt_user_id)
     user_uuid = await get_user_uuid(telegram_user_id)
@@ -799,6 +836,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
             )
 
         if result:
+            # Store in cache
+            _insights_cache[telegram_user_id] = (_time.time(), result)
             from helpers.message_split import prepare_html_parts
             parts = prepare_html_parts(result)
             detail_kb = InlineKeyboardMarkup(inline_keyboard=[
