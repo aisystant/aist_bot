@@ -484,3 +484,84 @@ def fill_tier_prompt(template: str, **kwargs) -> str:
 def invalidate_tier_prompt_cache():
     """Сброс кеша tier prompts (для hot reload)."""
     _tier_prompt_cache.clear()
+
+
+# =============================================================================
+# ROLE PROMPT LOADER (DP.D.044 — Role Attribution)
+# =============================================================================
+
+_role_prompt_cache: Dict[str, str] = {}
+
+_ROLE_FILES = {
+    "navigator": "navigator.md",
+    "diagnostician": "diagnostician.md",
+}
+
+# Role display: emoji + name for footer (L1 Role Attribution)
+ROLE_ATTRIBUTION = {
+    "navigator": {"ru": "🧭 Навигатор", "en": "🧭 Navigator"},
+    "diagnostician": {"ru": "🎯 Диагност", "en": "🎯 Diagnostician"},
+}
+
+# Role transition messages (L2 Role Attribution)
+ROLE_TRANSITION = {
+    "navigator": {
+        "ru": "🧭 _Подключаю Навигатора — он поможет с траекторией развития._",
+        "en": "🧭 _Connecting Navigator — they'll help with your development path._",
+    },
+    "diagnostician": {
+        "ru": "🎯 _Подключаю Диагноста — он определит вашу ступень._",
+        "en": "🎯 _Connecting Diagnostician — they'll assess your level._",
+    },
+}
+
+ROLE_RETURN_MESSAGE = {
+    "ru": "↩️ _Возвращаю Консультанта._",
+    "en": "↩️ _Returning to Consultant._",
+}
+
+
+def load_role_prompt(role: str) -> Optional[str]:
+    """Загружает промпт для специализированной роли (Навигатор, Диагност).
+
+    Args:
+        role: идентификатор роли ("navigator", "diagnostician")
+
+    Returns:
+        Шаблон промпта или None если роль не найдена.
+    """
+    if role in _role_prompt_cache:
+        return _role_prompt_cache[role]
+
+    filename = _ROLE_FILES.get(role)
+    if not filename:
+        return None
+
+    from pathlib import Path
+    path = Path(__file__).parent.parent.parent / "config" / "prompts" / filename
+
+    if path.exists():
+        try:
+            content = path.read_text(encoding="utf-8")
+            _role_prompt_cache[role] = content
+            logger.info(f"Role prompt loaded: {role} ({filename}, {len(content)} chars)")
+            return content
+        except Exception as e:
+            logger.warning(f"Failed to read role prompt {filename}: {e}")
+
+    logger.warning(f"Role prompt {role} not found at {path}")
+    return None
+
+
+def get_role_footer(role: str, lang: str) -> str:
+    """Возвращает footer с подписью роли (L1 Role Attribution).
+
+    Добавляется ПОСЛЕ генерации, не в промпте.
+    """
+    attr = ROLE_ATTRIBUTION.get(role, {})
+    return attr.get(lang, attr.get("ru", ""))
+
+
+def invalidate_role_prompt_cache():
+    """Сброс кеша role prompts."""
+    _role_prompt_cache.clear()

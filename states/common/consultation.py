@@ -47,6 +47,54 @@ logger = logging.getLogger(__name__)
 # Максимум раундов уточнения (1 = initial, 2 = first refine, 3 = max)
 MAX_REFINEMENT_ROUNDS = 3
 
+# --- Role routing patterns (DP.D.044) ---
+_NAVIGATOR_PATTERNS = [
+    # SS.1: С чего начать
+    "с чего начать", "с чего мне начать", "что мне изучать", "какую программу",
+    "куда пойти", "что выбрать", "какой курс", "программа обучения",
+    "не знаю с чего", "подскажи путь", "что посоветуешь изучать",
+    # SS.3: Мемы
+    "нет времени", "не хватает времени", "не получается учиться",
+    "сбиваюсь", "бросаю", "не могу учиться", "мешает учиться",
+    "нужно идеально", "потом начну", "сначала пойму",
+    "не мне это", "поздно учиться", "нет способностей",
+    # SS.4: Помидорки
+    "сколько помидорок", "сколько учиться", "как спланировать неделю",
+    "помоги с ритмом", "ритм обучения", "план на неделю",
+    "сколько времени уделять", "расписание обучения",
+    # SS.5: Итоги
+    "итоги недели", "итоги", "как у меня дела", "как я продвинулся",
+    "мой прогресс за неделю", "подведи итоги",
+    # SS.6: Зачем
+    "зачем это учить", "зачем мне это", "какой смысл", "не понимаю зачем",
+    "для чего это нужно", "почему это важно",
+]
+
+_DIAGNOSTICIAN_PATTERNS = [
+    "протестируй меня", "протестируй", "какая у меня ступень",
+    "определи мою ступень", "на какой я ступени", "моя ступень",
+    "оцени мой уровень", "диагностика", "тестирование ступени",
+]
+
+
+def _detect_role(question: str) -> Optional[str]:
+    """Определяет, нужна ли смена роли (DP.D.044).
+
+    Returns:
+        "navigator" | "diagnostician" | None (Консультант по умолчанию)
+    """
+    q = question.lower().strip()
+
+    for pattern in _DIAGNOSTICIAN_PATTERNS:
+        if pattern in q:
+            return "diagnostician"
+
+    for pattern in _NAVIGATOR_PATTERNS:
+        if pattern in q:
+            return "navigator"
+
+    return None
+
 # Persistent session: максимум пар (user/assistant) в истории
 MAX_HISTORY_PAIRS = 5
 # Максимум символов на одну запись истории (обрезка длинных ответов)
@@ -470,15 +518,20 @@ class ConsultationState(BaseState):
                     deep_search = True
                     break
 
+        # DP.D.044: Early role detection — перед FAQ и structured lookup
+        # Если вопрос для Навигатора/Диагноста → пропустить FAQ, идти в L3
+        _early_role = _detect_role(question) if not is_refinement else None
+        _skip_faq = bool(_early_role)  # Отдельный флаг, не перегружаем deep_search
+
         typing_task = None
         try:
             # --- L1: Structured Lookup (YAML данные марафона из RAM, ~0ms) ---
             # Проверяем ДО FAQ: если есть точные данные марафона — FAQ не нужен
-            structured_hit = None if deep_search else structured_lookup(question, lang)
+            structured_hit = None if (deep_search or _skip_faq) else structured_lookup(question, lang)
             structured_context = format_structured_context(structured_hit, lang) if structured_hit else ""
 
             # --- L0: FAQ-матч (только если L1 не нашёл структурированных данных) ---
-            faq_answer = None if (deep_search or structured_hit or is_refinement) else match_faq(question, lang)
+            faq_answer = None if (deep_search or structured_hit or is_refinement or _skip_faq) else match_faq(question, lang)
             if faq_answer:
                 _answer_for_history = faq_answer
                 response = self._format_response(faq_answer, [], lang)
@@ -588,11 +641,29 @@ class ConsultationState(BaseState):
                             bot_context += goal_hint
 
                 from engines.shared import handle_question_with_tools
-                from engines.shared.consultation_tools import get_personal_claude_md
+                from engines.shared.consultation_tools import (
+                    get_personal_claude_md,
+                    load_role_prompt,
+                    get_role_footer,
+                    ROLE_TRANSITION,
+                )
 
                 personal_claude = ""
                 if has_github:
                     personal_claude = await get_personal_claude_md(user_chat_id)
+
+                # DP.D.044: Role routing — detect if question needs Navigator or Diagnostician
+                detected_role = _detect_role(question) if not is_refinement else None
+                role_prompt = None
+                if detected_role:
+                    role_prompt = load_role_prompt(detected_role)
+                    if role_prompt:
+                        # L2 Role Attribution: transition message
+                        transition = ROLE_TRANSITION.get(detected_role, {})
+                        transition_msg = transition.get(lang, transition.get("ru", ""))
+                        if transition_msg:
+                            await self.send(user, transition_msg, parse_mode="Markdown")
+                        logger.info(f"Consultation: role switch → {detected_role} for user {user_chat_id}")
 
                 # Conversation history → multi-turn messages
                 history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
@@ -608,8 +679,16 @@ class ConsultationState(BaseState):
                     is_refinement=is_refinement,
                     conversation_messages=history_messages,
                     ui_tier=ui_tier,
+                    role_prompt_override=role_prompt,
                 )
-                logger.info(f"Consultation: T{tier} tool_use path for user {user_chat_id}")
+
+                # L1 Role Attribution: footer with role signature
+                if detected_role and role_prompt:
+                    footer = get_role_footer(detected_role, lang)
+                    if footer:
+                        answer = answer.rstrip() + f"\n\n_{footer}_"
+
+                logger.info(f"Consultation: T{tier}{' role=' + detected_role if detected_role else ''} for user {user_chat_id}")
                 _answer_for_history = answer
 
                 response = self._format_response(answer, sources, lang)

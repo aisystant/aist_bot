@@ -459,6 +459,7 @@ async def handle_question_with_tools(
     is_refinement: bool = False,
     conversation_messages: Optional[List[Dict]] = None,
     ui_tier: int = -1,
+    role_prompt_override: Optional[str] = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
@@ -544,7 +545,17 @@ async def handle_question_with_tools(
     )
 
     # Загружаем шаблон промпта и подставляем переменные
-    template = load_tier_prompt(tier)
+    # DP.D.044: role_prompt_override заменяет tier-промпт при смене роли
+    template = role_prompt_override if role_prompt_override else load_tier_prompt(tier)
+    # format_rules: канальная адаптация (DP.D.044). Бот = Telegram rules.
+    _TG_FORMAT_RULES = (
+        "ФОРМАТИРОВАНИЕ (Telegram):\n"
+        "- ЗАПРЕЩЕНО использовать таблицы (| ... | ... |). Telegram их НЕ отображает.\n"
+        "- ЗАПРЕЩЕНО использовать markdown-заголовки (# ## ###). Вместо них — *жирный текст*.\n"
+        "- Списки (• или -) с *жирным* для заголовков.\n"
+        "- Короткие абзацы (2-3 предложения).\n"
+        "- Команды бота пиши как обычный текст (не в обратных кавычках)."
+    )
     system_prompt = fill_tier_prompt(
         template,
         name=name,
@@ -553,6 +564,7 @@ async def handle_question_with_tools(
         lang_instruction=lang_instruction,
         lang_reminder=lang_reminder,
         ontology_rules=ONTOLOGY_RULES,
+        format_rules=_TG_FORMAT_RULES,
         **sections,
     )
 
