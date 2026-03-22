@@ -18,11 +18,14 @@ from aiogram import Bot
 logger = logging.getLogger(__name__)
 
 
-async def deliver_tailor_lesson(chat_id: int, bot: Bot):
+async def deliver_tailor_lesson(chat_id: int, bot: Bot, force: bool = False):
     """Сгенерировать и отправить персональное занятие.
 
     Вызывается из scheduler по расписанию (feed_schedule_time).
     Паттерн: pre-gen → save → notify (аналогично feed digest).
+
+    Args:
+        force: пропустить idempotency guard (для /tailor dev-команды).
     """
     from db.queries import get_intern
     from db.queries.cache import get_cached_content, save_cached_content
@@ -43,10 +46,11 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot):
     # ─── Idempotency: не отправлять дважды в день ───
     today = moscow_today()
     today_str = today.strftime('%Y-%m-%d')
-    tailor_key = f"tailor_lesson:{chat_id}:{today_str}"
-    if not await try_insert_notification(chat_id, 'tailor_lesson', tailor_key):
-        logger.info(f"[Tailor] Lesson already sent to {chat_id} today, skip")
-        return
+    if not force:
+        tailor_key = f"tailor_lesson:{chat_id}:{today_str}"
+        if not await try_insert_notification(chat_id, 'tailor_lesson', tailor_key):
+            logger.info(f"[Tailor] Lesson already sent to {chat_id} today, skip")
+            return
 
     # ─── Проверить кэш ───
     cache_key = f"tailor:{chat_id}:{today_str}"

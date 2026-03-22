@@ -1,5 +1,5 @@
 """
-Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, autofix callbacks.
+Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, /tailor, autofix callbacks.
 
 Доступны только для DEVELOPER_CHAT_ID.
 """
@@ -591,6 +591,25 @@ async def cmd_dt_sync(message: Message):
     except Exception as e:
         logger.error(f"[Dev] /dt_sync error: {e}", exc_info=True)
         await message.answer(f"<b>/dt_sync error:</b>\n<code>{e}</code>", parse_mode="HTML")
+
+
+@dev_router.message(Command("tailor"))
+async def cmd_tailor(message: Message):
+    """/tailor — ручной триггер занятия Портного (WP-149, SC.020)."""
+    if not _is_developer(message.chat.id):
+        return
+
+    await message.answer("⏳ Генерирую занятие Портного...")
+
+    try:
+        from engines.tailor.delivery import deliver_tailor_lesson
+        from aiogram import Bot
+        bot = message.bot
+        await deliver_tailor_lesson(message.chat.id, bot, force=True)
+        await message.answer("✅ Занятие отправлено. Проверь кнопки ниже.", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"[Dev] /tailor error: {e}", exc_info=True)
+        await message.answer(f"<b>/tailor error:</b>\n<code>{e}</code>", parse_mode="HTML")
 
 
 @dev_router.message(Command("nudge_test"))

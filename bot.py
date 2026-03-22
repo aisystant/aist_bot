@@ -266,6 +266,7 @@ async def main():
                 BotCommand(command="analytics", description="Сводная аналитика"),
                 BotCommand(command="delivery", description="Доставка уроков марафона"),
                 BotCommand(command="reports", description="Баг-репорты"),
+                BotCommand(command="tailor", description="Занятие Портного (WP-149)"),
                 BotCommand(command="dt_sync", description="Sync engagement → digital twins"),
                 BotCommand(command="reset", description="Full wipe тестера → ре-онбординг"),
                 BotCommand(command="waka", description="WakaTime статистика"),
