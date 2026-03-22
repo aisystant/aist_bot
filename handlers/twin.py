@@ -621,6 +621,19 @@ import time as _time
 # In-memory cache for insights: {telegram_id: (timestamp, html_result)}
 _insights_cache: dict[int, tuple[float, str]] = {}
 _INSIGHTS_CACHE_TTL = 1800  # 30 minutes
+_INSIGHTS_CACHE_MAX_SIZE = 500
+
+
+def _cleanup_insights_cache() -> None:
+    """Remove expired entries and enforce max size."""
+    now = _time.time()
+    expired = [k for k, (ts, _) in _insights_cache.items() if now - ts >= _INSIGHTS_CACHE_TTL]
+    for k in expired:
+        del _insights_cache[k]
+    if len(_insights_cache) > _INSIGHTS_CACHE_MAX_SIZE:
+        sorted_keys = sorted(_insights_cache, key=lambda k: _insights_cache[k][0])
+        for k in sorted_keys[:len(_insights_cache) - _INSIGHTS_CACHE_MAX_SIZE]:
+            del _insights_cache[k]
 
 
 async def _handle_insights(message: Message, intern: dict, lang: str):
@@ -629,6 +642,9 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
     from db.queries.identity import get_user_uuid
 
     telegram_user_id = message.chat.id
+
+    # Cleanup expired/oversized cache entries
+    _cleanup_insights_cache()
 
     # Check cache
     cached = _insights_cache.get(telegram_user_id)
