@@ -78,6 +78,10 @@ async def mark_notification_sent(chat_id: int, topic_index: int):
     """Записать факт отправки уведомления (idempotency guard).
 
     Вызывается ПЕРЕД send_message — log-before-send (§10.10).
+
+    DEPRECATED (WP-152): notification_sent_at заменяется notification_log.
+    Двойная запись на переходный период. После стабилизации (W15+):
+    удалить эту функцию и колонку notification_sent_at.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:

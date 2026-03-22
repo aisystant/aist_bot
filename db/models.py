@@ -354,6 +354,33 @@ async def create_tables(pool: asyncpg.Pool):
             pass
 
         # ═══════════════════════════════════════════════════════════
+        # УНИВЕРСАЛЬНЫЙ ЛОГ УВЕДОМЛЕНИЙ (WP-152)
+        # Единая таблица idempotent notifications, заменяет:
+        # reminders.sent, notification_sent_at, nudge_log
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS notification_log (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                notification_type TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                payload JSONB DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(idempotency_key)
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_notification_log_chat_type
+            ON notification_log(chat_id, notification_type)
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_notification_log_created
+            ON notification_log(created_at)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # ЛОГ АКТИВНОСТИ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
