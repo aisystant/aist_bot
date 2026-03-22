@@ -609,7 +609,6 @@ async def cmd_tailor(message: Message):
         from engines.tailor.delivery import deliver_tailor_lesson
         bot = message.bot
         await deliver_tailor_lesson(chat_id, bot, force=True)
-        await message.answer("✅ Занятие отправлено. Проверь кнопки ниже.", parse_mode="HTML")
     except Exception as e:
         logger.error(f"[Dev] /tailor error: {e}", exc_info=True)
         await message.answer(f"<b>/tailor error:</b>\n<code>{e}</code>", parse_mode="HTML")
