@@ -14,10 +14,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# Путь к ячейкам (относительно корня IWE)
+# Путь к ячейкам (внутри репо бота: data/cells/)
 _CELLS_DIR = os.path.join(
     os.path.dirname(__file__),
-    '..', '..', '..', '..', 'DS-principles-curriculum', 'cells'
+    '..', '..', 'data', 'cells'
 )
 
 # Кэш загруженных ячеек: {cell_id: cell_data}
