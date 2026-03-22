@@ -595,17 +595,20 @@ async def cmd_dt_sync(message: Message):
 
 @dev_router.message(Command("tailor"))
 async def cmd_tailor(message: Message):
-    """/tailor — ручной триггер занятия Портного (WP-149, SC.020)."""
-    if not _is_developer(message.chat.id):
-        return
+    """/tailor — ручной триггер занятия Портного (WP-149, SC.020).
+
+    Доступна всем пользователям (генерирует занятие для себя).
+    force=True обходит idempotency для повторного тестирования.
+    """
+    chat_id = message.chat.id
+    logger.info(f"[Dev] /tailor triggered by {chat_id}")
 
     await message.answer("⏳ Генерирую занятие Портного...")
 
     try:
         from engines.tailor.delivery import deliver_tailor_lesson
-        from aiogram import Bot
         bot = message.bot
-        await deliver_tailor_lesson(message.chat.id, bot, force=True)
+        await deliver_tailor_lesson(chat_id, bot, force=True)
         await message.answer("✅ Занятие отправлено. Проверь кнопки ниже.", parse_mode="HTML")
     except Exception as e:
         logger.error(f"[Dev] /tailor error: {e}", exc_info=True)
