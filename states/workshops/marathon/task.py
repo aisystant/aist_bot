@@ -287,10 +287,15 @@ class MarathonTaskState(BaseState):
                 complexity_level=bloom_level
             )
 
-            # ЦД: событие marathon_task (WP-85)
+            # ЦД: событие marathon_task (WP-85, WP-151 Ф3: расширенный payload)
             from db.queries.events import log_event
+            from core.topics import get_topic
+            topic_data = get_topic(topic_index)
             await log_event(chat_id, 'marathon_task', {
                 'topic_index': topic_index,
+                'topic_id': topic_data.get('id') if topic_data else None,
+                'topic_title': topic_data.get('title') if topic_data else None,
+                'topic_type': topic_data.get('type') if topic_data else None,
                 'complexity_level': bloom_level,
                 'answer_type': 'work_product',
                 'answer_length': len(text),

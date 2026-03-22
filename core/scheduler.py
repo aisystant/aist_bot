@@ -443,6 +443,14 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Feed: {chat_id} — session already active/completed before notification, skip")
         return
 
+    # WP-152: idempotency через notification_log
+    from db.queries.notifications import try_insert_notification
+    today_str = today.strftime('%Y-%m-%d')
+    feed_key = f"feed_digest:{chat_id}:{today_str}"
+    if not await try_insert_notification(chat_id, 'feed_digest', feed_key):
+        logger.info(f"[Scheduler] Feed digest already sent to {chat_id} today, skip")
+        return
+
     # Отправляем уведомление с кнопкой «Получить дайджест»
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"📖 {t('buttons.get_digest', lang)}", callback_data="feed_get_digest")]
@@ -548,13 +556,21 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     # НЕ обновляем current_topic_index здесь — scheduler только пре-генерирует контент.
     # current_topic_index обновляется в lesson.py при реальном взаимодействии пользователя.
 
-    # ─── Idempotency early guard: уведомление уже отправлено сегодня? (§10.10) ───
+    # ─── Idempotency early guard: уведомление уже отправлено сегодня? (WP-152: notification_log) ───
+    from db.queries.notifications import was_notification_sent
+    today_str = moscow_now().strftime('%Y-%m-%d')
+    marathon_key = f"marathon_lesson:{chat_id}:{today_str}:topic{topic_index}"
+    if await was_notification_sent(marathon_key):
+        logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip (early guard)")
+        return
+
+    # Legacy fallback: проверяем старый guard на переходный период
     existing = await get_marathon_content(chat_id, topic_index)
     if existing and existing.get('notification_sent_at'):
         sent_date = existing['notification_sent_at'].date()
         today = moscow_now().date()
         if sent_date >= today:
-            logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip (early guard)")
+            logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip (legacy guard)")
             return
 
     # ─── Проверяем: контент уже пре-генерирован (за 3h)? ───
@@ -578,23 +594,21 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             _schedule_retry(chat_id, 'marathon')
             return
 
-    # ─── Idempotency guard: уведомление уже отправлено сегодня? (§10.10) ───
-    existing = await get_marathon_content(chat_id, topic_index)
-    if existing and existing.get('notification_sent_at'):
-        sent_date = existing['notification_sent_at'].date()
-        today = moscow_now().date()
-        if sent_date >= today:
-            logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip")
-            return
+    # ─── Idempotency guard: уведомление уже отправлено сегодня? (WP-152: notification_log) ───
+    if await was_notification_sent(marathon_key):
+        logger.info(f"[Scheduler] {chat_id}: notification already sent today for topic {topic_index}, skip")
+        return
 
-    # Планируем напоминания (+1ч и +3ч)
+    # Планируем напоминания (+1ч и +3ч) — legacy таблица reminders, пока не мигрировано
     await schedule_reminders(chat_id, intern)
 
     # Определяем: catch-up (урок с прошлого дня) или обычный
     is_catchup = topic['day'] < marathon_day
 
-    # Log-before-send: записываем факт отправки ДО send_message (§10.10)
-    await mark_notification_sent(chat_id, topic_index)
+    # Log-before-send: записываем факт отправки ДО send_message (§10.10, WP-152)
+    from db.queries.notifications import try_insert_notification
+    await try_insert_notification(chat_id, 'marathon_lesson', marathon_key)
+    await mark_notification_sent(chat_id, topic_index)  # legacy: двойная запись на переходный период
 
     # Отправляем уведомление с кнопкой «Получить урок»
     topic_title = get_topic_title(topic, lang)
@@ -675,6 +689,15 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
             callback_data="marathon_get_lesson"
         )]
     ])
+
+    # WP-152: двойная запись в notification_log
+    from db.queries.notifications import try_insert_notification
+    today_str = moscow_now().strftime('%Y-%m-%d')
+    reminder_key = f"reminder:{chat_id}:{today_str}:{reminder_type}"
+    inserted = await try_insert_notification(chat_id, 'reminder', reminder_key)
+    if not inserted:
+        logger.info(f"[Scheduler] Reminder {reminder_type} already sent to {chat_id} today, skip")
+        return
 
     if reminder_type == '+1h':
         await bot.send_message(
@@ -1273,6 +1296,14 @@ async def send_trial_expiry_notifications():
                 sent_chat_ids.add(chat_id)
 
                 async with sem:
+                    # WP-152: idempotency через notification_log
+                    from db.queries.notifications import try_insert_notification
+                    today_str = moscow_now().strftime('%Y-%m-%d')
+                    trial_key = f"trial_expiry:{chat_id}:{today_str}:{_days}d"
+                    if not await try_insert_notification(chat_id, 'trial_expiry', trial_key):
+                        logger.info(f"[Scheduler] Trial expiry already sent to {chat_id} (days_ahead={_days}), skip")
+                        return
+
                     intern = await get_intern(chat_id)
                     lang = intern.get('language', 'ru') or 'ru'
                     text = t('subscription.trial_expiring', lang) if _days == 1 else t('subscription.trial_expired', lang)
@@ -1387,7 +1418,14 @@ async def send_milestone_notifications():
                         ])
 
                 try:
-                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry
+                    # WP-152: двойная запись в notification_log
+                    from db.queries.notifications import try_insert_notification
+                    milestone_key = f"milestone:{chat_id}:{milestone}"
+                    if not await try_insert_notification(chat_id, 'milestone', milestone_key):
+                        logger.info(f"[Scheduler] Milestone {milestone} already sent to {chat_id}, skip")
+                        continue
+
+                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry (legacy)
                     await log_conversion_event(chat_id, 'C3', milestone)
                     await bot.send_message(
                         chat_id, text,
@@ -1481,7 +1519,13 @@ async def send_engagement_nudges():
                     continue
 
                 try:
-                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry
+                    # WP-152: двойная запись в notification_log
+                    from db.queries.notifications import try_insert_notification
+                    today_str = moscow_now().strftime('%Y-%m-%d')
+                    notif_key = f"nudge:{chat_id}:{today_str}:{nudge_key}"
+                    await try_insert_notification(chat_id, 'nudge', notif_key)
+
+                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry (legacy)
                     await log_nudge_sent(chat_id, rule_id, nudge_key)
                     await bot.send_message(chat_id, text, parse_mode="Markdown")
                     total_sent += 1
@@ -1566,8 +1610,13 @@ async def send_event_notifications():
                 ])
 
                 try:
-                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry:
-                    # send_message OK → log fail → next run: was_milestone_sent=False → дубль
+                    # WP-152: двойная запись в notification_log
+                    from db.queries.notifications import try_insert_notification
+                    event_notif_key = f"event:{chat_id}:{milestone_key}"
+                    if not await try_insert_notification(chat_id, 'event', event_notif_key):
+                        continue
+
+                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry (legacy)
                     await log_conversion_event(chat_id, 'C7', milestone_key)
                     await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
                     total_sent += 1

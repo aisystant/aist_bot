@@ -2,6 +2,10 @@
 DB-запросы для nudge-системы (WP-85, Phase 5C).
 
 Таблица nudge_log хранит историю отправленных nudges для cooldown-проверки.
+
+DEPRECATED (WP-152): nudge_log заменяется notification_log.
+Двойная запись на переходный период. После стабилизации (W15+):
+удалить nudge_log, was_nudge_sent_recently, log_nudge_sent.
 """
 
 import logging

@@ -233,11 +233,14 @@ async def handle_question(
                 answer=answer,
                 mcp_sources=sources
             )
-            # ЦД: событие ai_chat (WP-85)
+            # ЦД: событие ai_chat (WP-85, WP-151 Ф3: расширенный payload)
             await log_event(chat_id, 'ai_chat', {
                 'mode': mode,
                 'question_length': len(question),
+                'answer_length': len(answer) if answer else 0,
+                'context_topic': context_topic or None,
                 'has_sources': bool(sources),
+                'source_count': len(sources) if sources else 0,
             })
         except Exception as e:
             logger.error(f"Ошибка сохранения Q&A: {e}")
@@ -613,11 +616,14 @@ async def handle_question_with_tools(
                 answer=answer,
                 mcp_sources=sources
             )
-            # ЦД: событие ai_chat (WP-85)
+            # ЦД: событие ai_chat (WP-85, WP-151 Ф3: расширенный payload)
             await log_event(chat_id, 'ai_chat', {
                 'mode': mode,
                 'question_length': len(question),
+                'answer_length': len(answer) if answer else 0,
+                'context_topic': context_topic or None,
                 'has_sources': bool(sources),
+                'source_count': len(sources) if sources else 0,
                 'has_tool_use': True,
             })
         except Exception as e:

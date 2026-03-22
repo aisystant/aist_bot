@@ -226,9 +226,14 @@ class MarathonQuestionState(BaseState):
                 answer_type="theory_answer",
                 complexity_level=bloom_level
             )
-            # ЦД: событие marathon_step (WP-85)
+            # ЦД: событие marathon_step (WP-85, WP-151 Ф3: расширенный payload)
+            from core.topics import get_topic
+            topic_data = get_topic(topic_index)
             await log_event(chat_id, 'marathon_step', {
                 'topic_index': topic_index,
+                'topic_id': topic_data.get('id') if topic_data else None,
+                'topic_title': topic_data.get('title') if topic_data else None,
+                'topic_type': topic_data.get('type') if topic_data else None,
                 'complexity_level': bloom_level,
                 'answer_type': 'theory_answer',
             }, confidence=0.9)
