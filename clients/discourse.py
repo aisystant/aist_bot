@@ -22,6 +22,7 @@ Scopes: topics (write, read, read_lists), uploads (create), categories (list, sh
     )
 """
 
+import asyncio
 import re
 import aiohttp
 from config import get_logger
@@ -53,13 +54,71 @@ class DiscourseClient:
             "Content-Type": "application/json",
         }
 
+    async def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict | None = None,
+        json: dict | None = None,
+        data: aiohttp.FormData | None = None,
+        max_retries: int = 2,
+    ) -> aiohttp.ClientResponse:
+        """Execute HTTP request with retry on 429/5xx.
+
+        Returns the final response. Caller is responsible for reading body.
+        Note: response is already consumed (text/json) on retries, so the
+        final response is the one that succeeded or the last attempt.
+        """
+        session = await self._get_session()
+        kwargs: dict = {}
+        if headers:
+            kwargs["headers"] = headers
+        if json is not None:
+            kwargs["json"] = json
+        if data is not None:
+            kwargs["data"] = data
+
+        for attempt in range(max_retries + 1):
+            resp = await session.request(method, url, **kwargs)
+
+            if resp.status == 429:
+                if attempt < max_retries:
+                    retry_after = float(resp.headers.get("Retry-After", 5 * (2 ** attempt)))
+                    logger.warning(
+                        f"Discourse 429 on {method} {url}, "
+                        f"retry after {retry_after}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    await resp.release()
+                    await asyncio.sleep(retry_after)
+                    continue
+                logger.error(f"Discourse 429 on {method} {url}, retries exhausted")
+                return resp
+
+            if 500 <= resp.status < 600:
+                if attempt < max_retries:
+                    wait = 2 * (attempt + 1)
+                    logger.warning(
+                        f"Discourse {resp.status} on {method} {url}, "
+                        f"retry after {wait}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    await resp.release()
+                    await asyncio.sleep(wait)
+                    continue
+                logger.error(f"Discourse {resp.status} on {method} {url}, retries exhausted")
+                return resp
+
+            return resp
+
+        return resp  # Should not reach here, but satisfy type checker
+
     # ── Users ──────────────────────────────────────────────
 
     async def get_user(self, username: str) -> dict | None:
         """Проверить, существует ли пользователь. Возвращает user dict или None."""
-        session = await self._get_session()
         url = f"{self.base_url}/users/{username}.json"
-        async with session.get(url, headers=self._headers()) as resp:
+        resp = await self._request_with_retry("GET", url, headers=self._headers())
+        async with resp:
             if resp.status == 404:
                 return None
             if resp.status >= 400:
@@ -71,9 +130,9 @@ class DiscourseClient:
 
     async def search_users(self, term: str) -> list[dict]:
         """Поиск пользователей по имени/username. Возвращает список user dicts."""
-        session = await self._get_session()
         url = f"{self.base_url}/u/search/users.json?term={term}"
-        async with session.get(url, headers=self._headers()) as resp:
+        resp = await self._request_with_retry("GET", url, headers=self._headers())
+        async with resp:
             if resp.status >= 400:
                 logger.error(f"Discourse search_users error {resp.status}")
                 return []
@@ -84,9 +143,9 @@ class DiscourseClient:
 
     async def get_category(self, category_id: int) -> dict | None:
         """Получить категорию по ID (scope: categories:show). 1 запрос."""
-        session = await self._get_session()
         url = f"{self.base_url}/c/{category_id}/show.json"
-        async with session.get(url, headers=self._headers()) as resp:
+        resp = await self._request_with_retry("GET", url, headers=self._headers())
+        async with resp:
             if resp.status >= 400:
                 logger.error(f"Discourse get_category {category_id} error {resp.status}")
                 return None
@@ -113,7 +172,6 @@ class DiscourseClient:
         )
 
         # 2. Искать через /categories.json (scope: categories:list)
-        session = await self._get_session()
         try:
             # Запрос подкатегорий блогов напрямую (parent_category_id фильтрует)
             all_cats = []
@@ -122,7 +180,8 @@ class DiscourseClient:
                     f"{self.base_url}/categories.json"
                     f"?parent_category_id={self.blogs_category_id}&page={page}"
                 )
-                async with session.get(url, headers=self._headers()) as resp:
+                resp = await self._request_with_retry("GET", url, headers=self._headers())
+                async with resp:
                     if resp.status >= 400:
                         logger.error(f"/categories.json page={page} returned {resp.status}")
                         break
@@ -236,7 +295,6 @@ class DiscourseClient:
         tags: list[str] | None = None,
     ) -> dict:
         """Создать топик (пост) в категории от имени пользователя."""
-        session = await self._get_session()
         payload: dict = {
             "title": title,
             "raw": raw,
@@ -251,7 +309,10 @@ class DiscourseClient:
         )
 
         url = f"{self.base_url}/posts.json"
-        async with session.post(url, json=payload, headers=self._headers(username)) as resp:
+        resp = await self._request_with_retry(
+            "POST", url, json=payload, headers=self._headers(username)
+        )
+        async with resp:
             try:
                 data = await resp.json()
             except Exception:
@@ -280,12 +341,12 @@ class DiscourseClient:
 
     async def list_category_topics(self, category_id: int, slug: str = "") -> list[dict]:
         """Список топиков в категории."""
-        session = await self._get_session()
         if slug:
             url = f"{self.base_url}/c/{slug}/{category_id}.json"
         else:
             url = f"{self.base_url}/c/{category_id}.json"
-        async with session.get(url, headers=self._headers()) as resp:
+        resp = await self._request_with_retry("GET", url, headers=self._headers())
+        async with resp:
             if resp.status >= 400:
                 logger.error(f"Discourse list_category_topics error {resp.status}")
                 return []
@@ -294,9 +355,9 @@ class DiscourseClient:
 
     async def get_topic(self, topic_id: int) -> dict | None:
         """Получить топик с постами (для мониторинга комментариев)."""
-        session = await self._get_session()
         url = f"{self.base_url}/t/{topic_id}.json"
-        async with session.get(url, headers=self._headers()) as resp:
+        resp = await self._request_with_retry("GET", url, headers=self._headers())
+        async with resp:
             if resp.status == 404:
                 logger.info(f"Discourse get_topic {topic_id}: topic not found (404)")
                 return None
