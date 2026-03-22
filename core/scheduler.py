@@ -69,6 +69,9 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
             await send_scheduled_topic(chat_id, bot)
         elif content_type == 'feed':
             await pre_generate_feed_digest(chat_id, bot)
+        elif content_type == 'tailor':
+            from engines.tailor.delivery import deliver_tailor_lesson
+            await deliver_tailor_lesson(chat_id, bot)
         logger.info(f"[Scheduler] Retry #{attempt+1} successful for {chat_id} ({content_type})")
     except Exception as e:
         logger.error(f"[Scheduler] Retry #{attempt+1} failed for {chat_id} ({content_type}): {e}")
@@ -802,12 +805,18 @@ async def scheduled_check():
         logger.info(f"[Scheduler] Bot ID: {bot.id}, username: {me.username}")
 
         async def _process_user(chat_id: int, send_type: str):
-            """Обработка одного пользователя (marathon + feed)."""
+            """Обработка одного пользователя (marathon + feed + tailor)."""
             try:
                 if send_type in ('marathon', 'both'):
                     await send_scheduled_topic(chat_id, bot)
                 if send_type in ('feed', 'both'):
                     await pre_generate_feed_digest(chat_id, bot)
+                    # WP-149: Портной доставляет занятие параллельно с дайджестом
+                    try:
+                        from engines.tailor.delivery import deliver_tailor_lesson
+                        await deliver_tailor_lesson(chat_id, bot)
+                    except Exception as tailor_err:
+                        logger.warning(f"[Scheduler] Tailor delivery failed for {chat_id}: {tailor_err}")
                 logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
             except Exception as e:
                 if _is_user_unavailable(e):
