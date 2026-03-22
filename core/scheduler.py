@@ -125,7 +125,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
     _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
-    _scheduler.add_job(lambda: _smart_publisher_scan(notify=False), 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan')
+    _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_dt_proactive_refresh, 'cron', minute='*/15')  # DT: proactive token refresh every 15 min (WP-82)
     _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)  # DT: sync engagement → digital_twins daily 04:30 MSK (WP-85 Phase 4)
     _scheduler.start()
@@ -1076,7 +1076,9 @@ async def _catch_up_missed_deliveries():
 
     # Фильтруем пользователей, которые завершили все темы — их marathon_content
     # не создаётся (нет следующей темы), но catch-up не должен слать им поздравления.
+    # Также фильтруем тех, кто уже достиг дневного лимита тем — catch-up бесполезен.
     from core.topics import get_total_topics
+    from db.queries.users import get_topics_today as _get_topics_today
     total = get_total_topics()
     filtered = []
     for row in missed:
@@ -1095,8 +1097,15 @@ async def _catch_up_missed_deliveries():
                 logger.info(f"[Scheduler] Auto-fixed {row['chat_id']}: marathon_status → completed")
             except Exception as e:
                 logger.error(f"[Scheduler] Auto-fix failed for {row['chat_id']}: {e}")
-        else:
-            filtered.append(row['chat_id'])
+            continue
+        # Проверяем дневной лимит тем — если исчерпан, catch-up бесполезен
+        intern = await get_intern(row['chat_id'])
+        if intern:
+            topics_today = _get_topics_today(intern)
+            if topics_today >= MAX_TOPICS_PER_DAY:
+                logger.info(f"[Scheduler] Catch-up skip {row['chat_id']}: daily topic limit reached ({topics_today}/{MAX_TOPICS_PER_DAY})")
+                continue
+        filtered.append(row['chat_id'])
 
     if not filtered:
         return
