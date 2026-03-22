@@ -10,6 +10,7 @@ MVP: доставка по feed_schedule_time для всех с feed_status='ac
 """
 
 import asyncio
+import json
 import logging
 from typing import Optional
 
@@ -28,7 +29,7 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot, force: bool = False):
         force: пропустить idempotency guard (для /tailor dev-команды).
     """
     from db.queries import get_intern
-    from db.queries.cache import get_cached_content, save_cached_content
+    from db.queries.cache import cache_get, cache_set
     from db.queries.events import log_event
     from db.queries.notifications import try_insert_notification
     from db.queries.users import moscow_today
@@ -54,13 +55,21 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot, force: bool = False):
 
     # ─── Проверить кэш ───
     cache_key = f"tailor:{chat_id}:{today_str}"
-    cached = await get_cached_content(cache_key)
+    cached_raw = await cache_get(cache_key)
+    lesson = None
+    generated = None
 
-    if cached and cached.get('lesson') and cached.get('generated'):
-        logger.info(f"[Tailor] Using cached lesson for {chat_id}")
-        lesson = cached['lesson']
-        generated = cached['generated']
-    else:
+    if cached_raw:
+        try:
+            cached = json.loads(cached_raw)
+            if cached.get('lesson') and cached.get('generated'):
+                logger.info(f"[Tailor] Using cached lesson for {chat_id}")
+                lesson = cached['lesson']
+                generated = cached['generated']
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if not lesson or not generated:
         # ─── Сборка + генерация ───
         result = await _assemble_and_generate(chat_id, intern)
         if not result:
@@ -70,13 +79,11 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot, force: bool = False):
         lesson, generated = result
 
         # Кэшируем на сутки (lesson + generated для callback)
-        await save_cached_content(
+        await cache_set(
             cache_key,
-            {
-                'lesson': lesson,
-                'generated': generated,
-            },
-            ttl_hours=24,
+            'tailor_lesson',
+            json.dumps({'lesson': lesson, 'generated': generated}, ensure_ascii=False),
+            ttl_days=1,
         )
 
     # ─── Доставка через BotTailorAdapter ───

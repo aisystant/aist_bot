@@ -204,12 +204,14 @@ async def cb_tailor_actions(callback: CallbackQuery, state: FSMContext):
 async def _get_cached_tailor_lesson(chat_id: int) -> dict:
     """Загрузить structured lesson из кэша для контекста стейта."""
     try:
-        from db.queries.cache import get_cached_content
+        import json as _json
+        from db.queries.cache import cache_get
         from db.queries.users import moscow_today
         today_str = moscow_today().strftime('%Y-%m-%d')
         cache_key = f"tailor:{chat_id}:{today_str}"
-        cached = await get_cached_content(cache_key)
-        if cached:
+        cached_raw = await cache_get(cache_key)
+        if cached_raw:
+            cached = _json.loads(cached_raw)
             return cached.get('lesson', {})
     except Exception as e:
         logger.warning(f"[CB] Tailor lesson cache read failed: {e}")
