@@ -433,6 +433,73 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str) -> str:
     return '\n'.join(lines)
 
 
+async def _fallback_engagement(chat_id: int) -> dict | None:
+    """Fallback: читаем development.engagement напрямую (без digital_twins).
+
+    Используется когда sync ещё не запускался (pilot, новые пользователи).
+    Вычисляет 3_derived на лету.
+    """
+    from db.connection import get_pool
+    from db.queries.dt_calc import calculate_derived
+
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow('''
+                SELECT
+                    sessions_total, ai_chats_total,
+                    marathon_steps_total, marathon_tasks_total,
+                    feed_completed_total,
+                    training_attempts_total, training_passed_total,
+                    assessments_total, events_total,
+                    first_event_at, last_event_at,
+                    active_days, events_last_7d, events_last_30d
+                FROM development.engagement
+                WHERE user_id = $1
+            ''', chat_id)
+
+            if not row:
+                return None
+
+            def _ts(v):
+                return v.isoformat() if v else None
+
+            collected = {
+                "2_1_account": {
+                    "sessions_total": row['sessions_total'],
+                    "events_total": row['events_total'],
+                    "first_event_at": _ts(row['first_event_at']),
+                    "last_event_at": _ts(row['last_event_at']),
+                },
+                "2_2_courses": {
+                    "marathon_steps_total": row['marathon_steps_total'],
+                    "feed_completed_total": row['feed_completed_total'],
+                },
+                "2_3_practice": {
+                    "training_attempts_total": row['training_attempts_total'],
+                    "training_passed_total": row['training_passed_total'],
+                    "assessments_total": row['assessments_total'],
+                    "marathon_tasks_total": row['marathon_tasks_total'],
+                },
+                "2_4_time": {
+                    "active_days": row['active_days'],
+                    "events_last_7d": row['events_last_7d'],
+                    "events_last_30d": row['events_last_30d'],
+                    "ai_chats_total": row['ai_chats_total'],
+                },
+            }
+
+            # Derive on-the-fly
+            derived = calculate_derived(collected)
+            if derived:
+                collected['_derived'] = derived
+
+            return collected
+    except Exception as e:
+        logger.warning(f"[/me] Fallback engagement failed: {e}")
+        return None
+
+
 @twin_router.message(Command("me"))
 async def cmd_me(message: Message):
     """Команда /me — компактный дашборд ЦД (WP-135 Ф0)."""
@@ -452,9 +519,14 @@ async def cmd_me(message: Message):
         return
 
     engagement = await get_engagement_data(str(user_uuid))
+
+    # Fallback: если digital_twins пуста → читаем engagement view напрямую
+    if not engagement:
+        engagement = await _fallback_engagement(telegram_user_id)
+
     if not engagement:
         await message.answer(
-            "📊 Данные ещё не собраны. Синхронизация происходит в 04:30 МСК."
+            "📊 Данных об активности пока нет. Начните с /learn или /feed."
         )
         return
 
