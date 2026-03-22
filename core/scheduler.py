@@ -1483,6 +1483,15 @@ async def send_engagement_nudges():
                     engagement = {}
             engagement = engagement or {}
 
+            # Parse derived JSONB (WP-151 Ф4)
+            derived = user.get('derived')
+            if derived and isinstance(derived, str):
+                try:
+                    derived = json.loads(derived)
+                except (json.JSONDecodeError, TypeError):
+                    derived = {}
+            derived = derived or {}
+
             # User meta for analyzer
             user_meta = {
                 'last_active_date': user.get('last_active_date'),
@@ -1492,8 +1501,8 @@ async def send_engagement_nudges():
                 'marathon_status': user.get('marathon_status'),
             }
 
-            # Run rules
-            nudges = analyze(engagement, user_meta)
+            # Run rules (basic + derived-aware)
+            nudges = analyze(engagement, user_meta, derived)
             if not nudges:
                 continue
 

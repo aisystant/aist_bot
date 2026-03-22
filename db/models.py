@@ -1111,6 +1111,48 @@ async def create_tables(pool: asyncpg.Pool):
             GROUP BY user_id, user_uuid
         ''')
 
+        # ─── Layer 2b: Notification Engagement View (WP-152 Ф4) ───
+        await conn.execute(
+            'DROP VIEW IF EXISTS development.notification_engagement'
+        )
+        await conn.execute('''
+            CREATE VIEW development.notification_engagement AS
+            SELECT
+                u.telegram_id AS user_id,
+                u.ory_id AS user_uuid,
+                COUNT(*) AS notifications_total,
+                COUNT(*) FILTER (
+                    WHERE nl.created_at > NOW() - INTERVAL '7 days'
+                ) AS notifications_7d,
+                COUNT(*) FILTER (
+                    WHERE nl.created_at > NOW() - INTERVAL '30 days'
+                ) AS notifications_30d,
+                COUNT(DISTINCT nl.notification_type) AS notification_types,
+                COUNT(*) FILTER (
+                    WHERE nl.notification_type = 'marathon_lesson'
+                ) AS lesson_notifications,
+                COUNT(*) FILTER (
+                    WHERE nl.notification_type = 'reminder'
+                ) AS reminder_notifications,
+                COUNT(*) FILTER (
+                    WHERE nl.notification_type = 'nudge'
+                ) AS nudge_notifications,
+                COUNT(*) FILTER (
+                    WHERE nl.notification_type = 'trial_expiry'
+                ) AS trial_expiry_notifications,
+                COUNT(*) FILTER (
+                    WHERE nl.notification_type = 'feed_digest'
+                ) AS feed_digest_notifications,
+                COUNT(*) FILTER (
+                    WHERE nl.notification_type = 'milestone'
+                ) AS milestone_notifications,
+                MIN(nl.created_at) AS first_notification_at,
+                MAX(nl.created_at) AS last_notification_at
+            FROM notification_log nl
+            JOIN public.users u ON u.telegram_id = nl.chat_id
+            GROUP BY u.telegram_id, u.ory_id
+        ''')
+
         # ═══════════════════════════════════════════════════════════
         # ТОКЕНЫ ЦИФРОВОГО ДВОЙНИКА (WP-82)
         # ═══════════════════════════════════════════════════════════

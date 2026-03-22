@@ -464,11 +464,31 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 **Принцип:** Бот пишет события в `development.user_events` → SQL View `development.engagement` агрегирует 15 метрик → `sync_engagement_to_dt()` записывает в `digital_twins` JSONB (INSERT ON CONFLICT, deep merge) → DT MCP читает при запросе.
 
-**4 группы в `2_collected/`:** `2_1_account` (сессии), `2_2_courses` (обучение), `2_3_practice` (практика), `2_4_time` (ритм).
+**5 групп в `2_collected/`:** `2_1_account` (сессии), `2_2_courses` (обучение), `2_3_practice` (практика), `2_4_time` (ритм), `2_5_notifications` (уведомления, WP-152 Ф4).
+
+**Notification engagement (WP-152 Ф4):** SQL View `development.notification_engagement` агрегирует `notification_log` (JOIN `users` по `telegram_id`). `sync_engagement_to_dt()` preload-ит view в `notif_map` и merge-ит в `2_5_notifications` при наличии данных. Graceful fallback: если view не существует — warning в лог, sync продолжается без notifications.
 
 **Identity model:** `digital_twins.user_id` = Ory UUID. Sync фильтрует `WHERE user_uuid IS NOT NULL` (T1+). T0 копят события по chat_id — при появлении UUID sync подхватит автоматически.
 
 **Dev-команда:** `/dt_sync` — ручной запуск sync (TD1 only).
+
+## 12c. Calculation Engine v0.5 (WP-151 Ф4)
+
+**Файлы:** `db/queries/dt_calc.py` (модуль), `db/queries/dt_sync.py` (интеграция)
+
+**Принцип:** `2_collected` → `calculate_derived()` → `3_derived`. Чистые функции, без DB-вызовов. Вызываются в `sync_engagement_to_dt()` для каждого пользователя.
+
+**3 derived-индикатора (MVP, без LMS/Club/BKT):**
+
+| Индикатор | Метамодель | Что вычисляет | Из каких данных |
+|-----------|-----------|---------------|-----------------|
+| `slot_regularity` | IND.3.1.02 | Доля активных дней (0.0–1.0) | `2_4_time.active_days`, `2_1_account.first_event_at` |
+| `student_stage` | IND.3.4.01 | Ступень ученика (0–4) | `2_1..2_5` (threshold rules, bottom-up) |
+| `integral_agency_index` | IND.3.10.1 | Индекс агентности (0–100) | `2_1..2_5` (weighted: 30% regularity, 25% activity, 25% learning, 10% notif, 10% longevity) |
+
+**Запись:** `3_derived` пишется в `digital_twins.data` рядом с `2_collected` через deep merge. Содержит `engine_version` и `calculated_at` для аудита.
+
+**Расширение:** BKT (Ф5), LMS/Club интеграция, мемы мировоззрения — добавляются как новые функции `calc_*()` в `dt_calc.py`.
 
 ---
 
