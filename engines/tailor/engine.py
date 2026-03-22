@@ -1,5 +1,5 @@
 """
-TailorEngine — сборка персонального занятия (WP-149, EDU.SOP.001).
+TailorEngine — сборка персонального занятия (WP-149, MIM.SOP.001).
 
 7 шагов SOP.001:
   1. Прочитать профиль и состояние → context
@@ -31,7 +31,7 @@ from .cells import (
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════
-# Матрица весов: фаза × направление (из EDU.SOP.001)
+# Матрица весов: фаза × направление (из MIM.SOP.001)
 # ═══════════════════════════════════════════════════════════
 PHASE_WEIGHTS = {
     1: {1: 1.5, 2: 1.0, 3: 0.8, 4: 0.5, 5: 0.7, 6: 1.0},
@@ -348,7 +348,7 @@ class TailorEngine:
         }
 
     def _build_retrieval(self, history: List[dict]) -> Optional[str]:
-        """Recall по предыдущей теме (EDU.M.006 Retrieval Practice)."""
+        """Recall по предыдущей теме (MIM.M.011 Retrieval Practice)."""
         passed = [
             h for h in history
             if h.get('passed') and h.get('topic_id')

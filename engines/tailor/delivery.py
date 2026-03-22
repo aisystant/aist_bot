@@ -1,21 +1,19 @@
 """
-Доставка занятий Портного через scheduler (WP-149, S15/S16).
+Доставка занятий Портного через scheduler (WP-149, SC.020).
 
 Паттерн аналогичен pre_generate_feed_digest():
 1. Собрать занятие (TailorEngine.assemble)
 2. Сгенерировать текст (generate_lesson_text)
-3. Отправить уведомление с кнопкой
+3. Доставить через BotTailorAdapter (с кнопками Ответить / Пропустить)
 
 MVP: доставка по feed_schedule_time для всех с feed_status='active'.
 """
 
 import asyncio
-import json
 import logging
 from typing import Optional
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +29,12 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot):
     from db.queries.events import log_event
     from db.queries.notifications import try_insert_notification
     from db.queries.users import moscow_today
-    from i18n import t
+
+    from engines.tailor.bot_adapter import BotTailorAdapter
 
     intern = await get_intern(chat_id)
     if not intern:
         return
-
-    lang = intern.get('language', 'ru') or 'ru'
 
     # ─── Guard: onboarding пройден ───
     if not intern.get('onboarding_completed'):
@@ -54,65 +51,65 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot):
     # ─── Проверить кэш ───
     cache_key = f"tailor:{chat_id}:{today_str}"
     cached = await get_cached_content(cache_key)
-    if cached:
+
+    if cached and cached.get('lesson') and cached.get('generated'):
         logger.info(f"[Tailor] Using cached lesson for {chat_id}")
-        lesson_text = cached.get('formatted_text', '')
+        lesson = cached['lesson']
+        generated = cached['generated']
     else:
         # ─── Сборка + генерация ───
-        lesson_text = await _assemble_and_generate(chat_id, intern)
-        if not lesson_text:
+        result = await _assemble_and_generate(chat_id, intern)
+        if not result:
             logger.warning(f"[Tailor] Failed to generate for {chat_id}")
             return
-        # Кэшируем на сутки
+
+        lesson, generated = result
+
+        # Кэшируем на сутки (lesson + generated для callback)
         await save_cached_content(
             cache_key,
-            {'formatted_text': lesson_text},
+            {
+                'lesson': lesson,
+                'generated': generated,
+            },
             ttl_hours=24,
         )
 
-    # ─── Отправка ───
-    try:
-        # Markdown fallback (CLAUDE.md §10.2)
-        try:
-            await bot.send_message(
-                chat_id,
-                lesson_text,
-                parse_mode="HTML",
-            )
-        except Exception:
-            # Fallback: без форматирования
-            import re
-            clean = re.sub(r'<[^>]+>', '', lesson_text)
-            await bot.send_message(chat_id, clean)
+    # ─── Доставка через BotTailorAdapter ───
+    adapter = BotTailorAdapter(bot)
+    delivery_result = await adapter.deliver(chat_id, lesson, generated)
 
-        logger.info(f"[Tailor] Sent lesson to {chat_id}")
-
+    if delivery_result.delivered:
         # Log event (fire-and-forget)
         await log_event(
             user_id=chat_id,
             event_type='tailor_lesson_sent',
-            payload={'date': today_str},
+            payload={
+                'date': today_str,
+                'topic_id': lesson.get('topic_id', ''),
+                'bloom_depth': lesson.get('bloom_depth', 1),
+                'direction': lesson.get('direction', 1),
+            },
             source='bot',
         )
-
-    except Exception as e:
-        logger.error(f"[Tailor] Send error for {chat_id}: {e}")
+    else:
+        logger.error(
+            f"[Tailor] Delivery failed for {chat_id}: "
+            f"{delivery_result.error}"
+        )
 
 
 async def _assemble_and_generate(
     chat_id: int,
     intern: dict,
-) -> Optional[str]:
+) -> Optional[tuple]:
     """Собрать занятие через TailorEngine + сгенерировать текст.
 
     Returns:
-        HTML-текст для Telegram или None при ошибке.
+        (lesson, generated) tuple или None при ошибке.
     """
     from engines.tailor.engine import TailorEngine
-    from engines.tailor.planner import (
-        format_lesson_for_bot,
-        generate_lesson_text,
-    )
+    from engines.tailor.planner import generate_lesson_text
 
     # Построить профиль из intern (public.users + user_state)
     user_profile = {
@@ -165,7 +162,7 @@ async def _assemble_and_generate(
         # Fallback: отправить raw ячейку без генерации
         generated = _fallback_from_cell(lesson)
 
-    return format_lesson_for_bot(lesson, generated)
+    return lesson, generated
 
 
 async def _get_learning_history(chat_id: int) -> list:

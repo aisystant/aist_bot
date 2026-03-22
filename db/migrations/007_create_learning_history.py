@@ -6,7 +6,7 @@
   - learning_history (materialized) = типизированная проекция для быстрого чтения
   - trigger materialize_learning = автоматическая материализация при INSERT в user_events
 
-Портной (EDU.SOP.001) читает learning_history для:
+Портной (MIM.SOP.001) читает learning_history для:
   - Шаг 3: выбор направления (depths_by_direction)
   - Шаг 4: bottleneck-first (MAX bloom WHERE passed)
 

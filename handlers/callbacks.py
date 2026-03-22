@@ -123,6 +123,101 @@ async def cb_feed(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(t('feed.not_available', lang))
 
 
+# === Tailor (Портной, WP-149, SC.020) ===
+
+@callbacks_router.callback_query(F.data.startswith("tailor_"))
+async def cb_tailor_actions(callback: CallbackQuery, state: FSMContext):
+    """Обработка Tailor callback-ов (Ответить / Пропустить)."""
+    from handlers import get_dispatcher
+    from engines.tailor.bot_adapter import CB_TAILOR_ANSWER, CB_TAILOR_SKIP
+
+    dispatcher = get_dispatcher()
+    chat_id = callback.message.chat.id
+    data = callback.data
+    intern = await get_intern(chat_id)
+
+    if not intern:
+        await callback.answer()
+        return
+
+    await callback.answer()
+    lang = intern.get('language', 'ru') or 'ru'
+
+    if not (dispatcher and dispatcher.is_sm_active):
+        await callback.message.answer(t('errors.processing_error', lang))
+        return
+
+    # Парсим callback_data: tailor_answer:SS.F1.01:1:2 или tailor_skip:SS.F1.01:1:2
+    parts = data.split(":")
+    if len(parts) < 4:
+        logger.warning(f"[CB] Invalid tailor callback: {data}")
+        return
+
+    action = parts[0]  # tailor_answer или tailor_skip
+    topic_id = parts[1]
+    bloom_depth = int(parts[2])
+    direction = int(parts[3])
+
+    # Загрузить закэшированное занятие для передачи в стейт
+    lesson = await _get_cached_tailor_lesson(chat_id)
+
+    if action == CB_TAILOR_SKIP:
+        # Пропуск: записать score=0 без перехода в стейт
+        try:
+            from db.queries.events import log_event
+            await log_event(
+                user_id=chat_id,
+                event_type='learning_completed',
+                payload={
+                    'program_id': 'SS.F1',
+                    'topic_id': topic_id,
+                    'direction': direction,
+                    'bloom_level': bloom_depth,
+                    'cell_id': f"{topic_id}@{bloom_depth}",
+                    'score': 0.0,
+                    'passed': False,
+                    'errors': [],
+                    '_schema_version': 1,
+                },
+                source='bot',
+            )
+        except Exception as e:
+            logger.warning(f"[CB] Tailor skip log failed: {e}")
+
+        await callback.message.edit_reply_markup()
+        await callback.message.answer(
+            "⏭ Занятие пропущено. Тема вернётся в следующем цикле."
+        )
+        return
+
+    # tailor_answer → перейти в tailor.response
+    await state.clear()
+    await callback.message.edit_reply_markup()
+    await dispatcher.go_to(intern, "tailor.response", context={
+        'topic_id': topic_id,
+        'bloom_depth': bloom_depth,
+        'direction': direction,
+        'lesson': lesson,
+    })
+
+
+async def _get_cached_tailor_lesson(chat_id: int) -> dict:
+    """Загрузить structured lesson из кэша для контекста стейта."""
+    try:
+        from db.queries.cache import get_cached_content
+        from db.queries.users import moscow_today
+        today_str = moscow_today().strftime('%Y-%m-%d')
+        cache_key = f"tailor:{chat_id}:{today_str}"
+        cached = await get_cached_content(cache_key)
+        if cached:
+            return cached.get('lesson', {})
+    except Exception as e:
+        logger.warning(f"[CB] Tailor lesson cache read failed: {e}")
+    return {}
+
+
+# === Marathon ===
+
 @callbacks_router.callback_query(F.data.startswith("marathon_"))
 async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка Marathon callback-ов (Получить урок/вопрос/практику)."""

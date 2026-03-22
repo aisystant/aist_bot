@@ -194,6 +194,17 @@ states:
     allow_global: [consultation, notes]
 
   # ==========================================
+  # ПОРТНОЙ (tailor.*) — WP-149, SC.020
+  # ==========================================
+
+  tailor.response:
+    description: "Ответ на занятие Портного"
+    events:
+      answered: common.mode_select    # Ответ принят → меню
+      skip: common.mode_select        # Пропущен → меню
+    allow_global: [consultation]
+
+  # ==========================================
   # УТИЛИТЫ (utility.*)
   # ==========================================
 

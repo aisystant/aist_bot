@@ -1,10 +1,17 @@
 """
-Портной (Tailor) — сборка персональных занятий (WP-149, EDU.SOP.001).
+Портной (Tailor) — сборка персональных занятий (WP-149, SC.020).
 
-Подход C: ячейки контента + профиль → персональное занятие.
-MVP (Ф1): 9 тем SS.F1.01–09, глубины @1-@2, 1 тема (СС).
+Архитектура (DP.D.042):
+  engine.py     — канало-независимая логика (7 шагов SOP.001)
+  cells.py      — загрузчик ячеек контента
+  planner.py    — генерация текста через Claude (канало-независимый)
+  evaluator.py  — оценка ответа по can-do (канало-независимый)
+  port.py       — абстракция канала доставки (TailorPort)
+  bot_adapter.py — реализация для Telegram (BotTailorAdapter)
+  delivery.py   — интеграция со scheduler
 """
 
 from .engine import TailorEngine
+from .port import TailorPort
 
-__all__ = ['TailorEngine']
+__all__ = ['TailorEngine', 'TailorPort']
