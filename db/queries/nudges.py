@@ -33,10 +33,13 @@ async def ensure_nudge_tables():
 
 
 async def get_nudge_candidates() -> list[dict]:
-    """Получить пользователей T3+ с engagement-данными для nudge-анализа.
+    """Получить пользователей T1+ с engagement + derived данными для nudge-анализа.
+
+    WP-117 Ф2+: расширено с T3+ до T1+ (все с привязанным аккаунтом).
+    Добавлен 3_derived для stage-aware nudges.
 
     Returns:
-        List of dicts with user_meta + engagement data.
+        List of dicts with user_meta + engagement + derived data.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -53,11 +56,12 @@ async def get_nudge_candidates() -> list[dict]:
                 s.bot_blocked,
                 s.notify_nudges,
                 u.tier,
-                dt.data->'2_collected' AS engagement
+                dt.data->'2_collected' AS engagement,
+                dt.data->'3_derived' AS derived
             FROM development.user_state s
             JOIN public.users u ON u.telegram_id = s.chat_id
             LEFT JOIN digital_twins dt ON dt.user_id = u.id::text
-            WHERE u.tier IN ('T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9')
+            WHERE u.tier NOT IN ('T0')
               AND s.bot_blocked = FALSE
               AND COALESCE(s.notify_nudges, TRUE) = TRUE
         ''')

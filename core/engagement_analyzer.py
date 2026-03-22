@@ -1,7 +1,9 @@
 """
-Engagement Analyzer — threshold rules для автоматических nudges (WP-85, Phase 5C).
+Engagement Analyzer — threshold rules для автоматических nudges.
 
-Анализирует проекции 2_collected из digital_twins JSONB.
+WP-85 Phase 5C (MVP) + WP-117 Ф2/Ф3 (расширение).
+
+Анализирует проекции 2_collected + 3_derived из digital_twins JSONB.
 Возвращает список nudge-рекомендаций для каждого пользователя.
 
 Принцип: данные без интерпретации — зеркало. Nudge превращает зеркало в наставника.
@@ -124,20 +126,109 @@ def check_active_days_milestone(engagement, user_meta):
 
 
 # ═══════════════════════════════════════════════════════════
+# DERIVED-AWARE RULES (WP-117 Ф3, dep: WP-151 Ф4)
+# ═══════════════════════════════════════════════════════════
+
+# Each derived_rule: (rule_id, check_fn, cooldown_days)
+# check_fn(engagement, user_meta, derived) -> nudge_key | None
+
+DERIVED_RULES = []
+
+
+def derived_rule(rule_id, cooldown_days=7):
+    """Decorator to register a derived-aware rule."""
+    def decorator(fn):
+        DERIVED_RULES.append((rule_id, fn, cooldown_days))
+        return fn
+    return decorator
+
+
+@derived_rule("stage_upgrade", cooldown_days=30)
+def check_stage_upgrade(engagement, user_meta, derived):
+    """Пользователь достиг новой ступени (поздравление + рекомендации)."""
+    qualification = derived.get('3_4_qualification') or {}
+    stage = qualification.get('stage', 0)
+
+    # Trigger for each stage transition (1→2, 2→3, 3→4)
+    if stage >= 2:
+        return f"nudge_stage_reached_{stage}"
+    return None
+
+
+@derived_rule("agency_growing", cooldown_days=14)
+def check_agency_growing(engagement, user_meta, derived):
+    """Индекс агентности растёт — поддержать прогресс."""
+    integral = derived.get('3_10_integral') or {}
+    index = integral.get('index', 0) or 0
+
+    if 40 <= index < 70:
+        return "nudge_agency_growing"
+    return None
+
+
+@derived_rule("agency_high", cooldown_days=30)
+def check_agency_high(engagement, user_meta, derived):
+    """Высокий индекс агентности — мотивировать на следующий уровень."""
+    integral = derived.get('3_10_integral') or {}
+    index = integral.get('index', 0) or 0
+
+    if index >= 70:
+        return "nudge_agency_high"
+    return None
+
+
+@derived_rule("low_regularity", cooldown_days=14)
+def check_low_regularity(engagement, user_meta, derived):
+    """Низкая регулярность — предложить перестроить расписание."""
+    agency = derived.get('3_1_agency') or {}
+    days_per_week = agency.get('slot_days_per_week', 0) or 0
+
+    # Practicing+ but low regularity (< 2 days/week)
+    qualification = derived.get('3_4_qualification') or {}
+    stage = qualification.get('stage', 0)
+
+    if stage >= 1 and days_per_week < 2:
+        return "nudge_low_regularity"
+    return None
+
+
+@derived_rule("notification_fatigue", cooldown_days=30)
+def check_notification_fatigue(engagement, user_meta, derived):
+    """Много уведомлений, мало реакции — снизить частоту."""
+    notifications = (engagement or {}).get('2_5_notifications') or {}
+    notif_30d = notifications.get('notifications_30d', 0) or 0
+
+    time_data = (engagement or {}).get('2_4_time') or {}
+    events_30d = time_data.get('events_last_30d', 0) or 0
+
+    # High notifications, low activity = fatigue
+    if notif_30d > 20 and events_30d < 5:
+        return "nudge_reduce_frequency"
+    return None
+
+
+# ═══════════════════════════════════════════════════════════
 # ANALYZER
 # ═══════════════════════════════════════════════════════════
 
-def analyze(engagement: dict, user_meta: dict) -> list[dict]:
+def analyze(
+    engagement: dict,
+    user_meta: dict,
+    derived: dict | None = None,
+) -> list[dict]:
     """Проанализировать engagement данные, вернуть список nudge-рекомендаций.
 
     Args:
-        engagement: данные из digital_twins.data['2_collected'] (4 группы)
+        engagement: данные из digital_twins.data['2_collected'] (5 групп)
         user_meta: данные из development.user_state (last_active_date, streak, etc.)
+        derived: данные из digital_twins.data['3_derived'] (WP-151 Ф4)
 
     Returns:
         List of {rule_id, nudge_key, cooldown_days}
     """
     results = []
+
+    # Basic rules (engagement + user_meta only)
     for rule_id, check_fn, cooldown_days in RULES:
         try:
             nudge_key = check_fn(engagement or {}, user_meta or {})
@@ -149,4 +240,21 @@ def analyze(engagement: dict, user_meta: dict) -> list[dict]:
                 })
         except Exception as e:
             logger.warning(f"[Nudge] Rule {rule_id} failed: {e}")
+
+    # Derived-aware rules (engagement + user_meta + derived)
+    if derived:
+        for rule_id, check_fn, cooldown_days in DERIVED_RULES:
+            try:
+                nudge_key = check_fn(
+                    engagement or {}, user_meta or {}, derived or {}
+                )
+                if nudge_key:
+                    results.append({
+                        'rule_id': rule_id,
+                        'nudge_key': nudge_key,
+                        'cooldown_days': cooldown_days,
+                    })
+            except Exception as e:
+                logger.warning(f"[Nudge] Derived rule {rule_id} failed: {e}")
+
     return results

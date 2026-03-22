@@ -4729,6 +4729,35 @@ nudges:
     ru: "🎯 30 активных дней! Месяц систематичного обучения — это уже привычка."
     en: "🎯 30 active days! A month of systematic learning — it's a habit now."
 
+  # Derived-aware nudges (WP-117 Ф3, dep: WP-151 Ф4)
+  nudge_stage_reached_2:
+    ru: "📈 Вы перешли на ступень *Систематический*! Ваша регулярность и количество тренировок говорят о серьёзном подходе. Следующая цель — дисциплина: 6 дней в неделю."
+    en: "📈 You've reached the *Systematic* stage! Your regularity and training count show a serious approach. Next goal — discipline: 6 days a week."
+
+  nudge_stage_reached_3:
+    ru: "🏅 Ступень *Дисциплинированный*! Вы занимаетесь почти каждый день. Осталось: стратегирование и передача знаний другим."
+    en: "🏅 *Disciplined* stage! You practice almost every day. Next: strategizing and sharing knowledge."
+
+  nudge_stage_reached_4:
+    ru: "🌟 Ступень *Проактивный*! Вы в числе самых активных участников. Ваш вклад в сообщество делает платформу сильнее."
+    en: "🌟 *Proactive* stage! You're among the most active participants. Your community contribution makes the platform stronger."
+
+  nudge_agency_growing:
+    ru: "📊 Ваш индекс агентности растёт — вы на правильном пути. Сохраняйте ритм: регулярность важнее интенсивности."
+    en: "📊 Your agency index is growing — you're on the right track. Keep your rhythm: consistency matters more than intensity."
+
+  nudge_agency_high:
+    ru: "💎 Высокий индекс агентности! Вы систематичны и продуктивны. Попробуйте /twin для полного обзора вашего прогресса."
+    en: "💎 High agency index! You're systematic and productive. Try /twin for a full overview of your progress."
+
+  nudge_low_regularity:
+    ru: "📅 Вы активны, но нерегулярно — {active_days} активных дней разбросаны неравномерно. Попробуйте выделить фиксированный слот каждый день — даже 15 минут."
+    en: "📅 You're active but irregular — {active_days} active days are spread unevenly. Try a fixed daily slot — even 15 minutes."
+
+  nudge_reduce_frequency:
+    ru: "🔕 Мы отправляем много уведомлений, а активность невысокая. Снижаем частоту — качество важнее количества. Зайдите, когда будет удобно."
+    en: "🔕 We've been sending many notifications, but activity is low. Reducing frequency — quality over quantity. Come back when you're ready."
+
   settings_nudges_button:
     ru: "Подбадривание"
     en: "Nudges"

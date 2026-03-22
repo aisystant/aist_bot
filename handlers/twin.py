@@ -332,6 +332,195 @@ def _annotate_repos(repos_list: list) -> str:
     return '; '.join(parts)
 
 
+# ═══════════════════════════════════════════════════════════
+# /me — Compact Dashboard (WP-135 Ф0)
+# ═══════════════════════════════════════════════════════════
+
+STAGE_EMOJI = {0: "🌱", 1: "🌿", 2: "🌳", 3: "⚡", 4: "🌟"}
+STAGE_NAMES_RU = {
+    0: "Случайный", 1: "Практикующий", 2: "Систематический",
+    3: "Дисциплинированный", 4: "Проактивный",
+}
+
+
+def _build_me_dashboard(engagement: dict, intern: dict, lang: str) -> str:
+    """Compact dashboard (10-15 строк) из 2_collected + 3_derived."""
+    name = (intern or {}).get('name', '') or 'Участник'
+
+    account = engagement.get('2_1_account') or {}
+    courses = engagement.get('2_2_courses') or {}
+    practice = engagement.get('2_3_practice') or {}
+    time_data = engagement.get('2_4_time') or {}
+    notifications = engagement.get('2_5_notifications') or {}
+    coding = engagement.get('2_6_coding') or {}
+    iwe = engagement.get('2_7_iwe') or {}
+    derived = engagement.get('_derived') or {}
+
+    lines = [f"📋 *{name} — Мой ЦД*\n"]
+
+    # Stage + Agency Index
+    qualification = derived.get('3_4_qualification') or {}
+    integral = derived.get('3_10_integral') or {}
+    stage = qualification.get('stage', 0)
+    stage_emoji = STAGE_EMOJI.get(stage, "🌱")
+    agency_index = integral.get('index', 0)
+
+    if qualification:
+        lines.append(
+            f"{stage_emoji} *Ступень:* {STAGE_NAMES_RU.get(stage, '?')} ({stage}/4)"
+            f"  |  🎯 *Агентность:* {agency_index}/100"
+        )
+    else:
+        lines.append("⚠️ Derived-индикаторы ещё не рассчитаны (sync 04:30)")
+
+    # Activity
+    events_7d = time_data.get('events_last_7d', 0) or 0
+    events_30d = time_data.get('events_last_30d', 0) or 0
+    active_days = time_data.get('active_days', 0) or 0
+    sessions = account.get('sessions_total', 0) or 0
+    lines.append(
+        f"\n📊 *Активность:* {events_7d} событий/7д"
+        f"  |  {events_30d}/30д  |  {active_days} активных дней"
+    )
+
+    # Learning
+    marathon = courses.get('marathon_steps_total', 0) or 0
+    feed = courses.get('feed_completed_total', 0) or 0
+    training = practice.get('training_passed_total', 0) or 0
+    if marathon or feed or training:
+        lines.append(
+            f"📚 *Обучение:* {marathon} уроков"
+            f"  |  {feed} дайджестов  |  {training} тренировок пройдено"
+        )
+
+    # Coding (WakaTime)
+    if coding and coding.get('coding_seconds_7d', 0):
+        hrs_7d = coding['coding_seconds_7d'] / 3600
+        hrs_30d = (coding.get('coding_seconds_30d', 0) or 0) / 3600
+        lines.append(f"💻 *Код:* {hrs_7d:.1f}ч/7д  |  {hrs_30d:.1f}ч/30д")
+
+    # IWE (git)
+    if iwe and iwe.get('commits_7d', 0):
+        lines.append(
+            f"🔧 *IWE:* {iwe['commits_7d']} коммитов/7д"
+            f"  |  РП: {iwe.get('wp_completed_total', 0)} done"
+            f"  |  {iwe.get('wp_in_progress_count', 0)} in progress"
+        )
+
+    # Notifications
+    notif_30d = notifications.get('notifications_30d', 0) or 0
+    if notif_30d:
+        lines.append(f"📬 *Уведомления:* {notif_30d}/30д")
+
+    # Agency components
+    components = integral.get('components') or {}
+    if components:
+        lines.append(
+            f"\n🧩 *Компоненты агентности:*"
+            f" рег.={components.get('regularity', 0):.0f}"
+            f" акт.={components.get('activity', 0):.0f}"
+            f" обуч.={components.get('learning', 0):.0f}"
+            f" увед.={components.get('notifications', 0):.0f}"
+            f" стаж={components.get('longevity', 0):.0f}"
+        )
+
+    # Engine version
+    engine_v = derived.get('engine_version', '')
+    calc_at = derived.get('calculated_at', '')[:10] if derived.get('calculated_at') else ''
+    if engine_v:
+        lines.append(f"\n_engine v{engine_v} | {calc_at}_")
+
+    return '\n'.join(lines)
+
+
+@twin_router.message(Command("me"))
+async def cmd_me(message: Message):
+    """Команда /me — компактный дашборд ЦД (WP-135 Ф0)."""
+    from db.queries.dt_sync import get_engagement_data
+    from db.queries.identity import get_user_uuid
+    from db.queries.events import log_event
+
+    telegram_user_id = message.chat.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+
+    user_uuid = await get_user_uuid(telegram_user_id)
+    if not user_uuid:
+        await message.answer(
+            "⚠️ Данные ЦД недоступны. Используйте /twin для подключения."
+        )
+        return
+
+    engagement = await get_engagement_data(str(user_uuid))
+    if not engagement:
+        await message.answer(
+            "📊 Данные ещё не собраны. Синхронизация происходит в 04:30 МСК."
+        )
+        return
+
+    dashboard = _build_me_dashboard(engagement, intern, lang)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="🔍 AI-анализ",
+                callback_data="twin_insights",
+            ),
+            InlineKeyboardButton(
+                text="👤 Профиль ЦД",
+                callback_data="twin_profile",
+            ),
+        ],
+    ])
+
+    try:
+        await message.answer(dashboard, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception:
+        await message.answer(dashboard, reply_markup=keyboard)
+
+    # Audit trail (WP-135)
+    try:
+        account = engagement.get('2_1_account') or {}
+        derived = engagement.get('_derived') or {}
+        await log_event(
+            user_id=telegram_user_id,
+            event_type='dt_view_requested',
+            payload={
+                'source': 'bot',
+                'command': '/me',
+                'snapshot': {
+                    'active_days': (engagement.get('2_4_time') or {}).get('active_days', 0),
+                    'events_7d': (engagement.get('2_4_time') or {}).get('events_last_7d', 0),
+                    'stage': (derived.get('3_4_qualification') or {}).get('stage'),
+                    'agency_index': (derived.get('3_10_integral') or {}).get('index'),
+                },
+            },
+            source='bot',
+        )
+    except Exception as e:
+        logger.debug(f"[/me] Audit trail failed: {e}")
+
+
+@twin_router.callback_query(F.data == "twin_profile")
+async def callback_twin_profile(callback: CallbackQuery):
+    """Переход к профилю ЦД из /me."""
+    from clients.digital_twin import digital_twin
+
+    telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+    profile = await digital_twin.get_user_profile(telegram_user_id)
+    if profile:
+        await callback.message.answer(
+            _profile_text(profile, lang, intern=intern),
+            parse_mode="Markdown",
+        )
+    else:
+        await callback.message.answer("⚠️ Профиль ЦД недоступен.")
+
+
 # Shared IWE platform context for insights prompts
 _IWE_PLATFORM_CONTEXT = (
     "\n\nPLATFORM CONTEXT:\n"
@@ -405,6 +594,38 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         f"AI chats in bot: {time_data.get('ai_chats_total', 0)}"
     )
 
+    # Notifications (WP-152 Ф4 — IND.2.5)
+    notifications = engagement.get('2_5_notifications') or {}
+    if notifications.get('notifications_total', 0):
+        data_summary += (
+            f"\n[NOTIFICATIONS]\n"
+            f"Total: {notifications.get('notifications_total', 0)}, "
+            f"7d: {notifications.get('notifications_7d', 0)}, "
+            f"30d: {notifications.get('notifications_30d', 0)}\n"
+            f"Types: lessons={notifications.get('lesson_notifications', 0)}, "
+            f"reminders={notifications.get('reminder_notifications', 0)}, "
+            f"nudges={notifications.get('nudge_notifications', 0)}, "
+            f"feed={notifications.get('feed_digest_notifications', 0)}, "
+            f"milestones={notifications.get('milestone_notifications', 0)}"
+        )
+
+    # Derived indicators (WP-151 Ф4 — IND.3)
+    derived = engagement.get('_derived', {})
+    if derived:
+        qualification = derived.get('3_4_qualification', {})
+        integral = derived.get('3_10_integral', {})
+        agency = derived.get('3_1_agency', {})
+        data_summary += (
+            f"\n[DERIVED INDICATORS (calculated by engine v{derived.get('engine_version', '?')})]\n"
+            f"Student stage: {qualification.get('stage', '?')}/4 "
+            f"({qualification.get('stage_name_ru', 'N/A')})\n"
+            f"Agency index: {integral.get('index', 0)}/100 "
+            f"(regularity={integral.get('components', {}).get('regularity', 0)}, "
+            f"activity={integral.get('components', {}).get('activity', 0)}, "
+            f"learning={integral.get('components', {}).get('learning', 0)})\n"
+            f"Slot regularity: {agency.get('slot_days_per_week', 0)} days/week"
+        )
+
     # Coding activity (WakaTime — IND.2.6)
     if coding:
         today_min = coding.get('coding_seconds_today', 0) // 60
@@ -456,7 +677,13 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "- 'Claude sessions' = Claude Code AI-assisted coding sessions\n"
         "- 'WPs' = Work Products (managed deliverables with deadlines)\n"
         "- 'Exocortex uptime' = number of days with recorded scheduler activity (NOT 'launched N days ago'). "
-        "Example: uptime=8 means scheduler ran on 8 different days, not that system was set up 8 days ago\n\n"
+        "Example: uptime=8 means scheduler ran on 8 different days, not that system was set up 8 days ago\n"
+        "- 'Student stage' (0-4) = calculated learning maturity: 0=Random, 1=Practicing, 2=Systematic, "
+        "3=Disciplined, 4=Proactive. Based on regularity, sessions, training\n"
+        "- 'Agency index' (0-100) = weighted aggregate: regularity(30%), activity(25%), learning(25%), "
+        "notifications(10%), longevity(10%)\n"
+        "- 'Slot regularity' = average days/week with learning activity\n"
+        "- Notifications = bot-sent messages (lessons, reminders, nudges, feed digests, milestones)\n\n"
         "RULES:\n"
         "- Do NOT confuse bot active days with total activity — coding/git data shows the full picture\n"
         "- Do NOT flag normal coding amounts as burnout risk\n"
@@ -465,6 +692,10 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "- If coding or IWE data is present, it shows the MAIN activity — bot data is supplementary\n"
         "- EVERY number MUST include its time period explicitly: '4 активных дня за последние 30 дней', "
         "NOT just '4 дня'. '285 коммитов за неделю', NOT '285 коммитов'. No bare numbers.\n"
+        "- If WPs completed = 0 AND WPs in progress = 0, say 'данные о рабочих продуктах пока не подключены к ЦД' — "
+        "do NOT invent or guess WP counts from other metrics. Only report WP numbers when they are non-zero in the data.\n"
+        "- If derived indicators are present, use student_stage and agency_index to frame recommendations "
+        "— match advice to the user's current stage (don't recommend Proactive practices to a Random user)\n"
         "- Write in natural Russian. Do NOT use English words unless they are established "
         "platform terms (WP, Claude Code, WakaTime, Exocortex, Pack). "
         "For example: 'критерии завершения', NOT 'Definition of Done'; "
