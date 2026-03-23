@@ -931,8 +931,8 @@ subscription:
   success: "✅ 订阅已激活！所有功能现已可用。"
   renewal_success: "✅ 订阅已续费。谢谢！"
   trial_active: "🆓 试用期：剩余 {days} 天。"
-  trial_expiring: "⏳ 试用期明天到期！订阅以保持访问权限。"
-  trial_expired: "⌛ 试用期已结束。订阅以访问Feed、顾问和笔记。"
+  trial_expiring: '⏳ 您的免费期（30天，等级 T2 — Learning）明天到期！\n\n订阅「无限发展」以保留 Feed、顾问、笔记和计划的访问权限。\n\n订阅还可免费升级到 T3 — Personalization（数字孪生、个性化推荐）和 T4 — Creation（通过 GitHub 发布到俱乐部）。\n\n未订阅将降至 T1 — Start。免费功能：马拉松、训练器、资格评估和日程。'
+  trial_expired: '⌛ 免费期（30天）已结束。您现在处于 T1 — Start 等级。\n\n免费功能：马拉松、训练器、资格评估、日程。\n\n订阅「无限发展」即可恢复 Feed、顾问、笔记和计划（T2）。连接数字孪生（T3）和 GitHub（T4），即可免费获得个性化推荐和俱乐部发布功能。'
   status_active: "✅ 订阅有效至 {date}"
   status_trial: "🆓 试用期（剩余 {days} 天）"
   status_expired: "❌ 无有效订阅"
