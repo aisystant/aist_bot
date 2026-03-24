@@ -79,6 +79,7 @@ async def sync_engagement_to_dt() -> dict:
             rows = await conn.fetch('''
                 SELECT
                     e.user_uuid,
+                    e.user_id,
                     dt.dt_user_id,
                     e.sessions_total,
                     e.ai_chats_total,
