@@ -1311,9 +1311,24 @@ async def send_trial_expiry_notifications():
             async def _send_one(chat_id: int, _days=days_ahead):
                 if chat_id in sent_chat_ids:
                     return
-                sent_chat_ids.add(chat_id)
 
                 async with sem:
+                    # WP-85: проверить подписку БР на Aisystant (SQL фильтрует только TG Stars)
+                    # Trade-off: при сбое API — fallthrough к отправке (ложное уведомление
+                    # для подписчика лучше, чем crash scheduler для всех).
+                    try:
+                        from db.queries.aisystant import get_aisystant_id
+                        from clients.aisystant import aisystant
+                        aisystant_id = await get_aisystant_id(chat_id)
+                        if aisystant_id and await aisystant.has_active_subscription(aisystant_id):
+                            logger.info(f"[Scheduler] {chat_id} has active Aisystant subscription, skip trial notification")
+                            sent_chat_ids.add(chat_id)
+                            return
+                    except Exception as e:
+                        logger.warning(f"[Scheduler] Aisystant sub check failed for {chat_id}: {e}")
+
+                    sent_chat_ids.add(chat_id)
+
                     # WP-152: idempotency через notification_log
                     from db.queries.notifications import try_insert_notification
                     today_str = moscow_now().strftime('%Y-%m-%d')
