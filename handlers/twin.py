@@ -208,16 +208,19 @@ async def cmd_twin(message: Message):
         return
 
     # Enrich profile with derived data from DB (stage is calculated, not declarative)
-    if intern and intern.get('user_uuid'):
-        try:
-            from db.queries.dt_sync import get_engagement_data
-            engagement = await get_engagement_data(str(intern['user_uuid']))
+    # Use get_user_uuid (same as /me) — intern has 'user_id' but get_engagement_data needs UUID
+    try:
+        from db.queries.dt_sync import get_engagement_data
+        from db.queries.identity import get_user_uuid
+        user_uuid = await get_user_uuid(telegram_user_id)
+        if user_uuid:
+            engagement = await get_engagement_data(str(user_uuid))
             if engagement:
                 derived = engagement.get('_derived') or {}
                 if derived:
                     profile['_derived'] = derived
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
