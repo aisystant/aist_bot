@@ -619,3 +619,9 @@ aiogram FSM-хендлеры (`@router.message(State)`) перехватываю
 - Ответы бота = view over DDT/Pack, не хранение знаний
 - При добавлении нового state → определить: что в always-in-context? что on-demand?
 - MCP tools = select-стратегия: агент выбирает минимальный контекст для задачи
+
+### 10.32. Inline drill-down: не удалять сообщение, route через dispatcher
+
+**Правило 1:** Callback из inline-кнопки НЕ должен удалять исходное сообщение (`callback.message.delete()`). TG-паттерн: drill-down = новое сообщение ниже, старое остаётся. Delete путает пользователя и ломает `callback.message.answer()`.
+
+**Правило 2:** Если callback должен запустить SM state (mydata, progress, plans) — вызывать через `dispatcher.route_command('mydata', intern)`, НЕ отправлять текстовую подсказку «Используйте /mydata». Текст не запускает SM.
