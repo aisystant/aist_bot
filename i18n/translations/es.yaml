@@ -962,7 +962,7 @@ plans:
   day_plan: "Plan del día"
   github_not_connected: "Para ver los planes, conecta GitHub en /settings -> Conexiones."
   not_found_day: "No se encontró DayPlan para hoy."
-  not_found_report: "No se encontró WeekReport."
+  not_found_report: "No se encontró el resumen semanal."
   not_found_day_monday: "Los lunes no se genera el plan del día — consulta el plan semanal."
   not_found_week: "No se encontró WeekPlan."
   repo_not_selected: "Selecciona el repositorio del estratega."
@@ -1023,14 +1023,14 @@ strategist:
   weekplan_not_found: "WeekPlan no encontrado."
   dayplan_not_found: "DayPlan de hoy no encontrado."
   dayplan_not_found_monday: "Los lunes no se genera plan diario — consulta el plan semanal (/rp)."
-  weekreport_not_found: "WeekReport no encontrado."
+  weekreport_not_found: "No se encontró el resumen semanal."
   day_close_instruction: "El cierre del día se ejecuta localmente:"
   day_close_notification: "Recibirás una notificación al completar."
   repos_error: "No se pudo obtener la lista de repositorios."
   select_repo_title: "Selecciona el repositorio del estratega:"
   repo_selected: "¡Repositorio del estratega seleccionado!"
   repo_configured: "¡Repositorio del estratega configurado!"
-  available_commands: "Comandos disponibles:\n/rp — WeekPlan (plan semanal)\n/plan — DayPlan (plan diario)\n/report — WeekReport (informe semanal)"
+  available_commands: "Comandos disponibles:\n/rp — WeekPlan (plan semanal)\n/plan — DayPlan (plan diario)\n/report — Resumen semanal"
 
 # -----------------------------------------------------------------------------
 # Linear integración

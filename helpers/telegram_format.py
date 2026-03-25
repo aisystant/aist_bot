@@ -3,7 +3,7 @@
 
 Telegram не поддерживает Markdown-таблицы.
 Этот модуль конвертирует стратегические файлы
-(DayPlan, WeekPlan, WeekReport) в читаемый HTML.
+(DayPlan, WeekPlan, итоги недели) в читаемый HTML.
 """
 
 import html

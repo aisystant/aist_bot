@@ -3979,8 +3979,8 @@ plans:
     ru: "WeekPlan не найден."
     en: "WeekPlan not found."
   not_found_report:
-    ru: "WeekReport не найден."
-    en: "WeekReport not found."
+    ru: "Итоги недели не найдены."
+    en: "Weekly summary not found."
   github_not_connected:
     ru: "Для просмотра планов подключите GitHub через /settings → Подключения."
     en: "Connect GitHub via /settings → Connections to view plans."
@@ -4642,8 +4642,8 @@ strategist:
     ru: "В понедельник план дня не формируется — смотрите недельный план (/rp)."
     en: "No day plan on Mondays — check the weekly plan (/rp)."
   weekreport_not_found:
-    ru: "WeekReport не найден."
-    en: "WeekReport not found."
+    ru: "Итоги недели не найдены."
+    en: "Weekly summary not found."
   day_close_instruction:
     ru: "Закрытие дня запускается локально:"
     en: "Day close runs locally:"
@@ -4663,8 +4663,8 @@ strategist:
     ru: "Репозиторий стратега настроен!"
     en: "Strategist repository configured!"
   available_commands:
-    ru: "Доступные команды:\n/rp — WeekPlan (план недели)\n/plan — DayPlan (план дня)\n/report — WeekReport (отчёт недели)"
-    en: "Available commands:\n/rp — WeekPlan (weekly plan)\n/plan — DayPlan (daily plan)\n/report — WeekReport (weekly report)"
+    ru: "Доступные команды:\n/rp — WeekPlan (план недели)\n/plan — DayPlan (план дня)\n/report — Итоги недели"
+    en: "Available commands:\n/rp — WeekPlan (weekly plan)\n/plan — DayPlan (daily plan)\n/report — Weekly summary"
 
 # -----------------------------------------------------------------------------
 # Milestones — конверсионные уведомления (DP.ARCH.002 § 12.5, C3)

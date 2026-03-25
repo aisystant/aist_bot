@@ -1,7 +1,8 @@
 """
 Стейт: Планы (интеграция со Стратегом).
 
-Хаб для просмотра DayPlan, WeekPlan и WeekReport из GitHub-репо стратега.
+Хаб для просмотра DayPlan, WeekPlan и итогов недели из GitHub-репо стратега.
+Итоги недели читаются из секции «Итоги W{N}» в WeekPlan (fallback на WeekReport).
 Требует подключённого GitHub и выбранного strategy_repo.
 
 Вход: по кнопке «Планы» из меню или через callback "service:plans"

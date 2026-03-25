@@ -962,7 +962,7 @@ plans:
   day_plan: "Plan du jour"
   github_not_connected: "Pour voir les plans, connecte GitHub dans /settings -> Connexions."
   not_found_day: "DayPlan pour aujourd'hui non trouvé."
-  not_found_report: "WeekReport non trouvé."
+  not_found_report: "Résumé hebdomadaire non trouvé."
   not_found_day_monday: "Le lundi, le plan du jour n'est pas généré — consulte le plan de la semaine."
   not_found_week: "WeekPlan non trouvé."
   repo_not_selected: "Sélectionne le dépôt du stratège."
@@ -1023,14 +1023,14 @@ strategist:
   weekplan_not_found: "WeekPlan non trouvé."
   dayplan_not_found: "DayPlan d'aujourd'hui non trouvé."
   dayplan_not_found_monday: "Pas de plan quotidien le lundi — consultez le plan hebdomadaire (/rp)."
-  weekreport_not_found: "WeekReport non trouvé."
+  weekreport_not_found: "Résumé hebdomadaire non trouvé."
   day_close_instruction: "La clôture du jour s'exécute localement :"
   day_close_notification: "Vous recevrez une notification une fois terminé."
   repos_error: "Impossible d'obtenir la liste des dépôts."
   select_repo_title: "Choisissez le dépôt du stratège :"
   repo_selected: "Dépôt du stratège sélectionné !"
   repo_configured: "Dépôt du stratège configuré !"
-  available_commands: "Commandes disponibles :\n/rp — WeekPlan (plan hebdomadaire)\n/plan — DayPlan (plan quotidien)\n/report — WeekReport (rapport hebdomadaire)"
+  available_commands: "Commandes disponibles :\n/rp — WeekPlan (plan hebdomadaire)\n/plan — DayPlan (plan quotidien)\n/report — Résumé hebdomadaire"
 
 # -----------------------------------------------------------------------------
 # Linear intégration

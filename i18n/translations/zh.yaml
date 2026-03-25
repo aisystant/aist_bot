@@ -962,7 +962,7 @@ plans:
   day_plan: "每日计划"
   github_not_connected: "要查看计划，请在 /settings -> 连接 中连接GitHub。"
   not_found_day: "未找到今天的DayPlan。"
-  not_found_report: "未找到WeekReport。"
+  not_found_report: "未找到周总结。"
   not_found_day_monday: "周一不生成每日计划——请查看周计划。"
   not_found_week: "未找到WeekPlan。"
   repo_not_selected: "请选择策略师仓库。"
@@ -1023,14 +1023,14 @@ strategist:
   weekplan_not_found: "未找到WeekPlan。"
   dayplan_not_found: "未找到今天的DayPlan。"
   dayplan_not_found_monday: "周一不生成日计划——请查看周计划 (/rp)。"
-  weekreport_not_found: "未找到WeekReport。"
+  weekreport_not_found: "未找到周总结。"
   day_close_instruction: "日结在本地运行："
   day_close_notification: "完成后您将收到通知。"
   repos_error: "无法获取仓库列表。"
   select_repo_title: "选择策略师仓库："
   repo_selected: "策略师仓库已选择！"
   repo_configured: "策略师仓库已配置！"
-  available_commands: "可用命令：\n/rp — WeekPlan（周计划）\n/plan — DayPlan（日计划）\n/report — WeekReport（周报）"
+  available_commands: "可用命令：\n/rp — WeekPlan（周计划）\n/plan — DayPlan（日计划）\n/report — 周总结"
 
 # -----------------------------------------------------------------------------
 # Linear 集成

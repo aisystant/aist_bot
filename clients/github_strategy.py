@@ -1,8 +1,11 @@
 """
 GitHub Strategy Client — чтение файлов стратега из GitHub.
 
-Использует GitHub Contents API для чтения DayPlan, WeekPlan, WeekReport
+Использует GitHub Contents API для чтения DayPlan, WeekPlan
 из репозитория DS-my-strategy через OAuth-токен.
+
+WeekReport deprecated как отдельный файл — итоги недели теперь
+хранятся в секции «Итоги W{N}» внутри WeekPlan.
 
 Использование:
     from clients.github_strategy import github_strategy
@@ -12,6 +15,7 @@ GitHub Strategy Client — чтение файлов стратега из GitHu
 """
 
 import base64
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
@@ -135,7 +139,23 @@ class GitHubStrategyClient:
         return await self.read_file(telegram_user_id, repo, week_plans[0]["path"])
 
     async def get_week_report(self, telegram_user_id: int) -> Optional[str]:
-        """Получает последний WeekReport."""
+        """Получает итоги недели.
+
+        Стратегия (с марта 2026): WeekReport как отдельный файл deprecated.
+        Итоги хранятся в секции «Итоги W{N}» внутри WeekPlan.
+
+        Порядок поиска:
+        1. Читает последний WeekPlan → ищет секцию «Итоги W{N}»
+        2. Fallback: ищет отдельный WeekReport файл (для архивных данных)
+        """
+        # --- Шаг 1: ищем секцию «Итоги W{N}» в WeekPlan ---
+        week_plan_content = await self.get_week_plan(telegram_user_id)
+        if week_plan_content:
+            section = self._extract_results_section(week_plan_content)
+            if section:
+                return section
+
+        # --- Шаг 2 (fallback): отдельный файл WeekReport (архивные данные) ---
         access_token, repo = await self._get_auth(telegram_user_id)
         if not access_token:
             return None
@@ -154,6 +174,41 @@ class GitHubStrategyClient:
             return None
 
         return await self.read_file(telegram_user_id, repo, week_reports[0]["path"])
+
+    @staticmethod
+    def _extract_results_section(content: str) -> Optional[str]:
+        """Извлекает секцию «Итоги W{N}» из WeekPlan.
+
+        Ищет заголовок вида «## Итоги W13» (любой уровень ##/###)
+        и возвращает всё содержимое до следующего заголовка того же
+        или более высокого уровня.
+        """
+        # Ищем заголовок «Итоги W{число}»
+        pattern = r'^(#{2,3})\s+Итоги\s+W\d+'
+        lines = content.split('\n')
+        start_idx = None
+        heading_level = None
+
+        for i, line in enumerate(lines):
+            match = re.match(pattern, line)
+            if match:
+                start_idx = i
+                heading_level = len(match.group(1))
+                break
+
+        if start_idx is None:
+            return None
+
+        # Собираем содержимое до следующего заголовка того же или более высокого уровня
+        end_idx = len(lines)
+        for i in range(start_idx + 1, len(lines)):
+            heading_match = re.match(r'^(#{1,3})\s+', lines[i])
+            if heading_match and len(heading_match.group(1)) <= heading_level:
+                end_idx = i
+                break
+
+        section = '\n'.join(lines[start_idx:end_idx]).strip()
+        return section if section else None
 
     async def get_strategy_repo_url(self, telegram_user_id: int) -> Optional[str]:
         """Возвращает URL репо стратега на GitHub."""

@@ -3,7 +3,7 @@
 
 /rp     — текущий WeekPlan (рабочие продукты на неделю)
 /plan   — DayPlan на сегодня
-/report — последний WeekReport
+/report — итоги недели (секция «Итоги W{N}» из WeekPlan, fallback на WeekReport)
 """
 
 from datetime import datetime, timezone, timedelta
