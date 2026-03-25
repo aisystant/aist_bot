@@ -59,9 +59,20 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     """Формирует текст профиля Digital Twin.
 
     Fallback chain: indicators.IND.1.PREF (Aisystant) → 1_declarative (bot sync) → intern (bot DB).
+    Stage: derived (3_4_qualification) — calculated by engine.
+    Degree: from LMS (not yet connected).
     """
-    degree = profile.get("degree", t('twin.not_set', lang))
-    stage = profile.get("stage", t('twin.not_set', lang))
+    # Degree: LMS-sourced (not yet connected)
+    degree = profile.get("degree") or t('twin.lms_not_connected', lang)
+
+    # Stage: derived from engine (3_derived.3_4_qualification)
+    derived = (profile.get("_derived") or profile.get("3_derived")) or {}
+    qualification = derived.get("3_4_qualification") or {}
+    stage_num = qualification.get("stage")
+    if stage_num is not None:
+        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/4)"
+    else:
+        stage = profile.get("stage") or t('twin.not_set', lang)
 
     # Source 1: indicators path (Aisystant platform writes here)
     indicators = profile.get("indicators", {})
@@ -195,6 +206,18 @@ async def cmd_twin(message: Message):
     if profile is None:
         await message.answer(t('twin.unavailable', lang))
         return
+
+    # Enrich profile with derived data from DB (stage is calculated, not declarative)
+    if intern and intern.get('user_uuid'):
+        try:
+            from db.queries.dt_sync import get_engagement_data
+            engagement = await get_engagement_data(str(intern['user_uuid']))
+            if engagement:
+                derived = engagement.get('_derived') or {}
+                if derived:
+                    profile['_derived'] = derived
+        except Exception:
+            pass
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [

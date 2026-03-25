@@ -1084,6 +1084,7 @@ twin:
   not_set: "未设置"
   not_set_plural: "未设置"
   not_set_m: "未设置"
+  lms_not_connected: "LMS未连接"
   profile_title: "您的Digital Twin"
   degree_label: "等级"
   stage_label: "阶段"

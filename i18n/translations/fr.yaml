@@ -1084,6 +1084,7 @@ twin:
   not_set: "non définie"
   not_set_plural: "non définis"
   not_set_m: "non défini"
+  lms_not_connected: "LMS non connecté"
   profile_title: "Votre Digital Twin"
   degree_label: "Degré"
   stage_label: "Étape"

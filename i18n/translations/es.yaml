@@ -1084,6 +1084,7 @@ twin:
   not_set: "no establecida"
   not_set_plural: "no establecidos"
   not_set_m: "no establecido"
+  lms_not_connected: "LMS no conectado"
   profile_title: "Tu Digital Twin"
   degree_label: "Grado"
   stage_label: "Etapa"

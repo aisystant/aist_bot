@@ -4964,6 +4964,9 @@ twin:
   not_set_m:
     ru: "не задан"
     en: "not set"
+  lms_not_connected:
+    ru: "LMS не подключено"
+    en: "LMS not connected"
   profile_title:
     ru: "Ваш Цифровой двойник"
     en: "Your Digital Twin"
