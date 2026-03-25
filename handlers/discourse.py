@@ -1026,8 +1026,12 @@ async def on_club_main(callback: CallbackQuery):
 # ── Smart Publish (из индекса) ────────────────────────────
 
 
-async def _scan_ready_posts(chat_id: int) -> list[dict]:
-    """Сканировать индекс знаний → вернуть ready+club посты, не в published/scheduled."""
+async def _scan_all_club_posts(chat_id: int) -> list[dict]:
+    """Сканировать индекс знаний → вернуть все club-посты (draft/ready) + scheduled из DB.
+
+    Возвращает список с полем 'status': 'scheduled' | 'ready' | 'draft'.
+    Уже опубликованные посты исключаются.
+    """
     from clients.github_content import create_content_client, parse_frontmatter
     from clients.github_oauth import github_oauth
 
@@ -1040,8 +1044,15 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
     try:
         published_files = await get_all_published_source_files(chat_id)
         published_titles = await get_all_published_titles_lower(chat_id)
-        scheduled_files = await get_all_scheduled_source_files(chat_id)
-        scheduled_titles = await get_all_scheduled_titles_lower(chat_id)
+
+        # Scheduled посты из DB (с id для cancel при публикации)
+        scheduled_pubs = await get_upcoming_schedule(chat_id, limit=20)
+        scheduled_by_file = {}
+        scheduled_by_title = {}
+        for sp in scheduled_pubs:
+            if sp.get("source_file"):
+                scheduled_by_file[sp["source_file"]] = sp
+            scheduled_by_title[sp["title"].lower()] = sp
 
         today = datetime.now().date()
         cutoff = today - timedelta(days=14)
@@ -1073,25 +1084,40 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
             fm = parse_frontmatter(content)
             if fm.get("type") != "post":
                 return None
-            if fm.get("status") != "ready":
-                return None
             if fm.get("target") != "club":
+                return None
+            status = fm.get("status", "draft")
+            # Уже опубликованные — пропускаем
+            if status == "published":
                 return None
             title = fm.get("title", file_info["name"])
             if file_info["path"] in published_files:
                 return None
             if title.lower() in published_titles:
                 return None
-            if file_info["path"] in scheduled_files:
-                return None
-            if title.lower() in scheduled_titles:
-                return None
+
+            # Определяем: scheduled из DB или index (draft/ready)
+            sp = scheduled_by_file.get(file_info["path"]) or scheduled_by_title.get(title.lower())
+            if sp:
+                return {
+                    "path": file_info["path"],
+                    "sha": sha,
+                    "title": title,
+                    "tags": fm.get("tags", []),
+                    "content": content,
+                    "status": "scheduled",
+                    "scheduled_id": sp["id"],
+                    "schedule_time": sp["schedule_time"],
+                }
             return {
                 "path": file_info["path"],
                 "sha": sha,
                 "title": title,
                 "tags": fm.get("tags", []),
                 "content": content,
+                "status": status,  # "ready" или "draft"
+                "scheduled_id": None,
+                "schedule_time": None,
             }
 
         # Рекурсивный обход: docs/2026 → месяцы → файлы + подпапки постов
@@ -1120,9 +1146,30 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
                 if isinstance(r, dict):
                     candidates.append(r)
 
+        # Добавить scheduled-посты не найденные в GitHub (ручной ввод или файл удалён)
+        seen_ids = {c["scheduled_id"] for c in candidates if c.get("scheduled_id")}
+        for sp in scheduled_pubs:
+            if sp["id"] not in seen_ids:
+                title = sp["title"]
+                if title.lower() not in published_titles:
+                    candidates.append({
+                        "path": "",  # Пустой: файл не найден в GitHub → публикуем raw из DB
+                        "sha": "",
+                        "title": title,
+                        "tags": [],
+                        "content": "",
+                        "status": "scheduled",
+                        "scheduled_id": sp["id"],
+                        "schedule_time": sp["schedule_time"],
+                    })
+
+        # Сортировка: scheduled первыми, потом ready, потом draft
+        order = {"scheduled": 0, "ready": 1, "draft": 2}
+        candidates.sort(key=lambda c: order.get(c["status"], 3))
+
         return candidates
     except Exception as e:
-        logger.error(f"Scan ready posts error: {e}")
+        logger.error(f"Scan all club posts error: {e}")
         return []
     finally:
         await client.close()
@@ -1131,21 +1178,34 @@ async def _scan_ready_posts(chat_id: int) -> list[dict]:
 async def _show_publish_options(
     message: Message, state: FSMContext, chat_id: int, loading_msg: Message | None = None,
 ):
-    """Показать ready-посты из индекса как кнопки + вариант ручного ввода."""
-    candidates = await _scan_ready_posts(chat_id)
+    """Показать все club-посты (scheduled/ready/draft) как кнопки + вариант ручного ввода."""
+    candidates = await _scan_all_club_posts(chat_id)
 
     buttons = []
     if candidates:
         # Сохраняем кандидатов в FSM для callback
         posts_data = [
-            {"path": c["path"], "title": c["title"], "tags": c["tags"]}
-            for c in candidates[:8]  # Макс 8 кнопок
+            {
+                "path": c["path"],
+                "title": c["title"],
+                "tags": c["tags"],
+                "status": c["status"],
+                "scheduled_id": c.get("scheduled_id"),
+            }
+            for c in candidates[:10]  # Макс 10 кнопок
         ]
         await state.update_data(ready_posts=posts_data)
 
-        for i, c in enumerate(candidates[:8]):
+        icon = {"scheduled": "📅", "ready": "📄", "draft": "✏️"}
+        for i, c in enumerate(candidates[:10]):
+            prefix = icon.get(c["status"], "📄")
+            time_hint = ""
+            if c["status"] == "scheduled" and c.get("schedule_time"):
+                t = c["schedule_time"] + timedelta(hours=3)  # UTC→MSK
+                time_hint = f" ({t.strftime('%d.%m %H:%M')})"
+            label = f"{prefix} {c['title'][:40]}{time_hint}"
             buttons.append([InlineKeyboardButton(
-                text=f"📄 {c['title'][:45]}",
+                text=label,
                 callback_data=f"club_smart_pub:{i}",
             )])
 
@@ -1154,15 +1214,24 @@ async def _show_publish_options(
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     if candidates:
-        text = f"*Готовые к публикации* ({len(candidates)}):\n\nВыбери пост для мгновенной публикации или введи вручную:"
+        counts = {}
+        for c in candidates:
+            counts[c["status"]] = counts.get(c["status"], 0) + 1
+        parts = []
+        if counts.get("scheduled"):
+            parts.append(f"📅 запланировано: {counts['scheduled']}")
+        if counts.get("ready"):
+            parts.append(f"📄 готово: {counts['ready']}")
+        if counts.get("draft"):
+            parts.append(f"✏️ черновик: {counts['draft']}")
+        text = f"*Посты для клуба* ({len(candidates)}):\n{', '.join(parts)}\n\nВыбери пост для публикации:"
     else:
         text = (
             "*Публикация в клуб*\n\n"
-            "Готовых постов в индексе нет.\n\n"
+            "Постов для клуба в индексе нет.\n\n"
             "Что можно сделать:\n"
             "• *Ввести вручную* — заголовок и текст прямо здесь\n"
-            "• Пометить пост в индексе: `status: ready`, `target: club`\n"
-            "• Опубликовать из расписания: /club → Расписание → 🚀"
+            "• Добавить пост в индекс с `target: club`"
         )
 
     # Заменяем loading-сообщение результатом, или шлём новое
@@ -1199,7 +1268,7 @@ async def on_publish_manual(callback: CallbackQuery, state: FSMContext):
 
 @discourse_router.callback_query(lambda c: c.data and c.data.startswith("club_smart_pub:"))
 async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
-    """Пользователь выбрал пост из индекса → опубликовать сейчас + перестроить график."""
+    """Пользователь выбрал пост → опубликовать сейчас. Работает для scheduled/ready/draft."""
     from clients.discourse import discourse
     from clients.github_content import create_content_client, strip_frontmatter, update_frontmatter_field
     from clients.github_oauth import github_oauth
@@ -1221,7 +1290,8 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         return
 
     post = ready_posts[idx]
-    account = await get_discourse_account(callback.from_user.id)
+    chat_id = callback.from_user.id
+    account = await get_discourse_account(chat_id)
     if not account:
         await callback.message.answer("Аккаунт клуба не привязан.")
         return
@@ -1232,9 +1302,49 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Блог не указан. /club → Отвязать → /club → Подключить")
         return
 
+    scheduled_id = post.get("scheduled_id")
+
+    # Scheduled-пост без source_file → публикуем raw из DB
+    if scheduled_id and not post.get("path"):
+        pub = await get_scheduled_publication(scheduled_id)
+        if not pub:
+            await callback.message.answer("Публикация не найдена или уже опубликована.")
+            return
+        # Делегируем существующему handler для scheduled-постов
+        try:
+            result = await discourse.create_topic(
+                category_id=pub["category_id"],
+                title=pub["title"],
+                raw=pub["raw"],
+                username=pub["discourse_username"],
+            )
+            topic_id = result.get("topic_id")
+            post_id_discourse = result.get("id")
+            slug = result.get("topic_slug", "")
+
+            await mark_publication_done(scheduled_id, topic_id)
+            await save_published_post(
+                chat_id=chat_id,
+                discourse_topic_id=topic_id,
+                discourse_post_id=post_id_discourse,
+                title=pub["title"],
+                category_id=pub["category_id"],
+                source_file=pub.get("source_file"),
+            )
+            url = f"https://systemsworld.club/t/{slug}/{topic_id}"
+            queue = await get_scheduled_count(chat_id)
+            await callback.message.answer(
+                f"✅ Опубликовано: «{pub['title']}»\n{url}\nВ очереди: {queue}",
+            )
+        except Exception as e:
+            logger.error(f"Smart publish (scheduled no-file) error: {e}")
+            await callback.message.answer(f"Ошибка публикации: {e}")
+        await state.clear()
+        return
+
     # Прочитать контент из GitHub (per-user OAuth)
-    token = await github_oauth.get_access_token(callback.from_user.id)
-    knowledge_repo = await github_oauth.get_knowledge_repo(callback.from_user.id)
+    token = await github_oauth.get_access_token(chat_id)
+    knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
     if not token or not knowledge_repo:
         await callback.message.answer("GitHub не настроен. Настройки → GitHub → Выбрать индекс знаний.")
         return
@@ -1271,14 +1381,19 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
             username=username,
         )
         topic_id = result.get("topic_id")
-        post_id = result.get("id")
+        post_id_discourse = result.get("id")
         slug = result.get("topic_slug", "")
+
+        # Если пост был scheduled → удалить из расписания ПОСЛЕ успешной публикации
+        if scheduled_id:
+            await cancel_scheduled_publication(scheduled_id)
+            logger.info(f"Cancelled scheduled publication {scheduled_id} after manual publish")
 
         # Сохранить в БД
         await save_published_post(
-            chat_id=callback.from_user.id,
+            chat_id=chat_id,
             discourse_topic_id=topic_id,
-            discourse_post_id=post_id,
+            discourse_post_id=post_id_discourse,
             title=post["title"],
             category_id=category_id,
             source_file=post["path"],
@@ -1296,10 +1411,12 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
         url = f"https://systemsworld.club/t/{slug}/{topic_id}"
 
-        # Перестроить график: сдвинуть scheduled posts
-        rebuild_msg = await _rebuild_schedule_after_manual(callback.from_user.id)
+        # Перестроить график: сдвинуть scheduled posts (только если не was-scheduled)
+        rebuild_msg = ""
+        if not scheduled_id:
+            rebuild_msg = await _rebuild_schedule_after_manual(chat_id)
 
-        queue = await get_scheduled_count(callback.from_user.id)
+        queue = await get_scheduled_count(chat_id)
         await callback.message.answer(
             f"✅ Опубликовано: «{post['title']}»\n"
             f"{url}\n"

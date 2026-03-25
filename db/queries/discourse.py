@@ -283,7 +283,7 @@ async def get_upcoming_schedule(chat_id: int, limit: int = 10) -> list[dict]:
     pool = await get_pool()
     rows = await pool.fetch(
         """
-        SELECT id, title, schedule_time, status
+        SELECT id, title, schedule_time, status, source_file
         FROM scheduled_publications
         WHERE chat_id = $1 AND status = 'pending'
         ORDER BY schedule_time
