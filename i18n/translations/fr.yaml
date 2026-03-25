@@ -25,7 +25,7 @@ welcome:
     t1_1: "❓ Pose une question au consultant — commence par ? → ?Qu'est-ce que la pensée systémique ?"
     t1_2: "📝 Sauvegarde une pensée en note — écris un point et le texte → .Idée intéressante"
     t1_3: "🧪 Passe le test de systématicité — le bot adapte le contenu pour toi → /test"
-    t2_0: "🧬 Connecte le Jumeau Numérique — le bot prendra en compte tes objectifs et intérêts → /twin"
+    t2_0: "🧬 Connecte le Jumeau Numérique — le bot prendra en compte tes objectifs et intérêts → /me"
     t2_1: "🧪 Repasse le test — vois tes progrès → /test"
     t2_2: "📊 Vois tes données et comment le bot te perçoit → /mydata"
     t3_0: "🚀 Connecte GitHub pour les plans et l'exocortex → /settings"
@@ -43,7 +43,7 @@ welcome:
 
 commands:
   learn: "/learn — obtenir un sujet"
-  progress: "/progress — mon progrès"
+  progress: "/me — à propos de moi (tableau de bord)"
   profile: "/profile — mon profil"
   mode: "/mode — sélectionner le mode"
   language: "/language — changer de langue"
@@ -327,7 +327,7 @@ progress:
   topics_at_level: "sujets à ce niveau"
   total_word: "total"
   weeks_completed: "Semaines terminées"
-  back_hint: "/progress — voir le progrès"
+  back_hint: "/me — voir le progrès"
 
 modes:
   select: "Sélectionner le mode"
@@ -606,10 +606,10 @@ marathon:
   answer_expected: "ta réponse à la question (≥20 caractères)"
   question_hint: "Pour poser une question à l'IA, commence ton message par ?"
   topic_skipped: "Sujet passé"
-  topic_skipped_message: "⏭ *Sujet passé :* {title}\n\n_Les sujets passés ne comptent pas pour le progrès._\n\n/learn — sujet suivant\n/progress — voir le progrès"
+  topic_skipped_message: "⏭ *Sujet passé :* {title}\n\n_Les sujets passés ne comptent pas pour le progrès._\n\n/learn — sujet suivant\n/me — voir le progrès"
   topic_default: "sujet"
   practice_skipped: "Tâche passée"
-  practice_skipped_message: "⏭ *Tâche passée :* {title}\n\n_Les tâches passées ne comptent pas pour le progrès._\n\n/learn — sujet suivant\n/progress — voir le progrès"
+  practice_skipped_message: "⏭ *Tâche passée :* {title}\n\n_Les tâches passées ne comptent pas pour le progrès._\n\n/learn — sujet suivant\n/me — voir le progrès"
   practice_default: "tâche"
   write_more_details: "Écris plus de détails (au moins 2-3 phrases)"
   write_wp_minimum: "Écris au moins le nom du produit de travail"

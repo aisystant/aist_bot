@@ -519,77 +519,167 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
         return None
 
 
+
+def _build_me_t2_dashboard(intern: dict, activity: dict, learning: dict) -> str:
+    """Dashboard для T2 (подписка, без ЦД): активность + обучение."""
+    name = (intern or {}).get('name', '') or 'Участник'
+    lines = [f"📋 *{name} — Мой прогресс*\n"]
+
+    # Activity
+    total = activity.get('total', 0) or 0
+    streak = activity.get('streak', 0) or 0
+    week = activity.get('days_active_this_week', 0) or 0
+    lines.append(f"📊 *Активность:* {week} дней на неделе  |  {total} всего")
+    if streak > 1:
+        lines.append(f"🔥 *Серия:* {streak} дней  |  Рекорд: {activity.get('longest_streak', 0) or 0}")
+
+    # Learning
+    lessons = learning.get('theory_answers', 0) or 0
+    tasks = learning.get('work_products', 0) or 0
+    digests = learning.get('digests', 0) or 0
+    fixations = learning.get('fixations', 0) or 0
+    if lessons or tasks or digests:
+        parts = []
+        if lessons:
+            parts.append(f"{lessons} уроков")
+        if digests:
+            parts.append(f"{digests} дайджестов")
+        if tasks:
+            parts.append(f"{tasks} заданий")
+        lines.append(f"\n📚 *Обучение:* {' | '.join(parts)}")
+
+    return '\n'.join(lines)
+
+
+def _build_me_keyboard(tier: int) -> InlineKeyboardMarkup:
+    """Inline-кнопки /me по тиру (WP-160 Ф1)."""
+    from core.tier_config import UITier
+
+    rows = []
+    # Подробнее + Мои данные — для всех тиров
+    row1 = [
+        InlineKeyboardButton(text="📊 Подробнее", callback_data="me_detailed"),
+        InlineKeyboardButton(text="🗑 Мои данные", callback_data="me_mydata"),
+    ]
+    rows.append(row1)
+
+    # AI-анализ + Профиль ЦД — только T3+
+    if tier >= UITier.T3_PERSONALIZATION:
+        row2 = [
+            InlineKeyboardButton(text="🔍 AI-анализ", callback_data="twin_insights"),
+            InlineKeyboardButton(text="👤 Профиль ЦД", callback_data="twin_profile"),
+        ]
+        rows.append(row2)
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @twin_router.message(Command("me"))
 async def cmd_me(message: Message):
-    """Команда /me — компактный дашборд ЦД (WP-135 Ф0)."""
+    """Команда /me — tier-aware дашборд (WP-160 Ф1)."""
     from db.queries.dt_sync import get_engagement_data
     from db.queries.identity import get_user_uuid
     from db.queries.events import log_event
+    from db.queries.activity import get_activity_stats
+    from db.queries.answers import get_weekly_marathon_stats
+    from db.queries.answers import get_weekly_feed_stats
+    from core.tier_detector import detect_ui_tier
+    from core.tier_config import UITier
 
     telegram_user_id = message.chat.id
     intern = await get_intern(telegram_user_id)
     lang = _lang(intern)
+    tier = await detect_ui_tier(telegram_user_id)
 
+    # T3+ path: полный ЦД-dashboard (как раньше)
     user_uuid = await get_user_uuid(telegram_user_id)
-    if not user_uuid:
-        await message.answer(
-            "⚠️ Данные ЦД недоступны. Используйте /twin для подключения."
-        )
-        return
+    if user_uuid and tier >= UITier.T3_PERSONALIZATION:
+        engagement = await get_engagement_data(str(user_uuid))
+        if not engagement:
+            engagement = await _fallback_engagement(telegram_user_id)
+        if engagement:
+            dashboard = _build_me_dashboard(engagement, intern, lang)
+            keyboard = _build_me_keyboard(tier)
+            try:
+                await message.answer(dashboard, parse_mode="Markdown", reply_markup=keyboard)
+            except Exception:
+                await message.answer(dashboard, reply_markup=keyboard)
+            # Audit trail
+            try:
+                derived = engagement.get('_derived') or {}
+                await log_event(
+                    user_id=telegram_user_id,
+                    event_type='dt_view_requested',
+                    payload={
+                        'source': 'bot', 'command': '/me',
+                        'snapshot': {
+                            'active_days': (engagement.get('2_4_time') or {}).get('active_days', 0),
+                            'events_7d': (engagement.get('2_4_time') or {}).get('events_last_7d', 0),
+                            'stage': (derived.get('3_4_qualification') or {}).get('stage'),
+                            'agency_index': (derived.get('3_10_integral') or {}).get('index'),
+                        },
+                    },
+                    source='bot',
+                )
+            except Exception as e:
+                logger.debug(f"[/me] Audit trail failed: {e}")
+            return
 
-    engagement = await get_engagement_data(str(user_uuid))
+    # T0-T2 path: базовый dashboard из user_state
+    activity = await get_activity_stats(telegram_user_id)
+    learning = await get_weekly_marathon_stats(telegram_user_id)
+    feed = await get_weekly_feed_stats(telegram_user_id)
 
-    # Fallback: если digital_twins пуста → читаем engagement view напрямую
-    if not engagement:
-        engagement = await _fallback_engagement(telegram_user_id)
+    # Merge feed stats into learning dict
+    learning['digests'] = feed.get('digests', 0) if feed else 0
+    learning['fixations'] = feed.get('fixations', 0) if feed else 0
 
-    if not engagement:
-        await message.answer(
-            "📊 Данных об активности пока нет. Начните с /learn или /feed."
-        )
-        return
+    name = (intern or {}).get('name', '') or 'Участник'
 
-    dashboard = _build_me_dashboard(engagement, intern, lang)
+    if tier >= UITier.T2_LEARNING:
+        # T2: активность + обучение
+        dashboard = _build_me_t2_dashboard(intern, activity, learning)
+    else:
+        # T0-T1: только активность
+        lines = [f"📋 *{name} — Мой прогресс*\n"]
+        total = activity.get('total', 0) or 0
+        streak = activity.get('streak', 0) or 0
+        week = activity.get('days_active_this_week', 0) or 0
+        lines.append(f"📊 *Активность:* {week} дней на неделе  |  {total} всего")
+        if streak > 1:
+            lines.append(f"🔥 *Серия:* {streak} дней  |  Рекорд: {activity.get('longest_streak', 0) or 0}")
+        if not total and not streak:
+            lines.append("\n💡 Начните с /learn или /feed, чтобы увидеть свой прогресс.")
+        dashboard = '\n'.join(lines)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="🔍 AI-анализ",
-                callback_data="twin_insights",
-            ),
-            InlineKeyboardButton(
-                text="👤 Профиль ЦД",
-                callback_data="twin_profile",
-            ),
-        ],
-    ])
-
+    keyboard = _build_me_keyboard(tier)
     try:
         await message.answer(dashboard, parse_mode="Markdown", reply_markup=keyboard)
     except Exception:
         await message.answer(dashboard, reply_markup=keyboard)
 
-    # Audit trail (WP-135)
+
+@twin_router.callback_query(F.data == "me_detailed")
+async def callback_me_detailed(callback: CallbackQuery):
+    """Drill-down: подробная статистика (redirect на /progress SM)."""
+    await callback.answer()
+    from handlers.progress import cmd_progress
     try:
-        account = engagement.get('2_1_account') or {}
-        derived = engagement.get('_derived') or {}
-        await log_event(
-            user_id=telegram_user_id,
-            event_type='dt_view_requested',
-            payload={
-                'source': 'bot',
-                'command': '/me',
-                'snapshot': {
-                    'active_days': (engagement.get('2_4_time') or {}).get('active_days', 0),
-                    'events_7d': (engagement.get('2_4_time') or {}).get('events_last_7d', 0),
-                    'stage': (derived.get('3_4_qualification') or {}).get('stage'),
-                    'agency_index': (derived.get('3_10_integral') or {}).get('index'),
-                },
-            },
-            source='bot',
-        )
-    except Exception as e:
-        logger.debug(f"[/me] Audit trail failed: {e}")
+        await callback.message.delete()
+    except Exception:
+        pass
+    await cmd_progress(callback.message, state=None)
+
+
+@twin_router.callback_query(F.data == "me_mydata")
+async def callback_me_mydata(callback: CallbackQuery):
+    """Drill-down: мои данные (redirect на /mydata SM)."""
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.message.answer("Используйте /mydata для просмотра и управления данными.")
 
 
 @twin_router.callback_query(F.data == "twin_profile")

@@ -124,8 +124,8 @@ welcome:
       ru: "🧪 Пройди тест систематичности — бот адаптирует контент под тебя → /test"
       en: "🧪 Take the systematicity test — bot adapts content for you → /test"
     t2_0:
-      ru: "🧬 Подключи Цифровой двойник — бот учтёт твои цели и интересы → /twin"
-      en: "🧬 Connect Digital Twin — bot considers your goals and interests → /twin"
+      ru: "🧬 Подключи Цифровой двойник — бот учтёт твои цели и интересы → /me"
+      en: "🧬 Connect Digital Twin — bot considers your goals and interests → /me"
     t2_1:
       ru: "🧪 Пройди тест повторно — посмотри свой прогресс → /test"
       en: "🧪 Retake the test — check your progress → /test"
@@ -169,8 +169,8 @@ commands:
     en: "/learn — get a topic"
 
   progress:
-    ru: "/progress — мой прогресс"
-    en: "/progress — my progress"
+    ru: "/me — обо мне (дашборд и данные)"
+    en: "/me — about me (dashboard & data)"
 
   profile:
     ru: "/profile — мой профиль"
@@ -1477,8 +1477,8 @@ progress:
     en: "not connected"
 
   back_hint:
-    ru: "/progress — посмотреть прогресс"
-    en: "/progress — view progress"
+    ru: "/me — посмотреть прогресс"
+    en: "/me — view progress"
 
 # -----------------------------------------------------------------------------
 # Режимы
@@ -2788,8 +2788,8 @@ marathon:
     en: "Topic skipped"
 
   topic_skipped_message:
-    ru: "⏭ *Тема пропущена:* {title}\n\n_Пропущенные темы не засчитываются в прогресс._\n\n/learn — следующая тема\n/progress — посмотреть прогресс"
-    en: "⏭ *Topic skipped:* {title}\n\n_Skipped topics don't count toward progress._\n\n/learn — next topic\n/progress — view progress"
+    ru: "⏭ *Тема пропущена:* {title}\n\n_Пропущенные темы не засчитываются в прогресс._\n\n/learn — следующая тема\n/me — посмотреть прогресс"
+    en: "⏭ *Topic skipped:* {title}\n\n_Skipped topics don't count toward progress._\n\n/learn — next topic\n/me — view progress"
 
   topic_default:
     ru: "тема"
@@ -2800,8 +2800,8 @@ marathon:
     en: "Task skipped"
 
   practice_skipped_message:
-    ru: "⏭ *Задание пропущено:* {title}\n\n_Пропущенные задания не засчитываются в прогресс._\n\n/learn — следующая тема\n/progress — посмотреть прогресс"
-    en: "⏭ *Task skipped:* {title}\n\n_Skipped tasks don't count toward progress._\n\n/learn — next topic\n/progress — view progress"
+    ru: "⏭ *Задание пропущено:* {title}\n\n_Пропущенные задания не засчитываются в прогресс._\n\n/learn — следующая тема\n/me — посмотреть прогресс"
+    en: "⏭ *Task skipped:* {title}\n\n_Skipped tasks don't count toward progress._\n\n/learn — next topic\n/me — view progress"
 
   practice_default:
     ru: "задание"

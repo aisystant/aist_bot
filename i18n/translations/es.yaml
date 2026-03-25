@@ -25,7 +25,7 @@ welcome:
     t1_1: "❓ Pregunta al consultor — empieza con ? → ?¿Qué es el pensamiento sistémico?"
     t1_2: "📝 Guarda una idea como nota — escribe un punto y el texto → .Idea interesante"
     t1_3: "🧪 Haz el test de sistematicidad — el bot adapta el contenido para ti → /test"
-    t2_0: "🧬 Conecta el Gemelo Digital — el bot tendrá en cuenta tus metas e intereses → /twin"
+    t2_0: "🧬 Conecta el Gemelo Digital — el bot tendrá en cuenta tus metas e intereses → /me"
     t2_1: "🧪 Repite el test — mira tu progreso → /test"
     t2_2: "📊 Mira tus datos y cómo te ve el bot → /mydata"
     t3_0: "🚀 Conecta GitHub para planes y exocórtex → /settings"
@@ -43,7 +43,7 @@ welcome:
 
 commands:
   learn: "/learn — obtener tema"
-  progress: "/progress — mi progreso"
+  progress: "/me — sobre mí (panel y datos)"
   profile: "/profile — mi perfil"
   mode: "/mode — seleccionar modo"
   language: "/language — cambiar idioma"
@@ -327,7 +327,7 @@ progress:
   topics_at_level: "temas en este nivel"
   total_word: "total"
   weeks_completed: "Semanas completadas"
-  back_hint: "/progress — ver progreso"
+  back_hint: "/me — ver progreso"
 
 modes:
   select: "Seleccionar modo"
@@ -606,10 +606,10 @@ marathon:
   answer_expected: "tu respuesta a la pregunta (≥20 caracteres)"
   question_hint: "Para hacer una pregunta a la IA, comienza tu mensaje con ?"
   topic_skipped: "Tema saltado"
-  topic_skipped_message: "⏭ *Tema saltado:* {title}\n\n_Los temas saltados no cuentan para el progreso._\n\n/learn — siguiente tema\n/progress — ver progreso"
+  topic_skipped_message: "⏭ *Tema saltado:* {title}\n\n_Los temas saltados no cuentan para el progreso._\n\n/learn — siguiente tema\n/me — ver progreso"
   topic_default: "tema"
   practice_skipped: "Tarea saltada"
-  practice_skipped_message: "⏭ *Tarea saltada:* {title}\n\n_Las tareas saltadas no cuentan para el progreso._\n\n/learn — siguiente tema\n/progress — ver progreso"
+  practice_skipped_message: "⏭ *Tarea saltada:* {title}\n\n_Las tareas saltadas no cuentan para el progreso._\n\n/learn — siguiente tema\n/me — ver progreso"
   practice_default: "tarea"
   write_more_details: "Escribe más detalles (al menos 2-3 oraciones)"
   write_wp_minimum: "Escribe al menos el nombre del producto de trabajo"

@@ -187,7 +187,7 @@ def _exec_get_bot_info() -> str:
         # Пропускаем секцию сценариев (громоздкий список команд)
         if line.strip().startswith('## Сценарии') or line.strip().startswith('## Scenarios'):
             skip = True
-            compact_parts.append("## Основные команды: /learn, /feed, /test, /progress, /mode, /settings, /profile, /help, ?вопрос, .заметка")
+            compact_parts.append("## Основные команды: /learn, /feed, /test, /me, /mode, /settings, /profile, /help, ?вопрос, .заметка")
             continue
         # Возобновляем после секции сценариев
         if skip and line.strip().startswith('## '):

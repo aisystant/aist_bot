@@ -120,16 +120,17 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T0:             ['link', 'schedule', 'about', 'features', 'test', 'contacts', 'help'],
-    UITier.T1:           ['schedule', 'buy', 'learn', 'features', 'about', 'feed_info', 'test', 'help'],
-    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'twin', 'train', 'features', 'test', 'about', 'settings', 'help'],
-    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'train', 'features', 'guide', 'progress', 'test', 'settings', 'help'],
-    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'twin', 'club', 'train', 'feed', 'features', 'progress', 'mode', 'settings', 'start', 'help'],
+    UITier.T0:             ['link', 'schedule', 'me', 'about', 'features', 'test', 'contacts', 'help'],
+    UITier.T1:           ['schedule', 'buy', 'learn', 'me', 'features', 'about', 'feed_info', 'test', 'help'],
+    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'test', 'about', 'settings', 'help'],
+    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'guide', 'test', 'settings', 'help'],
+    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'me', 'club', 'train', 'feed', 'features', 'mode', 'settings', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
 # Command descriptions per language (for setMyCommands)
 COMMAND_DESCRIPTIONS = {
+    'me':        {'ru': 'Обо мне — дашборд и данные',  'en': 'About me — dashboard & data', 'es': 'Sobre mí — panel y datos', 'fr': 'À propos de moi — tableau de bord', 'zh': '关于我 — 仪表板和数据'},
     'learn':     {'ru': 'Марафон — получить урок',     'en': 'Marathon — get a lesson',   'es': 'Maratón — obtener lección',  'fr': 'Marathon — obtenir une leçon', 'zh': '马拉松 — 获取课程'},
     'feed':      {'ru': 'Лента — получить дайджест',   'en': 'Feed — get a digest',       'es': 'Feed — obtener resumen',     'fr': 'Fil — obtenir un résumé',      'zh': '信息流 — 获取摘要'},
     'train':     {'ru': 'Тренировка принципов',         'en': 'Principles training',       'es': 'Entrenamiento de principios','fr': 'Entraînement des principes',   'zh': '原则训练'},
