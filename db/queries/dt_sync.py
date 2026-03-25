@@ -26,8 +26,9 @@ async def sync_engagement_to_dt() -> dict:
     """Синхронизировать engagement данные всех пользователей в digital_twins.
 
     Читает development.engagement + notification_engagement views,
-    маппит на 5 групп метамодели (2_collected), вычисляет 3_derived
-    (calculation engine v0.5), пишет в digital_twins.data JSONB.
+    маппит на 5 групп метамодели (2_collected), подтягивает существующие
+    2_6_coding/2_7_iwe из digital_twins (WP-174), вычисляет 3_derived
+    (calculation engine v0.6), пишет в digital_twins.data JSONB.
 
     Returns:
         {"synced": N, "skipped": N, "errors": N, "first_error": str|None}
@@ -150,7 +151,22 @@ async def sync_engagement_to_dt() -> dict:
                             "last_notification_at": _ts(notif['last_notification_at']),
                         }
 
-                    # ─── 3_derived (WP-151 Ф4: calculation engine) ───
+                    # ─── Merge existing 2_6/2_7 for builder path (WP-174) ───
+                    # collected_data has 2_1..2_5 from engagement views.
+                    # 2_6_coding and 2_7_iwe are written by dt-collect.sh
+                    # and already in digital_twins. Merge them so
+                    # calculate_derived() can use builder path thresholds.
+                    existing = await conn.fetchval(
+                        "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                        user_id,
+                    )
+                    if existing:
+                        existing_collected = json.loads(existing) if isinstance(existing, str) else existing
+                        for key in ('2_6_coding', '2_7_iwe'):
+                            if key in existing_collected and key not in collected_data:
+                                collected_data[key] = existing_collected[key]
+
+                    # ─── 3_derived (WP-151 Ф4, WP-174: calculation engine) ───
                     derived_data = calculate_derived(collected_data)
 
                     # Deep merge: 2_collected + 3_derived в одну операцию

@@ -1,13 +1,18 @@
 """
-Calculation Engine v0.5 — derived indicators из 2_collected (WP-151 Ф4).
+Calculation Engine v0.6 — derived indicators из 2_collected (WP-151 Ф4, WP-174).
 
-Вычисляет IND.3 (derived) из IND.2 (collected) данных бота.
-Без LMS/Club/BKT — только engagement + notification_log.
+Вычисляет IND.3 (derived) из IND.2 (collected) данных.
+Источники: engagement + notification_log + coding (WakaTime) + IWE (git/WP).
 
 Индикаторы:
   IND.3.1.02  slot_regularity        — доля активных дней (→ агентность)
   IND.3.4.01  student_stage           — ступень ученика (0-4, threshold rules)
   IND.3.10.1  integral_agency_index   — агрегированный индекс (0-100)
+
+v0.6 (WP-174): Builder Path — альтернативные пороги для Stage 2-4.
+  Пользователи с высокой coding/IWE-активностью (T3-T4) могут достичь
+  ступени через builder-метрики (2_6_coding, 2_7_iwe) вместо учебных.
+  АрхГейт: 62/70 ЭМОГССБ, принцип #5 Evolvability-first.
 
 Расширение: LMS/Club данные, BKT (Ф5), мемы (Ф1).
 Пороги: из метамодели DS-MCP/digital-twin-mcp/metamodel/3_derived/.
@@ -97,17 +102,29 @@ def calc_student_stage(collected: dict) -> dict:
     """Определить ступень ученика по threshold rules из метамодели.
 
     IND.3.4.01: categorical enum STG.Student.*.
-    MVP-версия (без LMS): использует engagement + notifications.
+    Два пути определения ступени (v0.6, WP-174):
+      - Учебный путь: engagement + training + marathon (v0.5)
+      - Builder путь: coding (WakaTime) + IWE (git, WP, sessions)
 
     Алгоритм: bottom-up проверка порогов. Каждая ступень требует
-    выполнения ВСЕХ условий. Наивысшая удовлетворённая ступень = результат.
+    выполнения ВСЕХ условий учебного ИЛИ builder пути.
+    Наивысшая удовлетворённая ступень = результат.
+
+    Builder-пороги обоснование (калибровка по DP.SC.020, DP.ASSIST.001):
+      Stage 2: «ежедневный слот ≥4 недель, есть система» →
+               coding ≥40h/мес + ≥15 активных дней + ≥4 дня/нед
+      Stage 3: «≥10 часов/неделю, 3+ месяцев» →
+               coding ≥80h/мес + ≥50 коммитов + ≥5.5 дней/нед
+      Stage 4: «сам инициирует развитие» →
+               coding ≥120h/мес + ≥100 коммитов + ≥3 завершённых РП
 
     Returns:
         {
             "stage": int (0-4),
             "stage_id": "STG.Student.Random",
             "stage_name_ru": "Случайный",
-            "evidence": {...},  # метрики, по которым определено
+            "path": "learner" | "builder",  # какой путь определил ступень
+            "evidence": {...},
         }
     """
     time_data = collected.get('2_4_time') or {}
@@ -116,7 +133,11 @@ def calc_student_stage(collected: dict) -> dict:
     practice = collected.get('2_3_practice') or {}
     notifications = collected.get('2_5_notifications') or {}
 
-    # Extract metrics
+    # ─── Builder path data (v0.6, WP-174) ───
+    coding = collected.get('2_6_coding') or {}
+    iwe = collected.get('2_7_iwe') or {}
+
+    # Extract learner metrics
     active_days = time_data.get('active_days', 0) or 0
     events_7d = time_data.get('events_last_7d', 0) or 0
     events_30d = time_data.get('events_last_30d', 0) or 0
@@ -125,6 +146,13 @@ def calc_student_stage(collected: dict) -> dict:
     feed_completed = courses.get('feed_completed_total', 0) or 0
     training_passed = practice.get('training_passed_total', 0) or 0
     notifications_30d = notifications.get('notifications_30d', 0) or 0
+
+    # Extract builder metrics
+    coding_seconds_30d = coding.get('coding_seconds_30d', 0) or 0
+    coding_hours_30d = coding_seconds_30d / 3600
+    coding_active_days = coding.get('coding_active_days_30d', 0) or 0
+    commits_30d = iwe.get('commits_30d', 0) or 0
+    wp_completed = iwe.get('wp_completed_total', 0) or 0
 
     # Slot regularity for stage determination
     regularity = calc_slot_regularity(collected)
@@ -140,38 +168,63 @@ def calc_student_stage(collected: dict) -> dict:
         "marathon_steps": marathon_steps,
         "training_passed": training_passed,
         "regularity": round(regularity, 3),
+        "coding_hours_30d": round(coding_hours_30d, 1),
+        "coding_active_days": coding_active_days,
+        "commits_30d": commits_30d,
+        "wp_completed": wp_completed,
     }
 
-    # Bottom-up: check highest stage first
+    # Bottom-up: check from lowest to highest stage
     stage = STAGE_RANDOM
+    path = "learner"
 
-    # Stage 1 (Practicing): ≥3 sessions, ≥2 events/7d, regularity ≥3 days/week
+    # Stage 1 (Practicing): ≥3 sessions, ≥2 events/7d, regularity ≥2 days/week
+    # Builder path не нужен — порог и так не требует training
     if sessions_total >= 3 and events_7d >= 2 and days_per_week >= 2:
         stage = STAGE_PRACTICING
 
-    # Stage 2 (Systematic): ≥10 sessions, ≥5 events/7d,
-    #   regularity ≥5 days/week, some training
-    if (sessions_total >= 10 and events_7d >= 5
-            and days_per_week >= 4 and training_passed >= 3):
+    # Stage 2 (Systematic):
+    #   Learner: ≥10 sessions, ≥5 events/7d, ≥4 days/week, training ≥3
+    #   Builder: coding ≥40h/мес, ≥15 coding days, ≥4 days/week
+    learner_s2 = (sessions_total >= 10 and events_7d >= 5
+                  and days_per_week >= 4 and training_passed >= 3)
+    builder_s2 = (coding_hours_30d >= 40 and coding_active_days >= 15
+                  and days_per_week >= 4)
+    if learner_s2 or builder_s2:
         stage = STAGE_SYSTEMATIC
+        if builder_s2 and not learner_s2:
+            path = "builder"
 
-    # Stage 3 (Disciplined): ≥30 sessions, ≥10 events/7d,
-    #   regularity ≥6 days/week, active learning
-    if (sessions_total >= 30 and events_7d >= 10
-            and days_per_week >= 5.5
-            and training_passed >= 10 and marathon_steps >= 5):
+    # Stage 3 (Disciplined):
+    #   Learner: ≥30 sessions, ≥10 events/7d, ≥5.5 days/week, training ≥10, marathon ≥5
+    #   Builder: coding ≥80h/мес, ≥50 commits/мес, ≥5.5 days/week
+    learner_s3 = (sessions_total >= 30 and events_7d >= 10
+                  and days_per_week >= 5.5
+                  and training_passed >= 10 and marathon_steps >= 5)
+    builder_s3 = (coding_hours_30d >= 80 and commits_30d >= 50
+                  and days_per_week >= 5.5)
+    if learner_s3 or builder_s3:
         stage = STAGE_DISCIPLINED
+        if builder_s3 and not learner_s3:
+            path = "builder"
 
-    # Stage 4 (Proactive): ≥50 sessions, regularity ≥6.7 days/week,
-    #   high engagement, community contribution (not measurable yet)
-    if (sessions_total >= 50 and days_per_week >= 6
-            and events_30d >= 60 and training_passed >= 20):
+    # Stage 4 (Proactive):
+    #   Learner: ≥50 sessions, ≥6 days/week, ≥60 events/30d, training ≥20
+    #   Builder: coding ≥120h/мес, ≥100 commits/мес, ≥3 completed WPs
+    learner_s4 = (sessions_total >= 50 and days_per_week >= 6
+                  and events_30d >= 60 and training_passed >= 20)
+    builder_s4 = (coding_hours_30d >= 120 and commits_30d >= 100
+                  and wp_completed >= 3)
+    if learner_s4 or builder_s4:
         stage = STAGE_PROACTIVE
+        if builder_s4 and not learner_s4:
+            path = "builder"
 
     return {
         "stage": stage,
         "stage_id": STAGE_NAMES[stage],
         "stage_name_ru": STAGE_NAMES_RU[stage],
+        "path": path,
         "evidence": evidence,
     }
 
@@ -265,16 +318,17 @@ def calculate_derived(collected: dict) -> dict:
     """Вычислить все derived-индикаторы из 2_collected данных.
 
     Args:
-        collected: digital_twins.data['2_collected'] (5+ групп)
+        collected: digital_twins.data['2_collected'] (5+ групп).
+            v0.6: включает 2_6_coding и 2_7_iwe для builder path.
 
     Returns:
         dict для записи в digital_twins.data['3_derived']:
         {
             "3_1_agency": {"slot_regularity": float, ...},
-            "3_4_qualification": {"stage": int, "stage_id": str, ...},
+            "3_4_qualification": {"stage": int, "stage_id": str, "path": str, ...},
             "3_10_integral": {"index": float, "components": {...}},
             "calculated_at": ISO timestamp,
-            "engine_version": "0.5",
+            "engine_version": "0.6",
         }
     """
     if not collected:
@@ -293,7 +347,7 @@ def calculate_derived(collected: dict) -> dict:
             "3_4_qualification": stage_result,
             "3_10_integral": agency_result,
             "calculated_at": datetime.now(timezone.utc).isoformat(),
-            "engine_version": "0.5",
+            "engine_version": "0.6",
         }
     except Exception as e:
         logger.error(f"[DT Calc] Error calculating derived: {e}")

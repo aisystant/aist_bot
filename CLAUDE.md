@@ -472,19 +472,21 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 **Dev-команда:** `/dt_sync` — ручной запуск sync (TD1 only).
 
-## 12c. Calculation Engine v0.5 (WP-151 Ф4)
+## 12c. Calculation Engine v0.6 (WP-151 Ф4, WP-174)
 
 **Файлы:** `db/queries/dt_calc.py` (модуль), `db/queries/dt_sync.py` (интеграция)
 
-**Принцип:** `2_collected` → `calculate_derived()` → `3_derived`. Чистые функции, без DB-вызовов. Вызываются в `sync_engagement_to_dt()` для каждого пользователя.
+**Принцип:** `2_collected` → `calculate_derived()` → `3_derived`. Чистые функции, без DB-вызовов. Вызываются в `sync_engagement_to_dt()` для каждого пользователя. `sync` подтягивает существующие `2_6_coding`/`2_7_iwe` из digital_twins перед расчётом.
 
 **3 derived-индикатора (MVP, без LMS/Club/BKT):**
 
 | Индикатор | Метамодель | Что вычисляет | Из каких данных |
 |-----------|-----------|---------------|-----------------|
 | `slot_regularity` | IND.3.1.02 | Доля активных дней (0.0–1.0) | `2_4_time.active_days`, `2_1_account.first_event_at` |
-| `student_stage` | IND.3.4.01 | Ступень ученика (0–4) | `2_1..2_5` (threshold rules, bottom-up) |
+| `student_stage` | IND.3.4.01 | Ступень ученика (0–4), два пути: learner/builder | `2_1..2_5` (learner) + `2_6_coding`, `2_7_iwe` (builder) |
 | `integral_agency_index` | IND.3.10.1 | Индекс агентности (0–100) | `2_1..2_5` (weighted: 30% regularity, 25% activity, 25% learning, 10% notif, 10% longevity) |
+
+**Builder Path (WP-174):** `student_stage` поддерживает два пути определения ступени через `or`-ветки. Builder-пороги: Stage 2 (coding ≥40h/мес, ≥15 coding days), Stage 3 (coding ≥80h/мес, ≥50 commits), Stage 4 (coding ≥120h/мес, ≥100 commits, ≥3 WP). Результат содержит `"path": "learner"|"builder"`.
 
 **Запись:** `3_derived` пишется в `digital_twins.data` рядом с `2_collected` через deep merge. Содержит `engine_version` и `calculated_at` для аудита.
 

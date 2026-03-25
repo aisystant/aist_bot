@@ -2,6 +2,7 @@
 Хендлеры интеграции с Digital Twin.
 """
 
+import json
 import logging
 
 from aiogram import Router, F
@@ -366,8 +367,10 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str) -> str:
     agency_index = integral.get('index', 0)
 
     if qualification:
+        path = qualification.get('path', 'learner')
+        path_label = " 🔧" if path == "builder" else ""
         lines.append(
-            f"{stage_emoji} *Ступень:* {STAGE_NAMES_RU.get(stage, '?')} ({stage}/4)"
+            f"{stage_emoji} *Ступень:* {STAGE_NAMES_RU.get(stage, '?')} ({stage}/4){path_label}"
             f"  |  🎯 *Агентность:* {agency_index}/100"
         )
     else:
@@ -488,6 +491,22 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                     "ai_chats_total": row['ai_chats_total'],
                 },
             }
+
+            # Merge existing 2_6/2_7 if available (WP-174 builder path)
+            user_uuid_row = await conn.fetchval(
+                "SELECT user_uuid FROM development.engagement WHERE user_id = $1",
+                chat_id,
+            )
+            if user_uuid_row:
+                existing = await conn.fetchval(
+                    "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                    str(user_uuid_row),
+                )
+                if existing:
+                    existing_c = json.loads(existing) if isinstance(existing, str) else existing
+                    for key in ('2_6_coding', '2_7_iwe'):
+                        if key in existing_c and key not in collected:
+                            collected[key] = existing_c[key]
 
             # Derive on-the-fly
             derived = calculate_derived(collected)
@@ -743,7 +762,8 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         data_summary += (
             f"\n[DERIVED INDICATORS (calculated by engine v{derived.get('engine_version', '?')})]\n"
             f"Student stage: {qualification.get('stage', '?')}/4 "
-            f"({qualification.get('stage_name_ru', 'N/A')})\n"
+            f"({qualification.get('stage_name_ru', 'N/A')}, "
+            f"path={qualification.get('path', 'learner')})\n"
             f"Agency index: {integral.get('index', 0)}/100 "
             f"(regularity={integral.get('components', {}).get('regularity', 0)}, "
             f"activity={integral.get('components', {}).get('activity', 0)}, "
