@@ -664,10 +664,6 @@ async def callback_me_detailed(callback: CallbackQuery):
     """Drill-down: подробная статистика (redirect на /progress SM)."""
     await callback.answer()
     from handlers.progress import cmd_progress
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
     await cmd_progress(callback.message, state=None)
 
 
@@ -675,11 +671,14 @@ async def callback_me_detailed(callback: CallbackQuery):
 async def callback_me_mydata(callback: CallbackQuery):
     """Drill-down: мои данные (redirect на /mydata SM)."""
     await callback.answer()
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-    await callback.message.answer("Используйте /mydata для просмотра и управления данными.")
+    from handlers import get_dispatcher
+    telegram_user_id = callback.from_user.id
+    intern = await get_intern(telegram_user_id)
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.route_command('mydata', intern)
+    else:
+        await callback.message.answer("Используйте /mydata для просмотра и управления данными.")
 
 
 @twin_router.callback_query(F.data == "twin_profile")
