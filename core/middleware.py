@@ -158,11 +158,20 @@ class TracingMiddleware(BaseMiddleware):
         state_ctx: FSMContext = data.get('state')
         sm_state = await state_ctx.get_state() if state_ctx else "unknown"
 
-        # Создаём trace
+        # Создаём trace (Neon DB)
         trace = start_trace(
             user_id=user_id,
             command=command,
             state=sm_state or "unknown",
+        )
+
+        # Langfuse trace (dual-write, graceful)
+        from core.langfuse_client import langfuse_trace, langfuse_end_trace
+        langfuse_trace(
+            user_id=user_id,
+            name=command,
+            trace_id=trace.trace_id,
+            metadata={"state": sm_state or "unknown"},
         )
 
         try:
@@ -173,6 +182,7 @@ class TracingMiddleware(BaseMiddleware):
                 await finish_trace(trace)
             except Exception as e:
                 logger.warning(f"[TracingMiddleware] Failed to finish trace: {e}")
+            langfuse_end_trace()
             # Session tracking (fire-and-forget, не блокирует запрос)
             if user_id:
                 try:

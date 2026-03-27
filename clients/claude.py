@@ -461,11 +461,26 @@ class ClaudeClient:
                     "messages": [{"role": "user", "content": user_prompt}]
                 }
 
-                return await self._api_call_streaming(
+                result = await self._api_call_streaming(
                     payload,
                     inactivity_timeout=inactivity_timeout,
                     allow_partial=allow_partial,
                 )
+
+                # Langfuse generation (graceful, fire-and-forget)
+                try:
+                    from core.langfuse_client import langfuse_generation
+                    langfuse_generation(
+                        name="generate",
+                        model=model,
+                        input={"system": system_prompt[:200], "user": user_prompt[:200]},
+                        output=result[:200] if result else None,
+                        metadata={"max_tokens": max_tokens, "allow_partial": allow_partial},
+                    )
+                except Exception:
+                    pass
+
+                return result
 
     async def generate_with_tools(
         self,

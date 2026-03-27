@@ -22,6 +22,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 
+# ============= LANGFUSE (L5 Observability, WP-179) =============
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+
 # ============= LINEAR OAUTH (тестовая интеграция) =============
 # Временный код для тестирования OAuth flow перед Digital Twin
 LINEAR_CLIENT_ID = os.getenv("LINEAR_CLIENT_ID")
