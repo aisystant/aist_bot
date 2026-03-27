@@ -171,6 +171,11 @@ async def on_bot_added_to_channel(update):
     if not added_by:
         return
 
+    # Мониторинг только для владельца (DEVELOPER_CHAT_ID)
+    dev_chat_id_str = os.getenv("DEVELOPER_CHAT_ID")
+    if dev_chat_id_str and added_by.id != int(dev_chat_id_str):
+        return
+
     # Найти пользователя бота, который добавил
     intern = await get_intern(added_by.id)
     if not intern or not await is_onboarded(intern):
@@ -242,8 +247,16 @@ async def _auto_discover_admins(channel_id: int, channel_title: str, bot: Bot):
               AND u.tg_username != ''
         ''')
 
+    # Auto-discovery только для владельца (DEVELOPER_CHAT_ID)
+    dev_chat_id_str = os.getenv("DEVELOPER_CHAT_ID")
+    dev_chat_id = int(dev_chat_id_str) if dev_chat_id_str else None
+
     registered = 0
     for user in users:
+        # Пропускать всех кроме владельца
+        if dev_chat_id and user['chat_id'] != dev_chat_id:
+            continue
+
         try:
             member = await bot.get_chat_member(channel_id, user['chat_id'])
             if isinstance(member, (ChatMemberAdministrator, ChatMemberOwner)):
@@ -292,8 +305,16 @@ async def _process_channel_message(message: Message, bot: Bot):
     if not matches:
         return
 
+    # Уведомления только владельцу (DEVELOPER_CHAT_ID), остальным — отключены
+    dev_chat_id_str = os.getenv("DEVELOPER_CHAT_ID")
+    dev_chat_id = int(dev_chat_id_str) if dev_chat_id_str else None
+
     # Обработать каждое упоминание
     for match in matches:
+        # Только владелец получает уведомления
+        if dev_chat_id and match.chat_id != dev_chat_id:
+            continue
+
         # Cooldown
         if not _is_cooled_down(channel_id, match.chat_id):
             continue
