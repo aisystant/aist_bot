@@ -1,13 +1,13 @@
 """
-Auto-triage для QA feedback (WP-7 F3).
+Auto-triage для QA feedback (WP-7 F3, WP-178 Feedback Loop).
 
 Вызывается при helpful=false или user_comment:
-1. LLM classify (Haiku) → category + severity + cluster
-2. INSERT feedback_triage
+1. LLM classify (Haiku) → category + severity + cluster + suggested_action + confidence
+2. INSERT feedback_triage (status: new → classified)
 3. IF severity >= high OR has_comment → TG alert
 
 Роль: R7 Триажёр техдолга (Grade 1 auto-classify).
-Source-of-truth: DP.ROLE.001 R7, PROCESSES.md §6.
+Source-of-truth: DP.ROLE.001 R7, PROCESSES.md §6, SC-19 (WP-74).
 """
 
 import asyncio
@@ -33,23 +33,38 @@ Feedback type: {feedback_type}
 
 Respond in JSON only:
 {{
-  "category": "L|C|U|K",
+  "category": "K|C|U|L|P|F",
   "severity": "low|medium|high|critical",
-  "cluster": "<short_label>",
-  "reason": "<one_sentence>"
+  "cluster": "<short_label_in_english>",
+  "reason": "<one_sentence>",
+  "confidence": <0.0-1.0>,
+  "suggested_action": "<action>"
 }}
 
 Categories:
-- L (Latency): slow response, timeout, loading
+- K (Knowledge): missing knowledge, bad explanation, wrong topic, incomplete answer
 - C (Correctness): wrong answer, bug, error, crash
-- U (Usability): confusing UX, missing feature, unclear flow
-- K (Knowledge): missing knowledge, bad explanation, wrong topic
+- U (Usability): confusing UX, unclear flow
+- L (Latency): slow response, timeout, loading
+- P (Process): process not working, workflow broken
+- F (Feature): missing feature, feature request
 
 Severity:
 - low: cosmetic or rare edge case
 - medium: affects understanding but workarounds exist
 - high: blocks user goal or repeats ≥3 times
-- critical: data loss, crash, or security issue"""
+- critical: data loss, crash, or security issue
+
+Confidence: how sure you are in the classification (0.0 = guessing, 1.0 = certain).
+
+Suggested action (pick one):
+- add_faq: add this topic to FAQ
+- update_content: update existing content/guide
+- fix_bug: fix a bug in the code
+- add_feature: add requested feature to backlog
+- improve_ux: improve user experience
+- infra_check: check infrastructure/performance
+- needs_review: unclear, needs human review"""
 
 
 async def _classify_with_haiku(
@@ -60,7 +75,7 @@ async def _classify_with_haiku(
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         logger.warning("[FeedbackTriage] No ANTHROPIC_API_KEY, using defaults")
-        return {"category": "unknown", "severity": "medium", "cluster": "unclassified", "reason": "No API key"}
+        return {"category": "unknown", "severity": "medium", "cluster": "unclassified", "reason": "No API key", "confidence": 0.0, "suggested_action": "needs_review"}
 
     prompt = _CLASSIFY_PROMPT.format(
         question=question[:200],
@@ -90,23 +105,34 @@ async def _classify_with_haiku(
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"[FeedbackTriage] Haiku API {resp.status}")
-                    return {"category": "unknown", "severity": "medium", "cluster": "api_error", "reason": f"HTTP {resp.status}"}
+                    return {"category": "unknown", "severity": "medium", "cluster": "api_error", "reason": f"HTTP {resp.status}", "confidence": 0.0, "suggested_action": "needs_review"}
                 data = await resp.json()
                 text = data["content"][0]["text"]
                 # Parse JSON from response (may have markdown fences)
                 text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
                 result = json.loads(text)
                 # Validate
-                valid_cats = {"L", "C", "U", "K"}
+                valid_cats = {"K", "C", "U", "L", "P", "F"}
                 valid_sevs = {"low", "medium", "high", "critical"}
+                valid_actions = {"add_faq", "update_content", "fix_bug", "add_feature",
+                                 "improve_ux", "infra_check", "needs_review"}
                 if result.get("category") not in valid_cats:
                     result["category"] = "unknown"
                 if result.get("severity") not in valid_sevs:
                     result["severity"] = "medium"
+                # Confidence: clamp to [0.0, 1.0]
+                try:
+                    conf = float(result.get("confidence", 0.5))
+                    result["confidence"] = max(0.0, min(1.0, conf))
+                except (ValueError, TypeError):
+                    result["confidence"] = 0.5
+                # Suggested action: validate or default
+                if result.get("suggested_action") not in valid_actions:
+                    result["suggested_action"] = "needs_review"
                 return result
     except Exception as e:
         logger.error(f"[FeedbackTriage] classify error: {e}")
-        return {"category": "unknown", "severity": "medium", "cluster": "classify_error", "reason": str(e)[:100]}
+        return {"category": "unknown", "severity": "medium", "cluster": "classify_error", "reason": str(e)[:100], "confidence": 0.0, "suggested_action": "needs_review"}
 
 
 async def _save_triage(
@@ -120,15 +146,20 @@ async def _save_triage(
                 INSERT INTO feedback_triage
                     (qa_id, chat_id, question, answer_snippet,
                      category, severity, cluster, reason,
-                     has_comment, user_comment)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                     has_comment, user_comment,
+                     status, suggested_action, confidence, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        'classified', $11, $12, 'bot')
                 ON CONFLICT (qa_id) DO UPDATE SET
                     category = EXCLUDED.category,
                     severity = EXCLUDED.severity,
                     cluster = EXCLUDED.cluster,
                     reason = EXCLUDED.reason,
                     has_comment = EXCLUDED.has_comment,
-                    user_comment = COALESCE(EXCLUDED.user_comment, feedback_triage.user_comment)
+                    user_comment = COALESCE(EXCLUDED.user_comment, feedback_triage.user_comment),
+                    status = 'classified',
+                    suggested_action = EXCLUDED.suggested_action,
+                    confidence = EXCLUDED.confidence
                 RETURNING id
             """,
                 qa_id, chat_id, question[:500], (answer_snippet or "")[:300],
@@ -137,6 +168,8 @@ async def _save_triage(
                 classification.get("cluster", ""),
                 classification.get("reason", ""),
                 has_comment, user_comment,
+                classification.get("suggested_action", "needs_review"),
+                classification.get("confidence", 0.5),
             )
             return row["id"] if row else None
         except Exception as e:
@@ -156,8 +189,11 @@ async def _send_alert(qa_id: int, chat_id: int, question: str,
     cat = classification.get("category", "?")
     cluster = classification.get("cluster", "")
     reason = classification.get("reason", "")
+    action = classification.get("suggested_action", "")
+    confidence = classification.get("confidence", 0.5)
 
     sev_emoji = {"critical": "\U0001f534", "high": "\U0001f7e0", "medium": "\U0001f7e1", "low": "\U0001f7e2"}.get(sev, "\u26aa")
+    conf_bar = "\u2588" * int(confidence * 5) + "\u2591" * (5 - int(confidence * 5))
 
     lines = [
         f"{sev_emoji} <b>Feedback Alert</b> [{sev.upper()}]",
@@ -168,6 +204,8 @@ async def _send_alert(qa_id: int, chat_id: int, question: str,
         lines.append(f"\u270f\ufe0f <b>Comment:</b> {html_mod.escape(user_comment[:200])}")
     if reason:
         lines.append(f"\U0001f4a1 {html_mod.escape(reason)}")
+    if action:
+        lines.append(f"\U0001f3af <b>Action:</b> {html_mod.escape(action)} [{conf_bar}]")
     lines.append(f"<code>qa_id={qa_id} chat={chat_id}</code>")
 
     text = "\n".join(lines)
