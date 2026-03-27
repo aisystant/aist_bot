@@ -407,6 +407,10 @@ async def main():
     await MCPClient.close_session()
     logger.info("🔒 HTTP sessions закрыты")
 
+    # Langfuse flush (WP-179 Ф3)
+    from core.langfuse_client import langfuse_flush
+    langfuse_flush()
+
     from core.error_handler import shutdown_error_handler
     await shutdown_error_handler()
 

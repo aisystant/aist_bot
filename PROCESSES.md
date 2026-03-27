@@ -18,6 +18,7 @@ updated: 2026-02-10
 | [SC.003](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.003-learning-and-development.md) | Обучение и развитие | S12 Q&A, S13 DZ-Check, S14 Content Pre-Gen, S15 Feed Delivery, S16 Marathon Step, S37 Bloom Eval |
 | [SC.005](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.005-content-publishing.md) | Публикация контента | S25 Daily Scan, S26 Scheduled Publish, S27 Manual Publish, S28 Comment Check |
 | [SC.007](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.007-triage-and-techdebt.md) | Триаж и техдолг | S29 Auto-Triage, S30 Triage Session |
+| SC-19 (WP-74) | Конвейер обратной связи | S29+ (расширение), Наблюдатель, FAQ-автор, Баг-трекер |
 | [SC.008](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.008-self-healing.md) | Самовосстановление | S31 L1 Unstick, S32 L2 Auto-Fix, S33 L3 Restart, S34 L4 Escalate |
 | [SC.012](../../PACK-digital-platform/pack/digital-platform/08-use-cases/DP.SC.012-onboarding.md) | Онбординг | S12 (первый вопрос), Onboarding flow |
 
@@ -136,44 +137,130 @@ updated: 2026-02-10
 
 ---
 
-## 6. Issue Triage (триаж замечаний → WP-7)
+## 6. Конвейер обратной связи (Feedback Loop → Content Improvement)
 
-> Тип: внутренний процесс (двухуровневый)
+> Тип: внутренний процесс (многоуровневый)
 > Владелец: R7 Триажёр техдолга (DP.ROLE.001)
+> Обещание: SC-19 (WP-74) — каждая жалоба учтена, классифицирована и доведена до изменения или осознанного отказа с объяснением
+> АрхГейт: 58/70 (WP-178)
+> Source-of-truth: WP-178 (DS-my-strategy/inbox/WP-178-feedback-loop-content-improvement.md)
 
-**Два уровня триажа:**
+### 6.1. Обзор конвейера
+
+```
+Точка контакта → Единый inbox → Классификация → Маршрутизация → Действие → Верификация
+     ↓               ↓              ↓               ↓              ↓            ↓
+  Бот 👎         feedback_       R7 Триажёр      K→FAQ/Pack     Агент или   Наблюдатель:
+  Клуб 💬        unified       (Haiku, авто)    C→WP-7 (баг)   человек     кластер ↓?
+  Ручной ввод                                   U/F→WP-5       вносит       Затык →
+                                                L→инфра         изменение    эскалация
+```
+
+### 6.2. Уровни обработки
 
 | Уровень | Кто | Grade | Когда | Что делает |
 |---------|-----|-------|-------|-----------|
-| **Auto-triage** | Bot process (`core/feedback_triage.py`) | 1 | При каждом helpful=false / ✏️ comment | LLM classify (Haiku) → DB + TG alert |
+| **Auto-triage** | Bot process (`core/feedback_triage.py`) | 1 | При каждом helpful=false / ✏️ comment | LLM classify (Haiku) → `feedback_unified` DB + TG alert |
+| **Наблюдатель** | Cron (`feedback-watchdog.sh`) | 2 | Ежедневно | Мониторинг кластеров, трендов, SLA → TG alert при затыке |
 | **Review** | Claude Code (сессия WP-7) | 3 | При открытии сессии техдолга | Читает предклассифицированный backlog → решения |
+| **FAQ-автор** | Cron (Ф1+) | 2 | Ежедневно (ночной) | Генерирует дополнения FAQ из кластеров → PR |
+| **Баг-трекер** | Cron (Ф1+) | 2 | При category=C | Формирует issue → WP-7 backlog |
 
-**Роли и исполнители:**
+### 6.3. Роли и исполнители
 
 | Роль | Кто | Что делает |
 |------|-----|-----------|
-| **Auto-triage (R7 Grade 1)** | Bot process (Haiku) | helpful=false → classify (L/C/U/K) → feedback_triage DB → TG alert if high |
-| **Поставщик отчёта** | Синхронизатор (bash) | unsatisfied-report.sh → unsatisfied-questions.md (weekly report) |
-| **Поставщик intake** | Синхронизатор (bash) | code-scan → captures.md |
-| **Поставщик intake** | Стратег (Note-Review) | маршрутизация заметок → fleeting-notes.md |
-| **Поставщик intake** | Пользователь (TG) | `.баг ...` → fleeting-notes.md |
-| **Review (R7 Grade 3)** | Claude Code (сессия WP-7) | feedback_triage DB + 2 файловых intake → решения |
-| **Исполнитель (R6)** | Claude Code (сессия WP-7) | пишет код, фиксит баги по одобренному scope |
+| **R7 Триажёр (Grade 1)** | Bot process (Haiku) | helpful=false → classify (K/C/U/L/P/F) + severity + cluster + confidence + suggested_action → `feedback_unified` DB → TG alert if high/critical |
+| **R30 Наблюдатель** | Cron (bash) | Ежедневно: кластеры >7 дней без уменьшения → TG alert тех. оператору. SLA compliance. Тренды |
+| **R31 Эскалатор** | Event (Наблюдатель) | При затыке/зацикливании/SLA-нарушении → TG alert с контекстом |
+| **R28 FAQ-автор** (Ф1+) | Cron (Sonnet) | Кластер category=K, ≥3 тикетов → генерирует FAQ дополнение → PR |
+| **R29 Баг-трекер** (Ф1+) | Cron (Haiku) | category=C → структурированный issue → WP-7 backlog |
+| **Поставщик отчёта** | Синхронизатор (bash) | `unsatisfied-report.sh` → отчёт (дельта, кластеры, urgent, lifecycle, SLA) |
+| **Поставщик intake** | Синхронизатор/Стратег/Пользователь | code-scan → captures.md, заметки → fleeting-notes.md, `.баг` → fleeting-notes.md |
+| **Review (R7 Grade 3)** | Claude Code (сессия WP-7) | feedback_unified DB + intake → решения |
+| **Исполнитель (R6)** | Claude Code / Разработчик | Код, фиксы по одобренному scope |
+| **Тех. оператор** | Человек | Мониторит дашборд, разбирает эскалации, переклассифицирует при низкой confidence |
+
+### 6.4. Lifecycle тикета
+
+```
+new → classified → routed → in_progress → resolved → confirmed
+                     ↓                        ↑          ↓
+                  wontfix                   reopen    (closed)
+                  deferred ──(дата)──→ routed
+```
+
+| Статус | Кто ставит | Когда |
+|--------|-----------|-------|
+| **new** | Bot (callbacks.py) | Пользователь нажал 👎 или ✏️ |
+| **classified** | R7 Триажёр (Haiku) | Автоклассификация завершена (<1 мин) |
+| **routed** | R7 Триажёр / Тех. оператор | confidence ≥ 0.7 → авто; < 0.7 → ручная маршрутизация |
+| **in_progress** | Агент (R28/R29) / Исполнитель | PR создан, issue открыт, работа начата |
+| **resolved** | Исполнитель / Тех. оператор | Изменение внесено (merge, fix, FAQ дополнен) |
+| **confirmed** | R30 Наблюдатель | Через 7 дней: кластер уменьшился, повторных жалоб нет |
+| **wontfix** | Тех. оператор | Осознанное решение не исправлять. **Обязательно:** resolution_note с объяснением |
+| **deferred** | Тех. оператор | Отложено с датой пересмотра. R30 напомнит |
+
+### 6.5. Категории (расширение L/C/U/K)
+
+| Код | Категория | Маршрут | Пример |
+|-----|-----------|---------|--------|
+| **K** | Knowledge (знание) | FAQ/Pack → R28 FAQ-автор | «Бот не знает про X» |
+| **C** | Correctness (баг) | WP-7 → R29 Баг-трекер | «Бот ответил неправильно» |
+| **U** | Usability (UX) | WP-5 backlog | «Непонятно как сделать X» |
+| **L** | Latency (скорость) | Инфраструктура | «Долго отвечает» |
+| **P** | Process (процесс) | PROCESSES.md | «Процесс X не работает» |
+| **F** | Feature (фича) | WP-5 backlog | «Хочу чтобы бот умел X» |
+
+### 6.6. SLA и эскалация
+
+| Условие | SLA | Эскалация |
+|---------|-----|-----------|
+| Любой тикет → classified | < 1 мин (авто) или < 24h (ручная) | — |
+| severity = 1 (критический) | Действие < 48h | Немедленный TG-алерт |
+| Тикет в routed > 14 дней | — | Автоэскалация → тех. оператор |
+| Кластер не уменьшается > 7 дней | — | R30 → R31: «⚠️ Затык» |
+| Тикет resolved → reopen > 2 раз | — | R30 → R31: «🔄 Зацикливание, переклассификация?» |
+
+### 6.7. Процесс сессии триажа (Review, Grade 3)
 
 **Вход:** Открытие сессии техдолга (WP-7)
 
 **Действие:**
-1. Прочитать `unsatisfied-questions.md` — структурированный отчёт (замечания, urgent, кластеры)
+1. Прочитать `unsatisfied-questions.md` — структурированный отчёт (замечания, urgent, кластеры, lifecycle, SLA)
 2. Прочитать 2 файловых intake: fleeting-notes.md, captures.md
 3. Прочитать текущий `WP-7-bot-tech-debt.md` backlog
-4. Review предклассифицированных замечаний (category/severity/cluster уже в DB)
+4. Review предклассифицированных тикетов (`feedback_unified` — category/severity/cluster/suggested_action)
 5. Оценить бюджет каждого (0.5h / 1h / 2h+)
 6. Предложить: что берём, что отложить, что отклонить
-7. Одобренные → WP-7 backlog, отработанные → `status='resolved'` в feedback_triage
+7. Одобренные → WP-7 backlog, отработанные → `status='resolved'` + `resolution_note` в feedback_unified
 
 **Выход:** Обновлённый WP-7 backlog + scope текущей сессии
 
 **Триггер:** «Открываем сессию техдолга» / «WP-7» / «Давай разберём замечания»
+
+### 6.8. Метрики (дашборд в unsatisfied-report)
+
+| Метрика | Формула | Цель |
+|---------|---------|------|
+| **MTTR** | avg(resolved_at - created_at) | ↓ снижать |
+| **Cluster trend** | cluster_size(t) vs cluster_size(t-7d) | ↓ снижать |
+| **Reopen rate** | reopened / resolved | < 10% |
+| **SLA compliance** | % тикетов в рамках SLA | > 95% |
+| **Auto-resolve rate** (Ф1+) | resolved_by_agent / total_resolved | ↑ повышать |
+| **Confidence accuracy** | agent_category == operator_category / total | ↑ повышать |
+
+### 6.9. Фазы развития
+
+| Фаза | Что | Статус |
+|------|-----|--------|
+| **Текущее** | Auto-triage (Haiku) + unsatisfied-report + Review (WP-7 сессия) | ✅ работает |
+| **Ф0.5** (W14) | Миграция → feedback_unified + lifecycle + suggested_action + Наблюдатель v0 | pending |
+| **Ф1** (W15) | R28 FAQ-автор + R29 Баг-трекер + self-learning промпт + метрики | pending |
+| **Ф2** (Q2) | Мультиканальный сбор (клуб, ручной ввод) + уведомление пользователя | pending |
+| **Ф3** (Q3) | Self-learning agents + Help-desk MVP | pending |
+
+> Детали фаз: WP-178 context file (DS-my-strategy/inbox/WP-178-feedback-loop-content-improvement.md)
 
 ---
 
@@ -253,4 +340,4 @@ digital_twins.data JSONB (INSERT ON CONFLICT → deep merge)
 
 ---
 
-*Последнее обновление: 2026-03-14*
+*Последнее обновление: 2026-03-27*
