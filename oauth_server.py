@@ -890,7 +890,12 @@ async def template_update_handler(request: web.Request) -> web.Response:
     commit_count = body.get('commit_count', 0)
 
     if not commit_count:
-        return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
+        return web.Response(text=json.dumps({"ok": True, "sent": 0, "reason": "no_commits"}), content_type="application/json")
+
+    # Не рассылаем, если changelog пустой или тривиальный (нет содержательных изменений)
+    if not changelog or not changelog.strip():
+        logger.info("[TemplateUpdate] Empty changelog with %d commits — skipping notification", commit_count)
+        return web.Response(text=json.dumps({"ok": True, "sent": 0, "reason": "empty_changelog"}), content_type="application/json")
 
     # LLM-переработка changelog в user-friendly release notes
     # Fallback: regex-очистка (прежнее поведение) при любой ошибке LLM
