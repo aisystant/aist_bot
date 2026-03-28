@@ -75,9 +75,13 @@ async def create_and_confirm_payment(
             """INSERT INTO workshop_payments
                    (telegram_id, aisystant_id, amount, source, payment_id, status, paid_at, created_at)
                VALUES ($1, $2, $3, $4, $5, 'success', NOW(), NOW())
+               ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL DO NOTHING
                RETURNING id""",
             telegram_id, aisystant_id, amount, source, payment_id,
         )
+    if row_id is None:
+        logger.info(f"[Workshop] duplicate payment_id={payment_id}, skipped")
+        return 0
     logger.info(f"[Workshop] payment created+confirmed: id={row_id}, tg={telegram_id}, source={source}")
     return row_id
 
@@ -172,15 +176,16 @@ async def get_community_stats(chat_id: int, *, days: int = 7) -> dict:
         )
         source_map = {r["source"]: r["cnt"] for r in source_rows}
 
-        # Новые за период
+        # Новые за период (DISTINCT ON — один ряд на участника)
         new_members = await conn.fetch(
-            """SELECT cm.telegram_id, cm.username, cm.first_name, cm.source, cm.joined_at,
+            """SELECT DISTINCT ON (cm.telegram_id)
+                      cm.telegram_id, cm.username, cm.first_name, cm.source, cm.joined_at,
                       wp.amount, wp.paid_at
                FROM community_members cm
                LEFT JOIN workshop_payments wp
                    ON cm.telegram_id = wp.telegram_id AND wp.status = 'success'
                WHERE cm.chat_id = $1 AND cm.joined_at >= $2
-               ORDER BY cm.joined_at DESC""",
+               ORDER BY cm.telegram_id, cm.joined_at DESC""",
             chat_id, since,
         )
 

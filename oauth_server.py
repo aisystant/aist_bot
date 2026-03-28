@@ -14,6 +14,7 @@ Endpoints:
 """
 
 import asyncio
+import os
 from aiohttp import web
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -869,6 +870,16 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
     Body: {"telegram_id": 123, "amount": 5000, "payment_id": "...", "purpose": "WORKSHOP"}
     """
     import json
+
+    # Аутентификация: секрет в заголовке (аналогично template_update_handler)
+    expected_secret = os.getenv("WORKSHOP_WEBHOOK_SECRET", "")
+    if expected_secret:
+        provided = request.headers.get("X-Webhook-Secret", "")
+        if provided != expected_secret:
+            logger.warning("[WorkshopWebhook] invalid secret")
+            return web.Response(text='{"ok":false,"error":"unauthorized"}',
+                                content_type="application/json", status=403)
+
     try:
         data = await request.json()
     except Exception:

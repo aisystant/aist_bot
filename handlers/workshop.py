@@ -42,8 +42,8 @@ workshop_router = Router(name="workshop")
 
 # ── Config ─────────────────────────────────────────────
 
-COMMUNITY_IWE_CHAT_ID = int(os.getenv("COMMUNITY_IWE_CHAT_ID", "-1003674048529"))
-MASTERSKAYA_CHAT_ID = int(os.getenv("MASTERSKAYA_CHAT_ID", "-1002707216106"))
+COMMUNITY_IWE_CHAT_ID = int(os.getenv("COMMUNITY_IWE_CHAT_ID", "0"))
+MASTERSKAYA_CHAT_ID = int(os.getenv("MASTERSKAYA_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
 SEMINAR_AMOUNT = 5000
 
@@ -186,7 +186,7 @@ async def callback_seminar_check(callback: CallbackQuery):
 
     await callback.answer()
     # Оплата найдена → отправить invite
-    await _send_invite_by_count(callback.message.bot, chat_id, count, lang, callback.message)
+    await _send_invite_by_count(callback.bot, chat_id, count, lang, callback.message)
 
 
 # ── Invite + Approve ───────────────────────────────────

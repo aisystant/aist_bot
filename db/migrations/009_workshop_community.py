@@ -57,6 +57,9 @@ async def migrate():
             CREATE INDEX idx_workshop_payments_status
                 ON workshop_payments (telegram_id, status)
                 WHERE status = 'success';
+            CREATE UNIQUE INDEX idx_workshop_payments_payment_id
+                ON workshop_payments (payment_id)
+                WHERE payment_id IS NOT NULL;
         """)
 
         # 2. community_members — логирование участников
