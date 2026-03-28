@@ -1093,7 +1093,7 @@ twin:
   time_budget_label: "时间预算"
   hours_per_week: "小时/周"
   btn_update_profile: "更新档案"
-  btn_degrees: "等级"
+  btn_degrees: "📐 资质"
   btn_disconnect: "断开连接"
   not_connected_alert: "Digital Twin未连接"
   already_disconnected: "Digital Twin已断开连接"

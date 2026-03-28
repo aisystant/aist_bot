@@ -1093,7 +1093,7 @@ twin:
   time_budget_label: "Presupuesto de tiempo"
   hours_per_week: "h/sem"
   btn_update_profile: "Actualizar perfil"
-  btn_degrees: "Grados"
+  btn_degrees: "📐 Cualificaciones"
   btn_disconnect: "Desconectar"
   not_connected_alert: "Digital Twin no conectado"
   already_disconnected: "Digital Twin ya desconectado"

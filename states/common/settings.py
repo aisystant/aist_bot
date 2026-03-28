@@ -128,7 +128,13 @@ class SettingsState(BaseState):
         total_days = intern.get('active_days_total', 0)
 
         # --- Собираем текст ---
+        # IWE Updates — для T2+ (подписка БР), показываем первой
+        from core.tier_detector import detect_ui_tier
+        tier = await detect_ui_tier(chat_id)
+        iwe_line = f"  {iwe_status} {t('settings.iwe_updates_label', lang)}\n" if tier >= 2 else ""
+
         connections_summary = (
+            f"{iwe_line}"
             f"  {aisystant_status} Aisystant\n"
             f"  {github_status} GitHub\n"
             f"  {twin_status} {t('settings.twin_label', lang)}\n"
@@ -136,12 +142,6 @@ class SettingsState(BaseState):
             f"  {waka_status} WakaTime\n"
             f"  {gcal_status} Календарь Google"
         )
-
-        # IWE Updates — для T2+ (подписка БР)
-        from core.tier_detector import detect_ui_tier
-        tier = await detect_ui_tier(chat_id)
-        if tier >= 2:  # T2_LEARNING
-            connections_summary += f"\n  {iwe_status} {t('settings.iwe_updates_label', lang)}"
 
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
@@ -501,7 +501,8 @@ class SettingsState(BaseState):
 
         text = (
             f"⚠️ *{t('modes.reset_marathon_title', lang)}*\n\n"
-            f"{t('modes.reset_marathon_warning', lang, completed=completed)}"
+            f"{t('modes.reset_marathon_warning', lang, completed=completed)}\n\n"
+            f"_{t('settings.reset_vs_mydata_hint', lang)}_"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -556,7 +557,8 @@ class SettingsState(BaseState):
         text = (
             f"⚠️ *{t('progress.stats_reset_title', lang)}*\n\n"
             f"{t('progress.stats_reset_warning', lang)}\n\n"
-            f"_{t('progress.stats_reset_kept', lang)}_"
+            f"_{t('progress.stats_reset_kept', lang)}_\n\n"
+            f"_{t('settings.reset_vs_mydata_hint', lang)}_"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

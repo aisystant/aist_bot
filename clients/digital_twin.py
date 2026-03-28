@@ -60,7 +60,7 @@ class DigitalTwinClient:
     MAX_RETRIES = 1
 
     # Circuit breaker (per-user)
-    FAILURE_THRESHOLD = 3
+    FAILURE_THRESHOLD = 5
     RECOVERY_TIME = 120
 
     _circuit_state: Dict[int, Dict[str, Any]] = {}  # per-user, keyed by telegram_user_id
@@ -246,17 +246,26 @@ class DigitalTwinClient:
             return token_data.get("access_token")
         return None
 
+    # Refresh tokens expire after 30 days (Ory default)
+    REFRESH_TOKEN_TTL = 30 * 24 * 3600
+
     def is_connected(self, telegram_user_id: int) -> bool:
         """Проверяет, авторизован ли пользователь в Digital Twin.
 
         Учитывает наличие refresh_token (access может быть просрочен —
         refresh восстановит его автоматически при следующем запросе).
+        Также проверяет, не протух ли refresh_token по TTL.
         """
         token_data = self._tokens.get(telegram_user_id)
         if not token_data:
             return False
-        # Есть refresh_token = можно восстановить соединение
-        return bool(token_data.get("refresh_token"))
+        if not token_data.get("refresh_token"):
+            return False
+        # Refresh token TTL check
+        created_at = token_data.get("created_at", 0)
+        if created_at and time.time() - created_at > self.REFRESH_TOKEN_TTL:
+            return False
+        return True
 
     def disconnect(self, telegram_user_id: int):
         """Отключает пользователя от Digital Twin."""

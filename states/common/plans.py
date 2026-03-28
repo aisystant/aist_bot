@@ -56,7 +56,6 @@ class PlansState(BaseState):
 
     def _format_content(self, content: str, repo_url: str = None, branch: str = "main") -> str:
         text = format_strategy_content(content)
-        text = self._truncate(text)
         if repo_url:
             text += f'\n\n<a href="{repo_url}/tree/{branch}/current">Открыть в GitHub</a>'
         return text
@@ -217,5 +216,10 @@ class PlansState(BaseState):
         branch = await github_strategy.get_strategy_branch(chat_id)
         text = self._format_content(content, repo_url, branch)
 
-        await self.send(user, text, parse_mode="HTML", reply_markup=keyboard)
+        # Day Plan может быть >4096 символов — разбиваем на части (§10.21)
+        from helpers.message_split import prepare_html_parts
+        parts = prepare_html_parts(text)
+        for i, part in enumerate(parts):
+            rm = keyboard if i == len(parts) - 1 else None
+            await self.send(user, part, parse_mode="HTML", reply_markup=rm)
         return None

@@ -1179,6 +1179,38 @@ async def _show_publish_options(
     message: Message, state: FSMContext, chat_id: int, loading_msg: Message | None = None,
 ):
     """Показать все club-посты (scheduled/ready/draft) как кнопки + вариант ручного ввода."""
+    # U7: Проверить GitHub-подключение ДО сканирования постов
+    from clients.github_oauth import github_oauth
+    gh_token = await github_oauth.get_access_token(chat_id)
+    knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
+
+    if not gh_token or not knowledge_repo:
+        hint = "*Публикация в клуб*\n\n"
+        if not gh_token:
+            hint += "GitHub не подключён.\n"
+        elif not knowledge_repo:
+            hint += "Индекс знаний не выбран.\n"
+        hint += "\nНастройте: ⚙️ Настройки → GitHub → Подключить"
+        if not knowledge_repo and gh_token:
+            hint += " и выбрать индекс знаний"
+        hint += ".\n\nИли введите пост вручную:"
+        buttons = [
+            [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="club_publish_manual")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="club_main")],
+        ]
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        if loading_msg:
+            try:
+                await loading_msg.edit_text(hint, parse_mode="Markdown", reply_markup=keyboard)
+                return
+            except Exception:
+                try:
+                    await loading_msg.delete()
+                except Exception:
+                    pass
+        await message.answer(hint, parse_mode="Markdown", reply_markup=keyboard)
+        return
+
     candidates = await _scan_all_club_posts(chat_id)
 
     buttons = []

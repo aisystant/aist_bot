@@ -1055,6 +1055,10 @@ settings:
     ru: "Статистика: {total} дн., серия {streak}"
     en: "Stats: {total} days, streak {streak}"
 
+  reset_vs_mydata_hint:
+    ru: "Это сбросит прогресс, не данные. Просмотр и удаление данных — /mydata"
+    en: "This resets progress, not data. To view or delete data — /mydata"
+
   language:
     title:
       ru: "Выбери язык:"
@@ -5329,8 +5333,8 @@ guide:
     en: "🔄 Update profile"
 
   btn_degrees:
-    ru: "📐 Ступени развития"
-    en: "📐 Development stages"
+    ru: "📐 Квалификации"
+    en: "📐 Qualifications"
 
   btn_settings:
     ru: "⚙️ Настройки Гида"
