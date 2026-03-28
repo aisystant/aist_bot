@@ -309,7 +309,7 @@ async def main():
                 allowed_updates=[
                     "message", "callback_query", "inline_query",
                     "channel_post", "my_chat_member",
-                    "chat_member", "edited_message",
+                    "chat_member", "chat_join_request", "edited_message",
                 ],
             )
             # Verify webhook is reachable (getWebhookInfo diagnostic)
@@ -352,7 +352,7 @@ async def main():
                         allowed_updates=[
                             "message", "callback_query", "inline_query",
                             "channel_post", "my_chat_member",
-                            "chat_member", "edited_message",
+                            "chat_member", "chat_join_request", "edited_message",
                         ],
                     )
                     logger.info("✅ Webhook re-registered (post-deploy safety)")

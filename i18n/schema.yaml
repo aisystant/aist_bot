@@ -5278,6 +5278,10 @@ schedule:
     ru: "Мастерская Церена"
     en: "Tseren's Workshop"
 
+  menu_seminar_iwe:
+    ru: "Семинар IWE"
+    en: "IWE Seminar"
+
   menu_subscription:
     ru: "Подписка БР"
     en: "ID Subscription"
@@ -5800,3 +5804,67 @@ channels:
   copy_draft_btn:
     ru: "Скопировать черновик"
     en: "Copy draft"
+
+# ═══════════════════════════════════════════════════════════
+# WP-181: Сообщество IWE — допуск через оплату семинара
+# ═══════════════════════════════════════════════════════════
+workshop:
+  seminar_count0:
+    ru: "🎓 *Семинар «IWE для практиков»*\n\nИнтеллектуальная рабочая среда — операционная система для тех, кто хочет системно работать и развиваться.\n\nВы получите:\n— Запись семинара (навсегда)\n— Доступ в Сообщество IWE (чат практиков)\n\nЦена: 5000₽"
+    en: "🎓 *IWE for Practitioners Seminar*\n\nIntellectual Work Environment — an operating system for those who want to work and develop systematically.\n\nYou will get:\n— Seminar recording (forever)\n— Access to IWE Community (practitioners chat)\n\nPrice: 5000₽"
+
+  seminar_count1:
+    ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ У вас есть доступ в Сообщество IWE\n\nСледующий шаг — Мастерская Церена: еженедельные разборы рабочих продуктов.\nПовторная оплата семинара (5000₽) откроет доступ в Мастерскую."
+    en: "🎓 *IWE for Practitioners Seminar*\n\n✅ You have access to the IWE Community\n\nNext step — Tseren's Workshop: weekly work product reviews.\nAnother seminar payment (5000₽) will unlock access to the Workshop."
+
+  seminar_count2:
+    ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ Сообщество IWE\n✅ Мастерская Церена\n\nУ вас есть доступ ко всем чатам. Спасибо!"
+    en: "🎓 *IWE for Practitioners Seminar*\n\n✅ IWE Community\n✅ Tseren's Workshop\n\nYou have access to all chats. Thank you!"
+
+  btn_pay:
+    ru: "💳 Оплатить 5000₽"
+    en: "💳 Pay 5000₽"
+
+  btn_pay_link:
+    ru: "💳 Перейти к оплате"
+    en: "💳 Proceed to payment"
+
+  btn_paid_check:
+    ru: "✅ Я оплатил — проверить"
+    en: "✅ I paid — check"
+
+  btn_link_account:
+    ru: "🔗 Привязать аккаунт Aisystant"
+    en: "🔗 Link Aisystant account"
+
+  pay_redirect:
+    ru: "Перейдите по ссылке для оплаты. После оплаты нажмите «Проверить»."
+    en: "Follow the link to pay. After payment, click 'Check'."
+
+  pay_need_account:
+    ru: "Для оплаты через бота нужен аккаунт Aisystant.\n\nПривяжите аккаунт или оплатите через витрину: events.system-school.ru"
+    en: "Aisystant account is required for in-bot payment.\n\nLink your account or pay via storefront: events.system-school.ru"
+
+  pay_error:
+    ru: "Ошибка при создании платежа. Попробуйте позже."
+    en: "Payment creation error. Please try again later."
+
+  check_not_yet:
+    ru: "Оплата ещё не найдена. Подождите пару минут и попробуйте снова."
+    en: "Payment not found yet. Wait a couple of minutes and try again."
+
+  post_payment_count1:
+    ru: "Спасибо за оплату!\n\n🎬 Запись семинара: {video_url}\n👥 Ваша ссылка в Сообщество IWE: {invite_url}\n\nНажмите на ссылку — заявка будет одобрена автоматически."
+    en: "Thank you for your payment!\n\n🎬 Seminar recording: {video_url}\n👥 Your IWE Community link: {invite_url}\n\nClick the link — your request will be approved automatically."
+
+  post_payment_count2:
+    ru: "Спасибо! Вам открыт доступ в Мастерскую Церена.\n\n🔧 Ваша ссылка в Мастерскую: {invite_url}"
+    en: "Thank you! You now have access to Tseren's Workshop.\n\n🔧 Your Workshop link: {invite_url}"
+
+  post_payment_count3:
+    ru: "Спасибо за поддержку! У вас уже есть доступ ко всем чатам."
+    en: "Thank you for your support! You already have access to all chats."
+
+  invite_error:
+    ru: "Не удалось создать ссылку-приглашение. Обратитесь к администратору."
+    en: "Failed to create invite link. Please contact the administrator."

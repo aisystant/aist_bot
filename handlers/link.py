@@ -62,6 +62,8 @@ async def cmd_link(message: Message):
 
     if aisystant_id:
         await save_aisystant_link(chat_id, aisystant_id)
+        # Склейка оплат семинара (WP-181)
+        await _migrate_workshop_payments(chat_id, aisystant_id)
         await message.answer(t('link.found_auto', lang))
         # Обновляем тир и клавиатуру
         await _refresh_tier_keyboard(message, chat_id, lang)
@@ -108,12 +110,23 @@ async def callback_link_check(callback: CallbackQuery):
 
     if aisystant_id:
         await save_aisystant_link(chat_id, aisystant_id)
+        # Склейка оплат семинара (WP-181)
+        await _migrate_workshop_payments(chat_id, aisystant_id)
         await callback.answer(t('link.check_success', lang), show_alert=True)
         await callback.message.edit_text(t('link.check_success', lang))
         # Обновляем тир и клавиатуру
         await _refresh_tier_keyboard(callback.message, chat_id, lang)
     else:
         await callback.answer(t('link.check_not_yet', lang), show_alert=True)
+
+
+async def _migrate_workshop_payments(chat_id: int, aisystant_id: str):
+    """При склейке — привязать оплаты семинара к aisystant_id (WP-181)."""
+    try:
+        from db.queries.workshop import migrate_payments_to_aisystant
+        await migrate_payments_to_aisystant(chat_id, aisystant_id)
+    except Exception as e:
+        logger.error(f"[Link] workshop payment migration error: {e}")
 
 
 async def _refresh_tier_keyboard(message, chat_id: int, lang: str):
