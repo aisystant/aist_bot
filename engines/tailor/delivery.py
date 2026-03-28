@@ -97,9 +97,11 @@ async def deliver_tailor_lesson(chat_id: int, bot: Bot, force: bool = False):
             event_type='tailor_lesson_sent',
             payload={
                 'date': today_str,
-                'topic_id': lesson.get('topic_id', ''),
-                'bloom_depth': lesson.get('bloom_depth', 1),
-                'direction': lesson.get('direction', 1),
+                'element_id': lesson.get('element_id', ''),
+                'element_type': lesson.get('element_type', ''),
+                'area': lesson.get('area', 1),
+                'impact_type': lesson.get('impact_type', ''),
+                'depth': lesson.get('depth', 1),
             },
             source='bot',
         )
@@ -138,17 +140,17 @@ async def _assemble_and_generate(
     # Получить историю из learning_history (если есть)
     learning_history = await _get_learning_history(chat_id)
 
-    # Определить вчерашнее направление
-    last_direction = None
+    # Определить вчерашнюю область
+    last_area = None
     if learning_history:
-        last_direction = learning_history[-1].get('direction')
+        last_area = learning_history[-1].get('area')
 
-    # ─── Шаги 1-7 SOP.001 ───
+    # ─── Шаги 1-7 SOP.001 v3 ───
     tailor = TailorEngine()
     lesson = tailor.assemble(
         user_profile=user_profile,
         learning_history=learning_history,
-        last_direction=last_direction,
+        last_area=last_area,
     )
     if not lesson:
         logger.warning(f"[Tailor] assemble returned None for {chat_id}")

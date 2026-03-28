@@ -41,16 +41,25 @@ async def evaluate_answer(
     except ImportError:
         model = model or 'claude-haiku-4-5-20251001'
 
-    can_do = lesson.get('can_do', [])
-    topic_name = lesson.get('topic_name', '')
-    bloom_level = lesson.get('bloom_level', 'Remember')
-    question = lesson.get('assessment', {}).get('transfer_test', '')
+    content = lesson.get('content', {})
+    impact_type = lesson.get('impact_type', 'worldview')
+    area_name = lesson.get('area_name', '')
+    element_id = lesson.get('element_id', '')
+
+    if impact_type == 'worldview':
+        can_do = [f"Осознать мем «{content.get('meme_unproductive', '')}» и начать компиляцию антитезиса"]
+        topic_name = f"Мировоззрение: {area_name}"
+        question = content.get('diagnostic', '')
+    else:
+        can_do = [content.get('can_do', '')]
+        topic_name = f"Мастерство: {content.get('practice_name', area_name)}"
+        question = content.get('assessment', '')
 
     prompt = _build_eval_prompt(
         answer_text=answer_text,
         can_do=can_do,
         topic_name=topic_name,
-        bloom_level=bloom_level,
+        bloom_level=impact_type,
         question=question,
     )
 

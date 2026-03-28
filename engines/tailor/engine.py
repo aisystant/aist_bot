@@ -1,16 +1,17 @@
 """
-TailorEngine — сборка персонального занятия (WP-149, MIM.SOP.001).
+TailorEngine — сборка персонального занятия (WP-149, MIM.SOP.001 v3).
 
 7 шагов SOP.001:
   1. Прочитать профиль и состояние → context
   2. Определить фазу программы
-  3. Выбрать направление (weighted random + коррекция)
-  4. Выбрать тему и глубину (bottleneck-first)
-  5. Собрать контент (ячейка или fallback)
+  3. Выбрать область (5 областей) и тип воздействия (worldview/mastery)
+  4. Выбрать элемент из каталога (bottleneck-first)
+  5. Собрать контент (ячейка, мем или практика)
   6. Адаптировать (домен, стиль, ошибки, ИТ-уровень)
   7. Упаковать (structured JSON)
 
-MVP (Ф1): упрощённый — без полного ЦД, без Оркестратора.
+Архитектура: 2 объекта (Мировоззрение + Мастерство) × 5 областей (FORM.081).
+Портной работает от GAP, не от порядка модулей.
 """
 
 import logging
@@ -18,58 +19,76 @@ import random
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from .cells import (
-    DIRECTION_TOPICS,
-    F1_TOPICS,
-    TOPIC_DIRECTIONS,
-    get_available_depths,
-    get_direction_for_topic,
-    get_topic_name,
-    load_cell,
+from .catalogs import (
+    get_memes_for_area,
+    get_practices_for_area,
 )
 
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════
-# Матрица весов: фаза × направление (из MIM.SOP.001)
+# 5 областей (PD.FORM.081)
+# ═══════════════════════════════════════════════════════════
+AREA_NAMES = {
+    1: 'Знания',
+    2: 'Инструменты',
+    3: 'Ограничения',
+    4: 'Окружение',
+    5: 'Организм',
+}
+
+# ═══════════════════════════════════════════════════════════
+# Матрица весов: фаза × область (из SOP.001 v3)
 # ═══════════════════════════════════════════════════════════
 PHASE_WEIGHTS = {
-    1: {1: 1.5, 2: 1.0, 3: 0.8, 4: 0.5, 5: 0.7, 6: 1.0},
-    2: {1: 1.0, 2: 1.0, 3: 0.8, 4: 1.0, 5: 0.8, 6: 1.2},
-    3: {1: 0.5, 2: 1.0, 3: 0.8, 4: 1.5, 5: 0.5, 6: 1.6},
-    4: {1: 0.5, 2: 1.0, 3: 0.5, 4: 2.0, 5: 0.5, 6: 1.8},
+    1: {1: 1.5, 2: 0.5, 3: 0.8, 4: 0.7, 5: 1.0},   # Ф1 Основания
+    2: {1: 1.0, 2: 1.0, 3: 0.8, 4: 0.8, 5: 1.0},   # Ф2 Различения
+    3: {1: 0.8, 2: 1.5, 3: 0.8, 4: 0.5, 5: 1.4},   # Ф3 Создание
+    4: {1: 0.8, 2: 1.8, 3: 0.5, 4: 0.8, 5: 1.4},   # Ф4 Автономия
 }
 
 # Корректировка по состоянию (SOP.001 Шаг 3)
 STATE_ADJUSTMENTS = {
-    'chaos':    {6: 2.0, 2: 0.5},
-    'stuck':    {3: 1.5, 1: 1.5},
-    'turn':     {},
-    'development': {4: 1.5},
+    'chaos':       {5: 2.0, 1: 0.5},     # Организм ↑, Знания ↓
+    'stuck':       {3: 1.5, 1: 1.5},     # Ограничения ↑, Знания ↑
+    'turn':        {},
+    'development': {2: 1.5},              # Инструменты ↑
 }
 
 # Ступень → Фаза (SOP.001 Шаг 2)
 STAGE_TO_PHASE = {0: 1, 1: 1, 2: 2, 3: 3, 4: 4}
 
+# Соотношение worldview/mastery по ступени (SOP.001 Шаг 3.8)
+WORLDVIEW_RATIO = {
+    0: 0.80,  # 80% worldview, 20% mastery
+    1: 0.80,
+    2: 0.50,  # 50/50
+    3: 0.50,
+    4: 0.20,  # 20% worldview, 80% mastery
+}
+
 
 class TailorEngine:
-    """Собирает персональное занятие из ячеек контента."""
+    """Собирает персональное занятие из каталогов и ячеек (SOP.001 v3)."""
 
     def assemble(
         self,
         user_profile: dict,
         learning_history: Optional[List[dict]] = None,
-        last_direction: Optional[int] = None,
+        last_area: Optional[int] = None,
+        gap_report: Optional[Dict[int, dict]] = None,
     ) -> Optional[dict]:
         """Собрать одно персональное занятие (7 шагов SOP.001).
 
         Args:
-            user_profile: профиль из public.users или ЦД
+            user_profile: профиль из ЦД
                 {name, occupation, goals, interests, assessment_state,
                  student_stage, it_level, energy}
             learning_history: история прохождения
-                [{topic_id, bloom_level, passed, direction, errors, ...}]
-            last_direction: направление вчерашнего занятия (для ротации)
+                [{element_id, element_type, passed, area, impact_type, ...}]
+            last_area: область вчерашнего занятия (для ротации)
+            gap_report: GAP-отчёт от Диагноста (MCP tool), если есть
+                {area_id: {worldview_gap: float, mastery_gap: float}}
 
         Returns:
             Structured lesson dict или None при ошибке.
@@ -86,51 +105,57 @@ class TailorEngine:
         # ─── Шаг 2: Фаза ───
         phase = self._determine_phase(ctx['student_stage'])
 
-        # ─── Шаг 3: Направление ───
-        direction = self._choose_direction(
-            phase, ctx['state'], ctx['energy'],
-            last_direction, history,
+        # ─── Шаг 3: Область и тип воздействия ───
+        area, impact_type = self._choose_area_and_type(
+            phase=phase,
+            student_stage=ctx['student_stage'],
+            state=ctx['state'],
+            energy=ctx['energy'],
+            last_area=last_area,
+            history=history,
+            gap_report=gap_report,
         )
-        if direction is None:
-            logger.warning("[Tailor] No direction available")
+        if area is None:
+            logger.warning("[Tailor] No area available")
             return None
-        logger.info(f"[Tailor] Step 3: direction={direction}")
-
-        # ─── Шаг 4: Тема и глубина ───
-        topic_id, bloom_depth = self._choose_topic(
-            direction, history
+        logger.info(
+            f"[Tailor] Step 3: area={area} ({AREA_NAMES[area]}), "
+            f"type={impact_type}"
         )
-        if topic_id is None:
+
+        # ─── Шаг 4: Элемент из каталога ───
+        element = self._choose_element(
+            area=area,
+            impact_type=impact_type,
+            student_stage=ctx['student_stage'],
+            history=history,
+        )
+        if element is None:
             logger.warning(
-                f"[Tailor] No topic for direction={direction}"
+                f"[Tailor] No element for area={area}, type={impact_type}"
             )
             return None
         logger.info(
-            f"[Tailor] Step 4: topic={topic_id}, bloom={bloom_depth}"
+            f"[Tailor] Step 4: element={element['element_id']}"
         )
 
         # ─── Шаг 5: Контент ───
-        cell = load_cell(topic_id, bloom_depth)
-        if cell is None:
-            # Fallback: попробовать @1
-            cell = load_cell(topic_id, 1)
-            bloom_depth = 1
-        if cell is None:
+        content = self._gather_content(element, impact_type)
+        if content is None:
             logger.warning(
-                f"[Tailor] No cell for {topic_id}@{bloom_depth}"
+                f"[Tailor] No content for {element['element_id']}"
             )
             return None
 
         # ─── Шаг 6: Адаптация (в MVP — минимальная) ───
-        # Полная адаптация через Claude — в Ф2.
-        # Сейчас: подставляем домен в forms.
+        # Полная адаптация через Claude — в следующих фазах.
 
         # ─── Шаг 7: Упаковка ───
         lesson = self._pack_lesson(
-            cell=cell,
-            topic_id=topic_id,
-            direction=direction,
-            bloom_depth=bloom_depth,
+            content=content,
+            element=element,
+            area=area,
+            impact_type=impact_type,
             phase=phase,
             context=ctx,
             history=history,
@@ -144,7 +169,6 @@ class TailorEngine:
     def _build_context(
         self, profile: dict, history: List[dict]
     ) -> dict:
-        """Построить контекст из профиля и истории."""
         return {
             'name': profile.get('name', ''),
             'occupation': profile.get('occupation', ''),
@@ -155,20 +179,7 @@ class TailorEngine:
             'state': profile.get('assessment_state', 'turn'),
             'energy': int(profile.get('energy', 3)),
             'style': profile.get('learning_style', ''),
-            'depths': self._compute_depths(history),
         }
-
-    def _compute_depths(
-        self, history: List[dict]
-    ) -> Dict[str, int]:
-        """Текущая max глубина по теме (только passed=true)."""
-        depths = {}
-        for entry in history:
-            if entry.get('passed'):
-                tid = entry.get('topic_id', '')
-                bl = entry.get('bloom_level', 0)
-                depths[tid] = max(depths.get(tid, 0), bl)
-        return depths
 
     # ═══════════════════════════════════════════════════════════
     # Шаг 2: Фаза
@@ -178,100 +189,251 @@ class TailorEngine:
         return STAGE_TO_PHASE.get(student_stage, 1)
 
     # ═══════════════════════════════════════════════════════════
-    # Шаг 3: Направление
+    # Шаг 3: Область и тип воздействия
     # ═══════════════════════════════════════════════════════════
 
-    def _choose_direction(
+    def _choose_area_and_type(
         self,
         phase: int,
+        student_stage: int,
         state: str,
         energy: int,
-        last_direction: Optional[int],
+        last_area: Optional[int],
         history: List[dict],
-    ) -> Optional[int]:
-        """Weighted random с корректировками (SOP.001 Шаг 3)."""
+        gap_report: Optional[Dict[int, dict]] = None,
+    ) -> Tuple[Optional[int], str]:
+        """Выбрать область (1-5) и тип (worldview/mastery)."""
+
+        # --- Выбор области ---
         base_weights = PHASE_WEIGHTS.get(phase, PHASE_WEIGHTS[1]).copy()
 
         # Корректировка по состоянию
         adjustments = STATE_ADJUSTMENTS.get(state, {})
-        for d, mult in adjustments.items():
-            if d in base_weights:
-                base_weights[d] *= mult
+        for a, mult in adjustments.items():
+            if a in base_weights:
+                base_weights[a] *= mult
 
         # Корректировка по энергии
         if energy <= 2:
-            base_weights[6] = base_weights.get(6, 1.0) * 1.5
+            base_weights[5] = base_weights.get(5, 1.0) * 1.5
 
-        # Ротация: обнулить вчерашнее направление
-        if last_direction and last_direction in base_weights:
-            base_weights[last_direction] = 0.0
+        # Ротация: обнулить вчерашнюю область (R1)
+        if last_area and last_area in base_weights:
+            base_weights[last_area] = 0.0
 
-        # Фильтр: только направления с темами
-        available = {
-            d: w for d, w in base_weights.items()
-            if w > 0 and d in DIRECTION_TOPICS
-        }
+        # Фильтр: только области с весом > 0
+        available = {a: w for a, w in base_weights.items() if w > 0}
         if not available:
-            # Fallback: любое с темами
-            available = {
-                d: 1.0 for d in DIRECTION_TOPICS
+            available = {a: 1.0 for a in AREA_NAMES}
+
+        # Если есть GAP-отчёт — max(вес × gap)
+        if gap_report:
+            scored = {}
+            for a, w in available.items():
+                area_gap = gap_report.get(a, {})
+                total_gap = (
+                    area_gap.get('worldview_gap', 0)
+                    + area_gap.get('mastery_gap', 0)
+                )
+                scored[a] = w * max(total_gap, 0.1)
+            best_area = max(scored, key=scored.get)
+        else:
+            # Fallback: weighted random (без GAP)
+            total = sum(available.values())
+            r = random.random() * total
+            cumulative = 0.0
+            best_area = list(available.keys())[0]
+            for a, w in available.items():
+                cumulative += w
+                if r <= cumulative:
+                    best_area = a
+                    break
+
+        # --- Выбор типа ---
+        impact_type = self._choose_impact_type(
+            student_stage=student_stage,
+            area=best_area,
+            gap_report=gap_report,
+        )
+
+        return best_area, impact_type
+
+    def _choose_impact_type(
+        self,
+        student_stage: int,
+        area: int,
+        gap_report: Optional[Dict[int, dict]] = None,
+    ) -> str:
+        """Выбрать worldview или mastery.
+
+        Базовое соотношение по ступени, с корректировкой по GAP если есть.
+        """
+        base_ratio = WORLDVIEW_RATIO.get(student_stage, 0.50)
+
+        if gap_report and area in gap_report:
+            area_gap = gap_report[area]
+            wv_gap = area_gap.get('worldview_gap', 0)
+            ms_gap = area_gap.get('mastery_gap', 0)
+            if wv_gap + ms_gap > 0:
+                gap_ratio = wv_gap / (wv_gap + ms_gap)
+                # Смешиваем базовое и GAP (50/50)
+                base_ratio = (base_ratio + gap_ratio) / 2
+
+        return 'worldview' if random.random() < base_ratio else 'mastery'
+
+    # ═══════════════════════════════════════════════════════════
+    # Шаг 4: Элемент из каталога
+    # ═══════════════════════════════════════════════════════════
+
+    def _choose_element(
+        self,
+        area: int,
+        impact_type: str,
+        student_stage: int,
+        history: List[dict],
+        _switched: bool = False,
+    ) -> Optional[dict]:
+        """Выбрать элемент из каталога по области и типу.
+
+        Depth-aware: если элемент пройден на глубине N, предлагаем N+1.
+        Мемы: max 3 глубины. Практики: max 4 степени.
+
+        Returns:
+            {element_id, element_type, area, impact_type, depth, data} или None
+        """
+        # Depth-aware tracking: element_id → max passed depth
+        completed_depths = self._get_completed_depths(history)
+
+        if impact_type == 'worldview':
+            max_depth = 3  # Осознание → Различение → Компиляция
+            memes = get_memes_for_area(area, student_stage)
+
+            # Найти мем с наибольшим gap (не все глубины пройдены)
+            best = None
+            best_gap = -1
+            for m in memes:
+                current = completed_depths.get(m['id'], 0)
+                gap = max_depth - current
+                if gap > 0 and gap > best_gap:
+                    best = m
+                    best_gap = gap
+
+            if best is None:
+                if _switched:
+                    return None
+                return self._choose_element(
+                    area, 'mastery', student_stage, history,
+                    _switched=True,
+                )
+
+            next_depth = completed_depths.get(best['id'], 0) + 1
+            return {
+                'element_id': best['id'],
+                'element_type': 'meme',
+                'area': area,
+                'impact_type': 'worldview',
+                'depth': next_depth,
+                'data': best,
+            }
+        else:
+            # Практики: степень = depth (1-4)
+            # Ceiling по student_stage
+            stage_max = {0: 1, 1: 1, 2: 2, 3: 3, 4: 4}
+            max_degree = stage_max.get(student_stage, 1)
+
+            practices = get_practices_for_area(area, student_stage)
+
+            best = None
+            best_gap = -1
+            for p in practices:
+                current = completed_depths.get(p['id'], 0)
+                target = min(current + 1, max_degree)
+                gap = max_degree - current
+                if gap > 0 and gap > best_gap:
+                    best = p
+                    best_gap = gap
+
+            if best is None:
+                if _switched:
+                    return None
+                return self._choose_element(
+                    area, 'worldview', student_stage, history,
+                    _switched=True,
+                )
+
+            next_depth = min(completed_depths.get(best['id'], 0) + 1, max_degree)
+            return {
+                'element_id': best['id'],
+                'element_type': 'practice',
+                'area': area,
+                'impact_type': 'mastery',
+                'depth': next_depth,
+                'data': best,
             }
 
-        # Weighted random
-        total = sum(available.values())
-        if total <= 0:
-            return None
-
-        r = random.random() * total
-        cumulative = 0.0
-        for d, w in available.items():
-            cumulative += w
-            if r <= cumulative:
-                return d
-
-        return list(available.keys())[0]
+    def _get_completed_depths(self, history: List[dict]) -> Dict[str, int]:
+        """Построить карту element_id → max passed depth."""
+        depths = {}
+        for h in history:
+            if h.get('passed') and h.get('element_id'):
+                eid = h['element_id']
+                d = h.get('depth', 1)
+                depths[eid] = max(depths.get(eid, 0), d)
+        return depths
 
     # ═══════════════════════════════════════════════════════════
-    # Шаг 4: Тема и глубина
+    # Шаг 5: Контент
     # ═══════════════════════════════════════════════════════════
 
-    def _choose_topic(
+    def _gather_content(
         self,
-        direction: int,
-        history: List[dict],
-    ) -> Tuple[Optional[str], int]:
-        """Bottleneck-first: тема с max gap (SOP.001 Шаг 4)."""
-        topics = DIRECTION_TOPICS.get(direction, [])
-        if not topics:
-            return None, 0
+        element: dict,
+        impact_type: str,
+    ) -> Optional[dict]:
+        """Собрать контент из элемента каталога с учётом глубины."""
+        data = element.get('data', {})
+        depth = element.get('depth', 1)
 
-        # Текущие глубины из истории
-        depths = self._compute_depths(history)
+        if impact_type == 'worldview':
+            # Извлечь depth-specific данные если есть
+            depths = data.get('depths', {})
+            depth_data = depths.get(str(depth), {})
 
-        # Для каждой темы: gap = target - current
-        # Target для MVP = 2 (max доступная глубина)
-        target_depth = 2
-        scored = []
-        for tid in topics:
-            current = depths.get(tid, 0)
-            gap = target_depth - current
-            if gap <= 0:
-                gap = 0.1  # уже пройдено — низкий приоритет
-            scored.append((tid, gap, current))
+            return {
+                'type': 'worldview',
+                'depth': depth,
+                'depth_name': depth_data.get('name', _MEME_DEPTH_NAMES.get(depth, '')),
+                'meme_unproductive': data.get('unproductive', ''),
+                'meme_productive': data.get('productive', ''),
+                'meme_function': data.get('function', ''),
+                'compilation_method': data.get('compilation_method', ''),
+                'diagnostic': data.get('diagnostic', ''),
+                'source': data.get('source', ''),
+                # Depth-specific
+                'depth_can_do': depth_data.get('can_do', ''),
+                'depth_activity': depth_data.get('activity', ''),
+                'depth_assessment': depth_data.get('assessment', ''),
+            }
+        else:
+            # Для практик depth = degree (1-4)
+            # Данные уже подготовлены catalogs.py с нужной степенью
+            return {
+                'type': 'mastery',
+                'depth': depth,
+                'practice_name': data.get('name', ''),
+                'current_degree': depth,
+                'can_do': data.get('can_do', ''),
+                'assignment': data.get('assignment', ''),
+                'assessment': data.get('assessment', ''),
+            }
 
-        # Сортировка по gap (убывание)
-        scored.sort(key=lambda x: -x[1])
 
-        # Выбираем тему с наибольшим gap
-        best_topic, best_gap, current_depth = scored[0]
-
-        # Глубина: current + 1, но не больше доступных
-        available = get_available_depths(best_topic)
-        next_depth = current_depth + 1
-        if next_depth not in available:
-            next_depth = available[0] if available else 1
-
-        return best_topic, next_depth
+# Названия глубин для мемов (fallback если нет в JSON)
+_MEME_DEPTH_NAMES = {
+    1: 'Осознание',
+    2: 'Различение',
+    3: 'Компиляция',
+}
 
     # ═══════════════════════════════════════════════════════════
     # Шаг 7: Упаковка
@@ -279,64 +441,38 @@ class TailorEngine:
 
     def _pack_lesson(
         self,
-        cell: dict,
-        topic_id: str,
-        direction: int,
-        bloom_depth: int,
+        content: dict,
+        element: dict,
+        area: int,
+        impact_type: str,
         phase: int,
         context: dict,
         history: List[dict],
     ) -> dict:
-        """Упаковать ячейку в structured lesson (SOP.001 Шаг 7)."""
-        # Извлечь bridge из ячейки
-        bridge = cell.get('bridge_template')
-
-        # Выбрать форму подачи: postformal (взрослая аудитория)
-        forms = cell.get('forms', {})
-        form = forms.get('postformal', forms.get('formal_operational', ''))
-
-        # Assessment
-        assessment = cell.get('assessment', {})
-
-        # Retrieval: вопрос по предыдущей теме
+        """Упаковать в structured lesson (SOP.001 Шаг 7)."""
         retrieval = self._build_retrieval(history)
-
-        # IT scaffolding
         it_scaffolding = self._build_it_scaffolding(context['it_level'])
 
         return {
-            'direction': direction,
-            'topic_id': topic_id,
-            'topic_name': cell.get('principle_name', get_topic_name(topic_id)),
-            'bloom_depth': bloom_depth,
-            'bloom_level': cell.get('bloom_level', 'Remember'),
+            'area': area,
+            'area_name': AREA_NAMES.get(area, ''),
+            'impact_type': impact_type,
+            'element_id': element['element_id'],
+            'element_type': element['element_type'],
+            'depth': element.get('depth', 1),
             'phase': phase,
 
             # Контент
-            'can_do': cell.get('can_do', []),
-            'methods_notes': cell.get('methods', {}).get('notes', ''),
-            'form': form,
-            'common_errors': cell.get('common_errors', []),
-            'domains': cell.get('domains', []),
-
-            # Проверка
-            'assessment': {
-                'type': assessment.get('type', 'observation'),
-                'criteria': assessment.get('criteria', ''),
-                'transfer_test': assessment.get('transfer_test', ''),
-                'retrieval_test': assessment.get('retrieval_test', ''),
-            },
+            'content': content,
 
             # Связки
-            'bridge': bridge,
             'retrieval': retrieval,
             'it_scaffolding': it_scaffolding,
 
             # Метаданные
             'metadata': {
                 'generated_at': datetime.now(timezone.utc).isoformat(),
-                'source': 'cell',
-                'cell_id': f"{topic_id}@{bloom_depth}",
+                'source': element['element_type'],
                 'tailor_context': {
                     'phase': phase,
                     'student_stage': context['student_stage'],
@@ -348,21 +484,25 @@ class TailorEngine:
         }
 
     def _build_retrieval(self, history: List[dict]) -> Optional[str]:
-        """Recall по предыдущей теме (MIM.M.011 Retrieval Practice)."""
+        """Recall по предыдущему занятию (MIM.M.011 Retrieval Practice)."""
         passed = [
             h for h in history
-            if h.get('passed') and h.get('topic_id')
+            if h.get('passed') and h.get('element_id')
         ]
         if not passed:
             return None
 
-        # Последняя пройденная тема
         last = passed[-1]
-        topic_name = get_topic_name(last['topic_id'])
+        etype = last.get('element_type', '')
+        eid = last.get('element_id', '')
+        if etype == 'meme':
+            return (
+                f"В прошлый раз мы разбирали мем ({eid}). "
+                f"Что ты запомнил? Заметил ли это убеждение у себя?"
+            )
         return (
-            f"Вспомни предыдущее занятие по теме "
-            f"«{topic_name}». Что ты запомнил? "
-            f"Попробуй назвать 2-3 ключевых мысли."
+            f"В прошлый раз ты работал над практикой ({eid}). "
+            f"Что получилось? Что оказалось сложнее, чем думал?"
         )
 
     def _build_it_scaffolding(self, it_level: int) -> str:
