@@ -1,217 +1,145 @@
 """
-Доставка занятий Портного через scheduler (WP-149, SC.020).
+Бот-клиент Портного (WP-149, SC.020, WP-175).
 
-Паттерн аналогичен pre_generate_feed_digest():
-1. Собрать занятие (TailorEngine.assemble)
-2. Сгенерировать текст (generate_lesson_text)
-3. Доставить через BotTailorAdapter (с кнопками Ответить / Пропустить)
+Бот = тонкий клиент. Портной живёт на платформе L2 (DS-autonomous-agents/agents/tailor/).
+Эта функция вызывается из scheduler бота как notify_fn:
+  - Форматирует готовое занятие для Telegram
+  - Отправляет пользователю с кнопками Ответить / Пропустить
 
-MVP: доставка по feed_schedule_time для всех с feed_status='active'.
+Сборка + генерация = DS-autonomous-agents/agents/tailor/ (платформа).
+Бот НЕ создаёт Claude-клиент для Портного — это больше не его задача.
+
+Интеграция:
+  scheduler.py вызывает notify_tailor_lesson(chat_id, user_uuid, lesson, generated)
+  states/tailor/response.py обрабатывает ответ пользователя
 """
 
-import asyncio
-import json
 import logging
+import re
 from typing import Optional
+from uuid import UUID
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
 
-async def deliver_tailor_lesson(chat_id: int, bot: Bot, force: bool = False):
-    """Сгенерировать и отправить персональное занятие.
+def _format_lesson_html(lesson: dict, generated: dict) -> str:
+    """Форматировать занятие в HTML для Telegram."""
+    area_name = lesson.get('area_name', '')
+    impact_type = lesson.get('impact_type', 'worldview')
+    element_id = lesson.get('element_id', '')
+    depth = lesson.get('depth', 1)
 
-    Вызывается из scheduler по расписанию (feed_schedule_time).
-    Паттерн: pre-gen → save → notify (аналогично feed digest).
+    if impact_type == 'worldview':
+        depth_names = {1: 'Осознание', 2: 'Различение', 3: 'Компиляция'}
+        type_label = f"Мировоззрение · {depth_names.get(depth, '')}"
+    else:
+        degree_names = {1: 'Объяснение', 2: 'Умение', 3: 'Навык', 4: 'Мастерство'}
+        type_label = f"Мастерство · {degree_names.get(depth, '')}"
+
+    parts = [f"<b>{area_name}</b> · {type_label}\n<i>{element_id}</i>\n"]
+
+    for key in ('intro', 'lesson_text'):
+        val = generated.get(key, '')
+        if val:
+            parts.append(f"{val}\n")
+
+    question = (
+        generated.get('diagnostic_question')
+        or generated.get('distinction_question')
+        or generated.get('check_question')
+        or generated.get('question', '')
+    )
+    if question:
+        parts.append(f"\n<b>Вопрос:</b>\n{question}\n")
+
+    task = (
+        generated.get('compilation_task')
+        or generated.get('contradiction_task')
+        or generated.get('practice_task')
+        or generated.get('task', '')
+    )
+    if task:
+        parts.append(f"\n<b>Задание:</b>\n{task}\n")
+
+    if generated.get('check_in'):
+        parts.append(f"\n<b>Ежедневный чек-ин:</b>\n{generated['check_in']}\n")
+
+    if generated.get('reflection'):
+        parts.append(f"\n<b>Рефлексия:</b>\n{generated['reflection']}")
+
+    return "\n".join(parts)
+
+# Callback data prefixes
+CB_TAILOR_ANSWER = "tailor_answer"
+CB_TAILOR_SKIP = "tailor_skip"
+
+
+async def notify_tailor_lesson(
+    chat_id: int,
+    user_uuid: UUID,
+    lesson: dict,
+    generated: dict,
+    bot: Bot,
+) -> bool:
+    """Отправить готовое занятие пользователю в Telegram.
+
+    Это notify_fn для activity-hub deliver_tailor_lesson().
+    Вызывается когда платформа собрала и сгенерировала занятие.
 
     Args:
-        force: пропустить idempotency guard (для /tailor dev-команды).
-    """
-    from db.queries import get_intern
-    from db.queries.cache import cache_get, cache_set
-    from db.queries.events import log_event
-    from db.queries.notifications import try_insert_notification
-    from db.queries.users import moscow_today
-
-    from engines.tailor.bot_adapter import BotTailorAdapter
-
-    intern = await get_intern(chat_id)
-    if not intern:
-        return
-
-    # ─── Guard: onboarding пройден ───
-    if not intern.get('onboarding_completed'):
-        return
-
-    # ─── Idempotency: не отправлять дважды в день ───
-    today = moscow_today()
-    today_str = today.strftime('%Y-%m-%d')
-    if not force:
-        tailor_key = f"tailor_lesson:{chat_id}:{today_str}"
-        if not await try_insert_notification(chat_id, 'tailor_lesson', tailor_key):
-            logger.info(f"[Tailor] Lesson already sent to {chat_id} today, skip")
-            return
-
-    # ─── Проверить кэш ───
-    cache_key = f"tailor:{chat_id}:{today_str}"
-    cached_raw = await cache_get(cache_key)
-    lesson = None
-    generated = None
-
-    if cached_raw:
-        try:
-            cached = json.loads(cached_raw)
-            if cached.get('lesson') and cached.get('generated'):
-                logger.info(f"[Tailor] Using cached lesson for {chat_id}")
-                lesson = cached['lesson']
-                generated = cached['generated']
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    if not lesson or not generated:
-        # ─── Сборка + генерация ───
-        result = await _assemble_and_generate(chat_id, intern)
-        if not result:
-            logger.warning(f"[Tailor] Failed to generate for {chat_id}")
-            return
-
-        lesson, generated = result
-
-        # Кэшируем на сутки (lesson + generated для callback)
-        await cache_set(
-            cache_key,
-            'tailor_lesson',
-            json.dumps({'lesson': lesson, 'generated': generated}, ensure_ascii=False),
-            ttl_days=1,
-        )
-
-    # ─── Доставка через BotTailorAdapter ───
-    adapter = BotTailorAdapter(bot)
-    delivery_result = await adapter.deliver(chat_id, lesson, generated)
-
-    if delivery_result.delivered:
-        # Log event (fire-and-forget)
-        await log_event(
-            user_id=chat_id,
-            event_type='tailor_lesson_sent',
-            payload={
-                'date': today_str,
-                'element_id': lesson.get('element_id', ''),
-                'element_type': lesson.get('element_type', ''),
-                'area': lesson.get('area', 1),
-                'impact_type': lesson.get('impact_type', ''),
-                'depth': lesson.get('depth', 1),
-            },
-            source='bot',
-        )
-    else:
-        logger.error(
-            f"[Tailor] Delivery failed for {chat_id}: "
-            f"{delivery_result.error}"
-        )
-
-
-async def _assemble_and_generate(
-    chat_id: int,
-    intern: dict,
-) -> Optional[tuple]:
-    """Собрать занятие через TailorEngine + сгенерировать текст.
+        chat_id: Telegram chat_id (для отправки)
+        user_uuid: Ory UUID (для логирования)
+        lesson: structured lesson из TailorEngine.assemble()
+        generated: результат generate_lesson_text()
+        bot: aiogram Bot instance
 
     Returns:
-        (lesson, generated) tuple или None при ошибке.
+        True если отправлено успешно.
     """
-    from engines.tailor.engine import TailorEngine
-    from engines.tailor.planner import generate_lesson_text
+    text = _format_lesson_html(lesson, generated)
+    keyboard = _build_keyboard(lesson)
 
-    # Построить профиль из intern (public.users + user_state)
-    user_profile = {
-        'name': intern.get('name', ''),
-        'occupation': intern.get('occupation', ''),
-        'goals': intern.get('goals', ''),
-        'interests': intern.get('interests', ''),
-        'assessment_state': intern.get('assessment_state', 'turn'),
-        'student_stage': 0,  # MVP: все начинают с 0
-        'it_level': 0,       # MVP: предполагаем ИТ=0
-        'energy': 3,         # MVP: средняя энергия
-        'learning_style': intern.get('learning_style', ''),
-    }
-
-    # Получить историю из learning_history (если есть)
-    learning_history = await _get_learning_history(chat_id)
-
-    # Определить вчерашнюю область
-    last_area = None
-    if learning_history:
-        last_area = learning_history[-1].get('area')
-
-    # ─── Шаги 1-7 SOP.001 v3 ───
-    tailor = TailorEngine()
-    lesson = tailor.assemble(
-        user_profile=user_profile,
-        learning_history=learning_history,
-        last_area=last_area,
-    )
-    if not lesson:
-        logger.warning(f"[Tailor] assemble returned None for {chat_id}")
-        return None
-
-    # ─── Генерация текста через Claude ───
     try:
-        from bot import claude  # lazy import (circular dep)
-        generated = await asyncio.wait_for(
-            generate_lesson_text(
-                lesson=lesson,
-                user_profile=user_profile,
-                claude_client=claude,
-            ),
-            timeout=60,
-        )
-    except asyncio.TimeoutError:
-        logger.error(f"[Tailor] Claude timeout for {chat_id}")
-        return None
+        try:
+            await bot.send_message(
+                chat_id,
+                text,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            # Fallback: без форматирования
+            clean = re.sub(r'<[^>]+>', '', text)
+            await bot.send_message(chat_id, clean, reply_markup=keyboard)
 
-    if not generated:
-        # Fallback: отправить raw ячейку без генерации
-        generated = _fallback_from_cell(lesson)
+        logger.info("[Tailor/Bot] Lesson sent to chat_id=%s (uuid=%s)", chat_id, user_uuid)
+        return True
 
-    return lesson, generated
-
-
-async def _get_learning_history(chat_id: int) -> list:
-    """Получить историю прохождения из learning_history."""
-    try:
-        from db.connection import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch('''
-                SELECT topic_id, bloom_level, score, passed,
-                       direction, errors, created_at
-                FROM development.learning_history
-                WHERE user_id = $1
-                ORDER BY created_at ASC
-            ''', chat_id)
-            return [dict(r) for r in rows]
     except Exception as e:
-        logger.warning(f"[Tailor] learning_history read failed: {e}")
-        return []
+        logger.error("[Tailor/Bot] Send failed for chat_id=%s: %s", chat_id, e)
+        return False
 
 
-def _fallback_from_cell(lesson: dict) -> dict:
-    """Fallback: structured content из ячейки без Claude."""
-    can_do = lesson.get('can_do', [])
-    can_do_text = "\n".join(f"• {cd}" for cd in can_do)
+def _build_keyboard(lesson: dict) -> InlineKeyboardMarkup:
+    """Построить inline-клавиатуру: Ответить / Пропустить."""
+    element_id = lesson.get('element_id', '')
+    depth = lesson.get('depth', 1)
+    impact_type = lesson.get('impact_type', 'worldview')
 
-    assessment = lesson.get('assessment', {})
-    form = lesson.get('form', '')
+    # Формат: tailor_answer:{element_id}:{depth}:{impact_type}
+    answer_data = f"{CB_TAILOR_ANSWER}:{element_id}:{depth}:{impact_type}"
+    skip_data = f"{CB_TAILOR_SKIP}:{element_id}:{depth}:{impact_type}"
 
-    return {
-        'intro': f"Сегодня разберём тему: {lesson.get('topic_name', '')}",
-        'lesson_text': (
-            f"{lesson.get('methods_notes', '')}\n\n"
-            f"После этого занятия ты сможешь:\n{can_do_text}"
-        ),
-        'question': assessment.get('transfer_test', ''),
-        'task': form,
-        'reflection': assessment.get('retrieval_test', ''),
-    }
+    # Обрезать до 64 байт (Telegram ограничение)
+    answer_data = answer_data[:64]
+    skip_data = skip_data[:64]
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Ответить", callback_data=answer_data),
+            InlineKeyboardButton(text="⏭ Пропустить", callback_data=skip_data),
+        ]
+    ])
