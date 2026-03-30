@@ -1,20 +1,26 @@
 """
-Calculation Engine v0.6 — derived indicators из 2_collected (WP-151 Ф4, WP-174).
+Calculation Engine v0.7 — derived indicators из 2_collected + learning_history (WP-151, WP-174, WP-175 Ф5).
 
 Вычисляет IND.3 (derived) из IND.2 (collected) данных.
-Источники: engagement + notification_log + coding (WakaTime) + IWE (git/WP).
+Источники: engagement + notification_log + coding (WakaTime) + IWE (git/WP) + learning_history (BKT).
 
 Индикаторы:
   IND.3.1.02  slot_regularity        — доля активных дней (→ агентность)
   IND.3.4.01  student_stage           — ступень ученика (0-4, threshold rules)
   IND.3.10.1  integral_agency_index   — агрегированный индекс (0-100)
+  IND.3.5.*   mastery_by_area         — MAX depth по 5 областям из learning_history (WP-175 Ф5)
+  IND.3.6.*   worldview_gaps          — мемы CAT.001 с gap > 0 (current_depth < target_depth по ступени)
+  IND.3.7.*   mastery_gaps            — практики CAT.002/003 с gap > 0
+
+v0.7 (WP-175 Ф5): BKT из learning_history → mastery_by_area, worldview_gaps, mastery_gaps.
+  calculate_derived() принимает learning_rows (из development.learning_history).
+  При learning_rows=None — возвращает [] для gaps (fallback PD.SPEC.001 §3).
 
 v0.6 (WP-174): Builder Path — альтернативные пороги для Stage 2-4.
   Пользователи с высокой coding/IWE-активностью (T3-T4) могут достичь
   ступени через builder-метрики (2_6_coding, 2_7_iwe) вместо учебных.
   АрхГейт: 62/70 ЭМОГССБ, принцип #5 Evolvability-first.
 
-Расширение: LMS/Club данные, BKT (Ф5), мемы (Ф1).
 Пороги: из метамодели DS-MCP/digital-twin-mcp/metamodel/3_derived/.
 """
 
@@ -50,6 +56,192 @@ STAGE_NAMES_RU = {
     3: "Дисциплинированный",
     4: "Проактивный",
 }
+
+
+# ═══════════════════════════════════════════════════════════
+# Ф5: CAT.001 каталог мемов (BKT-данные для GAP-профиля)
+# Источник: DS-principles-curriculum/data/curriculum/CAT.001/
+# Формат: {meme_id: {area: int 1-5, entry_stage: int 0-4}}
+# ═══════════════════════════════════════════════════════════
+
+_CAT001_META: dict[str, dict] = {
+    "M-001": {"area": 1, "entry_stage": 1},
+    "M-002": {"area": 1, "entry_stage": 0},
+    "M-003": {"area": 1, "entry_stage": 1},
+    "M-004": {"area": 1, "entry_stage": 1},
+    "M-005": {"area": 1, "entry_stage": 1},
+    "M-006": {"area": 1, "entry_stage": 1},
+    "M-007": {"area": 1, "entry_stage": 1},
+    "M-008": {"area": 1, "entry_stage": 0},
+    "M-009": {"area": 1, "entry_stage": 1},
+    "M-010": {"area": 1, "entry_stage": 0},
+    "M-011": {"area": 1, "entry_stage": 0},
+    "M-012": {"area": 1, "entry_stage": 1},
+    "M-013": {"area": 2, "entry_stage": 1},
+    "M-014": {"area": 2, "entry_stage": 0},
+    "M-015": {"area": 2, "entry_stage": 1},
+    "M-016": {"area": 2, "entry_stage": 1},
+    "M-017": {"area": 2, "entry_stage": 0},
+    "M-018": {"area": 2, "entry_stage": 0},
+    "M-019": {"area": 2, "entry_stage": 1},
+    "M-020": {"area": 3, "entry_stage": 0},
+    "M-021": {"area": 3, "entry_stage": 0},
+    "M-022": {"area": 3, "entry_stage": 0},
+    "M-023": {"area": 3, "entry_stage": 1},
+    "M-024": {"area": 3, "entry_stage": 1},
+    "M-025": {"area": 3, "entry_stage": 1},
+    "M-026": {"area": 3, "entry_stage": 1},
+    "M-027": {"area": 3, "entry_stage": 1},
+    "M-028": {"area": 3, "entry_stage": 1},
+    "M-029": {"area": 3, "entry_stage": 0},
+    "M-030": {"area": 3, "entry_stage": 1},
+    "M-031": {"area": 3, "entry_stage": 1},
+    "M-032": {"area": 4, "entry_stage": 0},
+    "M-033": {"area": 4, "entry_stage": 0},
+    "M-034": {"area": 4, "entry_stage": 1},
+    "M-035": {"area": 4, "entry_stage": 1},
+    "M-036": {"area": 4, "entry_stage": 0},
+    "M-037": {"area": 4, "entry_stage": 0},
+    "M-038": {"area": 4, "entry_stage": 1},
+    "M-039": {"area": 4, "entry_stage": 1},
+    "M-040": {"area": 5, "entry_stage": 0},
+    "M-041": {"area": 5, "entry_stage": 1},
+    "M-042": {"area": 5, "entry_stage": 0},
+    "M-043": {"area": 5, "entry_stage": 1},
+    "M-044": {"area": 5, "entry_stage": 1},
+    "M-045": {"area": 5, "entry_stage": 0},
+    "M-046": {"area": 3, "entry_stage": 0},
+    "M-047": {"area": 3, "entry_stage": 0},
+    "M-048": {"area": 3, "entry_stage": 0},
+    "M-049": {"area": 4, "entry_stage": 1},
+    "M-050": {"area": 4, "entry_stage": 1},
+    "M-051": {"area": 1, "entry_stage": 1},
+    "M-052": {"area": 1, "entry_stage": 1},
+    "M-053": {"area": 5, "entry_stage": 1},
+    "M-054": {"area": 5, "entry_stage": 1},
+    "M-055": {"area": 5, "entry_stage": 1},
+    "M-056": {"area": 5, "entry_stage": 0},
+    "M-057": {"area": 5, "entry_stage": 0},
+    "M-058": {"area": 5, "entry_stage": 0},
+    "M-059": {"area": 5, "entry_stage": 0},
+    "M-060": {"area": 5, "entry_stage": 1},
+    "M-061": {"area": 5, "entry_stage": 0},
+    "M-062": {"area": 5, "entry_stage": 0},
+    "M-063": {"area": 5, "entry_stage": 0},
+    "M-064": {"area": 5, "entry_stage": 1},
+}
+
+# Нормативная целевая глубина мемов по ступени и области (PD.FORM.080 §9).
+# target_depth[student_stage][area] = int 1-3 (макс. глубина мема по фазе)
+# Ступень 0 (Случайный): цель depth=1 только по ведущим осям (1=Знания, 5=Организм)
+# Ступень 1→2 (Практикующий): ведущие оси 2=Инструменты, 3=Ограничения → depth=1 все
+# Ступень 2→3 (Систематический): depth=2 для Знания(1), Ограничения(3), Окружение(4)
+# Ступень 3→4 (Дисциплинированный): depth=3 для Знания(1), Окружение(4)
+# Ступень 4 (Проактивный): depth=3 для всех
+_TARGET_DEPTH: dict[int, dict[int, int]] = {
+    0: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
+    1: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
+    2: {1: 2, 2: 1, 3: 2, 4: 2, 5: 1},
+    3: {1: 3, 2: 2, 3: 2, 4: 3, 5: 2},
+    4: {1: 3, 2: 3, 3: 3, 4: 3, 5: 3},
+}
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.5 — Mastery by Area (WP-175 Ф5)
+# ═══════════════════════════════════════════════════════════
+
+def calc_mastery_by_area(learning_rows: list[dict]) -> dict[str, int]:
+    """MAX depth по каждой из 5 областей из learning_history (schema_version=2).
+
+    IND.3.5.*: mastery_by_area[area_key] = max depth where passed=True.
+    Только записи с passed=True и element_type='meme' (worldview).
+
+    Args:
+        learning_rows: list of dicts с ключами area (int 1-5), depth (int), passed (bool)
+
+    Returns:
+        {"knowledge": int, "tools": int, "constraints": int, "environment": int, "organism": int}
+        Значения 0–3. 0 = не начата область.
+    """
+    area_key_map = {1: "knowledge", 2: "tools", 3: "constraints", 4: "environment", 5: "organism"}
+    result = {v: 0 for v in area_key_map.values()}
+
+    for row in learning_rows:
+        area = row.get("area")
+        depth = row.get("depth")
+        passed = row.get("passed")
+        if area not in area_key_map or not depth or not passed:
+            continue
+        key = area_key_map[area]
+        result[key] = max(result[key], int(depth))
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.6 — Worldview Gaps (WP-175 Ф5)
+# ═══════════════════════════════════════════════════════════
+
+def calc_worldview_gaps(learning_rows: list[dict], student_stage: int) -> list[dict]:
+    """Мемы CAT.001 с gap > 0 (current_depth < target_depth по ступени).
+
+    IND.3.6: only мемы, relevant для текущей ступени (entry_stage <= student_stage).
+    Текущая глубина = MAX depth где passed=True для данного meme_id.
+    can_do_passed = есть ли хотя бы одна запись passed=True для этого мема.
+
+    Args:
+        learning_rows: записи из learning_history (element_type='meme')
+        student_stage: текущая ступень (0-4)
+
+    Returns:
+        list[dict] — только мемы с gap > 0, отсортированные по area.
+        Пустой список если нет gap или нет данных.
+    """
+    # Собрать max_depth и can_do по meme_id из истории
+    meme_depth: dict[str, int] = {}
+    meme_can_do: dict[str, bool] = {}
+
+    for row in learning_rows:
+        if row.get("element_type") != "meme":
+            continue
+        eid = row.get("element_id")
+        if not eid:
+            continue
+        # Нормализация: "CAT.001.M-001" → "M-001"
+        meme_id = eid.split(".")[-1] if "." in eid else eid
+        depth = row.get("depth") or 0
+        passed = bool(row.get("passed"))
+
+        if passed:
+            meme_depth[meme_id] = max(meme_depth.get(meme_id, 0), depth)
+            meme_can_do[meme_id] = True
+        elif meme_id not in meme_can_do:
+            meme_can_do[meme_id] = False
+
+    target_map = _TARGET_DEPTH.get(student_stage, _TARGET_DEPTH[0])
+    gaps = []
+
+    for meme_id, meta in _CAT001_META.items():
+        area = meta["area"]
+        entry_stage = meta["entry_stage"]
+        if entry_stage > student_stage:
+            continue  # мем ещё не релевантен
+
+        target_depth = target_map.get(area, 1)
+        current_depth = meme_depth.get(meme_id, 0)
+
+        if current_depth < target_depth:
+            gaps.append({
+                "id": meme_id,
+                "area": area,
+                "current_depth": current_depth,
+                "target_depth": target_depth,
+                "can_do_passed": meme_can_do.get(meme_id, False),
+            })
+
+    gaps.sort(key=lambda x: x["area"])
+    return gaps
 
 
 # ═══════════════════════════════════════════════════════════
@@ -314,21 +506,26 @@ def calc_integral_agency_index(collected: dict) -> dict:
 # PUBLIC API
 # ═══════════════════════════════════════════════════════════
 
-def calculate_derived(collected: dict) -> dict:
-    """Вычислить все derived-индикаторы из 2_collected данных.
+def calculate_derived(collected: dict, learning_rows: list[dict] | None = None) -> dict:
+    """Вычислить все derived-индикаторы из 2_collected + learning_history данных.
 
     Args:
         collected: digital_twins.data['2_collected'] (5+ групп).
             v0.6: включает 2_6_coding и 2_7_iwe для builder path.
+        learning_rows: список dict из development.learning_history (v0.7, WP-175 Ф5).
+            Каждый dict: {element_id, element_type, area, depth, passed, ...}.
+            При None — mastery_by_area возвращает нули, gaps — пустые списки (PD.SPEC.001 §3).
 
     Returns:
         dict для записи в digital_twins.data['3_derived']:
         {
             "3_1_agency": {"slot_regularity": float, ...},
             "3_4_qualification": {"stage": int, "stage_id": str, "path": str, ...},
+            "3_5_mastery": {"mastery_by_area": {...}},           # WP-175 Ф5
+            "3_6_worldview": {"worldview_gaps": [...]},          # WP-175 Ф5
             "3_10_integral": {"index": float, "components": {...}},
             "calculated_at": ISO timestamp,
-            "engine_version": "0.6",
+            "engine_version": "0.7",
         }
     """
     if not collected:
@@ -339,7 +536,7 @@ def calculate_derived(collected: dict) -> dict:
         agency_result = calc_integral_agency_index(collected)
         regularity = calc_slot_regularity(collected)
 
-        return {
+        derived = {
             "3_1_agency": {
                 "slot_regularity": round(regularity, 3),
                 "slot_days_per_week": round(regularity * 7, 1),
@@ -347,8 +544,19 @@ def calculate_derived(collected: dict) -> dict:
             "3_4_qualification": stage_result,
             "3_10_integral": agency_result,
             "calculated_at": datetime.now(timezone.utc).isoformat(),
-            "engine_version": "0.6",
+            "engine_version": "0.7",
         }
+
+        # ── Ф5: BKT из learning_history ──────────────────────────────────────
+        if learning_rows is not None:
+            student_stage = stage_result.get("stage", 0)
+            mastery = calc_mastery_by_area(learning_rows)
+            gaps = calc_worldview_gaps(learning_rows, student_stage)
+            derived["3_5_mastery"] = {"mastery_by_area": mastery}
+            derived["3_6_worldview"] = {"worldview_gaps": gaps}
+
+        return derived
+
     except Exception as e:
         logger.error(f"[DT Calc] Error calculating derived: {e}")
         return {}
