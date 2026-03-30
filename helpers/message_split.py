@@ -118,10 +118,26 @@ def split_message_safe(text: str, max_len: int = MAX_TG_LEN) -> list[str]:
             current = para
             continue
 
-        # Code block paragraph — keep atomic even if over max_len
-        # (better to send a slightly oversized message than break code)
+        # Code block paragraph — split by lines inside <pre>, preserving tags
         if _CODE_BLOCK_NL in para or '```' in para or '<pre>' in para:
-            chunks.append(para)
+            pre_match = re.match(r'^(<pre>)([\s\S]*?)(</pre>)$', para)
+            if pre_match:
+                open_tag, inner, close_tag = pre_match.group(1), pre_match.group(2), pre_match.group(3)
+                lines = inner.split('\n')
+                sub_current = ""
+                for line in lines:
+                    candidate = (sub_current + '\n' + line) if sub_current else line
+                    if len(open_tag + candidate + close_tag) <= max_len:
+                        sub_current = candidate
+                    else:
+                        if sub_current:
+                            chunks.append(open_tag + sub_current + close_tag)
+                        # single line > max_len: send as-is, don't break code
+                        sub_current = line
+                if sub_current:
+                    chunks.append(open_tag + sub_current + close_tag)
+            else:
+                chunks.append(para)  # unrecognised structure — send as-is
             continue
 
         # Paragraph too long — split by lines
