@@ -58,7 +58,7 @@ MENU_SECTIONS = [
     ('professional', 'sched_cat:professional', '💼', 'schedule.menu_professional'),
     ('seminars',     'sched_cat:seminars',     '🎤', 'schedule.menu_seminars'),
     ('reviews',      'sched_cat:reviews',      '🔍', 'schedule.menu_reviews'),
-    ('workshop',     'sched_workshop',         '🔧', 'schedule.menu_workshop'),
+    ('workshop',     'sched_workshop',         '👥', 'schedule.menu_seminar_iwe'),
     ('subscription', 'aisystant_subscribe',    '💎', 'schedule.menu_subscription'),
     ('my_courses',   'schedule_my',            '📋', 'schedule.menu_my_courses'),
 ]
@@ -257,116 +257,6 @@ async def callback_category(callback: CallbackQuery):
         buttons.extend(await _create_course_buttons(aisystant_id, paid_courses, lang))
 
     # Кнопка «Назад»
-    buttons.append([InlineKeyboardButton(
-        text=t('schedule.btn_back', lang), callback_data="sched_back",
-    )])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
-
-
-# ── Мастерская Церена ───────────────────────────────────
-
-@schedule_router.callback_query(F.data == "sched_workshop")
-async def callback_workshop(callback: CallbackQuery):
-    """Мастерская Церена — подписка WORKSHOP."""
-    chat_id = callback.from_user.id
-    intern = await get_intern(chat_id)
-    lang = _lang(intern)
-
-    await callback.answer()
-
-    aisystant_id = await get_aisystant_id(chat_id)
-    if not aisystant_id:
-        await callback.message.answer(t('schedule.no_account', lang))
-        return
-
-    lines = [t('schedule.workshop_text', lang), ""]
-    buttons = []
-
-    try:
-        # Проверяем активную подписку WORKSHOP
-        ws_sub = await aisystant.get_subscription_status_by_purpose(aisystant_id, "WORKSHOP")
-        if ws_sub:
-            lines.append(t('schedule.workshop_active', lang))
-            buttons.append([InlineKeyboardButton(
-                text=t('schedule.btn_workshop_renew', lang),
-                callback_data="sched_ws_tariffs",
-            )])
-        else:
-            # Показываем тарифы сразу
-            tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
-            if tariffs:
-                from handlers.subscription import _parse_tariff, _period_label, _create_tariff_buttons
-                paid_tariffs = []
-                for tariff in tariffs[:5]:
-                    code, name, amount, periodicity = _parse_tariff(tariff)
-                    period = _period_label(periodicity, lang)
-                    lines.append(f"  • {period} — {amount} ₽")
-                    if amount > 0:
-                        paid_tariffs.append((code, amount, period))
-                if paid_tariffs:
-                    lines.append(t('buy.payment_note', lang))
-                    buttons.extend(await _create_tariff_buttons(
-                        aisystant_id, paid_tariffs, lang, purpose="WORKSHOP",
-                    ))
-    except Exception as e:
-        logger.error(f"[Schedule] workshop error: {e}")
-
-    buttons.append([InlineKeyboardButton(
-        text=t('schedule.btn_back', lang), callback_data="sched_back",
-    )])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
-
-
-@schedule_router.callback_query(F.data == "sched_ws_tariffs")
-async def callback_ws_tariffs(callback: CallbackQuery):
-    """Тарифы мастерской для продления."""
-    chat_id = callback.from_user.id
-    intern = await get_intern(chat_id)
-    lang = _lang(intern)
-
-    await callback.answer()
-
-    aisystant_id = await get_aisystant_id(chat_id)
-    if not aisystant_id:
-        await callback.message.answer(t('schedule.no_account', lang))
-        return
-
-    try:
-        tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
-    except Exception as e:
-        logger.error(f"[Schedule] ws tariffs error: {e}")
-        await callback.message.answer(t('schedule.error', lang))
-        return
-
-    if not tariffs:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
-        ])
-        await callback.message.answer(t('schedule.category_empty', lang), reply_markup=keyboard)
-        return
-
-    from handlers.subscription import _parse_tariff, _period_label, _create_tariff_buttons
-
-    lines = [t('schedule.workshop_text', lang), ""]
-    buttons = []
-    paid_tariffs = []
-    for tariff in tariffs[:5]:
-        code, name, amount, periodicity = _parse_tariff(tariff)
-        period = _period_label(periodicity, lang)
-        lines.append(f"  • {period} — {amount} ₽")
-        if amount > 0:
-            paid_tariffs.append((code, amount, period))
-
-    if paid_tariffs:
-        lines.append(t('buy.payment_note', lang))
-        buttons.extend(await _create_tariff_buttons(
-            aisystant_id, paid_tariffs, lang, purpose="WORKSHOP",
-        ))
-
     buttons.append([InlineKeyboardButton(
         text=t('schedule.btn_back', lang), callback_data="sched_back",
     )])

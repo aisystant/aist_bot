@@ -14,6 +14,7 @@ Endpoints:
 """
 
 import asyncio
+import os
 from aiohttp import web
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -862,6 +863,51 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def workshop_payment_handler(request: web.Request) -> web.Response:
+    """Webhook от Aisystant при оплате семинара WORKSHOP (WP-181).
+
+    POST /webhook/workshop-payment
+    Body: {"telegram_id": 123, "amount": 5000, "payment_id": "...", "purpose": "WORKSHOP"}
+    """
+    import json
+
+    # Аутентификация: секрет в заголовке (аналогично template_update_handler)
+    expected_secret = os.getenv("WORKSHOP_WEBHOOK_SECRET", "")
+    if expected_secret:
+        provided = request.headers.get("X-Webhook-Secret", "")
+        if provided != expected_secret:
+            logger.warning("[WorkshopWebhook] invalid secret")
+            return web.Response(text='{"ok":false,"error":"unauthorized"}',
+                                content_type="application/json", status=403)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.Response(text='{"ok":false,"error":"invalid json"}',
+                            content_type="application/json", status=400)
+
+    purpose = data.get("purpose", "")
+    if purpose and purpose != "WORKSHOP":
+        return web.Response(text='{"ok":true,"skipped":"not workshop"}',
+                            content_type="application/json")
+
+    if not _bot_instance:
+        logger.error("[WorkshopWebhook] bot instance not set")
+        return web.Response(text='{"ok":false,"error":"bot not ready"}',
+                            content_type="application/json", status=503)
+
+    try:
+        from handlers.workshop import process_workshop_webhook
+        result = await process_workshop_webhook(data, _bot_instance)
+        return web.Response(text=json.dumps(result), content_type="application/json")
+    except Exception as e:
+        logger.error(f"[WorkshopWebhook] error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return web.Response(text=json.dumps({"ok": False, "error": str(e)}),
+                            content_type="application/json", status=500)
+
+
 async def template_update_handler(request: web.Request) -> web.Response:
     """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
 
@@ -1056,6 +1102,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/google-calendar/callback", google_calendar_callback_handler)
     app.router.add_get("/auth/wakatime/callback", wakatime_callback_handler)
     app.router.add_post("/api/template-update", template_update_handler)
+    app.router.add_post("/webhook/workshop-payment", workshop_payment_handler)
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:

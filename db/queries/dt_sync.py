@@ -75,6 +75,40 @@ async def sync_engagement_to_dt() -> dict:
                 # View может не существовать на старых инстансах
                 logger.warning(f"[DT Sync] notification_engagement not available: {e}")
 
+            # ─── Learning history (WP-175 Ф5) ───
+            # Предзагрузка: user_uuid → list of learning_history rows (v2 schema)
+            # Используется для BKT: mastery_by_area, worldview_gaps
+            learning_map: dict = {}
+            try:
+                lh_rows = await conn.fetch('''
+                    SELECT
+                        user_uuid::TEXT AS user_uuid,
+                        element_id,
+                        element_type,
+                        area,
+                        depth,
+                        passed,
+                        created_at
+                    FROM development.learning_history
+                    WHERE schema_version = 2
+                      AND user_uuid IS NOT NULL
+                      AND element_id IS NOT NULL
+                    ORDER BY created_at DESC
+                ''')
+                for lr in lh_rows:
+                    uid = lr['user_uuid']
+                    if uid not in learning_map:
+                        learning_map[uid] = []
+                    learning_map[uid].append({
+                        "element_id": lr['element_id'],
+                        "element_type": lr['element_type'],
+                        "area": lr['area'],
+                        "depth": lr['depth'],
+                        "passed": lr['passed'],
+                    })
+            except Exception as e:
+                logger.warning(f"[DT Sync] learning_history not available: {e}")
+
             # Пользователи с user_uuid (T1+). Если есть dt_user_id (OAuth) —
             # писать по нему (worker ищет по этому ключу). Fallback на user_uuid.
             rows = await conn.fetch('''
@@ -166,8 +200,12 @@ async def sync_engagement_to_dt() -> dict:
                             if key in existing_collected and key not in collected_data:
                                 collected_data[key] = existing_collected[key]
 
-                    # ─── 3_derived (WP-151 Ф4, WP-174: calculation engine) ───
-                    derived_data = calculate_derived(collected_data)
+                    # ─── 3_derived (WP-151 Ф4, WP-174/175: calculation engine v0.7) ───
+                    # learning_map key = user_uuid (str). Prefer dt_user_id for DT key,
+                    # but learning_history is indexed by user_uuid.
+                    lh_user_key = str(row['user_uuid'])
+                    learning_rows = learning_map.get(lh_user_key)
+                    derived_data = calculate_derived(collected_data, learning_rows)
 
                     # Deep merge: 2_collected + 3_derived в одну операцию
                     merge_payload = {
