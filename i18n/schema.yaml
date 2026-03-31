@@ -5882,8 +5882,8 @@ workshop:
     en: "Payment not found yet. Wait a couple of minutes and try again."
 
   post_payment_count1:
-    ru: "Спасибо за оплату!\n\n🎬 Запись семинара: {video_url}\n👥 Ваша ссылка в Сообщество IWE: {invite_url}\n\nНажмите на ссылку — заявка будет одобрена автоматически.\n\n_Если возникли проблемы — пишите @ssm\\_tg_"
-    en: "Thank you for your payment!\n\n🎬 Seminar recording: {video_url}\n👥 Your IWE Community link: {invite_url}\n\nClick the link — your request will be approved automatically.\n\n_If you have any issues — contact @ssm\\_tg_"
+    ru: "Спасибо за оплату!\n\n👥 Ваша ссылка в Сообщество IWE: {invite_url}\nНажмите на ссылку — заявка будет одобрена автоматически.\n\n🎬 Запись семинара: {video_url}\nЕсли возникли проблемы — пишите @ssm_tg"
+    en: "Thank you for your payment!\n\n👥 Your IWE Community link: {invite_url}\nClick the link — your request will be approved automatically.\n\n🎬 Seminar recording: {video_url}\nIf you have any issues — contact @ssm_tg"
 
   post_payment_count2:
     ru: "Спасибо! Вам открыт доступ в Мастерскую Церена.\n\n🔧 Ваша ссылка в Мастерскую: {invite_url}\n\n_Если возникли проблемы — пишите @ssm\\_tg_"
