@@ -129,13 +129,46 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
 async def callback_seminar_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями — витрина МИМ. Webhook от Aisystant придёт при оплате."""
+    """Оплата семинара рублями — ссылка Ю.кассы через Aisystant API.
+
+    Получает тарифы purpose=WORKSHOP, создаёт платёж → прямая ссылка на оплату.
+    Fallback на витрину МИМ если нет aisystant_id или API недоступен.
+    """
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
     await callback.answer()
 
+    aisystant_id = await get_aisystant_id(chat_id)
+
+    if aisystant_id:
+        try:
+            from clients.aisystant import aisystant
+            tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
+            tariff = next(
+                (t_ for t_ in tariffs if int(t_.get("details", {}).get("amount", t_.get("amount", 0)) or 0) > 0),
+                None,
+            )
+            if tariff:
+                code = tariff.get("code", "")
+                amount = int(tariff.get("details", {}).get("amount", tariff.get("amount", 0)) or 0)
+                result = await aisystant.create_subscription_payment(
+                    aisystant_id, code, amount, purpose="WORKSHOP",
+                )
+                if result and result.get("confirmationUrl"):
+                    url = result["confirmationUrl"]
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('workshop.btn_pay_link', lang), url=url)],
+                        [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang),
+                                              callback_data="seminar_iwe_check")],
+                    ])
+                    await callback.message.answer(t('workshop.pay_redirect', lang), reply_markup=keyboard)
+                    return
+        except Exception as e:
+            logger.error(f"[Workshop] Aisystant payment error for {chat_id}: {e}")
+
+    # Fallback: витрина МИМ (нет aisystant_id или ошибка API)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=t('workshop.btn_pay_storefront', lang),
