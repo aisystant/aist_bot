@@ -5845,6 +5845,22 @@ workshop:
     ru: "Для оплаты через бота нужен аккаунт Aisystant.\n\nПривяжите аккаунт или оплатите через витрину: events.system-school.ru"
     en: "Aisystant account is required for in-bot payment.\n\nLink your account or pay via storefront: events.system-school.ru"
 
+  stars_invoice_title:
+    ru: "Семинар «IWE для практиков»"
+    en: "IWE for Practitioners Seminar"
+
+  stars_invoice_description:
+    ru: "Запись семинара + доступ в Чат семинара IWE"
+    en: "Seminar recording + access to IWE Seminar Chat"
+
+  btn_pay_stars:
+    ru: "⭐ Оплатить {stars} Stars"
+    en: "⭐ Pay {stars} Stars"
+
+  pay_stars_intro:
+    ru: "Оплата через Telegram Stars — {stars} Stars.\n\nПосле оплаты вы получите ссылку в Чат семинара IWE и запись семинара."
+    en: "Pay via Telegram Stars — {stars} Stars.\n\nAfter payment you will receive a link to the IWE Seminar Chat and the seminar recording."
+
   pay_error:
     ru: "Ошибка при создании платежа. Попробуйте позже."
     en: "Payment creation error. Please try again later."
