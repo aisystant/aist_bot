@@ -46,7 +46,7 @@ workshop_router = Router(name="workshop")
 SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
 MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
-SEMINAR_AMOUNT = 100  # рублей (ТЕСТ — вернуть 5000 после проверки)
+SEMINAR_AMOUNT = 5000  # рублей
 SEMINAR_AMOUNT_KOPECKS = SEMINAR_AMOUNT * 100  # в копейках для Telegram Payments
 SEMINAR_STARS = 2500
 YOOKASSA_PROVIDER_TOKEN = os.getenv("YOOKASSA_PROVIDER_TOKEN", "")
@@ -130,30 +130,24 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
 async def callback_seminar_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями — Telegram Payments через ЮКассу (нативный инвойс в боте)."""
+    """Оплата семинара рублями — витрина МИМ (временно, до активации ЮКассы API)."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
     await callback.answer()
 
-    if not YOOKASSA_PROVIDER_TOKEN:
-        logger.error("[Workshop] YOOKASSA_PROVIDER_TOKEN не задан")
-        await callback.message.answer(t('workshop.pay_error', lang))
-        return
-
-    try:
-        await callback.message.answer_invoice(
-            title=t('workshop.card_invoice_title', lang),
-            description=t('workshop.card_invoice_description', lang),
-            payload=f"workshop_seminar_{chat_id}",
-            provider_token=YOOKASSA_PROVIDER_TOKEN,
-            currency="RUB",
-            prices=[LabeledPrice(label=t('workshop.card_invoice_title', lang), amount=SEMINAR_AMOUNT_KOPECKS)],
-        )
-    except Exception as e:
-        logger.error(f"[Workshop] Card invoice error for {chat_id}: {e}")
-        await callback.message.answer(t('workshop.pay_error', lang))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=t('workshop.btn_pay_storefront', lang),
+            url="https://events.system-school.ru/tproduct/670575689612-intellektualnaya-rabochaya-sreda-iwe-dly",
+        )],
+        [InlineKeyboardButton(
+            text=t('workshop.btn_paid_check', lang),
+            callback_data="seminar_iwe_check",
+        )],
+    ])
+    await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay")
