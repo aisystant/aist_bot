@@ -135,6 +135,8 @@ async def callback_seminar_pay_rub(callback: CallbackQuery):
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
+    logger.info(f"[Payment] pay_rub initiated: tg={chat_id}, provider_token={'SET' if YOOKASSA_PROVIDER_TOKEN else 'MISSING'}")
+
     await callback.answer()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -148,6 +150,7 @@ async def callback_seminar_pay_rub(callback: CallbackQuery):
         )],
     ])
     await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
+    logger.info(f"[Payment] pay_rub storefront shown: tg={chat_id}")
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay")
@@ -156,6 +159,8 @@ async def callback_seminar_pay(callback: CallbackQuery):
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
+
+    logger.info(f"[Payment] pay_stars initiated: tg={chat_id}, amount={SEMINAR_STARS} XTR")
 
     await callback.answer()
 
@@ -167,6 +172,7 @@ async def callback_seminar_pay(callback: CallbackQuery):
             currency="XTR",
             prices=[LabeledPrice(label="Семинар IWE", amount=SEMINAR_STARS)],
         )
+        logger.info(f"[Payment] stars invoice_link created: tg={chat_id}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
@@ -181,7 +187,7 @@ async def callback_seminar_pay(callback: CallbackQuery):
             reply_markup=keyboard,
         )
     except Exception as e:
-        logger.error(f"[Workshop] Stars invoice error for {chat_id}: {e}")
+        logger.error(f"[Payment] stars invoice error: tg={chat_id}, error={e}")
         await callback.message.answer(t('workshop.pay_error', lang))
 
 
@@ -192,24 +198,31 @@ async def callback_seminar_check(callback: CallbackQuery):
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
+    logger.info(f"[Payment] check initiated: tg={chat_id}")
     count = await get_workshop_payment_count(chat_id)
+    logger.info(f"[Payment] check result: tg={chat_id}, count={count}")
 
     if count == 0:
         await callback.answer(t('workshop.check_not_yet', lang), show_alert=True)
         return
 
     await callback.answer()
-    # Оплата найдена → отправить invite
     await _send_invite_by_count(callback.bot, chat_id, count, lang, callback.message)
 
 
-# ── Stars payment handlers ─────────────────────────────
+# ── Payment handlers ───────────────────────────────────
 
 
 @workshop_router.pre_checkout_query(lambda q: q.invoice_payload.startswith("workshop_seminar_"))
 async def on_workshop_pre_checkout(pre_checkout_query: PreCheckoutQuery):
-    """Подтверждение Stars-платежа за семинар (обязателен в течение 10 сек)."""
+    """Подтверждение платежа за семинар (обязателен в течение 10 сек)."""
+    chat_id = pre_checkout_query.from_user.id
+    currency = pre_checkout_query.currency
+    amount = pre_checkout_query.total_amount
+    payload = pre_checkout_query.invoice_payload
+    logger.info(f"[Payment] pre_checkout: tg={chat_id}, currency={currency}, amount={amount}, payload={payload}")
     await pre_checkout_query.answer(ok=True)
+    logger.info(f"[Payment] pre_checkout answered ok: tg={chat_id}")
 
 
 @workshop_router.message(F.successful_payment)
@@ -218,8 +231,11 @@ async def on_workshop_payment(message: Message):
     payment = message.successful_payment
     payload = getattr(payment, 'invoice_payload', '') or ''
 
+    logger.info(f"[Payment] successful_payment received: tg={message.chat.id}, currency={payment.currency}, amount={payment.total_amount}, payload={payload}, charge_id={payment.telegram_payment_charge_id}")
+
     if not payload.startswith("workshop_seminar_"):
-        return  # не наш платёж — пусть обрабатывает payments_router
+        logger.info(f"[Payment] not our payload, skipping: {payload}")
+        return
 
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
@@ -228,6 +244,7 @@ async def on_workshop_payment(message: Message):
     charge_id = payment.telegram_payment_charge_id
     source = "stars" if payment.currency == "XTR" else "card"
 
+    logger.info(f"[Payment] recording payment: tg={chat_id}, source={source}, amount={payment.total_amount}, charge_id={charge_id}")
     await create_and_confirm_payment(
         telegram_id=chat_id,
         amount=payment.total_amount,
@@ -236,7 +253,7 @@ async def on_workshop_payment(message: Message):
     )
 
     count = await get_workshop_payment_count(chat_id)
-    logger.info(f"[Workshop] {source} payment success: tg={chat_id}, charge={charge_id}, count_after={count}")
+    logger.info(f"[Payment] payment recorded: tg={chat_id}, source={source}, count_after={count}")
 
     await _send_invite_by_count(message.bot, chat_id, count, lang, message)
 
