@@ -92,7 +92,11 @@ async def callback_seminar_iwe(callback: CallbackQuery):
         text = t('workshop.seminar_count0', lang)
         buttons = [
             [InlineKeyboardButton(
-                text=t('workshop.btn_pay', lang),
+                text=t('workshop.btn_pay_rub', lang),
+                callback_data="seminar_iwe_pay_rub",
+            )],
+            [InlineKeyboardButton(
+                text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
                 callback_data="seminar_iwe_pay",
             )],
         ]
@@ -100,7 +104,11 @@ async def callback_seminar_iwe(callback: CallbackQuery):
         text = t('workshop.seminar_count1', lang)
         buttons = [
             [InlineKeyboardButton(
-                text=t('workshop.btn_pay', lang),
+                text=t('workshop.btn_pay_rub', lang),
+                callback_data="seminar_iwe_pay_rub",
+            )],
+            [InlineKeyboardButton(
+                text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
                 callback_data="seminar_iwe_pay",
             )],
         ]
@@ -119,13 +127,9 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 # ── Оплата ─────────────────────────────────────────────
 
 
-@workshop_router.callback_query(F.data == "seminar_iwe_pay")
-async def callback_seminar_pay(callback: CallbackQuery):
-    """Оплата семинара IWE (5000₽).
-
-    Если есть aisystant_id → через Aisystant API (purpose=WORKSHOP).
-    Если нет → прямая оплата через Telegram Stars / запись в workshop_payments.
-    """
+@workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
+async def callback_seminar_pay_rub(callback: CallbackQuery):
+    """Оплата семинара рублями — через Aisystant API или витрину."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
@@ -135,7 +139,6 @@ async def callback_seminar_pay(callback: CallbackQuery):
     aisystant_id = await get_aisystant_id(chat_id)
 
     if aisystant_id:
-        # Через Aisystant API — Aisystant пришлёт webhook при успехе
         try:
             from clients.aisystant import aisystant
             result = await aisystant.create_subscription_payment(
@@ -148,41 +151,60 @@ async def callback_seminar_pay(callback: CallbackQuery):
                     [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang),
                                           callback_data="seminar_iwe_check")],
                 ])
-                await callback.message.answer(
-                    t('workshop.pay_redirect', lang), reply_markup=keyboard,
-                )
+                await callback.message.answer(t('workshop.pay_redirect', lang), reply_markup=keyboard)
                 return
         except Exception as e:
             logger.error(f"[Workshop] Aisystant payment error for {chat_id}: {e}")
-            # Fallback: покажем ошибку, но не блокируем
             await callback.message.answer(t('workshop.pay_error', lang))
             return
     else:
-        # Без aisystant_id — оплата через Telegram Stars
-        try:
-            link = await callback.bot.create_invoice_link(
-                title=t('workshop.stars_invoice_title', lang),
-                description=t('workshop.stars_invoice_description', lang),
-                payload=f"workshop_seminar_{chat_id}",
-                currency="XTR",
-                prices=[LabeledPrice(label="Семинар IWE", amount=SEMINAR_STARS)],
-            )
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
-                    url=link,
-                )],
-                [InlineKeyboardButton(
-                    text=t('schedule.btn_back', lang), callback_data="sched_back",
-                )],
-            ])
-            await callback.message.answer(
-                t('workshop.pay_stars_intro', lang, stars=SEMINAR_STARS),
-                reply_markup=keyboard,
-            )
-        except Exception as e:
-            logger.error(f"[Workshop] Stars invoice error for {chat_id}: {e}")
-            await callback.message.answer(t('workshop.pay_error', lang))
+        # Нет aisystant_id — отправляем на витрину
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=t('workshop.btn_pay_storefront', lang),
+                url="https://events.system-school.ru/tproduct/670575689612-intellektualnaya-rabochaya-sreda-iwe-dly",
+            )],
+            [InlineKeyboardButton(
+                text=t('workshop.btn_paid_check', lang),
+                callback_data="seminar_iwe_check",
+            )],
+        ])
+        await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
+
+
+@workshop_router.callback_query(F.data == "seminar_iwe_pay")
+async def callback_seminar_pay(callback: CallbackQuery):
+    """Оплата семинара через Telegram Stars."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+
+    try:
+        link = await callback.bot.create_invoice_link(
+            title=t('workshop.stars_invoice_title', lang),
+            description=t('workshop.stars_invoice_description', lang),
+            payload=f"workshop_seminar_{chat_id}",
+            currency="XTR",
+            prices=[LabeledPrice(label="Семинар IWE", amount=SEMINAR_STARS)],
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
+                url=link,
+            )],
+            [InlineKeyboardButton(
+                text=t('schedule.btn_back', lang), callback_data="sched_back",
+            )],
+        ])
+        await callback.message.answer(
+            t('workshop.pay_stars_intro', lang, stars=SEMINAR_STARS),
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        logger.error(f"[Workshop] Stars invoice error for {chat_id}: {e}")
+        await callback.message.answer(t('workshop.pay_error', lang))
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_check")

@@ -5825,6 +5825,18 @@ workshop:
     ru: "💳 Оплатить 5000₽"
     en: "💳 Pay 5000₽"
 
+  btn_pay_rub:
+    ru: "💳 Оплатить картой (5000₽)"
+    en: "💳 Pay by card (5000₽)"
+
+  btn_pay_storefront:
+    ru: "🌐 Перейти на витрину"
+    en: "🌐 Go to storefront"
+
+  pay_storefront:
+    ru: "Оплата картой через сайт МИМ.\n\nПосле оплаты нажмите «Я оплатил — проверить»."
+    en: "Pay by card via MIM website.\n\nAfter payment click 'I paid — check'."
+
   btn_pay_link:
     ru: "💳 Перейти к оплате"
     en: "💳 Proceed to payment"
