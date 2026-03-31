@@ -266,7 +266,6 @@ async def _send_invite_by_count(bot: Bot, chat_id: int, count: int, lang: str, m
     try:
         invite = await bot.create_chat_invite_link(
             chat_id=target_chat_id,
-            member_limit=1,
             creates_join_request=True,
         )
         invite_url = invite.invite_link
