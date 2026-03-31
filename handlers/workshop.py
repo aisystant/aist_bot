@@ -21,7 +21,9 @@ from aiogram.types import (
     ChatMemberUpdated,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    LabeledPrice,
     Message,
+    PreCheckoutQuery,
 )
 from aiogram.filters import Command, ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
 
@@ -46,6 +48,7 @@ SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
 MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
 SEMINAR_AMOUNT = 5000
+SEMINAR_STARS = 1  # TODO: вернуть 2500 после тестирования
 
 MANAGED_CHAT_IDS = frozenset()
 
@@ -155,20 +158,31 @@ async def callback_seminar_pay(callback: CallbackQuery):
             await callback.message.answer(t('workshop.pay_error', lang))
             return
     else:
-        # Без aisystant_id — прямая запись (оплата будет через Telegram Stars позже)
-        # Пока: показываем сообщение о необходимости привязки или оплаты через витрину
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('workshop.btn_link_account', lang),
-                callback_data="link_check",
-            )],
-            [InlineKeyboardButton(
-                text=t('schedule.btn_back', lang), callback_data="sched_back",
-            )],
-        ])
-        await callback.message.answer(
-            t('workshop.pay_need_account', lang), reply_markup=keyboard,
-        )
+        # Без aisystant_id — оплата через Telegram Stars
+        try:
+            link = await callback.bot.create_invoice_link(
+                title=t('workshop.stars_invoice_title', lang),
+                description=t('workshop.stars_invoice_description', lang),
+                payload=f"workshop_seminar_{chat_id}",
+                currency="XTR",
+                prices=[LabeledPrice(label="Семинар IWE", amount=SEMINAR_STARS)],
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
+                    url=link,
+                )],
+                [InlineKeyboardButton(
+                    text=t('schedule.btn_back', lang), callback_data="sched_back",
+                )],
+            ])
+            await callback.message.answer(
+                t('workshop.pay_stars_intro', lang, stars=SEMINAR_STARS),
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            logger.error(f"[Workshop] Stars invoice error for {chat_id}: {e}")
+            await callback.message.answer(t('workshop.pay_error', lang))
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_check")
@@ -187,6 +201,43 @@ async def callback_seminar_check(callback: CallbackQuery):
     await callback.answer()
     # Оплата найдена → отправить invite
     await _send_invite_by_count(callback.bot, chat_id, count, lang, callback.message)
+
+
+# ── Stars payment handlers ─────────────────────────────
+
+
+@workshop_router.pre_checkout_query(lambda q: q.invoice_payload.startswith("workshop_seminar_"))
+async def on_workshop_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    """Подтверждение Stars-платежа за семинар (обязателен в течение 10 сек)."""
+    await pre_checkout_query.answer(ok=True)
+
+
+@workshop_router.message(F.successful_payment)
+async def on_workshop_stars_payment(message: Message):
+    """Успешная оплата семинара Stars → записать в workshop_payments → выдать invite."""
+    payment = message.successful_payment
+    payload = getattr(payment, 'invoice_payload', '') or ''
+
+    if not payload.startswith("workshop_seminar_"):
+        return  # не наш платёж — пусть обрабатывает payments_router
+
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    charge_id = payment.telegram_payment_charge_id
+
+    await create_and_confirm_payment(
+        telegram_id=chat_id,
+        amount=payment.total_amount,
+        source="stars",
+        payment_id=charge_id,
+    )
+
+    count = await get_workshop_payment_count(chat_id)
+    logger.info(f"[Workshop] Stars payment success: tg={chat_id}, charge={charge_id}, count_after={count}")
+
+    await _send_invite_by_count(message.bot, chat_id, count, lang, message)
 
 
 # ── Invite + Approve ───────────────────────────────────
