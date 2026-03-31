@@ -46,7 +46,7 @@ workshop_router = Router(name="workshop")
 SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
 MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
-SEMINAR_AMOUNT = 50  # рублей (ТЕСТ — вернуть 5000 после проверки)
+SEMINAR_AMOUNT = 100  # рублей (ТЕСТ — вернуть 5000 после проверки)
 SEMINAR_AMOUNT_KOPECKS = SEMINAR_AMOUNT * 100  # в копейках для Telegram Payments
 SEMINAR_STARS = 2500
 YOOKASSA_PROVIDER_TOKEN = os.getenv("YOOKASSA_PROVIDER_TOKEN", "")
