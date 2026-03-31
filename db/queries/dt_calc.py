@@ -1,4 +1,9 @@
 """
+ТЕХДОЛГ (WP-197): Этот файл принадлежит роли R28 Профилировщик.
+Каноническое место: DS-IT-systems/DS-ai-systems/profiler/scripts/dt_calc.py
+Копия здесь временная — до реализации механизма импорта между репо (pip install -e / symlink).
+Не редактировать здесь — редактировать в profiler/scripts/ и синхронизировать.
+
 Calculation Engine v0.7 — derived indicators из 2_collected + learning_history (WP-151, WP-174, WP-175 Ф5).
 
 Вычисляет IND.3 (derived) из IND.2 (collected) данных.

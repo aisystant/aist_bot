@@ -472,9 +472,14 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 **Dev-команда:** `/dt_sync` — ручной запуск sync (TD1 only).
 
-## 12c. Calculation Engine v0.6 (WP-151 Ф4, WP-174)
+## 12c. Calculation Engine v0.7 (WP-151 Ф4, WP-174, WP-197)
 
-**Файлы:** `db/queries/dt_calc.py` (модуль), `db/queries/dt_sync.py` (интеграция)
+**Файлы:** `db/queries/dt_calc.py` (временная копия⚠️), `db/queries/dt_sync.py` (оркестратор)
+
+> ⚠️ **ТЕХДОЛГ (WP-197):** `dt_calc.py` принадлежит роли R28 Профилировщик.
+> Каноническое место: `DS-IT-systems/DS-ai-systems/profiler/scripts/dt_calc.py`
+> Здесь — временная копия до реализации механизма импорта между репо.
+> Редактировать только в `profiler/scripts/`, затем синхронизировать.
 
 **Принцип:** `2_collected` → `calculate_derived()` → `3_derived`. Чистые функции, без DB-вызовов. Вызываются в `sync_engagement_to_dt()` для каждого пользователя. `sync` подтягивает существующие `2_6_coding`/`2_7_iwe` из digital_twins перед расчётом.
 
