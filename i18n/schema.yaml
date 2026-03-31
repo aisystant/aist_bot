@@ -5882,17 +5882,17 @@ workshop:
     en: "Payment not found yet. Wait a couple of minutes and try again."
 
   post_payment_count1:
-    ru: "Спасибо за оплату!\n\n🎬 Запись семинара: {video_url}\n👥 Ваша ссылка в Сообщество IWE: {invite_url}\n\nНажмите на ссылку — заявка будет одобрена автоматически."
-    en: "Thank you for your payment!\n\n🎬 Seminar recording: {video_url}\n👥 Your IWE Community link: {invite_url}\n\nClick the link — your request will be approved automatically."
+    ru: "Спасибо за оплату!\n\n🎬 Запись семинара: {video_url}\n👥 Ваша ссылка в Сообщество IWE: {invite_url}\n\nНажмите на ссылку — заявка будет одобрена автоматически.\n\n_Если возникли проблемы — пишите @ssm\\_tg_"
+    en: "Thank you for your payment!\n\n🎬 Seminar recording: {video_url}\n👥 Your IWE Community link: {invite_url}\n\nClick the link — your request will be approved automatically.\n\n_If you have any issues — contact @ssm\\_tg_"
 
   post_payment_count2:
-    ru: "Спасибо! Вам открыт доступ в Мастерскую Церена.\n\n🔧 Ваша ссылка в Мастерскую: {invite_url}"
-    en: "Thank you! You now have access to Tseren's Workshop.\n\n🔧 Your Workshop link: {invite_url}"
+    ru: "Спасибо! Вам открыт доступ в Мастерскую Церена.\n\n🔧 Ваша ссылка в Мастерскую: {invite_url}\n\n_Если возникли проблемы — пишите @ssm\\_tg_"
+    en: "Thank you! You now have access to Tseren's Workshop.\n\n🔧 Your Workshop link: {invite_url}\n\n_If you have any issues — contact @ssm\\_tg_"
 
   post_payment_count3:
     ru: "Спасибо за поддержку! У вас уже есть доступ ко всем чатам."
     en: "Thank you for your support! You already have access to all chats."
 
   invite_error:
-    ru: "Не удалось создать ссылку-приглашение. Обратитесь к администратору."
-    en: "Failed to create invite link. Please contact the administrator."
+    ru: "Оплата прошла, но не удалось создать ссылку-приглашение. Пожалуйста, напишите @ssm_tg — вас добавят вручную."
+    en: "Payment succeeded but failed to create invite link. Please contact @ssm_tg — you will be added manually."
