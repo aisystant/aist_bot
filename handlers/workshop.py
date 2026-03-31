@@ -1,5 +1,5 @@
 """
-Сообщество IWE — допуск через оплату семинара (WP-181).
+Воронка IWE — допуск в чаты (WP-181). Чат семинара IWE (1-я оплата), Мастерская IWE (2-я оплата).
 
 Callbacks:
 - sched_seminar_iwe        — меню «Семинар IWE» (по count оплат)
@@ -42,8 +42,8 @@ workshop_router = Router(name="workshop")
 
 # ── Config ─────────────────────────────────────────────
 
-COMMUNITY_IWE_CHAT_ID = int(os.getenv("COMMUNITY_IWE_CHAT_ID", "0"))
-MASTERSKAYA_CHAT_ID = int(os.getenv("MASTERSKAYA_CHAT_ID", "0"))
+SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
+MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
 SEMINAR_AMOUNT = 5000
 
@@ -54,10 +54,10 @@ def _init_managed_chats():
     """Инициализировать set управляемых чатов (после загрузки env)."""
     global MANAGED_CHAT_IDS
     ids = set()
-    if COMMUNITY_IWE_CHAT_ID:
-        ids.add(COMMUNITY_IWE_CHAT_ID)
-    if MASTERSKAYA_CHAT_ID:
-        ids.add(MASTERSKAYA_CHAT_ID)
+    if SEMINAR_IWE_CHAT_ID:
+        ids.add(SEMINAR_IWE_CHAT_ID)
+    if MASTERSKAYA_IWE_CHAT_ID:
+        ids.add(MASTERSKAYA_IWE_CHAT_ID)
     MANAGED_CHAT_IDS = frozenset(ids)
 
 
@@ -203,9 +203,9 @@ async def _send_invite_by_count(bot: Bot, chat_id: int, count: int, lang: str, m
         return
 
     if count == 1:
-        target_chat_id = COMMUNITY_IWE_CHAT_ID
+        target_chat_id = SEMINAR_IWE_CHAT_ID
     elif count == 2:
-        target_chat_id = MASTERSKAYA_CHAT_ID
+        target_chat_id = MASTERSKAYA_IWE_CHAT_ID
     else:
         return
 
@@ -252,10 +252,10 @@ async def handle_community_join_request(request: ChatJoinRequest):
 
     count = await get_workshop_payment_count(user_id)
 
-    if request_chat_id == COMMUNITY_IWE_CHAT_ID and count >= 1:
+    if request_chat_id == SEMINAR_IWE_CHAT_ID and count >= 1:
         await request.approve()
         logger.info(f"[Workshop] approved join: tg={user_id}, chat=community, count={count}")
-    elif request_chat_id == MASTERSKAYA_CHAT_ID and count >= 2:
+    elif request_chat_id == MASTERSKAYA_IWE_CHAT_ID and count >= 2:
         await request.approve()
         logger.info(f"[Workshop] approved join: tg={user_id}, chat=masterskaya, count={count}")
     else:
@@ -316,8 +316,8 @@ async def cmd_community_report(message: Message):
     parts = []
 
     for chat_id, chat_name in [
-        (COMMUNITY_IWE_CHAT_ID, "Сообщество IWE"),
-        (MASTERSKAYA_CHAT_ID, "Мастерская Церена"),
+        (SEMINAR_IWE_CHAT_ID, "Чат семинара IWE"),
+        (MASTERSKAYA_IWE_CHAT_ID, "Мастерская IWE"),
     ]:
         if not chat_id:
             continue
@@ -348,7 +348,7 @@ async def cmd_community_report(message: Message):
         parts.append("\n".join(lines))
 
     if not parts:
-        await message.answer("Чаты не настроены (COMMUNITY_IWE_CHAT_ID / MASTERSKAYA_CHAT_ID).")
+        await message.answer("Чаты не настроены (SEMINAR_IWE_CHAT_ID / MASTERSKAYA_IWE_CHAT_ID).")
         return
 
     await message.answer("\n\n".join(parts), parse_mode="HTML")
