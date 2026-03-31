@@ -310,6 +310,7 @@ async def main():
                     "message", "callback_query", "inline_query",
                     "channel_post", "my_chat_member",
                     "chat_member", "chat_join_request", "edited_message",
+                    "pre_checkout_query", "shipping_query",
                 ],
             )
             # Verify webhook is reachable (getWebhookInfo diagnostic)
@@ -353,6 +354,7 @@ async def main():
                             "message", "callback_query", "inline_query",
                             "channel_post", "my_chat_member",
                             "chat_member", "chat_join_request", "edited_message",
+                            "pre_checkout_query", "shipping_query",
                         ],
                     )
                     logger.info("✅ Webhook re-registered (post-deploy safety)")
