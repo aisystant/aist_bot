@@ -5850,8 +5850,8 @@ workshop:
     en: "🔗 Link Aisystant account"
 
   pay_redirect:
-    ru: "Перейдите по ссылке для оплаты. После оплаты нажмите «Проверить»."
-    en: "Follow the link to pay. After payment, click 'Check'."
+    ru: "Перейдите по ссылке для оплаты. После оплаты нажмите «Проверить». Вам должна будет направлена одноразовая ссылка на чат семинара. Если будут проблемы, то пишите @ssm_tg"
+    en: "Follow the link to pay. After payment, click 'Check'. You will receive a one-time link to the seminar chat. If you have any issues, contact @ssm_tg"
 
   pay_need_account:
     ru: "Для оплаты через бота нужен аккаунт Aisystant.\n\nПривяжите аккаунт или оплатите через витрину: events.system-school.ru"
