@@ -5834,8 +5834,8 @@ workshop:
     en: "🌐 Go to storefront"
 
   pay_storefront:
-    ru: "Оплата картой через сайт МИМ.\n\nПосле оплаты нажмите «Я оплатил — проверить»."
-    en: "Pay by card via MIM website.\n\nAfter payment click 'I paid — check'."
+    ru: "Перейдите по ссылке для оплаты картой. После оплаты нажмите «Я оплатил — проверить». Вам будет направлена одноразовая ссылка на чат семинара. Если будут проблемы, пишите @ssm_tg"
+    en: "Follow the link to pay by card. After payment, click 'I paid — check'. You will receive a one-time link to the seminar chat. If you have any issues, contact @ssm_tg"
 
   btn_pay_link:
     ru: "💳 Перейти к оплате"
