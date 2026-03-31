@@ -5857,6 +5857,14 @@ workshop:
     ru: "Для оплаты через бота нужен аккаунт Aisystant.\n\nПривяжите аккаунт или оплатите через витрину: events.system-school.ru"
     en: "Aisystant account is required for in-bot payment.\n\nLink your account or pay via storefront: events.system-school.ru"
 
+  card_invoice_title:
+    ru: "Семинар «IWE для практиков»"
+    en: "IWE for Practitioners Seminar"
+
+  card_invoice_description:
+    ru: "Запись семинара + доступ в Чат семинара IWE"
+    en: "Seminar recording + access to IWE Seminar Chat"
+
   stars_invoice_title:
     ru: "Семинар «IWE для практиков»"
     en: "IWE for Practitioners Seminar"

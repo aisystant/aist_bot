@@ -28,7 +28,6 @@ from aiogram.types import (
 from aiogram.filters import Command, ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
 
 from db.queries import get_intern
-from db.queries.aisystant import get_aisystant_id
 from db.queries.workshop import (
     get_workshop_payment_count,
     create_and_confirm_payment,
@@ -47,8 +46,10 @@ workshop_router = Router(name="workshop")
 SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
 MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
-SEMINAR_AMOUNT = 5000
+SEMINAR_AMOUNT = 5000  # рублей
+SEMINAR_AMOUNT_KOPECKS = SEMINAR_AMOUNT * 100  # в копейках для Telegram Payments
 SEMINAR_STARS = 2500
+YOOKASSA_PROVIDER_TOKEN = os.getenv("YOOKASSA_PROVIDER_TOKEN", "")
 
 MANAGED_CHAT_IDS = frozenset()
 
@@ -129,57 +130,30 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
 async def callback_seminar_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями — ссылка Ю.кассы через Aisystant API.
-
-    Получает тарифы purpose=WORKSHOP, создаёт платёж → прямая ссылка на оплату.
-    Fallback на витрину МИМ если нет aisystant_id или API недоступен.
-    """
+    """Оплата семинара рублями — Telegram Payments через ЮКассу (нативный инвойс в боте)."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
     await callback.answer()
 
-    aisystant_id = await get_aisystant_id(chat_id)
+    if not YOOKASSA_PROVIDER_TOKEN:
+        logger.error("[Workshop] YOOKASSA_PROVIDER_TOKEN не задан")
+        await callback.message.answer(t('workshop.pay_error', lang))
+        return
 
-    if aisystant_id:
-        try:
-            from clients.aisystant import aisystant
-            tariffs = await aisystant.get_subscription_tariffs(aisystant_id, purpose="WORKSHOP")
-            tariff = next(
-                (t_ for t_ in tariffs if int(t_.get("details", {}).get("amount", t_.get("amount", 0)) or 0) > 0),
-                None,
-            )
-            if tariff:
-                code = tariff.get("code", "")
-                amount = int(tariff.get("details", {}).get("amount", tariff.get("amount", 0)) or 0)
-                result = await aisystant.create_subscription_payment(
-                    aisystant_id, code, amount, purpose="WORKSHOP",
-                )
-                if result and result.get("confirmationUrl"):
-                    url = result["confirmationUrl"]
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=t('workshop.btn_pay_link', lang), url=url)],
-                        [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang),
-                                              callback_data="seminar_iwe_check")],
-                    ])
-                    await callback.message.answer(t('workshop.pay_redirect', lang), reply_markup=keyboard)
-                    return
-        except Exception as e:
-            logger.error(f"[Workshop] Aisystant payment error for {chat_id}: {e}")
-
-    # Fallback: витрина МИМ (нет aisystant_id или ошибка API)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=t('workshop.btn_pay_storefront', lang),
-            url="https://events.system-school.ru/tproduct/670575689612-intellektualnaya-rabochaya-sreda-iwe-dly",
-        )],
-        [InlineKeyboardButton(
-            text=t('workshop.btn_paid_check', lang),
-            callback_data="seminar_iwe_check",
-        )],
-    ])
-    await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
+    try:
+        await callback.message.answer_invoice(
+            title=t('workshop.card_invoice_title', lang),
+            description=t('workshop.card_invoice_description', lang),
+            payload=f"workshop_seminar_{chat_id}",
+            provider_token=YOOKASSA_PROVIDER_TOKEN,
+            currency="RUB",
+            prices=[LabeledPrice(label=t('workshop.card_invoice_title', lang), amount=SEMINAR_AMOUNT_KOPECKS)],
+        )
+    except Exception as e:
+        logger.error(f"[Workshop] Card invoice error for {chat_id}: {e}")
+        await callback.message.answer(t('workshop.pay_error', lang))
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay")
@@ -245,8 +219,8 @@ async def on_workshop_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 
 @workshop_router.message(F.successful_payment)
-async def on_workshop_stars_payment(message: Message):
-    """Успешная оплата семинара Stars → записать в workshop_payments → выдать invite."""
+async def on_workshop_payment(message: Message):
+    """Успешная оплата семинара (Stars или карта) → записать в workshop_payments → выдать invite."""
     payment = message.successful_payment
     payload = getattr(payment, 'invoice_payload', '') or ''
 
@@ -258,16 +232,17 @@ async def on_workshop_stars_payment(message: Message):
     lang = _lang(intern)
 
     charge_id = payment.telegram_payment_charge_id
+    source = "stars" if payment.currency == "XTR" else "card"
 
     await create_and_confirm_payment(
         telegram_id=chat_id,
         amount=payment.total_amount,
-        source="stars",
+        source=source,
         payment_id=charge_id,
     )
 
     count = await get_workshop_payment_count(chat_id)
-    logger.info(f"[Workshop] Stars payment success: tg={chat_id}, charge={charge_id}, count_after={count}")
+    logger.info(f"[Workshop] {source} payment success: tg={chat_id}, charge={charge_id}, count_after={count}")
 
     await _send_invite_by_count(message.bot, chat_id, count, lang, message)
 
