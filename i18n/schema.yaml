@@ -5810,8 +5810,8 @@ channels:
 # ═══════════════════════════════════════════════════════════
 workshop:
   seminar_count0:
-    ru: "🎓 *Семинар «IWE для практиков»*\n\nИнтеллектуальная рабочая среда — операционная система для тех, кто хочет системно работать и развиваться.\n\nВы получите:\n— Запись семинара (навсегда)\n— Доступ в Сообщество IWE (чат практиков)\n\nЦена: 5000₽"
-    en: "🎓 *IWE for Practitioners Seminar*\n\nIntellectual Work Environment — an operating system for those who want to work and develop systematically.\n\nYou will get:\n— Seminar recording (forever)\n— Access to IWE Community (practitioners chat)\n\nPrice: 5000₽"
+    ru: "🎓 *Семинар «IWE для практиков»*\n\nИнтеллектуальная рабочая среда — операционная система с ИИ-агентами для тех, кто хочет системно работать и развиваться.\n\nВы получите (навсегда):\n— Запись семинара\n— Доступ в чат с участниками семинара (более 100 человек)\n\nЦена: 5000₽"
+    en: "🎓 *IWE for Practitioners Seminar*\n\nIntellectual Work Environment — an AI-powered operating system for those who want to work and develop systematically.\n\nYou will get (forever):\n— Seminar recording\n— Access to the seminar participants chat (100+ people)\n\nPrice: 5000₽"
 
   seminar_count1:
     ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ У вас есть доступ в Сообщество IWE\n\nСледующий шаг — Мастерская Церена: еженедельные разборы рабочих продуктов.\nПовторная оплата семинара (5000₽) откроет доступ в Мастерскую."
