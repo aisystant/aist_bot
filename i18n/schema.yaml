@@ -5866,8 +5866,8 @@ workshop:
     en: "Seminar recording + access to IWE Seminar Chat"
 
   btn_pay_stars:
-    ru: "⭐ Оплатить {stars} Stars"
-    en: "⭐ Pay {stars} Stars"
+    ru: "⭐ Оплатить {stars} Stars (~52 EUR)"
+    en: "⭐ Pay {stars} Stars (~52 EUR)"
 
   pay_stars_intro:
     ru: "Оплата через Telegram Stars — {stars} Stars.\n\nПосле оплаты вы получите ссылку в Чат семинара IWE и запись семинара."
