@@ -48,7 +48,7 @@ SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
 MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
 SEMINAR_AMOUNT = 5000
-SEMINAR_STARS = 1  # TODO: вернуть 2500 после тестирования
+SEMINAR_STARS = 2500
 
 MANAGED_CHAT_IDS = frozenset()
 
