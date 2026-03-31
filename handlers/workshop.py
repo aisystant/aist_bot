@@ -129,47 +129,24 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
 async def callback_seminar_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями — через Aisystant API или витрину."""
+    """Оплата семинара рублями — витрина МИМ. Webhook от Aisystant придёт при оплате."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
     await callback.answer()
 
-    aisystant_id = await get_aisystant_id(chat_id)
-
-    if aisystant_id:
-        try:
-            from clients.aisystant import aisystant
-            result = await aisystant.create_subscription_payment(
-                aisystant_id, "WORKSHOP_SEMINAR", SEMINAR_AMOUNT, purpose="WORKSHOP",
-            )
-            if result and result.get("confirmationUrl"):
-                url = result["confirmationUrl"]
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=t('workshop.btn_pay_link', lang), url=url)],
-                    [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang),
-                                          callback_data="seminar_iwe_check")],
-                ])
-                await callback.message.answer(t('workshop.pay_redirect', lang), reply_markup=keyboard)
-                return
-        except Exception as e:
-            logger.error(f"[Workshop] Aisystant payment error for {chat_id}: {e}")
-            await callback.message.answer(t('workshop.pay_error', lang))
-            return
-    else:
-        # Нет aisystant_id — отправляем на витрину
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('workshop.btn_pay_storefront', lang),
-                url="https://events.system-school.ru/tproduct/670575689612-intellektualnaya-rabochaya-sreda-iwe-dly",
-            )],
-            [InlineKeyboardButton(
-                text=t('workshop.btn_paid_check', lang),
-                callback_data="seminar_iwe_check",
-            )],
-        ])
-        await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=t('workshop.btn_pay_storefront', lang),
+            url="https://events.system-school.ru/tproduct/670575689612-intellektualnaya-rabochaya-sreda-iwe-dly",
+        )],
+        [InlineKeyboardButton(
+            text=t('workshop.btn_paid_check', lang),
+            callback_data="seminar_iwe_check",
+        )],
+    ])
+    await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay")
