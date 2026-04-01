@@ -253,12 +253,18 @@ def calc_worldview_gaps(learning_rows: list[dict], student_stage: int) -> list[d
 # IND.3.1.02 — Slot Regularity (доля дней со слотом)
 # ═══════════════════════════════════════════════════════════
 
-def calc_slot_regularity(collected: dict) -> float:
+def calc_slot_regularity(collected: dict, as_of: Optional[datetime] = None) -> float:
     """Доля активных дней от общего числа дней с первого события.
 
     IND.3.1.02: days_with_activity / total_days_since_start.
     Пороги (days/week): Random <1, Practicing ≥3, Systematic ≥5,
                         Disciplined ≥6, Proactive ≥6.7.
+
+    Args:
+        collected: данные 2_collected из digital_twins
+        as_of: точка отсчёта «сейчас» (UTC). None = datetime.now(timezone.utc).
+               Передавай явно при on-demand вызовах чтобы все пользователи
+               в одном batch считались на один момент времени.
 
     Returns:
         float 0.0–1.0 (ratio) or 0.0 if insufficient data.
@@ -282,7 +288,8 @@ def calc_slot_regularity(collected: dict) -> float:
         if first_dt.tzinfo is None:
             first_dt = first_dt.replace(tzinfo=timezone.utc)
 
-        total_days = (datetime.now(timezone.utc) - first_dt).days
+        now = as_of if as_of is not None else datetime.now(timezone.utc)
+        total_days = (now - first_dt).days
         if total_days <= 0:
             return 1.0  # Same day
 
@@ -295,7 +302,7 @@ def calc_slot_regularity(collected: dict) -> float:
 # IND.3.4.01 — Student Stage (ступень ученика)
 # ═══════════════════════════════════════════════════════════
 
-def calc_student_stage(collected: dict) -> dict:
+def calc_student_stage(collected: dict, as_of: Optional[datetime] = None) -> dict:
     """Определить ступень ученика по threshold rules из метамодели.
 
     IND.3.4.01: categorical enum STG.Student.*.
@@ -352,7 +359,7 @@ def calc_student_stage(collected: dict) -> dict:
     wp_completed = iwe.get('wp_completed_total', 0) or 0
 
     # Slot regularity for stage determination
-    regularity = calc_slot_regularity(collected)
+    regularity = calc_slot_regularity(collected, as_of=as_of)
     days_per_week = regularity * 7
 
     # Evidence dict
@@ -430,7 +437,7 @@ def calc_student_stage(collected: dict) -> dict:
 # IND.3.10.1 — Integral Agency Index (0–100)
 # ═══════════════════════════════════════════════════════════
 
-def calc_integral_agency_index(collected: dict) -> dict:
+def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None) -> dict:
     """Агрегированный индекс агентности из групп 2_1–2_5.
 
     IND.3.10.1: weighted sum of normalized metrics → 0-100 scale.
@@ -455,7 +462,7 @@ def calc_integral_agency_index(collected: dict) -> dict:
     notifications = collected.get('2_5_notifications') or {}
 
     # 1. Regularity (30%) — slot_regularity normalized to 0-100
-    regularity = calc_slot_regularity(collected)
+    regularity = calc_slot_regularity(collected, as_of=as_of)
     regularity_score = min(regularity * 100 / 0.8, 100)  # 80%+ = 100
 
     # 2. Activity intensity (25%) — events_30d normalized
@@ -511,7 +518,7 @@ def calc_integral_agency_index(collected: dict) -> dict:
 # PUBLIC API
 # ═══════════════════════════════════════════════════════════
 
-def calculate_derived(collected: dict, learning_rows: list[dict] | None = None) -> dict:
+def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, as_of: Optional[datetime] = None) -> dict:
     """Вычислить все derived-индикаторы из 2_collected + learning_history данных.
 
     Args:
@@ -537,9 +544,10 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None) 
         return {}
 
     try:
-        stage_result = calc_student_stage(collected)
-        agency_result = calc_integral_agency_index(collected)
-        regularity = calc_slot_regularity(collected)
+        now = as_of if as_of is not None else datetime.now(timezone.utc)
+        stage_result = calc_student_stage(collected, as_of=now)
+        agency_result = calc_integral_agency_index(collected, as_of=now)
+        regularity = calc_slot_regularity(collected, as_of=now)
 
         derived = {
             "3_1_agency": {
@@ -548,7 +556,7 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None) 
             },
             "3_4_qualification": stage_result,
             "3_10_integral": agency_result,
-            "calculated_at": datetime.now(timezone.utc).isoformat(),
+            "calculated_at": now.isoformat(),
             "engine_version": "0.7",
         }
 

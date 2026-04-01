@@ -1073,6 +1073,141 @@ async def template_update_handler(request: web.Request) -> web.Response:
     return web.Response(text=json.dumps(result), content_type="application/json")
 
 
+async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
+    """GitHub webhook: push в workbook/ репозитория DS-creator-development (WP-175 Ф9-B).
+
+    Сценарий SC.020:
+      ученик git push workbook/YYYY-MM-DD.md
+      → GitHub → POST /webhook/github/workbook
+      → Activity Hub ingest_event(source='iwe')
+      → sync_one_user_to_dt(user_id)  ← пересчёт ЦД прямо сейчас
+
+    Аутентификация: HMAC-SHA256 (заголовок X-Hub-Signature-256, секрет GITHUB_WORKBOOK_WEBHOOK_SECRET).
+    Фильтр: только события push, только файлы под workbook/.
+    Маппинг пользователя: github_connections.github_username → dt_tokens.dt_user_id.
+    """
+    import hashlib
+    import hmac
+    import json as _json
+    import asyncio
+
+    # ── Аутентификация ──────────────────────────────────────────────────────
+    secret = os.getenv("GITHUB_WORKBOOK_WEBHOOK_SECRET", "")
+    if secret:
+        sig_header = request.headers.get("X-Hub-Signature-256", "")
+        body = await request.read()
+        expected = "sha256=" + hmac.new(
+            secret.encode(), body, hashlib.sha256
+        ).hexdigest()  # hmac.new(key, msg, digestmod) — стандартный Python API
+        if not hmac.compare_digest(sig_header, expected):
+            logger.warning("[WorkbookWebhook] invalid HMAC signature")
+            return web.Response(
+                text='{"ok":false,"error":"unauthorized"}',
+                content_type="application/json", status=403,
+            )
+    else:
+        body = await request.read()
+
+    # ── Парсинг payload ─────────────────────────────────────────────────────
+    try:
+        payload = _json.loads(body)
+    except Exception:
+        return web.Response(
+            text='{"ok":false,"error":"invalid json"}',
+            content_type="application/json", status=400,
+        )
+
+    # Только push-события
+    event_type = request.headers.get("X-GitHub-Event", "")
+    if event_type != "push":
+        return web.Response(
+            text='{"ok":true,"skipped":"not push"}',
+            content_type="application/json",
+        )
+
+    # ── Фильтр путей: только workbook/ ──────────────────────────────────────
+    commits = payload.get("commits") or []
+    workbook_files = [
+        f for commit in commits
+        for f in (commit.get("added", []) + commit.get("modified", []))
+        if f.startswith("workbook/")
+    ]
+    if not workbook_files:
+        return web.Response(
+            text='{"ok":true,"skipped":"no workbook files"}',
+            content_type="application/json",
+        )
+
+    # ── Маппинг: github_username → dt_user_id ───────────────────────────────
+    pusher_login = (payload.get("pusher") or {}).get("name", "")
+    if not pusher_login:
+        logger.warning("[WorkbookWebhook] no pusher.name in payload")
+        return web.Response(
+            text='{"ok":false,"error":"no pusher"}',
+            content_type="application/json", status=400,
+        )
+
+    from db.connection import get_pool
+    from db.queries.dt_sync import sync_one_user_to_dt
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT dt.dt_user_id, gh.chat_id
+               FROM github_connections gh
+               LEFT JOIN dt_tokens dt ON dt.chat_id = gh.chat_id
+               WHERE gh.github_username = $1
+               LIMIT 1""",
+            pusher_login,
+        )
+
+    if not row or not row["dt_user_id"]:
+        logger.warning(
+            "[WorkbookWebhook] no dt_user_id for github_username=%s", pusher_login
+        )
+        return web.Response(
+            text='{"ok":false,"error":"user not found"}',
+            content_type="application/json", status=404,
+        )
+
+    dt_user_id = str(row["dt_user_id"])
+    commit_sha = payload.get("after", "unknown")
+
+    # ── Activity Hub: записать событие ──────────────────────────────────────
+    try:
+        from activity_hub.core.hub import ingest_event
+        from activity_hub.core.models import RawEvent
+
+        event = RawEvent(
+            source="iwe",
+            external_id=commit_sha,
+            user_ref={"ory_uuid": dt_user_id},
+            event_type="workbook_push",
+            payload={
+                "files": workbook_files,
+                "repo": (payload.get("repository") or {}).get("full_name", ""),
+                "commit_sha": commit_sha,
+            },
+            confidence=1.0,
+        )
+        async with pool.acquire() as conn:
+            await ingest_event(conn, event)
+    except Exception as e:
+        logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
+
+    # ── On-demand пересчёт ЦД ────────────────────────────────────────────────
+    asyncio.create_task(sync_one_user_to_dt(dt_user_id))
+
+    logger.info(
+        "[WorkbookWebhook] pushed by %s (dt_user_id=%s), files=%s, dt_sync scheduled",
+        pusher_login, dt_user_id, workbook_files,
+    )
+    return web.Response(
+        text='{"ok":true}',
+        content_type="application/json",
+    )
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -1103,6 +1238,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/wakatime/callback", wakatime_callback_handler)
     app.router.add_post("/api/template-update", template_update_handler)
     app.router.add_post("/webhook/workshop-payment", workshop_payment_handler)
+    app.router.add_post("/webhook/github/workbook", github_workbook_webhook_handler)
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:

@@ -283,6 +283,182 @@ async def get_engagement_data(user_uuid: str) -> dict | None:
     return None
 
 
+async def sync_one_user_to_dt(user_id: str) -> bool:
+    """On-demand синхронизация одного пользователя в digital_twins (WP-175 Ф9-B).
+
+    Используется после GitHub webhook: ученик закончил занятие → коммит в workbook/
+    → Activity Hub → вызов этой функции → ЦД пересчитан прямо сейчас.
+
+    Логика идентична одной итерации sync_engagement_to_dt(), но:
+      - принимает Ory UUID напрямую (не итерирует по всем)
+      - передаёт as_of=now в calculate_derived() для детерминированного расчёта
+
+    Args:
+        user_id: Ory UUID пользователя (ключ в digital_twins.user_id)
+
+    Returns:
+        True если синхронизация прошла успешно, False при ошибке.
+    """
+    pool = await get_pool()
+    now = datetime.now(timezone.utc)
+
+    try:
+        async with pool.acquire() as conn:
+            # Находим пользователя по dt_user_id (Ory UUID) или user_uuid
+            row = await conn.fetchrow('''
+                SELECT
+                    e.user_uuid,
+                    e.user_id,
+                    dt.dt_user_id,
+                    e.sessions_total,
+                    e.ai_chats_total,
+                    e.marathon_steps_total,
+                    e.marathon_tasks_total,
+                    e.feed_completed_total,
+                    e.training_attempts_total,
+                    e.training_passed_total,
+                    e.assessments_total,
+                    e.events_total,
+                    e.first_event_at,
+                    e.last_event_at,
+                    e.active_days,
+                    e.events_last_7d,
+                    e.events_last_30d
+                FROM development.engagement e
+                LEFT JOIN dt_tokens dt ON dt.chat_id = e.user_id
+                WHERE e.user_uuid IS NOT NULL
+                  AND (dt.dt_user_id = $1 OR e.user_uuid::TEXT = $1)
+                LIMIT 1
+            ''', user_id)
+
+            if not row:
+                logger.warning(f"[DT Sync] sync_one_user: user not found: {user_id}")
+                return False
+
+            # Notification engagement
+            notif = None
+            try:
+                notif = await conn.fetchrow('''
+                    SELECT * FROM development.notification_engagement
+                    WHERE user_id = $1
+                ''', row['user_id'])
+            except Exception as e:
+                logger.warning(f"[DT Sync] notification_engagement not available: {e}")
+
+            # Learning history
+            learning_rows = None
+            try:
+                lh_rows = await conn.fetch('''
+                    SELECT
+                        user_uuid::TEXT AS user_uuid,
+                        element_id, element_type, area, depth, passed, created_at
+                    FROM development.learning_history
+                    WHERE schema_version = 2
+                      AND user_uuid::TEXT = $1
+                      AND element_id IS NOT NULL
+                    ORDER BY created_at DESC
+                ''', str(row['user_uuid']))
+                learning_rows = [
+                    {
+                        "element_id": lr['element_id'],
+                        "element_type": lr['element_type'],
+                        "area": lr['area'],
+                        "depth": lr['depth'],
+                        "passed": lr['passed'],
+                    }
+                    for lr in lh_rows
+                ]
+            except Exception as e:
+                logger.warning(f"[DT Sync] learning_history not available: {e}")
+
+            effective_user_id = str(row['dt_user_id'] or row['user_uuid'])
+
+            collected_data = {
+                "2_1_account": {
+                    "sessions_total": row['sessions_total'],
+                    "events_total": row['events_total'],
+                    "first_event_at": _ts(row['first_event_at']),
+                    "last_event_at": _ts(row['last_event_at']),
+                },
+                "2_2_courses": {
+                    "marathon_steps_total": row['marathon_steps_total'],
+                    "feed_completed_total": row['feed_completed_total'],
+                },
+                "2_3_practice": {
+                    "training_attempts_total": row['training_attempts_total'],
+                    "training_passed_total": row['training_passed_total'],
+                    "assessments_total": row['assessments_total'],
+                    "marathon_tasks_total": row['marathon_tasks_total'],
+                },
+                "2_4_time": {
+                    "active_days": row['active_days'],
+                    "events_last_7d": row['events_last_7d'],
+                    "events_last_30d": row['events_last_30d'],
+                    "ai_chats_total": row['ai_chats_total'],
+                },
+            }
+
+            if notif:
+                collected_data["2_5_notifications"] = {
+                    "notifications_total": notif['notifications_total'],
+                    "notifications_7d": notif['notifications_7d'],
+                    "notifications_30d": notif['notifications_30d'],
+                    "notification_types": notif['notification_types'],
+                    "lesson_notifications": notif['lesson_notifications'],
+                    "reminder_notifications": notif['reminder_notifications'],
+                    "nudge_notifications": notif['nudge_notifications'],
+                    "trial_expiry_notifications": notif['trial_expiry_notifications'],
+                    "feed_digest_notifications": notif['feed_digest_notifications'],
+                    "milestone_notifications": notif['milestone_notifications'],
+                    "first_notification_at": _ts(notif['first_notification_at']),
+                    "last_notification_at": _ts(notif['last_notification_at']),
+                }
+
+            # Merge existing 2_6/2_7 (builder path, WP-174)
+            existing = await conn.fetchval(
+                "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                effective_user_id,
+            )
+            if existing:
+                existing_collected = json.loads(existing) if isinstance(existing, str) else existing
+                for key in ('2_6_coding', '2_7_iwe'):
+                    if key in existing_collected and key not in collected_data:
+                        collected_data[key] = existing_collected[key]
+
+            # as_of фиксирует момент времени — детерминированный расчёт (WP-175 Ф9-B)
+            derived_data = calculate_derived(collected_data, learning_rows, as_of=now)
+
+            merge_payload = {'2_collected': collected_data}
+            if derived_data:
+                merge_payload['3_derived'] = derived_data
+
+            await conn.execute('''
+                INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                VALUES ($1, $2::jsonb, NOW(), NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    data = COALESCE(digital_twins.data, '{}'::jsonb)
+                        || jsonb_build_object('2_collected',
+                            COALESCE(digital_twins.data->'2_collected', '{}'::jsonb)
+                            || ($2::jsonb->'2_collected')
+                        )
+                        || CASE WHEN $2::jsonb ? '3_derived'
+                            THEN jsonb_build_object('3_derived',
+                                COALESCE(digital_twins.data->'3_derived', '{}'::jsonb)
+                                || ($2::jsonb->'3_derived')
+                            )
+                            ELSE '{}'::jsonb
+                        END,
+                    updated_at = NOW()
+            ''', effective_user_id, json.dumps(merge_payload))
+
+            logger.info(f"[DT Sync] sync_one_user done: {effective_user_id}")
+            return True
+
+    except Exception as e:
+        logger.error(f"[DT Sync] sync_one_user failed for {user_id}: {e}")
+        return False
+
+
 def _ts(val) -> str | None:
     """Конвертировать datetime в ISO string для JSONB."""
     if val is None:
