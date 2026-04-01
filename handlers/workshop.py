@@ -28,6 +28,7 @@ from aiogram.types import (
 from aiogram.filters import Command, ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
 
 from db.queries import get_intern
+from db.queries.aisystant import get_aisystant_id
 from db.queries.workshop import (
     get_workshop_payment_count,
     create_and_confirm_payment,
@@ -35,6 +36,7 @@ from db.queries.workshop import (
     log_community_leave,
     get_community_stats,
 )
+from clients.yookassa import YooKassaClient
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -46,11 +48,21 @@ workshop_router = Router(name="workshop")
 SEMINAR_IWE_CHAT_ID = int(os.getenv("SEMINAR_IWE_CHAT_ID", "0"))
 MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
-SEMINAR_AMOUNT = 5000  # рублей (прод)
-SEMINAR_AMOUNT_TEST = 100  # рублей (тест ЮКасса)
-SEMINAR_AMOUNT_KOPECKS = SEMINAR_AMOUNT_TEST * 100  # в копейках для Telegram Payments (тест)
+SEMINAR_AMOUNT = 5000  # рублей
 SEMINAR_STARS = 2500
-YOOKASSA_PROVIDER_TOKEN = os.getenv("YOOKASSA_PROVIDER_TOKEN", "")
+
+# ЮКасса (WP-181 Ф7) — нативный API, магазин 1317530
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
+_yookassa_client: YooKassaClient | None = None
+
+
+def _get_yookassa() -> YooKassaClient | None:
+    """Lazy-init клиента ЮКасса."""
+    global _yookassa_client
+    if _yookassa_client is None and YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
+        _yookassa_client = YooKassaClient(YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY)
+    return _yookassa_client
 
 MANAGED_CHAT_IDS = frozenset()
 
@@ -131,34 +143,42 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
 async def callback_seminar_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями — нативный Telegram Payments через ЮКасса."""
+    """Оплата семинара рублями — ЮКасса нативный API (магазин 1317530)."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
-    logger.info(f"[Payment] pay_rub initiated: tg={chat_id}, amount={SEMINAR_AMOUNT_KOPECKS} kopecks, provider_token={'SET' if YOOKASSA_PROVIDER_TOKEN else 'MISSING'}")
+    logger.info(f"[Payment] pay_rub initiated: tg={chat_id}, amount={SEMINAR_AMOUNT} RUB, shop={'SET' if YOOKASSA_SHOP_ID else 'MISSING'}")
 
     await callback.answer()
 
-    if not YOOKASSA_PROVIDER_TOKEN:
-        logger.error(f"[Payment] pay_rub error: YOOKASSA_PROVIDER_TOKEN not set, tg={chat_id}")
+    yk = _get_yookassa()
+    if not yk:
+        logger.error(f"[Payment] pay_rub error: YOOKASSA_SHOP_ID or SECRET_KEY not set, tg={chat_id}")
         await callback.message.answer(t('workshop.pay_error', lang))
         return
 
     try:
-        link = await callback.bot.create_invoice_link(
-            title=t('workshop.card_invoice_title', lang),
-            description=t('workshop.card_invoice_description', lang),
-            payload=f"workshop_seminar_{chat_id}",
-            provider_token=YOOKASSA_PROVIDER_TOKEN,
-            currency="RUB",
-            prices=[LabeledPrice(label="Семинар IWE", amount=SEMINAR_AMOUNT_KOPECKS)],
+        result = await yk.create_payment(
+            amount=SEMINAR_AMOUNT,
+            description=t('workshop.card_invoice_title', lang),
+            return_url="https://t.me/aist_me_bot",
+            metadata={
+                "telegram_id": str(chat_id),
+                "purpose": "WORKSHOP",
+            },
         )
-        logger.info(f"[Payment] card invoice_link created: tg={chat_id}, amount={SEMINAR_AMOUNT_KOPECKS}")
+        confirmation_url = result["confirmation_url"]
+        logger.info(f"[Payment] yookassa payment created: tg={chat_id}, payment_id={result['id']}, url={confirmation_url[:50]}...")
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text=t('workshop.btn_pay_rub', lang),
-                url=link,
+                url=confirmation_url,
+            )],
+            [InlineKeyboardButton(
+                text=t('workshop.btn_paid_check', lang),
+                callback_data="seminar_iwe_check",
             )],
             [InlineKeyboardButton(
                 text=t('schedule.btn_back', lang), callback_data="sched_back",
@@ -169,7 +189,7 @@ async def callback_seminar_pay_rub(callback: CallbackQuery):
             reply_markup=keyboard,
         )
     except Exception as e:
-        logger.error(f"[Payment] card invoice error: tg={chat_id}, error={e}")
+        logger.error(f"[Payment] yookassa error: tg={chat_id}, error={e}")
         # Fallback на витрину
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
@@ -491,4 +511,61 @@ async def process_workshop_webhook(data: dict, bot: Bot) -> dict:
     await _send_invite_by_count(bot, telegram_id, count, lang)
 
     logger.info(f"[Workshop] webhook processed: tg={telegram_id}, count={count}, row={row_id}")
+    return {"ok": True, "count": count, "payment_row_id": row_id}
+
+
+# ── Обработка webhook от ЮКасса ──────────────────────
+
+
+async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
+    """Обработать webhook от ЮКасса при оплате.
+
+    Вызывается из oauth_server.py → POST /webhook/yookassa.
+    ЮКасса шлёт event: payment.succeeded / payment.canceled / etc.
+    """
+    event_type = data.get("event", "")
+    payment_obj = data.get("object", {})
+    payment_id = payment_obj.get("id", "")
+    status = payment_obj.get("status", "")
+
+    logger.info(f"[YooKassa] webhook: event={event_type}, payment_id={payment_id}, status={status}")
+
+    if event_type != "payment.succeeded":
+        logger.info(f"[YooKassa] skipping event: {event_type}")
+        return {"ok": True, "skipped": event_type}
+
+    # Извлекаем telegram_id из metadata
+    metadata = payment_obj.get("metadata", {})
+    telegram_id = metadata.get("telegram_id")
+
+    if not telegram_id:
+        logger.error(f"[YooKassa] no telegram_id in metadata: payment_id={payment_id}")
+        return {"ok": False, "error": "missing telegram_id in metadata"}
+
+    telegram_id = int(telegram_id)
+
+    # Сумма
+    amount_obj = payment_obj.get("amount", {})
+    amount = int(float(amount_obj.get("value", "0")))
+
+    # Записываем подтверждённую оплату
+    row_id = await create_and_confirm_payment(
+        telegram_id=telegram_id,
+        amount=amount,
+        source="yookassa",
+        payment_id=payment_id,
+    )
+
+    if row_id == 0:
+        logger.info(f"[YooKassa] duplicate payment, already processed: payment_id={payment_id}")
+        return {"ok": True, "duplicate": True}
+
+    # Отправляем invite
+    count = await get_workshop_payment_count(telegram_id)
+    intern = await get_intern(telegram_id)
+    lang = _lang(intern)
+
+    await _send_invite_by_count(bot, telegram_id, count, lang)
+
+    logger.info(f"[YooKassa] payment processed: tg={telegram_id}, amount={amount}, count={count}, row={row_id}")
     return {"ok": True, "count": count, "payment_row_id": row_id}

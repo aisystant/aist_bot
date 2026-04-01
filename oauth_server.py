@@ -908,6 +908,48 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
                             content_type="application/json", status=500)
 
 
+async def yookassa_webhook_handler(request: web.Request) -> web.Response:
+    """Webhook от ЮКасса при изменении статуса платежа (WP-181 Ф7).
+
+    POST /webhook/yookassa
+    Body: {"event": "payment.succeeded", "object": {"id": "...", "metadata": {"telegram_id": "123"}, ...}}
+    """
+    import json
+
+    # Проверка IP-адреса отправителя (ЮКасса рекомендует)
+    from clients.yookassa import YooKassaClient
+    peer = request.remote or ""
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    sender_ip = forwarded or peer
+
+    if not YooKassaClient.verify_notification(b"", sender_ip):
+        logger.warning(f"[YooKassa Webhook] rejected: unknown IP {sender_ip}")
+        return web.Response(text='{"ok":false,"error":"unauthorized"}',
+                            content_type="application/json", status=403)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.Response(text='{"ok":false,"error":"invalid json"}',
+                            content_type="application/json", status=400)
+
+    if not _bot_instance:
+        logger.error("[YooKassa Webhook] bot instance not set")
+        return web.Response(text='{"ok":false,"error":"bot not ready"}',
+                            content_type="application/json", status=503)
+
+    try:
+        from handlers.workshop import process_yookassa_webhook
+        result = await process_yookassa_webhook(data, _bot_instance)
+        return web.Response(text=json.dumps(result), content_type="application/json")
+    except Exception as e:
+        logger.error(f"[YooKassa Webhook] error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return web.Response(text=json.dumps({"ok": False, "error": str(e)}),
+                            content_type="application/json", status=500)
+
+
 async def template_update_handler(request: web.Request) -> web.Response:
     """Webhook для GitHub Action: рассылка обновлений шаблона IWE подписчикам.
 
@@ -1236,6 +1278,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/wakatime/callback", wakatime_callback_handler)
     app.router.add_post("/api/template-update", template_update_handler)
     app.router.add_post("/webhook/workshop-payment", workshop_payment_handler)
+    app.router.add_post("/webhook/yookassa", yookassa_webhook_handler)
     app.router.add_post("/webhook/github/workbook", github_workbook_webhook_handler)
 
     # Webhook route (WP-44: polling → webhooks)

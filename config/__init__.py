@@ -128,6 +128,10 @@ from .settings import (
     # WakaTime (WP-60)
     WAKATIME_API_KEY,
 
+    # YooKassa (WP-181)
+    YOOKASSA_SHOP_ID,
+    YOOKASSA_SECRET_KEY,
+
     # Channel contexts (SC.118)
     CHANNEL_CONTEXTS,
     get_channel_context,
@@ -210,6 +214,8 @@ __all__ = [
     'TELEGRAM_MARKDOWN_RULES',
     'PUBLISHER_INTERVAL',
     'WAKATIME_API_KEY',
+    'YOOKASSA_SHOP_ID',
+    'YOOKASSA_SECRET_KEY',
     'CHANNEL_CONTEXTS',
     'get_channel_context',
 ]

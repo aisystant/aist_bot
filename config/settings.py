@@ -51,6 +51,10 @@ else:
     # Auto-generate: sha256(bot_token)[:48] — hex chars, always valid
     WEBHOOK_SECRET = _hashlib.sha256((BOT_TOKEN or "").encode()).hexdigest()[:48] if BOT_TOKEN else None
 
+# ============= YOOKASSA (WP-181 Ф7) =============
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
+
 # ============= AISYSTANT LMS (WP-79) =============
 AISYSTANT_BASE_URL = os.getenv("AISYSTANT_BASE_URL", "https://aisystant.system-school.ru")
 AISYSTANT_TECH_PASSWORD = os.getenv("AISYSTANT_TECH_PASSWORD", "")
