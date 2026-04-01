@@ -118,11 +118,11 @@ async def callback_seminar_iwe(callback: CallbackQuery):
         text = t('workshop.seminar_count1', lang)
         buttons = [
             [InlineKeyboardButton(
-                text=t('workshop.btn_pay_rub', lang),
+                text=t('workshop.btn_pay_rub_masterskaya', lang),
                 callback_data="seminar_iwe_pay_rub",
             )],
             [InlineKeyboardButton(
-                text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
+                text=t('workshop.btn_pay_stars_masterskaya', lang, stars=SEMINAR_STARS),
                 callback_data="seminar_iwe_pay",
             )],
         ]

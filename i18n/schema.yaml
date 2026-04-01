@@ -5829,6 +5829,14 @@ workshop:
     ru: "💳 Оплатить картой (5000₽)"
     en: "💳 Pay by card (5000₽)"
 
+  btn_pay_rub_masterskaya:
+    ru: "💳 Оплатить Мастерскую картой (5000₽)"
+    en: "💳 Pay for Workshop by card (5000₽)"
+
+  btn_pay_stars_masterskaya:
+    ru: "⭐ Оплатить Мастерскую звёздами ({stars})"
+    en: "⭐ Pay for Workshop with stars ({stars})"
+
   btn_pay_storefront:
     ru: "🌐 Перейти на витрину"
     en: "🌐 Go to storefront"
