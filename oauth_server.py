@@ -1099,12 +1099,6 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
         expected = "sha256=" + hmac.new(
             secret.encode(), body, hashlib.sha256
         ).hexdigest()
-        logger.info(
-            "[WorkbookWebhook] sig_header=%s expected=%s match=%s",
-            sig_header[:16] if sig_header else "MISSING",
-            expected[:16],
-            sig_header == expected,
-        )
         if not hmac.compare_digest(sig_header, expected):
             logger.warning("[WorkbookWebhook] invalid HMAC signature")
             return web.Response(
