@@ -5275,7 +5275,7 @@ schedule:
     en: "Project review"
 
   menu_workshop:
-    ru: "Мастерская Церена"
+    ru: "Семинар IWE"
     en: "Tseren's Workshop"
 
   menu_seminar_iwe:
@@ -5301,7 +5301,7 @@ schedule:
 
   # Workshop (Мастерская Церена)
   workshop_text:
-    ru: "🔧 *Мастерская Церена*\n\nЕженедельные практические занятия с разбором рабочих продуктов участников."
+    ru: "🎓 *Семинар «IWE для практиков»*\n\nИнтеллектуальная рабочая среда — операционная система с ИИ-агентами для тех, кто хочет системно работать и развиваться."
     en: "🔧 *Tseren's Workshop*\n\nWeekly hands-on sessions with review of participants' work products."
 
   workshop_active:
@@ -5814,12 +5814,12 @@ workshop:
     en: "🎓 *IWE for Practitioners Seminar*\n\nIntellectual Work Environment — an AI-powered operating system for those who want to work and develop systematically.\n\nYou will get (forever):\n— Seminar recording\n— Access to the seminar participants chat (100+ people)\n\nPrice: 5000₽"
 
   seminar_count1:
-    ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ У вас есть доступ в Сообщество IWE\n\nСледующий шаг — Мастерская Церена: еженедельные разборы рабочих продуктов.\nПовторная оплата семинара (5000₽) откроет доступ в Мастерскую."
-    en: "🎓 *IWE for Practitioners Seminar*\n\n✅ You have access to the IWE Community\n\nNext step — Tseren's Workshop: weekly work product reviews.\nAnother seminar payment (5000₽) will unlock access to the Workshop."
+    ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ У вас есть доступ в Чат семинара IWE\n\nСледующий шаг — Мастерская IWE: разборы личных проектов, развитие своего IWE.\nПовторная оплата семинара (5000₽) откроет доступ в Мастерскую."
+    en: "🎓 *IWE for Practitioners Seminar*\n\n✅ You have access to the IWE Seminar Chat\n\nNext step — IWE Workshop: personal project reviews, developing your IWE.\nAnother seminar payment (5000₽) will unlock access to the Workshop."
 
   seminar_count2:
-    ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ Сообщество IWE\n✅ Мастерская Церена\n\nУ вас есть доступ ко всем чатам. Спасибо!"
-    en: "🎓 *IWE for Practitioners Seminar*\n\n✅ IWE Community\n✅ Tseren's Workshop\n\nYou have access to all chats. Thank you!"
+    ru: "🎓 *Семинар «IWE для практиков»*\n\n✅ Чат семинара IWE\n✅ Мастерская IWE\n\nУ вас есть доступ ко всем чатам. Спасибо!"
+    en: "🎓 *IWE for Practitioners Seminar*\n\n✅ IWE Seminar Chat\n✅ IWE Workshop\n\nYou have access to all chats. Thank you!"
 
   btn_pay:
     ru: "💳 Оплатить 5000₽"
@@ -5850,8 +5850,8 @@ workshop:
     en: "🔗 Link Aisystant account"
 
   pay_redirect:
-    ru: "Перейдите по ссылке для оплаты. После оплаты нажмите «Проверить». Вам должна будет направлена одноразовая ссылка на чат семинара. Если будут проблемы, то пишите @ssm_tg"
-    en: "Follow the link to pay. After payment, click 'Check'. You will receive a one-time link to the seminar chat. If you have any issues, contact @ssm_tg"
+    ru: "Нажмите кнопку для оплаты. После успешной оплаты вам автоматически придёт ссылка на чат. Если ссылка не пришла — нажмите «Я оплатил — проверить».\n\nПроблемы с оплатой? Пишите @ssm_tg"
+    en: "Click the button to pay. After successful payment, you will automatically receive a chat link. If the link didn't arrive — click 'I paid — check'.\n\nPayment issues? Contact @ssm_tg"
 
   pay_need_account:
     ru: "Для оплаты через бота нужен аккаунт Aisystant.\n\nПривяжите аккаунт или оплатите через витрину: events.system-school.ru"

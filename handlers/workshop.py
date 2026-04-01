@@ -190,19 +190,7 @@ async def callback_seminar_pay_rub(callback: CallbackQuery):
         )
     except Exception as e:
         logger.error(f"[Payment] yookassa error: tg={chat_id}, error={e}")
-        # Fallback на витрину
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('workshop.btn_pay_storefront', lang),
-                url="https://events.system-school.ru/tproduct/670575689612-intellektualnaya-rabochaya-sreda-iwe-dly",
-            )],
-            [InlineKeyboardButton(
-                text=t('workshop.btn_paid_check', lang),
-                callback_data="seminar_iwe_check",
-            )],
-        ])
-        await callback.message.answer(t('workshop.pay_storefront', lang), reply_markup=keyboard)
-        logger.info(f"[Payment] pay_rub fallback to storefront: tg={chat_id}")
+        await callback.message.answer(t('workshop.pay_error', lang))
 
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay")
