@@ -1092,21 +1092,25 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     import asyncio
 
     # ── Аутентификация ──────────────────────────────────────────────────────
+    body = await request.read()
     secret = os.getenv("GITHUB_WORKBOOK_WEBHOOK_SECRET", "")
     if secret:
         sig_header = request.headers.get("X-Hub-Signature-256", "")
-        body = await request.read()
         expected = "sha256=" + hmac.new(
             secret.encode(), body, hashlib.sha256
-        ).hexdigest()  # hmac.new(key, msg, digestmod) — стандартный Python API
+        ).hexdigest()
+        logger.info(
+            "[WorkbookWebhook] sig_header=%s expected=%s match=%s",
+            sig_header[:16] if sig_header else "MISSING",
+            expected[:16],
+            sig_header == expected,
+        )
         if not hmac.compare_digest(sig_header, expected):
             logger.warning("[WorkbookWebhook] invalid HMAC signature")
             return web.Response(
                 text='{"ok":false,"error":"unauthorized"}',
                 content_type="application/json", status=403,
             )
-    else:
-        body = await request.read()
 
     # ── Парсинг payload ─────────────────────────────────────────────────────
     try:
