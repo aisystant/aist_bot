@@ -32,6 +32,7 @@ class YooKassaClient:
         description: str = "Семинар IWE",
         return_url: str = "https://t.me/aist_me_bot",
         metadata: dict | None = None,
+        customer_email: str | None = None,
     ) -> dict:
         """Создать платёж и вернуть confirmation_url.
 
@@ -41,11 +42,34 @@ class YooKassaClient:
             description: описание платежа
             return_url: URL для возврата после оплаты
             metadata: произвольные данные (telegram_id и т.д.)
+            customer_email: email покупателя для чека (если нет — чек без email)
 
         Returns:
             dict с ключами: id, confirmation_url, status
         """
         idempotence_key = str(uuid.uuid4())
+
+        # Фискальный чек (ФФД 1.2, обязателен при подключённой онлайн-кассе)
+        receipt = {
+            "items": [
+                {
+                    "description": description,
+                    "quantity": "1.00",
+                    "amount": {
+                        "value": f"{amount}.00",
+                        "currency": currency,
+                    },
+                    "vat_code": 1,  # без НДС
+                    "payment_subject": "service",
+                    "payment_mode": "full_payment",
+                }
+            ],
+        }
+        if customer_email:
+            receipt["customer"] = {"email": customer_email}
+        else:
+            # ЮКасса требует хотя бы email или phone в customer
+            receipt["customer"] = {"email": "seminar@aisystant.com"}
 
         payload = {
             "amount": {
@@ -58,6 +82,7 @@ class YooKassaClient:
             },
             "capture": True,
             "description": description,
+            "receipt": receipt,
         }
         if metadata:
             payload["metadata"] = metadata
