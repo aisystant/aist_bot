@@ -4,7 +4,7 @@
 Копия здесь временная — до реализации механизма импорта между репо (pip install -e / symlink).
 Не редактировать здесь — редактировать в profiler/scripts/ и синхронизировать.
 
-Calculation Engine v0.7 — derived indicators из 2_collected + learning_history (WP-151, WP-174, WP-175 Ф5).
+Calculation Engine v0.8 — derived indicators из 2_collected + learning_history (WP-151, WP-174, WP-175).
 
 Вычисляет IND.3 (derived) из IND.2 (collected) данных.
 Источники: engagement + notification_log + coding (WakaTime) + IWE (git/WP) + learning_history (BKT).
@@ -13,9 +13,15 @@ Calculation Engine v0.7 — derived indicators из 2_collected + learning_histo
   IND.3.1.02  slot_regularity        — доля активных дней (→ агентность)
   IND.3.4.01  student_stage           — ступень ученика (0-4, threshold rules)
   IND.3.10.1  integral_agency_index   — агрегированный индекс (0-100)
-  IND.3.5.*   mastery_by_area         — MAX depth по 5 областям из learning_history (WP-175 Ф5)
-  IND.3.6.*   worldview_gaps          — мемы CAT.001 с gap > 0 (current_depth < target_depth по ступени)
+  IND.3.5.*   mastery_by_area         — BKT P(mastery) по 5 областям из learning_history
+  IND.3.6.*   worldview_gaps          — мемы CAT.001 с gap (P(mastery) < порога по ступени)
   IND.3.7.*   mastery_gaps            — практики CAT.002/003 с gap > 0
+
+v0.8 (WP-151 Ф5): Полноценный BKT (Bayesian Knowledge Tracing) по мемам CAT.001.
+  Вместо MAX depth — вероятностная модель P(mastery) по каждому мему.
+  4 параметра: P(L0)=0.1, P(T)=0.3, P(G)=0.25, P(S)=0.1 (литературные значения).
+  mastery_by_area = средний P(mastery) по области.
+  worldview_gaps использует P(mastery) < порога вместо current_depth < target_depth.
 
 v0.7 (WP-175 Ф5): BKT из learning_history → mastery_by_area, worldview_gaps, mastery_gaps.
   calculate_derived() принимает learning_rows (из development.learning_history).
@@ -28,6 +34,8 @@ v0.6 (WP-174): Builder Path — альтернативные пороги для
 
 Пороги: из метамодели DS-MCP/digital-twin-mcp/metamodel/3_derived/.
 """
+
+from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
@@ -153,77 +161,216 @@ _TARGET_DEPTH: dict[int, dict[int, int]] = {
 
 
 # ═══════════════════════════════════════════════════════════
-# IND.3.5 — Mastery by Area (WP-175 Ф5)
+# BKT — Bayesian Knowledge Tracing (WP-151 Ф5)
 # ═══════════════════════════════════════════════════════════
 
-def calc_mastery_by_area(learning_rows: list[dict]) -> dict[str, int]:
-    """MAX depth по каждой из 5 областей из learning_history (schema_version=2).
+# Литературные значения BKT-параметров (Corbett & Anderson, 1994).
+# Калибровка по реальным данным — Ф7 (Лаборатория).
+_BKT_P_L0 = 0.1     # начальная вероятность усвоения
+_BKT_P_T = 0.3      # вероятность перехода к усвоению после попытки
+_BKT_P_G = 0.25     # вероятность угадывания (не знает, но ответил верно)
+_BKT_P_S = 0.1      # вероятность промаха (знает, но ошибся)
 
-    IND.3.5.*: mastery_by_area[area_key] = max depth where passed=True.
-    Только записи с passed=True и element_type='meme' (worldview).
+# Порог P(mastery) для признания мема усвоенным на данной глубине.
+# Консервативный: 0.8 (стандартный BKT threshold).
+_BKT_MASTERY_THRESHOLD = 0.8
+
+
+def _bkt_update(p_l: float, correct: bool) -> float:
+    """Одно обновление BKT: P(L_n) → P(L_{n+1}).
+
+    Формула (Corbett & Anderson, 1994):
+      P(L|correct)  = P(L) * (1 - P(S)) / (P(L) * (1 - P(S)) + (1 - P(L)) * P(G))
+      P(L|incorrect) = P(L) * P(S) / (P(L) * P(S) + (1 - P(L)) * (1 - P(G)))
+      P(L_next) = P(L|obs) + (1 - P(L|obs)) * P(T)
 
     Args:
-        learning_rows: list of dicts с ключами area (int 1-5), depth (int), passed (bool)
+        p_l: текущая P(mastery) [0.0–1.0]
+        correct: результат попытки
 
     Returns:
-        {"knowledge": int, "tools": int, "constraints": int, "environment": int, "organism": int}
-        Значения 0–3. 0 = не начата область.
+        обновлённая P(mastery) [0.0–1.0]
     """
-    area_key_map = {1: "knowledge", 2: "tools", 3: "constraints", 4: "environment", 5: "organism"}
-    result = {v: 0 for v in area_key_map.values()}
+    if correct:
+        numerator = p_l * (1 - _BKT_P_S)
+        denominator = p_l * (1 - _BKT_P_S) + (1 - p_l) * _BKT_P_G
+    else:
+        numerator = p_l * _BKT_P_S
+        denominator = p_l * _BKT_P_S + (1 - p_l) * (1 - _BKT_P_G)
 
-    for row in learning_rows:
-        area = row.get("area")
-        depth = row.get("depth")
-        passed = row.get("passed")
-        if area not in area_key_map or not depth or not passed:
+    if denominator == 0:
+        p_l_given_obs = p_l
+    else:
+        p_l_given_obs = numerator / denominator
+
+    # Transition: даже если не усвоил, есть шанс усвоить после попытки
+    return p_l_given_obs + (1 - p_l_given_obs) * _BKT_P_T
+
+
+def _calc_bkt_per_meme(learning_rows: list[dict]) -> dict[str, dict]:
+    """Вычислить BKT-состояние для каждого мема из learning_history.
+
+    Группирует попытки по meme_id и depth, прогоняет BKT для каждой пары.
+    Возвращает per-meme агрегат: P(mastery) на каждой глубине + общий.
+
+    Args:
+        learning_rows: записи из learning_history (element_type='meme'),
+            отсортированные по created_at DESC (новые первые).
+            Ключи: element_id, element_type, area, depth, passed.
+
+    Returns:
+        {meme_id: {
+            "area": int,
+            "p_mastery": float,         # общая P(mastery) = min по глубинам
+            "max_depth_mastered": int,   # макс. глубина с P >= порога
+            "attempts": int,            # общее число попыток
+            "by_depth": {depth: {"p": float, "attempts": int, "correct": int}},
+        }}
+    """
+    # Собрать попытки по (meme_id, depth) в хронологическом порядке
+    # learning_rows приходят DESC — разворачиваем
+    meme_attempts: dict[str, list[tuple[int, bool]]] = {}
+    meme_areas: dict[str, int] = {}
+
+    for row in reversed(learning_rows):
+        if row.get("element_type") != "meme":
             continue
-        key = area_key_map[area]
-        result[key] = max(result[key], int(depth))
+        eid = row.get("element_id")
+        if not eid:
+            continue
+        meme_id = eid.split(".")[-1] if "." in eid else eid
+        depth = row.get("depth") or 0
+        passed = bool(row.get("passed"))
+        area = row.get("area")
+
+        if meme_id not in meme_attempts:
+            meme_attempts[meme_id] = []
+        meme_attempts[meme_id].append((depth, passed))
+        if area:
+            meme_areas[meme_id] = area
+
+    result: dict[str, dict] = {}
+
+    for meme_id, attempts in meme_attempts.items():
+        # BKT по каждой глубине отдельно
+        depth_state: dict[int, dict] = {}
+
+        for depth, passed in attempts:
+            if depth not in depth_state:
+                depth_state[depth] = {"p": _BKT_P_L0, "attempts": 0, "correct": 0}
+            ds = depth_state[depth]
+            ds["p"] = _bkt_update(ds["p"], passed)
+            ds["attempts"] += 1
+            if passed:
+                ds["correct"] += 1
+
+        # Общая P(mastery) = min P по всем глубинам ≤ max_depth_attempted
+        # (нужно усвоить на ВСЕХ уровнях, не только на одном)
+        max_depth_mastered = 0
+        for d in sorted(depth_state.keys()):
+            if depth_state[d]["p"] >= _BKT_MASTERY_THRESHOLD:
+                max_depth_mastered = d
+
+        all_ps = [ds["p"] for ds in depth_state.values()]
+        p_mastery = min(all_ps) if all_ps else 0.0
+        total_attempts = sum(ds["attempts"] for ds in depth_state.values())
+
+        result[meme_id] = {
+            "area": meme_areas.get(meme_id, 0),
+            "p_mastery": round(p_mastery, 3),
+            "max_depth_mastered": max_depth_mastered,
+            "attempts": total_attempts,
+            "by_depth": {d: {"p": round(ds["p"], 3), "attempts": ds["attempts"], "correct": ds["correct"]}
+                         for d, ds in sorted(depth_state.items())},
+        }
 
     return result
 
 
 # ═══════════════════════════════════════════════════════════
-# IND.3.6 — Worldview Gaps (WP-175 Ф5)
+# IND.3.5 — Mastery by Area (WP-151 Ф5, BKT)
 # ═══════════════════════════════════════════════════════════
 
+AREA_KEY_MAP = {1: "knowledge", 2: "tools", 3: "constraints", 4: "environment", 5: "organism"}
+
+
+def calc_mastery_by_area(learning_rows: list[dict]) -> dict:
+    """BKT P(mastery) по каждой из 5 областей из learning_history.
+
+    IND.3.5.*: mastery_by_area[area_key] = средний P(mastery) по мемам области.
+    Обратная совместимость: max_depth сохранён для потребителей, которые его используют.
+
+    Args:
+        learning_rows: list of dicts с ключами element_id, element_type, area, depth, passed
+
+    Returns:
+        {
+            "knowledge": float,  # средний P(mastery) [0.0–1.0]
+            "tools": float,
+            ...
+            "max_depth": {"knowledge": int, ...},  # обратная совместимость
+            "details": {meme_id: {"p_mastery": float, "attempts": int, ...}, ...}
+        }
+    """
+    bkt = _calc_bkt_per_meme(learning_rows)
+
+    # Средний P(mastery) по области
+    area_ps: dict[str, list[float]] = {v: [] for v in AREA_KEY_MAP.values()}
+    area_max_depth: dict[str, int] = {v: 0 for v in AREA_KEY_MAP.values()}
+
+    for meme_id, state in bkt.items():
+        area = state["area"]
+        if area not in AREA_KEY_MAP:
+            continue
+        key = AREA_KEY_MAP[area]
+        area_ps[key].append(state["p_mastery"])
+        area_max_depth[key] = max(area_max_depth[key], state["max_depth_mastered"])
+
+    result = {}
+    for key in AREA_KEY_MAP.values():
+        ps = area_ps[key]
+        result[key] = round(sum(ps) / len(ps), 3) if ps else 0.0
+
+    result["max_depth"] = area_max_depth
+    result["details"] = {mid: {k: v for k, v in s.items() if k != "by_depth"}
+                         for mid, s in bkt.items()}
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.6 — Worldview Gaps (WP-151 Ф5, BKT)
+# ═══════════════════════════════════════════════════════════
+
+# Порог P(mastery) по ступени: чем выше ступень, тем строже требование.
+_MASTERY_THRESHOLD_BY_STAGE: dict[int, float] = {
+    0: 0.6,
+    1: 0.65,
+    2: 0.7,
+    3: 0.8,
+    4: 0.9,
+}
+
+
 def calc_worldview_gaps(learning_rows: list[dict], student_stage: int) -> list[dict]:
-    """Мемы CAT.001 с gap > 0 (current_depth < target_depth по ступени).
+    """Мемы CAT.001 с P(mastery) ниже порога по ступени (BKT).
 
     IND.3.6: only мемы, relevant для текущей ступени (entry_stage <= student_stage).
-    Текущая глубина = MAX depth где passed=True для данного meme_id.
-    can_do_passed = есть ли хотя бы одна запись passed=True для этого мема.
+    Использует BKT P(mastery) вместо бинарного current_depth < target_depth.
+    Обратная совместимость: current_depth и target_depth сохранены.
 
     Args:
         learning_rows: записи из learning_history (element_type='meme')
         student_stage: текущая ступень (0-4)
 
     Returns:
-        list[dict] — только мемы с gap > 0, отсортированные по area.
-        Пустой список если нет gap или нет данных.
+        list[dict] — мемы с gap, отсортированные по area.
+        Каждый dict содержит:
+          id, area, p_mastery, mastery_threshold, current_depth, target_depth,
+          attempts, can_do_passed.
     """
-    # Собрать max_depth и can_do по meme_id из истории
-    meme_depth: dict[str, int] = {}
-    meme_can_do: dict[str, bool] = {}
-
-    for row in learning_rows:
-        if row.get("element_type") != "meme":
-            continue
-        eid = row.get("element_id")
-        if not eid:
-            continue
-        # Нормализация: "CAT.001.M-001" → "M-001"
-        meme_id = eid.split(".")[-1] if "." in eid else eid
-        depth = row.get("depth") or 0
-        passed = bool(row.get("passed"))
-
-        if passed:
-            meme_depth[meme_id] = max(meme_depth.get(meme_id, 0), depth)
-            meme_can_do[meme_id] = True
-        elif meme_id not in meme_can_do:
-            meme_can_do[meme_id] = False
-
+    bkt = _calc_bkt_per_meme(learning_rows)
+    threshold = _MASTERY_THRESHOLD_BY_STAGE.get(student_stage, 0.7)
     target_map = _TARGET_DEPTH.get(student_stage, _TARGET_DEPTH[0])
     gaps = []
 
@@ -231,21 +378,36 @@ def calc_worldview_gaps(learning_rows: list[dict], student_stage: int) -> list[d
         area = meta["area"]
         entry_stage = meta["entry_stage"]
         if entry_stage > student_stage:
-            continue  # мем ещё не релевантен
+            continue
 
         target_depth = target_map.get(area, 1)
-        current_depth = meme_depth.get(meme_id, 0)
+        meme_state = bkt.get(meme_id)
 
-        if current_depth < target_depth:
+        if meme_state:
+            p_mastery = meme_state["p_mastery"]
+            current_depth = meme_state["max_depth_mastered"]
+            attempts = meme_state["attempts"]
+            can_do = current_depth > 0
+        else:
+            p_mastery = 0.0
+            current_depth = 0
+            attempts = 0
+            can_do = False
+
+        # Gap если: P(mastery) ниже порога ИЛИ глубина не достигнута
+        if p_mastery < threshold or current_depth < target_depth:
             gaps.append({
                 "id": meme_id,
                 "area": area,
+                "p_mastery": round(p_mastery, 3),
+                "mastery_threshold": threshold,
                 "current_depth": current_depth,
                 "target_depth": target_depth,
-                "can_do_passed": meme_can_do.get(meme_id, False),
+                "attempts": attempts,
+                "can_do_passed": can_do,
             })
 
-    gaps.sort(key=lambda x: x["area"])
+    gaps.sort(key=lambda x: (x["area"], x["p_mastery"]))
     return gaps
 
 
@@ -524,7 +686,7 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
     Args:
         collected: digital_twins.data['2_collected'] (5+ групп).
             v0.6: включает 2_6_coding и 2_7_iwe для builder path.
-        learning_rows: список dict из development.learning_history (v0.7, WP-175 Ф5).
+        learning_rows: список dict из development.learning_history (v0.8, WP-151 Ф5).
             Каждый dict: {element_id, element_type, area, depth, passed, ...}.
             При None — mastery_by_area возвращает нули, gaps — пустые списки (PD.SPEC.001 §3).
 
@@ -533,11 +695,11 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
         {
             "3_1_agency": {"slot_regularity": float, ...},
             "3_4_qualification": {"stage": int, "stage_id": str, "path": str, ...},
-            "3_5_mastery": {"mastery_by_area": {...}},           # WP-175 Ф5
-            "3_6_worldview": {"worldview_gaps": [...]},          # WP-175 Ф5
+            "3_5_mastery": {"mastery_by_area": {...}},           # BKT P(mastery) по областям
+            "3_6_worldview": {"worldview_gaps": [...]},          # BKT gaps с P(mastery)
             "3_10_integral": {"index": float, "components": {...}},
             "calculated_at": ISO timestamp,
-            "engine_version": "0.7",
+            "engine_version": "0.8",
         }
     """
     if not collected:
@@ -557,16 +719,25 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
             "3_4_qualification": stage_result,
             "3_10_integral": agency_result,
             "calculated_at": now.isoformat(),
-            "engine_version": "0.7",
+            "engine_version": "0.8",
         }
 
-        # ── Ф5: BKT из learning_history ──────────────────────────────────────
+        # ── Ф5: BKT из learning_history (WP-151 Ф5) ─────────────────────────
         if learning_rows is not None:
             student_stage = stage_result.get("stage", 0)
             mastery = calc_mastery_by_area(learning_rows)
             gaps = calc_worldview_gaps(learning_rows, student_stage)
             derived["3_5_mastery"] = {"mastery_by_area": mastery}
-            derived["3_6_worldview"] = {"worldview_gaps": gaps}
+            derived["3_6_worldview"] = {
+                "worldview_gaps": gaps,
+                "bkt_params": {
+                    "p_l0": _BKT_P_L0,
+                    "p_t": _BKT_P_T,
+                    "p_g": _BKT_P_G,
+                    "p_s": _BKT_P_S,
+                    "mastery_threshold": _BKT_MASTERY_THRESHOLD,
+                },
+            }
 
         return derived
 
