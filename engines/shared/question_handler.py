@@ -598,10 +598,10 @@ async def handle_question_with_tools(
     else:
         messages = [{"role": "user", "content": user_prompt}]
 
-    # Refinement: больше токенов для развёрнутого ответа
-    # WP-7 fix: 1500 слишком мало для русского языка (2-3 tok/word) + tool_use overhead
-    # → ответ обрывался на полуслове (stop_reason=max_tokens)
-    token_limit = 4000 if is_refinement else 2500
+    # WP-7 fix (W14): 2500 недостаточно для русского + tool_use overhead
+    # (5 feedback K-category за ночь 2026-04-02). Tool rounds съедают ~700-1000 tok,
+    # на ответ оставалось ~1500 → обрезка. Унифицировано до 4000.
+    token_limit = 4000
 
     answer = await claude.generate_with_tools(
         system_prompt=system_prompt,
