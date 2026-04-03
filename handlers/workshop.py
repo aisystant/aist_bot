@@ -383,9 +383,11 @@ async def handle_community_join_request(request: ChatJoinRequest):
     except Exception:
         pass
 
-    if request_chat_id == SEMINAR_IWE_CHAT_ID and (count >= 1 or showcase_paid):
+    if request_chat_id == SEMINAR_IWE_CHAT_ID:
+        # Семинар IWE: одобряем всех — чат приватный, invite знает только админ
         await request.approve()
-        logger.info(f"[Workshop] approved join: tg={user_id}, chat=community, count={count}, showcase={showcase_paid}")
+        logger.info(f"[Workshop] approved join: tg={user_id}, chat=seminar_iwe (auto-approve)")
+        return
     elif request_chat_id == MASTERSKAYA_IWE_CHAT_ID and count >= 2:
         await request.approve()
         logger.info(f"[Workshop] approved join: tg={user_id}, chat=masterskaya, count={count}")
