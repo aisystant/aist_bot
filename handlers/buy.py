@@ -53,30 +53,36 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     lines = [t('buy.title', lang), ""]
     buttons = []
 
-    # 1. Витрина семинаров — первая кнопка
-    buttons.append([InlineKeyboardButton(
-        text="🎬 " + t('schedule.menu_showcase', lang),
-        callback_data="showcase_main",
-    )])
-
-    # 2. Подписка БР — вторая кнопка
+    # 1. Витрина семинаров + Подписка БР — в одном ряду
     try:
         is_active = await aisystant.has_active_subscription(aisystant_id)
         if is_active:
             lines.append(t('buy.sub_active', lang))
-            buttons.append([InlineKeyboardButton(
+            sub_btn = InlineKeyboardButton(
                 text=t('buy.btn_renew_sub', lang),
                 callback_data="aisystant_subscribe",
-            )])
+            )
         else:
             lines.append(t('buy.sub_section', lang))
-            buttons.append([InlineKeyboardButton(
+            sub_btn = InlineKeyboardButton(
                 text=t('buy.btn_buy_sub', lang),
                 callback_data="aisystant_subscribe",
-            )])
+            )
         lines.append("")
     except Exception as e:
         logger.error(f"[Buy] subscription check error: {e}")
+        sub_btn = InlineKeyboardButton(
+            text="💎 " + t('schedule.menu_subscription', lang),
+            callback_data="aisystant_subscribe",
+        )
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="🎬 " + t('schedule.menu_showcase', lang),
+            callback_data="showcase_main",
+        ),
+        sub_btn,
+    ])
 
     # 3. Программы (все в продаже) — ниже
     try:
