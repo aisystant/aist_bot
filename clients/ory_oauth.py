@@ -41,7 +41,7 @@ ORY_AUTHORIZE_URL = f"{ORY_BASE_URL}/oauth2/auth"
 ORY_TOKEN_URL = f"{ORY_BASE_URL}/oauth2/token"
 ORY_USERINFO_URL = f"{ORY_BASE_URL}/userinfo"
 
-ORY_SCOPES = ["openid", "email", "profile"]
+ORY_SCOPES = ["openid", "offline_access"]
 
 STATE_TTL = 600  # 10 minutes
 

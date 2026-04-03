@@ -52,7 +52,7 @@ else:
     WEBHOOK_SECRET = _hashlib.sha256((BOT_TOKEN or "").encode()).hexdigest()[:48] if BOT_TOKEN else None
 
 # ============= ORY OAUTH (WP-187 — бот+Ory) =============
-ORY_BASE_URL = os.getenv("ORY_BASE_URL", "https://auth.system-school.ru")
+ORY_BASE_URL = os.getenv("ORY_BASE_URL", "https://auth.system-school.ru/hydra")
 ORY_CLIENT_ID = os.getenv("ORY_CLIENT_ID")
 ORY_CLIENT_SECRET = os.getenv("ORY_CLIENT_SECRET")
 ORY_REDIRECT_URI = os.getenv("ORY_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/ory/callback")
