@@ -49,6 +49,7 @@ async def migrate():
                 duration TEXT,
                 event_date TEXT,
                 sort_order INTEGER NOT NULL DEFAULT 0,
+                view_count INTEGER NOT NULL DEFAULT 0,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW()
             );

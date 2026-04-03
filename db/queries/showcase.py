@@ -43,6 +43,17 @@ async def get_seminar_by_id(seminar_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+async def get_seminar_by_code(tilda_uid: str) -> dict | None:
+    """Получить семинар по коду (tilda_uid)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM seminars WHERE tilda_uid = $1 AND active = TRUE",
+            tilda_uid,
+        )
+    return dict(row) if row else None
+
+
 # ── seminar_payments ──────────────────────────────────
 
 
@@ -84,6 +95,18 @@ async def has_seminar_access(telegram_id: int, seminar_id: int) -> bool:
             telegram_id, seminar_id,
         )
     return (count or 0) > 0
+
+
+async def increment_seminar_views(seminar_id: int) -> int:
+    """Инкрементировать счётчик просмотров. Возвращает новое значение."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        count = await conn.fetchval(
+            """UPDATE seminars SET view_count = COALESCE(view_count, 0) + 1
+               WHERE id = $1 RETURNING view_count""",
+            seminar_id,
+        )
+    return count or 0
 
 
 async def get_user_seminar_ids(telegram_id: int) -> set[int]:
