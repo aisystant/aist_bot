@@ -49,11 +49,42 @@ async def cmd_buy(message: Message):
 
 
 async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang: str):
-    """Показать витрину: программы + подписка (подписка в конце)."""
+    """Показать витрину: витрина семинаров + подписка первыми, программы ниже."""
     lines = [t('buy.title', lang), ""]
     buttons = []
 
-    # 1. Программы (все в продаже) — сразу с URL-кнопками
+    # 1. Витрина семинаров + Подписка БР — в одном ряду
+    try:
+        is_active = await aisystant.has_active_subscription(aisystant_id)
+        if is_active:
+            lines.append(t('buy.sub_active', lang))
+            sub_btn = InlineKeyboardButton(
+                text=t('buy.btn_renew_sub', lang),
+                callback_data="aisystant_subscribe",
+            )
+        else:
+            lines.append(t('buy.sub_section', lang))
+            sub_btn = InlineKeyboardButton(
+                text=t('buy.btn_buy_sub', lang),
+                callback_data="aisystant_subscribe",
+            )
+        lines.append("")
+    except Exception as e:
+        logger.error(f"[Buy] subscription check error: {e}")
+        sub_btn = InlineKeyboardButton(
+            text="💎 " + t('schedule.menu_subscription', lang),
+            callback_data="aisystant_subscribe",
+        )
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="🎬 " + t('schedule.menu_showcase', lang),
+            callback_data="showcase_main",
+        ),
+        sub_btn,
+    ])
+
+    # 3. Программы (все в продаже) — ниже
     try:
         courses = await aisystant.get_available_courses()
         if courses:
@@ -70,7 +101,6 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                 if amount > 0:
                     start = _format_date(course.get("started", ""), lang)
                     lines.append(f"  • {name}\n    Старт: {start} | {int(amount)} ₽")
-                    # Для кнопки убираем префикс программы ("Личное развитие. " и т.п.)
                     dot_pos = name.find(".")
                     btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
                     paid_courses.append((code, btn_name[:25], int(amount)))
@@ -81,25 +111,6 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
             lines.append("")
     except Exception as e:
         logger.error(f"[Buy] courses error: {e}")
-
-    # 2. Подписка БР — одна кнопка, выбор периода через /subscription
-    try:
-        is_active = await aisystant.has_active_subscription(aisystant_id)
-        if is_active:
-            lines.append(t('buy.sub_active', lang))
-            buttons.append([InlineKeyboardButton(
-                text=t('buy.btn_renew_sub', lang),
-                callback_data="aisystant_subscribe",
-            )])
-        else:
-            lines.append(t('buy.sub_section', lang))
-            buttons.append([InlineKeyboardButton(
-                text=t('buy.btn_buy_sub', lang),
-                callback_data="aisystant_subscribe",
-            )])
-        lines.append("")
-    except Exception as e:
-        logger.error(f"[Buy] subscription check error: {e}")
 
     if not buttons:
         lines.append(t('buy.nothing_available', lang))

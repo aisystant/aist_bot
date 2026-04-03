@@ -58,8 +58,6 @@ MENU_SECTIONS = [
     ('professional', 'sched_cat:professional', '💼', 'schedule.menu_professional'),
     ('seminars',     'sched_cat:seminars',     '🎤', 'schedule.menu_seminars'),
     ('reviews',      'sched_cat:reviews',      '🔍', 'schedule.menu_reviews'),
-    ('workshop',     'sched_workshop',         '👥', 'schedule.menu_seminar_iwe'),
-    ('subscription', 'aisystant_subscribe',    '💎', 'schedule.menu_subscription'),
     ('my_courses',   'schedule_my',            '📋', 'schedule.menu_my_courses'),
 ]
 
@@ -255,6 +253,13 @@ async def callback_category(callback: CallbackQuery):
     # Сразу создаём платежи → URL-кнопки без лишнего шага
     if paid_courses:
         buttons.extend(await _create_course_buttons(aisystant_id, paid_courses, lang))
+
+    # Кнопка «Витрина семинаров» — для категории seminars
+    if category == 'seminars':
+        buttons.append([InlineKeyboardButton(
+            text="🎬 " + t('schedule.menu_showcase', lang),
+            callback_data="showcase_main",
+        )])
 
     # Кнопка «Назад»
     buttons.append([InlineKeyboardButton(

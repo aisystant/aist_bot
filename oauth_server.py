@@ -939,8 +939,17 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
                             content_type="application/json", status=503)
 
     try:
-        from handlers.workshop import process_yookassa_webhook
-        result = await process_yookassa_webhook(data, _bot_instance)
+        # Роутинг по metadata.purpose: SEMINAR → showcase, иначе → workshop
+        payment_obj = data.get("object", {})
+        purpose = payment_obj.get("metadata", {}).get("purpose", "")
+
+        if purpose == "SEMINAR":
+            from handlers.showcase import process_seminar_yookassa_webhook
+            result = await process_seminar_yookassa_webhook(data, _bot_instance)
+        else:
+            from handlers.workshop import process_yookassa_webhook
+            result = await process_yookassa_webhook(data, _bot_instance)
+
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
         logger.error(f"[YooKassa Webhook] error: {e}")
