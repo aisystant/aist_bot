@@ -195,6 +195,66 @@ async def callback_showcase_paid(callback: CallbackQuery):
 # ── Карточка семинара ─────────────────────────────────
 
 
+BOT_USERNAME = os.getenv("BOT_USERNAME", "aist_me_bot")
+
+
+def _build_seminar_card(
+    seminar: dict, lang: str, is_purchased: bool, *, include_back: bool = True,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Построить текст + клавиатуру карточки семинара."""
+    seminar_id = seminar["id"]
+
+    lines = [f"*{seminar['title']}*", ""]
+    lines.append(seminar['description'] or "")
+    speaker = seminar.get('speaker') or ''
+    lines.append(f"\n_{speaker}, {seminar['duration']}_" if speaker else f"\n_{seminar['duration']}_")
+
+    buttons = []
+
+    if seminar["is_free"]:
+        if seminar.get("video_url"):
+            buttons.append([InlineKeyboardButton(
+                text=t('showcase.btn_watch', lang),
+                url=seminar["video_url"],
+            )])
+        lines.append(f"\n{t('showcase.free_label', lang)}")
+
+    elif is_purchased:
+        lines.append(f"\n{t('showcase.already_purchased', lang)}")
+        if seminar.get("video_url"):
+            buttons.append([InlineKeyboardButton(
+                text=t('showcase.btn_watch', lang),
+                url=seminar["video_url"],
+            )])
+
+    else:
+        lines.append(f"\n{t('showcase.price_label', lang, rub=seminar['price_rub'], stars=seminar['price_stars'])}")
+        buttons.append([InlineKeyboardButton(
+            text=t('showcase.btn_pay_rub', lang, amount=seminar['price_rub']),
+            callback_data=f"showcase_pay_rub:{seminar_id}",
+        )])
+        if seminar['price_stars'] > 0:
+            buttons.append([InlineKeyboardButton(
+                text=t('showcase.btn_pay_stars', lang, stars=seminar['price_stars']),
+                callback_data=f"showcase_pay_stars:{seminar_id}",
+            )])
+
+    # Кнопка «Поделиться»
+    share_url = f"https://t.me/{BOT_USERNAME}?start=seminar_{seminar_id}"
+    buttons.append([InlineKeyboardButton(
+        text=t('showcase.btn_share', lang),
+        url=f"https://t.me/share/url?url={share_url}&text={seminar['title']}",
+    )])
+
+    if include_back:
+        buttons.append([InlineKeyboardButton(
+            text=t('showcase.btn_back_showcase', lang),
+            callback_data="showcase_paid" if not seminar["is_free"] else "showcase_free",
+        )])
+
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 @showcase_router.callback_query(F.data.startswith("showcase_detail:"))
 async def callback_showcase_detail(callback: CallbackQuery):
     """Карточка конкретного семинара: описание + кнопки покупки/просмотра."""
@@ -211,52 +271,24 @@ async def callback_showcase_detail(callback: CallbackQuery):
         return
 
     is_purchased = await has_seminar_access(chat_id, seminar_id)
+    text, keyboard = _build_seminar_card(seminar, lang, is_purchased)
+    await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
-    lines = [f"*{seminar['title']}*", ""]
-    lines.append(seminar['description'] or "")
-    speaker = seminar.get('speaker') or ''
-    lines.append(f"\n_{speaker}, {seminar['duration']}_" if speaker else f"\n_{seminar['duration']}_")
 
-    buttons = []
+async def _show_seminar_card(message, seminar_id: int):
+    """Показать карточку семинара по deep link (вызывается из onboarding.py)."""
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
 
-    if seminar["is_free"]:
-        # Бесплатный — кнопка на видео
-        if seminar.get("video_url"):
-            buttons.append([InlineKeyboardButton(
-                text=t('showcase.btn_watch', lang),
-                url=seminar["video_url"],
-            )])
-        lines.append(f"\n{t('showcase.free_label', lang)}")
+    seminar = await get_seminar_by_id(seminar_id)
+    if not seminar:
+        await message.answer(t('showcase.not_found', lang))
+        return
 
-    elif is_purchased:
-        # Уже куплен — показать ссылку на видео/чат
-        lines.append(f"\n{t('showcase.already_purchased', lang)}")
-        if seminar.get("video_url"):
-            buttons.append([InlineKeyboardButton(
-                text=t('showcase.btn_watch', lang),
-                url=seminar["video_url"],
-            )])
-
-    else:
-        # Платный, не куплен — кнопки оплаты
-        lines.append(f"\n{t('showcase.price_label', lang, rub=seminar['price_rub'], stars=seminar['price_stars'])}")
-
-        buttons.append([InlineKeyboardButton(
-            text=t('showcase.btn_pay_rub', lang, amount=seminar['price_rub']),
-            callback_data=f"showcase_pay_rub:{seminar_id}",
-        )])
-        if seminar['price_stars'] > 0:
-            buttons.append([InlineKeyboardButton(
-                text=t('showcase.btn_pay_stars', lang, stars=seminar['price_stars']),
-                callback_data=f"showcase_pay_stars:{seminar_id}",
-            )])
-
-    buttons.append([InlineKeyboardButton(
-        text=t('showcase.btn_back_showcase', lang), callback_data="showcase_paid" if not seminar["is_free"] else "showcase_free",
-    )])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+    is_purchased = await has_seminar_access(chat_id, seminar_id)
+    text, keyboard = _build_seminar_card(seminar, lang, is_purchased, include_back=False)
+    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 # ── Оплата рублями (ЮКасса) ──────────────────────────
