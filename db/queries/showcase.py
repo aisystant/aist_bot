@@ -109,6 +109,19 @@ async def increment_seminar_views(seminar_id: int) -> int:
     return count or 0
 
 
+async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
+    """Проверить, есть ли у пользователя оплаченный семинар с данным chat_id."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        count = await conn.fetchval(
+            """SELECT COUNT(*) FROM seminar_payments sp
+               JOIN seminars s ON s.id = sp.seminar_id
+               WHERE sp.telegram_id = $1 AND s.chat_id = $2 AND sp.status = 'success'""",
+            telegram_id, chat_id,
+        )
+    return (count or 0) > 0
+
+
 async def get_user_seminar_ids(telegram_id: int) -> set[int]:
     """Получить set id оплаченных семинаров пользователя."""
     pool = await get_pool()

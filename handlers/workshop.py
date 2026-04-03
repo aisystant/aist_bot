@@ -351,24 +351,47 @@ async def _send_invite_by_count(bot: Bot, chat_id: int, count: int, lang: str, m
 
 @workshop_router.chat_join_request()
 async def handle_community_join_request(request: ChatJoinRequest):
-    """Одобрение/отклонение заявки на вход в Сообщество/Мастерскую."""
+    """Одобрение/отклонение заявки на вход в Сообщество/Мастерскую.
+
+    Проверяет оплату в двух таблицах:
+    - workshop_payments (старая воронка WP-181)
+    - seminar_payments (витрина WP-5) — по chat_id семинара
+    """
     request_chat_id = request.chat.id
     user_id = request.from_user.id
 
     if request_chat_id not in MANAGED_CHAT_IDS:
+        # Проверяем, может это чат из витрины семинаров
+        try:
+            from db.queries.showcase import has_access_to_chat
+            has_showcase_access = await has_access_to_chat(user_id, request_chat_id)
+            if has_showcase_access:
+                await request.approve()
+                logger.info(f"[Workshop] approved join (showcase): tg={user_id}, chat={request_chat_id}")
+                return
+        except Exception as e:
+            logger.error(f"[Workshop] showcase access check error: {e}")
         return  # не наш чат
 
     count = await get_workshop_payment_count(user_id)
 
-    if request_chat_id == SEMINAR_IWE_CHAT_ID and count >= 1:
+    # Также проверяем оплату через витрину (seminar_payments)
+    showcase_paid = False
+    try:
+        from db.queries.showcase import has_access_to_chat
+        showcase_paid = await has_access_to_chat(user_id, request_chat_id)
+    except Exception:
+        pass
+
+    if request_chat_id == SEMINAR_IWE_CHAT_ID and (count >= 1 or showcase_paid):
         await request.approve()
-        logger.info(f"[Workshop] approved join: tg={user_id}, chat=community, count={count}")
+        logger.info(f"[Workshop] approved join: tg={user_id}, chat=community, count={count}, showcase={showcase_paid}")
     elif request_chat_id == MASTERSKAYA_IWE_CHAT_ID and count >= 2:
         await request.approve()
         logger.info(f"[Workshop] approved join: tg={user_id}, chat=masterskaya, count={count}")
     else:
         await request.decline()
-        logger.info(f"[Workshop] declined join: tg={user_id}, chat={request_chat_id}, count={count}")
+        logger.info(f"[Workshop] declined join: tg={user_id}, chat={request_chat_id}, count={count}, showcase={showcase_paid}")
 
 
 # ── ChatMember logging ─────────────────────────────────
