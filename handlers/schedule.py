@@ -254,6 +254,13 @@ async def callback_category(callback: CallbackQuery):
     if paid_courses:
         buttons.extend(await _create_course_buttons(aisystant_id, paid_courses, lang))
 
+    # Кнопка «Витрина семинаров» — для категории seminars
+    if category == 'seminars':
+        buttons.append([InlineKeyboardButton(
+            text="🎬 " + t('schedule.menu_showcase', lang),
+            callback_data="showcase_main",
+        )])
+
     # Кнопка «Назад»
     buttons.append([InlineKeyboardButton(
         text=t('schedule.btn_back', lang), callback_data="sched_back",
