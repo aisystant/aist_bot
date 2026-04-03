@@ -33,9 +33,11 @@ from db.queries import get_intern
 from db.queries.showcase import (
     get_active_seminars,
     get_seminar_by_id,
+    get_seminar_by_code,
     create_seminar_payment,
     has_seminar_access,
     get_user_seminar_ids,
+    increment_seminar_views,
 )
 from clients.yookassa import YooKassaClient
 from i18n import t
@@ -199,7 +201,8 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "aist_me_bot")
 
 
 def _build_seminar_card(
-    seminar: dict, lang: str, is_purchased: bool, *, include_back: bool = True,
+    seminar: dict, lang: str, is_purchased: bool, *,
+    include_back: bool = True, views: int = 0,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Построить текст + клавиатуру карточки семинара."""
     seminar_id = seminar["id"]
@@ -207,7 +210,13 @@ def _build_seminar_card(
     lines = [f"*{seminar['title']}*", ""]
     lines.append(seminar['description'] or "")
     speaker = seminar.get('speaker') or ''
-    lines.append(f"\n_{speaker}, {seminar['duration']}_" if speaker else f"\n_{seminar['duration']}_")
+    meta_parts = []
+    if speaker:
+        meta_parts.append(speaker)
+    meta_parts.append(seminar['duration'])
+    if views > 0:
+        meta_parts.append(t('showcase.views_count', lang, count=views))
+    lines.append(f"\n_{', '.join(meta_parts)}_")
 
     buttons = []
 
@@ -271,7 +280,8 @@ async def callback_showcase_detail(callback: CallbackQuery):
         return
 
     is_purchased = await has_seminar_access(chat_id, seminar_id)
-    text, keyboard = _build_seminar_card(seminar, lang, is_purchased)
+    views = await increment_seminar_views(seminar_id)
+    text, keyboard = _build_seminar_card(seminar, lang, is_purchased, views=views)
     await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
@@ -287,7 +297,8 @@ async def _show_seminar_card(message, seminar_id: int):
         return
 
     is_purchased = await has_seminar_access(chat_id, seminar_id)
-    text, keyboard = _build_seminar_card(seminar, lang, is_purchased, include_back=False)
+    views = await increment_seminar_views(seminar_id)
+    text, keyboard = _build_seminar_card(seminar, lang, is_purchased, include_back=False, views=views)
     await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
@@ -545,4 +556,64 @@ async def process_seminar_yookassa_webhook(data: dict, bot: Bot) -> dict:
         await _send_seminar_access(bot, telegram_id, seminar, lang)
 
     logger.info(f"[Showcase] yookassa webhook: tg={telegram_id}, seminar={seminar_id}, amount={amount}")
+    return {"ok": True, "seminar_id": seminar_id, "payment_row_id": row_id}
+
+
+# ── Webhook от Aisystant/Tilda для семинаров ──────────
+
+
+async def process_seminar_aisystant_webhook(data: dict, bot: Bot) -> dict:
+    """Обработать webhook от Aisystant при оплате семинара.
+
+    Вызывается из oauth_server.py → POST /webhook/workshop-payment
+    при purpose == "SEMINAR".
+
+    Body: {"telegram_id": 123, "seminar_id": 3, "amount": 5000,
+           "payment_id": "...", "purpose": "SEMINAR"}
+
+    Также поддерживает поиск по tilda_uid:
+    {"telegram_id": 123, "seminar_code": "SE-2026.2-T", "amount": 5000, "purpose": "SEMINAR"}
+    """
+    telegram_id = data.get("telegram_id")
+    if not telegram_id:
+        return {"ok": False, "error": "missing telegram_id"}
+
+    telegram_id = int(telegram_id)
+    payment_id = data.get("payment_id")
+    amount = data.get("amount", 0)
+
+    # Определяем seminar_id: напрямую или по коду (tilda_uid)
+    seminar_id = data.get("seminar_id")
+    seminar_code = data.get("seminar_code")
+
+    if seminar_id:
+        seminar_id = int(seminar_id)
+        seminar = await get_seminar_by_id(seminar_id)
+    elif seminar_code:
+        seminar = await get_seminar_by_code(seminar_code)
+        seminar_id = seminar["id"] if seminar else None
+    else:
+        return {"ok": False, "error": "missing seminar_id or seminar_code"}
+
+    if not seminar:
+        return {"ok": False, "error": f"seminar not found: id={seminar_id}, code={seminar_code}"}
+
+    row_id = await create_seminar_payment(
+        telegram_id=telegram_id,
+        seminar_id=seminar_id,
+        amount=amount,
+        currency="RUB",
+        source="aisystant_webhook",
+        payment_id=payment_id,
+    )
+
+    if row_id == 0:
+        return {"ok": True, "duplicate": True}
+
+    # Отправляем доступ
+    intern = await get_intern(telegram_id)
+    lang = _lang(intern)
+    await _send_seminar_access(bot, telegram_id, seminar, lang)
+
+    logger.info(f"[Showcase] aisystant webhook: tg={telegram_id}, seminar={seminar_id}, amount={amount}")
     return {"ok": True, "seminar_id": seminar_id, "payment_row_id": row_id}

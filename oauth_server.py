@@ -887,9 +887,6 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
                             content_type="application/json", status=400)
 
     purpose = data.get("purpose", "")
-    if purpose and purpose != "WORKSHOP":
-        return web.Response(text='{"ok":true,"skipped":"not workshop"}',
-                            content_type="application/json")
 
     if not _bot_instance:
         logger.error("[WorkshopWebhook] bot instance not set")
@@ -897,8 +894,14 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
                             content_type="application/json", status=503)
 
     try:
-        from handlers.workshop import process_workshop_webhook
-        result = await process_workshop_webhook(data, _bot_instance)
+        if purpose == "SEMINAR":
+            # Оплата семинара из витрины (через Aisystant/Tilda)
+            from handlers.showcase import process_seminar_aisystant_webhook
+            result = await process_seminar_aisystant_webhook(data, _bot_instance)
+        else:
+            # Оплата workshop (по умолчанию)
+            from handlers.workshop import process_workshop_webhook
+            result = await process_workshop_webhook(data, _bot_instance)
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
         logger.error(f"[WorkshopWebhook] error: {e}")
