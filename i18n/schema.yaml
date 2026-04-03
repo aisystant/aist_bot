@@ -5958,6 +5958,10 @@ showcase:
     ru: "✅ Я оплатил — проверить"
     en: "✅ I paid — check"
 
+  btn_share:
+    ru: "📤 Поделиться"
+    en: "📤 Share"
+
   free_label:
     ru: "Бесплатно"
     en: "Free"
