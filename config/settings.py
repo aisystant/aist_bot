@@ -51,6 +51,12 @@ else:
     # Auto-generate: sha256(bot_token)[:48] — hex chars, always valid
     WEBHOOK_SECRET = _hashlib.sha256((BOT_TOKEN or "").encode()).hexdigest()[:48] if BOT_TOKEN else None
 
+# ============= ORY OAUTH (WP-187 — бот+Ory) =============
+ORY_BASE_URL = os.getenv("ORY_BASE_URL", "https://auth.system-school.ru")
+ORY_CLIENT_ID = os.getenv("ORY_CLIENT_ID")
+ORY_CLIENT_SECRET = os.getenv("ORY_CLIENT_SECRET")
+ORY_REDIRECT_URI = os.getenv("ORY_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/ory/callback")
+
 # ============= YOOKASSA (WP-181 Ф7) =============
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
 YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")

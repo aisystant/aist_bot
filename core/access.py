@@ -122,6 +122,36 @@ class AccessLayer:
         ])
         return text, keyboard
 
+    async def get_paywall_with_register(self, user_id: int, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
+        """Paywall с кнопкой регистрации для T0 (WP-187).
+
+        Если пользователь T0 (нет ory_id) — показывает кнопку регистрации.
+        Если T1+ — стандартный paywall с подпиской.
+        """
+        text, _ = await self.get_paywall(service_id, lang)
+
+        buttons = []
+
+        # Check if user needs Ory registration (T0)
+        try:
+            from db.queries.identity import get_user_by_telegram
+            user = await get_user_by_telegram(user_id)
+            if user and not user.get("ory_id"):
+                buttons.append([InlineKeyboardButton(
+                    text="Зарегистрироваться на платформе",
+                    callback_data="ory_register",
+                )])
+        except Exception:
+            pass
+
+        buttons.append([InlineKeyboardButton(
+            text=t('aisystant_sub.btn_subscribe', lang),
+            callback_data="aisystant_subscribe",
+        )])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        return text, keyboard
+
     async def check_subscription(self, user_id: int) -> Optional[dict]:
         """Проверить подписку пользователя.
 

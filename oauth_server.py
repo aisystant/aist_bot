@@ -24,6 +24,7 @@ from clients.digital_twin import digital_twin
 from clients.github_oauth import github_oauth
 from clients.google_calendar_oauth import google_calendar_oauth
 from clients.wakatime_oauth import wakatime_oauth
+from clients.ory_oauth import ory_oauth
 
 logger = get_logger(__name__)
 
@@ -1260,6 +1261,158 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     )
 
 
+async def ory_callback_handler(request: web.Request) -> web.Response:
+    """Обрабатывает OAuth callback от Ory (WP-187: бот+Ory, T0→T1).
+
+    Ory Hydra редиректит сюда с параметрами:
+    - code: authorization code
+    - state: state для верификации (содержит telegram_user_id)
+    """
+    code = request.query.get("code")
+    state = request.query.get("state")
+    error = request.query.get("error")
+
+    if error:
+        error_description = request.query.get("error_description", "Unknown error")
+        logger.error(f"Ory OAuth error: {error} - {error_description}")
+        return web.Response(
+            text=f"""
+            <html>
+            <head><title>Ошибка авторизации</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка авторизации</h1>
+                <p>{error_description}</p>
+                <p>Вернитесь в Telegram и попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400
+        )
+
+    if not code or not state:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Неверный запрос</h1>
+                <p>Отсутствуют необходимые параметры.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400
+        )
+
+    # Обмениваем code на токен
+    tokens = await ory_oauth.exchange_code(code, state)
+    if not tokens:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка получения токена</h1>
+                <p>Не удалось завершить авторизацию. Попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=500
+        )
+
+    telegram_user_id = tokens["telegram_user_id"]
+    access_token = tokens.get("access_token")
+
+    # Получаем профиль из Ory
+    userinfo = await ory_oauth.get_userinfo(access_token) if access_token else None
+    if not userinfo or not userinfo.get("sub"):
+        logger.error(f"[OryOAuth] No sub in userinfo for user {telegram_user_id}")
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Ошибка получения профиля</h1>
+                <p>Не удалось получить данные из Ory. Попробуйте снова.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=500
+        )
+
+    ory_id = userinfo["sub"]
+    email = userinfo.get("email")
+
+    # Привязываем ory_id к telegram_id (T0→T1)
+    from db.queries.identity import link_ory
+    linked = await link_ory(telegram_user_id, ory_id, email)
+
+    if linked:
+        logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
+    else:
+        logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
+
+    # Уведомляем пользователя в Telegram
+    if _bot_instance:
+        try:
+            display = email or ory_id[:8]
+            await _bot_instance.send_message(
+                chat_id=telegram_user_id,
+                text=(
+                    f"Регистрация завершена!\n\n"
+                    f"Аккаунт: {display}\n"
+                    f"Теперь вам доступны расширенные функции платформы."
+                ),
+            )
+        except Exception as e:
+            logger.error(f"[OryOAuth] Failed to notify user {telegram_user_id}: {e}")
+
+    return web.Response(
+        text="""
+        <html>
+        <head>
+            <title>Регистрация завершена!</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    text-align: center;
+                    padding: 50px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    margin: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .card {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    max-width: 400px;
+                }
+                h1 { color: #5E6AD2; margin-bottom: 16px; }
+                p { color: #666; line-height: 1.6; }
+                .success-icon { font-size: 64px; margin-bottom: 16px; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="success-icon">&#10003;</div>
+                <h1>Регистрация завершена!</h1>
+                <p>Можете закрыть эту страницу и вернуться в Telegram.</p>
+            </div>
+        </body>
+        </html>
+        """,
+        content_type="text/html",
+        status=200
+    )
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -1288,6 +1441,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github/callback", github_callback_handler)
     app.router.add_get("/auth/google-calendar/callback", google_calendar_callback_handler)
     app.router.add_get("/auth/wakatime/callback", wakatime_callback_handler)
+    app.router.add_get("/auth/ory/callback", ory_callback_handler)
     app.router.add_post("/api/template-update", template_update_handler)
     app.router.add_post("/webhook/workshop-payment", workshop_payment_handler)
     app.router.add_post("/webhook/yookassa", yookassa_webhook_handler)
