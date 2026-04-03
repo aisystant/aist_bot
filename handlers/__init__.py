@@ -53,9 +53,11 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .features import features_router
     from .channels import channels_router
     from .workshop import workshop_router
+    from .showcase import showcase_router
 
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
+    dp.include_router(showcase_router)
     dp.include_router(payments_router)
     dp.include_router(commands_router)
     dp.include_router(callbacks_router)

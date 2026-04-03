@@ -58,6 +58,7 @@ MENU_SECTIONS = [
     ('professional', 'sched_cat:professional', '💼', 'schedule.menu_professional'),
     ('seminars',     'sched_cat:seminars',     '🎤', 'schedule.menu_seminars'),
     ('reviews',      'sched_cat:reviews',      '🔍', 'schedule.menu_reviews'),
+    ('showcase',     'showcase_main',          '🎬', 'schedule.menu_showcase'),
     ('workshop',     'sched_workshop',         '👥', 'schedule.menu_seminar_iwe'),
     ('subscription', 'aisystant_subscribe',    '💎', 'schedule.menu_subscription'),
     ('my_courses',   'schedule_my',            '📋', 'schedule.menu_my_courses'),

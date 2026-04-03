@@ -101,6 +101,12 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     except Exception as e:
         logger.error(f"[Buy] subscription check error: {e}")
 
+    # 3. Витрина семинаров — постоянная кнопка
+    buttons.append([InlineKeyboardButton(
+        text="🎬 " + t('schedule.menu_showcase', lang),
+        callback_data="showcase_main",
+    )])
+
     if not buttons:
         lines.append(t('buy.nothing_available', lang))
     else:

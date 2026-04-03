@@ -5278,9 +5278,13 @@ schedule:
     ru: "Семинар IWE"
     en: "Tseren's Workshop"
 
+  menu_showcase:
+    ru: "Витрина семинаров"
+    en: "Seminar Showcase"
+
   menu_seminar_iwe:
-    ru: "Видео семинара IWE"
-    en: "IWE Seminar Video"
+    ru: "Семинар IWE (воронка)"
+    en: "IWE Seminar (funnel)"
 
   menu_subscription:
     ru: "Подписка БР"
@@ -5912,3 +5916,92 @@ workshop:
   invite_error:
     ru: "Оплата прошла, но не удалось создать ссылку-приглашение. Пожалуйста, напишите @ssm_tg — вас добавят вручную."
     en: "Payment succeeded but failed to create invite link. Please contact @ssm_tg — you will be added manually."
+
+showcase:
+  main_title:
+    ru: "🎬 *Витрина семинаров*\n\nЗаписи семинаров Мастерской инженеров-менеджеров. Бесплатные — для знакомства, платные — для глубокого погружения."
+    en: "🎬 *Seminar Showcase*\n\nRecordings from the Engineers-Managers Workshop. Free ones to explore, paid ones for deep dive."
+
+  free_title:
+    ru: "🆓 *Бесплатные семинары*\n\nСмотрите бесплатно — чтобы понять, что происходит и где проблема."
+    en: "🆓 *Free Seminars*\n\nWatch for free — to understand what's happening and where the problem is."
+
+  paid_title:
+    ru: "💎 *Платные семинары*\n\nЧтобы это изменить и начать действовать по-другому."
+    en: "💎 *Paid Seminars*\n\nTo change things and start acting differently."
+
+  btn_free:
+    ru: "🆓 Бесплатные ({count})"
+    en: "🆓 Free ({count})"
+
+  btn_paid:
+    ru: "💎 Платные ({count})"
+    en: "💎 Paid ({count})"
+
+  btn_back_showcase:
+    ru: "← Витрина"
+    en: "← Showcase"
+
+  btn_watch:
+    ru: "🎬 Смотреть"
+    en: "🎬 Watch"
+
+  btn_pay_rub:
+    ru: "💳 Оплатить {amount}₽"
+    en: "💳 Pay {amount}₽"
+
+  btn_pay_stars:
+    ru: "⭐ Оплатить {stars} Stars"
+    en: "⭐ Pay {stars} Stars"
+
+  btn_paid_check:
+    ru: "✅ Я оплатил — проверить"
+    en: "✅ I paid — check"
+
+  free_label:
+    ru: "Бесплатно"
+    en: "Free"
+
+  price_label:
+    ru: "Цена: {rub}₽ / {stars} Stars"
+    en: "Price: {rub}₽ / {stars} Stars"
+
+  already_purchased:
+    ru: "✅ Вы уже приобрели этот семинар"
+    en: "✅ You already purchased this seminar"
+
+  not_found:
+    ru: "Семинар не найден."
+    en: "Seminar not found."
+
+  pay_redirect:
+    ru: "Нажмите кнопку для оплаты. После успешной оплаты нажмите «Я оплатил — проверить».\n\nПроблемы с оплатой? Пишите @ssm_tg"
+    en: "Click the button to pay. After payment click 'I paid — check'.\n\nPayment issues? Contact @ssm_tg"
+
+  pay_stars_intro:
+    ru: "Оплата «{title}» через Telegram Stars — {stars} Stars."
+    en: "Pay for '{title}' via Telegram Stars — {stars} Stars."
+
+  pay_error:
+    ru: "Ошибка при создании платежа. Попробуйте позже или напишите @ssm_tg"
+    en: "Payment error. Try again later or contact @ssm_tg"
+
+  check_not_yet:
+    ru: "Оплата ещё не найдена. Подождите пару минут и попробуйте снова."
+    en: "Payment not found yet. Wait a couple of minutes and try again."
+
+  payment_success:
+    ru: "Спасибо за покупку «{title}»!"
+    en: "Thank you for purchasing '{title}'!"
+
+  video_link:
+    ru: "🎬 Запись семинара: {url}"
+    en: "🎬 Seminar recording: {url}"
+
+  chat_link:
+    ru: "👥 Ваша ссылка в чат: {url}\nНажмите — заявка будет одобрена автоматически."
+    en: "👥 Your chat link: {url}\nClick — your request will be approved automatically."
+
+  invite_error:
+    ru: "Не удалось создать ссылку-приглашение. Напишите @ssm_tg — вас добавят вручную."
+    en: "Failed to create invite link. Contact @ssm_tg — you will be added manually."
