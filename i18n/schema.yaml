@@ -5927,8 +5927,8 @@ showcase:
     en: "🆓 *Free Seminars*\n\nWatch for free — to understand what's happening and where the problem is."
 
   paid_title:
-    ru: "💎 *Платные семинары*\n\nЧтобы это изменить и начать действовать по-другому."
-    en: "💎 *Paid Seminars*\n\nTo change things and start acting differently."
+    ru: "💎 *Платные семинары*"
+    en: "💎 *Paid Seminars*"
 
   btn_free:
     ru: "🆓 Бесплатные ({count})"

@@ -124,7 +124,8 @@ async def callback_showcase_free(callback: CallbackQuery):
     for s in seminars:
         lines.append(f"*{s['title']}*")
         lines.append(f"{s['description']}")
-        lines.append(f"_{s['duration']}_")
+        speaker = s.get('speaker') or ''
+        lines.append(f"_{speaker}, {s['duration']}_" if speaker else f"_{s['duration']}_")
         lines.append("")
 
         if s.get("video_url"):
@@ -167,9 +168,10 @@ async def callback_showcase_paid(callback: CallbackQuery):
     for s in seminars:
         is_purchased = s["id"] in paid_ids
         status = "✅" if is_purchased else f"{s['price_rub']}₽"
+        speaker = s.get('speaker') or ''
         lines.append(f"*{s['title']}*")
         lines.append(f"{s['description']}")
-        lines.append(f"_{s['duration']}_ | {status}")
+        lines.append(f"_{speaker}, {s['duration']}_ | {status}" if speaker else f"_{s['duration']}_ | {status}")
         lines.append("")
 
         if is_purchased:
@@ -212,7 +214,8 @@ async def callback_showcase_detail(callback: CallbackQuery):
 
     lines = [f"*{seminar['title']}*", ""]
     lines.append(seminar['description'] or "")
-    lines.append(f"\n_{seminar['duration']}_")
+    speaker = seminar.get('speaker') or ''
+    lines.append(f"\n_{speaker}, {seminar['duration']}_" if speaker else f"\n_{seminar['duration']}_")
 
     buttons = []
 

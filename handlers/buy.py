@@ -49,40 +49,17 @@ async def cmd_buy(message: Message):
 
 
 async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang: str):
-    """Показать витрину: программы + подписка (подписка в конце)."""
+    """Показать витрину: витрина семинаров + подписка первыми, программы ниже."""
     lines = [t('buy.title', lang), ""]
     buttons = []
 
-    # 1. Программы (все в продаже) — сразу с URL-кнопками
-    try:
-        courses = await aisystant.get_available_courses()
-        if courses:
-            from handlers.schedule import _create_course_buttons, _format_date
-            paid_courses = []
-            for course in courses[:8]:
-                code = course.get("code", "")
-                name = course.get("courseName", course.get("name", code))
-                raw_amount = course.get("price") or course.get("amount") or 0
-                try:
-                    amount = float(raw_amount)
-                except (TypeError, ValueError):
-                    amount = 0
-                if amount > 0:
-                    start = _format_date(course.get("started", ""), lang)
-                    lines.append(f"  • {name}\n    Старт: {start} | {int(amount)} ₽")
-                    # Для кнопки убираем префикс программы ("Личное развитие. " и т.п.)
-                    dot_pos = name.find(".")
-                    btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
-                    paid_courses.append((code, btn_name[:25], int(amount)))
-            if paid_courses:
-                buttons.extend(await _create_course_buttons(
-                    aisystant_id, paid_courses, lang, emoji="📚",
-                ))
-            lines.append("")
-    except Exception as e:
-        logger.error(f"[Buy] courses error: {e}")
+    # 1. Витрина семинаров — первая кнопка
+    buttons.append([InlineKeyboardButton(
+        text="🎬 " + t('schedule.menu_showcase', lang),
+        callback_data="showcase_main",
+    )])
 
-    # 2. Подписка БР — одна кнопка, выбор периода через /subscription
+    # 2. Подписка БР — вторая кнопка
     try:
         is_active = await aisystant.has_active_subscription(aisystant_id)
         if is_active:
@@ -101,11 +78,33 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
     except Exception as e:
         logger.error(f"[Buy] subscription check error: {e}")
 
-    # 3. Витрина семинаров — постоянная кнопка
-    buttons.append([InlineKeyboardButton(
-        text="🎬 " + t('schedule.menu_showcase', lang),
-        callback_data="showcase_main",
-    )])
+    # 3. Программы (все в продаже) — ниже
+    try:
+        courses = await aisystant.get_available_courses()
+        if courses:
+            from handlers.schedule import _create_course_buttons, _format_date
+            paid_courses = []
+            for course in courses[:8]:
+                code = course.get("code", "")
+                name = course.get("courseName", course.get("name", code))
+                raw_amount = course.get("price") or course.get("amount") or 0
+                try:
+                    amount = float(raw_amount)
+                except (TypeError, ValueError):
+                    amount = 0
+                if amount > 0:
+                    start = _format_date(course.get("started", ""), lang)
+                    lines.append(f"  • {name}\n    Старт: {start} | {int(amount)} ₽")
+                    dot_pos = name.find(".")
+                    btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
+                    paid_courses.append((code, btn_name[:25], int(amount)))
+            if paid_courses:
+                buttons.extend(await _create_course_buttons(
+                    aisystant_id, paid_courses, lang, emoji="📚",
+                ))
+            lines.append("")
+    except Exception as e:
+        logger.error(f"[Buy] courses error: {e}")
 
     if not buttons:
         lines.append(t('buy.nothing_available', lang))
