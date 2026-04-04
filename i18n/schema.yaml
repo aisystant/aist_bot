@@ -5380,8 +5380,8 @@ schedule:
     en: "📅 *My schedule:*"
 
   hub_upcoming_item:
-    ru: "• {course} — {datetime}"
-    en: "• {course} — {datetime}"
+    ru: "• *{course}*. {datetime} msk"
+    en: "• *{course}*. {datetime} msk"
 
   hub_choose:
     ru: "📚 *Куда можно записаться:*"
@@ -5595,8 +5595,8 @@ buy:
     ru: "Сейчас нет доступных предложений."
     en: "No offers available at the moment."
   payment_note:
-    ru: "\n💡 Оплата юридических лиц и по иностранным картам — пишите @Gelya1848"
-    en: "\n💡 For legal entity payments or foreign cards — contact @Gelya1848"
+    ru: "\n💡 Оплата юр. лиц и по иностранным картам. Пишите @Gelya1848"
+    en: "\n💡 For legal entity payments or foreign cards, contact @Gelya1848"
 
 # ═══════════════════════════════════════════════════════════
 # Info-команды: навигационные landing pages

@@ -73,8 +73,8 @@ def _format_datetime(dt_str: str, lang: str) -> str:
     try:
         dt = datetime.fromisoformat(dt_str)
         if lang == 'en':
-            return dt.strftime("%b %d, %H:%M")
-        return dt.strftime("%d.%m %H:%M")
+            return dt.strftime("%b %d, %Y %H:%M")
+        return dt.strftime("%d.%m.%Y %H:%M")
     except (ValueError, TypeError):
         return dt_str or "—"
 

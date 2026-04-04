@@ -100,7 +100,8 @@ async def _show_buy_menu(message: Message, chat_id: int, aisystant_id: str, lang
                     amount = 0
                 if amount > 0:
                     start = _format_date(course.get("started", ""), lang)
-                    lines.append(f"  • {name}\n    Старт: {start} | {int(amount)} ₽")
+                    price = f"{int(amount):,}".replace(",", " ")
+                    lines.append(f"• *{name}*\n  Старт: {start}. {price} ₽")
                     dot_pos = name.find(".")
                     btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
                     paid_courses.append((code, btn_name[:25], int(amount)))
