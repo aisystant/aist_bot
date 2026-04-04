@@ -431,8 +431,13 @@ async def on_upd_delivery_from_settings(callback: CallbackQuery, state: FSMConte
     """Стиль подачи из настроек (WP-151 Ф2)."""
     await state.clear()
     await callback.answer()
-    from handlers.delivery_prefs import on_upd_delivery
-    await on_upd_delivery(callback, state)
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
+    from integrations.telegram.keyboards import kb_delivery_format
+    await callback.message.edit_text(
+        t('delivery.ask_format', lang),
+        reply_markup=kb_delivery_format(lang),
+    )
 
 
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_marathon_start")

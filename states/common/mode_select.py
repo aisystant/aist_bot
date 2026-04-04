@@ -194,6 +194,44 @@ class ModeSelectState(BaseState):
         if data.startswith("lang_"):
             return await self._save_language(user, callback, data)
 
+        # WP-151: delivery prefs из mode_select (pending после первого урока)
+        if data.startswith("delf_"):
+            return await self._handle_delivery_format(user, callback, data)
+        if data.startswith("detl_"):
+            return await self._handle_detail_level(user, callback, data)
+
+        return None
+
+    async def _handle_delivery_format(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохранить формат подачи и показать вопрос о детализации."""
+        from handlers.delivery_prefs import save_delivery_format
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        format_value = data.replace("delf_", "")
+
+        await save_delivery_format(chat_id, format_value)
+        await callback.answer()
+
+        from integrations.telegram.keyboards import kb_detail_level
+        await callback.message.edit_text(
+            t('delivery.ask_detail', lang),
+            reply_markup=kb_detail_level(lang),
+        )
+        return None
+
+    async def _handle_detail_level(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохранить детализацию и завершить."""
+        from handlers.delivery_prefs import save_detail_level
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        detail_value = data.replace("detl_", "")
+
+        await save_detail_level(chat_id, detail_value)
+        await callback.answer()
+
+        await callback.message.edit_text(
+            f"✅ {t('delivery.saved', lang)}",
+        )
         return None
 
     async def _show_language_options(self, user, callback: CallbackQuery) -> Optional[str]:
