@@ -832,10 +832,10 @@ delivery:
     description: "Пример + действие: больше кейсов и разборов"
 
   tasks_btn:
-    ru: "Сразу применить"
-    en: "Apply right away"
-    max_length: 18
-    description: "Теория + действие: больше заданий и практики"
+    ru: "Изучить сначала теорию"
+    en: "Study theory first"
+    max_length: 25
+    description: "Теория + действие: сначала принцип, потом применение"
 
   mix_btn:
     ru: "Без разницы"
