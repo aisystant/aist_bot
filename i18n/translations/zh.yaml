@@ -829,7 +829,7 @@ mydata:
   sec_privacy: "隐私"
   sec_tiers: "我的等级"
   sec_activity: '我的活动'
-  sec_manage: "管理"
+  sec_manage: "重置"
   sec_metrics_desc: '个人资料、连续天数、回答、摘要'
   sec_activity_desc: 'AI分析你的进度'
   sec_privacy_desc: '我们收集什么以及如何存储'
