@@ -124,6 +124,15 @@ async def sync_engagement_to_dt() -> dict:
                     e.training_attempts_total,
                     e.training_passed_total,
                     e.assessments_total,
+                    e.onboarding_completed_total,
+                    e.mode_changes_total,
+                    e.settings_changes_total,
+                    e.reminders_delivered_total,
+                    e.reminders_opened_total,
+                    e.errors_shown_total,
+                    e.help_views_total,
+                    e.progress_views_total,
+                    e.marathon_completions_total,
                     e.events_total,
                     e.first_event_at,
                     e.last_event_at,
@@ -164,6 +173,19 @@ async def sync_engagement_to_dt() -> dict:
                             "events_last_30d": row['events_last_30d'],
                             "ai_chats_total": row['ai_chats_total'],
                         },
+                    }
+
+                    # ─── 2_8_operations (WP-151 Ф3) ───
+                    collected_data["2_8_operations"] = {
+                        "onboarding_completed": row['onboarding_completed_total'],
+                        "mode_changes": row['mode_changes_total'],
+                        "settings_changes": row['settings_changes_total'],
+                        "reminders_delivered": row['reminders_delivered_total'],
+                        "reminders_opened": row['reminders_opened_total'],
+                        "errors_shown": row['errors_shown_total'],
+                        "help_views": row['help_views_total'],
+                        "progress_views": row['progress_views_total'],
+                        "marathon_completions": row['marathon_completions_total'],
                     }
 
                     # ─── 2_5_notifications (WP-152 Ф4) ───
@@ -318,6 +340,15 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     e.training_attempts_total,
                     e.training_passed_total,
                     e.assessments_total,
+                    e.onboarding_completed_total,
+                    e.mode_changes_total,
+                    e.settings_changes_total,
+                    e.reminders_delivered_total,
+                    e.reminders_opened_total,
+                    e.errors_shown_total,
+                    e.help_views_total,
+                    e.progress_views_total,
+                    e.marathon_completions_total,
                     e.events_total,
                     e.first_event_at,
                     e.last_event_at,

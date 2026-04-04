@@ -47,6 +47,14 @@ class ErrorState(BaseState):
         else:
             await self.send(user, t('error.generic', lang))
 
+        # WP-151 Ф3: error_shown
+        from db.queries.events import log_event
+        user_id = user.get('chat_id') or user.get('id') if isinstance(user, dict) else getattr(user, 'chat_id', 0)
+        await log_event(user_id, 'error_shown', {
+            'error_key': error_message[:200] if error_message else 'generic',
+            'handler': 'ErrorState',
+        })
+
         # Показываем кнопки
         retry_btn = "🔄 Повторить" if lang == "ru" else "🔄 Retry"
         back_btn = "◀️ Назад" if lang == "ru" else "◀️ Back"

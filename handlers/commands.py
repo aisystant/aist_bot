@@ -34,6 +34,13 @@ async def _safe_route(message: Message, state: FSMContext, intern: dict, route_c
         logger.error(traceback.format_exc())
         await message.answer(t('errors.processing_error', lang))
 
+        # WP-151 Ф3: error_shown
+        from db.queries.events import log_event
+        await log_event(message.chat.id, 'error_shown', {
+            'error_key': str(e)[:200],
+            'handler': '_safe_route',
+        })
+
 
 @commands_router.message(Command("mode"))
 async def cmd_mode(message: Message, state: FSMContext):

@@ -176,6 +176,10 @@ async def cmd_help(message: Message):
     ])
     await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
+    # WP-151 Ф3: help_viewed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'help_viewed', {'source': 'command'})
+
 
 @settings_router.callback_query(F.data == "help_all_commands")
 async def cb_help_all_commands(callback: CallbackQuery):
@@ -236,6 +240,10 @@ async def cb_help_all_commands(callback: CallbackQuery):
     )
 
     await callback.message.edit_text(text, parse_mode="Markdown")
+
+    # WP-151 Ф3: help_viewed
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'help_viewed', {'source': 'callback'})
 
 
 @settings_router.message(Command("language"))
@@ -359,8 +367,16 @@ async def on_upd_bloom(callback: CallbackQuery, state: FSMContext):
 
 @settings_router.callback_query(UpdateStates.updating_bloom_level, F.data.startswith("bloom_"))
 async def on_save_bloom(callback: CallbackQuery, state: FSMContext):
+    intern = await get_intern(callback.message.chat.id)
+    old_level = intern.get('bloom_level') if intern else None
     level = int(callback.data.replace("bloom_", ""))
     await update_intern(callback.message.chat.id, bloom_level=level)
+
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'settings_changed', {
+        'field': 'bloom_level', 'old_value': old_level, 'new_value': level,
+    })
 
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -488,6 +504,14 @@ async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
                         marathon_status=MarathonStatus.ACTIVE,
                         mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
 
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'settings_changed', {
+        'field': 'marathon_start_date',
+        'old_value': str(intern.get('marathon_start_date')),
+        'new_value': str(start_date),
+    })
+
     await callback.answer(t('update.start_date_updated', lang))
     await callback.message.edit_text(
         f"✅ {t('update.marathon_start_changed', lang)}\n\n"
@@ -516,7 +540,15 @@ async def on_select_language(callback: CallbackQuery, state: FSMContext):
     if new_lang not in SUPPORTED_LANGUAGES:
         new_lang = 'ru'
 
+    intern = await get_intern(callback.message.chat.id)
+    old_lang = intern.get('language', 'ru') if intern else 'ru'
     await update_intern(callback.message.chat.id, language=new_lang)
+
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'settings_changed', {
+        'field': 'language', 'old_value': old_lang, 'new_value': new_lang,
+    })
     # Инвалидация пре-генерированного контента (мог быть на старом языке)
     from db.queries.marathon import invalidate_user_content
     await invalidate_user_content(callback.message.chat.id)
@@ -536,6 +568,9 @@ async def on_save_motivation(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
     await update_intern(message.chat.id, motivation=message.text.strip())
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'settings_changed', {'field': 'motivation'})
     await message.answer(
         f"✅ {t('update.saved', lang)}\n\n"
         f"{t('commands.learn', lang)}\n"
@@ -548,6 +583,9 @@ async def on_save_goals(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
     await update_intern(message.chat.id, goals=message.text.strip())
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'settings_changed', {'field': 'goals'})
     await message.answer(
         f"✅ {t('update.saved', lang)}\n\n"
         f"{t('commands.learn', lang)}\n"
@@ -559,7 +597,13 @@ async def on_save_goals(message: Message, state: FSMContext):
 async def on_save_name(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru')
+    old_name = intern.get('name') if intern else None
     await update_intern(message.chat.id, name=message.text.strip())
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'settings_changed', {
+        'field': 'name', 'old_value': old_name, 'new_value': message.text.strip(),
+    })
     await message.answer(
         f"✅ {t('update.name_changed', lang)}: *{message.text.strip()}*\n\n"
         f"{t('commands.learn', lang)}\n"
@@ -573,6 +617,9 @@ async def on_save_occupation(message: Message, state: FSMContext):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru')
     await update_intern(message.chat.id, occupation=message.text.strip())
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'settings_changed', {'field': 'occupation'})
     await message.answer(
         f"✅ {t('update.occupation_changed', lang)}!\n\n"
         f"{t('commands.learn', lang)}\n"
@@ -586,6 +633,9 @@ async def on_save_interests(message: Message, state: FSMContext):
     lang = intern.get('language', 'ru')
     interests = [i.strip() for i in message.text.replace(',', ';').split(';') if i.strip()]
     await update_intern(message.chat.id, interests=interests)
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'settings_changed', {'field': 'interests'})
     await message.answer(
         f"✅ {t('update.interests_changed', lang)}!\n\n"
         f"{t('commands.learn', lang)}\n"
@@ -598,7 +648,13 @@ async def on_save_duration(callback: CallbackQuery, state: FSMContext):
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru')
     duration = int(callback.data.replace("duration_", ""))
+    old_duration = intern.get('study_duration') if intern else None
     await update_intern(callback.message.chat.id, study_duration=duration)
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'settings_changed', {
+        'field': 'study_duration', 'old_value': old_duration, 'new_value': duration,
+    })
     duration_info = STUDY_DURATIONS.get(str(duration), {})
     await callback.answer(t('update.saved', lang))
     await callback.message.edit_text(
@@ -636,7 +692,13 @@ async def on_save_schedule(message: Message, state: FSMContext):
         return  # Остаёмся в updating_schedule, ждём callback
 
     # Слот свободен — сохраняем
+    old_schedule = intern.get('schedule_time') if intern else None
     await update_intern(message.chat.id, schedule_time=normalized_time)
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'settings_changed', {
+        'field': 'schedule_time', 'old_value': old_schedule, 'new_value': normalized_time,
+    })
     await message.answer(
         f"✅ {t('update.schedule_changed', lang)}: *{normalized_time}*\n\n"
         f"{t('commands.learn', lang)}\n"
@@ -654,7 +716,13 @@ async def on_settings_slot_selected(callback: CallbackQuery, state: FSMContext):
     selected_time = callback.data.replace("slot_", "")
     await callback.answer()
 
+    old_schedule = intern.get('schedule_time') if intern else None
     await update_intern(callback.message.chat.id, schedule_time=selected_time)
+    # WP-151 Ф3: settings_changed
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'settings_changed', {
+        'field': 'schedule_time', 'old_value': old_schedule, 'new_value': selected_time,
+    })
     await callback.message.edit_text(
         f"✅ {t('update.schedule_changed', lang)}: *{selected_time}*\n\n"
         f"{t('commands.learn', lang)}\n"

@@ -629,6 +629,14 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
             new_mode = derive_mode(MarathonStatus.COMPLETED, feed_status)
             await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
 
+            # WP-151 Ф3: marathon_completed
+            from db.queries.events import log_event
+            await log_event(chat_id, 'marathon_completed', {
+                'total_topics': total_topics,
+                'completed_topics': completed_count,
+                'path': 'legacy',
+            })
+
             await bot.send_message(
                 chat_id,
                 f"🎉 *{t('marathon.congratulations_completed', lang)}*\n\n"
