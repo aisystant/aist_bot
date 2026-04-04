@@ -93,7 +93,9 @@ onboarding:
   ask_time: "什么时候提醒你学习新主题？"
   ask_time_hint: "_格式：HH:MM（例如 09:00）。时区：莫斯科（UTC+3）_"
   ask_start_date: "什么时候开始马拉松？"
-  restart: "让我们重新开始！\n\n您叫什么名字？"
+  restart: '让我们重新开始！\n\n您叫什么名字？'
+  navigator_offer: '不知道从哪里开始？导航员将帮助您选择学习路径。'
+  navigator_hint: '帮我选择'
 
 duration:
   minutes_5: "⚡ 5分钟"

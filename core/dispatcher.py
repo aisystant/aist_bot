@@ -25,6 +25,11 @@ _LEGACY_COMMAND_MAP = {
     'assessment': 'workshop.assessment.flow',
 }
 
+# WP-156: Commands that route to consultation with a forced role
+_ROLE_COMMAND_MAP = {
+    'navigator': 'navigator',
+}
+
 
 class Dispatcher:
     """
@@ -81,7 +86,16 @@ class Dispatcher:
             await self.sm.go_to(user, target, context)
             return True
 
-        # 2. Fallback на legacy map
+        # 2. WP-156: Role commands → consultation with force_role
+        forced_role = _ROLE_COMMAND_MAP.get(command)
+        if forced_role:
+            logger.info(f"[Dispatcher] route_command (role): /{command} → common.consultation (force_role={forced_role})")
+            role_context = dict(context or {})
+            role_context['force_role'] = forced_role
+            await self.sm.go_to(user, 'common.consultation', role_context)
+            return True
+
+        # 3. Fallback на legacy map
         target = _LEGACY_COMMAND_MAP.get(command)
         if target:
             logger.info(f"[Dispatcher] route_command (legacy): /{command} → {target}")

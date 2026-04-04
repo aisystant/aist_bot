@@ -70,6 +70,8 @@ KB_LABELS = {
     'contacts':   {'ru': '📞 Контакты',  'en': '📞 Contacts',   'es': '📞 Contactos',  'fr': '📞 Contacts',    'zh': '📞 联系'},
     'buy':        {'ru': '🛒 Купить',   'en': '🛒 Buy',        'es': '🛒 Comprar',    'fr': '🛒 Acheter',     'zh': '🛒 购买'},
     'about':      {'ru': 'ℹ️ О нас',     'en': 'ℹ️ About',      'es': 'ℹ️ Acerca de',  'fr': 'ℹ️ À propos',    'zh': 'ℹ️ 关于我们'},
+    # WP-156: Navigator explicit entry point
+    'navigator':  {'ru': '🧭 Навигатор', 'en': '🧭 Navigator',  'es': '🧭 Navegador',  'fr': '🧭 Navigateur',  'zh': '🧭 导航'},
 }
 
 # Service key → slash command name (for routing)
@@ -95,6 +97,8 @@ SERVICE_TO_COMMAND = {
     'contacts': 'contacts',
     'buy': 'buy',
     'about': 'about',
+    # WP-156
+    'navigator': 'navigator',
 }
 
 
@@ -120,11 +124,11 @@ TIER_KEYBOARD = {
 # ═══════════════════════════════════════════════════════════
 
 TIER_MENU_COMMANDS = {
-    UITier.T0:             ['link', 'schedule', 'me', 'about', 'features', 'test', 'contacts', 'help'],
-    UITier.T1:           ['schedule', 'buy', 'learn', 'me', 'features', 'about', 'feed_info', 'test', 'help'],
-    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'test', 'about', 'settings', 'help'],
-    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'guide', 'test', 'settings', 'help'],
-    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'me', 'club', 'train', 'feed', 'features', 'mode', 'settings', 'start', 'help'],
+    UITier.T0:             ['link', 'schedule', 'me', 'about', 'features', 'test', 'navigator', 'contacts', 'help'],
+    UITier.T1:           ['schedule', 'buy', 'learn', 'me', 'features', 'about', 'feed_info', 'test', 'navigator', 'help'],
+    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'test', 'navigator', 'about', 'settings', 'help'],
+    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'guide', 'test', 'navigator', 'settings', 'help'],
+    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'me', 'club', 'train', 'feed', 'features', 'navigator', 'mode', 'settings', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -159,6 +163,8 @@ COMMAND_DESCRIPTIONS = {
     'feed_info': {'ru': 'Лента — что это и как запустить',  'en': 'Feed — what it is & how to start', 'es': 'Feed — qué es',       'fr': 'Fil — description',      'zh': '信息流 — 介绍'},
     'train_info': {'ru': 'Тренировка — что это и как запустить', 'en': 'Training — what it is & how to start', 'es': 'Entrenamiento — qué es', 'fr': 'Entraînement — description', 'zh': '训练 — 介绍'},
     'features': {'ru': 'Возможности платформы',             'en': 'Platform features',          'es': 'Funciones de la plataforma', 'fr': 'Fonctionnalités',              'zh': '平台功能'},
+    # WP-156
+    'navigator': {'ru': 'Навигатор — помощь в выборе пути', 'en': 'Navigator — help choosing a path', 'es': 'Navegador — ayuda para elegir', 'fr': 'Navigateur — aide au choix', 'zh': '导航 — 帮助选择路径'},
 }
 
 

@@ -428,6 +428,14 @@ onboarding:
     ru: "Давайте заново!\n\nКак вас зовут?"
     en: "Let's start over!\n\nWhat's your name?"
 
+  navigator_offer:
+    ru: "Не знаешь с чего нача��ь? Навигатор поможет выбрать путь."
+    en: "Not sure where to start? The Navigator will help you choose a path."
+
+  navigator_hint:
+    ru: "Помоги выбрать"
+    en: "Help me choose"
+
 # -----------------------------------------------------------------------------
 # Длительность
 # -----------------------------------------------------------------------------

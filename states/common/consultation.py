@@ -49,16 +49,18 @@ MAX_REFINEMENT_ROUNDS = 3
 
 # --- Role routing patterns (DP.D.044) ---
 _NAVIGATOR_PATTERNS = [
-    # SS.1: С чего начать
+    # SS.1: С чего начать / выбор пути
     "с чего начать", "с чего мне начать", "что мне изучать", "какую программу",
     "куда пойти", "что выбрать", "какой курс", "программа обучения",
     "не знаю с чего", "подскажи путь", "что посоветуешь изучать",
-    # SS.3: Мемы
+    "как начать учиться", "помоги выбрать", "что дальше учить",
+    "какой путь", "порекомендуй программу", "подскажи программу",
+    # SS.3: Мемы (учебные барьеры)
     "нет времени", "не хватает времени", "не получается учиться",
     "сбиваюсь", "бросаю", "не могу учиться", "мешает учиться",
     "нужно идеально", "потом начну", "сначала пойму",
     "не мне это", "поздно учиться", "нет способностей",
-    # SS.4: Помидорки
+    # SS.4: Помидорки (ритм обучения)
     "сколько помидорок", "сколько учиться", "как спланировать неделю",
     "помоги с ритмом", "ритм обучения", "план на неделю",
     "сколько времени уделять", "расписание обучения",
@@ -468,6 +470,39 @@ class ConsultationState(BaseState):
         previous_answer = context.get('previous_answer', '')
         refinement_round = context.get('refinement_round', 1)
 
+        # WP-156: Explicit role entry (/navigator) — save in session, show greeting
+        force_role = context.get('force_role')
+        if force_role and force_role in ('navigator', 'diagnostician'):
+            chat_id_fr = self._get_chat_id(user)
+            if chat_id_fr:
+                session_ctx_fr = await self._load_session_context(user)
+                session_ctx_fr['force_role'] = force_role
+                self._clear_session(session_ctx_fr)  # New session for role
+                session_ctx_fr['consultation_last_activity'] = time.time()
+                await self._save_session_context(chat_id_fr, session_ctx_fr)
+
+            if not question:
+                # No question yet — show role greeting and wait
+                from engines.shared.consultation_tools import ROLE_TRANSITION
+                transition = ROLE_TRANSITION.get(force_role, {})
+                greeting = transition.get(lang, transition.get("ru", ""))
+                if greeting:
+                    await self.send(user, greeting, parse_mode="Markdown")
+                role_hint = {
+                    'navigator': {
+                        'ru': "Задай вопрос, и я помогу выбрать путь обучения. Например:\n• _С чего начать?_\n• _Какую программу выбрать?_\n• _Как спланировать неделю?_",
+                        'en': "Ask a question and I'll help you choose a learning path. For example:\n• _Where to start?_\n• _Which program to choose?_\n• _How to plan my week?_",
+                    },
+                    'diagnostician': {
+                        'ru': "Я помогу определить твою ступень. Задай вопрос или скажи:\n• _Какая у меня ступень?_\n• _Протестируй меня_",
+                        'en': "I'll help determine your level. Ask a question or say:\n• _What's my level?_\n• _Test me_",
+                    },
+                }
+                hint = role_hint.get(force_role, {}).get(lang, role_hint.get(force_role, {}).get('ru', ''))
+                if hint:
+                    await self.send(user, hint, parse_mode="Markdown")
+                return None  # Stay — waiting for question
+
         if not question:
             await self.send(user, t('consultation.no_question', lang))
             return None  # Остаёмся — ждём вопрос
@@ -653,7 +688,9 @@ class ConsultationState(BaseState):
                     personal_claude = await get_personal_claude_md(user_chat_id)
 
                 # DP.D.044: Role routing — detect if question needs Navigator or Diagnostician
-                detected_role = _detect_role(question) if not is_refinement else None
+                # WP-156: force_role from explicit entry (/navigator) takes priority
+                _session_force_role = session_ctx.get('force_role')
+                detected_role = _session_force_role or (_detect_role(question) if not is_refinement else None)
                 role_prompt = None
                 if detected_role:
                     role_prompt = load_role_prompt(detected_role)
@@ -798,13 +835,19 @@ class ConsultationState(BaseState):
         last_activity = ctx.get('consultation_last_activity', 0)
         timed_out = last_activity and (time.time() - last_activity) > SESSION_TIMEOUT_SEC
 
+        # WP-156: Preserve force_role from session context for follow-up questions
+        _session_role = ctx.get('force_role')
+
         # --- Вопрос с "?" → явный новый вопрос ---
         if text.startswith('?'):
             question = text[1:].strip()
             if question:
                 if timed_out:
                     logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
+                    _saved_role = ctx.get('force_role')
                     self._clear_session(ctx)
+                    if _saved_role:
+                        ctx['force_role'] = _saved_role
                 await self.enter(user, context={'question': question})
                 return "followup"
 
@@ -812,7 +855,10 @@ class ConsultationState(BaseState):
         if len(text) >= 3:
             if timed_out:
                 logger.info(f"[Consultation] Session timeout for chat {chat_id}, but new question received — restarting")
+                _saved_role = ctx.get('force_role')
                 self._clear_session(ctx)
+                if _saved_role:
+                    ctx['force_role'] = _saved_role
             await self.enter(user, context={'question': text})
             return "followup"
 

@@ -94,6 +94,8 @@ onboarding:
   ask_time_hint: "_Format : HH:MM (ex. 09:00). Fuseau horaire : Moscou (UTC+3)_"
   ask_start_date: "Quand commençons-nous le marathon ?"
   restart: "Recommençons !\n\nComment vous appelez-vous ?"
+  navigator_offer: "Vous ne savez pas par ou commencer ? Le Navigateur vous aidera a choisir."
+  navigator_hint: "Aidez-moi a choisir"
 
 duration:
   minutes_5: "⚡ 5 minutes"

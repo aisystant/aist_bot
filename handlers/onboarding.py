@@ -222,6 +222,19 @@ async def cmd_start(message: Message, state: FSMContext):
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
+
+    # WP-156: Inline-кнопка «Помоги выбрать» → Навигатор (SS.1: ЦД пуст, задаёт вопросы)
+    nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🧭 " + t('onboarding.navigator_hint', lang),
+            callback_data="start_navigator",
+        )
+    ]])
+    await message.answer(
+        t('onboarding.navigator_offer', lang),
+        reply_markup=nav_kb,
+    )
+
     await sync_menu_commands(message.bot, message.chat.id, tier, lang)
     await state.clear()
 
@@ -415,6 +428,18 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         from core.tier_ui import send_tier_keyboard
         await send_tier_keyboard(callback.message, intern)
 
+        # WP-156: Inline-кнопка «Помоги выбрать» → Навигатор
+        nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🧭 " + t('onboarding.navigator_hint', lang),
+                callback_data="start_navigator",
+            )
+        ]])
+        await callback.message.answer(
+            t('onboarding.navigator_offer', lang),
+            reply_markup=nav_kb,
+        )
+
         await state.clear()
     except Exception as e:
         logger.error(f"[Onboarding] Error confirming profile for {chat_id}: {e}")
@@ -490,6 +515,24 @@ async def on_reset_skip(callback: CallbackQuery, state: FSMContext):
     dispatcher = get_dispatcher()
     if dispatcher and dispatcher.is_sm_active:
         await dispatcher.route_command('mode', intern)
+
+
+# ============= WP-156: NAVIGATOR FROM ONBOARDING =============
+
+@onboarding_router.callback_query(F.data == "start_navigator")
+async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
+    """WP-156: Запуск Навигатора через inline-кнопку после онбординга."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await state.clear()
+        await dispatcher.route_command('navigator', intern)
 
 
 # ============= WP-79: AUTO-LINK AISYSTANT =============
