@@ -3631,8 +3631,8 @@ mydata:
     ru: "Моя активность"
     en: "My Activity"
   sec_manage:
-    ru: "Управление"
-    en: "Manage"
+    ru: "Сброс"
+    en: "Reset"
 
   # ── Hub section descriptions ──
   sec_metrics_desc:

@@ -829,7 +829,7 @@ mydata:
   sec_privacy: "Privacidad"
   sec_tiers: "Mi nivel"
   sec_activity: "Mi actividad"
-  sec_manage: "Gestión"
+  sec_manage: "Restablecer"
   sec_metrics_desc: "perfil, rachas, respuestas, resúmenes"
   sec_activity_desc: "análisis IA de tu progreso"
   sec_privacy_desc: "qué recopilamos y cómo lo almacenamos"

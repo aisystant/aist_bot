@@ -189,8 +189,8 @@ class MyDataState(BaseState):
         text += f"📈 *{t('mydata.sec_activity', lang)}* — {t('mydata.sec_activity_desc', lang)}\n"
         text += f"🔒 *{t('mydata.sec_privacy', lang)}* — {t('mydata.sec_privacy_desc', lang)}\n"
         text += f"🏆 *{t('mydata.sec_tiers', lang)}* — {t('mydata.sec_tiers_desc', lang)}\n"
-        text += f"🔄 *{t('mydata.sec_manage', lang)}* — {t('mydata.sec_manage_desc', lang)}\n"
         text += f"🎯 *{t('mydata.sec_how', lang)}* — {t('mydata.sec_how_desc', lang)}\n"
+        text += f"🔄 *{t('mydata.sec_manage', lang)}* — {t('mydata.sec_manage_desc', lang)}\n"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -215,18 +215,12 @@ class MyDataState(BaseState):
             ],
             [
                 InlineKeyboardButton(
-                    text=f"🔄 {t('mydata.sec_manage', lang)}",
-                    callback_data="mydata_sec_manage",
-                ),
-                InlineKeyboardButton(
                     text=f"🎯 {t('mydata.sec_how', lang)}",
                     callback_data="mydata_sec_how",
                 ),
-            ],
-            [
                 InlineKeyboardButton(
-                    text=f"⚠️ {t('mydata.btn_delete_all', lang)}",
-                    callback_data="mydata_delete_all",
+                    text=f"🔄 {t('mydata.sec_manage', lang)}",
+                    callback_data="mydata_sec_manage",
                 ),
             ],
             [
@@ -897,6 +891,12 @@ class MyDataState(BaseState):
                 )])
         except Exception:
             pass
+
+        # Удаление аккаунта — внизу секции, отдельно от сбросов
+        buttons.append([InlineKeyboardButton(
+            text=f"⚠️ {t('mydata.btn_delete_all', lang)}",
+            callback_data="mydata_delete_all",
+        )])
         buttons.append([InlineKeyboardButton(
             text=f"← {t('mydata.back_to_hub', lang)}",
             callback_data="mydata_hub",
