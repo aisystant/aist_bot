@@ -12,6 +12,7 @@ welcome:
   returning: "¡Bienvenido de nuevo, {name}!"
   menu_greeting: "¡Hola, {name}! 👋\n{tier_label}\n\n{tip}"
   mode_menu: "📋 *Menú principal*\nT{tier_num} {tier_label}\n\n{tip}"
+  pause_navigator: "¡Bienvenido de vuelta! Llevas {days} días ausente. El Navegador puede ayudarte a retomar el ritmo."
   tier_label:
     t0: "🟢 Inicio — vincula Aisystant para desbloquear todas las funciones"
     t1: "🟢 Inicio — prueba todas las funciones gratis por 30 días"

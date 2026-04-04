@@ -85,6 +85,10 @@ welcome:
     ru: "📋 *Главное меню*\nT{tier_num} {tier_label}\n\n{tip}"
     en: "📋 *Main menu*\nT{tier_num} {tier_label}\n\n{tip}"
 
+  pause_navigator:
+    ru: "С возвращением! Тебя не было {days} дней. Навигатор поможет вернуться в ритм."
+    en: "Welcome back! You've been away for {days} days. The Navigator can help you get back on track."
+
   # Tier labels for greeting (П1 — прогресс-бар)
   tier_label:
     t0:
@@ -3813,9 +3817,15 @@ mydata:
   btn_clear_qa:
     ru: "💬 Очистить историю Q&A"
     en: "💬 Clear Q&A history"
+  btn_reset_marathon:
+    ru: "🔄 Сбросить марафон"
+    en: "🔄 Reset marathon"
   btn_reset_learning:
-    ru: "📚 Сбросить прогресс обучения"
-    en: "📚 Reset learning progress"
+    ru: "📚 Сбросить всё обучение (марафон + лента + ответы)"
+    en: "📚 Reset all learning (marathon + feed + answers)"
+  btn_clear_notes:
+    ru: "📝 Очистить заметки GitHub"
+    en: "📝 Clear GitHub notes"
   btn_disconnect_github:
     ru: "🔗 Отключить GitHub"
     en: "🔗 Disconnect GitHub"
@@ -3842,9 +3852,31 @@ mydata:
   confirm_clear_qa_detail:
     ru: "Все вопросы и ответы консультанту будут удалены."
     en: "All consultant questions and answers will be deleted."
+  confirm_reset_marathon:
+    ru: "Сбросить марафон?"
+    en: "Reset marathon?"
+  confirm_reset_marathon_detail:
+    ru: |
+      Будут сброшены:
+      • Пройденные темы марафона
+      • Все ответы марафона
+
+      Лента, статистика и профиль сохранятся.
+    en: |
+      Will be reset:
+      • Completed marathon topics
+      • All marathon answers
+
+      Feed, statistics and profile will be preserved.
+  confirm_clear_notes:
+    ru: "Очистить заметки GitHub?"
+    en: "Clear GitHub notes?"
+  confirm_clear_notes_detail:
+    ru: "Файл fleeting-notes.md в GitHub-репозитории будет очищен. Подключение GitHub сохранится."
+    en: "The fleeting-notes.md file in your GitHub repository will be cleared. GitHub connection will be preserved."
   confirm_reset_learning:
-    ru: "Сбросить прогресс обучения?"
-    en: "Reset learning progress?"
+    ru: "Сбросить всё обучение?"
+    en: "Reset all learning?"
   confirm_reset_learning_detail:
     ru: |
       Будут сброшены:
@@ -3866,6 +3898,15 @@ mydata:
   stats_reset_done:
     ru: "Статистика сброшена."
     en: "Statistics reset."
+  marathon_reset_done:
+    ru: "Марафон сброшен. Новая дата старта: {date}. Используй /learn для начала."
+    en: "Marathon reset. New start date: {date}. Use /learn to begin."
+  notes_cleared:
+    ru: "Заметки GitHub очищены."
+    en: "GitHub notes cleared."
+  notes_clear_error:
+    ru: "Не удалось очистить заметки."
+    en: "Failed to clear notes."
   qa_cleared:
     ru: "История Q&A очищена."
     en: "Q&A history cleared."

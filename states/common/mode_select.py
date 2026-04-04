@@ -152,6 +152,32 @@ class ModeSelectState(BaseState):
             await self.send(user, t('delivery.ask_format', lang),
                             reply_markup=kb_delivery_format(lang))
 
+        # WP-156: предложить Навигатора при возврате после паузы >7 дней
+        last_active = intern.get('last_active_date')
+        if last_active:
+            from db.queries.users import moscow_today
+            from datetime import date
+            days_inactive = (moscow_today() - last_active).days if isinstance(last_active, date) else 0
+
+            if days_inactive >= 7 and not ctx.get('navigator_pause_offered'):
+                nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="🧭 " + t('onboarding.navigator_hint', lang),
+                        callback_data="start_navigator",
+                    )
+                ]])
+                await self.send(
+                    user,
+                    t('welcome.pause_navigator', lang, days=days_inactive),
+                    reply_markup=nav_kb,
+                )
+                ctx['navigator_pause_offered'] = True
+                await update_intern(chat_id, current_context=ctx)
+            elif days_inactive < 7 and ctx.get('navigator_pause_offered'):
+                # Пользователь вернулся — сбросить флаг для следующей паузы
+                del ctx['navigator_pause_offered']
+                await update_intern(chat_id, current_context=ctx)
+
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
         await self.enter(user)
