@@ -332,6 +332,10 @@ class ProfileState(BaseState):
                 await self.send(user, t('modes.invalid_time_format', lang))
                 return None
 
+        # WP-151 Ф3: settings_changed (SM profile path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {'field': field})
+
         await self._set_waiting(user, None)
 
         await self.enter(user)
@@ -384,6 +388,9 @@ class ProfileState(BaseState):
         lang = self._get_lang(user)
         duration = int(data.replace("duration_", ""))
         await update_intern(chat_id, study_duration=duration)
+        # WP-151 Ф3: settings_changed (SM profile path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {'field': 'study_duration', 'new_value': duration})
         await callback.message.edit_text(
             f"✅ {t('update.duration_changed', lang)}: *{duration} {t('modes.min_suffix', lang)}*",
             parse_mode="Markdown"
@@ -428,6 +435,9 @@ class ProfileState(BaseState):
         lang = self._get_lang(user)
         level = int(data.replace("bloom_", ""))
         await update_intern(chat_id, bloom_level=level)
+        # WP-151 Ф3: settings_changed (SM profile path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {'field': 'bloom_level', 'new_value': level})
         await callback.message.edit_text(
             f"✅ {t('update.difficulty_changed', lang)}: *{t(f'bloom.level_{level}_short', lang)}*\n\n"
             f"{t(f'bloom.level_{level}_desc', lang)}",
@@ -467,6 +477,9 @@ class ProfileState(BaseState):
         lang = self._get_lang(user)
         format_value = data.replace("delf_", "")
         await update_intern(chat_id, delivery_format=format_value)
+        # WP-151 Ф3: settings_changed (SM profile path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {'field': 'delivery_format', 'new_value': format_value})
 
         from integrations.telegram.keyboards import kb_detail_level
         keyboard_rows = kb_detail_level(lang).inline_keyboard
@@ -486,6 +499,9 @@ class ProfileState(BaseState):
         lang = self._get_lang(user)
         detail_value = data.replace("detl_", "")
         await update_intern(chat_id, detail_level=detail_value)
+        # WP-151 Ф3: settings_changed (SM profile path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {'field': 'detail_level', 'new_value': detail_value})
 
         await callback.message.edit_text(
             f"✅ {t('delivery.saved', lang)}",

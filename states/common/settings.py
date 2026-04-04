@@ -403,6 +403,10 @@ class SettingsState(BaseState):
             username = waka_user.get('username') or waka_user.get('display_name') or ''
             await self.send(user, f"✅ WakaTime {t('settings.connected', lang)}: *{username}*\n/waka — {t('settings.waka_check_stats', lang)}", parse_mode="Markdown")
 
+        # WP-151 Ф3: settings_changed (SM settings path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {'field': field})
+
         await self._set_waiting(user, None)
 
         await self.enter(user)
@@ -434,7 +438,13 @@ class SettingsState(BaseState):
         if new_lang not in SUPPORTED_LANGUAGES:
             new_lang = 'ru'
 
+        old_lang = self._get_lang(user)
         await update_intern(chat_id, language=new_lang)
+        # WP-151 Ф3: settings_changed (SM settings path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'settings_changed', {
+            'field': 'language', 'old_value': old_lang, 'new_value': new_lang,
+        })
         # Инвалидация пре-генерированного контента (мог быть на старом языке)
         from db.queries.marathon import invalidate_user_content
         await invalidate_user_content(chat_id)
