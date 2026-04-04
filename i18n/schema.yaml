@@ -826,32 +826,32 @@ delivery:
     description: "Второй вопрос после формата"
 
   examples_btn:
-    ru: "Разобраться на примерах"
-    en: "Learn by examples"
-    max_length: 25
+    ru: "🔍 Разобраться на примерах"
+    en: "🔍 Learn by examples"
+    max_length: 28
     description: "Пример + действие: больше кейсов и разборов"
 
   tasks_btn:
-    ru: "Изучить сначала теорию"
-    en: "Study theory first"
-    max_length: 25
+    ru: "📖 Изучить сначала теорию"
+    en: "📖 Study theory first"
+    max_length: 28
     description: "Теория + действие: сначала принцип, потом применение"
 
   mix_btn:
-    ru: "Без разницы"
-    en: "No preference"
-    max_length: 15
+    ru: "🔄 Без разницы"
+    en: "🔄 No preference"
+    max_length: 18
     description: "Пример + теория + действие: система подберёт"
 
   brief_btn:
-    ru: "Покороче"
-    en: "Brief"
-    max_length: 10
+    ru: "⚡ Покороче"
+    en: "⚡ Brief"
+    max_length: 14
 
   detailed_btn:
-    ru: "Подробно"
-    en: "Detailed"
-    max_length: 10
+    ru: "📝 Подробно"
+    en: "📝 Detailed"
+    max_length: 14
 
   saved:
     ru: "Настройки подачи сохранены"
