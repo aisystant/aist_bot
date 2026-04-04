@@ -199,19 +199,19 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 def kb_delivery_format(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура выбора формата подачи (WP-151 Ф2)."""
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t('delivery.examples_btn', lang), callback_data="delf_examples"),
-        InlineKeyboardButton(text=t('delivery.tasks_btn', lang), callback_data="delf_tasks"),
-        InlineKeyboardButton(text=t('delivery.mix_btn', lang), callback_data="delf_mix"),
-    ]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('delivery.examples_btn', lang), callback_data="delf_examples")],
+        [InlineKeyboardButton(text=t('delivery.tasks_btn', lang), callback_data="delf_tasks")],
+        [InlineKeyboardButton(text=t('delivery.mix_btn', lang), callback_data="delf_mix")],
+    ])
 
 
 def kb_detail_level(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура выбора уровня детализации (WP-151 Ф2)."""
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t('delivery.brief_btn', lang), callback_data="detl_brief"),
-        InlineKeyboardButton(text=t('delivery.detailed_btn', lang), callback_data="detl_detailed"),
-    ]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('delivery.brief_btn', lang), callback_data="detl_brief")],
+        [InlineKeyboardButton(text=t('delivery.detailed_btn', lang), callback_data="detl_detailed")],
+    ])
 
 
 def kb_language_select() -> InlineKeyboardMarkup:
