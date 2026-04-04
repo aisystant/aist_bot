@@ -989,6 +989,10 @@ settings:
     ru: "Сброс"
     en: "Reset"
 
+  mydata_link:
+    ru: "Мои данные"
+    en: "My Data"
+
   reset_title:
     ru: "Сброс данных"
     en: "Reset data"
@@ -5155,13 +5159,18 @@ twin:
 # -----------------------------------------------------------------------------
 reset:
   old_data_detected:
-    ru: "👋 У вас есть учебный прогресс ({completed} пройденных тем).\n\nХотите начать с чистого листа или продолжить?"
-    en: "👋 You have learning progress ({completed} completed topics).\n\nWould you like to start fresh or continue?"
+    ru: "👋 У вас есть учебный прогресс ({completed} пройденных тем).\n\nЧтобы сбросить прогресс, перейдите в «Мои данные» и выберите нужный сброс."
+    en: "👋 You have learning progress ({completed} completed topics).\n\nTo reset your progress, go to «My Data» and choose the reset you need."
 
   fresh_start_btn:
     ru: "🔄 Начать заново"
     en: "🔄 Start fresh"
     max_length: 25
+
+  go_mydata_btn:
+    ru: "🔄 Сбросить → Мои данные"
+    en: "🔄 Reset → My Data"
+    max_length: 30
 
   continue_btn:
     ru: "▶️ Продолжить"

@@ -189,7 +189,7 @@ class MyDataState(BaseState):
         text += f"📈 *{t('mydata.sec_activity', lang)}* — {t('mydata.sec_activity_desc', lang)}\n"
         text += f"🔒 *{t('mydata.sec_privacy', lang)}* — {t('mydata.sec_privacy_desc', lang)}\n"
         text += f"🏆 *{t('mydata.sec_tiers', lang)}* — {t('mydata.sec_tiers_desc', lang)}\n"
-        text += f"🗑 *{t('mydata.sec_manage', lang)}* — {t('mydata.sec_manage_desc', lang)}\n"
+        text += f"🔄 *{t('mydata.sec_manage', lang)}* — {t('mydata.sec_manage_desc', lang)}\n"
         text += f"🎯 *{t('mydata.sec_how', lang)}* — {t('mydata.sec_how_desc', lang)}\n"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -215,12 +215,18 @@ class MyDataState(BaseState):
             ],
             [
                 InlineKeyboardButton(
-                    text=f"🗑 {t('mydata.sec_manage', lang)}",
+                    text=f"🔄 {t('mydata.sec_manage', lang)}",
                     callback_data="mydata_sec_manage",
                 ),
                 InlineKeyboardButton(
                     text=f"🎯 {t('mydata.sec_how', lang)}",
                     callback_data="mydata_sec_how",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"⚠️ {t('mydata.btn_delete_all', lang)}",
+                    callback_data="mydata_delete_all",
                 ),
             ],
             [
@@ -346,8 +352,16 @@ class MyDataState(BaseState):
             await self._confirm_action(user, callback, "reset_stats")
             return None
 
+        if data == "mydata_reset_marathon":
+            await self._confirm_action(user, callback, "reset_marathon")
+            return None
+
         if data == "mydata_clear_qa":
             await self._confirm_action(user, callback, "clear_qa")
+            return None
+
+        if data == "mydata_clear_notes":
+            await self._confirm_action(user, callback, "clear_notes")
             return None
 
         if data == "mydata_reset_learning":
@@ -359,8 +373,16 @@ class MyDataState(BaseState):
             await self._reset_stats(user)
             return None
 
+        if data == "mydata_confirm_reset_marathon":
+            await self._reset_marathon(user)
+            return None
+
         if data == "mydata_confirm_clear_qa":
             await self._clear_qa(user)
+            return None
+
+        if data == "mydata_confirm_clear_notes":
+            await self._clear_notes(user)
             return None
 
         if data == "mydata_confirm_reset_learning":
@@ -842,13 +864,17 @@ class MyDataState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        text = f"*🗑 {t('mydata.sec_manage', lang)}*\n\n"
+        text = f"*🔄 {t('mydata.sec_manage', lang)}*\n\n"
         text += t('mydata.manage_intro', lang)
 
         buttons = [
             [InlineKeyboardButton(
                 text=t('mydata.btn_reset_stats', lang),
                 callback_data="mydata_reset_stats",
+            )],
+            [InlineKeyboardButton(
+                text=t('mydata.btn_reset_marathon', lang),
+                callback_data="mydata_reset_marathon",
             )],
             [InlineKeyboardButton(
                 text=t('mydata.btn_clear_qa', lang),
@@ -860,22 +886,17 @@ class MyDataState(BaseState):
             )],
         ]
 
-        # GitHub disconnect (if connected)
+        # GitHub notes clear (if connected)
         try:
             from db.queries.github import get_github_connection
             gh = await get_github_connection(chat_id)
             if gh:
                 buttons.append([InlineKeyboardButton(
-                    text=t('mydata.btn_disconnect_github', lang),
-                    callback_data="mydata_disconnect_github",
+                    text=t('mydata.btn_clear_notes', lang),
+                    callback_data="mydata_clear_notes",
                 )])
         except Exception:
             pass
-
-        buttons.append([InlineKeyboardButton(
-            text=f"⚠️ {t('mydata.btn_delete_all', lang)}",
-            callback_data="mydata_delete_all",
-        )])
         buttons.append([InlineKeyboardButton(
             text=f"← {t('mydata.back_to_hub', lang)}",
             callback_data="mydata_hub",
@@ -901,7 +922,9 @@ class MyDataState(BaseState):
 
         confirm_keys = {
             'reset_stats': ('mydata.confirm_reset_stats', 'mydata.confirm_reset_stats_detail'),
+            'reset_marathon': ('mydata.confirm_reset_marathon', 'mydata.confirm_reset_marathon_detail'),
             'clear_qa': ('mydata.confirm_clear_qa', 'mydata.confirm_clear_qa_detail'),
+            'clear_notes': ('mydata.confirm_clear_notes', 'mydata.confirm_clear_notes_detail'),
             'reset_learning': ('mydata.confirm_reset_learning', 'mydata.confirm_reset_learning_detail'),
         }
         title_key, detail_key = confirm_keys[action]
@@ -947,6 +970,66 @@ class MyDataState(BaseState):
             )
         await self.send(
             user, f"✅ {t('mydata.stats_reset_done', lang)}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    async def _reset_marathon(self, user) -> None:
+        """Сбросить только марафон (ответы + прогресс). Лента и статистика сохраняются."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        from db.queries.answers import delete_marathon_answers
+        from db.queries.users import update_intern, derive_mode, moscow_today
+        from config import MarathonStatus
+
+        today = moscow_today()
+        await delete_marathon_answers(chat_id)
+
+        feed_status = 'not_started'
+        if isinstance(user, dict):
+            feed_status = user.get('feed_status', 'not_started')
+        else:
+            feed_status = getattr(user, 'feed_status', 'not_started')
+
+        await update_intern(chat_id,
+            completed_topics=[],
+            current_topic_index=0,
+            marathon_start_date=today,
+            marathon_status=MarathonStatus.ACTIVE,
+            mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
+            topics_today=0,
+            topics_at_current_bloom=0,
+        )
+
+        await self.send(
+            user, f"✅ {t('mydata.marathon_reset_done', lang, date=today.strftime('%d.%m.%Y'))}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",
+                )],
+            ]),
+        )
+
+    async def _clear_notes(self, user) -> None:
+        """Очистить заметки GitHub (fleeting-notes.md)."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        try:
+            from clients.github_api import github_notes
+            result = await github_notes.clear_notes(chat_id)
+            if result:
+                msg = f"✅ {t('mydata.notes_cleared', lang)}"
+            else:
+                msg = f"❌ {t('mydata.notes_clear_error', lang)}"
+        except Exception as e:
+            logger.error(f"MyData clear_notes error: {e}")
+            msg = f"❌ {t('mydata.notes_clear_error', lang)}"
+
+        await self.send(
+            user, msg,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"← {t('mydata.back_to_hub', lang)}", callback_data="mydata_hub",

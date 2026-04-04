@@ -100,8 +100,8 @@ async def cmd_start(message: Message, state: FSMContext):
             completed_count = len(intern.get('completed_topics', []))
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
-                    text=t('reset.fresh_start_btn', lang),
-                    callback_data="reset_all_progress",
+                    text=t('reset.go_mydata_btn', lang),
+                    callback_data="reset_go_mydata",
                 )],
                 [InlineKeyboardButton(
                     text=t('reset.continue_btn', lang),
@@ -462,34 +462,29 @@ async def on_restart(callback: CallbackQuery, state: FSMContext):
 
 # ============= СБРОС ПРОГРЕССА (авто-детект при /start) =============
 
-@onboarding_router.callback_query(F.data == "reset_all_progress")
-async def on_reset_all_progress(callback: CallbackQuery, state: FSMContext):
-    """Полный сброс учебных данных с сохранением профиля."""
+@onboarding_router.callback_query(F.data == "reset_go_mydata")
+async def on_reset_go_mydata(callback: CallbackQuery, state: FSMContext):
+    """Перенаправление в /mydata для сброса вместо прямого reset."""
     chat_id = callback.from_user.id
     await callback.answer()
 
+    # Ставим флаг, чтобы не предлагать снова
+    intern = await get_intern(chat_id)
+    ctx = intern.get('current_context', {})
+    ctx['reset_offered'] = True
+    await update_intern(chat_id, current_context=ctx)
+
     try:
-        from db.queries.profile import reset_learning_data
-        result = await reset_learning_data(chat_id)
-        total = sum(result.values())
-        logger.info(f"[Reset] Full learning reset for {chat_id}: {total} rows affected")
+        await callback.message.delete()
+    except Exception:
+        pass
 
-        intern = await get_intern(chat_id)
-        lang = intern.get('language', 'ru')
-
-        await callback.message.edit_text(
-            t('reset.done', lang),
-            parse_mode="Markdown",
-        )
-
-        # Переводим в mode_select
-        from handlers import get_dispatcher
-        dispatcher = get_dispatcher()
-        if dispatcher and dispatcher.is_sm_active:
-            await dispatcher.route_command('mode', intern)
-    except Exception as e:
-        logger.error(f"[Reset] Error resetting {chat_id}: {e}")
-        await callback.message.edit_text(t('errors.try_again', 'ru'))
+    # Перенаправляем в /mydata через dispatcher
+    intern = await get_intern(chat_id)
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    if dispatcher and dispatcher.is_sm_active:
+        await dispatcher.route_command('mydata', intern)
 
 
 @onboarding_router.callback_query(F.data == "reset_skip")
