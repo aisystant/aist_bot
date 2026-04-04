@@ -688,9 +688,15 @@ class ConsultationState(BaseState):
                     personal_claude = await get_personal_claude_md(user_chat_id)
 
                 # DP.D.044: Role routing — detect if question needs Navigator or Diagnostician
-                # WP-156: force_role from explicit entry (/navigator) takes priority
+                # WP-156: force_role applies to the FIRST question in /navigator session,
+                # then clears. Subsequent questions use _detect_role() only.
                 _session_force_role = session_ctx.get('force_role')
-                detected_role = _session_force_role or (_detect_role(question) if not is_refinement else None)
+                if _session_force_role:
+                    detected_role = _session_force_role
+                    # Clear force_role after first use — subsequent questions route normally
+                    del session_ctx['force_role']
+                else:
+                    detected_role = _detect_role(question) if not is_refinement else None
                 role_prompt = None
                 if detected_role:
                     role_prompt = load_role_prompt(detected_role)
