@@ -249,8 +249,9 @@ class MyDataState(BaseState):
         expected = t('mydata.delete_confirm_phrase', lang)
 
         if text == expected:
-            await self._execute_delete(user, chat_id, lang)
-            return "deleted"
+            # Фраза совпала → показываем финальное подтверждение кнопкой
+            await self._show_final_delete_confirm(user, chat_id, lang)
+            return None
         else:
             # Не совпало
             await self.send(
@@ -390,6 +391,13 @@ class MyDataState(BaseState):
         if data == "mydata_delete_all":
             await self._start_delete_flow(user, callback)
             return None
+
+        if data == "mydata_final_delete":
+            chat_id = self._get_chat_id(user)
+            lang = self._get_lang(user)
+            await self._clear_context(chat_id)
+            await self._execute_delete(user, chat_id, lang)
+            return "deleted"
 
         if data == "mydata_cancel_delete":
             chat_id = self._get_chat_id(user)
@@ -1120,6 +1128,26 @@ class MyDataState(BaseState):
             )
         except Exception:
             await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
+    async def _show_final_delete_confirm(self, user, chat_id: int, lang: str) -> None:
+        """Финальное подтверждение кнопкой после ввода фразы."""
+        await self._clear_context(chat_id)
+
+        text = f"⚠️ *{t('mydata.delete_final_title', lang)}*\n\n"
+        text += t('mydata.delete_final_body', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=t('mydata.delete_final_confirm_btn', lang),
+                callback_data="mydata_final_delete",
+            )],
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.cancel_delete', lang)}",
+                callback_data="mydata_cancel_delete",
+            )],
+        ])
+
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def _execute_delete(self, user, chat_id: int, lang: str) -> None:
         """Выполнить каскадное удаление всех данных."""
