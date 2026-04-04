@@ -818,19 +818,22 @@ delivery:
     description: "Второй вопрос после формата"
 
   examples_btn:
-    ru: "Через примеры"
-    en: "By examples"
+    ru: "Покажи как"
+    en: "Show me how"
     max_length: 15
+    description: "Разборы кейсов, примеры применения"
 
   tasks_btn:
-    ru: "Через практику"
-    en: "By practice"
+    ru: "Дай задание"
+    en: "Give me tasks"
     max_length: 15
+    description: "Сразу практика, минимум теории"
 
   mix_btn:
-    ru: "Разное"
-    en: "Mixed"
-    max_length: 10
+    ru: "Всё вместе"
+    en: "Mix it up"
+    max_length: 12
+    description: "Теория + примеры + задания"
 
   brief_btn:
     ru: "Покороче"
