@@ -540,6 +540,14 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             await update_intern(chat_id, marathon_status=MarathonStatus.COMPLETED, mode=new_mode)
             logger.info(f"[Scheduler] {chat_id}: marathon completed, status → completed, mode → {new_mode}")
 
+            # WP-151 Ф3: marathon_completed
+            from db.queries.events import log_event
+            await log_event(chat_id, 'marathon_completed', {
+                'total_topics': total,
+                'completed_topics': completed_count,
+                'path': 'scheduler',
+            })
+
             try:
                 await bot.send_message(
                     chat_id,
@@ -701,6 +709,13 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     if not inserted:
         logger.info(f"[Scheduler] Reminder {reminder_type} already sent to {chat_id} today, skip")
         return
+
+    # WP-151 Ф3: reminder_delivered
+    from db.queries.events import log_event
+    await log_event(chat_id, 'reminder_delivered', {
+        'reminder_type': reminder_type,
+        'marathon_day': marathon_day,
+    })
 
     if reminder_type == '+1h':
         await bot.send_message(

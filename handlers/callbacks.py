@@ -247,6 +247,13 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
                 pass
             await state.clear()
 
+            # WP-151 Ф3: reminder_opened
+            if data == "marathon_get_lesson":
+                from db.queries.events import log_event
+                await log_event(chat_id, 'reminder_opened', {
+                    'source': 'marathon_get_lesson',
+                })
+
             if data == "marathon_catchup_today":
                 # Catch-up: user wants today's lesson after completing yesterday's
                 lang = intern.get('language', 'ru') or 'ru'

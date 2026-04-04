@@ -113,6 +113,14 @@ async def select_marathon(callback: CallbackQuery):
             marathon_status=new_marathon_status,
         )
 
+        # WP-151 Ф3: mode_changed
+        from db.queries.events import log_event
+        await log_event(chat_id, 'mode_changed', {
+            'from_mode': intern.get('mode'),
+            'to_mode': new_mode,
+            'trigger': 'mode_marathon',
+        })
+
         # Обновляем intern после изменений
         intern = await get_intern(chat_id)
 
@@ -353,6 +361,15 @@ async def marathon_date_tomorrow(callback: CallbackQuery):
                         marathon_start_date=new_date,
                         marathon_status=MarathonStatus.ACTIVE,
                         mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
+
+    # WP-151 Ф3: mode_changed
+    from db.queries.events import log_event
+    await log_event(chat_id, 'mode_changed', {
+        'from_mode': intern.get('mode'),
+        'to_mode': derive_mode(MarathonStatus.ACTIVE, feed_status),
+        'trigger': 'marathon_date_tomorrow',
+    })
+
     lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
@@ -388,6 +405,15 @@ async def marathon_date_day_after(callback: CallbackQuery):
                         marathon_start_date=new_date,
                         marathon_status=MarathonStatus.ACTIVE,
                         mode=derive_mode(MarathonStatus.ACTIVE, feed_status))
+
+    # WP-151 Ф3: mode_changed
+    from db.queries.events import log_event
+    await log_event(chat_id, 'mode_changed', {
+        'from_mode': intern.get('mode'),
+        'to_mode': derive_mode(MarathonStatus.ACTIVE, feed_status),
+        'trigger': 'marathon_date_day_after',
+    })
+
     lang = intern.get('language', 'ru') or 'ru'
     await callback.answer(t('modes.start_date_set', lang, date=new_date.strftime('%d.%m.%Y')))
 
@@ -457,6 +483,14 @@ async def marathon_reset_do(callback: CallbackQuery):
         topics_today=0,
         topics_at_current_bloom=0,
     )
+
+    # WP-151 Ф3: mode_changed (reset)
+    from db.queries.events import log_event
+    await log_event(chat_id, 'mode_changed', {
+        'from_mode': intern.get('mode'),
+        'to_mode': derive_mode(MarathonStatus.ACTIVE, feed_status),
+        'trigger': 'marathon_reset',
+    })
 
     await callback.answer(t('modes.marathon_reset', lang))
 
@@ -866,10 +900,19 @@ async def select_feed(callback: CallbackQuery):
 
         # Активируем ленту, НЕ паузя марафон
         from db.queries.users import derive_mode
+        new_mode = derive_mode(marathon_status, FeedStatus.ACTIVE)
         await update_intern(chat_id,
-            mode=derive_mode(marathon_status, FeedStatus.ACTIVE),
+            mode=new_mode,
             feed_status=FeedStatus.ACTIVE,
         )
+
+        # WP-151 Ф3: mode_changed
+        from db.queries.events import log_event
+        await log_event(chat_id, 'mode_changed', {
+            'from_mode': current_mode,
+            'to_mode': new_mode,
+            'trigger': 'mode_feed',
+        })
 
         # Кнопки в зависимости от наличия активной недели
         buttons = []

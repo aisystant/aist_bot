@@ -70,8 +70,14 @@ async def get_or_create_session(chat_id: int, command: str):
             VALUES ($1, $2, $3, $4::jsonb)
         ''', chat_id, now, command, json.dumps([command]))
 
-        # ЦД: событие session_start (WP-85)
-        await log_event(chat_id, 'session_start', {'entry_point': command})
+        # WP-151 Ф3: session_start с returning_after_days
+        returning_after_days = None
+        if row:
+            returning_after_days = max(0, (now - row['started_at']).days)
+        await log_event(chat_id, 'session_start', {
+            'entry_point': command,
+            'returning_after_days': returning_after_days,
+        })
 
 
 async def finalize_stale_sessions():

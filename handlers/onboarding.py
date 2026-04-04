@@ -236,6 +236,15 @@ async def cmd_start(message: Message, state: FSMContext):
     )
 
     await sync_menu_commands(message.bot, message.chat.id, tier, lang)
+
+    # WP-151 Ф3: onboarding_completed (fast path)
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'onboarding_completed', {
+        'lang': lang,
+        'path': 'fast',
+        'linked_aisystant': linked,
+    })
+
     await state.clear()
 
 
@@ -261,6 +270,10 @@ async def on_choose_language(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(OnboardingStates.waiting_for_name)
 
+    # WP-151 Ф3: onboarding_step
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'onboarding_step', {'step': 'language'})
+
 
 @onboarding_router.message(OnboardingStates.waiting_for_name)
 async def on_name(message: Message, state: FSMContext):
@@ -276,6 +289,10 @@ async def on_name(message: Message, state: FSMContext):
     )
     await state.set_state(OnboardingStates.waiting_for_study_duration)
 
+    # WP-151 Ф3: onboarding_step
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'onboarding_step', {'step': 'name'})
+
 @onboarding_router.callback_query(OnboardingStates.waiting_for_study_duration, F.data.startswith("duration_"))
 async def on_duration(callback: CallbackQuery, state: FSMContext):
     lang = await get_lang(state)
@@ -288,6 +305,10 @@ async def on_duration(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_schedule)
+
+    # WP-151 Ф3: onboarding_step
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'onboarding_step', {'step': 'duration'})
 
 @onboarding_router.message(OnboardingStates.waiting_for_schedule)
 async def on_schedule(message: Message, state: FSMContext):
@@ -324,6 +345,10 @@ async def on_schedule(message: Message, state: FSMContext):
         reply_markup=kb_marathon_start(lang)
     )
     await state.set_state(OnboardingStates.waiting_for_start_date)
+
+    # WP-151 Ф3: onboarding_step
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'onboarding_step', {'step': 'schedule'})
 
 
 @onboarding_router.callback_query(OnboardingStates.waiting_for_schedule, F.data.startswith("slot_"))
@@ -378,6 +403,10 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
         reply_markup=kb_confirm(lang)
     )
     await state.set_state(OnboardingStates.confirming_profile)
+
+    # WP-151 Ф3: onboarding_step
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'onboarding_step', {'step': 'start_date'})
 
 @onboarding_router.callback_query(OnboardingStates.confirming_profile, F.data == "confirm")
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
@@ -439,6 +468,17 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             t('onboarding.navigator_offer', lang),
             reply_markup=nav_kb,
         )
+
+        # WP-151 Ф3: onboarding_step + onboarding_completed (FSM path)
+        from db.queries.events import log_event
+        await log_event(chat_id, 'onboarding_step', {'step': 'confirm'})
+        await log_event(chat_id, 'onboarding_completed', {
+            'lang': lang,
+            'path': 'fsm',
+            'duration': intern.get('study_duration'),
+            'schedule_time': intern.get('schedule_time'),
+            'start_date': str(intern.get('marathon_start_date')),
+        })
 
         await state.clear()
     except Exception as e:

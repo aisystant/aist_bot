@@ -149,6 +149,15 @@ class MarathonLessonState(BaseState):
                     marathon_status=MarathonStatus.COMPLETED,
                     mode=derive_mode(MarathonStatus.COMPLETED, feed_status),
                 )
+
+                # WP-151 Ф3: marathon_completed
+                from db.queries.events import log_event
+                await log_event(chat_id, 'marathon_completed', {
+                    'total_topics': total_topics,
+                    'completed_topics': len(completed),
+                    'path': 'lesson_state',
+                })
+
             await self.send(user, t('marathon.completed', lang))
             return "marathon_complete"
 

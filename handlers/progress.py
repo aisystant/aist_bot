@@ -48,6 +48,10 @@ async def cmd_progress(message: Message, state: FSMContext = None):
         await message.answer(t('progress.first_start', lang))
         return
 
+    # WP-151 Ф3: progress_viewed
+    from db.queries.events import log_event
+    await log_event(message.chat.id, 'progress_viewed', {'view_type': 'short'})
+
     # SM active → delegate to ProgressState (hub with prefetch + sections)
     if dispatcher and dispatcher.is_sm_active:
         if state:
@@ -123,6 +127,11 @@ async def cmd_progress(message: Message, state: FSMContext = None):
 async def show_full_progress(callback: CallbackQuery):
     """Полный отчёт с начала использования бота"""
     await callback.answer()
+
+    # WP-151 Ф3: progress_viewed (full)
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'progress_viewed', {'view_type': 'full'})
+
     b = _bot_imports()
 
     try:
