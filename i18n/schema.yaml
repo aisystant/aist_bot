@@ -816,8 +816,8 @@ difficulty:
 # -----------------------------------------------------------------------------
 delivery:
   ask_format:
-    ru: "Как вам удобнее учиться?"
-    en: "How do you prefer to learn?"
+    ru: "Что для вас важнее в уроке?"
+    en: "What matters most in a lesson?"
     description: "Вопрос после первого урока"
 
   ask_detail:
@@ -826,22 +826,22 @@ delivery:
     description: "Второй вопрос после формата"
 
   examples_btn:
-    ru: "Покажи как"
-    en: "Show me how"
-    max_length: 15
-    description: "Разборы кейсов, примеры применения"
+    ru: "Разобраться на примерах"
+    en: "Learn by examples"
+    max_length: 25
+    description: "Пример + действие: больше кейсов и разборов"
 
   tasks_btn:
-    ru: "Дай задание"
-    en: "Give me tasks"
-    max_length: 15
-    description: "Сразу практика, минимум теории"
+    ru: "Сразу применить"
+    en: "Apply right away"
+    max_length: 18
+    description: "Теория + действие: больше заданий и практики"
 
   mix_btn:
-    ru: "Всё вместе"
-    en: "Mix it up"
-    max_length: 12
-    description: "Теория + примеры + задания"
+    ru: "Без разницы"
+    en: "No preference"
+    max_length: 15
+    description: "Пример + теория + действие: система подберёт"
 
   brief_btn:
     ru: "Покороче"
