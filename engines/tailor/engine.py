@@ -402,7 +402,7 @@ class TailorEngine:
             return {
                 'type': 'worldview',
                 'depth': depth,
-                'depth_name': depth_data.get('name', _MEME_DEPTH_NAMES.get(depth, '')),
+                'depth_name': depth_data.get('name', self._MEME_DEPTH_NAMES.get(depth, '')),
                 'meme_unproductive': data.get('unproductive', ''),
                 'meme_productive': data.get('productive', ''),
                 'meme_function': data.get('function', ''),
@@ -428,12 +428,12 @@ class TailorEngine:
             }
 
 
-# Названия глубин для мемов (fallback если нет в JSON)
-_MEME_DEPTH_NAMES = {
-    1: 'Осознание',
-    2: 'Различение',
-    3: 'Компиляция',
-}
+    # Названия глубин для мемов (fallback если нет в JSON)
+    _MEME_DEPTH_NAMES = {
+        1: 'Осознание',
+        2: 'Различение',
+        3: 'Компиляция',
+    }
 
     # ═══════════════════════════════════════════════════════════
     # Шаг 7: Упаковка
