@@ -144,6 +144,14 @@ class ModeSelectState(BaseState):
         await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
         await sync_menu_commands(self.bot, chat_id, tier, lang)
 
+        # WP-151 Ф2: показать вопросы о стиле подачи после первого урока
+        intern = await get_intern(chat_id)
+        ctx = intern.get('current_context', {}) or {}
+        if ctx.get('delivery_prefs_pending'):
+            from integrations.telegram.keyboards import kb_delivery_format
+            await self.send(user, t('delivery.ask_format', lang),
+                            reply_markup=kb_delivery_format(lang))
+
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
         await self.enter(user)

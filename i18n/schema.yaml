@@ -575,6 +575,11 @@ buttons:
     en: "Bot mode"
     max_length: 20
 
+  delivery_style:
+    ru: "Стиль подачи"
+    en: "Delivery style"
+    max_length: 15
+
   # Кнопки марафона
   view_progress:
     ru: "Посмотреть прогресс"
@@ -797,6 +802,61 @@ difficulty:
   hard_desc:
     ru: "Глубокое погружение"
     en: "Deep dive"
+
+# -----------------------------------------------------------------------------
+# Предпочтения стиля подач�� (WP-151 Ф2)
+# -----------------------------------------------------------------------------
+delivery:
+  ask_format:
+    ru: "Как вам удобнее учиться?"
+    en: "How do you prefer to learn?"
+    description: "Вопрос после первого урока"
+
+  ask_detail:
+    ru: "Насколько подробно объяснять?"
+    en: "How detailed should explanations be?"
+    description: "Второй вопрос после формата"
+
+  examples_btn:
+    ru: "Через примеры"
+    en: "By examples"
+    max_length: 15
+
+  tasks_btn:
+    ru: "Через практику"
+    en: "By practice"
+    max_length: 15
+
+  mix_btn:
+    ru: "Разное"
+    en: "Mixed"
+    max_length: 10
+
+  brief_btn:
+    ru: "Покороче"
+    en: "Brief"
+    max_length: 10
+
+  detailed_btn:
+    ru: "Подробно"
+    en: "Detailed"
+    max_length: 10
+
+  saved:
+    ru: "Настройки подачи сохранены"
+    en: "Delivery preferences saved"
+
+  current:
+    ru: "Текущие настройки подачи:"
+    en: "Current delivery settings:"
+
+  current_format:
+    ru: "Формат"
+    en: "Format"
+
+  current_detail:
+    ru: "Детализация"
+    en: "Detail level"
 
 # -----------------------------------------------------------------------------
 # Стили обучения

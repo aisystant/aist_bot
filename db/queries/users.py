@@ -23,6 +23,7 @@ logger = get_logger(__name__)
 PROFILE_FIELDS = frozenset({
     'name', 'occupation', 'role', 'domain', 'interests', 'motivation', 'goals',
     'language', 'experience_level', 'difficulty_preference', 'learning_style',
+    'delivery_format', 'detail_level',
     'study_duration', 'current_problems', 'desires', 'tg_username',
     'aisystant_id', 'aisystant_linked_at', 'dt_connected_at', 'dt_user_id',
     'tier', 'email', 'timezone',

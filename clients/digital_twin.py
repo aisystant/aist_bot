@@ -594,6 +594,8 @@ class DigitalTwinClient:
         'desires': '1_declarative/1_4_context/02_Желания',
         'schedule_time': '1_declarative/1_4_context/05_Режим обучения',
         'feed_schedule_time': '1_declarative/1_4_context/04_Удобное время',
+        'delivery_format': '1_declarative/1_5_delivery/01_Формат подачи',
+        'detail_level': '1_declarative/1_5_delivery/02_Детализация',
     }
 
     @staticmethod

@@ -426,6 +426,15 @@ async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
 
+@settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_delivery")
+async def on_upd_delivery_from_settings(callback: CallbackQuery, state: FSMContext):
+    """Стиль подачи из настроек (WP-151 Ф2)."""
+    await state.clear()
+    await callback.answer()
+    from handlers.delivery_prefs import on_upd_delivery
+    await on_upd_delivery(callback, state)
+
+
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_marathon_start")
 async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     from core.topics import get_marathon_day
