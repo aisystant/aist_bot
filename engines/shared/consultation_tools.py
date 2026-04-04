@@ -506,12 +506,12 @@ ROLE_ATTRIBUTION = {
 # WP-156: Hint for continuing with the same role via prefix
 ROLE_CONTINUE_HINT = {
     "navigator": {
-        "ru": "Чтобы продолжить с Навигатором, начни вопрос с «Навигатор»",
-        "en": "To continue with Navigator, start your question with 'Navigator'",
+        "ru": "Чтобы продолжить с Навигатором, начни вопрос со слова «Навигатор» и далее ваш вопрос.",
+        "en": "To continue with Navigator, start with 'Navigator' followed by your question.",
     },
     "diagnostician": {
-        "ru": "Чтобы продолжить с Диагностом, начни вопрос с «Диагност»",
-        "en": "To continue with Diagnostician, start your question with 'Diagnostician'",
+        "ru": "Чтобы продолжить с Диагностом, начни вопрос со слова «Диагност» и далее ваш вопрос.",
+        "en": "To continue with Diagnostician, start with 'Diagnostician' followed by your question.",
     },
 }
 
