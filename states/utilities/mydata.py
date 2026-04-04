@@ -1142,41 +1142,25 @@ class MyDataState(BaseState):
 
         await self.send(user, text, parse_mode="Markdown")
 
-    # ─── Context persistence (via fsm_states.data) ─────────────────────
+    # ─── Context persistence (via current_context in user_state) ────────
+    # NB: fsm_states.data затирается fallback state.clear() при каждом
+    # текстовом сообщении → хранить в current_context (user_state).
 
     async def _get_context(self, chat_id: int) -> Optional[dict]:
-        from db import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT data FROM fsm_states WHERE chat_id = $1', chat_id,
-            )
-            if row and row['data']:
-                try:
-                    data = json.loads(row['data'])
-                    return data.get('mydata_context')
-                except (json.JSONDecodeError, TypeError):
-                    pass
-        return None
+        from db.queries import get_intern
+        intern = await get_intern(chat_id)
+        if not intern:
+            return None
+        ctx = intern.get('current_context', {})
+        return ctx.get('mydata_context')
 
     async def _save_context(self, chat_id: int, ctx: dict) -> None:
-        from db import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT data FROM fsm_states WHERE chat_id = $1', chat_id,
-            )
-            data = {}
-            if row and row['data']:
-                try:
-                    data = json.loads(row['data'])
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
-            data['mydata_context'] = ctx
-            await conn.execute(
-                'UPDATE fsm_states SET data = $1 WHERE chat_id = $2',
-                json.dumps(data), chat_id,
-            )
+        from db.queries import get_intern
+        from db.queries.users import update_intern
+        intern = await get_intern(chat_id)
+        current_ctx = intern.get('current_context', {}) if intern else {}
+        current_ctx['mydata_context'] = ctx
+        await update_intern(chat_id, current_context=current_ctx)
 
     async def _clear_context(self, chat_id: int) -> None:
         await self._save_context(chat_id, {})
