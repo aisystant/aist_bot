@@ -249,8 +249,9 @@ class MyDataState(BaseState):
         expected = t('mydata.delete_confirm_phrase', lang)
 
         if text == expected:
-            await self._execute_delete(user, chat_id, lang)
-            return "deleted"
+            # Фраза совпала → показываем финальное подтверждение кнопкой
+            await self._show_final_delete_confirm(user, chat_id, lang)
+            return None
         else:
             # Не совпало
             await self.send(
@@ -390,6 +391,13 @@ class MyDataState(BaseState):
         if data == "mydata_delete_all":
             await self._start_delete_flow(user, callback)
             return None
+
+        if data == "mydata_final_delete":
+            chat_id = self._get_chat_id(user)
+            lang = self._get_lang(user)
+            await self._clear_context(chat_id)
+            await self._execute_delete(user, chat_id, lang)
+            return "deleted"
 
         if data == "mydata_cancel_delete":
             chat_id = self._get_chat_id(user)
@@ -1121,6 +1129,26 @@ class MyDataState(BaseState):
         except Exception:
             await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
+    async def _show_final_delete_confirm(self, user, chat_id: int, lang: str) -> None:
+        """Финальное подтверждение кнопкой после ввода фразы."""
+        await self._clear_context(chat_id)
+
+        text = f"⚠️ *{t('mydata.delete_final_title', lang)}*\n\n"
+        text += t('mydata.delete_final_body', lang)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=t('mydata.delete_final_confirm_btn', lang),
+                callback_data="mydata_final_delete",
+            )],
+            [InlineKeyboardButton(
+                text=f"← {t('mydata.cancel_delete', lang)}",
+                callback_data="mydata_cancel_delete",
+            )],
+        ])
+
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+
     async def _execute_delete(self, user, chat_id: int, lang: str) -> None:
         """Выполнить каскадное удаление всех данных."""
         from db.queries.profile import delete_all_user_data
@@ -1142,41 +1170,25 @@ class MyDataState(BaseState):
 
         await self.send(user, text, parse_mode="Markdown")
 
-    # ─── Context persistence (via fsm_states.data) ─────────────────────
+    # ─── Context persistence (via current_context in user_state) ────────
+    # NB: fsm_states.data затирается fallback state.clear() при каждом
+    # текстовом сообщении → хранить в current_context (user_state).
 
     async def _get_context(self, chat_id: int) -> Optional[dict]:
-        from db import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT data FROM fsm_states WHERE chat_id = $1', chat_id,
-            )
-            if row and row['data']:
-                try:
-                    data = json.loads(row['data'])
-                    return data.get('mydata_context')
-                except (json.JSONDecodeError, TypeError):
-                    pass
-        return None
+        from db.queries import get_intern
+        intern = await get_intern(chat_id)
+        if not intern:
+            return None
+        ctx = intern.get('current_context', {})
+        return ctx.get('mydata_context')
 
     async def _save_context(self, chat_id: int, ctx: dict) -> None:
-        from db import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT data FROM fsm_states WHERE chat_id = $1', chat_id,
-            )
-            data = {}
-            if row and row['data']:
-                try:
-                    data = json.loads(row['data'])
-                except (json.JSONDecodeError, TypeError):
-                    data = {}
-            data['mydata_context'] = ctx
-            await conn.execute(
-                'UPDATE fsm_states SET data = $1 WHERE chat_id = $2',
-                json.dumps(data), chat_id,
-            )
+        from db.queries import get_intern
+        from db.queries.users import update_intern
+        intern = await get_intern(chat_id)
+        current_ctx = intern.get('current_context', {}) if intern else {}
+        current_ctx['mydata_context'] = ctx
+        await update_intern(chat_id, current_context=current_ctx)
 
     async def _clear_context(self, chat_id: int) -> None:
         await self._save_context(chat_id, {})

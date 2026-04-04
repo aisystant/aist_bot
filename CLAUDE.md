@@ -638,3 +638,7 @@ Railway UI отображает значения переменных с обр�
 ### 10.34. HMAC-диагностика webhook: логировать prefix без раскрытия секрета
 
 При отладке HMAC 403 логировать: `sig_header[:16]`, `expected[:16]`, `match=bool`. Этого достаточно для диагностики расхождения. Удалять после fix — не оставлять в проде.
+
+### 10.35. fsm_states.data затирается fallback state.clear()
+
+`fallback.py:on_unknown_message` вызывает `state.clear()` перед маршрутизацией в SM. Это **затирает `fsm_states.data`**. НЕ хранить персистентный контекст SM-стейтов в `fsm_states.data` — использовать `current_context` в `development.user_state` (через `update_intern`). Пример: `mydata.py` — контекст `awaiting_delete`.

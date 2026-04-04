@@ -3951,6 +3951,15 @@ mydata:
   delete_instruction:
     ru: "Для подтверждения напишите точную фразу"
     en: "To confirm, type the exact phrase"
+  delete_final_title:
+    ru: "Последний шаг"
+    en: "Final step"
+  delete_final_body:
+    ru: "Все данные будут безвозвратно удалены. Это действие нельзя отменить."
+    en: "All data will be permanently deleted. This action cannot be undone."
+  delete_final_confirm_btn:
+    ru: "Я согласен, удалить все данные"
+    en: "I agree, delete all data"
   delete_mismatch:
     ru: "Текст не совпал. Удаление отменено."
     en: "Text did not match. Deletion cancelled."
