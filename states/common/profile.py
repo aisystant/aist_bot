@@ -178,7 +178,10 @@ class ProfileState(BaseState):
                 InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom")
             ],
             [
-                InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="profile_schedule"),
+                InlineKeyboardButton(text="📚 " + t('buttons.delivery_style', lang), callback_data="upd_delivery"),
+                InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="profile_schedule")
+            ],
+            [
                 InlineKeyboardButton(text="📁 " + t('buttons.mydata', lang), callback_data="go_mydata")
             ],
             [
@@ -225,6 +228,8 @@ class ProfileState(BaseState):
             return await self._show_duration_options(user, callback)
         if data == "upd_bloom":
             return await self._show_bloom_options(user, callback)
+        if data == "upd_delivery":
+            return await self._show_delivery_options(user, callback)
         if data == "upd_mode":
             try:
                 await callback.message.delete()
@@ -246,6 +251,10 @@ class ProfileState(BaseState):
             return await self._save_duration(user, callback, data)
         if data.startswith("bloom_"):
             return await self._save_bloom(user, callback, data)
+        if data.startswith("delf_"):
+            return await self._save_delivery_format(user, callback, data)
+        if data.startswith("detl_"):
+            return await self._save_detail_level(user, callback, data)
         if data == "settings_back_to_menu":
             try:
                 await callback.message.delete()
@@ -423,6 +432,63 @@ class ProfileState(BaseState):
             f"✅ {t('update.difficulty_changed', lang)}: *{t(f'bloom.level_{level}_short', lang)}*\n\n"
             f"{t(f'bloom.level_{level}_desc', lang)}",
             parse_mode="Markdown"
+        )
+        await self.enter(user)
+        return None
+
+    async def _show_delivery_options(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Показать выбор стиля подачи (WP-151 Ф2)."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+        intern = await get_intern(chat_id)
+
+        current_format = intern.get('delivery_format') or '-'
+        current_detail = intern.get('detail_level') or '-'
+
+        from integrations.telegram.keyboards import kb_delivery_format
+        keyboard_rows = kb_delivery_format(lang).inline_keyboard
+        keyboard_rows.append([InlineKeyboardButton(
+            text=t('buttons.back', lang), callback_data="settings_back_to_menu"
+        )])
+
+        await callback.message.edit_text(
+            f"{t('delivery.current', lang)}\n"
+            f"{t('delivery.current_format', lang)}: *{current_format}*\n"
+            f"{t('delivery.current_detail', lang)}: *{current_detail}*\n\n"
+            f"{t('delivery.ask_format', lang)}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+        )
+        return None
+
+    async def _save_delivery_format(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохранить формат подачи и пок��зать вопрос о дета��изации."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        format_value = data.replace("delf_", "")
+        await update_intern(chat_id, delivery_format=format_value)
+
+        from integrations.telegram.keyboards import kb_detail_level
+        keyboard_rows = kb_detail_level(lang).inline_keyboard
+        keyboard_rows.append([InlineKeyboardButton(
+            text=t('buttons.back', lang), callback_data="settings_back_to_menu"
+        )])
+
+        await callback.message.edit_text(
+            t('delivery.ask_detail', lang),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+        )
+        return None
+
+    async def _save_detail_level(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохранить детализацию и вернуться в пр��филь."""
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        detail_value = data.replace("detl_", "")
+        await update_intern(chat_id, detail_level=detail_value)
+
+        await callback.message.edit_text(
+            f"✅ {t('delivery.saved', lang)}",
         )
         await self.enter(user)
         return None

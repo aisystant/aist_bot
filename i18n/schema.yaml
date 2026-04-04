@@ -85,6 +85,10 @@ welcome:
     ru: "📋 *Главное меню*\nT{tier_num} {tier_label}\n\n{tip}"
     en: "📋 *Main menu*\nT{tier_num} {tier_label}\n\n{tip}"
 
+  pause_navigator:
+    ru: "С возвращением! Тебя не было {days} дней. Навигатор поможет вернуться в ритм."
+    en: "Welcome back! You've been away for {days} days. The Navigator can help you get back on track."
+
   # Tier labels for greeting (П1 — прогресс-бар)
   tier_label:
     t0:
@@ -428,6 +432,14 @@ onboarding:
     ru: "Давайте заново!\n\nКак вас зовут?"
     en: "Let's start over!\n\nWhat's your name?"
 
+  navigator_offer:
+    ru: "Не знаешь с чего нача��ь? Навигатор поможет выбрать путь."
+    en: "Not sure where to start? The Navigator will help you choose a path."
+
+  navigator_hint:
+    ru: "Помоги выбрать"
+    en: "Help me choose"
+
 # -----------------------------------------------------------------------------
 # Длительность
 # -----------------------------------------------------------------------------
@@ -574,6 +586,11 @@ buttons:
     ru: "Режим бота"
     en: "Bot mode"
     max_length: 20
+
+  delivery_style:
+    ru: "Стиль подачи"
+    en: "Delivery style"
+    max_length: 15
 
   # Кнопки марафона
   view_progress:
@@ -799,6 +816,64 @@ difficulty:
     en: "Deep dive"
 
 # -----------------------------------------------------------------------------
+# Предпочтения стиля подач�� (WP-151 Ф2)
+# -----------------------------------------------------------------------------
+delivery:
+  ask_format:
+    ru: "Что для вас важнее в уроке?"
+    en: "What matters most in a lesson?"
+    description: "Вопрос после первого урока"
+
+  ask_detail:
+    ru: "Насколько подробно объяснять?"
+    en: "How detailed should explanations be?"
+    description: "Второй вопрос после формата"
+
+  examples_btn:
+    ru: "🔍 Разобраться на примерах"
+    en: "🔍 Learn by examples"
+    max_length: 28
+    description: "Пример + действие: больше кейсов и разборов"
+
+  tasks_btn:
+    ru: "📖 Изучить сначала теорию"
+    en: "📖 Study theory first"
+    max_length: 28
+    description: "Теория + действие: сначала принцип, потом применение"
+
+  mix_btn:
+    ru: "🔄 Без разницы"
+    en: "🔄 No preference"
+    max_length: 18
+    description: "Пример + теория + действие: система подберёт"
+
+  brief_btn:
+    ru: "⚡ Покороче"
+    en: "⚡ Brief"
+    max_length: 14
+
+  detailed_btn:
+    ru: "📝 Подробно"
+    en: "📝 Detailed"
+    max_length: 14
+
+  saved:
+    ru: "Настройки подачи сохранены"
+    en: "Delivery preferences saved"
+
+  current:
+    ru: "Текущие настройки подачи:"
+    en: "Current delivery settings:"
+
+  current_format:
+    ru: "Формат"
+    en: "Format"
+
+  current_detail:
+    ru: "Детализация"
+    en: "Detail level"
+
+# -----------------------------------------------------------------------------
 # Стили обучения
 # -----------------------------------------------------------------------------
 learning_style:
@@ -913,6 +988,10 @@ settings:
   reset_label:
     ru: "Сброс"
     en: "Reset"
+
+  mydata_link:
+    ru: "Мои данные"
+    en: "My Data"
 
   reset_title:
     ru: "Сброс данных"
@@ -3742,9 +3821,15 @@ mydata:
   btn_clear_qa:
     ru: "💬 Очистить историю Q&A"
     en: "💬 Clear Q&A history"
+  btn_reset_marathon:
+    ru: "🔄 Сбросить марафон"
+    en: "🔄 Reset marathon"
   btn_reset_learning:
-    ru: "📚 Сбросить прогресс обучения"
-    en: "📚 Reset learning progress"
+    ru: "📚 Сбросить всё обучение (марафон + лента + ответы)"
+    en: "📚 Reset all learning (marathon + feed + answers)"
+  btn_clear_notes:
+    ru: "📝 Очистить заметки GitHub"
+    en: "📝 Clear GitHub notes"
   btn_disconnect_github:
     ru: "🔗 Отключить GitHub"
     en: "🔗 Disconnect GitHub"
@@ -3771,9 +3856,31 @@ mydata:
   confirm_clear_qa_detail:
     ru: "Все вопросы и ответы консультанту будут удалены."
     en: "All consultant questions and answers will be deleted."
+  confirm_reset_marathon:
+    ru: "Сбросить марафон?"
+    en: "Reset marathon?"
+  confirm_reset_marathon_detail:
+    ru: |
+      Будут сброшены:
+      • Пройденные темы марафона
+      • Все ответы марафона
+
+      Лента, статистика и профиль сохранятся.
+    en: |
+      Will be reset:
+      • Completed marathon topics
+      • All marathon answers
+
+      Feed, statistics and profile will be preserved.
+  confirm_clear_notes:
+    ru: "Очистить заметки GitHub?"
+    en: "Clear GitHub notes?"
+  confirm_clear_notes_detail:
+    ru: "Файл fleeting-notes.md в GitHub-репозитории будет очищен. Подключение GitHub сохранится."
+    en: "The fleeting-notes.md file in your GitHub repository will be cleared. GitHub connection will be preserved."
   confirm_reset_learning:
-    ru: "Сбросить прогресс обучения?"
-    en: "Reset learning progress?"
+    ru: "Сбросить всё обучение?"
+    en: "Reset all learning?"
   confirm_reset_learning_detail:
     ru: |
       Будут сброшены:
@@ -3795,6 +3902,15 @@ mydata:
   stats_reset_done:
     ru: "Статистика сброшена."
     en: "Statistics reset."
+  marathon_reset_done:
+    ru: "Марафон сброшен. Новая дата старта: {date}. Используй /learn для начала."
+    en: "Marathon reset. New start date: {date}. Use /learn to begin."
+  notes_cleared:
+    ru: "Заметки GitHub очищены."
+    en: "GitHub notes cleared."
+  notes_clear_error:
+    ru: "Не удалось очистить заметки."
+    en: "Failed to clear notes."
   qa_cleared:
     ru: "История Q&A очищена."
     en: "Q&A history cleared."
@@ -5043,13 +5159,18 @@ twin:
 # -----------------------------------------------------------------------------
 reset:
   old_data_detected:
-    ru: "👋 У вас есть учебный прогресс ({completed} пройденных тем).\n\nХотите начать с чистого листа или продолжить?"
-    en: "👋 You have learning progress ({completed} completed topics).\n\nWould you like to start fresh or continue?"
+    ru: "👋 У вас есть учебный прогресс ({completed} пройденных тем).\n\nЧтобы сбросить прогресс, перейдите в «Мои данные» и выберите нужный сброс."
+    en: "👋 You have learning progress ({completed} completed topics).\n\nTo reset your progress, go to «My Data» and choose the reset you need."
 
   fresh_start_btn:
     ru: "🔄 Начать заново"
     en: "🔄 Start fresh"
     max_length: 25
+
+  go_mydata_btn:
+    ru: "🔄 Сбросить → Мои данные"
+    en: "🔄 Reset → My Data"
+    max_length: 30
 
   continue_btn:
     ru: "▶️ Продолжить"

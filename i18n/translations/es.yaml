@@ -12,6 +12,7 @@ welcome:
   returning: "¡Bienvenido de nuevo, {name}!"
   menu_greeting: "¡Hola, {name}! 👋\n{tier_label}\n\n{tip}"
   mode_menu: "📋 *Menú principal*\nT{tier_num} {tier_label}\n\n{tip}"
+  pause_navigator: "¡Bienvenido de vuelta! Llevas {days} días ausente. El Navegador puede ayudarte a retomar el ritmo."
   tier_label:
     t0: "🟢 Inicio — vincula Aisystant para desbloquear todas las funciones"
     t1: "🟢 Inicio — prueba todas las funciones gratis por 30 días"
@@ -94,6 +95,8 @@ onboarding:
   ask_time_hint: "_Formato: HH:MM (ej. 09:00). Zona horaria: Moscú (UTC+3)_"
   ask_start_date: "¿Cuándo empezamos el maratón?"
   restart: "¡Empecemos de nuevo!\n\n¿Cómo te llamas?"
+  navigator_offer: "¿No sabes por dónde empezar? El Navegador te ayudará a elegir un camino."
+  navigator_hint: "Ayúdame a elegir"
 
 duration:
   minutes_5: "⚡ 5 minutos"
@@ -217,6 +220,7 @@ settings:
   not_connected: "no conectado"
   reset_description: "Elige qué quieres restablecer:"
   reset_label: "Restablecer"
+  mydata_link: "Mis datos"
   reset_title: "Restablecer datos"
   schedule_feed: "Feed"
   schedule_label: "Horario"
@@ -853,7 +857,10 @@ mydata:
   explain_error: "No se pudieron analizar los datos. Inténtalo más tarde."
   manage_intro: "Tienes control total sobre tus datos. Elige una acción:"
   btn_reset_stats: "🔄 Restablecer estadísticas"
+  btn_reset_marathon: "🔄 Restablecer maratón"
   btn_clear_qa: "💬 Borrar historial Q&A"
+  btn_clear_notes: "📝 Borrar notas GitHub"
+  btn_reset_learning: "📚 Restablecer todo el aprendizaje"
   btn_disconnect_github: "🔗 Desconectar GitHub"
   btn_delete_all: "Eliminar todos los datos"
   confirm_yes: "Sí, confirmo"
@@ -862,7 +869,11 @@ mydata:
   confirm_reset_stats_detail: "Se restablecerán: días activos, racha actual, mejor racha."
   confirm_clear_qa: "¿Borrar historial Q&A?"
   confirm_clear_qa_detail: "Todas las preguntas y respuestas del consultor serán eliminadas."
-  confirm_reset_learning: "¿Restablecer progreso de aprendizaje?"
+  confirm_reset_marathon: "¿Restablecer maratón?"
+  confirm_reset_marathon_detail: "Se restablecerán: temas completados y respuestas del maratón. El feed, estadísticas y perfil se conservarán."
+  confirm_clear_notes: "¿Borrar notas GitHub?"
+  confirm_clear_notes_detail: "El archivo fleeting-notes.md en tu repositorio GitHub será borrado. La conexión GitHub se conservará."
+  confirm_reset_learning: "¿Restablecer todo el aprendizaje?"
   confirm_reset_learning_detail: "Se restablecerán: maratón, feed, estadísticas, evaluaciones. El perfil se conservará."
   delete_keyword: "Eliminar."
   delete_confirm_phrase: "Eliminar mis datos y nombre"
@@ -873,8 +884,16 @@ mydata:
   delete_done_title: "Datos eliminados"
   delete_done_restart: "El bot ya no almacena tu información. Empieza de nuevo con /start."
   stats_reset_done: "Estadísticas restablecidas."
+  marathon_reset_done: "Maratón restablecido. Nueva fecha de inicio: {date}. Usa /learn para comenzar."
+  notes_cleared: "Notas GitHub borradas."
+  notes_clear_error: "No se pudieron borrar las notas."
   qa_cleared: "Historial Q&A borrado."
   github_disconnected: "GitHub desconectado."
+
+reset:
+  old_data_detected: "👋 Tienes progreso de aprendizaje ({completed} temas completados).\n\nPara restablecer tu progreso, ve a «Mis datos» y elige el restablecimiento que necesites."
+  go_mydata_btn: "🔄 Restablecer → Mis datos"
+  continue_btn: "▶️ Continuar"
 
 mode:
   select_mode: "Selecciona el modo de aprendizaje"

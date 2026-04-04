@@ -25,6 +25,42 @@ AREA_NAMES = {
 }
 
 
+def _build_delivery_instruction(user_profile: dict) -> str:
+    """Инструкция стиля подачи из предпочтений пользователя (WP-151 Ф2)."""
+    delivery_format = user_profile.get('delivery_format', '')
+    detail_level = user_profile.get('detail_level', '')
+
+    parts = []
+
+    if delivery_format == 'examples':
+        parts.append(
+            "Стиль подачи: ИНДУКТИВНЫЙ (пример → принцип). "
+            "Начинай с конкретного кейса или ситуации, потом объясняй принцип через него."
+        )
+    elif delivery_format == 'tasks':
+        parts.append(
+            "Стиль подачи: ДЕДУКТИВНЫЙ (теория → применение). "
+            "Начинай с объяснения принципа, потом давай задание на применение."
+        )
+    # mix или пусто — без инструкции, Claude балансирует сам
+
+    if detail_level == 'brief':
+        parts.append(
+            "Детализация: КРАТКАЯ. Минимум слов, суть, без развёрнутых объяснений. "
+            "Сократи lesson_text до 100-150 слов."
+        )
+    elif detail_level == 'detailed':
+        parts.append(
+            "Детализация: ПОДРОБНАЯ. Развёрнутые объяснения с обоснованием и контекстом. "
+            "lesson_text 250-400 слов."
+        )
+    # пусто — без инструкции, стандартный объём
+
+    if not parts:
+        return ''
+    return '\n## Стиль подачи (предпочтения пользователя)\n' + '\n'.join(parts)
+
+
 def build_lesson_prompt(lesson: dict, user_profile: dict) -> str:
     """Построить промпт для Claude из structured lesson.
 
@@ -44,18 +80,19 @@ def build_lesson_prompt(lesson: dict, user_profile: dict) -> str:
     name = user_profile.get('name', 'пользователь')
     occupation = user_profile.get('occupation', '')
     goals = user_profile.get('goals', '')
+    delivery_instruction = _build_delivery_instruction(user_profile)
 
     depth = content.get('depth', 1)
 
     if impact_type == 'worldview':
         return _build_worldview_prompt(
             content, area_name, depth, name, occupation, goals,
-            retrieval, it_scaffolding,
+            retrieval, it_scaffolding, delivery_instruction,
         )
     else:
         return _build_mastery_prompt(
             content, area_name, depth, name, occupation, goals,
-            retrieval, it_scaffolding,
+            retrieval, it_scaffolding, delivery_instruction,
         )
 
 
@@ -68,6 +105,7 @@ def _build_worldview_prompt(
     goals: str,
     retrieval: str,
     it_scaffolding: str,
+    delivery_instruction: str = '',
 ) -> str:
     unproductive = content.get('meme_unproductive', '')
     productive = content.get('meme_productive', '')
@@ -141,6 +179,7 @@ Can-do: {depth_can_do or 'Замечает старый паттерн и выб
 - Имя: {name}
 - Занятие: {occupation or 'не указано'}
 - Цели: {goals or 'не указаны'}
+{delivery_instruction}
 
 ## Область: {area_name}
 ## Убеждение: «{unproductive}»
@@ -177,6 +216,7 @@ def _build_mastery_prompt(
     goals: str,
     retrieval: str,
     it_scaffolding: str,
+    delivery_instruction: str = '',
 ) -> str:
     practice_name = content.get('practice_name', '')
     degree = depth  # для практик depth = degree
@@ -194,6 +234,7 @@ def _build_mastery_prompt(
 - Имя: {name}
 - Занятие: {occupation or 'не указано'}
 - Цели: {goals or 'не указаны'}
+{delivery_instruction}
 
 ## Область: {area_name}
 ## Тип занятия: Мастерство (постановка практики)

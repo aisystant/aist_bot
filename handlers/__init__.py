@@ -54,6 +54,8 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .channels import channels_router
     from .workshop import workshop_router
     from .showcase import showcase_router
+    from .ory_register import ory_register_router
+    from .delivery_prefs import delivery_prefs_router
 
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
@@ -80,6 +82,8 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(info_router)
     dp.include_router(features_router)
     dp.include_router(channels_router)
+    dp.include_router(ory_register_router)
+    dp.include_router(delivery_prefs_router)
 
     # ReplyKeyboard text → command routing (AFTER all command routers, BEFORE fallback)
     from .reply_keyboard import reply_kb_router

@@ -38,6 +38,12 @@ from .settings import (
     WAKATIME_CLIENT_SECRET,
     WAKATIME_REDIRECT_URI,
 
+    # Ory OAuth (WP-187)
+    ORY_BASE_URL,
+    ORY_CLIENT_ID,
+    ORY_CLIENT_SECRET,
+    ORY_REDIRECT_URI,
+
     # L2 Auto-Fix (WP-45)
     GITHUB_BOT_PAT,
     AUTOFIX_REPO,
@@ -218,4 +224,8 @@ __all__ = [
     'YOOKASSA_SECRET_KEY',
     'CHANNEL_CONTEXTS',
     'get_channel_context',
+    'ORY_BASE_URL',
+    'ORY_CLIENT_ID',
+    'ORY_CLIENT_SECRET',
+    'ORY_REDIRECT_URI',
 ]

@@ -16,7 +16,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from helpers.message_split import prepare_html_parts
-from db.queries import update_intern, save_answer, moscow_today
+from db.queries import get_intern, update_intern, save_answer, moscow_today
 from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
@@ -345,6 +345,14 @@ class MarathonTaskState(BaseState):
                 marathon_status=MarathonStatus.ACTIVE,
                 mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
             )
+
+        # WP-151 Ф2: после первого завершённого урока — спросить о стиле подачи
+        if chat_id and len(completed) == 1:
+            intern_fresh = await get_intern(chat_id)
+            if not intern_fresh.get('delivery_format'):
+                ctx = intern_fresh.get('current_context', {}) or {}
+                ctx['delivery_prefs_pending'] = True
+                await update_intern(chat_id, current_context=ctx)
 
         # Проверяем статус завершения
         total_topics = get_total_topics()

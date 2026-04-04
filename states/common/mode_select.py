@@ -144,6 +144,40 @@ class ModeSelectState(BaseState):
         await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
         await sync_menu_commands(self.bot, chat_id, tier, lang)
 
+        # WP-151 Ф2: показать вопросы о стиле подачи после первого урока
+        intern = await get_intern(chat_id)
+        ctx = intern.get('current_context', {}) or {}
+        if ctx.get('delivery_prefs_pending'):
+            from integrations.telegram.keyboards import kb_delivery_format
+            await self.send(user, t('delivery.ask_format', lang),
+                            reply_markup=kb_delivery_format(lang))
+
+        # WP-156: предложить Навигатора при возврате после паузы >7 дней
+        last_active = intern.get('last_active_date')
+        if last_active:
+            from db.queries.users import moscow_today
+            from datetime import date
+            days_inactive = (moscow_today() - last_active).days if isinstance(last_active, date) else 0
+
+            if days_inactive >= 7 and not ctx.get('navigator_pause_offered'):
+                nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="🧭 " + t('onboarding.navigator_hint', lang),
+                        callback_data="start_navigator",
+                    )
+                ]])
+                await self.send(
+                    user,
+                    t('welcome.pause_navigator', lang, days=days_inactive),
+                    reply_markup=nav_kb,
+                )
+                ctx['navigator_pause_offered'] = True
+                await update_intern(chat_id, current_context=ctx)
+            elif days_inactive < 7 and ctx.get('navigator_pause_offered'):
+                # Пользователь вернулся — сбросить флаг для следующей паузы
+                del ctx['navigator_pause_offered']
+                await update_intern(chat_id, current_context=ctx)
+
     async def handle(self, user, message: Message) -> Optional[str]:
         """Текстовый ввод в главном меню → показываем меню заново."""
         await self.enter(user)
@@ -160,6 +194,44 @@ class ModeSelectState(BaseState):
         if data.startswith("lang_"):
             return await self._save_language(user, callback, data)
 
+        # WP-151: delivery prefs из mode_select (pending после первого урока)
+        if data.startswith("delf_"):
+            return await self._handle_delivery_format(user, callback, data)
+        if data.startswith("detl_"):
+            return await self._handle_detail_level(user, callback, data)
+
+        return None
+
+    async def _handle_delivery_format(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохранить формат подачи и показать вопрос о детализации."""
+        from handlers.delivery_prefs import save_delivery_format
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        format_value = data.replace("delf_", "")
+
+        await save_delivery_format(chat_id, format_value)
+        await callback.answer()
+
+        from integrations.telegram.keyboards import kb_detail_level
+        await callback.message.edit_text(
+            t('delivery.ask_detail', lang),
+            reply_markup=kb_detail_level(lang),
+        )
+        return None
+
+    async def _handle_detail_level(self, user, callback: CallbackQuery, data: str) -> Optional[str]:
+        """Сохранить детализацию и завершить."""
+        from handlers.delivery_prefs import save_detail_level
+        chat_id = self._get_chat_id(user)
+        lang = self._get_lang(user)
+        detail_value = data.replace("detl_", "")
+
+        await save_detail_level(chat_id, detail_value)
+        await callback.answer()
+
+        await callback.message.edit_text(
+            f"✅ {t('delivery.saved', lang)}",
+        )
         return None
 
     async def _show_language_options(self, user, callback: CallbackQuery) -> Optional[str]:

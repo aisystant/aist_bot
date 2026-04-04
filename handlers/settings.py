@@ -426,6 +426,20 @@ async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
             parse_mode="Markdown"
         )
 
+@settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_delivery")
+async def on_upd_delivery_from_settings(callback: CallbackQuery, state: FSMContext):
+    """Стиль подачи из настроек (WP-151 Ф2)."""
+    await state.clear()
+    await callback.answer()
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru'
+    from integrations.telegram.keyboards import kb_delivery_format
+    await callback.message.edit_text(
+        t('delivery.ask_format', lang),
+        reply_markup=kb_delivery_format(lang),
+    )
+
+
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_marathon_start")
 async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     from core.topics import get_marathon_day

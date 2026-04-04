@@ -121,12 +121,6 @@ class SettingsState(BaseState):
         else:
             donation_line = t('settings.no_active_donations', lang)
 
-        # --- Сброс: сводка ---
-        from core.topics import get_marathon_day
-        marathon_day = get_marathon_day(intern)
-        streak = intern.get('active_days_streak', 0)
-        total_days = intern.get('active_days_total', 0)
-
         # --- Собираем текст ---
         # IWE Updates — для T2+ (подписка БР), показываем первой
         from core.tier_detector import detect_ui_tier
@@ -147,10 +141,7 @@ class SettingsState(BaseState):
             f"⚙️ *{t('settings.title', lang)}*\n\n"
             f"🌐 Language: {get_language_name(lang)}\n\n"
             f"🔗 {t('settings.connections_label', lang)}:\n{connections_summary}\n\n"
-            f"💝 {t('donation.settings_label', lang)}: {donation_line}\n\n"
-            f"🔄 {t('settings.reset_label', lang)}:\n"
-            f"  • {t('settings.reset_marathon_summary', lang, day=marathon_day)}\n"
-            f"  • {t('settings.reset_stats_summary', lang, total=total_days, streak=streak)}"
+            f"💝 {t('donation.settings_label', lang)}: {donation_line}"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -163,7 +154,7 @@ class SettingsState(BaseState):
                 InlineKeyboardButton(text="💝 " + t('donation.settings_label', lang), callback_data="upd_subscription"),
             ],
             [
-                InlineKeyboardButton(text="🔄 " + t('settings.reset_label', lang), callback_data="show_resets"),
+                InlineKeyboardButton(text="📂 " + t('settings.mydata_link', lang), callback_data="settings_go_mydata"),
             ],
             [
                 InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back")
@@ -292,22 +283,11 @@ class SettingsState(BaseState):
         if data == "sub_cancel_do":
             return await self._subscription_cancel_do(user, callback)
 
-        if data == "show_resets":
-            return await self._show_reset_options(user, callback)
-        if data == "reset_marathon_confirm":
-            return await self._marathon_reset_confirm(user, callback)
-        if data == "reset_marathon_do":
-            return await self._marathon_reset_do(user, callback)
-        if data == "reset_stats_confirm":
-            return await self._stats_reset_confirm(user, callback)
-        if data == "reset_stats_do":
-            return await self._stats_reset_do(user, callback)
-        if data == "reset_cancel":
-            try:
-                await callback.message.delete()
-            except Exception:
-                pass
-            await self.enter(user)
+        if data == "settings_go_mydata":
+            from handlers import get_dispatcher
+            dispatcher = get_dispatcher()
+            if dispatcher and dispatcher.is_sm_active:
+                await dispatcher.route_command('mydata', user)
             return None
 
         if data == "settings_back_to_menu":
@@ -473,119 +453,6 @@ class SettingsState(BaseState):
 
         # Подсказка: /start обновляет меню на новом языке (после меню настроек)
         await self.send(user, t('settings.language.restart_hint', new_lang))
-        return None
-
-    async def _show_reset_options(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Подменю сброса: марафон или статистика."""
-        lang = self._get_lang(user)
-
-        text = f"🔄 *{t('settings.reset_title', lang)}*\n\n{t('settings.reset_description', lang)}"
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="reset_marathon_confirm"),
-                InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="reset_stats_confirm"),
-            ],
-            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
-        ])
-
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        return None
-
-    async def _marathon_reset_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Подтверждение сброса марафона."""
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-        intern = await get_intern(chat_id)
-        completed = len(intern.get('completed_topics', []))
-
-        text = (
-            f"⚠️ *{t('modes.reset_marathon_title', lang)}*\n\n"
-            f"{t('modes.reset_marathon_warning', lang, completed=completed)}\n\n"
-            f"_{t('settings.reset_vs_mydata_hint', lang)}_"
-        )
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"🔄 {t('modes.yes_reset', lang)}", callback_data="reset_marathon_do"),
-                InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="reset_cancel")
-            ]
-        ])
-
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        return None
-
-    async def _marathon_reset_do(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Выполнить сброс марафона."""
-        from db.queries.answers import delete_marathon_answers
-        from db.queries.users import moscow_today
-        from config import MarathonStatus
-
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-        today = moscow_today()
-
-        await delete_marathon_answers(chat_id)
-        from db.queries.users import derive_mode
-        feed_status = user.get('feed_status', 'not_started') if isinstance(user, dict) else getattr(user, 'feed_status', 'not_started')
-        await update_intern(chat_id,
-            completed_topics=[],
-            current_topic_index=0,
-            marathon_start_date=today,
-            marathon_status=MarathonStatus.ACTIVE,
-            mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
-            topics_today=0,
-            topics_at_current_bloom=0,
-        )
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")],
-        ])
-        await callback.message.edit_text(
-            f"✅ *{t('modes.marathon_reset', lang)}*\n\n"
-            f"{t('modes.new_start_date', lang)}: {today.strftime('%d.%m.%Y')}\n\n"
-            f"{t('modes.use_learn_start', lang)}",
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-        )
-        return None
-
-    async def _stats_reset_confirm(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Подтверждение сброса статистики."""
-        lang = self._get_lang(user)
-
-        text = (
-            f"⚠️ *{t('progress.stats_reset_title', lang)}*\n\n"
-            f"{t('progress.stats_reset_warning', lang)}\n\n"
-            f"_{t('progress.stats_reset_kept', lang)}_\n\n"
-            f"_{t('settings.reset_vs_mydata_hint', lang)}_"
-        )
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"🔄 {t('progress.stats_reset_yes', lang)}", callback_data="reset_stats_do"),
-                InlineKeyboardButton(text=f"❌ {t('modes.cancel', lang)}", callback_data="reset_cancel")
-            ]
-        ])
-
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        return None
-
-    async def _stats_reset_do(self, user, callback: CallbackQuery) -> Optional[str]:
-        """Выполнить сброс статистики."""
-        from db.queries.answers import reset_user_stats
-
-        lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
-
-        await reset_user_stats(chat_id)
-
-        await callback.answer(t('progress.stats_reset_done', lang))
-        await callback.message.edit_text(
-            f"✅ *{t('progress.stats_reset_done', lang)}*\n\n"
-            f"{t('progress.stats_reset_note', lang)}",
-            parse_mode="Markdown"
-        )
         return None
 
     async def _show_donation(self, user, callback: CallbackQuery) -> Optional[str]:

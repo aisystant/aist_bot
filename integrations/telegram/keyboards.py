@@ -188,11 +188,27 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="⏱ " + t('buttons.duration', lang), callback_data="upd_duration"),
          InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule")],
         [InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom"),
-         InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")],
-        [InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language"),
-         InlineKeyboardButton(text="🏛 Клуб", callback_data="upd_club")],
-        [InlineKeyboardButton(text=t('buttons.reset_marathon', lang), callback_data="marathon_reset_confirm"),
-         InlineKeyboardButton(text=t('progress.reset_stats_btn', lang), callback_data="stats_reset_confirm")],
+         InlineKeyboardButton(text="📚 " + t('buttons.delivery_style', lang), callback_data="upd_delivery")],
+        [InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode"),
+         InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language")],
+        [InlineKeyboardButton(text="🏛 Клуб", callback_data="upd_club")],
+    ])
+
+
+def kb_delivery_format(lang: str = 'ru') -> InlineKeyboardMarkup:
+    """Клавиатура выбора формата подачи (WP-151 Ф2)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('delivery.examples_btn', lang), callback_data="delf_examples")],
+        [InlineKeyboardButton(text=t('delivery.tasks_btn', lang), callback_data="delf_tasks")],
+        [InlineKeyboardButton(text=t('delivery.mix_btn', lang), callback_data="delf_mix")],
+    ])
+
+
+def kb_detail_level(lang: str = 'ru') -> InlineKeyboardMarkup:
+    """Клавиатура выбора уровня детализации (WP-151 Ф2)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('delivery.brief_btn', lang), callback_data="detl_brief")],
+        [InlineKeyboardButton(text=t('delivery.detailed_btn', lang), callback_data="detl_detailed")],
     ])
 
 

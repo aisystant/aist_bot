@@ -215,6 +215,26 @@ async def cmd_waka(message: Message, state: FSMContext):
         await message.answer(t('errors.processing_error', lang))
 
 
+@commands_router.message(Command("navigator"))
+async def cmd_navigator(message: Message, state: FSMContext):
+    """WP-156: Явная точка входа к Навигатору (MIM.R.007)."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    intern = await get_intern(message.chat.id)
+    if not await is_onboarded(intern):
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('profile.first_start', lang))
+        return
+
+    if dispatcher and dispatcher.is_sm_active:
+        await _safe_route(message, state, intern, dispatcher.route_command('navigator', intern))
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    await message.answer(t('errors.processing_error', lang))
+
+
 @commands_router.message(Command("test"))
 @commands_router.message(Command("assessment"))
 async def cmd_assessment(message: Message, state: FSMContext):
