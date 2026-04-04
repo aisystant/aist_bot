@@ -1,0 +1,94 @@
+name: Smoke Tests (L1+L2)
+
+on:
+  push:
+    branches: [pilot, new-architecture]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'tests/test_repo/**'
+  pull_request:
+    branches: [pilot, new-architecture]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'tests/test_repo/**'
+
+jobs:
+  smoke-tests:
+    name: L1+L2 Smoke/Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-mock
+
+      - name: Run smoke tests
+        run: |
+          python -m pytest tests/smoke/ -v --tb=short --junitxml=smoke-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-results
+          path: smoke-results.xml
+          retention-days: 30
+
+      - name: Test summary
+        if: always()
+        run: |
+          if [ -f smoke-results.xml ]; then
+            TESTS=$(grep -oP 'tests="\K[^"]+' smoke-results.xml | head -1)
+            FAILURES=$(grep -oP 'failures="\K[^"]+' smoke-results.xml | head -1)
+            ERRORS=$(grep -oP 'errors="\K[^"]+' smoke-results.xml | head -1)
+            echo "## 🧪 Smoke Tests (L1+L2)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Tests | $TESTS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Failures | $FAILURES |" >> $GITHUB_STEP_SUMMARY
+            echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  post-deploy-healthcheck:
+    name: Post-Deploy Health Check
+    runs-on: ubuntu-latest
+    needs: smoke-tests
+    if: github.ref == 'refs/heads/new-architecture' && github.event_name == 'push'
+    timeout-minutes: 5
+
+    steps:
+      - name: Wait for Railway deploy
+        run: sleep 120
+
+      - name: Check bot health
+        # BOT_HEALTH_URL = Railway domain, e.g. https://aist-bot-newarchitecture-production.up.railway.app
+        run: |
+          BOT_URL="${{ secrets.BOT_HEALTH_URL }}"
+          if [ -z "$BOT_URL" ]; then
+            echo "BOT_HEALTH_URL secret not set, skipping"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BOT_URL/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Bot is healthy (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i: status $STATUS, retrying in 30s..."
+            sleep 30
+          done
+          echo "Bot health check failed after 3 attempts"
+          exit 1
