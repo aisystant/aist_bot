@@ -503,6 +503,18 @@ ROLE_ATTRIBUTION = {
     "diagnostician": {"ru": "🎯 Диагност", "en": "🎯 Diagnostician"},
 }
 
+# WP-156: Hint for continuing with the same role via prefix
+ROLE_CONTINUE_HINT = {
+    "navigator": {
+        "ru": "Чтобы продолжить с Навигатором, начни вопрос с «Навигатор»",
+        "en": "To continue with Navigator, start your question with 'Navigator'",
+    },
+    "diagnostician": {
+        "ru": "Чтобы продолжить с Диагностом, начни вопрос с «Диагност»",
+        "en": "To continue with Diagnostician, start your question with 'Diagnostician'",
+    },
+}
+
 # Role transition messages (L2 Role Attribution)
 ROLE_TRANSITION = {
     "navigator": {
@@ -554,12 +566,17 @@ def load_role_prompt(role: str) -> Optional[str]:
 
 
 def get_role_footer(role: str, lang: str) -> str:
-    """Возвращает footer с подписью роли (L1 Role Attribution).
+    """Возвращает footer с подписью роли (L1 Role Attribution) + hint для продолжения.
 
     Добавляется ПОСЛЕ генерации, не в промпте.
     """
     attr = ROLE_ATTRIBUTION.get(role, {})
-    return attr.get(lang, attr.get("ru", ""))
+    footer = attr.get(lang, attr.get("ru", ""))
+    hint = ROLE_CONTINUE_HINT.get(role, {})
+    hint_text = hint.get(lang, hint.get("ru", ""))
+    if footer and hint_text:
+        return f"{footer}\n{hint_text}"
+    return footer
 
 
 def invalidate_role_prompt_cache():

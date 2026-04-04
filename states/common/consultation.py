@@ -79,14 +79,32 @@ _DIAGNOSTICIAN_PATTERNS = [
 ]
 
 
+# WP-156: Explicit role prefixes — user can address a role directly
+_ROLE_PREFIXES = {
+    'navigator': ['навигатор', 'navigator'],
+    'diagnostician': ['диагност', 'diagnostician'],
+}
+
+
 def _detect_role(question: str) -> Optional[str]:
     """Определяет, нужна ли смена роли (DP.D.044).
+
+    Priority:
+    1. Explicit prefix: "Навигатор, ..." / "Диагност, ..."
+    2. Pattern match from question content
 
     Returns:
         "navigator" | "diagnostician" | None (Консультант по умолчанию)
     """
     q = question.lower().strip()
 
+    # 1. Explicit role prefix (highest priority)
+    for role, prefixes in _ROLE_PREFIXES.items():
+        for prefix in prefixes:
+            if q.startswith(prefix):
+                return role
+
+    # 2. Content pattern matching
     for pattern in _DIAGNOSTICIAN_PATTERNS:
         if pattern in q:
             return "diagnostician"
