@@ -655,7 +655,8 @@ async def cmd_ory_test(message: Message):
         "<b>Тест Ory OAuth (WP-187)</b>\n\n"
         f"Client: <code>{ORY_CLIENT_ID}</code>\n"
         f"State: <code>{state[:16]}...</code>\n\n"
-        "Нажми кнопку, залогинься, и проверь callback.",
+        f"URL: <code>{auth_url}</code>\n\n"
+        "Нажми кнопку или скопируй URL в браузер.",
         reply_markup=keyboard,
         parse_mode="HTML",
     )
