@@ -14,7 +14,9 @@ Endpoints:
 """
 
 import asyncio
+import json
 import os
+import uuid
 from aiohttp import web
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -1226,25 +1228,32 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     dt_user_id = str(row["dt_user_id"])
     commit_sha = payload.get("after", "unknown")
 
-    # ── Activity Hub: записать событие ──────────────────────────────────────
+    # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
     try:
-        from activity_hub.core.hub import ingest_event
-        from activity_hub.core.models import RawEvent
-
-        event = RawEvent(
-            source="iwe",
-            external_id=commit_sha,
-            user_ref={"ory_uuid": dt_user_id},
-            event_type="workbook_push",
-            payload={
-                "files": workbook_files,
-                "repo": (payload.get("repository") or {}).get("full_name", ""),
-                "commit_sha": commit_sha,
-            },
-            confidence=1.0,
-        )
         async with pool.acquire() as conn:
-            await ingest_event(conn, event)
+            await conn.fetchrow(
+                """
+                INSERT INTO development.user_events
+                    (user_id, user_uuid, event_type, source, payload,
+                     confidence, created_at, external_id)
+                VALUES (0, $1, $2, $3, $4, $5, NOW(), $6)
+                ON CONFLICT (source, external_id)
+                    WHERE external_id IS NOT NULL
+                DO NOTHING
+                RETURNING id
+                """,
+                uuid.UUID(dt_user_id),
+                "workbook_push",
+                "iwe",
+                json.dumps({
+                    "files": workbook_files,
+                    "repo": (payload.get("repository") or {}).get("full_name", ""),
+                    "commit_sha": commit_sha,
+                }),
+                1.0,
+                commit_sha,
+            )
+        logger.info("[WorkbookWebhook] event written to user_events: %s", commit_sha)
     except Exception as e:
         logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
 

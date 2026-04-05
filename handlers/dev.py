@@ -629,3 +629,34 @@ async def cmd_nudge_test(message: Message):
     except Exception as e:
         logger.error(f"[Dev] /nudge_test error: {e}", exc_info=True)
         await message.answer(f"<b>/nudge_test error:</b>\n<code>{e}</code>", parse_mode="HTML")
+
+
+@dev_router.message(Command("ory_test"))
+async def cmd_ory_test(message: Message):
+    """/ory_test — тест OAuth flow через Ory (WP-187)."""
+    if not _is_developer(message.chat.id):
+        return
+
+    from clients.ory_oauth import ory_oauth
+    from config import ORY_CLIENT_ID
+
+    if not ORY_CLIENT_ID:
+        await message.answer("ORY_CLIENT_ID не задан. Проверь env vars.")
+        return
+
+    auth_url, state = ory_oauth.get_authorization_url(message.chat.id)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Войти через Ory", url=auth_url)],
+    ])
+
+    await message.answer(
+        "<b>Тест Ory OAuth (WP-187)</b>\n\n"
+        f"Client: <code>{ORY_CLIENT_ID}</code>\n"
+        f"State: <code>{state[:16]}...</code>\n\n"
+        f"URL: <code>{auth_url}</code>\n\n"
+        "Нажми кнопку или скопируй URL в браузер.",
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )

@@ -7,7 +7,8 @@
 Секции 2_collected:
   2_1_account, 2_2_courses, 2_3_practice, 2_4_time — из development.engagement
   2_5_notifications — из development.notification_engagement (WP-152 Ф4)
-  2_6_coding, 2_7_iwe — из dt-collect.sh (IWE-side)
+  2_6_coding, 2_7_iwe — из development.user_events source='iwe' (ADR-009, WP-109 Ф3)
+                         fallback: dt-collect.sh snapshot в digital_twins
 
 Частота: ежедневно (scheduler cron).
 """
@@ -26,8 +27,8 @@ async def sync_engagement_to_dt() -> dict:
     """Синхронизировать engagement данные всех пользователей в digital_twins.
 
     Читает development.engagement + notification_engagement views,
-    маппит на 5 групп метамодели (2_collected), подтягивает существующие
-    2_6_coding/2_7_iwe из digital_twins (WP-174), вычисляет 3_derived
+    маппит на 5 групп метамодели (2_collected), агрегирует 2_6_coding/2_7_iwe
+    из user_events source='iwe' (ADR-009, WP-109 Ф3), вычисляет 3_derived
     (calculation engine v0.6), пишет в digital_twins.data JSONB.
 
     Returns:
@@ -207,20 +208,85 @@ async def sync_engagement_to_dt() -> dict:
                             "last_notification_at": _ts(notif['last_notification_at']),
                         }
 
-                    # ─── Merge existing 2_6/2_7 for builder path (WP-174) ───
-                    # collected_data has 2_1..2_5 from engagement views.
-                    # 2_6_coding and 2_7_iwe are written by dt-collect.sh
-                    # and already in digital_twins. Merge them so
-                    # calculate_derived() can use builder path thresholds.
-                    existing = await conn.fetchval(
-                        "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
-                        user_id,
-                    )
-                    if existing:
-                        existing_collected = json.loads(existing) if isinstance(existing, str) else existing
-                        for key in ('2_6_coding', '2_7_iwe'):
-                            if key in existing_collected and key not in collected_data:
-                                collected_data[key] = existing_collected[key]
+                    # ─── 2_6_coding from user_events (ADR-009, WP-109 Ф3) ───
+                    # Агрегация coding_time и commit данных из user_events
+                    # вместо подтягивания из digital_twins (dt-collect).
+                    iwe_stats = await conn.fetchrow('''
+                        SELECT
+                            COALESCE(SUM(CASE
+                                WHEN event_type = 'coding_time'
+                                AND created_at >= NOW() - INTERVAL '1 day'
+                                THEN (payload->>'total_seconds')::int
+                            END), 0) AS coding_seconds_today,
+                            COALESCE(SUM(CASE
+                                WHEN event_type = 'coding_time'
+                                AND created_at >= NOW() - INTERVAL '7 days'
+                                THEN (payload->>'total_seconds')::int
+                            END), 0) AS coding_seconds_7d,
+                            COALESCE(SUM(CASE
+                                WHEN event_type = 'coding_time'
+                                AND created_at >= NOW() - INTERVAL '30 days'
+                                THEN (payload->>'total_seconds')::int
+                            END), 0) AS coding_seconds_30d,
+                            COUNT(DISTINCT CASE
+                                WHEN event_type = 'coding_time'
+                                AND created_at >= NOW() - INTERVAL '30 days'
+                                THEN DATE(created_at)
+                            END) AS coding_active_days_30d,
+                            COUNT(CASE
+                                WHEN event_type = 'commit_created'
+                                AND created_at >= NOW() - INTERVAL '1 day'
+                                THEN 1
+                            END) AS commits_today,
+                            COUNT(CASE
+                                WHEN event_type = 'commit_created'
+                                AND created_at >= NOW() - INTERVAL '7 days'
+                                THEN 1
+                            END) AS commits_7d,
+                            COUNT(CASE
+                                WHEN event_type = 'commit_created'
+                                AND created_at >= NOW() - INTERVAL '30 days'
+                                THEN 1
+                            END) AS commits_30d,
+                            COUNT(DISTINCT CASE
+                                WHEN event_type = 'day_open'
+                                AND created_at >= NOW() - INTERVAL '30 days'
+                                THEN DATE(created_at)
+                            END) AS day_opens_30d
+                        FROM development.user_events
+                        WHERE user_uuid = $1::uuid
+                          AND source = 'iwe'
+                          AND created_at >= NOW() - INTERVAL '30 days'
+                    ''', user_id)
+
+                    if iwe_stats and iwe_stats['coding_seconds_30d'] > 0:
+                        collected_data['2_6_coding'] = {
+                            'coding_seconds_today': iwe_stats['coding_seconds_today'],
+                            'coding_seconds_7d': iwe_stats['coding_seconds_7d'],
+                            'coding_seconds_30d': iwe_stats['coding_seconds_30d'],
+                            'coding_active_days_30d': iwe_stats['coding_active_days_30d'],
+                        }
+
+                    if iwe_stats and iwe_stats['commits_30d'] > 0:
+                        collected_data.setdefault('2_7_iwe', {}).update({
+                            'commits_today': iwe_stats['commits_today'],
+                            'commits_7d': iwe_stats['commits_7d'],
+                            'commits_30d': iwe_stats['commits_30d'],
+                            'day_opens_30d': iwe_stats['day_opens_30d'],
+                        })
+
+                    # Fallback: если user_events пусто, подтянуть из digital_twins
+                    # (dt-collect snapshot, переходный период)
+                    if '2_6_coding' not in collected_data or '2_7_iwe' not in collected_data:
+                        existing = await conn.fetchval(
+                            "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                            user_id,
+                        )
+                        if existing:
+                            existing_collected = json.loads(existing) if isinstance(existing, str) else existing
+                            for key in ('2_6_coding', '2_7_iwe'):
+                                if key in existing_collected and key not in collected_data:
+                                    collected_data[key] = existing_collected[key]
 
                     # ─── 3_derived (WP-151 Ф4, WP-174/175: calculation engine v0.7) ───
                     # learning_map key = user_uuid (str). Prefer dt_user_id for DT key,
@@ -445,16 +511,82 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     "last_notification_at": _ts(notif['last_notification_at']),
                 }
 
-            # Merge existing 2_6/2_7 (builder path, WP-174)
-            existing = await conn.fetchval(
-                "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
-                effective_user_id,
-            )
-            if existing:
-                existing_collected = json.loads(existing) if isinstance(existing, str) else existing
-                for key in ('2_6_coding', '2_7_iwe'):
-                    if key in existing_collected and key not in collected_data:
-                        collected_data[key] = existing_collected[key]
+            # ─── 2_6_coding from user_events (ADR-009, WP-109 Ф3) ───
+            iwe_stats = await conn.fetchrow('''
+                SELECT
+                    COALESCE(SUM(CASE
+                        WHEN event_type = 'coding_time'
+                        AND created_at >= NOW() - INTERVAL '1 day'
+                        THEN (payload->>'total_seconds')::int
+                    END), 0) AS coding_seconds_today,
+                    COALESCE(SUM(CASE
+                        WHEN event_type = 'coding_time'
+                        AND created_at >= NOW() - INTERVAL '7 days'
+                        THEN (payload->>'total_seconds')::int
+                    END), 0) AS coding_seconds_7d,
+                    COALESCE(SUM(CASE
+                        WHEN event_type = 'coding_time'
+                        AND created_at >= NOW() - INTERVAL '30 days'
+                        THEN (payload->>'total_seconds')::int
+                    END), 0) AS coding_seconds_30d,
+                    COUNT(DISTINCT CASE
+                        WHEN event_type = 'coding_time'
+                        AND created_at >= NOW() - INTERVAL '30 days'
+                        THEN DATE(created_at)
+                    END) AS coding_active_days_30d,
+                    COUNT(CASE
+                        WHEN event_type = 'commit_created'
+                        AND created_at >= NOW() - INTERVAL '1 day'
+                        THEN 1
+                    END) AS commits_today,
+                    COUNT(CASE
+                        WHEN event_type = 'commit_created'
+                        AND created_at >= NOW() - INTERVAL '7 days'
+                        THEN 1
+                    END) AS commits_7d,
+                    COUNT(CASE
+                        WHEN event_type = 'commit_created'
+                        AND created_at >= NOW() - INTERVAL '30 days'
+                        THEN 1
+                    END) AS commits_30d,
+                    COUNT(DISTINCT CASE
+                        WHEN event_type = 'day_open'
+                        AND created_at >= NOW() - INTERVAL '30 days'
+                        THEN DATE(created_at)
+                    END) AS day_opens_30d
+                FROM development.user_events
+                WHERE user_uuid = $1::uuid
+                  AND source = 'iwe'
+                  AND created_at >= NOW() - INTERVAL '30 days'
+            ''', effective_user_id)
+
+            if iwe_stats and iwe_stats['coding_seconds_30d'] > 0:
+                collected_data['2_6_coding'] = {
+                    'coding_seconds_today': iwe_stats['coding_seconds_today'],
+                    'coding_seconds_7d': iwe_stats['coding_seconds_7d'],
+                    'coding_seconds_30d': iwe_stats['coding_seconds_30d'],
+                    'coding_active_days_30d': iwe_stats['coding_active_days_30d'],
+                }
+
+            if iwe_stats and iwe_stats['commits_30d'] > 0:
+                collected_data.setdefault('2_7_iwe', {}).update({
+                    'commits_today': iwe_stats['commits_today'],
+                    'commits_7d': iwe_stats['commits_7d'],
+                    'commits_30d': iwe_stats['commits_30d'],
+                    'day_opens_30d': iwe_stats['day_opens_30d'],
+                })
+
+            # Fallback: dt-collect snapshot (переходный период)
+            if '2_6_coding' not in collected_data or '2_7_iwe' not in collected_data:
+                existing = await conn.fetchval(
+                    "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                    effective_user_id,
+                )
+                if existing:
+                    existing_collected = json.loads(existing) if isinstance(existing, str) else existing
+                    for key in ('2_6_coding', '2_7_iwe'):
+                        if key in existing_collected and key not in collected_data:
+                            collected_data[key] = existing_collected[key]
 
             # as_of фиксирует момент времени — детерминированный расчёт (WP-175 Ф9-B)
             derived_data = calculate_derived(collected_data, learning_rows, as_of=now)

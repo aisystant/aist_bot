@@ -446,10 +446,10 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str) -> str:
     if components:
         lines.append(
             f"\n🧩 *Компоненты агентности:*"
-            f" рег.={components.get('regularity', 0):.0f}"
-            f" акт.={components.get('activity', 0):.0f}"
-            f" обуч.={components.get('learning', 0):.0f}"
-            f" увед.={components.get('notifications', 0):.0f}"
+            f" регулярность={components.get('regularity', 0):.0f},"
+            f" активность={components.get('activity', 0):.0f},"
+            f" обучение={components.get('learning', 0):.0f},"
+            f" уведомления={components.get('notifications', 0):.0f},"
             f" стаж={components.get('longevity', 0):.0f}"
         )
 
