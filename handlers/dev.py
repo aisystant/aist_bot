@@ -629,11 +629,9 @@ async def cmd_dt_sync(message: Message):
 async def cmd_tailor(message: Message):
     """/tailor — ручной триггер занятия Портного (WP-149, SC.020).
 
+    Доступна всем пользователям (генерирует занятие для себя).
     force=True обходит idempotency для повторного тестирования.
     """
-    if not _is_developer(message.chat.id):
-        return
-
     chat_id = message.chat.id
     logger.info(f"[Dev] /tailor triggered by {chat_id}")
 
