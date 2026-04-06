@@ -174,6 +174,33 @@ LOGGER_HINTS: dict[str, str] = {
 
 SEVERITY_EMOJI = {"L4": "\U0001f534", "L3": "\U0001f7e0", "L2": "\U0001f7e1", "L1": "\U0001f7e2"}
 
+# ═══════════════════════════════════════════════════════════
+# SUPPRESSION ALLOWLIST (WP-45 Ф2)
+# ═══════════════════════════════════════════════════════════
+# Known benign errors that should be classified but NOT escalated/alerted.
+# These are expected in normal operation and generate noise in monitoring.
+# Pattern: compiled regex matched against f"{logger_name}: {message}"
+
+_SUPPRESSED_PATTERNS: list[re.Pattern] = [
+    re.compile(r"(?i)bot was blocked by the user"),
+    re.compile(r"(?i)user.*deactivated"),
+    re.compile(r"(?i)chat not found"),
+    re.compile(r"(?i)Forbidden.*blocked"),
+    re.compile(r"(?i)ConflictError.*polling"),  # transient Railway redeploy
+    re.compile(r"(?i)terminated by other.*getUpdates"),  # webhook/polling switch
+    re.compile(r"(?i)RetryAfter|flood.?control"),  # TG rate limit, auto-handled
+]
+
+
+def is_suppressed(logger_name: str, message: str) -> bool:
+    """Check if error matches suppression allowlist (benign, expected errors).
+
+    Suppressed errors are still classified and stored in error_logs,
+    but excluded from escalation alerts to reduce noise.
+    """
+    search_text = f"{logger_name}: {message}"
+    return any(p.search(search_text) for p in _SUPPRESSED_PATTERNS)
+
 
 # ═══════════════════════════════════════════════════════════
 # CLASSIFICATION
@@ -411,6 +438,11 @@ async def check_escalation() -> Optional[str]:
             LIMIT 5
         """)
 
+    if not rows:
+        return None
+
+    # Filter out suppressed (benign) errors before alerting
+    rows = [r for r in rows if not is_suppressed(r['logger_name'], r['message'] or '')]
     if not rows:
         return None
 

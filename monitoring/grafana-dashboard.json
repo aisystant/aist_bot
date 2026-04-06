@@ -13,10 +13,10 @@
     {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
     {"type": "datasource", "id": "grafana-postgresql-datasource", "name": "PostgreSQL"}
   ],
-  "title": "Aist Bot: Error Monitoring",
-  "uid": "aist-bot-errors",
-  "description": "Error classification (DP.RUNBOOK.001), severity distribution, L4 escalation tracking. WP-45.",
-  "tags": ["aist-bot", "observability", "wp-45"],
+  "title": "Aist Bot: Operations Dashboard",
+  "uid": "aist-bot-ops",
+  "description": "Error monitoring + Performance SLA + Engagement analytics (WP-45). Unified operations dashboard.",
+  "tags": ["aist-bot", "observability", "analytics", "wp-45"],
   "timezone": "Europe/Moscow",
   "refresh": "5m",
   "time": {"from": "now-24h", "to": "now"},
@@ -205,8 +205,395 @@
         "refId": "A"
       }],
       "options": {"sortBy": [{"displayName": "occurrence_count", "desc": true}]}
+    },
+    {
+      "id": 25,
+      "type": "row",
+      "title": "Performance & Throughput (WP-45 Ф2)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 30},
+      "collapsed": false
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Throughput (RPM by command)",
+      "description": "Requests per minute grouped by command type",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT $__timeGroup(created_at, '5m') AS time, command, COUNT(*)::float / 5.0 AS rpm FROM request_traces WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1",
+        "format": "time_series",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"fillOpacity": 15, "lineWidth": 2, "stacking": {"mode": "normal"}}
+        }
+      }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Response Latency (p50 / p95 / p99)",
+      "description": "Request latency percentiles from request_traces",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT $__timeGroup(created_at, '15m') AS time, PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY total_ms) AS p50, PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_ms) AS p95, PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY total_ms) AS p99 FROM request_traces WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+        "format": "time_series",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {"fillOpacity": 5, "lineWidth": 2, "showPoints": "auto"}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "p50"}, "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "p95"}, "properties": [{"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "p99"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}
+        ]
+      }
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Requests (24h)",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 39},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COUNT(*)::bigint AS value FROM request_traces WHERE created_at > NOW() - INTERVAL '24 hours'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "blue", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Median Latency (ms)",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 39},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY total_ms))::bigint AS value FROM request_traces WHERE created_at > NOW() - INTERVAL '24 hours'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 3000},
+              {"color": "red", "value": 10000}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "p99 Latency (ms)",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 39},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY total_ms))::bigint AS value FROM request_traces WHERE created_at > NOW() - INTERVAL '24 hours'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 10000},
+              {"color": "red", "value": 30000}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Error Rate %",
+      "description": "Errors / Total requests (24h)",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 39},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COALESCE(ROUND(100.0 * (SELECT SUM(occurrence_count) FROM error_logs WHERE last_seen_at > NOW() - INTERVAL '24 hours')::numeric / NULLIF((SELECT COUNT(*) FROM request_traces WHERE created_at > NOW() - INTERVAL '24 hours'), 0), 1), 0)::float AS value",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 15}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 52,
+      "type": "timeseries",
+      "title": "Slowest Spans (avg ms by span type)",
+      "description": "Average duration of top span types",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 43},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT $__timeGroup(t.created_at, '1h') AS time, s.elem->>'name' AS span_name, AVG((s.elem->>'duration_ms')::float) AS avg_ms FROM request_traces t, jsonb_array_elements(t.spans) AS s(elem) WHERE $__timeFilter(t.created_at) AND s.elem->>'name' IN ('claude.api', 'claude.generate_content', 'db.get_intern', 'mcp.search') GROUP BY 1, 2 ORDER BY 1",
+        "format": "time_series",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {"fillOpacity": 10, "lineWidth": 2}
+        }
+      }
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Engagement Analytics",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 51},
+      "collapsed": false
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "DAU",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 52},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COUNT(DISTINCT chat_id)::bigint AS value FROM activity_log WHERE activity_date = CURRENT_DATE",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "green", "value": 5}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "WAU",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 52},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COUNT(DISTINCT chat_id)::bigint AS value FROM activity_log WHERE activity_date >= CURRENT_DATE - INTERVAL '7 days'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 3},
+              {"color": "green", "value": 10}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "MAU",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 52},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COUNT(DISTINCT chat_id)::bigint AS value FROM activity_log WHERE activity_date >= CURRENT_DATE - INTERVAL '30 days'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "green", "value": 20}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Sessions (24h)",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 52},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COUNT(*)::bigint AS value FROM user_sessions WHERE started_at >= NOW() - INTERVAL '24 hours'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "blue", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "Avg Session (min)",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 52},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COALESCE(ROUND(AVG(duration_seconds) / 60.0, 1), 0)::float AS value FROM user_sessions WHERE started_at >= NOW() - INTERVAL '24 hours' AND duration_seconds IS NOT NULL",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "min",
+          "thresholds": {
+            "steps": [
+              {"color": "blue", "value": null}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "QA Helpful %",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 52},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COALESCE(ROUND(100.0 * COUNT(*) FILTER (WHERE helpful = true)::numeric / NULLIF(COUNT(*) FILTER (WHERE helpful IS NOT NULL), 0), 1), 0)::float AS value FROM qa_history WHERE created_at >= NOW() - INTERVAL '24 hours'",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 75}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "DAU Trend (30 days)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 56},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT activity_date::timestamp AS time, COUNT(DISTINCT chat_id)::float AS dau FROM activity_log WHERE activity_date >= CURRENT_DATE - INTERVAL '30 days' GROUP BY activity_date ORDER BY activity_date",
+        "format": "time_series",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"fillOpacity": 15, "lineWidth": 2, "pointSize": 4, "showPoints": "always"}
+        }
+      }
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "Sessions per Day (30 days)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 56},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT DATE(started_at)::timestamp AS time, COUNT(*)::float AS sessions FROM user_sessions WHERE started_at >= NOW() - INTERVAL '30 days' GROUP BY DATE(started_at) ORDER BY 1",
+        "format": "time_series",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"fillOpacity": 15, "lineWidth": 2, "pointSize": 4, "showPoints": "always"}
+        }
+      }
+    },
+    {
+      "id": 42,
+      "type": "barchart",
+      "title": "Retention Cohorts (D1 / D7 / D30)",
+      "description": "Retention by signup cohort week",
+      "gridPos": {"h": 8, "w": 16, "x": 0, "y": 64},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "WITH cohorts AS (SELECT DATE_TRUNC('week', u.created_at)::date AS cohort_week, u.telegram_id AS chat_id FROM users u WHERE u.created_at >= NOW() - INTERVAL '8 weeks'), active AS (SELECT a.chat_id, a.activity_date FROM activity_log a INNER JOIN cohorts c ON a.chat_id = c.chat_id) SELECT c.cohort_week::text AS cohort, ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.activity_date = c.cohort_week + 1 THEN a.chat_id END)::numeric / NULLIF(COUNT(DISTINCT c.chat_id), 0), 1) AS d1, ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.activity_date = c.cohort_week + 7 THEN a.chat_id END)::numeric / NULLIF(COUNT(DISTINCT c.chat_id), 0), 1) AS d7, ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.activity_date = c.cohort_week + 30 THEN a.chat_id END)::numeric / NULLIF(COUNT(DISTINCT c.chat_id), 0), 1) AS d30 FROM cohorts c LEFT JOIN active a ON c.chat_id = a.chat_id GROUP BY c.cohort_week ORDER BY c.cohort_week",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"barWidth": 0.8, "groupWidth": 0.7, "orientation": "auto", "showValue": "always"},
+      "fieldConfig": {
+        "defaults": {"unit": "percent"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "d1"}, "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "d7"}, "properties": [{"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}]},
+          {"matcher": {"id": "byName", "options": "d30"}, "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]}
+        ]
+      }
+    },
+    {
+      "id": 43,
+      "type": "piechart",
+      "title": "Session Entry Points (24h)",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 64},
+      "targets": [{
+        "datasource": {"uid": "${DS_NEON}", "type": "grafana-postgresql-datasource"},
+        "rawSql": "SELECT COALESCE(entry_point, 'unknown') AS entry_point, COUNT(*)::bigint AS count FROM user_sessions WHERE started_at >= NOW() - INTERVAL '24 hours' GROUP BY entry_point ORDER BY count DESC LIMIT 10",
+        "format": "table",
+        "refId": "A"
+      }],
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
     }
   ],
   "schemaVersion": 39,
-  "version": 1
+  "version": 2
 }

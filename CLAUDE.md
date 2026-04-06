@@ -404,15 +404,22 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 
 ---
 
-## 11. Error Classification (WP-45, DP.RUNBOOK.001)
+## 11. Error Classification & Observability (WP-45, DP.RUNBOOK.001)
 
-**Модуль:** `core/error_classifier.py` — классифицирует `error_logs` по 6 категориям RUNBOOK (fsm, db, claude_api, telegram_api, mcp, scheduler) + severity (L1-L4).
+**Модуль:** `core/error_classifier.py` — классифицирует `error_logs` по 8 категориям RUNBOOK (fsm, db, claude_api, telegram_api, mcp, scheduler, deployment, dt) + severity (L1-L4).
 
 **Порядок паттернов:** специфичные (MCP, Claude, TG) → generic (DB). First match wins. При добавлении нового паттерна — проверяй, не перекрывает ли generic (тест: 13 cases в комментарии к WP-45 коммиту).
 
+**Suppression allowlist:** `is_suppressed()` — benign ошибки (user blocked bot, chat not found, flood control). Классифицируются и хранятся, но НЕ попадают в escalation алерты. При добавлении нового benign паттерна — добавить в `_SUPPRESSED_PATTERNS`.
+
 **Scheduler:** classify_unprocessed() каждые 5 мин + check_escalation() каждые 15 мин.
 
-**Grafana:** dashboard JSON в `monitoring/grafana-dashboard.json` (PostgreSQL datasource → Neon).
+**Grafana dashboard** (`monitoring/grafana-dashboard.json`): 3 секции:
+- **Error Monitoring:** error count, L3+, unknown, severity pie, error rate by category
+- **Performance & Throughput (Ф2):** RPM by command, p50/p95/p99 latency, request count, error rate %, slowest spans
+- **Engagement Analytics:** DAU/WAU/MAU, sessions, QA helpful %, retention cohorts
+
+**Langfuse (опционально):** `core/langfuse_client.py` — dual-write traces в Neon + Langfuse Cloud. Env: `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_HOST`.
 
 ---
 
