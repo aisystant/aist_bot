@@ -81,6 +81,15 @@ class ClaudeClient:
             await cls._session.close()
             cls._session = None
 
+    def _request_headers(self) -> dict:
+        """Build request headers with trace_id for cross-service correlation (WP-45 Ф3)."""
+        from core.tracing import get_current_trace
+        headers = {"x-api-key": self.api_key}
+        trace = get_current_trace()
+        if trace:
+            headers["x-trace-id"] = trace.trace_id
+        return headers
+
     async def _api_call(self, payload: dict, timeout: float = 45) -> Optional[dict]:
         """Non-streaming API call (used by generate_with_tools).
 
@@ -88,7 +97,7 @@ class ClaudeClient:
         inactivity timeout instead of total timeout.
         """
         session = await self.get_session()
-        headers = {"x-api-key": self.api_key}
+        headers = self._request_headers()
 
         for attempt in range(2):
             try:
@@ -149,7 +158,7 @@ class ClaudeClient:
                 responses where partial > nothing.
         """
         session = await self.get_session()
-        headers = {"x-api-key": self.api_key}
+        headers = self._request_headers()
         payload = {**payload, "stream": True}
 
         # Accumulate text across retry attempts — don't lose partial content
@@ -282,7 +291,7 @@ class ClaudeClient:
             dict {"stop_reason": str, "content": list} or None on error
         """
         session = await self.get_session()
-        headers = {"x-api-key": self.api_key}
+        headers = self._request_headers()
         payload = {**payload, "stream": True}
 
         # Accumulate across retry attempts

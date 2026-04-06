@@ -144,6 +144,12 @@ class MCPClient:
 
         last_error = None
         session = await self.get_session()
+
+        # Cross-service trace correlation (WP-45 Ф3)
+        from core.tracing import get_current_trace
+        trace = get_current_trace()
+        req_headers = {"x-trace-id": trace.trace_id} if trace else {}
+
         for attempt in range(self.MAX_RETRIES + 1):
             # Используем разные таймауты для первой и повторных попыток
             timeout = self.DEFAULT_TIMEOUT if attempt == 0 else self.RETRY_TIMEOUT
@@ -152,6 +158,7 @@ class MCPClient:
                 async with session.post(
                     self.base_url,
                     json=payload,
+                    headers=req_headers,
                     timeout=aiohttp.ClientTimeout(total=timeout)
                 ) as resp:
                         if resp.status == 200:
