@@ -216,17 +216,17 @@ async def sync_engagement_to_dt() -> dict:
                             COALESCE(SUM(CASE
                                 WHEN event_type = 'coding_time'
                                 AND created_at >= NOW() - INTERVAL '1 day'
-                                THEN (payload->>'total_seconds')::int
+                                THEN (payload->>'total_seconds')::numeric::int
                             END), 0) AS coding_seconds_today,
                             COALESCE(SUM(CASE
                                 WHEN event_type = 'coding_time'
                                 AND created_at >= NOW() - INTERVAL '7 days'
-                                THEN (payload->>'total_seconds')::int
+                                THEN (payload->>'total_seconds')::numeric::int
                             END), 0) AS coding_seconds_7d,
                             COALESCE(SUM(CASE
                                 WHEN event_type = 'coding_time'
                                 AND created_at >= NOW() - INTERVAL '30 days'
-                                THEN (payload->>'total_seconds')::int
+                                THEN (payload->>'total_seconds')::numeric::int
                             END), 0) AS coding_seconds_30d,
                             COUNT(DISTINCT CASE
                                 WHEN event_type = 'coding_time'
@@ -517,17 +517,17 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     COALESCE(SUM(CASE
                         WHEN event_type = 'coding_time'
                         AND created_at >= NOW() - INTERVAL '1 day'
-                        THEN (payload->>'total_seconds')::int
+                        THEN (payload->>'total_seconds')::numeric::int
                     END), 0) AS coding_seconds_today,
                     COALESCE(SUM(CASE
                         WHEN event_type = 'coding_time'
                         AND created_at >= NOW() - INTERVAL '7 days'
-                        THEN (payload->>'total_seconds')::int
+                        THEN (payload->>'total_seconds')::numeric::int
                     END), 0) AS coding_seconds_7d,
                     COALESCE(SUM(CASE
                         WHEN event_type = 'coding_time'
                         AND created_at >= NOW() - INTERVAL '30 days'
-                        THEN (payload->>'total_seconds')::int
+                        THEN (payload->>'total_seconds')::numeric::int
                     END), 0) AS coding_seconds_30d,
                     COUNT(DISTINCT CASE
                         WHEN event_type = 'coding_time'
