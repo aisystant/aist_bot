@@ -26,7 +26,11 @@ async def get_aisystant_id(chat_id: int) -> str | None:
 
 
 async def save_aisystant_link(chat_id: int, aisystant_id: str):
-    """Сохранить привязку Aisystant аккаунта."""
+    """Сохранить привязку Aisystant аккаунта.
+
+    Также пишет маппинг в development.identity_map (lazy write)
+    для Activity Hub (WP-109 Ф1). identity_map → crm.identity_links при WP-183.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
@@ -37,6 +41,18 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                WHERE telegram_id = $1''',
             chat_id, aisystant_id,
         )
+        # Lazy write в identity_map для Activity Hub (WP-109)
+        user_uuid = await conn.fetchval(
+            'SELECT id FROM public.users WHERE telegram_id = $1',
+            chat_id,
+        )
+        if user_uuid:
+            await conn.execute(
+                '''INSERT INTO development.identity_map (source, external_id, user_uuid)
+                   VALUES ('lms', $1, $2)
+                   ON CONFLICT (source, external_id) DO NOTHING''',
+                str(aisystant_id), user_uuid,
+            )
     logger.info(f"Aisystant linked: chat_id={chat_id}, aisystant_id={aisystant_id}")
 
 
