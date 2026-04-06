@@ -19,20 +19,24 @@ async def get_analytics_report(hours: int = 24) -> dict:
     """Полный аналитический отчёт для /analytics.
 
     Returns:
-        {users, sessions, quality, retention, trends}
+        {users, sessions, quality, errors, commands, retention, trends}
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
         users = await _safe(conn, _get_user_metrics, conn)
         sessions = await _safe(conn, _get_session_metrics, conn, hours)
         quality = await _safe(conn, _get_quality_metrics, conn, hours)
+        errors = await _safe(conn, _get_error_metrics, conn, hours)
+        commands = await _safe(conn, _get_command_metrics, conn, hours)
         retention = await _safe(conn, _get_retention_metrics, conn)
         trends = await _safe(conn, _get_trend_metrics, conn)
 
     return {
         'users': users or {'dau': 0, 'wau': 0, 'mau': 0, 'total': 0, 'new_today': 0, 'new_week': 0},
         'sessions': sessions or {'count': 0, 'avg_duration_sec': 0, 'avg_requests': 0, 'entry_points': []},
-        'quality': quality or {'total_requests': 0, 'avg_ms': 0, 'p95_ms': 0, 'red_zone': 0, 'qa_total': 0, 'qa_helpful_rate': 0},
+        'quality': quality or {'total_requests': 0, 'avg_ms': 0, 'p95_ms': 0, 'p50_ms': 0, 'p99_ms': 0, 'red_zone': 0, 'qa_total': 0, 'qa_helpful_rate': 0},
+        'errors': errors or {'total': 0, 'error_rate_pct': 0, 'by_category': [], 'by_severity': [], 'l3_plus': 0, 'unknown': 0},
+        'commands': commands or {'top': [], 'slowest': []},
         'retention': retention or {'d1': 0, 'd7': 0, 'd30': 0},
         'trends': trends or {'dau_this_week': 0, 'dau_last_week': 0, 'dau_change_pct': 0, 'sessions_this_week': 0, 'sessions_last_week': 0, 'sessions_change_pct': 0},
     }
@@ -103,7 +107,9 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
         SELECT
             COUNT(*) as total_requests,
             COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms,
+            COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p50_ms,
             COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p95_ms,
+            COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p99_ms,
             COUNT(*) FILTER (WHERE total_ms > 8000) as red_zone
         FROM request_traces
         WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
@@ -125,7 +131,9 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
     return {
         'total_requests': latency['total_requests'] if latency else 0,
         'avg_ms': latency['avg_ms'] if latency else 0,
+        'p50_ms': latency['p50_ms'] if latency else 0,
         'p95_ms': latency['p95_ms'] if latency else 0,
+        'p99_ms': latency['p99_ms'] if latency else 0,
         'red_zone': latency['red_zone'] if latency else 0,
         'qa_total': qa_total,
         'qa_helpful_rate': helpful_rate,
@@ -212,4 +220,79 @@ async def _get_trend_metrics(conn) -> dict:
         'sessions_this_week': this_s,
         'sessions_last_week': last_s,
         'sessions_change_pct': sess_change,
+    }
+
+
+async def _get_error_metrics(conn, hours: int) -> dict:
+    """Error rate, breakdown by category/severity from error_logs (WP-45)."""
+    totals = await conn.fetchrow('''
+        SELECT
+            SUM(occurrence_count)::BIGINT as total_errors,
+            COUNT(*) FILTER (WHERE severity IN ('L3', 'L4')) as l3_plus,
+            COUNT(*) FILTER (WHERE category = 'unknown') as unknown
+        FROM error_logs
+        WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
+    ''', str(hours))
+
+    # Error rate = errors / requests
+    requests = await conn.fetchval('''
+        SELECT COUNT(*) FROM request_traces
+        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
+    ''', str(hours))
+
+    total_err = totals['total_errors'] if totals and totals['total_errors'] else 0
+    error_rate = round(total_err / requests * 100, 1) if requests and requests > 0 else 0
+
+    by_category = await conn.fetch('''
+        SELECT category, SUM(occurrence_count)::BIGINT as count
+        FROM error_logs
+        WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
+          AND category IS NOT NULL
+        GROUP BY category ORDER BY count DESC LIMIT 5
+    ''', str(hours))
+
+    by_severity = await conn.fetch('''
+        SELECT severity, COUNT(*) as count
+        FROM error_logs
+        WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
+          AND severity IS NOT NULL
+        GROUP BY severity ORDER BY severity
+    ''', str(hours))
+
+    return {
+        'total': total_err,
+        'error_rate_pct': error_rate,
+        'l3_plus': totals['l3_plus'] if totals else 0,
+        'unknown': totals['unknown'] if totals else 0,
+        'by_category': [dict(r) for r in by_category],
+        'by_severity': [dict(r) for r in by_severity],
+    }
+
+
+async def _get_command_metrics(conn, hours: int) -> dict:
+    """Per-command request count and latency from request_traces (WP-45)."""
+    top = await conn.fetch('''
+        SELECT command, COUNT(*) as count,
+               COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms
+        FROM request_traces
+        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
+          AND command IS NOT NULL
+        GROUP BY command ORDER BY count DESC LIMIT 7
+    ''', str(hours))
+
+    slowest = await conn.fetch('''
+        SELECT command, COUNT(*) as count,
+               COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms,
+               COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p95_ms
+        FROM request_traces
+        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
+          AND command IS NOT NULL
+        GROUP BY command
+        HAVING COUNT(*) >= 3
+        ORDER BY avg_ms DESC LIMIT 5
+    ''', str(hours))
+
+    return {
+        'top': [dict(r) for r in top],
+        'slowest': [dict(r) for r in slowest],
     }

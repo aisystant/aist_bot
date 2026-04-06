@@ -373,6 +373,8 @@ def _format_analytics(report: dict) -> str:
     u = report['users']
     s = report['sessions']
     q = report['quality']
+    e = report['errors']
+    cmd = report['commands']
     r = report['retention']
     tr = report['trends']
 
@@ -393,6 +395,27 @@ def _format_analytics(report: dict) -> str:
     # Latency color
     lat_emoji = "\U0001f7e2" if q['avg_ms'] < 3000 else ("\U0001f7e1" if q['avg_ms'] < 8000 else "\U0001f534")
 
+    # Error rate color
+    err_emoji = "\U0001f7e2" if e['error_rate_pct'] < 5 else ("\U0001f7e1" if e['error_rate_pct'] < 15 else "\U0001f534")
+
+    # Error categories
+    cat_str = ", ".join(f"{c['category']}({c['count']})" for c in e.get('by_category', [])[:4]) or "\u2014"
+
+    # Severity breakdown
+    sev_str = " | ".join(f"{s_['severity']}:{s_['count']}" for s_ in e.get('by_severity', [])) or "\u2014"
+
+    # Top commands
+    top_cmd_str = ""
+    for c in cmd.get('top', [])[:5]:
+        top_cmd_str += f"  {c['command']}: {c['count']} req, ~{c['avg_ms']}ms\n"
+    top_cmd_str = top_cmd_str or "  \u2014\n"
+
+    # Slowest commands
+    slow_str = ""
+    for c in cmd.get('slowest', [])[:3]:
+        slow_str += f"  {c['command']}: avg {c['avg_ms']}ms, p95 {c['p95_ms']}ms ({c['count']} req)\n"
+    slow_str = slow_str or "  \u2014\n"
+
     text = (
         f"<b>Аналитика IWE</b> ({_msk_now()})\n{sep}\n\n"
         f"<b>\U0001f465 Пользователи</b>\n"
@@ -402,10 +425,19 @@ def _format_analytics(report: dict) -> str:
         f"  Всего: {s['count']} | Средняя: {avg_min}м {avg_sec}с\n"
         f"  Средний запросов/сессия: {s['avg_requests']}\n"
         f"  Entry points: {entry_str}\n\n"
-        f"<b>\u26a1 Качество (24ч)</b>\n"
-        f"  {lat_emoji} Avg latency: {q['avg_ms']}ms | P95: {q['p95_ms']}ms\n"
-        f"  Red-zone (>8s): {q['red_zone']} запросов\n"
-        f"  QA helpful: {q['qa_helpful_rate']}% ({q['qa_total']} консультаций)\n\n"
+        f"<b>\u26a1 Latency (24ч)</b>\n"
+        f"  {lat_emoji} p50: {q['p50_ms']}ms | p95: {q['p95_ms']}ms | p99: {q['p99_ms']}ms\n"
+        f"  Avg: {q['avg_ms']}ms | Red-zone (>8s): {q['red_zone']}\n"
+        f"  Запросов: {q['total_requests']} | QA helpful: {q['qa_helpful_rate']}% ({q['qa_total']})\n\n"
+        f"<b>\U0001f6a8 Ошибки (24ч)</b>\n"
+        f"  {err_emoji} Error rate: {e['error_rate_pct']}% | Всего: {e['total']}\n"
+        f"  L3+: {e['l3_plus']} | Unknown: {e['unknown']}\n"
+        f"  Severity: {sev_str}\n"
+        f"  Top: {cat_str}\n\n"
+        f"<b>\U0001f3af Команды (24ч)</b>\n"
+        f"{top_cmd_str}\n"
+        f"<b>\U0001f422 Самые медленные</b>\n"
+        f"{slow_str}\n"
         f"<b>\U0001f4c8 Retention</b>\n"
         f"  D1: {r['d1']}% | D7: {r['d7']}% | D30: {r['d30']}%\n\n"
         f"<b>\U0001f525 Тренды (vs прошлая неделя)</b>\n"
