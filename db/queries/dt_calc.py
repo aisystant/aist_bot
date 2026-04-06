@@ -4,7 +4,7 @@
 Копия здесь временная — до реализации механизма импорта между репо (pip install -e / symlink).
 Не редактировать здесь — редактировать в profiler/scripts/ и синхронизировать.
 
-Calculation Engine v0.8 — derived indicators из 2_collected + learning_history (WP-151, WP-174, WP-175).
+Calculation Engine v1.0 — derived indicators из 2_collected + learning_history (WP-151 Ф7a).
 
 Вычисляет IND.3 (derived) из IND.2 (collected) данных.
 Источники: engagement + notification_log + coding (WakaTime) + IWE (git/WP) + learning_history (BKT).
@@ -16,6 +16,14 @@ Calculation Engine v0.8 — derived indicators из 2_collected + learning_histo
   IND.3.5.*   mastery_by_area         — BKT P(mastery) по 5 областям из learning_history
   IND.3.6.*   worldview_gaps          — мемы CAT.001 с gap (P(mastery) < порога по ступени)
   IND.3.7.*   mastery_gaps            — практики CAT.002/003 с gap > 0
+  IND.3.8.01  qualification_degree    — степень квалификации (EQF-подобная, 0-4)
+  IND.3.9.01  it_level               — ИТ-уровень (0-3, DigComp-адаптация)
+  IND.3.12.01 delivery_style         — рекомендуемый стиль подачи (авто-адаптация)
+  IND.3.13.01 notification_responsiveness — отзывчивость на уведомления (0-100)
+  IND.3.14.01 learning_autonomy      — учебная автономность (0-100)
+
+v1.0 (WP-151 Ф7a): Production-формулы 5 осей MVP + notification/autonomy.
+  Разблокирует WP-149 (Портной), WP-117 (nudge), WP-135 (интерфейс ЦД).
 
 v0.8 (WP-151 Ф5): Полноценный BKT (Bayesian Knowledge Tracing) по мемам CAT.001.
   Вместо MAX depth — вероятностная модель P(mastery) по каждому мему.
@@ -677,6 +685,378 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
 
 
 # ═══════════════════════════════════════════════════════════
+# IND.3.8.01 — Qualification Degree (EQF-подобная, WP-151 Ф7a)
+# ═══════════════════════════════════════════════════════════
+
+# Степень квалификации (адаптация EQF): уровень системного мышления.
+# Отражает глубину работы с предметной областью.
+# Пока LMS-коллектор не готов (WP-109 Ф1), вычисляем из поведенческих данных.
+# При появлении LMS-интеграции — формулу уточнить в Ф7b (Лаборатория).
+
+def calc_qualification_degree(collected: dict, learning_rows: list[dict] | None = None) -> dict:
+    """Степень квалификации (0-4) из поведенческих данных + BKT mastery.
+
+    IND.3.8.01: Приблизительная оценка EQF-уровня из доступных данных.
+    MVP-эвристика: комбинация mastery_by_area + training depth + practice volume.
+
+    0 = нет данных / начинающий
+    1 = базовое знакомство (прошёл онбординг, начал обучение)
+    2 = системное изучение (регулярная практика, средний mastery)
+    3 = продвинутый (высокий mastery, глубокие тренировки)
+    4 = эксперт (mastery ≥0.8 по ≥3 областям, передаёт знания)
+
+    Args:
+        collected: digital_twins.data['2_collected']
+        learning_rows: записи из learning_history (опционально)
+
+    Returns:
+        {"degree": int, "degree_name_ru": str, "evidence": dict}
+    """
+    practice = collected.get('2_3_practice') or {}
+    courses = collected.get('2_2_courses') or {}
+
+    training_passed = practice.get('training_passed_total', 0) or 0
+    training_attempts = practice.get('training_attempts_total', 0) or 0
+    marathon_steps = courses.get('marathon_steps_total', 0) or 0
+    marathon_tasks = practice.get('marathon_tasks_total', 0) or 0
+    assessments = practice.get('assessments_total', 0) or 0
+
+    # BKT mastery если доступен
+    avg_mastery = 0.0
+    areas_above_08 = 0
+    if learning_rows:
+        mastery_result = calc_mastery_by_area(learning_rows)
+        area_values = [mastery_result.get(k, 0.0) for k in AREA_KEY_MAP.values()]
+        if area_values:
+            avg_mastery = sum(area_values) / len(area_values)
+            areas_above_08 = sum(1 for v in area_values if v >= 0.8)
+
+    evidence = {
+        "training_passed": training_passed,
+        "training_attempts": training_attempts,
+        "marathon_steps": marathon_steps,
+        "marathon_tasks": marathon_tasks,
+        "assessments": assessments,
+        "avg_mastery": round(avg_mastery, 3),
+        "areas_above_08": areas_above_08,
+    }
+
+    degree = 0
+
+    # Degree 1: начал обучение (≥3 steps или ≥1 training)
+    if marathon_steps >= 3 or training_passed >= 1:
+        degree = 1
+
+    # Degree 2: системное изучение (регулярная практика + некоторый mastery)
+    if ((marathon_steps >= 10 and training_passed >= 5) or
+            (avg_mastery >= 0.3 and training_attempts >= 10)):
+        degree = 2
+
+    # Degree 3: продвинутый (высокий mastery + глубина)
+    if ((avg_mastery >= 0.5 and training_passed >= 15 and marathon_tasks >= 5) or
+            (areas_above_08 >= 2)):
+        degree = 3
+
+    # Degree 4: эксперт (mastery ≥0.8 по ≥3 областям + передача знаний)
+    if areas_above_08 >= 3 and assessments >= 3:
+        degree = 4
+
+    degree_names = {
+        0: "Начинающий",
+        1: "Знакомящийся",
+        2: "Изучающий",
+        3: "Продвинутый",
+        4: "Эксперт",
+    }
+
+    return {
+        "degree": degree,
+        "degree_name_ru": degree_names[degree],
+        "evidence": evidence,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.9.01 — IT Level (DigComp-адаптация, WP-151 Ф7a)
+# ═══════════════════════════════════════════════════════════
+
+def calc_it_level(collected: dict) -> dict:
+    """ИТ-уровень (0-3) из поведенческих данных.
+
+    IND.3.9.01: дополняет декларативный IND.1 it_level.
+    Если есть данные coding/IWE → вычисляем объективно.
+    Иначе → fallback на декларативный (передаётся через 1_declarative, не здесь).
+
+    0 = не может установить ничего сам
+    1 = может с подробной инструкцией
+    2 = может с поддержкой (полный набор IWE)
+    3 = может сам + помогает другим
+
+    Args:
+        collected: digital_twins.data['2_collected']
+
+    Returns:
+        {"it_level": int, "source": "auto"|"insufficient_data", "evidence": dict}
+    """
+    coding = collected.get('2_6_coding') or {}
+    iwe = collected.get('2_7_iwe') or {}
+    time_data = collected.get('2_4_time') or {}
+
+    coding_seconds_30d = coding.get('coding_seconds_30d', 0) or 0
+    coding_hours_30d = coding_seconds_30d / 3600
+    coding_active_days = coding.get('coding_active_days_30d', 0) or 0
+    commits_30d = iwe.get('commits_30d', 0) or 0
+    day_opens = iwe.get('day_opens_total', 0) or 0
+    ai_chats = time_data.get('ai_chats_total', 0) or 0
+
+    evidence = {
+        "coding_hours_30d": round(coding_hours_30d, 1),
+        "coding_active_days": coding_active_days,
+        "commits_30d": commits_30d,
+        "day_opens": day_opens,
+        "ai_chats": ai_chats,
+    }
+
+    has_coding_data = coding_hours_30d > 0 or commits_30d > 0
+
+    if not has_coding_data:
+        return {"it_level": None, "source": "insufficient_data", "evidence": evidence}
+
+    level = 0
+
+    # Level 1: базовое использование (есть AI-чаты или начал coding)
+    if ai_chats >= 3 or coding_hours_30d >= 1:
+        level = 1
+
+    # Level 2: регулярное использование IWE (coding + commits + day_opens)
+    if coding_hours_30d >= 10 and commits_30d >= 5:
+        level = 2
+
+    # Level 3: продвинутый (систематический coding + IWE + day_opens)
+    if coding_hours_30d >= 40 and commits_30d >= 20 and day_opens >= 5:
+        level = 3
+
+    return {"it_level": level, "source": "auto", "evidence": evidence}
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.12.01 — Delivery Style Adaptation (WP-151 Ф7a)
+# ═══════════════════════════════════════════════════════════
+
+def calc_delivery_style(collected: dict, student_stage: int) -> dict:
+    """Рекомендуемый стиль подачи из поведенческих данных + ступени.
+
+    IND.3.12.01: дополняет декларативный IND.1.5 style.
+    Авто-адаптация: если поведение указывает на другой стиль, чем заявленный.
+
+    Логика:
+    - Ступень 0-1: detailed + examples, 15-20 мин
+    - Ступень 2: mixed, 20-30 мин
+    - Ступень 3-4: concise + tasks, 30-60 мин
+
+    Коррекция по данным: если пользователь быстро проходит уроки → сократить.
+    Если часто просит подробности → расширить.
+
+    Returns:
+        {"format": str, "duration_min": int, "complexity": str, "source": "auto"}
+    """
+    courses = collected.get('2_2_courses') or {}
+    practice = collected.get('2_3_practice') or {}
+    operations = collected.get('2_8_operations') or {}
+
+    marathon_steps = courses.get('marathon_steps_total', 0) or 0
+    marathon_tasks = practice.get('marathon_tasks_total', 0) or 0
+    feed_completed = courses.get('feed_completed_total', 0) or 0
+
+    # Коэффициент практичности: доля заданий от уроков
+    practice_ratio = marathon_tasks / max(marathon_steps, 1)
+
+    # Базовый стиль по ступени
+    if student_stage <= 1:
+        fmt = "detailed"
+        duration = 20
+        complexity = "accessible"
+    elif student_stage == 2:
+        fmt = "mixed"
+        duration = 25
+        complexity = "standard"
+    else:
+        fmt = "concise"
+        duration = 30
+        complexity = "professional"
+
+    # Коррекция: высокая практичность → больше задач
+    if practice_ratio > 0.6 and marathon_tasks >= 5:
+        fmt = "tasks-first"
+
+    # Коррекция: много дайджестов → предпочитает краткий формат
+    if feed_completed >= 20 and marathon_steps < 5:
+        fmt = "digest"
+        duration = 15
+
+    return {
+        "format": fmt,
+        "duration_min": duration,
+        "complexity": complexity,
+        "source": "auto",
+        "evidence": {
+            "practice_ratio": round(practice_ratio, 2),
+            "marathon_steps": marathon_steps,
+            "feed_completed": feed_completed,
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.13.01 — Notification Responsiveness (WP-151 Ф7a, WP-117)
+# ═══════════════════════════════════════════════════════════
+
+def calc_notification_responsiveness(collected: dict) -> dict:
+    """Отзывчивость на уведомления (0-100).
+
+    IND.3.13.01: используется nudge-системой (WP-117) для адаптации
+    частоты и типа уведомлений.
+
+    Логика:
+    - Доля открытых напоминаний от доставленных
+    - Разнообразие типов уведомлений, на которые реагирует
+    - Тренд: 7d vs 30d (улучшается или ухудшается)
+
+    Returns:
+        {"score": float 0-100, "trend": "improving"|"stable"|"declining", "evidence": dict}
+    """
+    notifications = collected.get('2_5_notifications') or {}
+    operations = collected.get('2_8_operations') or {}
+
+    notif_total = notifications.get('notifications_total', 0) or 0
+    notif_7d = notifications.get('notifications_7d', 0) or 0
+    notif_30d = notifications.get('notifications_30d', 0) or 0
+    notif_types = notifications.get('notification_types', 0) or 0
+
+    reminders_delivered = operations.get('reminders_delivered', 0) or 0
+    reminders_opened = operations.get('reminders_opened', 0) or 0
+
+    evidence = {
+        "notif_total": notif_total,
+        "notif_7d": notif_7d,
+        "notif_30d": notif_30d,
+        "notif_types": notif_types,
+        "reminders_delivered": reminders_delivered,
+        "reminders_opened": reminders_opened,
+    }
+
+    if notif_total == 0:
+        return {"score": 50.0, "trend": "stable", "evidence": evidence}
+
+    # Компонент 1: конверсия напоминаний (50%)
+    reminder_rate = reminders_opened / max(reminders_delivered, 1)
+    reminder_score = min(reminder_rate * 100, 100)
+
+    # Компонент 2: разнообразие типов (20%)
+    # 6+ типов = полный балл
+    type_score = min(notif_types / 6 * 100, 100)
+
+    # Компонент 3: интенсивность за последние 30 дней (30%)
+    intensity_score = min(notif_30d / 15 * 100, 100)
+
+    score = reminder_score * 0.50 + type_score * 0.20 + intensity_score * 0.30
+
+    # Тренд: сравниваем 7d rate с 30d rate
+    if notif_30d > 0:
+        weekly_rate = notif_7d / 7
+        monthly_rate = notif_30d / 30
+        if monthly_rate > 0:
+            ratio = weekly_rate / monthly_rate
+            if ratio > 1.3:
+                trend = "improving"
+            elif ratio < 0.7:
+                trend = "declining"
+            else:
+                trend = "stable"
+        else:
+            trend = "stable"
+    else:
+        trend = "stable"
+
+    return {"score": round(score, 1), "trend": trend, "evidence": evidence}
+
+
+# ═══════════════════════════════════════════════════════════
+# IND.3.14.01 — Learning Autonomy (WP-151 Ф7a, WP-117)
+# ═══════════════════════════════════════════════════════════
+
+def calc_learning_autonomy(collected: dict, student_stage: int) -> dict:
+    """Учебная автономность (0-100).
+
+    IND.3.14.01: мера самостоятельности ученика. Используется nudge-системой
+    для определения интенсивности подталкивания: высокая автономность → меньше nudge.
+
+    Компоненты:
+    - Инициативность: session_start без предварительного напоминания
+    - Регулярность: дни/неделю
+    - Разнообразие: сколько режимов использует (марафон, лента, тренировки, AI)
+    - Ступень: baseline от student_stage
+
+    Returns:
+        {"score": float 0-100, "components": dict}
+    """
+    time_data = collected.get('2_4_time') or {}
+    account = collected.get('2_1_account') or {}
+    courses = collected.get('2_2_courses') or {}
+    practice = collected.get('2_3_practice') or {}
+    operations = collected.get('2_8_operations') or {}
+    notifications = collected.get('2_5_notifications') or {}
+
+    sessions_total = account.get('sessions_total', 0) or 0
+    events_7d = time_data.get('events_last_7d', 0) or 0
+    active_days = time_data.get('active_days', 0) or 0
+    marathon_steps = courses.get('marathon_steps_total', 0) or 0
+    feed_completed = courses.get('feed_completed_total', 0) or 0
+    training_passed = practice.get('training_passed_total', 0) or 0
+    ai_chats = time_data.get('ai_chats_total', 0) or 0
+    reminders_delivered = operations.get('reminders_delivered', 0) or 0
+
+    # 1. Инициативность (30%): сессии без напоминания
+    # Аппроксимация: sessions - reminders_delivered = самостоятельные входы
+    self_initiated = max(sessions_total - reminders_delivered, 0)
+    initiative_ratio = self_initiated / max(sessions_total, 1)
+    initiative_score = min(initiative_ratio * 100, 100)
+
+    # 2. Регулярность (25%): дни/неделю нормализовано
+    regularity_raw = events_7d / 7
+    regularity_score = min(regularity_raw / 0.8 * 100, 100)
+
+    # 3. Разнообразие режимов (20%): сколько разных типов активности
+    modes_used = sum([
+        1 if marathon_steps > 0 else 0,
+        1 if feed_completed > 0 else 0,
+        1 if training_passed > 0 else 0,
+        1 if ai_chats > 0 else 0,
+    ])
+    diversity_score = min(modes_used / 3 * 100, 100)  # 3 из 4 = 100%
+
+    # 4. Ступень baseline (25%): Stage прямо отражает автономность
+    stage_score = min(student_stage / 4 * 100, 100)
+
+    score = (
+        initiative_score * 0.30
+        + regularity_score * 0.25
+        + diversity_score * 0.20
+        + stage_score * 0.25
+    )
+
+    return {
+        "score": round(score, 1),
+        "components": {
+            "initiative": round(initiative_score, 1),
+            "regularity": round(regularity_score, 1),
+            "diversity": round(diversity_score, 1),
+            "stage_baseline": round(stage_score, 1),
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════
 # PUBLIC API
 # ═══════════════════════════════════════════════════════════
 
@@ -685,8 +1065,8 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
 
     Args:
         collected: digital_twins.data['2_collected'] (5+ групп).
-            v0.6: включает 2_6_coding и 2_7_iwe для builder path.
-        learning_rows: список dict из development.learning_history (v0.8, WP-151 Ф5).
+            v0.6+: включает 2_6_coding, 2_7_iwe, 2_8_operations.
+        learning_rows: список dict из development.learning_history (v0.8+).
             Каждый dict: {element_id, element_type, area, depth, passed, ...}.
             При None — mastery_by_area возвращает нули, gaps — пустые списки (PD.SPEC.001 §3).
 
@@ -695,11 +1075,16 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
         {
             "3_1_agency": {"slot_regularity": float, ...},
             "3_4_qualification": {"stage": int, "stage_id": str, "path": str, ...},
-            "3_5_mastery": {"mastery_by_area": {...}},           # BKT P(mastery) по областям
-            "3_6_worldview": {"worldview_gaps": [...]},          # BKT gaps с P(mastery)
-            "3_10_integral": {"index": float, "components": {...}},
+            "3_5_mastery": {"mastery_by_area": {...}},
+            "3_6_worldview": {"worldview_gaps": [...]},
+            "3_8_degree": {"degree": int, ...},             # v1.0: EQF-подобная
+            "3_9_it_level": {"it_level": int|None, ...},    # v1.0: DigComp-адаптация
+            "3_10_integral": {"index": float, ...},
+            "3_12_delivery_style": {"format": str, ...},    # v1.0: авто-адаптация
+            "3_13_notification_resp": {"score": float, ...}, # v1.0: для WP-117
+            "3_14_learning_autonomy": {"score": float, ...}, # v1.0: для WP-117
             "calculated_at": ISO timestamp,
-            "engine_version": "0.8",
+            "engine_version": "1.0",
         }
     """
     if not collected:
@@ -710,6 +1095,7 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
         stage_result = calc_student_stage(collected, as_of=now)
         agency_result = calc_integral_agency_index(collected, as_of=now)
         regularity = calc_slot_regularity(collected, as_of=now)
+        student_stage = stage_result.get("stage", 0)
 
         derived = {
             "3_1_agency": {
@@ -719,12 +1105,11 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
             "3_4_qualification": stage_result,
             "3_10_integral": agency_result,
             "calculated_at": now.isoformat(),
-            "engine_version": "0.8",
+            "engine_version": "1.0",
         }
 
         # ── Ф5: BKT из learning_history (WP-151 Ф5) ─────────────────────────
         if learning_rows is not None:
-            student_stage = stage_result.get("stage", 0)
             mastery = calc_mastery_by_area(learning_rows)
             gaps = calc_worldview_gaps(learning_rows, student_stage)
             derived["3_5_mastery"] = {"mastery_by_area": mastery}
@@ -738,6 +1123,13 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
                     "mastery_threshold": _BKT_MASTERY_THRESHOLD,
                 },
             }
+
+        # ── Ф7a: 5 осей MVP + notification/autonomy (WP-151 Ф7a) ──────────
+        derived["3_8_degree"] = calc_qualification_degree(collected, learning_rows)
+        derived["3_9_it_level"] = calc_it_level(collected)
+        derived["3_12_delivery_style"] = calc_delivery_style(collected, student_stage)
+        derived["3_13_notification_resp"] = calc_notification_responsiveness(collected)
+        derived["3_14_learning_autonomy"] = calc_learning_autonomy(collected, student_stage)
 
         return derived
 
