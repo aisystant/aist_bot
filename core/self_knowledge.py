@@ -422,31 +422,42 @@ def _kw_matches(kw: str, text: str) -> bool:
 def match_faq(question: str, lang: str = 'ru') -> Optional[str]:
     """Проверить, совпадает ли вопрос с FAQ (L1 кеш).
 
-    Скоринг по количеству совпавших keywords. Возвращает лучший ответ или None.
+    Скоринг: доля совпавших keywords от общего числа keywords FAQ-строки.
+    Это наказывает «разбавленные» FAQ: 1/8 keywords (12%) < порога,
+    а 1/4 keywords (25%) или 2/4 (50%) — проходят.
+
+    Порог: ≥25% keywords должны совпасть.
     """
     _parse_pack()
 
     q_lower = question.lower()
 
     best_item = None
-    best_score = 0
+    best_ratio = 0.0
+    best_matched = 0
 
-    # Поиск и по FAQ, и по Troubleshooting (обе таблицы с одинаковой структурой)
     for item in _faq + _troubleshooting:
         keywords = item.get('keywords', [])
         if not keywords:
             continue
 
         matched = sum(1 for kw in keywords if _kw_matches(kw, q_lower))
-        if matched > best_score:
-            best_score = matched
+        if matched == 0:
+            continue
+
+        ratio = matched / len(keywords)
+
+        # При равной доле — предпочитаем больше абсолютных совпадений
+        if ratio > best_ratio or (ratio == best_ratio and matched > best_matched):
+            best_ratio = ratio
+            best_matched = matched
             best_item = item
 
-    # Вопросы >20 символов требуют ≥2 совпадений: одно generic-слово
-    # ("можешь", "помощ") в длинном вопросе — скорее всего не FAQ
-    min_score = 2 if len(q_lower) > 20 else 1
-
-    if best_item and best_score >= min_score:
+    # Порог: ≥25% keywords должны совпасть.
+    # FAQ #14 «iwe» = 1/8 = 12.5% → не проходит.
+    # FAQ #9 «кто ты» = 1/4 = 25% → проходит.
+    # FAQ #1 «начать» = 1/4 = 25% → проходит.
+    if best_item and best_ratio >= 0.25:
         answer = best_item.get(f'answer_{lang}') or best_item.get('answer_ru', '')
         # Конвертировать литеральные \n маркеры из Pack в реальные переносы строк
         return answer.replace('\\n', '\n')

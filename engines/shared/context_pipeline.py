@@ -88,7 +88,10 @@ async def collect_pre_search(
     try:
         from clients.gateway_mcp import gateway_mcp
 
-        results = await gateway_mcp.knowledge_search(query=question, limit=5)
+        telegram_user_id = intern.get('chat_id')
+        results = await gateway_mcp.knowledge_search(
+            query=question, limit=5, telegram_user_id=telegram_user_id
+        )
 
         if not results:
             return ("knowledge_section", "")
