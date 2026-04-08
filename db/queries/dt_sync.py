@@ -65,7 +65,7 @@ async def _preload_lms_qualifications(lms_user_ids: list[str]) -> dict:
 
     result = {}
     try:
-        lms_conn = await asyncpg.connect(lms_url)
+        lms_conn = await asyncpg.connect(lms_url, timeout=10)
         try:
             # Текущая (максимальная) квалификация для каждого suser.
             # DISTINCT ON берёт последнюю по дате и максимальную по уровню.
