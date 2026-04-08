@@ -839,7 +839,7 @@ class SettingsState(BaseState):
             )
             return None
 
-        auth_url, _ = ory_oauth.get_authorization_url(chat_id)
+        auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
         text = (
             "🔄 *Переподключение Gateway*\n\n"
             "Нажмите кнопку ниже для повторной авторизации.\n"
@@ -878,7 +878,7 @@ class SettingsState(BaseState):
                 text = "🌐 *Подключение к IWE*\n\nПодключение временно недоступно."
                 buttons = [[InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]]
             else:
-                auth_url, _ = ory_oauth.get_authorization_url(chat_id)
+                auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
                 text = (
                     "🌐 *Подключение к IWE*\n\n"
                     "Авторизуйтесь, чтобы бот мог:\n"
@@ -952,7 +952,7 @@ class SettingsState(BaseState):
             )
         else:
             try:
-                auth_url, state = github_oauth.get_authorization_url(chat_id)
+                auth_url, state = await github_oauth.get_authorization_url(chat_id)
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text=t('settings.github_connect', lang), url=auth_url)],
                     [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],

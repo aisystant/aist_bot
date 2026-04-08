@@ -94,7 +94,7 @@ async def linear_callback_handler(request: web.Request) -> web.Response:
         )
 
     # Валидируем state и получаем user_id
-    telegram_user_id = linear_oauth.validate_state(state)
+    telegram_user_id = await linear_oauth.validate_state(state)
     if not telegram_user_id:
         logger.warning(f"Invalid or expired state")
         return web.Response(
@@ -423,7 +423,7 @@ async def github_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    telegram_user_id = github_oauth.validate_state(state)
+    telegram_user_id = await github_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
             text="""

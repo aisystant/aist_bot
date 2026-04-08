@@ -8,7 +8,7 @@ Linear OAuth клиент — тестовая интеграция.
     from clients.linear_oauth import linear_oauth
 
     # Получить URL для авторизации
-    auth_url, state = linear_oauth.get_authorization_url(telegram_user_id=123456)
+    auth_url, state = await linear_oauth.get_authorization_url(telegram_user_id=123456)
 
     # После callback обменять code на токены
     tokens = await linear_oauth.exchange_code(code, state)
@@ -57,37 +57,18 @@ class LinearOAuthClient:
         self.client_secret = LINEAR_CLIENT_SECRET
         self.redirect_uri = LINEAR_REDIRECT_URI
 
-        # Временное хранилище state -> telegram_user_id
-        # В продакшене должно быть в Redis/DB с TTL
-        self._pending_states: Dict[str, Dict[str, Any]] = {}
-
         # Хранилище токенов: telegram_user_id -> tokens
-        # В продакшене должно быть в БД
         self._tokens: Dict[int, Dict[str, Any]] = {}
 
-    def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
-        """Генерирует URL для OAuth авторизации.
-
-        Args:
-            telegram_user_id: ID пользователя Telegram
-
-        Returns:
-            Tuple[auth_url, state]
-        """
+    async def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
+        """Генерирует URL для OAuth авторизации."""
         if not self.client_id:
             raise ValueError("LINEAR_CLIENT_ID not configured")
 
-        # Генерируем уникальный state
         state = secrets.token_urlsafe(32)
 
-        # Сохраняем mapping state -> user_id
-        self._pending_states[state] = {
-            "telegram_user_id": telegram_user_id,
-            "created_at": time.time()
-        }
-
-        # Чистим старые states (старше 10 минут)
-        self._cleanup_old_states()
+        from db.queries.oauth_states import save_oauth_state
+        await save_oauth_state(state, 'linear', telegram_user_id)
 
         params = {
             "client_id": self.client_id,
@@ -102,55 +83,19 @@ class LinearOAuthClient:
 
         return auth_url, state
 
-    def _cleanup_old_states(self):
-        """Удаляет просроченные states."""
-        now = time.time()
-        expired = [
-            state for state, data in self._pending_states.items()
-            if now - data["created_at"] > 600  # 10 минут
-        ]
-        for state in expired:
-            del self._pending_states[state]
-
-    def validate_state(self, state: str) -> Optional[int]:
-        """Проверяет state и возвращает telegram_user_id.
-
-        Args:
-            state: State из callback
-
-        Returns:
-            telegram_user_id или None если state невалидный
-        """
-        data = self._pending_states.get(state)
-        if not data:
-            logger.warning(f"Invalid or expired state: {state[:10]}...")
-            return None
-
-        # Проверяем TTL
-        if time.time() - data["created_at"] > 600:
-            del self._pending_states[state]
-            logger.warning(f"Expired state: {state[:10]}...")
-            return None
-
-        return data["telegram_user_id"]
+    async def validate_state(self, state: str) -> Optional[int]:
+        """Проверяет state и возвращает telegram_user_id."""
+        from db.queries.oauth_states import validate_oauth_state
+        telegram_user_id = await validate_oauth_state(state)
+        if not telegram_user_id:
+            logger.warning(f"Invalid or expired Linear state: {state[:10]}...")
+        return telegram_user_id
 
     async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access token.
-
-        Args:
-            code: Authorization code из callback
-            state: State для верификации
-
-        Returns:
-            Токены или None при ошибке
-        """
-        # Валидируем state
-        telegram_user_id = self.validate_state(state)
+        """Обменивает authorization code на access token."""
+        telegram_user_id = await self.validate_state(state)
         if not telegram_user_id:
             return None
-
-        # Удаляем использованный state
-        del self._pending_states[state]
 
         payload = {
             "grant_type": "authorization_code",

@@ -1016,6 +1016,11 @@ async def scheduled_check():
             await cache_cleanup()
         except Exception as e:
             logger.error(f"[Scheduler] Cache cleanup error: {e}")
+        try:
+            from db.queries.oauth_states import cleanup_expired_oauth_states
+            await cleanup_expired_oauth_states()
+        except Exception as e:
+            logger.error(f"[Scheduler] OAuth states cleanup error: {e}")
 
         # Финализация устаревших сессий
         try:

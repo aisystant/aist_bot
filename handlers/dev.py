@@ -676,7 +676,7 @@ async def cmd_ory_test(message: Message):
         await message.answer("ORY_CLIENT_ID не задан. Проверь env vars.")
         return
 
-    auth_url, state = ory_oauth.get_authorization_url(message.chat.id)
+    auth_url, state = await ory_oauth.get_authorization_url(message.chat.id)
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     keyboard = InlineKeyboardMarkup(inline_keyboard=[

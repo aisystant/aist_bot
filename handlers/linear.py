@@ -94,7 +94,7 @@ async def cmd_linear(message: Message):
         )
     else:
         try:
-            auth_url, state = linear_oauth.get_authorization_url(telegram_user_id)
+            auth_url, state = await linear_oauth.get_authorization_url(telegram_user_id)
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('linear.btn_connect', lang), url=auth_url)]

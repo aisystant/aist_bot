@@ -26,7 +26,7 @@ async def on_ory_register(callback: CallbackQuery):
         return
 
     telegram_user_id = callback.from_user.id
-    auth_url, _ = ory_oauth.get_authorization_url(telegram_user_id)
+    auth_url, _ = await ory_oauth.get_authorization_url(telegram_user_id)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Зарегистрироваться", url=auth_url)],

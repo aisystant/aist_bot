@@ -147,7 +147,7 @@ async def cmd_github(message: Message):
         )
     else:
         try:
-            auth_url, state = github_oauth.get_authorization_url(telegram_user_id)
+            auth_url, state = await github_oauth.get_authorization_url(telegram_user_id)
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[

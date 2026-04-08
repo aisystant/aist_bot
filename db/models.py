@@ -469,6 +469,24 @@ async def create_tables(pool: asyncpg.Pool):
                 pass
 
         # ═══════════════════════════════════════════════════════════
+        # OAUTH PENDING STATES (переживают редеплой, WP-212)
+        # Единое хранилище для всех OAuth провайдеров (GitHub, Linear, Ory)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS oauth_pending_states (
+                state TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                telegram_user_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_oauth_states_created
+            ON oauth_pending_states(created_at)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # GOOGLE CALENDAR ПОДКЛЮЧЕНИЯ (OAuth tokens, WP-128)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''

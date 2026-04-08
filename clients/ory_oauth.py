@@ -14,13 +14,12 @@ Flow:
 Использование:
     from clients.ory_oauth import ory_oauth
 
-    auth_url, state = ory_oauth.get_authorization_url(telegram_user_id=123456)
+    auth_url, state = await ory_oauth.get_authorization_url(telegram_user_id=123456)
     tokens = await ory_oauth.exchange_code(code, state)
     userinfo = await ory_oauth.get_userinfo(access_token)
 """
 
 import secrets
-import time
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -43,8 +42,6 @@ ORY_USERINFO_URL = f"{ORY_BASE_URL}/userinfo"
 
 ORY_SCOPES = ["openid", "offline_access"]
 
-STATE_TTL = 600  # 10 minutes
-
 
 class OryOAuthClient:
     """OAuth клиент для Ory (Authorization Code Flow)."""
@@ -54,22 +51,12 @@ class OryOAuthClient:
         self.client_secret = ORY_CLIENT_SECRET
         self.redirect_uri = ORY_REDIRECT_URI
 
-        # state -> {telegram_user_id, created_at}
-        self._pending_states: Dict[str, Dict[str, Any]] = {}
-
-    def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
-        """Генерирует URL для авторизации через Ory.
-
-        Returns:
-            (auth_url, state)
-        """
-        self._cleanup_expired_states()
-
+    async def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
+        """Генерирует URL для авторизации через Ory."""
         state = secrets.token_urlsafe(32)
-        self._pending_states[state] = {
-            "telegram_user_id": telegram_user_id,
-            "created_at": time.time(),
-        }
+
+        from db.queries.oauth_states import save_oauth_state
+        await save_oauth_state(state, 'ory', telegram_user_id)
 
         params = {
             "client_id": self.client_id,
@@ -82,22 +69,17 @@ class OryOAuthClient:
         url = f"{ORY_AUTHORIZE_URL}?{urlencode(params)}"
         return url, state
 
-    def validate_state(self, state: str) -> Optional[int]:
+    async def validate_state(self, state: str) -> Optional[int]:
         """Проверяет state и возвращает telegram_user_id."""
-        data = self._pending_states.pop(state, None)
-        if not data:
-            return None
-        if time.time() - data["created_at"] > STATE_TTL:
-            return None
-        return data["telegram_user_id"]
+        from db.queries.oauth_states import validate_oauth_state
+        telegram_user_id = await validate_oauth_state(state)
+        if not telegram_user_id:
+            logger.warning(f"Invalid or expired Ory state: {state[:10]}...")
+        return telegram_user_id
 
     async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access_token.
-
-        Returns:
-            {"access_token": ..., "token_type": ..., "id_token": ...} or None
-        """
-        telegram_user_id = self.validate_state(state)
+        """Обменивает authorization code на access_token."""
+        telegram_user_id = await self.validate_state(state)
         if not telegram_user_id:
             logger.warning("[OryOAuth] Invalid or expired state")
             return None
@@ -160,13 +142,6 @@ class OryOAuthClient:
                 tokens = await resp.json()
                 logger.debug("[OryOAuth] Token refreshed successfully")
                 return tokens
-
-    def _cleanup_expired_states(self):
-        """Очищает просроченные state."""
-        now = time.time()
-        expired = [s for s, d in self._pending_states.items() if now - d["created_at"] > STATE_TTL]
-        for s in expired:
-            del self._pending_states[s]
 
 
 # Singleton
