@@ -27,7 +27,6 @@ from aiogram.types import BotCommand, BotCommandScopeChat
 from config import USE_STATE_MACHINE
 
 # Импорты из модульных компонентов
-from clients.mcp import mcp_knowledge
 from clients.claude import ClaudeClient
 from db import init_db
 from db.queries import get_intern, update_intern, get_topics_today

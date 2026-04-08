@@ -152,7 +152,7 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
     Returns:
         True если урок успешно сгенерирован и сохранён.
     """
-    from clients import claude, mcp_knowledge
+    from clients import claude
     from core.topics import get_topic, get_topics_for_day, TOPICS
 
     topic = get_topic(topic_index)
@@ -161,9 +161,9 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
 
     bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
 
-    # Генерируем все 3 типа параллельно
+    # Генерируем все 3 типа параллельно (gateway_mcp используется внутри generate_content)
     lesson_task = claude.generate_content(
-        topic=topic, intern=intern, mcp_client=mcp_knowledge
+        topic=topic, intern=intern
     )
     question_task = claude.generate_question(
         topic=topic, intern=intern, bloom_level=bloom_level
@@ -231,7 +231,7 @@ async def _generate_and_save_content(chat_id: int, intern: dict, topic_index: in
             try:
                 pair_results = await asyncio.wait_for(
                     asyncio.gather(
-                        claude.generate_content(topic=pair_topic, intern=intern, mcp_client=mcp_knowledge),
+                        claude.generate_content(topic=pair_topic, intern=intern),
                         claude.generate_question(topic=pair_topic, intern=intern, bloom_level=bloom_level),
                         claude.generate_practice_intro(topic=pair_topic, intern=intern),
                         return_exceptions=True,

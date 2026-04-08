@@ -660,16 +660,17 @@ class ClaudeClient:
             default_query = f"{topic.get('title')} {topic.get('main_concept')}"
             search_keys = [default_query]
 
-        # Получаем контекст из unified Knowledge MCP
-        client = mcp_client or knowledge_client
+        # Получаем контекст из Gateway MCP (unified search с RLS по user_id)
+        from clients.gateway_mcp import gateway_mcp
+        chat_id = intern.get('chat_id')
         guides_context = ""
         knowledge_context = ""
 
-        if client:
+        if gateway_mcp:
             try:
                 from core.tracing import span as trace_span
                 tasks = [
-                    client.search(q, limit=3)
+                    gateway_mcp.search(q, telegram_user_id=chat_id, limit=3)
                     for q in search_keys[:4]
                 ]
                 async with trace_span("claude.mcp_searches", count=len(tasks)):
@@ -698,10 +699,10 @@ class ClaudeClient:
                                 else:
                                     knowledge_parts.append(text[:1500])
                 if guides_parts:
-                    logger.info(f"{client.name}: найдено {len(guides_parts)} фрагментов guides")
+                    logger.info(f"Gateway: найдено {len(guides_parts)} фрагментов guides")
                     guides_context = "\n\n".join(guides_parts[:5])
                 if knowledge_parts:
-                    logger.info(f"{client.name}: найдено {len(knowledge_parts)} фрагментов pack/ds")
+                    logger.info(f"Gateway: найдено {len(knowledge_parts)} фрагментов pack/ds")
                     knowledge_context = "\n\n".join(knowledge_parts[:5])
             except Exception as e:
                 logger.error(f"MCP search error: {e}")
