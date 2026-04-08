@@ -423,88 +423,123 @@ STAGE_NAMES_RU = {
 }
 
 
-def _build_me_dashboard(engagement: dict, intern: dict, lang: str) -> str:
-    """Compact dashboard (10-15 строк) из 2_collected + 3_derived."""
+def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
+                        dt_profile: dict = None) -> str:
+    """Compact dashboard из 2_collected + 3_derived + DT profile."""
     name = (intern or {}).get('name', '') or 'Участник'
 
-    account = engagement.get('2_1_account') or {}
     courses = engagement.get('2_2_courses') or {}
     practice = engagement.get('2_3_practice') or {}
     time_data = engagement.get('2_4_time') or {}
-    notifications = engagement.get('2_5_notifications') or {}
     coding = engagement.get('2_6_coding') or {}
     iwe = engagement.get('2_7_iwe') or {}
     derived = engagement.get('_derived') or {}
 
-    lines = [f"📋 *{name} — Мой ЦД*\n"]
+    lines = [f"📋 *{name} — {t('twin.profile_title', lang)}*"]
+    lines.append("")
 
-    # Stage + Agency Index
+    # Degree (from DT profile or derived)
+    degree = None
+    degree_d = derived.get('3_8_degree') or {}
+    if degree_d.get('level'):
+        degree = degree_d['level']
+    elif dt_profile:
+        dt_degree = ((dt_profile.get('3_derived') or {}).get('3_8_degree') or {})
+        if dt_degree.get('level'):
+            degree = dt_degree['level']
+        else:
+            dt_courses = ((dt_profile.get('2_collected') or {}).get('2_2_courses') or {})
+            qual = dt_courses.get('qualification_level') or {}
+            degree = qual.get('level')
+    if degree:
+        lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}")
+
+    # Stage
     qualification = derived.get('3_4_qualification') or {}
-    integral = derived.get('3_10_integral') or {}
-    stage = qualification.get('stage', 0)
-    stage_emoji = STAGE_EMOJI.get(stage, "🌱")
-    agency_index = integral.get('index', 0)
+    stage_num = qualification.get('stage')
+    if stage_num is not None:
+        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/4)"
+        lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
 
-    if qualification:
-        path = qualification.get('path', 'learner')
-        path_label = " 🔧" if path == "builder" else ""
-        lines.append(
-            f"{stage_emoji} *Ступень:* {STAGE_NAMES_RU.get(stage, '?')} ({stage}/4){path_label}"
-            f"  |  🎯 *Агентность:* {agency_index}/100"
-        )
-    else:
-        lines.append("⚠️ Derived-индикаторы ещё не рассчитаны (sync 04:30)")
+    # Agency index
+    integral = derived.get('3_10_integral') or {}
+    agency_index = integral.get('index')
+    if agency_index is not None:
+        lines.append(f"🎯 Агентность: {round(agency_index)}/100")
+
+    lines.append("")
 
     # Activity
     events_7d = time_data.get('events_last_7d', 0) or 0
     events_30d = time_data.get('events_last_30d', 0) or 0
     active_days = time_data.get('active_days', 0) or 0
-    sessions = account.get('sessions_total', 0) or 0
-    lines.append(
-        f"\n📊 *Активность:* {events_7d} событий/7д"
-        f"  |  {events_30d}/30д  |  {active_days} активных дней"
-    )
+    lines.append(f"📊 Активность: {events_7d} событий/7д  |  {events_30d}/30д  |  {active_days} активных дней")
 
     # Learning
     marathon = courses.get('marathon_steps_total', 0) or 0
     feed = courses.get('feed_completed_total', 0) or 0
     training = practice.get('training_passed_total', 0) or 0
-    if marathon or feed or training:
-        lines.append(
-            f"📚 *Обучение:* {marathon} уроков"
-            f"  |  {feed} дайджестов  |  {training} тренировок пройдено"
-        )
+    lines.append(f"📚 Обучение: {marathon} уроков  |  {feed} дайджестов  |  {training} тренировок")
 
     # Coding (WakaTime)
     if coding and coding.get('coding_seconds_7d', 0):
         hrs_7d = coding['coding_seconds_7d'] / 3600
         hrs_30d = (coding.get('coding_seconds_30d', 0) or 0) / 3600
-        lines.append(f"💻 *Код:* {hrs_7d:.1f}ч/7д  |  {hrs_30d:.1f}ч/30д")
+        lines.append(f"💻 Код: {hrs_7d:.1f}ч/7д  |  {hrs_30d:.1f}ч/30д")
 
     # IWE (git)
     if iwe and iwe.get('commits_7d', 0):
         lines.append(
-            f"🔧 *IWE:* {iwe['commits_7d']} коммитов/7д"
+            f"🔧 IWE: {iwe['commits_7d']} коммитов/7д"
             f"  |  РП: {iwe.get('wp_completed_total', 0)} done"
             f"  |  {iwe.get('wp_in_progress_count', 0)} in progress"
         )
 
     # Notifications
+    notifications = engagement.get('2_5_notifications') or {}
     notif_30d = notifications.get('notifications_30d', 0) or 0
     if notif_30d:
-        lines.append(f"📬 *Уведомления:* {notif_30d}/30д")
+        lines.append(f"📬 Уведомления: {notif_30d}/30д")
+
+    lines.append("")
+
+    # Objective + Roles (from DT profile)
+    objective = None
+    roles_text = None
+    if dt_profile:
+        indicators = dt_profile.get('indicators', {})
+        pref = indicators.get('IND.1.PREF', {}) if isinstance(indicators, dict) else {}
+        declarative = dt_profile.get('1_declarative', {}) or {}
+        goals_sec = declarative.get('1_2_goals', {}) or {}
+        selfeval_sec = declarative.get('1_3_selfeval', {}) or {}
+        objective = pref.get('objective') or goals_sec.get('09_Цели обучения')
+        roles_raw = pref.get('role_set') or selfeval_sec.get('06_Роли')
+        if isinstance(roles_raw, list):
+            roles_text = ', '.join(roles_raw)
+        elif isinstance(roles_raw, str):
+            roles_text = roles_raw
+    if not objective:
+        objective = (intern or {}).get('goals')
+    if not roles_text:
+        roles_text = (intern or {}).get('role')
+
+    if objective:
+        lines.append(f"🎯 {t('twin.objective_label', lang)}: {objective}")
+    if roles_text:
+        lines.append(f"👤 {t('twin.roles_label', lang)}: {roles_text}")
 
     # Agency components
     components = integral.get('components') or {}
     if components:
-        lines.append(
-            f"\n🧩 *Компоненты агентности:*"
-            f" регулярность={components.get('regularity', 0):.0f},"
-            f" активность={components.get('activity', 0):.0f},"
-            f" обучение={components.get('learning', 0):.0f},"
-            f" уведомления={components.get('notifications', 0):.0f},"
-            f" стаж={components.get('longevity', 0):.0f}"
-        )
+        comp_parts = []
+        for key, label in [("regularity", "регулярность"), ("activity", "активность"),
+                           ("learning", "обучение"), ("notifications", "уведомления"),
+                           ("longevity", "стаж")]:
+            val = components.get(key)
+            if val is not None:
+                comp_parts.append(f"{label}={round(val)}")
+        if comp_parts:
+            lines.append(f"\n🧩 Компоненты: {', '.join(comp_parts)}")
 
     # Engine version
     engine_v = derived.get('engine_version', '')
@@ -676,8 +711,26 @@ async def cmd_me(message: Message):
         engagement = await get_engagement_data(str(user_uuid))
         if not engagement:
             engagement = await _fallback_engagement(telegram_user_id)
+
+        # Enrich with DT profile (degree, objective, roles) via Gateway MCP
+        dt_profile = None
+        try:
+            from clients.gateway_mcp import gateway_mcp
+            if gateway_mcp.is_connected(telegram_user_id):
+                dt_profile = await gateway_mcp.get_user_profile(telegram_user_id)
+                # If no engagement from Neon, try DT profile's 2_collected
+                if not engagement and dt_profile:
+                    collected = dt_profile.get('2_collected', {})
+                    if collected:
+                        engagement = collected
+                        derived = dt_profile.get('3_derived') or {}
+                        if derived:
+                            engagement['_derived'] = derived
+        except Exception:
+            pass
+
         if engagement:
-            dashboard = _build_me_dashboard(engagement, intern, lang)
+            dashboard = _build_me_dashboard(engagement, intern, lang, dt_profile=dt_profile)
             keyboard = _build_me_keyboard(tier)
             try:
                 await message.answer(dashboard, parse_mode="Markdown", reply_markup=keyboard)
@@ -865,13 +918,24 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
 
     # digital_twins.user_id = public.users.id (bot UUID, NOT dt_tokens.dt_user_id)
     user_uuid = await get_user_uuid(telegram_user_id)
-    if not user_uuid:
-        await message.answer(t('twin.insights_no_dt', lang))
-        return
 
     await message.answer(t('twin.insights_loading', lang))
 
-    engagement = await get_engagement_data(str(user_uuid))
+    # Try Neon DB first, fallback to Gateway MCP
+    engagement = None
+    if user_uuid:
+        engagement = await get_engagement_data(str(user_uuid))
+    if not engagement:
+        # Fallback: read full profile from Gateway MCP (includes 2_collected)
+        from clients.gateway_mcp import gateway_mcp
+        profile = await gateway_mcp.get_user_profile(telegram_user_id)
+        if profile:
+            collected = profile.get('2_collected', {})
+            if collected:
+                engagement = collected
+                derived = profile.get('3_derived') or {}
+                if derived:
+                    engagement['_derived'] = derived
     if not engagement:
         await message.answer(t('twin.insights_no_data', lang))
         return
@@ -1077,13 +1141,23 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
     telegram_user_id = message.chat.id
 
     user_uuid = await get_user_uuid(telegram_user_id)
-    if not user_uuid:
-        await message.answer(t('twin.insights_no_dt', lang))
-        return
 
     await message.answer(t('twin.insights_detailed_loading', lang))
 
-    engagement = await get_engagement_data(str(user_uuid))
+    # Try Neon DB first, fallback to Gateway MCP
+    engagement = None
+    if user_uuid:
+        engagement = await get_engagement_data(str(user_uuid))
+    if not engagement:
+        from clients.gateway_mcp import gateway_mcp
+        profile = await gateway_mcp.get_user_profile(telegram_user_id)
+        if profile:
+            collected = profile.get('2_collected', {})
+            if collected:
+                engagement = collected
+                derived = profile.get('3_derived') or {}
+                if derived:
+                    engagement['_derived'] = derived
     if not engagement:
         await message.answer(t('twin.insights_no_data', lang))
         return
