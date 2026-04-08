@@ -62,9 +62,11 @@ class LoggingMiddleware(BaseMiddleware):
         if isinstance(event, Message):
             state: FSMContext = data.get('state')
             current_state = await state.get_state() if state else None
+            # Security: НЕ логируем текст сообщения (PII, пароли, личные данные)
+            msg_type = "command" if (event.text and event.text.startswith("/")) else "text" if event.text else "media"
             logger.info(f"[MIDDLEWARE] Получено сообщение: chat_id={event.chat.id}, "
                        f"user_id={event.from_user.id if event.from_user else None}, "
-                       f"text={event.text[:50] if event.text else '[no text]'}, "
+                       f"type={msg_type}, "
                        f"state={current_state}")
 
             # Typing indicator — мгновенная обратная связь пользователю
@@ -145,7 +147,7 @@ class TracingMiddleware(BaseMiddleware):
             if text.startswith("/"):
                 command = text.split()[0][:50]
             else:
-                command = f"msg:{text[:30]}" if text else "msg:empty"
+                command = "msg:text" if text else "msg:empty"
         elif isinstance(event, CallbackQuery):
             user_id = event.from_user.id if event.from_user else 0
             command = f"cb:{event.data[:40]}" if event.data else "cb:empty"

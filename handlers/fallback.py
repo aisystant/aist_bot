@@ -85,7 +85,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
     text = message.text or ''
 
     if dispatcher and dispatcher.is_sm_active:
-        logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, text={text[:50]}")
+        logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, len={len(text)}")
         try:
             await state.clear()
             intern = await get_intern(chat_id)

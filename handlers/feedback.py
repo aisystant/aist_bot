@@ -181,7 +181,7 @@ async def handle_quick_feedback(message: Message, state: FSMContext):
 
     chat_id = message.chat.id
     lang = intern.get('language', 'ru') or 'ru'
-    logger.info(f"[Feedback] !shortcut from chat_id={chat_id}, text={text[:50]}")
+    logger.info(f"[Feedback] !shortcut from chat_id={chat_id}, len={len(text)}")
 
     try:
         from db.queries.feedback import save_feedback

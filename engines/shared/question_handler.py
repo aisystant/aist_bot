@@ -16,7 +16,8 @@ from typing import Optional, List, Tuple, Dict, Callable, Awaitable
 
 from config import get_logger, ONTOLOGY_RULES
 from core.intent import get_question_keywords
-from clients import claude, mcp_knowledge
+from clients import claude
+from clients.gateway_mcp import gateway_mcp
 from db.queries.qa import save_qa, get_qa_history
 from db.queries.events import log_event
 from .retrieval import enhanced_search, get_retrieval
@@ -169,7 +170,7 @@ async def handle_question(
         search_query = question[:150]
 
     logger.info(f"QuestionHandler: chat_id={chat_id}, mode={mode}")
-    logger.info(f"QuestionHandler: исходный вопрос: '{question}'")
+    logger.info(f"QuestionHandler: вопрос len={len(question)}")
     logger.info(f"QuestionHandler: извлечённые ключевые слова: {keywords}")
 
     if context_topic:
@@ -266,9 +267,9 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
 
     # Поиск в unified Knowledge MCP (все источники: pack + guides + ds)
     try:
-        logger.info(f"MCP-Knowledge: отправляю запрос '{query}'")
-        results = await mcp_knowledge.search(query, limit=6)
-        logger.info(f"MCP-Knowledge: получено {len(results) if results else 0} результатов")
+        logger.info(f"Gateway-Knowledge: отправляю запрос, len={len(query)}")
+        results = await gateway_mcp.knowledge_search(query, limit=6)
+        logger.info(f"Gateway-Knowledge: получено {len(results) if results else 0} результатов")
 
         if results:
             first_item = results[0]

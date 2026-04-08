@@ -29,7 +29,22 @@ PROFILE_FIELDS = frozenset({
     'tier', 'email', 'timezone',
 })
 
-# All other fields → development.user_state
+# Security: whitelist для user_state (предотвращает SQL injection через column names)
+STATE_FIELDS = frozenset({
+    'mode', 'current_context', 'current_state', 'topic_order',
+    'schedule_time', 'schedule_time_2', 'feed_schedule_time',
+    'marathon_status', 'marathon_start_date', 'marathon_paused_at',
+    'current_topic_index', 'completed_topics', 'topics_today', 'last_topic_date',
+    'complexity_level', 'topics_at_current_complexity',
+    'feed_status', 'feed_started_at',
+    'active_days_total', 'active_days_streak', 'longest_streak', 'last_active_date',
+    'onboarding_completed', 'bot_blocked', 'bot_blocked_at', 'trial_started_at',
+    'assessment_state', 'assessment_date', 'stats_reset_date',
+    'notify_template_updates', 'notify_nudges',
+})
+
+# All known fields (union)
+ALL_KNOWN_FIELDS = PROFILE_FIELDS | STATE_FIELDS
 
 
 def moscow_now() -> datetime:
@@ -311,9 +326,17 @@ async def update_intern(chat_id: int, **kwargs):
     if not columns:
         return
 
+    # Security: reject unknown column names to prevent SQL injection
+    unknown = set(columns.keys()) - ALL_KNOWN_FIELDS
+    if unknown:
+        logger.error(f"[update_intern] Rejected unknown fields: {unknown} for chat_id={chat_id}")
+        columns = {k: v for k, v in columns.items() if k in ALL_KNOWN_FIELDS}
+        if not columns:
+            return
+
     # Split into profile and state updates
     profile_updates = {k: v for k, v in columns.items() if k in PROFILE_FIELDS}
-    state_updates = {k: v for k, v in columns.items() if k not in PROFILE_FIELDS}
+    state_updates = {k: v for k, v in columns.items() if k in STATE_FIELDS}
 
     pool = await get_pool()
     async with pool.acquire() as conn:

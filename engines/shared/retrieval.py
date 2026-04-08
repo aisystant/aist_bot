@@ -19,7 +19,7 @@ from typing import Optional, List, Tuple, Dict, Set
 from dataclasses import dataclass, field
 
 from config import get_logger
-from clients import mcp_knowledge
+from clients.gateway_mcp import gateway_mcp
 
 logger = get_logger(__name__)
 
@@ -379,7 +379,7 @@ class EnhancedRetrieval:
         Returns:
             Tuple[context, sources] - контекст для LLM и список источников
         """
-        logger.info(f"EnhancedRetrieval: запрос '{query[:80]}...'")
+        logger.info(f"EnhancedRetrieval: запрос len={len(query)}")
 
         # 1. Формируем базовый запрос с контекстом
         base_query = f"{context_topic} {query}" if context_topic else query
@@ -456,7 +456,7 @@ class EnhancedRetrieval:
         total_limit = self.config.guides_limit + self.config.knowledge_limit
 
         try:
-            search_results = await mcp_knowledge.search(
+            search_results = await gateway_mcp.knowledge_search(
                 query, limit=total_limit
             )
         except Exception as e:

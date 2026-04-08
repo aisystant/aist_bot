@@ -533,7 +533,7 @@ class ConsultationState(BaseState):
         if not is_refinement:
             meta_answer = _match_meta_question(question, lang)
             if meta_answer:
-                logger.info(f"[Consultation] Meta-question match: '{question[:40]}' → instant response")
+                logger.info(f"[Consultation] Meta-question match: len={len(question)} → instant response")
                 reply_markup = None
                 chat_id_meta = self._get_chat_id(user)
                 if chat_id_meta:

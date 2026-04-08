@@ -83,7 +83,7 @@ async def on_answer(message: Message, state: FSMContext, bot=None):
     chat_id = message.chat.id
     text = message.text or ''
     current_state = await state.get_state()
-    logger.info(f"[on_answer] ВЫЗВАН для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
+    logger.info(f"[on_answer] ВЫЗВАН для chat_id={chat_id}, state={current_state}, len={len(text) if text else 0}")
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
@@ -419,7 +419,7 @@ async def on_work_product(message: Message, state: FSMContext):
     text = message.text or ''
     chat_id = message.chat.id
     current_state = await state.get_state()
-    logger.info(f"[on_work_product] ВЫЗВАН для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
+    logger.info(f"[on_work_product] ВЫЗВАН для chat_id={chat_id}, state={current_state}, len={len(text) if text else 0}")
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 

@@ -53,7 +53,7 @@ async def legacy_on_unknown_message(message: Message, state: FSMContext):
     text = message.text or ''
 
     current_state = await state.get_state()
-    logger.info(f"[UNKNOWN] on_unknown_message вызван для chat_id={chat_id}, state={current_state}, text={text[:50] if text else '[no text]'}")
+    logger.info(f"[UNKNOWN] on_unknown_message вызван для chat_id={chat_id}, state={current_state}, len={len(text) if text else 0}")
 
     # Если пользователь в каком-то состоянии — пробуем обработать вручную
     if current_state:

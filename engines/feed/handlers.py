@@ -839,7 +839,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
         if len(question) < 3:
             return
 
-        logger.info(f"Feed: вопрос от {chat_id}: {question[:50]}...")
+        logger.info(f"Feed: вопрос от {chat_id}, len={len(question)}")
 
         # Получаем все темы как контекст
         engine = FeedEngine(chat_id)

@@ -43,7 +43,7 @@ async def on_reply_keyboard_press(message: Message, state: FSMContext):
             if routed:
                 return
         except Exception as e:
-            logger.error(f"[ReplyKB] Error routing '{message.text}' -> /{command}: {e}")
+            logger.error(f"[ReplyKB] Error routing -> /{command}: {e}")
             lang = intern.get('language', 'ru') or 'ru'
             from i18n import t
             await message.answer(t('errors.processing_error', lang))
