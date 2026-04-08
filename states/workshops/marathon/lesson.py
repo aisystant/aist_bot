@@ -18,7 +18,7 @@ from db.queries.marathon import get_marathon_content, mark_content_delivered, sa
 from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day as canonical_get_marathon_day
-from clients import claude, mcp_knowledge
+from clients import claude
 from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY, CLAUDE_MODEL_HAIKU
 
 logger = get_logger(__name__)
@@ -240,7 +240,6 @@ class MarathonLessonState(BaseState):
                         claude.generate_content(
                             topic=topic,
                             intern=intern,
-                            mcp_client=mcp_knowledge,
                             model=CLAUDE_MODEL_HAIKU,
                         ),
                         timeout=CONTENT_GENERATION_TIMEOUT

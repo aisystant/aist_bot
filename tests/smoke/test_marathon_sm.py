@@ -28,7 +28,6 @@ def patch_marathon_deps():
          patch("states.workshops.marathon.lesson.mark_content_delivered", new_callable=AsyncMock), \
          patch("states.workshops.marathon.lesson.save_marathon_content", new_callable=AsyncMock), \
          patch("states.workshops.marathon.lesson.claude") as mock_claude, \
-         patch("states.workshops.marathon.lesson.mcp_knowledge") as mock_mcp, \
          patch("states.workshops.marathon.lesson.canonical_get_marathon_day", return_value=1):
 
         mock_get.return_value = make_intern(onboarding_completed=True, mode="marathon")

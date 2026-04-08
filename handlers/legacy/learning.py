@@ -28,7 +28,7 @@ from engines.shared import handle_question, ProcessingStage
 from integrations.telegram.keyboards import (
     kb_bonus_question, kb_skip_topic, kb_submit_work_product, progress_bar,
 )
-from clients.mcp import mcp_knowledge
+from clients.gateway_mcp import gateway_mcp  # noqa: F401 — used as mcp_client in generate_content
 from clients.claude import ClaudeClient
 from helpers.message_split import prepare_html_parts
 from helpers.typing_indicator import keep_typing
@@ -678,7 +678,7 @@ async def send_theory_topic(chat_id: int, topic: dict, intern: dict, state: Opti
     async with keep_typing(bot, chat_id):
         try:
             content = await asyncio.wait_for(
-                b['claude'].generate_content(topic, intern, mcp_client=mcp_knowledge),
+                b['claude'].generate_content(topic, intern),
                 timeout=60.0
             )
         except asyncio.TimeoutError:

@@ -17,7 +17,8 @@ import asyncio
 import random
 
 from config import get_logger, FEED_TOPICS_TO_SUGGEST, ONTOLOGY_RULES, ONTOLOGY_RULES_TOPICS
-from clients import claude, mcp_knowledge
+from clients import claude
+from clients.gateway_mcp import gateway_mcp
 
 logger = get_logger(__name__)
 
@@ -530,8 +531,8 @@ async def generate_multi_topic_digest(
         """Получает контекст для одной темы из unified Knowledge MCP (guides)."""
         context = ""
         try:
-            results = await mcp_knowledge.search(
-                topic, limit=3, source_type="guides"
+            results = await gateway_mcp.search(
+                topic, telegram_user_id=intern.get('chat_id'), limit=3
             )
             if isinstance(results, list):
                 for item in results:
@@ -721,8 +722,8 @@ async def generate_topic_content(
 
     mcp_context = ""
     try:
-        results = await mcp_knowledge.search(
-            search_query, limit=4, source_type="guides"
+        results = await gateway_mcp.search(
+            search_query, telegram_user_id=intern.get('chat_id'), limit=4
         )
         if results:
             for item in results:
