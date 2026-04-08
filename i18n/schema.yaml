@@ -563,7 +563,7 @@ connect:
       Это полная версия: планирование дня, ИИ-стратег, автоматические отчёты.
 
       Инструкция по установке:
-      github.com/aisystant/FMT-exocortex-template
+      github.com/TserenTserenov/FMT-exocortex-template
 
       После установки запусти `bash setup/setup.sh` — он создаст `.mcp.json` автоматически.
     en: |
@@ -572,7 +572,7 @@ connect:
       This is the full version: day planning, AI strategist, automatic reports.
 
       Setup guide:
-      github.com/aisystant/FMT-exocortex-template
+      github.com/TserenTserenov/FMT-exocortex-template
 
       After install, run `bash setup/setup.sh` — it creates `.mcp.json` automatically.
 
