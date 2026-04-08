@@ -65,6 +65,8 @@ YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY", "")
 # ============= AISYSTANT LMS (WP-79) =============
 AISYSTANT_BASE_URL = os.getenv("AISYSTANT_BASE_URL", "https://aisystant.system-school.ru")
 AISYSTANT_TECH_PASSWORD = os.getenv("AISYSTANT_TECH_PASSWORD", "")
+# LMS DB — прямое подключение для квалификаций и CRM-данных (WP-151)
+LMS_DATABASE_URL = os.getenv("LMS_DATABASE_URL", "")
 
 # ============= GITHUB OAUTH =============
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")

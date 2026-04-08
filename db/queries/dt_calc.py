@@ -16,7 +16,7 @@ Calculation Engine v1.0 — derived indicators из 2_collected + learning_histo
   IND.3.5.*   mastery_by_area         — BKT P(mastery) по 5 областям из learning_history
   IND.3.6.*   worldview_gaps          — мемы CAT.001 с gap (P(mastery) < порога по ступени)
   IND.3.7.*   mastery_gaps            — практики CAT.002/003 с gap > 0
-  IND.3.8.01  qualification_degree    — степень квалификации (EQF-подобная, 0-4)
+  IND.3.8.01  qualification_degree    — степень квалификации (из LMS, Методсовет МИМ)
   IND.3.9.01  it_level               — ИТ-уровень (0-3, DigComp-адаптация)
   IND.3.12.01 delivery_style         — рекомендуемый стиль подачи (авто-адаптация)
   IND.3.13.01 notification_responsiveness — отзывчивость на уведомления (0-100)
@@ -685,94 +685,55 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
 
 
 # ═══════════════════════════════════════════════════════════
-# IND.3.8.01 — Qualification Degree (EQF-подобная, WP-151 Ф7a)
+# IND.3.8.01 — Qualification Degree (LMS, Методсовет МИМ, WP-151 fix)
 # ═══════════════════════════════════════════════════════════
 
 # Степень квалификации (адаптация EQF): уровень системного мышления.
 # Отражает глубину работы с предметной областью.
-# Пока LMS-коллектор не готов (WP-109 Ф1), вычисляем из поведенческих данных.
+# Source-of-truth: LMS qualification_level_event (Методсовет МИМ).
+# dt_sync записывает в 2_collected.2_2_courses.qualification_level при каждом sync.
 # При появлении LMS-интеграции — формулу уточнить в Ф7b (Лаборатория).
 
 def calc_qualification_degree(collected: dict, learning_rows: list[dict] | None = None) -> dict:
-    """Степень квалификации (0-4) из поведенческих данных + BKT mastery.
+    """Степень квалификации из LMS (Методсовет МИМ).
 
-    IND.3.8.01: Приблизительная оценка EQF-уровня из доступных данных.
-    MVP-эвристика: комбинация mastery_by_area + training depth + practice volume.
+    IND.3.8.01: Source-of-truth = LMS qualification_level_event.
+    НЕ вычисляется из поведенческих данных — читается из 2_collected.
+    dt_sync записывает qualification_level из LMS DB при каждом sync.
 
-    0 = нет данных / начинающий
-    1 = базовое знакомство (прошёл онбординг, начал обучение)
-    2 = системное изучение (регулярная практика, средний mastery)
-    3 = продвинутый (высокий mastery, глубокие тренировки)
-    4 = эксперт (mastery ≥0.8 по ≥3 областям, передаёт знания)
+    Шкала МИМ: Интересант (L05) → Определяющийся (L08) → Первокурсник (L1) →
+    Ученик (L2) → Работник (L25) → Стратег (L3) → Специалист (L4) →
+    Практик (L5) → Мастер (L6) → Реформатор (L7) → Деятель (L8).
 
     Args:
         collected: digital_twins.data['2_collected']
-        learning_rows: записи из learning_history (опционально)
+        learning_rows: не используется (оставлен для совместимости сигнатуры)
 
     Returns:
-        {"degree": int, "degree_name_ru": str, "evidence": dict}
+        {"level": str, "code": str, "numeric": int, "event_date": str|None,
+         "reason": str|None, "source": "lms"|"unknown"}
     """
-    practice = collected.get('2_3_practice') or {}
     courses = collected.get('2_2_courses') or {}
+    qual = courses.get('qualification_level')
 
-    training_passed = practice.get('training_passed_total', 0) or 0
-    training_attempts = practice.get('training_attempts_total', 0) or 0
-    marathon_steps = courses.get('marathon_steps_total', 0) or 0
-    marathon_tasks = practice.get('marathon_tasks_total', 0) or 0
-    assessments = practice.get('assessments_total', 0) or 0
+    if qual and isinstance(qual, dict) and qual.get('level'):
+        return {
+            "level": qual['level'],
+            "code": qual.get('code', ''),
+            "numeric": qual.get('numeric', 0),
+            "event_date": qual.get('event_date'),
+            "reason": qual.get('reason'),
+            "source": "lms",
+        }
 
-    # BKT mastery если доступен
-    avg_mastery = 0.0
-    areas_above_08 = 0
-    if learning_rows:
-        mastery_result = calc_mastery_by_area(learning_rows)
-        area_values = [mastery_result.get(k, 0.0) for k in AREA_KEY_MAP.values()]
-        if area_values:
-            avg_mastery = sum(area_values) / len(area_values)
-            areas_above_08 = sum(1 for v in area_values if v >= 0.8)
-
-    evidence = {
-        "training_passed": training_passed,
-        "training_attempts": training_attempts,
-        "marathon_steps": marathon_steps,
-        "marathon_tasks": marathon_tasks,
-        "assessments": assessments,
-        "avg_mastery": round(avg_mastery, 3),
-        "areas_above_08": areas_above_08,
-    }
-
-    degree = 0
-
-    # Degree 1: начал обучение (≥3 steps или ≥1 training)
-    if marathon_steps >= 3 or training_passed >= 1:
-        degree = 1
-
-    # Degree 2: системное изучение (регулярная практика + некоторый mastery)
-    if ((marathon_steps >= 10 and training_passed >= 5) or
-            (avg_mastery >= 0.3 and training_attempts >= 10)):
-        degree = 2
-
-    # Degree 3: продвинутый (высокий mastery + глубина)
-    if ((avg_mastery >= 0.5 and training_passed >= 15 and marathon_tasks >= 5) or
-            (areas_above_08 >= 2)):
-        degree = 3
-
-    # Degree 4: эксперт (mastery ≥0.8 по ≥3 областям + передача знаний)
-    if areas_above_08 >= 3 and assessments >= 3:
-        degree = 4
-
-    degree_names = {
-        0: "Начинающий",
-        1: "Знакомящийся",
-        2: "Изучающий",
-        3: "Продвинутый",
-        4: "Эксперт",
-    }
-
+    # Нет данных — квалификация не назначена или LMS не подключен
     return {
-        "degree": degree,
-        "degree_name_ru": degree_names[degree],
-        "evidence": evidence,
+        "level": "",
+        "code": "",
+        "numeric": 0,
+        "event_date": None,
+        "reason": None,
+        "source": "unknown",
     }
 
 
@@ -1077,7 +1038,7 @@ def calculate_derived(collected: dict, learning_rows: list[dict] | None = None, 
             "3_4_qualification": {"stage": int, "stage_id": str, "path": str, ...},
             "3_5_mastery": {"mastery_by_area": {...}},
             "3_6_worldview": {"worldview_gaps": [...]},
-            "3_8_degree": {"degree": int, ...},             # v1.0: EQF-подобная
+            "3_8_degree": {"level": str, "code": str, "numeric": int, ...},  # v1.1: из LMS
             "3_9_it_level": {"it_level": int|None, ...},    # v1.0: DigComp-адаптация
             "3_10_integral": {"index": float, ...},
             "3_12_delivery_style": {"format": str, ...},    # v1.0: авто-адаптация

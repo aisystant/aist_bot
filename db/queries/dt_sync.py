@@ -10,17 +10,104 @@
   2_6_coding, 2_7_iwe — из development.user_events source='iwe' (ADR-009, WP-109 Ф3)
                          fallback: dt-collect.sh snapshot в digital_twins
 
+Квалификация (WP-151 fix):
+  2_2_courses.qualification_level — из LMS DB (qualification_level_event).
+  Source-of-truth = Методсовет МИМ, не вычисляется.
+  Связка: identity_map (lms user_id) → suser.email → contact → qualification_level_event.
+
 Частота: ежедневно (scheduler cron).
 """
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
+
+import asyncpg
 
 from db.connection import get_pool
 from db.queries.dt_calc import calculate_derived
 
 logger = logging.getLogger(__name__)
+
+
+# ─── Маппинг LMS qualification level → код и числовой уровень ───
+# Соответствует QualificationLevel.java в LMS
+_QUAL_LEVEL_MAP = {
+    "Интересант": {"code": "L05", "level": 5},
+    "Определяющийся": {"code": "L08", "level": 8},
+    "Первокурсник": {"code": "L1", "level": 10},
+    "Ученик": {"code": "L2", "level": 20},
+    "Работник": {"code": "L25", "level": 25},
+    "Стратег": {"code": "L3", "level": 30},
+    "Специалист": {"code": "L4", "level": 40},
+    "Практик": {"code": "L5", "level": 50},
+    "Мастер": {"code": "L6", "level": 60},
+    "Реформатор": {"code": "L7", "level": 70},
+    "Деятель (революционер)": {"code": "L8", "level": 80},
+}
+
+
+async def _preload_lms_qualifications(lms_user_ids: list[str]) -> dict:
+    """Прочитать текущие квалификации из LMS DB для списка suser.id.
+
+    Подключается к LMS PostgreSQL напрямую (LMS_DATABASE_URL).
+    Возвращает {lms_user_id_str: {level, code, numeric, event_date, reason}}.
+    При отсутствии LMS_DATABASE_URL — возвращает пустой dict (graceful).
+    """
+    lms_url = os.getenv("LMS_DATABASE_URL")
+    if not lms_url:
+        logger.info("[DT Sync] LMS_DATABASE_URL not set — skipping qualification sync")
+        return {}
+
+    if not lms_user_ids:
+        return {}
+
+    result = {}
+    try:
+        lms_conn = await asyncpg.connect(lms_url)
+        try:
+            # Текущая (максимальная) квалификация для каждого suser.
+            # DISTINCT ON берёт последнюю по дате и максимальную по уровню.
+            int_ids = []
+            for uid in lms_user_ids:
+                try:
+                    int_ids.append(int(uid))
+                except (ValueError, TypeError):
+                    logger.warning(f"[DT Sync] Non-numeric LMS user_id skipped: {uid}")
+            if not int_ids:
+                return {}
+            rows = await lms_conn.fetch('''
+                SELECT DISTINCT ON (s.id)
+                    s.id AS suser_id,
+                    qle.level,
+                    qle.event_date,
+                    qle.reason
+                FROM suser s
+                JOIN contact c ON c.value = s.email AND c.contact_type = 0
+                JOIN qualification_level_event qle ON qle.kontragent_id = c.kontragent_id
+                WHERE s.id = ANY($1::bigint[])
+                ORDER BY s.id, qle.event_date DESC, qle.id DESC
+            ''', int_ids)
+
+            for row in rows:
+                level_name = row['level']
+                meta = _QUAL_LEVEL_MAP.get(level_name, {})
+                result[str(row['suser_id'])] = {
+                    "level": level_name,
+                    "code": meta.get("code", ""),
+                    "numeric": meta.get("level", 0),
+                    "event_date": row['event_date'].isoformat() if row['event_date'] else None,
+                    "reason": row['reason'],
+                }
+        finally:
+            await lms_conn.close()
+
+    except Exception as e:
+        logger.warning(f"[DT Sync] LMS qualification preload failed: {e}")
+
+    logger.info(f"[DT Sync] Loaded {len(result)} qualifications from LMS DB")
+    return result
 
 
 async def sync_engagement_to_dt() -> dict:
@@ -110,6 +197,29 @@ async def sync_engagement_to_dt() -> dict:
             except Exception as e:
                 logger.warning(f"[DT Sync] learning_history not available: {e}")
 
+            # ─── LMS Qualifications (WP-151 fix) ───
+            # identity_map: user_uuid → lms_user_id для маппинга квалификаций
+            qual_by_uuid: dict = {}
+            try:
+                im_rows = await conn.fetch('''
+                    SELECT external_id, user_uuid::TEXT AS user_uuid
+                    FROM development.identity_map
+                    WHERE source = 'lms'
+                ''')
+                # {lms_user_id: user_uuid}
+                lms_to_uuid = {r['external_id']: r['user_uuid'] for r in im_rows}
+
+                if lms_to_uuid:
+                    lms_quals = await _preload_lms_qualifications(list(lms_to_uuid.keys()))
+                    # Remap: user_uuid → qualification
+                    for lms_id, qual in lms_quals.items():
+                        uuid = lms_to_uuid.get(lms_id)
+                        if uuid:
+                            qual_by_uuid[uuid] = qual
+                    logger.info(f"[DT Sync] Mapped {len(qual_by_uuid)} qualifications to UUIDs")
+            except Exception as e:
+                logger.warning(f"[DT Sync] LMS qualification mapping failed: {e}")
+
             # Пользователи с user_uuid (T1+). Если есть dt_user_id (OAuth) —
             # писать по нему (worker ищет по этому ключу). Fallback на user_uuid.
             rows = await conn.fetch('''
@@ -188,6 +298,12 @@ async def sync_engagement_to_dt() -> dict:
                         "progress_views": row['progress_views_total'],
                         "marathon_completions": row['marathon_completions_total'],
                     }
+
+                    # ─── LMS Qualification → 2_2_courses (WP-151 fix) ───
+                    user_uuid_str = str(row['user_uuid'])
+                    qual = qual_by_uuid.get(user_uuid_str)
+                    if qual:
+                        collected_data["2_2_courses"]["qualification_level"] = qual
 
                     # ─── 2_5_notifications (WP-152 Ф4) ───
                     # e.user_id = chat_id (telegram_id)
@@ -494,6 +610,20 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     "ai_chats_total": row['ai_chats_total'],
                 },
             }
+
+            # ─── LMS Qualification for single user (WP-151 fix) ───
+            try:
+                im_row = await conn.fetchrow('''
+                    SELECT external_id FROM development.identity_map
+                    WHERE source = 'lms' AND user_uuid::TEXT = $1
+                ''', str(row['user_uuid']))
+                if im_row:
+                    quals = await _preload_lms_qualifications([im_row['external_id']])
+                    qual = quals.get(im_row['external_id'])
+                    if qual:
+                        collected_data["2_2_courses"]["qualification_level"] = qual
+            except Exception as e:
+                logger.warning(f"[DT Sync] single-user qualification failed: {e}")
 
             if notif:
                 collected_data["2_5_notifications"] = {
