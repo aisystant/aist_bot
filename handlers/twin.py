@@ -60,13 +60,21 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
 
     Fallback chain: indicators.IND.1.PREF (Aisystant) → 1_declarative (bot sync) → intern (bot DB).
     Stage: derived (3_4_qualification) — calculated by engine.
-    Degree: from LMS (not yet connected).
+    Degree: derived (3_8_degree) or collected (2_2_courses.qualification_level) from LMS.
     """
-    # Degree: LMS-sourced (not yet connected)
-    degree = profile.get("degree") or t('twin.lms_not_connected', lang)
-
-    # Stage: derived from engine (3_derived.3_4_qualification)
+    # Stage + Degree: derived from engine (3_derived)
     derived = (profile.get("_derived") or profile.get("3_derived")) or {}
+
+    # Degree: 3_derived.3_8_degree (calculated) → 2_collected.2_2_courses.qualification_level (raw LMS)
+    degree_derived = derived.get("3_8_degree") or {}
+    if degree_derived and degree_derived.get("level"):
+        degree = degree_derived["level"]
+    else:
+        # Fallback: raw collected data from LMS
+        collected = profile.get("2_collected", {}) or {}
+        courses = collected.get("2_2_courses", {}) or {}
+        qual = courses.get("qualification_level", {}) or {}
+        degree = qual.get("level") or t('twin.lms_not_connected', lang)
     qualification = derived.get("3_4_qualification") or {}
     stage_num = qualification.get("stage")
     if stage_num is not None:

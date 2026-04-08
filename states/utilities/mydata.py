@@ -551,9 +551,21 @@ class MyDataState(BaseState):
                 return None
             # Извлечь ключевые поля
             result = {}
-            if profile.get('degree'):
-                result['Degree'] = profile['degree']
-            if profile.get('stage'):
+            derived = (profile.get('_derived') or profile.get('3_derived')) or {}
+            # Degree: 3_derived.3_8_degree → 2_collected.2_2_courses.qualification_level
+            degree_d = derived.get('3_8_degree') or {}
+            if degree_d.get('level'):
+                result['Degree'] = degree_d['level']
+            else:
+                collected = profile.get('2_collected', {}) or {}
+                qual = (collected.get('2_2_courses', {}) or {}).get('qualification_level', {}) or {}
+                if qual.get('level'):
+                    result['Degree'] = qual['level']
+            # Stage: 3_derived.3_4_qualification
+            qual_s = derived.get('3_4_qualification') or {}
+            if qual_s.get('stage') is not None:
+                result['Stage'] = qual_s['stage']
+            elif profile.get('stage'):
                 result['Stage'] = profile['stage']
             indicators = profile.get('indicators', {})
             pref = indicators.get('IND.1.PREF', {})
