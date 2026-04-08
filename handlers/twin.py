@@ -156,7 +156,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     if name:
         lines[0] = f"📋 *{name} — {t('twin.profile_title', lang)}*"
     lines.append("")
-    lines.append(f"🎓 *{t('twin.degree_label', lang)}:* {degree}  |  ⚡ *{t('twin.stage_label', lang)}:* {stage}")
+    lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}  |  ⚡ {t('twin.stage_label', lang)}: {stage}")
     lines.append(f"🎯 *Агентность:* {agency_text}")
     lines.append("")
     lines.append(f"📊 *Активность:* {ev_7d} событий/7д  |  {ev_30d}/30д  |  {active_days} активных дней")
