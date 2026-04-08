@@ -5245,11 +5245,11 @@ twin:
     ru: "Ваш Цифровой двойник"
     en: "Your Digital Twin"
   degree_label:
-    ru: "Степень"
-    en: "Degree"
+    ru: "Степень Квалификации"
+    en: "Qualification Degree"
   stage_label:
-    ru: "Ступень"
-    en: "Stage"
+    ru: "Ступень Ученика"
+    en: "Student Stage"
   objective_label:
     ru: "Цель развития"
     en: "Development goal"
