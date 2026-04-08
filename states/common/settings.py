@@ -84,22 +84,9 @@ class SettingsState(BaseState):
 
         lang = intern.get('language', 'ru') or 'ru'
 
-        # --- Подключения: сводка ---
-        from db.queries.aisystant import get_aisystant_id
-        aisystant_id = await get_aisystant_id(chat_id)
-        aisystant_status = "✅" if aisystant_id else "☐"
-
-        from db.queries.github import get_github_connection
-        gh_conn = await get_github_connection(chat_id)
-        github_status = "✅" if gh_conn else "☐"
-
-        from clients.digital_twin import digital_twin
-        twin_connected = digital_twin.is_connected(chat_id)
-        twin_status = "✅" if twin_connected else "☐"
-
-        from db.queries.discourse import get_discourse_account
-        club_account = await get_discourse_account(chat_id)
-        club_status = "✅" if club_account else "☐"
+        # --- Подключения: сводка (WP-209: Gateway вместо Aisystant+DT+GitHub) ---
+        from clients.gateway_mcp import gateway_mcp
+        gateway_status = "✅" if gateway_mcp.is_connected(chat_id) else "☐"
 
         from db.queries.wakatime import get_wakatime_connection
         waka_conn = await get_wakatime_connection(chat_id)
@@ -108,9 +95,6 @@ class SettingsState(BaseState):
         from clients.google_calendar_oauth import google_calendar_oauth
         gcal_connected = await google_calendar_oauth.is_connected(chat_id)
         gcal_status = "✅" if gcal_connected else "☐"
-
-        notify_iwe = intern.get('notify_template_updates', False)
-        iwe_status = "✅" if notify_iwe else "☐"
 
         # --- Донаты: сводка ---
         from db.queries.subscription import get_active_subscription
@@ -122,17 +106,8 @@ class SettingsState(BaseState):
             donation_line = t('settings.no_active_donations', lang)
 
         # --- Собираем текст ---
-        # IWE Updates — для T2+ (подписка БР), показываем первой
-        from core.tier_detector import detect_ui_tier
-        tier = await detect_ui_tier(chat_id)
-        iwe_line = f"  {iwe_status} {t('settings.iwe_updates_label', lang)}\n" if tier >= 2 else ""
-
         connections_summary = (
-            f"{iwe_line}"
-            f"  {aisystant_status} Aisystant\n"
-            f"  {github_status} GitHub\n"
-            f"  {twin_status} {t('settings.twin_label', lang)}\n"
-            f"  {club_status} {t('settings.club_label', lang)}\n"
+            f"  {gateway_status} Gateway (IWE)\n"
             f"  {waka_status} WakaTime\n"
             f"  {gcal_status} Календарь Google"
         )
@@ -206,6 +181,12 @@ class SettingsState(BaseState):
             return await self._ask_for_field(user, callback, 'schedule_marathon')
         if data == "upd_schedule_feed":
             return await self._ask_for_field(user, callback, 'schedule_feed')
+
+        if data == "conn_gateway":
+            return await self._handle_gateway_connection(user, callback)
+
+        if data == "conn_gateway_reconnect":
+            return await self._gateway_reconnect(user, callback)
 
         if data == "conn_aisystant":
             return await self._show_aisystant_connection(user, callback)
@@ -782,42 +763,11 @@ class SettingsState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        # Aisystant
-        from db.queries.aisystant import get_aisystant_id
-        aisystant_id = await get_aisystant_id(chat_id)
-        aisystant_status = "✅ " + t('settings.connected', lang) if aisystant_id else t('settings.not_connected', lang)
+        # Gateway (WP-209: единое подключение, заменяет Aisystant+DT+GitHub)
+        from clients.gateway_mcp import gateway_mcp
+        gateway_connected = gateway_mcp.is_connected(chat_id)
 
-        # Проверяем GitHub подключение из github_connections таблицы
-        from db.queries.github import get_github_connection
-        gh_conn = await get_github_connection(chat_id)
-
-        if gh_conn:
-            gh_username = gh_conn.get('github_username', '')
-            gh_repo = gh_conn.get('target_repo', '')
-            if gh_username and gh_repo:
-                github_status = f"✅ @{gh_username} → `{gh_repo}`"
-            elif gh_username:
-                github_status = f"✅ @{gh_username}"
-            else:
-                github_status = "✅ " + t('settings.connected', lang)
-        else:
-            github_status = t('settings.not_connected', lang)
-
-        from clients.digital_twin import digital_twin
-        twin_connected = digital_twin.is_connected(chat_id)
-        twin_status = "✅ " + t('settings.connected', lang) if twin_connected else t('settings.not_connected', lang)
-
-        # Проверяем Club подключение
-        from db.queries.discourse import get_discourse_account
-        club_account = await get_discourse_account(chat_id)
-        if club_account:
-            club_username = club_account.get('discourse_username', '')
-            club_cat = club_account.get('blog_category_id')
-            club_status = f"✅ @{club_username}" + (f" (блог {club_cat})" if club_cat else "")
-        else:
-            club_status = t('settings.not_connected', lang)
-
-        # Проверяем WakaTime подключение (per-user, как GitHub)
+        # WakaTime (отдельный сервис, не через Gateway)
         from db.queries.wakatime import get_wakatime_connection
         waka_conn = await get_wakatime_connection(chat_id)
         if waka_conn:
@@ -826,60 +776,123 @@ class SettingsState(BaseState):
         else:
             waka_status = t('settings.not_connected', lang)
 
-        # Проверяем Google Calendar подключение
+        # Google Calendar (отдельный сервис, не через Gateway)
         from clients.google_calendar_oauth import google_calendar_oauth
         gcal_connected = await google_calendar_oauth.is_connected(chat_id)
-        gcal_status = "✅ " + t('settings.connected', lang) if gcal_connected else t('settings.not_connected', lang)
 
         # Чекбоксы: ✅ или ☐
         def chk(connected): return "✅" if connected else "☐"
 
         text = (
             f"*{t('settings.connections_label', lang)}*\n\n"
-            f"{chk(aisystant_id)} Aisystant\n"
-            f"{chk(gh_conn)} GitHub\n"
-            f"{chk(club_account)} {t('settings.club_label', lang)}\n"
-            f"{chk(twin_connected)} {t('settings.twin_label', lang)}\n"
+            f"{chk(gateway_connected)} Gateway (IWE)\n"
             f"{chk(waka_conn)} WakaTime\n"
             f"{chk(gcal_connected)} Календарь Google\n"
         )
 
-        # Notification toggles per tier
-        from core.tier_detector import detect_ui_tier
-        tier = await detect_ui_tier(chat_id)
-        iwe_visible = tier >= 2  # T2_LEARNING
-        nudges_visible = tier >= 3  # T3_PERSONALIZATION
-
         intern = await get_intern(chat_id)
-
-        if iwe_visible:
-            notify_iwe = intern.get('notify_template_updates', False)
-            text += f"{chk(notify_iwe)} {t('settings.iwe_updates_label', lang)}\n"
-
-        if nudges_visible:
-            notify_nudges = intern.get('notify_nudges', True) if intern.get('notify_nudges') is not None else True
-            text += f"{chk(notify_nudges)} {t('nudges.settings_nudges_button', lang)}\n"
 
         buttons = [
             [
-                InlineKeyboardButton(text="🔗 Aisystant", callback_data="conn_aisystant"),
-                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
-                InlineKeyboardButton(text="🏛 " + t('settings.club_label', lang), callback_data="conn_club"),
+                InlineKeyboardButton(text="🌐 Gateway (IWE)", callback_data="conn_gateway"),
             ],
             [
-                InlineKeyboardButton(text="🤖 " + t('settings.twin_label', lang), callback_data="conn_twin"),
-                InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle"),
                 InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
-            ],
-            [
                 InlineKeyboardButton(text="📅 Календарь Google", callback_data="conn_gcal"),
-                InlineKeyboardButton(text="💪 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"),
             ],
         ]
+
+        # Notification toggles
+        from core.tier_detector import detect_ui_tier
+        tier = await detect_ui_tier(chat_id)
+        iwe_visible = tier >= 2
+        nudges_visible = tier >= 3
+
+        toggle_row = []
+        if iwe_visible:
+            toggle_row.append(InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle"))
+        if nudges_visible:
+            toggle_row.append(InlineKeyboardButton(text="💪 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"))
+        if toggle_row:
+            buttons.append(toggle_row)
         buttons.append([InlineKeyboardButton(text=t('buttons.back', lang), callback_data="settings_back_to_menu")])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _gateway_reconnect(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Переподключение Gateway — генерируем новую ссылку Ory OAuth."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.ory_oauth import ory_oauth
+        from config import ORY_CLIENT_ID
+
+        if not ORY_CLIENT_ID:
+            await callback.message.edit_text(
+                "Переподключение временно недоступно.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                ]),
+            )
+            return None
+
+        auth_url, _ = ory_oauth.get_authorization_url(chat_id)
+        text = (
+            "🔄 *Переподключение Gateway*\n\n"
+            "Нажмите кнопку ниже для повторной авторизации.\n"
+            "Это обновит токены доступа."
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔗 Авторизоваться", url=auth_url)],
+            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+        ])
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        return None
+
+    async def _handle_gateway_connection(self, user, callback: CallbackQuery) -> Optional[str]:
+        """Gateway (IWE) — подключение/переподключение через Ory OAuth (WP-209)."""
+        lang = self._get_lang(user)
+        chat_id = self._get_chat_id(user)
+
+        from clients.gateway_mcp import gateway_mcp
+        from clients.ory_oauth import ory_oauth
+        from config import ORY_CLIENT_ID
+
+        is_connected = gateway_mcp.is_connected(chat_id)
+
+        if is_connected:
+            text = (
+                f"🌐 *Gateway (IWE) — {t('settings.connected', lang)}*\n\n"
+                "Доступ к знаниям (L2), личным репо (L4), "
+                "Цифровому двойнику — через единый Gateway."
+            )
+            buttons = [
+                [InlineKeyboardButton(text="🔄 Переподключить", callback_data="conn_gateway_reconnect")],
+                [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+            ]
+        else:
+            if not ORY_CLIENT_ID:
+                text = "🌐 *Gateway (IWE)*\n\nНастройка Gateway временно недоступна."
+                buttons = [[InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]]
+            else:
+                auth_url, _ = ory_oauth.get_authorization_url(chat_id)
+                text = (
+                    "🌐 *Gateway (IWE)*\n\n"
+                    "Подключите Gateway для доступа к:\n"
+                    "• Знаниям платформы и личным репо\n"
+                    "• Цифровому двойнику\n"
+                    "• Ролям (Навигатор, Диагност)\n\n"
+                    "Нажмите кнопку ниже для авторизации."
+                )
+                buttons = [
+                    [InlineKeyboardButton(text="🔗 Подключить Gateway", url=auth_url)],
+                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+                ]
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         return None
 
