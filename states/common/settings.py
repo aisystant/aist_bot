@@ -865,9 +865,9 @@ class SettingsState(BaseState):
 
         if is_connected:
             text = (
-                f"🌐 *Gateway (IWE) — {t('settings.connected', lang)}*\n\n"
-                "Доступ к знаниям (L2), личным репо (L4), "
-                "Цифровому двойнику — через единый Gateway."
+                f"🌐 *Подключение к IWE — {t('settings.connected', lang)}*\n\n"
+                "Бот может искать по знаниям платформы и вашим репо, "
+                "читать Цифровой двойник и персонализировать ответы."
             )
             buttons = [
                 [InlineKeyboardButton(text="🔄 Переподключить", callback_data="conn_gateway_reconnect")],
@@ -875,20 +875,20 @@ class SettingsState(BaseState):
             ]
         else:
             if not ORY_CLIENT_ID:
-                text = "🌐 *Gateway (IWE)*\n\nНастройка Gateway временно недоступна."
+                text = "🌐 *Подключение к IWE*\n\nПодключение временно недоступно."
                 buttons = [[InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]]
             else:
                 auth_url, _ = ory_oauth.get_authorization_url(chat_id)
                 text = (
-                    "🌐 *Gateway (IWE)*\n\n"
-                    "Подключите Gateway для доступа к:\n"
-                    "• Знаниям платформы и личным репо\n"
-                    "• Цифровому двойнику\n"
-                    "• Ролям (Навигатор, Диагност)\n\n"
+                    "🌐 *Подключение к IWE*\n\n"
+                    "Авторизуйтесь, чтобы бот мог:\n"
+                    "• Искать по знаниям платформы и вашим личным репо\n"
+                    "• Читать ваш Цифровой двойник\n"
+                    "• Персонализировать ответы\n\n"
                     "Нажмите кнопку ниже для авторизации."
                 )
                 buttons = [
-                    [InlineKeyboardButton(text="🔗 Подключить Gateway", url=auth_url)],
+                    [InlineKeyboardButton(text="🔗 Подключить", url=auth_url)],
                     [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
                 ]
 

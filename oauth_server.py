@@ -1358,21 +1358,26 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
     # Сохраняем Ory tokens для Gateway MCP (WP-209 Ф0)
     refresh_token = tokens.get("refresh_token")
     expires_in = tokens.get("expires_in", 3600)
-    if access_token and refresh_token:
+    logger.info(
+        f"[OryOAuth] Token fields: access={bool(access_token)}, "
+        f"refresh={bool(refresh_token)}, expires_in={expires_in}, "
+        f"keys={list(tokens.keys())}"
+    )
+    if access_token:
         from datetime import datetime, timedelta
         from db.queries.ory_tokens import save_ory_tokens
         expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
         await save_ory_tokens(
             chat_id=telegram_user_id,
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=refresh_token or "",
             expires_at=expires_at,
             ory_id=ory_id,
         )
         logger.info(f"[OryOAuth] Saved Ory tokens for user {telegram_user_id}, expires_in={expires_in}s")
         # Обновляем in-memory tokens для Gateway MCP
         from clients.gateway_mcp import gateway_mcp
-        gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token, expires_at, ory_id)
+        gateway_mcp.set_tokens(telegram_user_id, access_token, refresh_token or "", expires_at, ory_id)
 
     # Привязываем ory_id к telegram_id (T0→T1)
     from db.queries.identity import link_ory
