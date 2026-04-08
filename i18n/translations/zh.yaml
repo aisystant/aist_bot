@@ -1110,7 +1110,7 @@ twin:
   profile_title: "您的Digital Twin"
   degree_label: "等级"
   stage_label: "阶段"
-  objective_label: "学习目标"
+  objective_label: "发展目标"
   roles_label: "角色"
   time_budget_label: "时间预算"
   hours_per_week: "小时/周"

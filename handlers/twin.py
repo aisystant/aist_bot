@@ -56,25 +56,23 @@ def _lang(intern) -> str:
 
 
 def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
-    """Формирует текст профиля Digital Twin.
+    """Формирует compact dashboard профиля Digital Twin.
 
-    Fallback chain: indicators.IND.1.PREF (Aisystant) → 1_declarative (bot sync) → intern (bot DB).
-    Stage: derived (3_4_qualification) — calculated by engine.
-    Degree: derived (3_8_degree) or collected (2_2_courses.qualification_level) from LMS.
+    Данные: 3_derived (calculated), 2_collected (raw), 1_declarative (bot sync), indicators (Aisystant).
     """
-    # Stage + Degree: derived from engine (3_derived)
     derived = (profile.get("_derived") or profile.get("3_derived")) or {}
+    collected = profile.get("2_collected", {}) or {}
 
-    # Degree: 3_derived.3_8_degree (calculated) → 2_collected.2_2_courses.qualification_level (raw LMS)
-    degree_derived = derived.get("3_8_degree") or {}
-    if degree_derived and degree_derived.get("level"):
-        degree = degree_derived["level"]
+    # ── Degree ──
+    degree_d = derived.get("3_8_degree") or {}
+    if degree_d.get("level"):
+        degree = degree_d["level"]
     else:
-        # Fallback: raw collected data from LMS
-        collected = profile.get("2_collected", {}) or {}
-        courses = collected.get("2_2_courses", {}) or {}
-        qual = courses.get("qualification_level", {}) or {}
+        courses = (collected.get("2_2_courses", {}) or {})
+        qual = (courses.get("qualification_level", {}) or {})
         degree = qual.get("level") or t('twin.lms_not_connected', lang)
+
+    # ── Stage ──
     qualification = derived.get("3_4_qualification") or {}
     stage_num = qualification.get("stage")
     if stage_num is not None:
@@ -82,17 +80,49 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     else:
         stage = profile.get("stage") or t('twin.not_set', lang)
 
-    # Source 1: indicators path (Aisystant platform writes here)
+    # ── Agency index ──
+    agency = derived.get("3_10_integral") or {}
+    agency_index = agency.get("index")
+    agency_text = f"{round(agency_index)}/100" if agency_index is not None else "—"
+
+    # ── Activity from 2_4_time ──
+    time_data = collected.get("2_4_time", {}) or {}
+    ev_7d = time_data.get("events_last_7d", 0) or 0
+    ev_30d = time_data.get("events_last_30d", 0) or 0
+    active_days = time_data.get("active_days", 0) or 0
+
+    # ── Learning from 2_2_courses + 2_3_practice ──
+    courses_data = collected.get("2_2_courses", {}) or {}
+    practice_data = collected.get("2_3_practice", {}) or {}
+    lessons = courses_data.get("marathon_steps_total", 0) or 0
+    digests = courses_data.get("feed_completed_total", 0) or 0
+    training = practice_data.get("training_passed_total", 0) or 0
+
+    # ── Coding from 2_6_coding ──
+    coding = collected.get("2_6_coding", {}) or {}
+    code_7d = coding.get("coding_hours_7d")
+    code_30d = coding.get("coding_hours_30d")
+    code_7d_text = f"{code_7d}ч" if code_7d is not None else "—"
+    code_30d_text = f"{code_30d}ч" if code_30d is not None else "—"
+
+    # ── Agency components ──
+    components = agency.get("components") or {}
+    comp_parts = []
+    for key, label in [("regularity", "регулярность"), ("activity", "активность"),
+                       ("learning", "обучение"), ("notifications", "уведомления"),
+                       ("longevity", "стаж")]:
+        val = components.get(key)
+        if val is not None:
+            comp_parts.append(f"{label}={round(val)}")
+
+    # ── Declarative: objective, roles ──
     indicators = profile.get("indicators", {})
     pref = indicators.get("IND.1.PREF", {}) if isinstance(indicators, dict) else {}
     pref = pref if isinstance(pref, dict) else {}
+    declarative = profile.get("1_declarative", {}) or {}
+    goals_sec = (declarative.get("1_2_goals", {}) or {})
+    selfeval_sec = (declarative.get("1_3_selfeval", {}) or {})
 
-    # Source 2: declarative path (bot sync writes here)
-    declarative = profile.get("1_declarative", {}) if isinstance(profile, dict) else {}
-    goals_sec = (declarative.get("1_2_goals", {}) if isinstance(declarative, dict) else {}) or {}
-    selfeval_sec = (declarative.get("1_3_selfeval", {}) if isinstance(declarative, dict) else {}) or {}
-
-    # Merge with fallback chain
     objective = (
         pref.get("objective")
         or goals_sec.get("09_Цели обучения")
@@ -113,19 +143,36 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         roles = []
     roles_text = ", ".join(roles) if roles else t('twin.not_set_plural', lang)
 
-    time_budget = (
-        pref.get("weekly_time_budget")
-        or t('twin.not_set_m', lang)
-    )
+    # ── Engine version ──
+    engine_ver = derived.get("engine_version", "")
+    calc_at = (derived.get("calculated_at") or "")[:10]
+    engine_line = f"engine v{engine_ver} | {calc_at}" if engine_ver else ""
 
-    return (
-        f"*{t('twin.profile_title', lang)}*\n\n"
-        f"*{t('twin.degree_label', lang)}:* {degree}\n"
-        f"*{t('twin.stage_label', lang)}:* {stage}\n"
-        f"*{t('twin.objective_label', lang)}:* {objective}\n"
-        f"*{t('twin.roles_label', lang)}:* {roles_text}\n"
-        f"*{t('twin.time_budget_label', lang)}:* {time_budget} {t('twin.hours_per_week', lang)}"
-    )
+    # ── User name ──
+    name = intern.get('name', '') if intern else ''
+
+    # ── Build text ──
+    lines = [f"*{t('twin.profile_title', lang)}*"]
+    if name:
+        lines[0] = f"📋 *{name} — {t('twin.profile_title', lang)}*"
+    lines.append("")
+    lines.append(f"🎓 *Степень:* {degree}  |  ⚡ *Ступень:* {stage}")
+    lines.append(f"🎯 *Агентность:* {agency_text}")
+    lines.append("")
+    lines.append(f"📊 *Активность:* {ev_7d} событий/7д  |  {ev_30d}/30д  |  {active_days} активных дней")
+    lines.append(f"📚 *Обучение:* {lessons} уроков  |  {digests} дайджестов  |  {training} тренировок")
+    if code_7d is not None or code_30d is not None:
+        lines.append(f"💻 *Код:* {code_7d_text}/7д  |  {code_30d_text}/30д")
+    lines.append("")
+    if comp_parts:
+        lines.append(f"🧩 *Компоненты:* {', '.join(comp_parts)}")
+    lines.append(f"🎯 *{t('twin.objective_label', lang)}:* {objective}")
+    lines.append(f"👤 *{t('twin.roles_label', lang)}:* {roles_text}")
+    if engine_line:
+        lines.append("")
+        lines.append(f"_{engine_line}_")
+
+    return "\n".join(lines)
 
 
 @twin_router.message(Command("twin"))

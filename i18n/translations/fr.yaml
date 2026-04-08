@@ -1110,7 +1110,7 @@ twin:
   profile_title: "Votre Digital Twin"
   degree_label: "Degré"
   stage_label: "Étape"
-  objective_label: "Objectif d'apprentissage"
+  objective_label: "Objectif de développement"
   roles_label: "Rôles"
   time_budget_label: "Budget temps"
   hours_per_week: "h/sem"

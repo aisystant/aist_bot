@@ -5251,8 +5251,8 @@ twin:
     ru: "Ступень"
     en: "Stage"
   objective_label:
-    ru: "Цель обучения"
-    en: "Learning objective"
+    ru: "Цель развития"
+    en: "Development goal"
   roles_label:
     ru: "Роли"
     en: "Roles"
