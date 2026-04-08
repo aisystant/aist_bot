@@ -555,18 +555,26 @@ class MyDataState(BaseState):
             # Degree: 3_derived.3_8_degree → 2_collected.2_2_courses.qualification_level
             degree_d = derived.get('3_8_degree') or {}
             if degree_d.get('level'):
-                result['Degree'] = degree_d['level']
+                result['Степень квалификации'] = degree_d['level']
             else:
                 collected = profile.get('2_collected', {}) or {}
                 qual = (collected.get('2_2_courses', {}) or {}).get('qualification_level', {}) or {}
                 if qual.get('level'):
-                    result['Degree'] = qual['level']
+                    result['Степень квалификации'] = qual['level']
             # Stage: 3_derived.3_4_qualification
+            from handlers.twin import STAGE_NAMES_RU
             qual_s = derived.get('3_4_qualification') or {}
-            if qual_s.get('stage') is not None:
-                result['Stage'] = qual_s['stage']
-            elif profile.get('stage'):
-                result['Stage'] = profile['stage']
+            stage_num = qual_s.get('stage')
+            if stage_num is not None:
+                stage_name = STAGE_NAMES_RU.get(stage_num, '?')
+                result['Ступень ученика'] = f"{stage_name} ({stage_num}/4)"
+            elif profile.get('stage') is not None:
+                stage_val = profile['stage']
+                if isinstance(stage_val, int):
+                    stage_name = STAGE_NAMES_RU.get(stage_val, '?')
+                    result['Ступень ученика'] = f"{stage_name} ({stage_val}/4)"
+                else:
+                    result['Ступень ученика'] = stage_val
             indicators = profile.get('indicators', {})
             pref = indicators.get('IND.1.PREF', {})
             if pref.get('objective'):
