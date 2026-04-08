@@ -668,8 +668,9 @@ class ClaudeClient:
         if client:
             try:
                 from core.tracing import span as trace_span
+                chat_id = intern.get('chat_id')
                 tasks = [
-                    client.search(q, limit=3)
+                    client.search(q, limit=3, telegram_user_id=chat_id)
                     for q in search_keys[:4]
                 ]
                 async with trace_span("claude.mcp_searches", count=len(tasks)):

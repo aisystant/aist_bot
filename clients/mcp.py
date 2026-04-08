@@ -108,12 +108,14 @@ class MCPClient:
         state["failures"] = 0
         state["open"] = False
 
-    async def _call(self, tool_name: str, arguments: dict) -> Optional[dict]:
+    async def _call(self, tool_name: str, arguments: dict,
+                    telegram_user_id: Optional[int] = None) -> Optional[dict]:
         """Вызов инструмента MCP через JSON-RPC с retry и circuit breaker
 
         Args:
             tool_name: имя инструмента
             arguments: аргументы вызова
+            telegram_user_id: ID пользователя для X-User-Id (RLS личных документов)
 
         Returns:
             Результат вызова или None при ошибке (graceful fallback)
@@ -126,9 +128,10 @@ class MCPClient:
             return None
 
         async with span(f"mcp.{tool_name}", server=self.name):
-            return await self._call_inner(tool_name, arguments)
+            return await self._call_inner(tool_name, arguments, telegram_user_id)
 
-    async def _call_inner(self, tool_name: str, arguments: dict) -> Optional[dict]:
+    async def _call_inner(self, tool_name: str, arguments: dict,
+                          telegram_user_id: Optional[int] = None) -> Optional[dict]:
         """Внутренняя реализация вызова MCP (вынесена для трейсинга)."""
         payload = {
             "jsonrpc": "2.0",
@@ -149,6 +152,16 @@ class MCPClient:
         from core.tracing import get_current_trace
         trace = get_current_trace()
         req_headers = {"x-trace-id": trace.trace_id} if trace else {}
+
+        # WP-212 B4.13: X-User-Id для RLS-фильтрации личных документов в knowledge-mcp
+        if telegram_user_id:
+            try:
+                from clients.gateway_mcp import gateway_mcp
+                data = gateway_mcp._tokens.get(telegram_user_id)
+                if data and data.get("ory_id"):
+                    req_headers["X-User-Id"] = data["ory_id"]
+            except (ImportError, Exception):
+                pass
 
         for attempt in range(self.MAX_RETRIES + 1):
             # Используем разные таймауты для первой и повторных попыток
@@ -205,7 +218,8 @@ class MCPClient:
         return None
 
     async def search(self, query: str, limit: int = 5,
-                     source: str = None, source_type: str = None) -> List[dict]:
+                     source: str = None, source_type: str = None,
+                     telegram_user_id: Optional[int] = None) -> List[dict]:
         """Семантический поиск по unified Knowledge MCP
 
         Args:
@@ -213,6 +227,7 @@ class MCPClient:
             limit: максимальное количество результатов
             source: фильтр по источнику (например, "PACK-digital-platform")
             source_type: фильтр по типу ("pack", "guides", "ds")
+            telegram_user_id: ID пользователя для доступа к личным документам
 
         Returns:
             Список результатов поиска [{filename, content, source, source_type, score}]
@@ -226,7 +241,7 @@ class MCPClient:
         if source_type:
             args["source_type"] = source_type
 
-        result = await self._call("search", args)
+        result = await self._call("search", args, telegram_user_id)
         if result and "content" in result:
             for item in result.get("content", []):
                 if item.get("type") == "text":

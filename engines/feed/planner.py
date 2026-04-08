@@ -531,7 +531,8 @@ async def generate_multi_topic_digest(
         context = ""
         try:
             results = await mcp_knowledge.search(
-                topic, limit=3, source_type="guides"
+                topic, limit=3, source_type="guides",
+                telegram_user_id=intern.get('chat_id')
             )
             if isinstance(results, list):
                 for item in results:
@@ -722,7 +723,8 @@ async def generate_topic_content(
     mcp_context = ""
     try:
         results = await mcp_knowledge.search(
-            search_query, limit=4, source_type="guides"
+            search_query, limit=4, source_type="guides",
+            telegram_user_id=intern.get('chat_id')
         )
         if results:
             for item in results:
