@@ -616,6 +616,12 @@ async def handle_question_with_tools(
     await report_progress(ProcessingStage.DONE, 100)
 
     if not answer:
+        # WP-209: диагностика причины None от Claude API
+        logger.error(
+            f"generate_with_tools returned None for user={chat_id}, "
+            f"question='{question[:80]}', tools={[t['name'] for t in tools]}, "
+            f"system_prompt_len={len(system_prompt)}, token_limit={token_limit}"
+        )
         answer = f"К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
 
     # Сохраняем в историю

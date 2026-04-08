@@ -37,7 +37,7 @@ from core.registry import registry
 from core.self_knowledge import get_self_knowledge, match_faq
 from engines.shared.structured_lookup import structured_lookup, format_structured_context
 from db.queries.qa import save_qa, get_latest_qa_id
-from clients.digital_twin import digital_twin
+from clients.gateway_mcp import gateway_mcp
 from clients.github_oauth import github_oauth
 from i18n import t
 from helpers.message_split import prepare_html_parts
@@ -324,7 +324,7 @@ class ConsultationState(BaseState):
             return 1, False, False
 
         has_github = await github_oauth.is_connected(user_chat_id)
-        has_dt = digital_twin.is_connected(user_chat_id)
+        has_dt = gateway_mcp.is_connected(user_chat_id)
 
         if has_github:
             return 3, True, has_dt

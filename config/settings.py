@@ -21,6 +21,7 @@ CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
+GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
 
 # ============= LANGFUSE (L5 Observability, WP-179) =============
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")

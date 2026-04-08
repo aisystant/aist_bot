@@ -150,15 +150,15 @@ async def fetch_dt_context(
     Returns:
         Отформатированная строка для system prompt. Пустая если данных нет.
     """
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
 
-    if not digital_twin.is_connected(telegram_user_id):
+    if not gateway_mcp.is_connected(telegram_user_id):
         return ""
 
     # Параллельный fetch всех путей
     async def _fetch_one(path: str) -> Optional[tuple]:
         try:
-            data = await digital_twin.read(path, telegram_user_id)
+            data = await gateway_mcp.dt_read(path, telegram_user_id)
             if data is not None:
                 return (path, data)
         except Exception as e:

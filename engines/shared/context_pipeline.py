@@ -86,9 +86,9 @@ async def collect_pre_search(
         return ("knowledge_section", "")
 
     try:
-        from clients import mcp_knowledge
+        from clients.gateway_mcp import gateway_mcp
 
-        results = await mcp_knowledge.search(query=question, limit=5)
+        results = await gateway_mcp.knowledge_search(query=question, limit=5)
 
         if not results:
             return ("knowledge_section", "")

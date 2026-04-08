@@ -137,6 +137,30 @@ class OryOAuthClient:
                     return None
                 return await resp.json()
 
+    async def refresh_access_token(self, refresh_token: str) -> Optional[Dict[str, Any]]:
+        """Обновляет access_token через refresh_token.
+
+        Returns:
+            {"access_token": ..., "refresh_token": ..., "expires_in": ...} or None
+        """
+        async with aiohttp.ClientSession() as session:
+            data = {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+            }
+
+            async with session.post(ORY_TOKEN_URL, data=data) as resp:
+                if resp.status != 200:
+                    err = await resp.text()
+                    logger.error(f"[OryOAuth] Token refresh failed: {resp.status} {err}")
+                    return None
+
+                tokens = await resp.json()
+                logger.debug("[OryOAuth] Token refreshed successfully")
+                return tokens
+
     def _cleanup_expired_states(self):
         """Очищает просроченные state."""
         now = time.time()

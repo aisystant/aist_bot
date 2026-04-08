@@ -117,6 +117,11 @@ async def main():
     if dt_loaded:
         logger.info(f"✅ DT: восстановлено {dt_loaded} подключений из DB")
 
+    # Загрузка Ory tokens для Gateway MCP (WP-209 Ф0)
+    from clients.gateway_mcp import gateway_mcp
+    await gateway_mcp.load_tokens_from_db()
+    logger.info("✅ Gateway MCP: Ory tokens загружены")
+
     # Создаём bot с transport-layer Markdown→HTML intercept
     from core.safe_bot import SafeBot
     bot = SafeBot(token=BOT_TOKEN)
@@ -405,8 +410,10 @@ async def main():
     # Cleanup (both modes)
     from clients.claude import ClaudeClient
     from clients.mcp import MCPClient
+    from clients.gateway_mcp import gateway_mcp
     await ClaudeClient.close_session()
     await MCPClient.close_session()
+    await gateway_mcp.close()
     logger.info("🔒 HTTP sessions закрыты")
 
     # Langfuse flush (WP-179 Ф3)

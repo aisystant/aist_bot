@@ -8,15 +8,17 @@ Tools:
 - search_knowledge: поиск в базе знаний (Pack, guides, DS)
 - search_guides: поиск по гайдам
 - read_digital_twin: чтение данных ЦД пользователя
+- search_personal: поиск по личным знаниям (L4) — NEW via Gateway
 
 Архитектурное решение: DP.ARCH.002 (Тиры обслуживания).
+WP-209 Ф0: переключение на Gateway MCP.
 """
 
 import json
 from typing import Any, Dict, List, Optional
 
 from config import get_logger
-from clients import mcp_knowledge, digital_twin
+from clients.gateway_mcp import gateway_mcp
 
 logger = get_logger(__name__)
 
@@ -125,15 +127,42 @@ TOOL_GET_BOT_INFO = {
 }
 
 
+TOOL_SEARCH_PERSONAL = {
+    "name": "search_personal",
+    "description": (
+        "Поиск по личным знаниям пользователя (L4). "
+        "Включает личные репозитории GitHub: стратегию, заметки, экзокортекс. "
+        "Используй для вопросов, связанных с личным контекстом пользователя, "
+        "его заметками, стратегией или персональными документами."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Поисковый запрос"
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Максимум результатов (1-10)",
+                "default": 5
+            }
+        },
+        "required": ["query"]
+    }
+}
+
+
 def get_tools_for_tier(has_digital_twin: bool) -> List[Dict[str, Any]]:
     """Возвращает набор tools в зависимости от тира пользователя.
 
     T1 (без ЦД): search_knowledge, search_guides, get_bot_info
-    T2+ (с ЦД): + read_digital_twin
+    T2+ (с ЦД): + read_digital_twin, search_personal
     """
     tools = [TOOL_SEARCH_KNOWLEDGE, TOOL_SEARCH_GUIDES, TOOL_GET_BOT_INFO]
     if has_digital_twin:
         tools.append(TOOL_READ_DIGITAL_TWIN)
+        tools.append(TOOL_SEARCH_PERSONAL)
     return tools
 
 
@@ -157,11 +186,13 @@ async def execute_tool(
         Результат в виде строки (JSON или текст)
     """
     if tool_name == "search_knowledge":
-        return await _exec_search_knowledge(tool_input)
+        return await _exec_search_knowledge(tool_input, telegram_user_id)
     elif tool_name == "search_guides":
-        return await _exec_search_guides(tool_input)
+        return await _exec_search_guides(tool_input, telegram_user_id)
     elif tool_name == "read_digital_twin":
         return await _exec_read_digital_twin(tool_input, telegram_user_id)
+    elif tool_name == "search_personal":
+        return await _exec_search_personal(tool_input, telegram_user_id)
     elif tool_name == "get_bot_info":
         return _exec_get_bot_info()
     else:
@@ -198,17 +229,19 @@ def _exec_get_bot_info() -> str:
     return json.dumps({"bot_info": compact[:3000]}, ensure_ascii=False)
 
 
-async def _exec_search_knowledge(input: Dict[str, Any]) -> str:
-    """Proxy к mcp_knowledge.search()."""
+async def _exec_search_knowledge(input: Dict[str, Any],
+                                 telegram_user_id: Optional[int] = None) -> str:
+    """Proxy к gateway_mcp.knowledge_search() (WP-209: через Gateway)."""
     query = input.get("query", "")
     limit = min(input.get("limit", 5), 10)
     source_type = input.get("source_type")
 
     try:
-        results = await mcp_knowledge.search(
+        results = await gateway_mcp.knowledge_search(
             query=query,
             limit=limit,
             source_type=source_type,
+            telegram_user_id=telegram_user_id,
         )
 
         if not results:
@@ -224,7 +257,6 @@ async def _exec_search_knowledge(input: Dict[str, Any]) -> str:
                     "source_type": item.get("source_type", "pack"),
                     "score": item.get("score", 0),
                 }
-                # GitHub URL from MCP (v3.2+)
                 github_url = item.get("github_url")
                 if github_url:
                     entry["github_url"] = github_url
@@ -240,16 +272,18 @@ async def _exec_search_knowledge(input: Dict[str, Any]) -> str:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
-async def _exec_search_guides(input: Dict[str, Any]) -> str:
-    """Proxy к mcp_knowledge.search(source_type='guides')."""
+async def _exec_search_guides(input: Dict[str, Any],
+                              telegram_user_id: Optional[int] = None) -> str:
+    """Proxy к gateway_mcp.knowledge_search(source_type='guides') (WP-209: через Gateway)."""
     query = input.get("query", "")
     limit = min(input.get("limit", 5), 10)
 
     try:
-        results = await mcp_knowledge.search(
+        results = await gateway_mcp.knowledge_search(
             query=query,
             limit=limit,
             source_type="guides",
+            telegram_user_id=telegram_user_id,
         )
 
         if not results:
@@ -278,17 +312,17 @@ async def _exec_read_digital_twin(
     input: Dict[str, Any],
     telegram_user_id: Optional[int] = None,
 ) -> str:
-    """Proxy к digital_twin.read()."""
+    """Proxy к gateway_mcp.dt_read() (WP-209: через Gateway)."""
     path = input.get("path", "")
 
     if not telegram_user_id:
         return json.dumps({"error": "User not connected to Digital Twin"}, ensure_ascii=False)
 
-    if not digital_twin.is_connected(telegram_user_id):
-        return json.dumps({"error": "User not authorized in Digital Twin"}, ensure_ascii=False)
+    if not gateway_mcp.is_connected(telegram_user_id):
+        return json.dumps({"error": "User not authorized — requires Ory registration"}, ensure_ascii=False)
 
     try:
-        data = await digital_twin.read(path, telegram_user_id)
+        data = await gateway_mcp.dt_read(path, telegram_user_id)
 
         if data is None:
             return json.dumps({"data": None, "message": f"No data at path '{path}'"}, ensure_ascii=False)
@@ -298,6 +332,49 @@ async def _exec_read_digital_twin(
 
     except Exception as e:
         logger.error(f"read_digital_twin error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def _exec_search_personal(
+    input: Dict[str, Any],
+    telegram_user_id: Optional[int] = None,
+) -> str:
+    """Proxy к gateway_mcp.personal_search() (WP-209: L4 через Gateway)."""
+    query = input.get("query", "")
+    limit = min(input.get("limit", 5), 10)
+
+    if not telegram_user_id:
+        return json.dumps({"error": "User not identified"}, ensure_ascii=False)
+
+    if not gateway_mcp.is_connected(telegram_user_id):
+        return json.dumps({"error": "User not authorized — requires Ory registration"}, ensure_ascii=False)
+
+    try:
+        results = await gateway_mcp.personal_search(
+            query=query,
+            telegram_user_id=telegram_user_id,
+            limit=limit,
+        )
+
+        if not results:
+            return json.dumps({"results": [], "message": "No personal knowledge found"}, ensure_ascii=False)
+
+        formatted = []
+        for item in results:
+            if isinstance(item, dict):
+                formatted.append({
+                    "text": (item.get("text", item.get("content", "")))[:2000],
+                    "source": item.get("source", ""),
+                    "score": item.get("score", 0),
+                })
+            elif isinstance(item, str):
+                formatted.append({"text": item[:2000]})
+
+        logger.info(f"search_personal: {len(formatted)} results for '{query[:50]}'")
+        return json.dumps({"results": formatted}, ensure_ascii=False)
+
+    except Exception as e:
+        logger.error(f"search_personal error: {e}")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 

@@ -21,7 +21,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from clients.claude import ClaudeClient
-from clients.mcp import mcp_knowledge
+from clients.gateway_mcp import gateway_mcp
 from config.settings import CLAUDE_MODEL_OPUS, get_channel_context
 from db.queries import get_intern
 from db.queries.users import is_onboarded
@@ -468,12 +468,12 @@ async def _send_draft_notification(message: Message, bot: Bot, match: MentionMat
 
 async def _get_owner_context(chat_id: int) -> str:
     """Получить контекст владельца из ЦД для system prompt."""
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
 
-    if not digital_twin.is_connected(chat_id):
+    if not gateway_mcp.is_connected(chat_id):
         return ''
 
-    profile = await digital_twin.read('1_declarative', chat_id)
+    profile = await gateway_mcp.dt_read('1_declarative', chat_id)
     if not profile or not isinstance(profile, dict):
         return ''
 
@@ -509,7 +509,7 @@ async def _search_knowledge(msg_text: str, channel_ctx: dict) -> str:
 
     # Основной поиск по тексту вопроса
     try:
-        results = await mcp_knowledge.search(msg_text[:300], limit=5)
+        results = await gateway_mcp.knowledge_search(msg_text[:300], limit=5)
         if results:
             for r in results[:5]:
                 content = r.get('content', r.get('text', ''))
@@ -523,7 +523,7 @@ async def _search_knowledge(msg_text: str, channel_ctx: dict) -> str:
         topics = channel_ctx.get('topics', [])
         for topic in topics[:2]:
             try:
-                extra = await mcp_knowledge.search(f"{topic} {msg_text[:100]}", limit=2)
+                extra = await gateway_mcp.knowledge_search(f"{topic} {msg_text[:100]}", limit=2)
                 if extra:
                     for r in extra[:2]:
                         content = r.get('content', r.get('text', ''))

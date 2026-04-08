@@ -130,6 +130,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_dt_proactive_refresh, 'cron', minute='*/15')  # DT: proactive token refresh every 15 min (WP-82)
+    _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209)
     _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)  # DT: sync engagement → digital_twins daily 04:30 MSK (WP-85 Phase 4)
     _scheduler.start()
 
@@ -1249,6 +1250,18 @@ async def _neon_keep_alive():
 # ═══════════════════════════════════════════════════════════
 # DIGITAL TWIN: PROACTIVE TOKEN REFRESH (WP-82)
 # ═══════════════════════════════════════════════════════════
+
+async def _gateway_proactive_refresh():
+    """Обновить Ory tokens для Gateway MCP (WP-209 Ф0).
+
+    Запускается каждые 10 мин. Ory access token TTL ~ 1 час.
+    """
+    try:
+        from clients.gateway_mcp import gateway_mcp
+        await gateway_mcp.refresh_expiring_tokens(margin_seconds=600)
+    except Exception as e:
+        logger.warning(f"[Scheduler] Gateway Ory refresh failed: {e}")
+
 
 async def _dt_proactive_refresh():
     """Обновить DT токены, истекающие в ближайшие 10 минут.

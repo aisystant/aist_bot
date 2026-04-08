@@ -1178,6 +1178,20 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # ТОКЕНЫ ORY OAUTH (WP-209: бот→Gateway)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ory_tokens (
+                chat_id BIGINT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                ory_id TEXT,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # МИГРАЦИЯ: interns → users + user_state (WP-82 Phase 3)
         # Одноразовая миграция при первом запуске после обновления.
         # ═══════════════════════════════════════════════════════════
