@@ -188,6 +188,46 @@ class GatewayMCPClient:
         if refreshed or failed:
             logger.info(f"Gateway: proactive refresh — {refreshed} ok, {failed} failed")
 
+    async def _refresh_single_token(self, telegram_user_id: int) -> bool:
+        """Refresh Ory token для одного пользователя (при 401). Возвращает True при успехе."""
+        data = self._tokens.get(telegram_user_id)
+        if not data:
+            return False
+        refresh_token = data.get("refresh_token")
+        if not refresh_token:
+            return False
+        try:
+            from clients.ory_oauth import ory_oauth
+            from db.queries.ory_tokens import save_ory_tokens
+
+            new_tokens = await ory_oauth.refresh_access_token(refresh_token)
+            if new_tokens:
+                new_expires_at = datetime.utcnow() + timedelta(
+                    seconds=new_tokens.get("expires_in", 3600)
+                )
+                new_access = new_tokens["access_token"]
+                new_refresh = new_tokens.get("refresh_token", refresh_token)
+
+                self._tokens[telegram_user_id] = {
+                    "access_token": new_access,
+                    "refresh_token": new_refresh,
+                    "expires_at": new_expires_at,
+                    "ory_id": data.get("ory_id"),
+                }
+                await save_ory_tokens(
+                    chat_id=telegram_user_id,
+                    access_token=new_access,
+                    refresh_token=new_refresh,
+                    expires_at=new_expires_at,
+                    ory_id=data.get("ory_id"),
+                )
+                logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}")
+            return False
+
     # =========================================================================
     # CIRCUIT BREAKER
     # =========================================================================
@@ -278,8 +318,22 @@ class GatewayMCPClient:
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=timeout)
                 ) as resp:
-                    if resp.status == 401:
-                        logger.warning(f"Gateway: 401 for user {telegram_user_id} — token expired or invalid")
+                    if resp.status == 401 and telegram_user_id and attempt == 0:
+                        # Token expired — try refresh
+                        logger.info(f"Gateway: 401 for user {telegram_user_id}, attempting refresh")
+                        refreshed = await self._refresh_single_token(telegram_user_id)
+                        if refreshed:
+                            # Update header and retry
+                            new_token = self._get_access_token(telegram_user_id)
+                            if new_token:
+                                headers["Authorization"] = f"Bearer {new_token}"
+                            continue
+                        else:
+                            logger.warning(f"Gateway: refresh failed for user {telegram_user_id}, disconnecting")
+                            self.disconnect(telegram_user_id)
+                            return None
+                    elif resp.status == 401:
+                        logger.warning(f"Gateway: 401 for user {telegram_user_id} after retry")
                         return None
                     if resp.status == 403:
                         logger.warning(f"Gateway: 403 for user {telegram_user_id} — no subscription")
