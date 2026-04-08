@@ -543,10 +543,10 @@ class MyDataState(BaseState):
     async def _get_dt_profile(self, chat_id: int) -> Optional[dict]:
         """Получить данные из ЦД для T3+."""
         try:
-            from clients.digital_twin import digital_twin
-            if not digital_twin.is_connected(chat_id):
+            from clients.gateway_mcp import gateway_mcp
+            if not gateway_mcp.is_connected(chat_id):
                 return None
-            profile = await digital_twin.get_user_profile(chat_id)
+            profile = await gateway_mcp.get_user_profile(chat_id)
             if not profile:
                 return None
             # Извлечь ключевые поля
@@ -1155,9 +1155,9 @@ class MyDataState(BaseState):
 
         # DT disconnect
         try:
-            from clients.digital_twin import digital_twin
-            if digital_twin.is_connected(chat_id):
-                digital_twin.disconnect(chat_id)
+            from clients.gateway_mcp import gateway_mcp
+            if gateway_mcp.is_connected(chat_id):
+                gateway_mcp.disconnect(chat_id)
         except Exception:
             pass
 

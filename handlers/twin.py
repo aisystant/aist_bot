@@ -123,7 +123,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
 @twin_router.message(Command("twin"))
 async def cmd_twin(message: Message):
     """Команда для работы с Digital Twin."""
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
 
     telegram_user_id = message.chat.id
     intern = await get_intern(telegram_user_id)
@@ -134,11 +134,11 @@ async def cmd_twin(message: Message):
     subcommand = parts[1].lower() if len(parts) > 1 else None
     arg = parts[2] if len(parts) > 2 else None
 
-    is_connected = digital_twin.is_connected(telegram_user_id)
+    is_connected = gateway_mcp.is_connected(telegram_user_id)
 
     if subcommand == "disconnect":
         if is_connected:
-            digital_twin.disconnect(telegram_user_id)
+            gateway_mcp.disconnect(telegram_user_id)
             # Clear persistent flag
             try:
                 from db import get_pool
@@ -153,7 +153,8 @@ async def cmd_twin(message: Message):
         return
 
     if not is_connected:
-        auth_url, state = digital_twin.get_authorization_url(telegram_user_id)
+        from clients.ory_oauth import ory_oauth
+        auth_url, state = await ory_oauth.get_authorization_url(telegram_user_id)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)]
         ])
@@ -167,7 +168,7 @@ async def cmd_twin(message: Message):
 
     if subcommand == "objective" and arg:
         await message.answer(t('twin.saving_objective', lang))
-        result = await digital_twin.set_learning_objective(telegram_user_id, arg)
+        result = await gateway_mcp.dt_write("indicators.IND.1.PREF.objective", arg, telegram_user_id)
         if result:
             await message.answer(t('twin.objective_updated', lang, objective=arg), parse_mode="Markdown")
         else:
@@ -175,7 +176,7 @@ async def cmd_twin(message: Message):
         return
 
     if subcommand == "roles":
-        roles = await digital_twin.get_roles(telegram_user_id)
+        roles = await gateway_mcp.dt_read("indicators.IND.1.PREF.role_set", telegram_user_id)
         if roles:
             roles_text = ", ".join(roles) if isinstance(roles, list) else str(roles)
             await message.answer(f"*{t('twin.roles_title', lang)}*\n{roles_text}", parse_mode="Markdown")
@@ -184,7 +185,7 @@ async def cmd_twin(message: Message):
         return
 
     if subcommand == "degrees":
-        degrees = await digital_twin.get_degrees(telegram_user_id)
+        degrees = await gateway_mcp.dt_describe("degrees", telegram_user_id)
         if degrees:
             text = _format_degrees(degrees if isinstance(degrees, str) else str(degrees))
             if len(text) > 4000:
@@ -201,7 +202,7 @@ async def cmd_twin(message: Message):
     # По умолчанию: показать профиль
     await message.answer(t('twin.loading_profile', lang))
     async with keep_typing(message):
-        profile = await digital_twin.get_user_profile(telegram_user_id)
+        profile = await gateway_mcp.get_user_profile(telegram_user_id)
 
     if profile is None:
         await message.answer(t('twin.unavailable', lang))
@@ -238,19 +239,19 @@ async def cmd_twin(message: Message):
 
 @twin_router.callback_query(F.data == "twin_degrees")
 async def callback_twin_degrees(callback: CallbackQuery):
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
 
     telegram_user_id = callback.from_user.id
     intern = await get_intern(telegram_user_id)
     lang = _lang(intern)
 
-    if not digital_twin.is_connected(telegram_user_id):
+    if not gateway_mcp.is_connected(telegram_user_id):
         await callback.answer(t('twin.not_connected_alert', lang), show_alert=True)
         return
 
     await callback.answer()
 
-    degrees = await digital_twin.get_degrees(telegram_user_id)
+    degrees = await gateway_mcp.dt_describe("degrees", telegram_user_id)
     if degrees:
         text = _format_degrees(degrees if isinstance(degrees, str) else str(degrees))
         if len(text) > 4000:
@@ -282,17 +283,17 @@ async def callback_twin_insights_detailed(callback: CallbackQuery):
 
 @twin_router.callback_query(F.data == "twin_disconnect")
 async def callback_twin_disconnect(callback: CallbackQuery):
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
 
     telegram_user_id = callback.from_user.id
     intern = await get_intern(telegram_user_id)
     lang = _lang(intern)
 
-    if not digital_twin.is_connected(telegram_user_id):
+    if not gateway_mcp.is_connected(telegram_user_id):
         await callback.answer(t('twin.already_disconnected', lang), show_alert=True)
         return
 
-    digital_twin.disconnect(telegram_user_id)
+    gateway_mcp.disconnect(telegram_user_id)
     # Clear persistent flag
     try:
         from db import get_pool
@@ -710,14 +711,14 @@ async def callback_me_mydata(callback: CallbackQuery):
 @twin_router.callback_query(F.data == "twin_profile")
 async def callback_twin_profile(callback: CallbackQuery):
     """Переход к профилю ЦД из /me."""
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
 
     telegram_user_id = callback.from_user.id
     intern = await get_intern(telegram_user_id)
     lang = _lang(intern)
 
     await callback.answer()
-    profile = await digital_twin.get_user_profile(telegram_user_id)
+    profile = await gateway_mcp.get_user_profile(telegram_user_id)
     if profile:
         await callback.message.answer(
             _profile_text(profile, lang, intern=intern),

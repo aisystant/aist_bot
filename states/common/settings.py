@@ -1129,12 +1129,12 @@ class SettingsState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        from clients.digital_twin import digital_twin
+        from clients.gateway_mcp import gateway_mcp
 
-        if digital_twin.is_connected(chat_id):
+        if gateway_mcp.is_connected(chat_id):
             lines = [f"🤖 *{t('settings.twin_label', lang)} — {t('settings.connected', lang)}*\n"]
 
-            profile = await digital_twin.get_user_profile(chat_id)
+            profile = await gateway_mcp.get_user_profile(chat_id)
             if profile and isinstance(profile, dict):
                 degree = profile.get('degree') or t('twin.not_set_m', lang)
                 stage = profile.get('stage') or t('twin.not_set_m', lang)
@@ -1158,7 +1158,8 @@ class SettingsState(BaseState):
             )
         else:
             try:
-                auth_url, state = digital_twin.get_authorization_url(chat_id)
+                from clients.ory_oauth import ory_oauth
+                auth_url, state = await ory_oauth.get_authorization_url(chat_id)
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)],
                     [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
@@ -1257,10 +1258,10 @@ class SettingsState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
-        from clients.digital_twin import digital_twin
+        from clients.gateway_mcp import gateway_mcp
 
-        if digital_twin.is_connected(chat_id):
-            digital_twin.disconnect(chat_id)
+        if gateway_mcp.is_connected(chat_id):
+            gateway_mcp.disconnect(chat_id)
         # Clear persistent flag
         try:
             from db import get_pool

@@ -309,7 +309,8 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
         from db.queries.users import get_intern
         intern = await get_intern(telegram_user_id)
         if intern:
-            synced = await digital_twin.sync_profile(telegram_user_id, intern)
+            from clients.gateway_mcp import gateway_mcp
+            synced = await gateway_mcp.sync_profile(telegram_user_id, intern)
             logger.info(f"DT initial sync for user {telegram_user_id}: {synced} fields")
     except Exception as e:
         logger.error(f"DT initial sync failed for user {telegram_user_id}: {e}")

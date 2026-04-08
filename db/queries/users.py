@@ -362,11 +362,11 @@ async def update_intern(chat_id: int, **kwargs):
 
     # Инкрементальный sync в ЦД (fire-and-forget)
     try:
-        from clients.digital_twin import digital_twin
-        if digital_twin.is_connected(chat_id):
-            mapped = {k: v for k, v in kwargs.items() if k in digital_twin.PROFILE_DT_MAPPING}
+        from clients.gateway_mcp import gateway_mcp
+        if gateway_mcp.is_connected(chat_id):
+            mapped = {k: v for k, v in kwargs.items() if k in gateway_mcp.PROFILE_DT_MAPPING}
             if mapped:
-                asyncio.create_task(digital_twin.sync_fields(chat_id, mapped))
+                asyncio.create_task(gateway_mcp.sync_fields(chat_id, mapped))
     except Exception:
         pass  # DT sync — best effort
 

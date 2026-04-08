@@ -127,16 +127,10 @@ async def _is_github_connected(chat_id: int) -> bool:
 
 
 async def _is_dt_connected(chat_id: int) -> bool:
-    """Check if Digital Twin is connected (has valid tokens, not just dt_connected_at)."""
+    """Check if Digital Twin is connected (has valid Ory tokens via Gateway)."""
     try:
-        # First check in-memory (fastest)
-        from clients.digital_twin import digital_twin
-        if digital_twin.is_connected(chat_id):
-            return True
-        # Fallback: check DB tokens (after redeploy, before load)
-        from db.queries.dt_tokens import get_dt_user_id
-        dt_uid = await get_dt_user_id(chat_id)
-        return dt_uid is not None
+        from clients.gateway_mcp import gateway_mcp
+        return gateway_mcp.is_connected(chat_id)
     except Exception:
         return False
 

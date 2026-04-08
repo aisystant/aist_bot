@@ -129,8 +129,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
-    _scheduler.add_job(_dt_proactive_refresh, 'cron', minute='*/15')  # DT: proactive token refresh every 15 min (WP-82)
-    _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209)
+    _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)  # DT: sync engagement → digital_twins daily 04:30 MSK (WP-85 Phase 4)
     _scheduler.start()
 
@@ -1268,21 +1267,6 @@ async def _gateway_proactive_refresh():
         logger.warning(f"[Scheduler] Gateway Ory refresh failed: {e}")
 
 
-async def _dt_proactive_refresh():
-    """Обновить DT токены, истекающие в ближайшие 10 минут.
-
-    Запускается каждые 15 мин. Access token TTL = 1 час,
-    поэтому refresh нужен минимум раз в час. 15 мин = запас.
-    """
-    try:
-        from clients.digital_twin import digital_twin
-        refreshed = await digital_twin.refresh_expiring_tokens(margin_seconds=600)
-        if refreshed:
-            logger.info(f"[Scheduler] DT proactive refresh: {refreshed} tokens refreshed")
-    except Exception as e:
-        logger.warning(f"[Scheduler] DT proactive refresh failed: {e}")
-
-
 # ═══════════════════════════════════════════════════════════
 # DIGITAL TWIN ENGAGEMENT SYNC (WP-85 Phase 4)
 # ═══════════════════════════════════════════════════════════
@@ -1307,10 +1291,10 @@ async def _dt_sync_engagement():
 
 async def _sync_dt_connected_users():
     """Проверяет подключённых к ЦД пользователей и досинхронизирует профиль."""
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
     from db.queries.users import get_intern
 
-    connected_ids = digital_twin.get_connected_user_ids()
+    connected_ids = gateway_mcp.get_connected_user_ids()
     if not connected_ids:
         return
 
@@ -1318,7 +1302,7 @@ async def _sync_dt_connected_users():
         try:
             intern = await get_intern(user_id)
             if intern:
-                await digital_twin.sync_profile(user_id, intern)
+                await gateway_mcp.sync_profile(user_id, intern)
         except Exception as e:
             logger.error(f"[DT Sync] Retry failed for user {user_id}: {e}")
 

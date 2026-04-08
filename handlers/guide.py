@@ -48,11 +48,12 @@ async def cmd_guide(message: Message):
 
     # T2: приглашение подключить ЦД
     if tier <= UITier.T2_LEARNING:
-        from clients.digital_twin import digital_twin
-        is_connected = digital_twin.is_connected(chat_id)
+        from clients.gateway_mcp import gateway_mcp
+        is_connected = gateway_mcp.is_connected(chat_id)
 
         if not is_connected:
-            auth_url, _state = digital_twin.get_authorization_url(chat_id)
+            from clients.ory_oauth import ory_oauth
+            auth_url, _state = await ory_oauth.get_authorization_url(chat_id)
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('guide.btn_connect_dt', lang), url=auth_url)],
             ])
@@ -69,12 +70,12 @@ async def cmd_guide(message: Message):
 
 async def _show_profile(message: Message, chat_id: int, lang: str):
     """Показать профиль Digital Twin через Гид."""
-    from clients.digital_twin import digital_twin
+    from clients.gateway_mcp import gateway_mcp
     from handlers.twin import _profile_text
 
     intern = await get_intern(chat_id)
 
-    if not digital_twin.is_connected(chat_id):
+    if not gateway_mcp.is_connected(chat_id):
         # Проверяем persistent flag
         try:
             from db import get_pool
@@ -90,7 +91,8 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
             pass
 
         # Не подключён — показываем приглашение
-        auth_url, _state = digital_twin.get_authorization_url(chat_id)
+        from clients.ory_oauth import ory_oauth
+        auth_url, _state = await ory_oauth.get_authorization_url(chat_id)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t('guide.btn_connect_dt', lang), url=auth_url)],
         ])
@@ -103,7 +105,7 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
 
     await message.answer(t('guide.loading', lang))
     async with keep_typing(message):
-        profile = await digital_twin.get_user_profile(chat_id)
+        profile = await gateway_mcp.get_user_profile(chat_id)
     if profile is None:
         await message.answer(t('guide.unavailable', lang))
         return
