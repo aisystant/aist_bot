@@ -1,8 +1,12 @@
 """
-IWE Connect wizard — подключение AI-клиентов (WP-209 Ф1).
+IWE Connect wizard — инструкции подключения AI-клиентов (WP-209 Ф1).
 
-Команда /connect показывает статус IWE-подключений и помогает
-пользователю настроить claude.ai, Cursor, ChatGPT, GitHub.
+Команда /connect показывает как подключить AI-ассистент (claude.ai,
+Cursor, ChatGPT, Claude Code) к знаниям платформы через Gateway MCP.
+
+НЕ дублирует Settings → Подключения (OAuth-подключения бота).
+/connect = инструкции для ВНЕШНИХ AI-клиентов.
+Settings = управление подключениями БОТА (Gateway, GitHub, WakaTime, Calendar).
 
 Связь с WP-199: после реализации нового онбординга (Ф3)
 кнопка «Подключить IWE» вызовет этот wizard.
@@ -25,16 +29,11 @@ connect_router = Router(name="connect")
 
 # ============= MAIN MENU =============
 
-def _build_status_text(lang: str, gateway: bool, github: bool) -> str:
-    """Текст статуса подключений."""
-    def chk(ok):
-        return "✅" if ok else "☐"
-
+def _build_menu_text(lang: str) -> str:
+    """Текст главного экрана wizard."""
     return (
         f"*{t('connect.title', lang)}*\n\n"
         f"{t('connect.subtitle', lang)}\n\n"
-        f"{chk(gateway)} {t('connect.status_gateway', lang)}\n"
-        f"{chk(github)} GitHub\n\n"
         f"{t('connect.choose_client', lang)}"
     )
 
@@ -45,10 +44,7 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🤖 Claude (claude.ai)", callback_data="iwe_claude")],
         [InlineKeyboardButton(text="⌨️ Cursor / Windsurf / Cline", callback_data="iwe_cursor")],
         [InlineKeyboardButton(text="💬 ChatGPT", callback_data="iwe_chatgpt")],
-        [
-            InlineKeyboardButton(text="🐙 GitHub", callback_data="iwe_github"),
-            InlineKeyboardButton(text="🌐 Gateway", callback_data="iwe_gateway"),
-        ],
+        [InlineKeyboardButton(text="🖥 Claude Code (полный IWE)", callback_data="iwe_claude_code")],
         [InlineKeyboardButton(text=t('connect.done', lang), callback_data="iwe_close")],
     ])
 
@@ -63,12 +59,8 @@ async def cmd_connect(message: Message):
         return
 
     lang = intern.get('language', 'ru') or 'ru'
-    chat_id = message.chat.id
-
-    gateway, github = await _check_connections(chat_id)
-    text = _build_status_text(lang, gateway, github)
+    text = _build_menu_text(lang)
     keyboard = _build_menu_keyboard(lang)
-
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -76,16 +68,13 @@ async def cmd_connect(message: Message):
 async def on_connect_start(callback: CallbackQuery):
     """Точка входа из onboarding (inline-кнопка после /start)."""
     await callback.answer()
-    chat_id = callback.from_user.id
-    intern = await get_intern(chat_id)
+    intern = await get_intern(callback.from_user.id)
     if not intern:
         return
     lang = intern.get('language', 'ru') or 'ru'
 
-    gateway, github = await _check_connections(chat_id)
-    text = _build_status_text(lang, gateway, github)
+    text = _build_menu_text(lang)
     keyboard = _build_menu_keyboard(lang)
-
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -141,83 +130,18 @@ async def on_chatgpt(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
-@connect_router.callback_query(F.data == "iwe_github")
-async def on_github(callback: CallbackQuery):
-    """GitHub — перенаправляем в Settings для OAuth."""
+@connect_router.callback_query(F.data == "iwe_claude_code")
+async def on_claude_code(callback: CallbackQuery):
+    """Инструкция подключения Claude Code (полный IWE)."""
     await callback.answer()
     intern = await get_intern(callback.from_user.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
-    chat_id = callback.from_user.id
 
-    try:
-        from clients.github_oauth import github_oauth
-        is_connected = await github_oauth.is_connected(chat_id)
-
-        if is_connected:
-            user_info = await github_oauth.get_user(chat_id)
-            login = user_info.get("login", "?") if user_info else "?"
-            text = t('connect.github_connected', lang, login=login)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                _back_button(lang),
-            ])
-        else:
-            from config import GITHUB_CLIENT_ID
-            if not GITHUB_CLIENT_ID:
-                text = t('connect.gateway_unavailable', lang)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_button(lang)])
-            else:
-                auth_url, _ = await github_oauth.get_authorization_url(chat_id)
-                text = t('connect.github_instructions', lang)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🐙 " + t('connect.connect_github', lang), url=auth_url)],
-                    _back_button(lang),
-                ])
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"[Connect] GitHub error for {chat_id}: {e}")
-        await callback.message.edit_text(
-            t('connect.gateway_unavailable', lang),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[_back_button(lang)]),
-        )
-
-
-@connect_router.callback_query(F.data == "iwe_gateway")
-async def on_gateway(callback: CallbackQuery):
-    """Gateway — Ory OAuth подключение."""
-    await callback.answer()
-    intern = await get_intern(callback.from_user.id)
-    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
-    chat_id = callback.from_user.id
-
-    try:
-        from clients.gateway_mcp import gateway_mcp
-        is_connected = gateway_mcp.is_connected(chat_id)
-
-        if is_connected:
-            text = t('connect.gateway_connected', lang)
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                _back_button(lang),
-            ])
-        else:
-            from clients.ory_oauth import ory_oauth
-            from config import ORY_CLIENT_ID
-            if not ORY_CLIENT_ID:
-                text = t('connect.gateway_unavailable', lang)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_button(lang)])
-            else:
-                auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
-                text = t('connect.gateway_instructions', lang)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🌐 " + t('connect.connect_gateway', lang), url=auth_url)],
-                    _back_button(lang),
-                ])
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"[Connect] Gateway error for {chat_id}: {e}")
-        await callback.message.edit_text(
-            t('connect.gateway_unavailable', lang),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[_back_button(lang)]),
-        )
+    text = t('connect.claude_code_instructions', lang, gateway_url=GATEWAY_MCP_URL)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        _back_button(lang),
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
 # ============= NAVIGATION =============
@@ -226,14 +150,11 @@ async def on_gateway(callback: CallbackQuery):
 async def on_back(callback: CallbackQuery):
     """Назад к списку клиентов."""
     await callback.answer()
-    chat_id = callback.from_user.id
-    intern = await get_intern(chat_id)
+    intern = await get_intern(callback.from_user.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
 
-    gateway, github = await _check_connections(chat_id)
-    text = _build_status_text(lang, gateway, github)
+    text = _build_menu_text(lang)
     keyboard = _build_menu_keyboard(lang)
-
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -244,16 +165,3 @@ async def on_close(callback: CallbackQuery):
     intern = await get_intern(callback.from_user.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     await callback.message.edit_text(t('connect.closed', lang), parse_mode="Markdown")
-
-
-# ============= HELPERS =============
-
-async def _check_connections(chat_id: int) -> tuple:
-    """Проверить статус подключений. Returns (gateway, github)."""
-    from clients.gateway_mcp import gateway_mcp
-    gateway = gateway_mcp.is_connected(chat_id)
-
-    from clients.github_oauth import github_oauth
-    github = await github_oauth.is_connected(chat_id)
-
-    return gateway, github

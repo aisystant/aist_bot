@@ -445,20 +445,16 @@ onboarding:
 # -----------------------------------------------------------------------------
 connect:
   title:
-    ru: "Подключение IWE"
-    en: "Connect IWE"
+    ru: "Подключение IWE к AI-ассистенту"
+    en: "Connect IWE to AI assistant"
 
   subtitle:
-    ru: "IWE работает через AI-ассистентов. Выбери, какой у тебя:"
-    en: "IWE works through AI assistants. Choose yours:"
-
-  status_gateway:
-    ru: "Gateway (знания платформы)"
-    en: "Gateway (platform knowledge)"
+    ru: "IWE подключается к твоему AI-ассистенту за 2 минуты. Помощник получит доступ к базе знаний (5000+ документов) и твоему профилю."
+    en: "IWE connects to your AI assistant in 2 minutes. The assistant gets access to the knowledge base (5000+ documents) and your profile."
 
   choose_client:
-    ru: "Выбери клиент для настройки:"
-    en: "Choose a client to set up:"
+    ru: "Выбери свой AI-ассистент:"
+    en: "Choose your AI assistant:"
 
   done:
     ru: "Готово"
@@ -473,8 +469,8 @@ connect:
     en: "Please /start first to register."
 
   closed:
-    ru: "Настройка завершена. Набери /connect в любой момент, чтобы вернуться."
-    en: "Setup complete. Type /connect anytime to return."
+    ru: "Набери /connect в любой момент, чтобы вернуться к инструкциям."
+    en: "Type /connect anytime to return to instructions."
 
   # --- claude.ai ---
   open_claude:
@@ -483,25 +479,27 @@ connect:
 
   claude_instructions:
     ru: |
-      *Claude (claude.ai / Claude Code)*
+      *Claude (claude.ai)*
 
-      1. Открой claude.ai → Settings → Integrations
-      2. Нажми «Add integration» → «Custom MCP»
-      3. Введи URL: `{gateway_url}`
-      4. Дай имя: `IWE Knowledge`
-      5. Авторизуйся через единый вход
+      Нужна подписка Claude Pro ($20/мес).
 
-      После подключения Claude сможет искать по знаниям платформы и твоим личным репо.
+      1. Открой claude.ai → имя профиля → Settings
+      2. Раздел Integrations → Add custom integration
+      3. Name: `IWE`, URL: `{gateway_url}`
+      4. Нажми Save → авторизуйся через аккаунт system-school.ru
+
+      Открой новый чат и напиши: «С чего мне начать?»
     en: |
-      *Claude (claude.ai / Claude Code)*
+      *Claude (claude.ai)*
 
-      1. Open claude.ai → Settings → Integrations
-      2. Click «Add integration» → «Custom MCP»
-      3. Enter URL: `{gateway_url}`
-      4. Name it: `IWE Knowledge`
-      5. Authorize via single sign-on
+      Requires Claude Pro subscription ($20/mo).
 
-      Once connected, Claude can search platform knowledge and your personal repos.
+      1. Open claude.ai → profile name → Settings
+      2. Integrations → Add custom integration
+      3. Name: `IWE`, URL: `{gateway_url}`
+      4. Click Save → authorize via system-school.ru account
+
+      Open a new chat and type: "Where should I start?"
 
   # --- Cursor / Windsurf / Cline ---
   cursor_instructions:
@@ -535,85 +533,48 @@ connect:
   # --- ChatGPT ---
   chatgpt_instructions:
     ru: |
-      *ChatGPT (Developer Mode)*
+      *ChatGPT*
 
-      1. Открой ChatGPT → настройки чата → MCP
-      2. Добавь новый сервер
+      Требуется Business или Enterprise план.
+
+      1. Workspace Settings → MCP
+      2. Добавь новый MCP connector
       3. URL: `{gateway_url}`
-      4. Авторизуйся через единый вход
+      4. Авторизуйся через аккаунт system-school.ru
 
       ChatGPT получит доступ к тем же знаниям, что и другие клиенты.
     en: |
-      *ChatGPT (Developer Mode)*
+      *ChatGPT*
 
-      1. Open ChatGPT → chat settings → MCP
-      2. Add new server
+      Requires Business or Enterprise plan.
+
+      1. Workspace Settings → MCP
+      2. Add new MCP connector
       3. URL: `{gateway_url}`
-      4. Authorize via single sign-on
+      4. Authorize via system-school.ru account
 
       ChatGPT will access the same knowledge as other clients.
 
-  # --- GitHub ---
-  connect_github:
-    ru: "Подключить GitHub"
-    en: "Connect GitHub"
-
-  github_instructions:
+  # --- Claude Code ---
+  claude_code_instructions:
     ru: |
-      *GitHub*
+      *Claude Code (полный IWE)*
 
-      Подключи GitHub, чтобы бот мог:
-      • Записывать заметки в твой репозиторий
-      • Публиковать черновики постов
-      • Работать с экзокортексом
+      Это полная версия: планирование дня, ИИ-стратег, автоматические отчёты.
 
-      Нажми кнопку ниже для авторизации.
+      Инструкция по установке:
+      github.com/aisystant/FMT-exocortex-template
+
+      После установки запусти `bash setup/setup.sh` — он создаст `.mcp.json` автоматически.
     en: |
-      *GitHub*
+      *Claude Code (full IWE)*
 
-      Connect GitHub so the bot can:
-      • Save notes to your repository
-      • Publish draft posts
-      • Work with your exocortex
+      This is the full version: day planning, AI strategist, automatic reports.
 
-      Click the button below to authorize.
+      Setup guide:
+      github.com/aisystant/FMT-exocortex-template
 
-  github_connected:
-    ru: "🐙 *GitHub подключён*\n\nАккаунт: *{login}*\nНастройки репозиториев — в /settings → Подключения."
-    en: "🐙 *GitHub connected*\n\nAccount: *{login}*\nConfigure repos in /settings → Connections."
-
-  # --- Gateway ---
-  connect_gateway:
-    ru: "Подключить"
-    en: "Connect"
-
-  gateway_instructions:
-    ru: |
-      *Gateway (IWE)*
-
-      Подключи Gateway, чтобы бот мог:
-      • Искать по знаниям платформы и твоим личным репо
-      • Читать Цифровой двойник
-      • Персонализировать ответы
-
-      Нажми кнопку для авторизации.
-    en: |
-      *Gateway (IWE)*
-
-      Connect Gateway so the bot can:
-      • Search platform knowledge and your personal repos
-      • Read your Digital Twin
-      • Personalize answers
-
-      Click the button to authorize.
-
-  gateway_connected:
-    ru: "🌐 *Gateway подключён*\n\nБот может искать по знаниям и читать ЦД."
-    en: "🌐 *Gateway connected*\n\nBot can search knowledge and read your DT."
-
-  gateway_unavailable:
-    ru: "Подключение временно недоступно."
-    en: "Connection temporarily unavailable."
+      After install, run `bash setup/setup.sh` — it creates `.mcp.json` automatically.
 
   # --- Onboarding prompt ---
   onboarding_prompt:
