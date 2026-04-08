@@ -441,6 +441,190 @@ onboarding:
     en: "Help me choose"
 
 # -----------------------------------------------------------------------------
+# IWE Connect wizard (WP-209 Ф1)
+# -----------------------------------------------------------------------------
+connect:
+  title:
+    ru: "Подключение IWE"
+    en: "Connect IWE"
+
+  subtitle:
+    ru: "IWE работает через AI-ассистентов. Выбери, какой у тебя:"
+    en: "IWE works through AI assistants. Choose yours:"
+
+  status_gateway:
+    ru: "Gateway (знания платформы)"
+    en: "Gateway (platform knowledge)"
+
+  choose_client:
+    ru: "Выбери клиент для настройки:"
+    en: "Choose a client to set up:"
+
+  done:
+    ru: "Готово"
+    en: "Done"
+
+  back_to_list:
+    ru: "← Назад к списку"
+    en: "← Back to list"
+
+  need_start:
+    ru: "Сначала нажми /start для регистрации."
+    en: "Please /start first to register."
+
+  closed:
+    ru: "Настройка завершена. Набери /connect в любой момент, чтобы вернуться."
+    en: "Setup complete. Type /connect anytime to return."
+
+  # --- claude.ai ---
+  open_claude:
+    ru: "Открыть claude.ai"
+    en: "Open claude.ai"
+
+  claude_instructions:
+    ru: |
+      *Claude (claude.ai / Claude Code)*
+
+      1. Открой claude.ai → Settings → Integrations
+      2. Нажми «Add integration» → «Custom MCP»
+      3. Введи URL: `{gateway_url}`
+      4. Дай имя: `IWE Knowledge`
+      5. Авторизуйся через единый вход
+
+      После подключения Claude сможет искать по знаниям платформы и твоим личным репо.
+    en: |
+      *Claude (claude.ai / Claude Code)*
+
+      1. Open claude.ai → Settings → Integrations
+      2. Click «Add integration» → «Custom MCP»
+      3. Enter URL: `{gateway_url}`
+      4. Name it: `IWE Knowledge`
+      5. Authorize via single sign-on
+
+      Once connected, Claude can search platform knowledge and your personal repos.
+
+  # --- Cursor / Windsurf / Cline ---
+  cursor_instructions:
+    ru: |
+      *Cursor / Windsurf / Cline*
+
+      Добавь в файл `.mcp.json` в корне проекта:
+
+      ```
+      "iwe-knowledge": {{
+        "type": "http",
+        "url": "{gateway_url}"
+      }}
+      ```
+
+      Перезапусти редактор. При первом вызове — авторизация через браузер.
+    en: |
+      *Cursor / Windsurf / Cline*
+
+      Add to `.mcp.json` in your project root:
+
+      ```
+      "iwe-knowledge": {{
+        "type": "http",
+        "url": "{gateway_url}"
+      }}
+      ```
+
+      Restart the editor. First call will prompt browser auth.
+
+  # --- ChatGPT ---
+  chatgpt_instructions:
+    ru: |
+      *ChatGPT (Developer Mode)*
+
+      1. Открой ChatGPT → настройки чата → MCP
+      2. Добавь новый сервер
+      3. URL: `{gateway_url}`
+      4. Авторизуйся через единый вход
+
+      ChatGPT получит доступ к тем же знаниям, что и другие клиенты.
+    en: |
+      *ChatGPT (Developer Mode)*
+
+      1. Open ChatGPT → chat settings → MCP
+      2. Add new server
+      3. URL: `{gateway_url}`
+      4. Authorize via single sign-on
+
+      ChatGPT will access the same knowledge as other clients.
+
+  # --- GitHub ---
+  connect_github:
+    ru: "Подключить GitHub"
+    en: "Connect GitHub"
+
+  github_instructions:
+    ru: |
+      *GitHub*
+
+      Подключи GitHub, чтобы бот мог:
+      • Записывать заметки в твой репозиторий
+      • Публиковать черновики постов
+      • Работать с экзокортексом
+
+      Нажми кнопку ниже для авторизации.
+    en: |
+      *GitHub*
+
+      Connect GitHub so the bot can:
+      • Save notes to your repository
+      • Publish draft posts
+      • Work with your exocortex
+
+      Click the button below to authorize.
+
+  github_connected:
+    ru: "🐙 *GitHub подключён*\n\nАккаунт: *{login}*\nНастройки репозиториев — в /settings → Подключения."
+    en: "🐙 *GitHub connected*\n\nAccount: *{login}*\nConfigure repos in /settings → Connections."
+
+  # --- Gateway ---
+  connect_gateway:
+    ru: "Подключить"
+    en: "Connect"
+
+  gateway_instructions:
+    ru: |
+      *Gateway (IWE)*
+
+      Подключи Gateway, чтобы бот мог:
+      • Искать по знаниям платформы и твоим личным репо
+      • Читать Цифровой двойник
+      • Персонализировать ответы
+
+      Нажми кнопку для авторизации.
+    en: |
+      *Gateway (IWE)*
+
+      Connect Gateway so the bot can:
+      • Search platform knowledge and your personal repos
+      • Read your Digital Twin
+      • Personalize answers
+
+      Click the button to authorize.
+
+  gateway_connected:
+    ru: "🌐 *Gateway подключён*\n\nБот может искать по знаниям и читать ЦД."
+    en: "🌐 *Gateway connected*\n\nBot can search knowledge and read your DT."
+
+  gateway_unavailable:
+    ru: "Подключение временно недоступно."
+    en: "Connection temporarily unavailable."
+
+  # --- Onboarding prompt ---
+  onboarding_prompt:
+    ru: "Хочешь подключить AI-ассистент к знаниям платформы?"
+    en: "Want to connect an AI assistant to platform knowledge?"
+
+  onboarding_button:
+    ru: "Подключить IWE"
+    en: "Connect IWE"
+
+# -----------------------------------------------------------------------------
 # Длительность
 # -----------------------------------------------------------------------------
 duration:

@@ -126,9 +126,9 @@ TIER_KEYBOARD = {
 TIER_MENU_COMMANDS = {
     UITier.T0:             ['link', 'schedule', 'me', 'about', 'features', 'test', 'navigator', 'contacts', 'help'],
     UITier.T1:           ['schedule', 'buy', 'learn', 'me', 'features', 'about', 'feed_info', 'test', 'navigator', 'help'],
-    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'test', 'navigator', 'about', 'settings', 'help'],
-    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'guide', 'test', 'navigator', 'settings', 'help'],
-    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'me', 'club', 'train', 'feed', 'features', 'navigator', 'mode', 'settings', 'start', 'help'],
+    UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'test', 'navigator', 'connect', 'about', 'settings', 'help'],
+    UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'me', 'train', 'features', 'guide', 'test', 'navigator', 'connect', 'settings', 'help'],
+    UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'me', 'club', 'train', 'feed', 'features', 'navigator', 'connect', 'mode', 'settings', 'start', 'help'],
     # T5: not here — set in bot.py as dev commands
 }
 
@@ -165,6 +165,8 @@ COMMAND_DESCRIPTIONS = {
     'features': {'ru': 'Возможности платформы',             'en': 'Platform features',          'es': 'Funciones de la plataforma', 'fr': 'Fonctionnalités',              'zh': '平台功能'},
     # WP-156
     'navigator': {'ru': 'Навигатор — помощь в выборе пути', 'en': 'Navigator — help choosing a path', 'es': 'Navegador — ayuda para elegir', 'fr': 'Navigateur — aide au choix', 'zh': '导航 — 帮助选择路径'},
+    # WP-209 Ф1
+    'connect':   {'ru': 'Подключить AI-ассистент к IWE',   'en': 'Connect AI assistant to IWE',  'es': 'Conectar asistente IA a IWE','fr': 'Connecter assistant IA à IWE', 'zh': '连接AI助手到IWE'},
 }
 
 

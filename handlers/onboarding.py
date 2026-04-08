@@ -224,14 +224,21 @@ async def cmd_start(message: Message, state: FSMContext):
     )
 
     # WP-156: Inline-кнопка «Помоги выбрать» → Навигатор (SS.1: ЦД пуст, задаёт вопросы)
-    nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
+    # WP-209 Ф1: + кнопка «Подключить IWE» → /connect wizard
+    nav_buttons = [[
         InlineKeyboardButton(
             text="🧭 " + t('onboarding.navigator_hint', lang),
             callback_data="start_navigator",
         )
-    ]])
+    ], [
+        InlineKeyboardButton(
+            text="🌐 " + t('connect.onboarding_button', lang),
+            callback_data="iwe_connect_start",
+        )
+    ]]
+    nav_kb = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
     await message.answer(
-        t('onboarding.navigator_offer', lang),
+        t('onboarding.navigator_offer', lang) + "\n\n" + t('connect.onboarding_prompt', lang),
         reply_markup=nav_kb,
     )
 
