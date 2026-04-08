@@ -198,25 +198,25 @@ async def sync_engagement_to_dt() -> dict:
                 logger.warning(f"[DT Sync] learning_history not available: {e}")
 
             # ─── LMS Qualifications (WP-151 fix) ───
-            # identity_map: user_uuid → lms_user_id для маппинга квалификаций
-            qual_by_uuid: dict = {}
+            # Маппинг через users.aisystant_id (= LMS suser.id).
+            # Не через identity_map — UUID там может отличаться от engagement UUID.
+            # qual_by_chat_id: {telegram_id: qualification}
+            qual_by_chat_id: dict = {}
             try:
-                im_rows = await conn.fetch('''
-                    SELECT external_id, user_uuid::TEXT AS user_uuid
-                    FROM development.identity_map
-                    WHERE source = 'lms'
+                users_with_aisystant = await conn.fetch('''
+                    SELECT telegram_id, aisystant_id
+                    FROM public.users
+                    WHERE aisystant_id IS NOT NULL AND aisystant_id != ''
                 ''')
-                # {lms_user_id: user_uuid}
-                lms_to_uuid = {r['external_id']: r['user_uuid'] for r in im_rows}
+                aisystant_ids = [r['aisystant_id'] for r in users_with_aisystant]
 
-                if lms_to_uuid:
-                    lms_quals = await _preload_lms_qualifications(list(lms_to_uuid.keys()))
-                    # Remap: user_uuid → qualification
-                    for lms_id, qual in lms_quals.items():
-                        uuid = lms_to_uuid.get(lms_id)
-                        if uuid:
-                            qual_by_uuid[uuid] = qual
-                    logger.info(f"[DT Sync] Mapped {len(qual_by_uuid)} qualifications to UUIDs")
+                if aisystant_ids:
+                    lms_quals = await _preload_lms_qualifications(aisystant_ids)
+                    for r in users_with_aisystant:
+                        qual = lms_quals.get(r['aisystant_id'])
+                        if qual:
+                            qual_by_chat_id[r['telegram_id']] = qual
+                    logger.info(f"[DT Sync] Mapped {len(qual_by_chat_id)} qualifications via aisystant_id")
             except Exception as e:
                 logger.warning(f"[DT Sync] LMS qualification mapping failed: {e}")
 
@@ -300,8 +300,7 @@ async def sync_engagement_to_dt() -> dict:
                     }
 
                     # ─── LMS Qualification → 2_2_courses (WP-151 fix) ───
-                    user_uuid_str = str(row['user_uuid'])
-                    qual = qual_by_uuid.get(user_uuid_str)
+                    qual = qual_by_chat_id.get(row['user_id'])
                     if qual:
                         collected_data["2_2_courses"]["qualification_level"] = qual
 
@@ -613,13 +612,14 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
 
             # ─── LMS Qualification for single user (WP-151 fix) ───
             try:
-                im_row = await conn.fetchrow('''
-                    SELECT external_id FROM development.identity_map
-                    WHERE source = 'lms' AND user_uuid::TEXT = $1
-                ''', str(row['user_uuid']))
-                if im_row:
-                    quals = await _preload_lms_qualifications([im_row['external_id']])
-                    qual = quals.get(im_row['external_id'])
+                user_row = await conn.fetchrow('''
+                    SELECT aisystant_id FROM public.users
+                    WHERE telegram_id = $1
+                      AND aisystant_id IS NOT NULL AND aisystant_id != ''
+                ''', row['user_id'])
+                if user_row:
+                    quals = await _preload_lms_qualifications([user_row['aisystant_id']])
+                    qual = quals.get(user_row['aisystant_id'])
                     if qual:
                         collected_data["2_2_courses"]["qualification_level"] = qual
             except Exception as e:
