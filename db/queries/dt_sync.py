@@ -390,6 +390,42 @@ async def sync_engagement_to_dt() -> dict:
                             'day_opens_30d': iwe_stats['day_opens_30d'],
                         })
 
+                    # ─── 2_8_decisions from user_events (WP-109 Ф7, PD.SOTA.003) ───
+                    decision_stats = await conn.fetchrow('''
+                        SELECT
+                            COUNT(*) AS decisions_today,
+                            COALESCE(SUM((payload->>'weight')::int), 0) AS decision_weight_today
+                        FROM development.user_events
+                        WHERE user_uuid = $1::uuid
+                          AND source = 'exocortex'
+                          AND event_type LIKE 'decision_%'
+                          AND created_at >= CURRENT_DATE
+                    ''', user_id)
+
+                    decision_7d = await conn.fetchrow('''
+                        SELECT
+                            COALESCE(
+                                AVG(daily_weight), 0
+                            )::int AS decision_weight_7d_avg
+                        FROM (
+                            SELECT DATE(created_at) AS d,
+                                   SUM((payload->>'weight')::int) AS daily_weight
+                            FROM development.user_events
+                            WHERE user_uuid = $1::uuid
+                              AND source = 'exocortex'
+                              AND event_type LIKE 'decision_%'
+                              AND created_at >= NOW() - INTERVAL '7 days'
+                            GROUP BY DATE(created_at)
+                        ) daily
+                    ''', user_id)
+
+                    if decision_stats and decision_stats['decisions_today'] > 0:
+                        collected_data['2_8_decisions'] = {
+                            'decisions_today': decision_stats['decisions_today'],
+                            'decision_weight_today': decision_stats['decision_weight_today'],
+                            'decision_weight_7d_avg': decision_7d['decision_weight_7d_avg'] if decision_7d else 0,
+                        }
+
                     # Fallback: если user_events пусто, подтянуть из digital_twins
                     # (dt-collect snapshot, переходный период)
                     if '2_6_coding' not in collected_data or '2_7_iwe' not in collected_data:
