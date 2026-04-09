@@ -51,6 +51,7 @@
 {ontology_rules}
 {knowledge_section}
 {standard_section}
+{iwe_section}
 {personal_section}
 {bot_section}
 
