@@ -12,7 +12,7 @@ Pre-search (search-first pattern):
 
 Архитектурное решение (DP.ARCH.002):
 - T1 Expert: user_profile + bot_context + pre_search
-- T2 Mentor: + standard_claude
+- T2 Mentor: + standard_claude + iwe_instructions
 - T3 Co-thinker: + personal_claude
 - T4 Architect: = T3 (future: + progress, plans)
 """
@@ -71,6 +71,41 @@ async def collect_personal_claude(
     if not personal_claude_md:
         return ("personal_section", "")
     return ("personal_section", f"\n\nПЕРСОНАЛЬНЫЙ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ:\n{personal_claude_md}")
+
+
+async def collect_iwe_instructions(
+    intern: dict, lang: str, **kwargs
+) -> CollectorResult:
+    """IWE platform instructions через Gateway get_instructions → {iwe_section}.
+
+    Даёт Claude знания о платформе IWE: что такое IWE, как подключить клиентов
+    (Cursor, Claude.ai, ChatGPT, Claude Code), что такое Pack, Gateway и т.д.
+    Без этого бот не может ответить на вопросы про IWE-инфраструктуру.
+
+    WP-209 Ф2b: бот как консультант по IWE.
+    """
+    try:
+        from clients.gateway_mcp import gateway_mcp
+
+        telegram_user_id = intern.get('chat_id')
+        instructions = await gateway_mcp.get_instructions(telegram_user_id)
+
+        if not instructions:
+            return ("iwe_section", "")
+
+        # IWE_SYSTEM_PROMPT ~11.5KB. Берём до 6000 символов —
+        # достаточно для core rules, tools, roles, onboarding.
+        truncated = instructions[:6000]
+        section = (
+            f"\n\nИНСТРУКЦИИ ПЛАТФОРМЫ IWE:\n{truncated}\n"
+            "Используй эту информацию для ответов о платформе IWE, "
+            "подключении клиентов, архитектуре и возможностях."
+        )
+        logger.info(f"IWE instructions loaded: {len(truncated)} chars")
+        return ("iwe_section", section)
+    except Exception as e:
+        logger.warning(f"IWE instructions error: {e}")
+        return ("iwe_section", "")
 
 
 async def collect_pre_search(
@@ -224,9 +259,9 @@ async def collect_user_progress(
 
 TIER_PIPELINE: Dict[int, List] = {
     1: [collect_user_profile, collect_bot_context, collect_pre_search, collect_user_progress],
-    2: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_user_progress],
-    3: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_personal_claude, collect_user_progress],
-    4: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_personal_claude, collect_user_progress],
+    2: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_iwe_instructions, collect_user_progress],
+    3: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_iwe_instructions, collect_personal_claude, collect_user_progress],
+    4: [collect_user_profile, collect_bot_context, collect_pre_search, collect_standard_claude, collect_iwe_instructions, collect_personal_claude, collect_user_progress],
 }
 
 
@@ -256,8 +291,8 @@ async def assemble_context(
 
     Returns:
         Dict с ключами для fill_tier_prompt:
-        {user_profile, bot_section, standard_section, personal_section,
-         dynamic_sections, knowledge_section}
+        {user_profile, bot_section, standard_section, iwe_section,
+         personal_section, dynamic_sections, knowledge_section}
     """
     collectors = TIER_PIPELINE.get(tier, TIER_PIPELINE[1])
 
@@ -283,6 +318,7 @@ async def assemble_context(
         "bot_section": "",
         "standard_section": "",
         "personal_section": "",
+        "iwe_section": "",
         "dynamic_sections": "",
         "progress_section": "",
         "knowledge_section": "",
