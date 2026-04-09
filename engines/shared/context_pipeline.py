@@ -87,8 +87,9 @@ async def collect_iwe_instructions(
     try:
         from clients.gateway_mcp import gateway_mcp
 
-        telegram_user_id = intern.get('chat_id')
-        instructions = await gateway_mcp.get_instructions(telegram_user_id)
+        # get_instructions — публичный tool, не требует auth.
+        # Вызываем без telegram_user_id, чтобы не слать протухший Bearer token.
+        instructions = await gateway_mcp.get_instructions()
 
         if not instructions:
             return ("iwe_section", "")
