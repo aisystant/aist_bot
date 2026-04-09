@@ -366,6 +366,15 @@ class ClaudeClient:
                                 if 'stop_reason' in delta:
                                     stop_reason = delta['stop_reason']
 
+                            elif event_type == 'error':
+                                error_data = event.get('error', {})
+                                logger.error(
+                                    f"Claude SSE error: type={error_data.get('type')}, "
+                                    f"message={str(error_data.get('message', ''))[:200]}"
+                                )
+                                # Error event terminates the stream
+                                break
+
                         if content_blocks:
                             return {
                                 "stop_reason": stop_reason or "end_turn",
