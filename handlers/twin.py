@@ -311,7 +311,12 @@ async def cmd_twin(message: Message):
         ],
     ])
 
-    await message.answer(_profile_text(profile, lang, intern=intern), parse_mode="Markdown", reply_markup=keyboard)
+    text = _profile_text(profile, lang, intern=intern)
+    try:
+        await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception as e:
+        logger.warning(f"[/twin] Markdown parse failed for {telegram_user_id}: {e}; fallback plain")
+        await message.answer(text, reply_markup=keyboard)
 
 
 
@@ -853,10 +858,12 @@ async def callback_twin_profile(callback: CallbackQuery):
     await callback.answer()
     profile = await gateway_mcp.get_user_profile(telegram_user_id)
     if profile:
-        await callback.message.answer(
-            _profile_text(profile, lang, intern=intern),
-            parse_mode="Markdown",
-        )
+        text = _profile_text(profile, lang, intern=intern)
+        try:
+            await callback.message.answer(text, parse_mode="Markdown")
+        except Exception as e:
+            logger.warning(f"[twin_profile cb] Markdown parse failed for {telegram_user_id}: {e}; fallback plain")
+            await callback.message.answer(text)
     else:
         await callback.message.answer("⚠️ Профиль ЦД недоступен.")
 
