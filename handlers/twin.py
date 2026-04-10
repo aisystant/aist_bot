@@ -296,20 +296,26 @@ async def cmd_twin(message: Message):
             await message.answer(t('twin.empty_profile', lang))
         return
 
+    logger.info(f"[/twin] profile received, profile type={type(profile).__name__}, entering enrich for {telegram_user_id}")
+
     # Enrich profile with derived data from DB (stage is calculated, not declarative)
     # Use get_user_uuid (same as /me) — intern has 'user_id' but get_engagement_data needs UUID
     try:
         from db.queries.dt_sync import get_engagement_data
         from db.queries.identity import get_user_uuid
         user_uuid = await get_user_uuid(telegram_user_id)
+        logger.info(f"[/twin] enrich: user_uuid={user_uuid} for {telegram_user_id}")
         if user_uuid:
             engagement = await get_engagement_data(str(user_uuid))
+            logger.info(f"[/twin] enrich: engagement loaded for {telegram_user_id}, has_data={engagement is not None}")
             if engagement:
                 derived = engagement.get('_derived') or {}
                 if derived:
                     profile['_derived'] = derived
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[/twin] enrich failed for {telegram_user_id}: {type(e).__name__}: {e}")
+
+    logger.info(f"[/twin] enrich done for {telegram_user_id}, building keyboard")
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -321,7 +327,7 @@ async def cmd_twin(message: Message):
         ],
     ])
 
-    logger.info(f"[/twin] building profile text for {telegram_user_id}, keys={list(profile.keys())[:10]}")
+    logger.info(f"[/twin] keyboard built, building profile text for {telegram_user_id}, profile_type={type(profile).__name__}")
     try:
         text = _profile_text(profile, lang, intern=intern)
     except Exception as e:
