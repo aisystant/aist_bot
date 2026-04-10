@@ -11,8 +11,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROFILER_SRC="$(cd "$BOT_ROOT/../../DS-ai-systems/profiler/scripts/dt_calc.py" && pwd)" 2>/dev/null || \
-    PROFILER_SRC="$BOT_ROOT/../../DS-ai-systems/profiler/scripts/dt_calc.py"
+PROFILER_SRC="$BOT_ROOT/../DS-ai-systems/profiler/scripts/dt_calc.py"
 DEST="$BOT_ROOT/db/queries/dt_calc.py"
 
 if [ ! -f "$PROFILER_SRC" ]; then

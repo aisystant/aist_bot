@@ -1,9 +1,4 @@
 """
-ТЕХДОЛГ (WP-197): Этот файл принадлежит роли R28 Профилировщик.
-Каноническое место: DS-IT-systems/DS-ai-systems/profiler/scripts/dt_calc.py
-Копия здесь временная — до реализации механизма импорта между репо (pip install -e / symlink).
-Не редактировать здесь — редактировать в profiler/scripts/ и синхронизировать.
-
 Calculation Engine v1.0 — derived indicators из 2_collected + learning_history (WP-151 Ф7a).
 
 Вычисляет IND.3 (derived) из IND.2 (collected) данных.
@@ -430,6 +425,13 @@ def calc_slot_regularity(collected: dict, as_of: Optional[datetime] = None) -> f
     Пороги (days/week): Random <1, Practicing ≥3, Systematic ≥5,
                         Disciplined ≥6, Proactive ≥6.7.
 
+    Builder Path (WP-218 Ф2):
+      active_days = max(bot_active_days, coding_active_days_30d)
+      Пользователь, работающий в IWE (коммиты/WakaTime) но не в боте,
+      должен получать справедливую оценку регулярности.
+      Окно 30 дней для coding — это ближайшая аппроксимация к bot active_days
+      (которые по факту агрегируются по последнему окну активности).
+
     Args:
         collected: данные 2_collected из digital_twins
         as_of: точка отсчёта «сейчас» (UTC). None = datetime.now(timezone.utc).
@@ -441,8 +443,12 @@ def calc_slot_regularity(collected: dict, as_of: Optional[datetime] = None) -> f
     """
     time_data = collected.get('2_4_time') or {}
     account = collected.get('2_1_account') or {}
+    coding = collected.get('2_6_coding') or {}
 
-    active_days = time_data.get('active_days', 0) or 0
+    bot_active_days = time_data.get('active_days', 0) or 0
+    coding_active_days = coding.get('coding_active_days_30d', 0) or 0
+    active_days = max(bot_active_days, coding_active_days)
+
     first_event = account.get('first_event_at')
 
     if not first_event or active_days == 0:
@@ -462,6 +468,11 @@ def calc_slot_regularity(collected: dict, as_of: Optional[datetime] = None) -> f
         total_days = (now - first_dt).days
         if total_days <= 0:
             return 1.0  # Same day
+
+        # Для builder path ограничиваем окном 30 дней (coding метрики 30-дневные)
+        # иначе недавно начавший builder несправедливо наказан историей
+        if coding_active_days > bot_active_days:
+            total_days = min(total_days, 30)
 
         return min(active_days / total_days, 1.0)
     except (ValueError, TypeError):
@@ -608,21 +619,32 @@ def calc_student_stage(collected: dict, as_of: Optional[datetime] = None) -> dic
 # ═══════════════════════════════════════════════════════════
 
 def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None) -> dict:
-    """Агрегированный индекс агентности из групп 2_1–2_5.
+    """Агрегированный индекс агентности из групп 2_1–2_7.
 
     IND.3.10.1: weighted sum of normalized metrics → 0-100 scale.
 
     Компоненты (веса):
       - Регулярность (slot_regularity):       30%
-      - Активность (events intensity):        25%
+      - Активность (events + coding + git):   25%
       - Обучение (courses + practice):         25%
       - Реакция на уведомления (notifications): 10%
-      - Стаж (account longevity):              10%
+      - Стаж (account + coding longevity):     10%
+
+    Builder Path (WP-218 Ф2):
+      activity и longevity поддерживают два источника:
+        - Learner: bot events (2_4_time)
+        - Builder: coding activity (2_6_coding) + git activity (2_7_iwe)
+      code_signal = max(coding_score, git_score)  # корреляция внутри IWE
+      activity_score = max(learner_activity, code_signal)
+      longevity_score = max(learner_longevity, code_longevity)
+      Цель: пользователь, работающий в IWE (коммиты, WakaTime) но не в боте,
+      должен получить справедливую оценку агентности.
 
     Returns:
         {
             "index": float (0-100),
             "components": {...},  # breakdowns
+            "path": "learner" | "builder" | "mixed",  # какой путь дал высшую активность
         }
     """
     time_data = collected.get('2_4_time') or {}
@@ -630,17 +652,35 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
     courses = collected.get('2_2_courses') or {}
     practice = collected.get('2_3_practice') or {}
     notifications = collected.get('2_5_notifications') or {}
+    coding = collected.get('2_6_coding') or {}
+    iwe = collected.get('2_7_iwe') or {}
 
     # 1. Regularity (30%) — slot_regularity normalized to 0-100
     regularity = calc_slot_regularity(collected, as_of=as_of)
     regularity_score = min(regularity * 100 / 0.8, 100)  # 80%+ = 100
 
-    # 2. Activity intensity (25%) — events_30d normalized
+    # 2. Activity intensity (25%) — learner OR builder path
+    # Learner: bot events intensity
     events_30d = time_data.get('events_last_30d', 0) or 0
     # 60+ events/30d = full score (2/day)
-    activity_score = min(events_30d / 60 * 100, 100)
+    activity_score_bot = min(events_30d / 60 * 100, 100)
 
-    # 3. Learning (25%) — combo of marathon + feed + training
+    # Builder: coding hours + git commits (корреляция: IWE = markdown + git)
+    # TODO WP-218: откалибровать пороги на ≥3 профилях (Ф2b)
+    coding_seconds_30d = coding.get('coding_seconds_30d', 0) or 0
+    coding_hours_30d = coding_seconds_30d / 3600
+    commits_30d = iwe.get('commits_30d', 0) or 0
+    # 40h/мес = full coding score (≈10h/нед стабильной работы)
+    activity_score_coding = min(coding_hours_30d / 40 * 100, 100)
+    # 30 commits/мес = full git score (≈1/день)
+    activity_score_git = min(commits_30d / 30 * 100, 100)
+    # code_signal: max внутри IWE (коррелируют — один сигнал)
+    activity_score_code = max(activity_score_coding, activity_score_git)
+    # Двухуровневый max: max(bot, code_signal)
+    activity_score = max(activity_score_bot, activity_score_code)
+
+    # 3. Learning (25%) — learner OR builder path (WP-218 Ф2)
+    # Learner: marathon + feed + training в боте
     marathon_steps = courses.get('marathon_steps_total', 0) or 0
     feed_completed = courses.get('feed_completed_total', 0) or 0
     training_passed = practice.get('training_passed_total', 0) or 0
@@ -650,7 +690,53 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
         + min(feed_completed / 10, 1) * 30
         + min(training_passed / 10, 1) * 30
     )
-    learning_score = min(learning_raw, 100)
+    learning_score_learner = min(learning_raw, 100)
+
+    # Builder learning signals (WP-218 Ф2):
+    #   1. LMS qualification — curated ступень МИМ (главный milestone)
+    #   2. Club publications — публикации в Клубе/канале (knowledge-sharing)
+    #   3. Pack knowledge graph — entities в pack-репо (personal corpus)
+    #   4. Decision-making depth — вес решений/нед (cognitive work, WP-109 Ф7)
+    # TODO WP-218 Ф2b: откалибровать пороги на ≥3 профилях (сейчас: Церен, Андрей, Агнесса)
+    # TODO WP-109: добавить LMS course progress, knowledge verbalizations
+    ecosystem = collected.get('2_8_ecosystem') or {}
+    knowledge = collected.get('2_9_knowledge') or {}
+    decisions = collected.get('2_8_decisions') or {}
+
+    # LMS квалификация — шкала Методсовета МИМ (из dt_sync _QUAL_LEVEL_MAP):
+    # Интересант (L05=5), Определяющийся (L08=8), Первокурсник (L1=10),
+    # Ученик (L2=20), Работник (L25=25), Стратег (L3=30), Специалист (L4=40),
+    # Практик (L5=50), Мастер (L6=60), Реформатор (L7=70), Деятель (L8=80).
+    # Нормализация: L3 Стратег (30) = 50%, L5 Практик (50) = 80%, L7+ = 100%.
+    qual = courses.get('qualification_level') or {}
+    qual_numeric = qual.get('numeric', 0) if isinstance(qual, dict) else 0
+    # 60 (Мастер L6) = full score — объективная верификация глубокой квалификации
+    qual_score = min(qual_numeric / 60 * 100, 100)
+
+    # Публикации в Клубе/канале — сильный сигнал knowledge-sharing
+    publications_30d = ecosystem.get('publications_30d', 0) or 0
+    # 15 публикаций/мес = full (≈1 через день) — intensive knowledge worker
+    publication_score = min(publications_30d / 15 * 100, 100)
+
+    # Knowledge graph depth — pack entities (personal corpus)
+    pack_entities = knowledge.get('pack_total_entities', 0) or 0
+    # 300 entities = full (≈среднее для 4-5 активных packs)
+    knowledge_score = min(pack_entities / 300 * 100, 100)
+
+    # Decision weight avg (WP-109 Ф7; пока = 0 до fix hook writer)
+    decision_weight_7d_avg = decisions.get('decision_weight_7d_avg', 0) or 0
+    # 5 weight/день (35/нед среднее) = full
+    decision_score = min(decision_weight_7d_avg / 5 * 100, 100)
+
+    # Builder learning = weighted combination (сигналы дополняют друг друга)
+    learning_score_builder = (
+        qual_score * 0.35           # curated milestone — сильнейший объективный сигнал
+        + publication_score * 0.30  # активный вклад знаний в экосистему
+        + knowledge_score * 0.20    # depth personal corpus
+        + decision_score * 0.15     # cognitive throughput (когда hook писатель работает)
+    )
+
+    learning_score = max(learning_score_learner, learning_score_builder)
 
     # 4. Notification responsiveness (10%)
     notif_total = notifications.get('notifications_total', 0) or 0
@@ -658,10 +744,14 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
     # Having notifications means the system is active; 10+ notifications/30d = engaged
     notif_score = min(notif_30d / 10 * 100, 100) if notif_total > 0 else 50
 
-    # 5. Longevity (10%) — active_days normalized
+    # 5. Longevity (10%) — learner OR builder path
+    # Learner: active_days from bot events
     active_days = time_data.get('active_days', 0) or 0
-    # 30+ active days = full score
-    longevity_score = min(active_days / 30 * 100, 100)
+    longevity_score_bot = min(active_days / 30 * 100, 100)
+    # Builder: coding active days
+    coding_active_days = coding.get('coding_active_days_30d', 0) or 0
+    longevity_score_code = min(coding_active_days / 30 * 100, 100)
+    longevity_score = max(longevity_score_bot, longevity_score_code)
 
     # Weighted sum
     index = (
@@ -672,6 +762,14 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
         + longevity_score * 0.10
     )
 
+    # Determine dominant path (для трассировки/отладки)
+    if activity_score_code > activity_score_bot and longevity_score_code > longevity_score_bot:
+        path = "builder"
+    elif activity_score_bot >= activity_score_code and longevity_score_bot >= longevity_score_code:
+        path = "learner"
+    else:
+        path = "mixed"
+
     return {
         "index": round(index, 1),
         "components": {
@@ -681,6 +779,25 @@ def calc_integral_agency_index(collected: dict, as_of: Optional[datetime] = None
             "notifications": round(notif_score, 1),
             "longevity": round(longevity_score, 1),
         },
+        "activity_breakdown": {
+            "bot": round(activity_score_bot, 1),
+            "coding": round(activity_score_coding, 1),
+            "git": round(activity_score_git, 1),
+            "code_signal": round(activity_score_code, 1),
+        },
+        "learning_breakdown": {
+            "learner": round(learning_score_learner, 1),
+            "builder": round(learning_score_builder, 1),
+            "qualification": round(qual_score, 1),
+            "publication": round(publication_score, 1),
+            "knowledge": round(knowledge_score, 1),
+            "decision": round(decision_score, 1),
+        },
+        "longevity_breakdown": {
+            "bot": round(longevity_score_bot, 1),
+            "coding": round(longevity_score_code, 1),
+        },
+        "path": path,
     }
 
 
