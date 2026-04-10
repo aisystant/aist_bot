@@ -610,13 +610,19 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
 
 
 async def _fallback_engagement(chat_id: int) -> dict | None:
-    """Fallback: читаем development.engagement напрямую (без digital_twins).
+    """Fallback: read raw engagement view if user не имеет digital_twins записи.
 
-    Используется когда sync ещё не запускался (pilot, новые пользователи).
-    Вычисляет 3_derived на лету.
+    WP-218 Ф2: НЕ вычисляет 3_derived. Бот — pure reader.
+    Если у пользователя ещё нет digital_twins записи (новый user, sync ещё
+    не пробежал), показываем ему сырые collected metrics без derived-индексов.
+    Для получения 3_derived — нужно дождаться cron R28 Profiler (04:30 MSK)
+    или запустить recalculate_derived.py вручную.
+
+    Returns:
+        dict с сырыми 2_collected или None (если engagement view пуст).
+        Без '_derived' ключа — пользователь видит только сырые метрики.
     """
     from db.connection import get_pool
-    from db.queries.dt_calc import calculate_derived
 
     try:
         pool = await get_pool()
@@ -665,7 +671,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                 },
             }
 
-            # Merge existing 2_6/2_7 if available (WP-174 builder path)
+            # Merge existing 2_6/2_7 if available (WP-174 builder path data)
             user_uuid_row = await conn.fetchval(
                 "SELECT user_uuid FROM development.engagement WHERE user_id = $1",
                 chat_id,
@@ -681,10 +687,16 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                         if key in existing_c and key not in collected:
                             collected[key] = existing_c[key]
 
-            # Derive on-the-fly
-            derived = calculate_derived(collected)
-            if derived:
-                collected['_derived'] = derived
+            # Read existing 3_derived if digital_twins already has one
+            # (not computing here — just reading).
+            if user_uuid_row:
+                existing_derived = await conn.fetchval(
+                    "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
+                    str(user_uuid_row),
+                )
+                if existing_derived:
+                    derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
+                    collected['_derived'] = derived
 
             return collected
     except Exception as e:

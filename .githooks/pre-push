@@ -21,18 +21,9 @@ while read local_ref local_sha remote_ref remote_sha; do
     fi
 done
 
-# ─── R28 Профилировщик: проверка синхронизации (WP-197) ───
-PROFILER_SRC="$(cd "$(dirname "$0")/../../../DS-ai-systems/profiler/scripts" 2>/dev/null && pwd)/dt_calc.py"
-PROFILER_DEST="$(cd "$(dirname "$0")/.." && pwd)/db/queries/dt_calc.py"
-if [ -f "$PROFILER_SRC" ] && [ -f "$PROFILER_DEST" ]; then
-    if [ "$PROFILER_SRC" -nt "$PROFILER_DEST" ]; then
-        echo ""
-        echo "⚠️  WARNING: profiler/scripts/dt_calc.py новее чем db/queries/dt_calc.py"
-        echo "   Запусти: bash scripts/sync-profiler.sh"
-        echo "   (push не заблокирован, но копия может быть устаревшей)"
-        echo ""
-    fi
-fi
+# WP-218 Ф2: R28 Profiler calculator вынесен из бота.
+# dt_calc.py больше не копируется в db/queries/ — бот его не импортирует.
+# Проверка vendoring удалена (нечего проверять).
 
 # ─── S59: Smoke тесты перед push (WP-179) ───
 if [ -d ".venv" ] && [ -d "tests/smoke" ]; then
