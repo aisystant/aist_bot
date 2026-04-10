@@ -692,3 +692,175 @@ async def cmd_ory_test(message: Message):
         reply_markup=keyboard,
         parse_mode="HTML",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# /broadcast_reconnect — разовая рассылка пользователям, у которых
+# Gateway-подключение сброшено миграцией Ory на JWT (WP-209 Ф3).
+# ─────────────────────────────────────────────────────────────────────
+
+_RECONNECT_MESSAGE = {
+    'ru': (
+        "⚠️ <b>Сервис авторизации обновлён</b>\n\n"
+        "Из-за обновления системы безопасности платформы нужно "
+        "переподключить IWE к боту.\n\n"
+        "Открой <b>Настройки → 🔗 Подключения → 🌐 Gateway (IWE) → 🔄 Переподключить</b>.\n\n"
+        "После этого /twin, /me и поиск по знаниям снова заработают. "
+        "Займёт 10 секунд."
+    ),
+    'en': (
+        "⚠️ <b>Authorization service updated</b>\n\n"
+        "Due to a platform security upgrade, you need to reconnect "
+        "IWE to the bot.\n\n"
+        "Open <b>Settings → 🔗 Connections → 🌐 Gateway (IWE) → 🔄 Reconnect</b>.\n\n"
+        "After that /twin, /me and knowledge search will work again. "
+        "Takes 10 seconds."
+    ),
+    'es': (
+        "⚠️ <b>Servicio de autorización actualizado</b>\n\n"
+        "Debido a una actualización de seguridad de la plataforma, "
+        "necesitas reconectar IWE al bot.\n\n"
+        "Abre <b>Ajustes → 🔗 Conexiones → 🌐 Gateway (IWE) → 🔄 Reconectar</b>.\n\n"
+        "Después /twin, /me y la búsqueda de conocimiento volverán a funcionar. "
+        "Toma 10 segundos."
+    ),
+    'fr': (
+        "⚠️ <b>Service d'autorisation mis à jour</b>\n\n"
+        "Suite à une mise à jour de sécurité de la plateforme, "
+        "vous devez reconnecter IWE au bot.\n\n"
+        "Ouvrez <b>Paramètres → 🔗 Connexions → 🌐 Gateway (IWE) → 🔄 Reconnecter</b>.\n\n"
+        "Après cela /twin, /me et la recherche de connaissances fonctionneront à nouveau. "
+        "10 secondes."
+    ),
+    'zh': (
+        "⚠️ <b>授权服务已更新</b>\n\n"
+        "由于平台安全升级，您需要将 IWE 重新连接到机器人。\n\n"
+        "打开 <b>设置 → 🔗 连接 → 🌐 Gateway (IWE) → 🔄 重新连接</b>。\n\n"
+        "之后 /twin、/me 和知识搜索将再次正常工作。需要 10 秒。"
+    ),
+}
+
+# Момент инцидента Ory JWT миграции (UTC). Пользователи с ory_tokens,
+# обновлёнными после этого времени, уже переподключились — их пропускаем.
+_INCIDENT_CUTOFF_UTC = "2026-04-10 06:00:00"
+
+
+async def _get_reconnect_candidates():
+    """Список chat_id пользователей, которым нужна рассылка.
+
+    Критерии:
+    - users.dt_connected_at IS NOT NULL (хотя бы раз подключались)
+    - НЕТ свежей записи в ory_tokens (updated_at <= cutoff или отсутствует)
+    """
+    from db.connection import get_pool
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT u.telegram_id, COALESCE(u.language, 'ru') AS language, u.name,
+                   u.dt_connected_at, ot.updated_at AS ory_updated_at
+            FROM public.users u
+            LEFT JOIN public.ory_tokens ot ON ot.chat_id = u.telegram_id
+            WHERE u.dt_connected_at IS NOT NULL
+              AND (ot.updated_at IS NULL OR ot.updated_at <= '{_INCIDENT_CUTOFF_UTC}'::timestamp)
+            ORDER BY u.telegram_id
+            """
+        )
+        return [dict(r) for r in rows]
+
+
+@dev_router.message(Command("broadcast_reconnect"))
+async def cmd_broadcast_reconnect(message: Message):
+    """/broadcast_reconnect dry|send — рассылка «переподключись к Gateway».
+
+    Использование:
+      /broadcast_reconnect dry  — показать список кандидатов, ничего не отправлять
+      /broadcast_reconnect send — реальная отправка
+    """
+    if not _is_developer(message.chat.id):
+        return
+
+    import asyncio
+    from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
+
+    parts = (message.text or "").split()
+    mode = parts[1].lower() if len(parts) > 1 else "dry"
+    if mode not in ("dry", "send"):
+        await message.answer("Использование: <code>/broadcast_reconnect dry|send</code>", parse_mode="HTML")
+        return
+
+    try:
+        candidates = await _get_reconnect_candidates()
+    except Exception as e:
+        logger.error(f"[broadcast_reconnect] query failed: {e}")
+        await message.answer(f"Ошибка запроса: {e}")
+        return
+
+    total = len(candidates)
+    by_lang: dict = {}
+    for c in candidates:
+        by_lang[c['language']] = by_lang.get(c['language'], 0) + 1
+
+    header = (
+        f"<b>/broadcast_reconnect — {mode}</b>\n\n"
+        f"Кандидатов: <b>{total}</b>\n"
+        f"По языкам: {by_lang}\n"
+        f"Cutoff (исключаем свежее): {_INCIDENT_CUTOFF_UTC} UTC\n"
+    )
+
+    if mode == "dry":
+        # Показать первые 20 chat_id для визуальной проверки
+        sample_lines = [
+            f"• <code>{c['telegram_id']}</code> ({c['language']}, "
+            f"{c.get('name') or '—'}, dt_connected={c['dt_connected_at']:%Y-%m-%d})"
+            for c in candidates[:20]
+        ]
+        sample = "\n".join(sample_lines) if sample_lines else "—"
+        await message.answer(
+            header + "\nПервые 20:\n" + sample + "\n\n"
+            "Запусти <code>/broadcast_reconnect send</code> для реальной отправки.",
+            parse_mode="HTML",
+        )
+        return
+
+    # mode == "send"
+    await message.answer(header + "\n⏳ Начинаю рассылку...", parse_mode="HTML")
+
+    sent = 0
+    skipped_blocked = 0
+    skipped_error = 0
+    bot = message.bot
+
+    for c in candidates:
+        chat_id = c['telegram_id']
+        lang = c['language'] if c['language'] in _RECONNECT_MESSAGE else 'ru'
+        text = _RECONNECT_MESSAGE[lang]
+        try:
+            await bot.send_message(chat_id, text, parse_mode="HTML")
+            sent += 1
+            logger.info(f"[broadcast_reconnect] sent to {chat_id} ({lang})")
+        except TelegramForbiddenError:
+            skipped_blocked += 1
+            logger.info(f"[broadcast_reconnect] blocked by {chat_id}")
+        except TelegramRetryAfter as e:
+            logger.warning(f"[broadcast_reconnect] flood, sleeping {e.retry_after}s")
+            await asyncio.sleep(e.retry_after + 1)
+            try:
+                await bot.send_message(chat_id, text, parse_mode="HTML")
+                sent += 1
+            except Exception as e2:
+                skipped_error += 1
+                logger.error(f"[broadcast_reconnect] retry failed for {chat_id}: {e2}")
+        except Exception as e:
+            skipped_error += 1
+            logger.error(f"[broadcast_reconnect] send to {chat_id} failed: {e}")
+        await asyncio.sleep(0.05)  # 20 msg/sec, под лимитом Telegram 30
+
+    await message.answer(
+        f"✅ <b>Рассылка завершена</b>\n\n"
+        f"Отправлено: <b>{sent}</b>\n"
+        f"Заблокировали бота: {skipped_blocked}\n"
+        f"Ошибки: {skipped_error}\n"
+        f"Всего кандидатов: {total}",
+        parse_mode="HTML",
+    )
