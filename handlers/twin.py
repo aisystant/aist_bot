@@ -296,26 +296,14 @@ async def cmd_twin(message: Message):
             await message.answer(t('twin.empty_profile', lang))
         return
 
-    logger.info(f"[/twin] profile received, profile type={type(profile).__name__}, entering enrich for {telegram_user_id}")
+    logger.info(f"[/twin] profile received, profile type={type(profile).__name__} for {telegram_user_id}")
 
-    # Enrich profile with derived data from DB (stage is calculated, not declarative)
-    # Use get_user_uuid (same as /me) — intern has 'user_id' but get_engagement_data needs UUID
-    try:
-        from db.queries.dt_sync import get_engagement_data
-        from db.queries.identity import get_user_uuid
-        user_uuid = await get_user_uuid(telegram_user_id)
-        logger.info(f"[/twin] enrich: user_uuid={user_uuid} for {telegram_user_id}")
-        if user_uuid:
-            engagement = await get_engagement_data(str(user_uuid))
-            logger.info(f"[/twin] enrich: engagement loaded for {telegram_user_id}, has_data={engagement is not None}")
-            if engagement:
-                derived = engagement.get('_derived') or {}
-                if derived:
-                    profile['_derived'] = derived
-    except Exception as e:
-        logger.warning(f"[/twin] enrich failed for {telegram_user_id}: {type(e).__name__}: {e}")
-
-    logger.info(f"[/twin] enrich done for {telegram_user_id}, building keyboard")
+    # WP-218 Ф2: единая точка чтения ЦД — gateway_mcp (→ dt-mcp → Neon по ory_id).
+    # Убран повторный enrich через get_engagement_data() — он ходил по user_uuid
+    # из development.engagement, который для некоторых chat_id возвращает ДРУГОЙ
+    # UUID (дубль в engagement view) и перезаписывал корректный _derived на
+    # устаревшие данные. Принцип №4: stateless-интерфейсы — читаем ровно один раз.
+    logger.info(f"[/twin] building keyboard for {telegram_user_id}")
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -762,8 +750,6 @@ def _build_me_keyboard(tier: int) -> InlineKeyboardMarkup:
 @twin_router.message(Command("me"))
 async def cmd_me(message: Message):
     """Команда /me — tier-aware дашборд (WP-160 Ф1)."""
-    from db.queries.dt_sync import get_engagement_data
-    from db.queries.identity import get_user_uuid
     from db.queries.events import log_event
     from db.queries.activity import get_activity_stats
     from db.queries.answers import get_weekly_marathon_stats
@@ -776,29 +762,29 @@ async def cmd_me(message: Message):
     lang = _lang(intern)
     tier = await detect_ui_tier(telegram_user_id)
 
-    # T3+ path: полный ЦД-dashboard (как раньше)
-    user_uuid = await get_user_uuid(telegram_user_id)
-    if user_uuid and tier >= UITier.T3_PERSONALIZATION:
-        engagement = await get_engagement_data(str(user_uuid))
-        if not engagement:
-            engagement = await _fallback_engagement(telegram_user_id)
-
-        # Enrich with DT profile (degree, objective, roles) via Gateway MCP
+    # WP-218 Ф2: единая точка чтения — Gateway MCP (→ dt-mcp → Neon по ory_id).
+    # T3+ path: полный ЦД-dashboard
+    if tier >= UITier.T3_PERSONALIZATION:
         dt_profile = None
+        engagement = None
         try:
             from clients.gateway_mcp import gateway_mcp
             if gateway_mcp.is_connected(telegram_user_id):
                 dt_profile = await gateway_mcp.get_user_profile(telegram_user_id)
-                # If no engagement from Neon, try DT profile's 2_collected
-                if not engagement and dt_profile:
-                    collected = dt_profile.get('2_collected', {})
+                if dt_profile:
+                    # Разбираем полный data на 2_collected + _derived
+                    collected = dt_profile.get('2_collected') or {}
+                    derived = dt_profile.get('3_derived') or {}
                     if collected:
-                        engagement = collected
-                        derived = dt_profile.get('3_derived') or {}
+                        engagement = dict(collected)
                         if derived:
                             engagement['_derived'] = derived
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[/me] Gateway profile failed for {telegram_user_id}: {e}")
+
+        # Fallback для отсутствующих/пустых ЦД — читаем сырое engagement view
+        if not engagement:
+            engagement = await _fallback_engagement(telegram_user_id)
 
         if engagement:
             dashboard = _build_me_dashboard(engagement, intern, lang, dt_profile=dt_profile)
@@ -951,9 +937,6 @@ def _cleanup_insights_cache() -> None:
 
 async def _handle_insights(message: Message, intern: dict, lang: str):
     """Генерирует AI-интерпретацию engagement данных из ЦД (Phase 5A)."""
-    from db.queries.dt_sync import get_engagement_data
-    from db.queries.identity import get_user_uuid
-
     telegram_user_id = message.chat.id
 
     # Cleanup expired/oversized cache entries
@@ -989,26 +972,23 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         else:
             del _insights_cache[telegram_user_id]
 
-    # digital_twins.user_id = public.users.id (bot UUID, NOT dt_tokens.dt_user_id)
-    user_uuid = await get_user_uuid(telegram_user_id)
-
     await message.answer(t('twin.insights_loading', lang))
 
-    # Try Neon DB first, fallback to Gateway MCP
+    # WP-218 Ф2: единая точка чтения — Gateway MCP (→ dt-mcp → Neon по ory_id).
     engagement = None
-    if user_uuid:
-        engagement = await get_engagement_data(str(user_uuid))
-    if not engagement:
-        # Fallback: read full profile from Gateway MCP (includes 2_collected)
+    try:
         from clients.gateway_mcp import gateway_mcp
         profile = await gateway_mcp.get_user_profile(telegram_user_id)
         if profile:
-            collected = profile.get('2_collected', {})
+            collected = profile.get('2_collected') or {}
             if collected:
-                engagement = collected
+                engagement = dict(collected)
                 derived = profile.get('3_derived') or {}
                 if derived:
                     engagement['_derived'] = derived
+    except Exception as e:
+        logger.warning(f"[Twin Insights] Gateway profile failed: {e}")
+
     if not engagement:
         await message.answer(t('twin.insights_no_data', lang))
         return
@@ -1208,29 +1188,25 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
 
 async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
     """Расширенный AI-анализ engagement данных — детальный разбор по каждой метрике."""
-    from db.queries.dt_sync import get_engagement_data
-    from db.queries.identity import get_user_uuid
-
     telegram_user_id = message.chat.id
-
-    user_uuid = await get_user_uuid(telegram_user_id)
 
     await message.answer(t('twin.insights_detailed_loading', lang))
 
-    # Try Neon DB first, fallback to Gateway MCP
+    # WP-218 Ф2: единая точка чтения — Gateway MCP (→ dt-mcp → Neon по ory_id).
     engagement = None
-    if user_uuid:
-        engagement = await get_engagement_data(str(user_uuid))
-    if not engagement:
+    try:
         from clients.gateway_mcp import gateway_mcp
         profile = await gateway_mcp.get_user_profile(telegram_user_id)
         if profile:
-            collected = profile.get('2_collected', {})
+            collected = profile.get('2_collected') or {}
             if collected:
-                engagement = collected
+                engagement = dict(collected)
                 derived = profile.get('3_derived') or {}
                 if derived:
                     engagement['_derived'] = derived
+    except Exception as e:
+        logger.warning(f"[Twin Insights Detailed] Gateway profile failed: {e}")
+
     if not engagement:
         await message.answer(t('twin.insights_no_data', lang))
         return

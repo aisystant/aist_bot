@@ -491,34 +491,10 @@ async def sync_engagement_to_dt() -> dict:
     return stats
 
 
-async def get_engagement_data(user_uuid: str) -> dict | None:
-    """Прочитать engagement проекции пользователя из digital_twins.
-
-    Returns:
-        dict с ключами 2_1_account..2_5_notifications + 3_derived
-        (3_derived вложен под ключом '_derived').
-        None если нет данных.
-    """
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """SELECT data->'2_collected' AS collected,
-                          data->'3_derived' AS derived
-                   FROM digital_twins WHERE user_id = $1""",
-                user_uuid,
-            )
-            if row and row['collected']:
-                collected = row['collected']
-                result = json.loads(collected) if isinstance(collected, str) else collected
-                # Attach derived under '_derived' key
-                if row['derived']:
-                    derived = row['derived']
-                    result['_derived'] = json.loads(derived) if isinstance(derived, str) else derived
-                return result
-    except Exception as e:
-        logger.warning(f"[DT Sync] get_engagement_data failed for {user_uuid}: {e}")
-    return None
+# WP-218 Ф2: get_engagement_data() удалена — была точкой нарушения
+# единой точки чтения (handler'ы ходили через user_uuid из development.engagement,
+# который может быть неоднозначным для chat_id, давая устаревшие данные).
+# Бот читает ЦД ровно одним способом — через gateway_mcp.get_user_profile().
 
 
 async def sync_one_user_to_dt(user_id: str) -> bool:
