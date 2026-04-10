@@ -260,11 +260,21 @@ async def cmd_twin(message: Message):
         return
 
     # По умолчанию: показать профиль
+    logger.info(f"[/twin] default path start for {telegram_user_id}")
     await message.answer(t('twin.loading_profile', lang))
-    async with keep_typing(message):
-        profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
+    logger.info(f"[/twin] loading_profile sent for {telegram_user_id}")
+    try:
+        async with keep_typing(message):
+            logger.info(f"[/twin] before get_user_profile_ex for {telegram_user_id}")
+            profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
+            logger.info(f"[/twin] after get_user_profile_ex for {telegram_user_id}: reason={reason}, profile_is_none={profile is None}")
+    except Exception as e:
+        logger.error(f"[/twin] get_user_profile_ex raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
+        await message.answer(t('twin.temporary_error', lang))
+        return
 
     if profile is None:
+        logger.info(f"[/twin] profile is None, reason={reason}, sending UX branch for {telegram_user_id}")
         # Показываем конкретную причину вместо generic "unavailable"
         if reason in ("disconnected", "token_expired", "not_authorized"):
             # Токен протух / отключён → предложить переподключиться кнопкой
@@ -311,12 +321,22 @@ async def cmd_twin(message: Message):
         ],
     ])
 
-    text = _profile_text(profile, lang, intern=intern)
+    logger.info(f"[/twin] building profile text for {telegram_user_id}, keys={list(profile.keys())[:10]}")
+    try:
+        text = _profile_text(profile, lang, intern=intern)
+    except Exception as e:
+        logger.error(f"[/twin] _profile_text raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
+        await message.answer(t('twin.temporary_error', lang))
+        return
+    logger.info(f"[/twin] sending profile for {telegram_user_id}, text_len={len(text)}")
     try:
         await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
         logger.warning(f"[/twin] Markdown parse failed for {telegram_user_id}: {e}; fallback plain")
-        await message.answer(text, reply_markup=keyboard)
+        try:
+            await message.answer(text, reply_markup=keyboard)
+        except Exception as e2:
+            logger.error(f"[/twin] plain fallback also failed for {telegram_user_id}: {type(e2).__name__}: {e2}", exc_info=True)
 
 
 
