@@ -81,6 +81,10 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         stage = profile.get("stage") or t('twin.not_set', lang)
 
     # ── Agency index ──
+    # IND.3.10.1 Интегральный индекс агентности
+    # Писатель: profiler/scripts/dt_calc.py:calc_integral_agency_index (R28 Профилировщик, AISYS.018)
+    # Триггер расчёта: dt_sync (cron 04:30 MSK) + /dt_sync on-demand. Event-driven — WP-218 Ф6 (blocked: WP-73).
+    # WP-218 hotfix: /twin — stateless витрина, никаких локальных вычислений.
     agency = derived.get("3_10_integral") or {}
     agency_index = agency.get("index")
     agency_text = f"{round(agency_index)}/100" if agency_index is not None else "—"
@@ -143,10 +147,14 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         roles = []
     roles_text = ", ".join(roles) if roles else t('twin.not_set_plural', lang)
 
-    # ── Engine version ──
+    # ── Engine version + calculated_at (WP-218 метамодельная трассируемость) ──
+    # Источник: profiler calculate_derived() → digital_twins.data['3_derived']
+    # Показываем пользователю, что цифры — это снимок ЦД на момент calculated_at,
+    # а не произвольное вычисление в интерфейсе.
     engine_ver = derived.get("engine_version", "")
-    calc_at = (derived.get("calculated_at") or "")[:10]
-    engine_line = f"engine v{engine_ver} | {calc_at}" if engine_ver else ""
+    calc_at_iso = derived.get("calculated_at") or ""
+    calc_at = calc_at_iso[:16].replace("T", " ") if calc_at_iso else ""
+    engine_line = f"IND.3.10.1 · рассчитано {calc_at} · engine v{engine_ver}" if engine_ver else ""
 
     # ── User name ──
     name = intern.get('name', '') if intern else ''
@@ -254,10 +262,28 @@ async def cmd_twin(message: Message):
     # По умолчанию: показать профиль
     await message.answer(t('twin.loading_profile', lang))
     async with keep_typing(message):
-        profile = await gateway_mcp.get_user_profile(telegram_user_id)
+        profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
 
     if profile is None:
-        await message.answer(t('twin.unavailable', lang))
+        # Показываем конкретную причину вместо generic "unavailable"
+        if reason in ("disconnected", "token_expired", "not_authorized"):
+            # Токен протух / отключён → предложить переподключиться кнопкой
+            from clients.ory_oauth import ory_oauth
+            auth_url, _state = await ory_oauth.get_authorization_url(telegram_user_id)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)]
+            ])
+            await message.answer(
+                t('twin.token_expired', lang),
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        elif reason == "no_subscription":
+            await message.answer(t('twin.no_subscription', lang))
+        elif reason in ("timeout", "http_error", "circuit_open", "rpc_error"):
+            await message.answer(t('twin.temporary_error', lang))
+        else:  # "empty"
+            await message.answer(t('twin.empty_profile', lang))
         return
 
     # Enrich profile with derived data from DB (stage is calculated, not declarative)
@@ -462,6 +488,8 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
         lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
 
     # Agency index
+    # IND.3.10.1 Интегральный индекс агентности
+    # Писатель: profiler/scripts/dt_calc.py:calc_integral_agency_index (WP-218)
     integral = derived.get('3_10_integral') or {}
     agency_index = integral.get('index')
     if agency_index is not None:

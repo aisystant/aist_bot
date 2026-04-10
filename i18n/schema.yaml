@@ -5229,6 +5229,18 @@ twin:
   unavailable_short:
     ru: "Цифровой двойник недоступен. Попробуйте позже."
     en: "Digital Twin unavailable. Try again later."
+  token_expired:
+    ru: "*Сессия Цифрового двойника истекла.*\n\nНужно переподключиться — нажмите кнопку ниже."
+    en: "*Digital Twin session expired.*\n\nPlease reconnect using the button below."
+  empty_profile:
+    ru: "Цифровой двойник подключён, но профиль пока пустой.\n\nЗаполните профиль в IWE или через команду `/twin objective <цель>`."
+    en: "Digital Twin is connected, but the profile is empty.\n\nFill in your profile in IWE or use `/twin objective <goal>`."
+  no_subscription:
+    ru: "Для доступа к Цифровому двойнику нужна подписка «Бесконечное развитие»."
+    en: "Digital Twin requires a Lifetime Development subscription."
+  temporary_error:
+    ru: "Цифровой двойник временно недоступен. Попробуйте через минуту."
+    en: "Digital Twin is temporarily unavailable. Try again in a minute."
   not_set:
     ru: "не задана"
     en: "not set"
