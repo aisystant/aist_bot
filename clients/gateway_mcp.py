@@ -391,20 +391,26 @@ class GatewayMCPClient:
     def _parse_text_content(self, result: Optional[dict]) -> Any:
         """Извлекает текстовый контент из MCP result.
 
-        Gateway маскирует backend errors как content.type=text с префиксом
-        "Backend error:" вместо JSON-RPC error. Распознаём такие ответы и
-        возвращаем None, чтобы caller не принял строку за успешный результат.
+        Корректный MCP spec: если tool вернул ошибку execution, result имеет
+        isError=true. Gateway проксирует backend-ошибки именно так, content
+        содержит "Backend error: ..." как текстовое описание. Клиент обязан
+        читать isError и не трактовать text как успех.
         """
         if not result or "content" not in result:
+            return None
+        # MCP spec: tool execution error indicator
+        if result.get("isError"):
+            error_text = ""
+            for item in result.get("content", []):
+                if item.get("type") == "text":
+                    error_text = item.get("text", "")
+                    break
+            logger.warning(f"Gateway: MCP tool isError=true, content={error_text[:200]}")
+            self._last_call_error = "rpc_error"
             return None
         for item in result.get("content", []):
             if item.get("type") == "text":
                 text = item.get("text", "null")
-                # Backend-error masquerading as successful text content
-                if isinstance(text, str) and text.startswith("Backend error"):
-                    logger.warning(f"Gateway: backend error masked as text content: {text[:200]}")
-                    self._last_call_error = "rpc_error"
-                    return None
                 try:
                     return json.loads(text)
                 except json.JSONDecodeError:
