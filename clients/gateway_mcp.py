@@ -72,6 +72,11 @@ class GatewayMCPClient:
         # Singleton session
         self._session: Optional[aiohttp.ClientSession] = None
 
+        # Last error code from _call() — consumed by callers to show precise UX
+        # Values: "ok" | "disconnected" | "token_expired" | "no_subscription"
+        #         | "http_error" | "timeout" | "circuit_open" | "rpc_error" | "not_authorized"
+        self._last_call_error: str = "ok"
+
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
@@ -273,8 +278,11 @@ class GatewayMCPClient:
         Returns:
             Результат вызова или None при ошибке
         """
+        self._last_call_error = "ok"
+
         if self._is_circuit_open():
             logger.debug("Gateway: circuit breaker open, skipping")
+            self._last_call_error = "circuit_open"
             return None
 
         payload = {
@@ -293,6 +301,9 @@ class GatewayMCPClient:
             token = self._get_access_token(telegram_user_id)
             if token:
                 headers["Authorization"] = f"Bearer {token}"
+            else:
+                # Требуется пользовательский контекст, но токенов нет
+                self._last_call_error = "not_authorized"
 
         # Trace correlation
         try:
@@ -331,12 +342,15 @@ class GatewayMCPClient:
                         else:
                             logger.warning(f"Gateway: refresh failed for user {telegram_user_id}, disconnecting")
                             self.disconnect(telegram_user_id)
+                            self._last_call_error = "disconnected"
                             return None
                     elif resp.status == 401:
                         logger.warning(f"Gateway: 401 for user {telegram_user_id} after retry")
+                        self._last_call_error = "token_expired"
                         return None
                     if resp.status == 403:
                         logger.warning(f"Gateway: 403 for user {telegram_user_id} — no subscription")
+                        self._last_call_error = "no_subscription"
                         return None
                     if resp.status == 200:
                         data = await resp.json()
@@ -346,16 +360,20 @@ class GatewayMCPClient:
                         if "error" in data:
                             error_msg = data["error"].get("message", str(data["error"]))
                             logger.error(f"Gateway JSON-RPC error: {error_msg}")
+                            self._last_call_error = "rpc_error"
                             return None
                         logger.warning(f"Gateway: unexpected response: {list(data.keys())}")
+                        self._last_call_error = "rpc_error"
                         return None
                     else:
                         error = await resp.text()
                         logger.error(f"Gateway HTTP {resp.status}: {error[:200]}")
                         last_error = f"HTTP {resp.status}"
+                        self._last_call_error = "http_error"
                         self._record_failure()
             except asyncio.TimeoutError:
                 last_error = "timeout"
+                self._last_call_error = "timeout"
                 if attempt < self.MAX_RETRIES:
                     logger.warning(f"Gateway timeout ({timeout}s), retry {attempt + 1}")
                     await asyncio.sleep(1)
@@ -363,6 +381,7 @@ class GatewayMCPClient:
                 self._record_failure()
             except Exception as e:
                 logger.error(f"Gateway exception: {e}")
+                self._last_call_error = "http_error"
                 self._record_failure()
                 return None
 
@@ -525,6 +544,24 @@ class GatewayMCPClient:
     async def get_user_profile(self, telegram_user_id: int) -> Optional[dict]:
         """Получить полный профиль пользователя из ЦД."""
         return await self.dt_read("", telegram_user_id)
+
+    async def get_user_profile_ex(self, telegram_user_id: int) -> tuple:
+        """Получить профиль ЦД + код ошибки.
+
+        Returns:
+            (profile_dict_or_None, reason)
+            reason ∈ {"ok", "empty", "disconnected", "token_expired",
+                      "no_subscription", "http_error", "timeout",
+                      "circuit_open", "rpc_error", "not_authorized"}
+        """
+        profile = await self.dt_read("", telegram_user_id)
+        reason = self._last_call_error
+        if profile is None and reason == "ok":
+            # Вызов успешен, но данных нет (пустой ЦД)
+            reason = "empty"
+        elif profile is not None:
+            reason = "ok"
+        return profile, reason
 
     def get_connected_user_ids(self) -> List[int]:
         """Список ID пользователей с Ory tokens."""

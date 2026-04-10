@@ -254,10 +254,28 @@ async def cmd_twin(message: Message):
     # По умолчанию: показать профиль
     await message.answer(t('twin.loading_profile', lang))
     async with keep_typing(message):
-        profile = await gateway_mcp.get_user_profile(telegram_user_id)
+        profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
 
     if profile is None:
-        await message.answer(t('twin.unavailable', lang))
+        # Показываем конкретную причину вместо generic "unavailable"
+        if reason in ("disconnected", "token_expired", "not_authorized"):
+            # Токен протух / отключён → предложить переподключиться кнопкой
+            from clients.ory_oauth import ory_oauth
+            auth_url, _state = await ory_oauth.get_authorization_url(telegram_user_id)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)]
+            ])
+            await message.answer(
+                t('twin.token_expired', lang),
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        elif reason == "no_subscription":
+            await message.answer(t('twin.no_subscription', lang))
+        elif reason in ("timeout", "http_error", "circuit_open", "rpc_error"):
+            await message.answer(t('twin.temporary_error', lang))
+        else:  # "empty"
+            await message.answer(t('twin.empty_profile', lang))
         return
 
     # Enrich profile with derived data from DB (stage is calculated, not declarative)
