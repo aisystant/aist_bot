@@ -559,6 +559,18 @@ class GatewayMCPClient:
         if profile is None and reason == "ok":
             # Вызов успешен, но данных нет (пустой ЦД)
             reason = "empty"
+        elif profile is not None and not isinstance(profile, dict):
+            # Unexpected response shape (string, list, etc.) — dt-mcp server
+            # вернул что-то кроме JSON-объекта профиля. Часто случается когда
+            # ЦД пользователя ещё не инициализирован и сервер отдаёт текст
+            # «profile not found» как content.type=text.
+            logger.warning(
+                f"Gateway: get_user_profile_ex got non-dict profile "
+                f"(type={type(profile).__name__}) for user {telegram_user_id}; "
+                f"preview={str(profile)[:200]!r}"
+            )
+            profile = None
+            reason = "empty"
         elif profile is not None:
             reason = "ok"
         return profile, reason
