@@ -479,30 +479,29 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 **Dev-команда:** `/dt_sync` — ручной запуск sync (TD1 only).
 
-## 12c. Calculation Engine v0.7 (WP-151 Ф4, WP-174, WP-197)
+## 12c. Бот как collector ЦД (WP-218 Ф2)
 
-**Файлы:** `db/queries/dt_calc.py` (временная копия⚠️), `db/queries/dt_sync.py` (оркестратор)
+> **Архитектурное правило (WP-218 принцип №1):** бот НЕ содержит calculator.
+> Расчёт `3_derived` — ответственность R28 Profiler (AISYS.018), который живёт
+> в `DS-IT-systems/DS-ai-systems/profiler/scripts/recalculate_derived.py`
+> (standalone Python runtime, подключается к Neon напрямую через psycopg2).
 
-> ⚠️ **ТЕХДОЛГ (WP-197):** `dt_calc.py` принадлежит роли R28 Профилировщик.
-> Каноническое место: `DS-IT-systems/DS-ai-systems/profiler/scripts/dt_calc.py`
-> Здесь — временная копия до реализации механизма импорта между репо.
-> Редактировать только в `profiler/scripts/`, затем синхронизировать.
+**Файл в боте:** `db/queries/dt_sync.py` — **только collector**, пишет в `2_collected`.
 
-**Принцип:** `2_collected` → `calculate_derived()` → `3_derived`. Чистые функции, без DB-вызовов. Вызываются в `sync_engagement_to_dt()` для каждого пользователя. `sync` подтягивает существующие `2_6_coding`/`2_7_iwe` из digital_twins перед расчётом.
+**Что делает бот (collector):**
+- `sync_engagement_to_dt()` — читает `development.engagement` + `notification_engagement` views + LMS `qualification_level_event` + `user_events source='iwe'` → пишет в `digital_twins.data['2_collected']` через deep merge. Cron 04:30 MSK + команда `/dt_sync`.
+- `sync_one_user_to_dt(user_id)` — on-demand collector для одного user_id (триггерится после GitHub webhook учебного занятия).
 
-**3 derived-индикатора (MVP, без LMS/Club/BKT):**
+**Что делает profiler (calculator, отдельно от бота):**
+- Читает полный `digital_twins.data['2_collected']` (включая секции от всех writers: бот, `dt-collect-neon.py`, `collectors.d/*.sh`).
+- Вызывает чистые функции из `dt_calc.py`.
+- Пишет ТОЛЬКО в `3_derived` через SQL deep merge. Cron запускается после всех collectors (TODO: scheduling).
 
-| Индикатор | Метамодель | Что вычисляет | Из каких данных |
-|-----------|-----------|---------------|-----------------|
-| `slot_regularity` | IND.3.1.02 | Доля активных дней (0.0–1.0) | `2_4_time.active_days`, `2_1_account.first_event_at` |
-| `student_stage` | IND.3.4.01 | Ступень ученика (0–4), два пути: learner/builder | `2_1..2_5` (learner) + `2_6_coding`, `2_7_iwe` (builder) |
-| `integral_agency_index` | IND.3.10.1 | Индекс агентности (0–100) | `2_1..2_5` (weighted: 30% regularity, 25% activity, 25% learning, 10% notif, 10% longevity) |
+**Чтение `3_derived` в боте:**
+- `handlers/twin.py` → pure reader: SELECT `data->'3_derived'` из Neon. НИКАКИХ вызовов calculator.
+- Для каждого числа в UI — IND-комментарий (трассируемость к метамодели).
 
-**Builder Path (WP-174):** `student_stage` поддерживает два пути определения ступени через `or`-ветки. Builder-пороги: Stage 2 (coding ≥40h/мес, ≥15 coding days), Stage 3 (coding ≥80h/мес, ≥50 commits), Stage 4 (coding ≥120h/мес, ≥100 commits, ≥3 WP). Результат содержит `"path": "learner"|"builder"`.
-
-**Запись:** `3_derived` пишется в `digital_twins.data` рядом с `2_collected` через deep merge. Содержит `engine_version` и `calculated_at` для аудита.
-
-**Расширение:** BKT (Ф5), LMS/Club интеграция, мемы мировоззрения — добавляются как новые функции `calc_*()` в `dt_calc.py`.
+**Рекомендация разработчикам:** если нужно что-то расчётное добавить (новый IND, фикс формулы) — работа в `DS-ai-systems/profiler/scripts/dt_calc.py`, не в боте. Бот не меняется.
 
 ---
 

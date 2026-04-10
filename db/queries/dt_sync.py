@@ -26,7 +26,9 @@ from datetime import datetime, timezone
 import asyncpg
 
 from db.connection import get_pool
-from db.queries.dt_calc import calculate_derived
+# WP-218 Ф2: calculator removed from bot — R28 Profiler is now single source
+# of 3_derived. See DS-ai-systems/profiler/scripts/recalculate_derived.py
+# (stand-alone runtime that reads digital_twins.data from Neon directly).
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +113,22 @@ async def _preload_lms_qualifications(lms_user_ids: list[str]) -> dict:
 
 
 async def sync_engagement_to_dt() -> dict:
-    """Синхронизировать engagement данные всех пользователей в digital_twins.
+    """Collector: sync engagement/LMS/coding/iwe данные в digital_twins.2_collected.
 
-    Читает development.engagement + notification_engagement views,
-    маппит на 5 групп метамодели (2_collected), агрегирует 2_6_coding/2_7_iwe
-    из user_events source='iwe' (ADR-009, WP-109 Ф3), вычисляет 3_derived
-    (calculation engine v0.6), пишет в digital_twins.data JSONB.
+    WP-218 Ф2: бот — один из collectors, пишет только в 2_collected.
+    Расчёт 3_derived выполняет R28 Profiler (standalone runtime):
+        DS-ai-systems/profiler/scripts/recalculate_derived.py
+
+    Что делает этот collector:
+      - Читает development.engagement + notification_engagement views
+      - Маппит на группы 2_1_account..2_5_notifications
+      - Агрегирует 2_6_coding/2_7_iwe из user_events source='iwe' (WP-109 Ф3)
+      - Подтягивает LMS qualification_level (WP-151 fix)
+      - Пишет deep merge в digital_twins.data['2_collected']
+
+    Что НЕ делает (вопреки ранней истории):
+      - Не вызывает calculate_derived (ушло в profiler)
+      - Не пишет в 3_derived (single writer — profiler)
 
     Returns:
         {"synced": N, "skipped": N, "errors": N, "first_error": str|None}
@@ -439,19 +451,13 @@ async def sync_engagement_to_dt() -> dict:
                                 if key in existing_collected and key not in collected_data:
                                     collected_data[key] = existing_collected[key]
 
-                    # ─── 3_derived (WP-151 Ф4, WP-174/175: calculation engine v0.7) ───
-                    # learning_map key = user_uuid (str). Prefer dt_user_id for DT key,
-                    # but learning_history is indexed by user_uuid.
-                    lh_user_key = str(row['user_uuid'])
-                    learning_rows = learning_map.get(lh_user_key)
-                    derived_data = calculate_derived(collected_data, learning_rows)
-
-                    # Deep merge: 2_collected + 3_derived в одну операцию
+                    # WP-218 Ф2: бот — только collector (писатель 2_collected).
+                    # Расчёт 3_derived делает R28 Profiler (standalone runtime)
+                    # DS-ai-systems/profiler/scripts/recalculate_derived.py
+                    # — читает полный 2_collected из БД и пересчитывает stateless.
                     merge_payload = {
                         '2_collected': collected_data,
                     }
-                    if derived_data:
-                        merge_payload['3_derived'] = derived_data
 
                     await conn.execute('''
                         INSERT INTO digital_twins (user_id, data, created_at, updated_at)
@@ -461,14 +467,7 @@ async def sync_engagement_to_dt() -> dict:
                                 || jsonb_build_object('2_collected',
                                     COALESCE(digital_twins.data->'2_collected', '{}'::jsonb)
                                     || ($2::jsonb->'2_collected')
-                                )
-                                || CASE WHEN $2::jsonb ? '3_derived'
-                                    THEN jsonb_build_object('3_derived',
-                                        COALESCE(digital_twins.data->'3_derived', '{}'::jsonb)
-                                        || ($2::jsonb->'3_derived')
-                                    )
-                                    ELSE '{}'::jsonb
-                                END,
+                                ),
                             updated_at = NOW()
                     ''', user_id, json.dumps(merge_payload))
 
@@ -523,20 +522,24 @@ async def get_engagement_data(user_uuid: str) -> dict | None:
 
 
 async def sync_one_user_to_dt(user_id: str) -> bool:
-    """On-demand синхронизация одного пользователя в digital_twins (WP-175 Ф9-B).
+    """On-demand collector для одного пользователя (WP-175 Ф9-B).
 
     Используется после GitHub webhook: ученик закончил занятие → коммит в workbook/
-    → Activity Hub → вызов этой функции → ЦД пересчитан прямо сейчас.
+    → Activity Hub → вызов этой функции → 2_collected обновлён.
 
-    Логика идентична одной итерации sync_engagement_to_dt(), но:
-      - принимает Ory UUID напрямую (не итерирует по всем)
-      - передаёт as_of=now в calculate_derived() для детерминированного расчёта
+    WP-218 Ф2: расчёт 3_derived НЕ выполняется здесь. Для on-demand пересчёта
+    после обновления collected — вызывать R28 Profiler отдельно:
+        python3 profiler/scripts/recalculate_derived.py --user-id <user_id>
+    (TODO сессия B: триггер через subprocess / event bus / cron-tick).
+
+    Логика идентична одной итерации sync_engagement_to_dt(), но принимает
+    Ory UUID напрямую.
 
     Args:
         user_id: Ory UUID пользователя (ключ в digital_twins.user_id)
 
     Returns:
-        True если синхронизация прошла успешно, False при ошибке.
+        True если collect прошёл успешно, False при ошибке.
     """
     pool = await get_pool()
     now = datetime.now(timezone.utc)
@@ -754,12 +757,12 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                         if key in existing_collected and key not in collected_data:
                             collected_data[key] = existing_collected[key]
 
-            # as_of фиксирует момент времени — детерминированный расчёт (WP-175 Ф9-B)
-            derived_data = calculate_derived(collected_data, learning_rows, as_of=now)
-
+            # WP-218 Ф2: бот — только collector. Расчёт 3_derived — в R28 Profiler
+            # (DS-ai-systems/profiler/scripts/recalculate_derived.py).
+            # On-demand пересчёт после webhook-занятия (WP-175 Ф9-B) теперь должен
+            # триггерить profiler separately — TODO в сессии B:
+            # заменить этот путь на вызов recalculate_derived --user-id ...
             merge_payload = {'2_collected': collected_data}
-            if derived_data:
-                merge_payload['3_derived'] = derived_data
 
             await conn.execute('''
                 INSERT INTO digital_twins (user_id, data, created_at, updated_at)
@@ -769,14 +772,7 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                         || jsonb_build_object('2_collected',
                             COALESCE(digital_twins.data->'2_collected', '{}'::jsonb)
                             || ($2::jsonb->'2_collected')
-                        )
-                        || CASE WHEN $2::jsonb ? '3_derived'
-                            THEN jsonb_build_object('3_derived',
-                                COALESCE(digital_twins.data->'3_derived', '{}'::jsonb)
-                                || ($2::jsonb->'3_derived')
-                            )
-                            ELSE '{}'::jsonb
-                        END,
+                        ),
                     updated_at = NOW()
             ''', effective_user_id, json.dumps(merge_payload))
 
