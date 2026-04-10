@@ -81,6 +81,10 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         stage = profile.get("stage") or t('twin.not_set', lang)
 
     # ── Agency index ──
+    # IND.3.10.1 Интегральный индекс агентности
+    # Писатель: profiler/scripts/dt_calc.py:calc_integral_agency_index (R28 Профилировщик, AISYS.018)
+    # Триггер расчёта: dt_sync (cron 04:30 MSK) + /dt_sync on-demand. Event-driven — WP-218 Ф6 (blocked: WP-73).
+    # WP-218 hotfix: /twin — stateless витрина, никаких локальных вычислений.
     agency = derived.get("3_10_integral") or {}
     agency_index = agency.get("index")
     agency_text = f"{round(agency_index)}/100" if agency_index is not None else "—"
@@ -143,10 +147,14 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         roles = []
     roles_text = ", ".join(roles) if roles else t('twin.not_set_plural', lang)
 
-    # ── Engine version ──
+    # ── Engine version + calculated_at (WP-218 метамодельная трассируемость) ──
+    # Источник: profiler calculate_derived() → digital_twins.data['3_derived']
+    # Показываем пользователю, что цифры — это снимок ЦД на момент calculated_at,
+    # а не произвольное вычисление в интерфейсе.
     engine_ver = derived.get("engine_version", "")
-    calc_at = (derived.get("calculated_at") or "")[:10]
-    engine_line = f"engine v{engine_ver} | {calc_at}" if engine_ver else ""
+    calc_at_iso = derived.get("calculated_at") or ""
+    calc_at = calc_at_iso[:16].replace("T", " ") if calc_at_iso else ""
+    engine_line = f"IND.3.10.1 · рассчитано {calc_at} · engine v{engine_ver}" if engine_ver else ""
 
     # ── User name ──
     name = intern.get('name', '') if intern else ''
@@ -480,6 +488,8 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
         lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
 
     # Agency index
+    # IND.3.10.1 Интегральный индекс агентности
+    # Писатель: profiler/scripts/dt_calc.py:calc_integral_agency_index (WP-218)
     integral = derived.get('3_10_integral') or {}
     agency_index = integral.get('index')
     if agency_index is not None:
