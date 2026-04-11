@@ -329,7 +329,69 @@ generate_question()
 
 ---
 
-## 7. Ключевые файлы
+## 7. Content Budget Model (DP.D.027)
+
+Модель из Pack (`DP.D.027`) задаёт, сколько слов и какого стиля должен быть сгенерированный контент. **Три независимые оси** — нельзя смешивать:
+
+| Ось | Что определяет | Как реализована |
+|-----|----------------|-----------------|
+| **Ось 1 — Длина** | Целевое число слов | `calc_words(duration, bloom)` = `duration × WPM_BASE × BLOOM_MULTIPLIER[bloom]` |
+| **Ось 2 — Глубина** | Стиль изложения (доступный / профессиональный / экспертный) | `BLOOM_INSTRUCTION[bloom]` — отдельная инструкция в system prompt |
+| **Ось 3 — Персонализация** | Профиль пользователя, assessment state, DT tier context | `_build_user_profile()` + TIER_PIPELINE ([P-08 § 6](process-08-self-knowledge.md)) |
+
+### 7.1. Константы (`config/settings.py:230-248`)
+
+```python
+WPM_BASE = 60  # слов/мин — базовая скорость чтения учебного текста
+
+BLOOM_MULTIPLIER = {1: 1.0, 2: 1.3, 3: 1.7}
+
+BLOOM_INSTRUCTION = {
+    1: "Объясни доступно, без терминов. Примеры из повседневной жизни.",
+    2: "Используй профессиональную терминологию. Показывай связи между понятиями.",
+    3: "Экспертный уровень. Критический анализ, неочевидные аспекты, ссылки на источники.",
+}
+
+def calc_words(duration_minutes: int, bloom_level: int = 1) -> int:
+    bl = max(1, min(bloom_level, 3))
+    return int(duration_minutes * WPM_BASE * BLOOM_MULTIPLIER.get(bl, 1.0))
+```
+
+### 7.2. Расчёт для типовых случаев
+
+| duration | bloom=1 | bloom=2 | bloom=3 |
+|----------|---------|---------|---------|
+| 5 мин | 300 | 390 | 510 |
+| 15 мин | 900 | 1170 | 1530 |
+| 25 мин | 1500 | 1950 | 2550 |
+
+**Важно:** таблица в § 1.1 «study_duration → word_count» (500 / 1500 / 2500) — устаревший грубый расчёт (`duration × 100`). Текущая правда — `calc_words()`. Фикс таблицы § 1.1 — отдельным коммитом.
+
+### 7.3. Правило раздельности осей
+
+**Bloom НЕ ДОЛЖЕН смешиваться между осями:**
+
+- ❌ `"Уровень bloom=3 → пиши длиннее и профессиональнее"` — смешение Осей 1 и 2 в одной инструкции
+- ✅ Ось 1: `words = calc_words(duration, bloom)` → передаётся в system prompt как `~{words} слов`
+- ✅ Ось 2: `BLOOM_INSTRUCTION[bloom]` → отдельная строка в system prompt, управляющая стилем
+
+Так расчёт остаётся воспроизводимым: при дебаге можно изолированно проверить длину (Ось 1) или стиль (Ось 2), не распутывая комбинированную инструкцию.
+
+### 7.4. Auto-upgrade bloom
+
+`BLOOM_AUTO_UPGRADE_AFTER` (в settings.py) — через сколько успешных тем автоматически поднимается bloom-уровень пользователя. Реализация в `states/workshops/marathon/question.py` (assessment flow). Правило: bloom растёт не от желания user, а от демонстрации освоенности.
+
+### 7.5. Связь с `generate*()` методами
+
+- `generate_content(topic, intern, marathon_day, ...)` — `words = calc_words(intern['study_duration'], intern['bloom_level'])`, подставляется в system prompt
+- `generate_question(topic, intern, marathon_day, bloom_level)` — bloom передаётся напрямую для выбора `question_templates` из topic YAML
+- `generate_practice_intro(topic, intern)` — bloom не используется (практика не имеет уровней), только language для перевода
+
+**Adaptive max_tokens** (§9 CLAUDE.md): `min(words × 1.5, 4096)` в `generate_content`. Не hardcode 4000 — масштабируется под Ось 1.
+
+---
+
+## 8. Ключевые файлы
 
 | Файл | Назначение |
 |------|-----------|
@@ -348,6 +410,7 @@ generate_question()
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-04-11 | Добавлена §7: Content Budget Model DP.D.027 (3 оси, `calc_words`, `BLOOM_MULTIPLIER`, `BLOOM_INSTRUCTION`) |
 | 2026-02-02 | Refactoring: ClaudeClient удалён из bot.py, используется импорт из clients/claude.py |
 | 2026-01-29 | Добавлена секция 3: генерация практики с переводом |
 | 2026-01-22 | Создание документа |

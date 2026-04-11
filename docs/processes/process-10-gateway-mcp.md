@@ -1,0 +1,296 @@
+# P-10 Gateway MCP
+
+> Единый клиент к Gateway MCP (`mcp.aisystant.com/mcp`), который проксирует к трём бэкендам (knowledge / dt / personal) через tool prefix. Per-user Ory Bearer token, per-user refresh lock от thundering herd, global semaphore от Cloudflare 429, circuit breaker. Это процесс — не инфраструктурный layer: здесь живут доменные решения про rate-limiting, auth race и graceful degradation.
+
+---
+
+## Обзор
+
+| Параметр | Значение |
+|----------|----------|
+| Тип | Процесс (outbound integration с доменной логикой) |
+| Источник | WP-209 Ф0 (клиент), Ф4 (Cloudflare 429), Ф5 (Ory refresh), WP-212 B4.13 (knowledge через Gateway) |
+| Файл | `clients/gateway_mcp.py` (727 строк) |
+| Внешний endpoint | `mcp.aisystant.com/mcp` (JSON-RPC `tools/call`) |
+| Auth | Per-user Ory Bearer token, `Authorization: Bearer <access_token>` |
+| Архитектурное решение | Заменяет прямые подключения к knowledge-mcp и digital-twin-mcp единой точкой |
+
+---
+
+## 1. Архитектурная граница
+
+```
+Бот                                 Gateway MCP                  Backends
+┌─────────────────────┐             ┌──────────────┐             ┌──────────────────┐
+│ gateway_mcp.py      │             │ mcp.aisystant│             │ knowledge-mcp    │
+│  - _call            │  JSON-RPC   │    .com/mcp  │  prefix     │   knowledge_*    │
+│  - token cache      │──tools/call │              │──routing    │ digital-twin-mcp │
+│  - refresh lock     │  Bearer     │  Ory verify  │             │   dt_*           │
+│  - semaphore(12)    │             │  userId RLS  │             │ personal-knowledge│
+│  - circuit breaker  │             │              │             │   personal_*     │
+└─────────────────────┘             └──────────────┘             └──────────────────┘
+```
+
+**Что делает бот:**
+- Управляет per-user токенами (`_tokens`, загрузка из БД, refresh)
+- Сериализует исходящие вызовы через `_call_semaphore`
+- Держит circuit breaker на падения Gateway
+- Выставляет wrapper-методы (`knowledge_search`, `dt_read`, `get_instructions`, ...)
+
+**Что НЕ делает бот:**
+- ❌ Не валидирует доступ (RLS) — это Gateway через Ory
+- ❌ Не знает, какой бэкенд обслуживает запрос — знает только prefix
+- ❌ Не хешит токены — передаёт Bearer как получил от Ory
+
+**Что владеет бот:**
+- ✅ Кеш per-user токенов в памяти (source-of-truth в БД: `ory_tokens` → WP-212)
+- ✅ Политика rate-limiting (semaphore, circuit breaker)
+- ✅ Fallback при недоступности Gateway (graceful degradation, return None)
+
+---
+
+## 2. Tool prefix routing
+
+Gateway определяет бэкенд по префиксу tool name:
+
+| Prefix | Бэкенд | Wrapper-методы в клиенте |
+|--------|--------|--------------------------|
+| `knowledge_*` | knowledge-mcp (L2: Pack, guides, DS) | `knowledge_search`, `knowledge_get_document`, `knowledge_list_sources` |
+| `dt_*` | digital-twin-mcp (ЦД пользователя) | `dt_read`, `dt_write`, `dt_describe` |
+| `personal_*` | personal-knowledge-mcp (L4: личные заметки) | `personal_search`, `personal_write` |
+| (без prefix) | unified | `search` (across all backends) |
+| `get_instructions` | public tool | `get_instructions` (IWE platform) |
+
+**Правило:** при добавлении нового tool — подставить wrapper над `_call(tool_name, args, telegram_user_id)`, выбрать правильный префикс, указать нужен ли `telegram_user_id` (для public tools — нет).
+
+---
+
+## 3. Per-user Ory Bearer token
+
+### 3.1. Загрузка
+
+`load_tokens_from_db()` — при старте бота читает `ory_tokens` из Neon в `self._tokens: Dict[int, dict]` (ключ = `telegram_user_id`). Каждый entry: `{access_token, refresh_token, expires_at, ory_id}`.
+
+**Source-of-truth:** таблица `ory_tokens` в Neon. In-memory cache — оптимизация, при рестарте восстанавливается из БД.
+
+### 3.2. Подключение нового user
+
+`set_tokens(telegram_user_id, access_token, refresh_token, expires_at, ory_id)` вызывается:
+- Из OAuth callback при первом подключении (WP-187)
+- Из proactive refresh после успешного обновления
+
+Параллельно пишет в БД (`save_ory_tokens`) — cache и БД синхронны.
+
+### 3.3. Отключение
+
+`disconnect(telegram_user_id)` очищает in-memory cache И удаляет из БД (`_delete_ory_tokens_from_db`). Вызывается только в контролируемых сценариях (см. §5.3).
+
+### 3.4. `is_connected(telegram_user_id) → bool`
+
+Проверяет наличие свежего токена в cache. Используется UI-слоем: показывать кнопку «Подключить ЦД» или «Мой двойник».
+
+---
+
+## 4. Proactive refresh (scheduler, каждые 10 мин)
+
+`refresh_expiring_tokens(margin_seconds=600)` — cron в `core/scheduler.py`:
+
+```
+1. Snapshot candidates: user_id где expires_at < now + 10min AND refresh_token != None
+2. Для каждого: await _refresh_single_token(user_id)
+3. При неудаче: tokens.pop(user_id) + refresh_locks.pop(user_id)
+   (proactive видит invalid_grant → refresh_token реально невалиден)
+```
+
+**Почему snapshot перед итерацией:** `self._tokens` может меняться во время refresh — reactive-путь добавляет/удаляет entries.
+
+**Зачем margin 10 минут:** минимизирует окно 401 ошибок у пользователей. Токен обновляется заранее, до фактического истечения.
+
+---
+
+## 5. Reactive refresh (на 401) и thundering herd (WP-209 Ф5)
+
+### 5.1. Проблема
+
+При параллельных запросах одного user все получают 401 → каждый вызывает `_refresh_single_token` → Ory rotation инвалидирует старый `refresh_token` для всех корутин кроме первой → `invalid_grant` → раньше `disconnect()` сносил все токены.
+
+Эмпирика: 8× `invalid_grant` за 55 секунд на одного user при bursting scheduler fan-out.
+
+### 5.2. Решение — per-user lock + double-check
+
+```python
+lock = self._refresh_locks.setdefault(telegram_user_id, asyncio.Lock())
+async with lock:
+    # Double-check: пока ждали lock, другая корутина могла уже обновить
+    if expires_at > datetime.utcnow() + timedelta(seconds=60):
+        return True  # свежий токен
+    # ... реальный POST в Ory ...
+```
+
+- `_refresh_locks: Dict[int, asyncio.Lock]` — lock на user
+- Первый вызов делает реальный POST, остальные ждут
+- После освобождения lock — double-check: if свежий, выходим без запроса
+
+### 5.3. Правило: НЕ disconnect() в reactive пути
+
+В `_do_call` при `refreshed=False`:
+```python
+self._last_call_error = "token_expired"
+return None
+# НЕ disconnect() !
+```
+
+Почему: raced thundering herd мог успешно обновить токен в другой корутине — `disconnect` всё снесёт. Окончательный `disconnect` — только в proactive cron после явного `invalid_grant` от Ory.
+
+UX следствие: user видит ошибку `token_expired` → кнопка «Переподключить ЦД» (не «отключён навсегда»).
+
+---
+
+## 6. Cloudflare 429 rate limiting (WP-209 Ф4)
+
+### 6.1. Проблема
+
+До WP-212 B4.13 knowledge-запросы шли напрямую. После — все через Gateway → Cloudflare WAF лимитирует. Эмпирика: **64× 429 в сутки**, burst от scheduler pre-gen fan-out (см. [P-11 Pre-generation](process-11-pre-generation.md)): `Semaphore(20)` × N MCP-вызовов на user → 40-60 параллельных запросов в Gateway → WAF срабатывает.
+
+### 6.2. Решение — global semaphore + Retry-After
+
+```python
+self._call_semaphore = asyncio.Semaphore(12)
+
+async def _call(self, ...):
+    async with self._call_semaphore:
+        return await self._do_call(...)
+```
+
+- **12 concurrent** — компромисс: пропускает user-facing запросы, сглаживает scheduler fan-out
+- Все вызовы `_call` проходят через semaphore — один раз для wrapper, не на каждом retry
+
+При 429 ответе:
+```python
+retry_after_raw = resp.headers.get("Retry-After", "1")
+retry_after = min(float(retry_after_raw), 5.0)  # cap 5s
+self._rate_limited_total += 1
+await asyncio.sleep(retry_after)
+continue  # max 1 retry
+```
+
+### 6.3. Мониторинг
+
+`self._rate_limited_total` — счётчик 429 events. Читается через dev-команду `/errors`. Мониторится утром: 0× за сутки = норма, всё что выше = регрессия.
+
+---
+
+## 7. Circuit breaker
+
+| Параметр | Значение |
+|----------|----------|
+| `FAILURE_THRESHOLD` | 2 подряд ошибки |
+| `RECOVERY_TIME` | 60 секунд |
+
+```
+OPEN   ← 2 failures     CLOSED ← success
+   │                         ↑
+   └── 60s → half-open ──────┘
+```
+
+**Что считается failure:** HTTP не-200/401/403/429, timeout, exception. НЕ считаются: 401 (token issue), 403 (subscription issue), 429 retry success, RPC error в JSON.
+
+**Что делает open circuit:** `_call` возвращает `None` с `_last_call_error = "circuit_open"`, не делает HTTP request. Caller получает `None` → graceful fallback.
+
+**Recovery:** после 60 секунд следующий вызов пропускается (`_is_circuit_open()` returns `False`), при успехе — `_record_success()` → `CLOSED`.
+
+---
+
+## 8. Error taxonomy (`_last_call_error`)
+
+После каждого `_call` caller может прочитать `gateway_mcp._last_call_error` для точного UX:
+
+| Код | Когда | UX показ |
+|-----|-------|----------|
+| `ok` | Успех | — |
+| `circuit_open` | Circuit breaker открыт | «MCP временно недоступен» |
+| `not_authorized` | Нужен telegram_user_id, но токенов нет | Кнопка «Подключить ЦД» |
+| `token_expired` | 401 после failed refresh (без disconnect) | Кнопка «Переподключить» |
+| `no_subscription` | 403 от Gateway | Paywall |
+| `rate_limited` | 429 после retry | «Много запросов, попробуйте позже» |
+| `timeout` | `asyncio.TimeoutError` после retry | «Долгий ответ, повторите» |
+| `http_error` | Другой HTTP / exception | Generic error |
+| `rpc_error` | JSON-RPC error в ответе | Лог + generic error |
+
+**⚠️ Несоответствие docstring и кода:** docstring `_last_call_error` (строка 95-96) перечисляет `"disconnected"` как один из кодов, но в реальности код его нигде не выставляет. Это артефакт ранней версии WP-209 Ф5 — сейчас disconnect перенесён в proactive cron, reactive путь использует `token_expired`. Callers, проверяющие `== "disconnected"`, не сработают. Фикс docstring — отдельным коммитом при следующем касании файла.
+
+---
+
+## 9. Trace correlation
+
+Если есть активный trace (`core/tracing`), `_do_call` добавляет `x-trace-id` header. Gateway пробрасывает в бэкенды → unified trace через Neon/Langfuse. См. [P-06 Observability](process-06-observability.md) для Langfuse dual-write.
+
+---
+
+## 10. Singleton и session management
+
+`gateway_mcp` — модульный singleton:
+```python
+gateway_mcp = GatewayMCPClient(url=GATEWAY_MCP_URL)
+```
+
+- **Session lazy:** `_get_session()` создаёт `aiohttp.ClientSession` при первом вызове, переиспользует connection pool
+- **Shutdown:** `await gateway_mcp.close()` вызывается из bot.py shutdown hook
+- **Impact:** один session на процесс — keep-alive соединения, без overhead на handshake
+
+---
+
+## 11. Публичные wrapper-методы
+
+### 11.1. Knowledge (L2 — Pack, guides, DS)
+
+- `knowledge_search(query, limit=5, telegram_user_id)` — полнотекстовый поиск; используется в [P-08 pre-search](process-08-self-knowledge.md)
+- `knowledge_get_document(filename, telegram_user_id)` — получить документ по имени
+- `knowledge_list_sources(source_type, telegram_user_id)` — список доступных источников
+
+### 11.2. Digital Twin (ЦД)
+
+- `dt_read(path, telegram_user_id)` — читать секцию ЦД (напр. `"1_declarative"`)
+- `dt_write(path, data, telegram_user_id)` — записать в ЦД (deep merge со стороны бэкенда)
+- `dt_describe(path, telegram_user_id=None)` — описание структуры (public-ish)
+
+### 11.3. Personal (L4 — личные заметки)
+
+- `personal_search(query, telegram_user_id)` — поиск по личным знаниям user
+- `personal_write(source, path, content, telegram_user_id)` — запись в personal-knowledge-mcp
+
+### 11.4. Composite
+
+- `search(query, telegram_user_id=None)` — unified поиск по всем бэкендам
+- `get_instructions(telegram_user_id=None)` — IWE platform instructions (public tool, token не обязателен)
+- `read(path, telegram_user_id)` — алиас (роутит по префиксу path)
+- `write(path, data, telegram_user_id)` — алиас
+
+### 11.5. Sync helpers
+
+- `get_user_profile(telegram_user_id)` — профиль из ЦД, используется `/twin`, `/me`, insights
+- `get_user_profile_ex(telegram_user_id)` — расширенная версия (tuple с доп. данными)
+- `sync_profile(telegram_user_id, intern_data)` — массовая синхронизация полей профиля (bot DB → ЦД)
+- `sync_fields(telegram_user_id, fields)` — гранулярная синхронизация конкретных полей
+- `get_connected_user_ids()` — список user IDs с активным токеном
+
+---
+
+## 12. Антипаттерны
+
+- ❌ **Обходить semaphore** — делать HTTP напрямую, минуя `_call`. Ломает rate-limiting → Cloudflare 429
+- ❌ **Disconnect в reactive пути** при 401 — теряются токены при thundering herd
+- ❌ **Хранить токены вне `_tokens`** — теряется синхронизация с refresh lock
+- ❌ **Полагаться на кеш после рестарта** — source-of-truth в БД, in-memory — производное
+- ❌ **Игнорировать `_last_call_error`** — caller должен реагировать на `not_authorized`, `no_subscription`, `token_expired` разным UX
+- ❌ **Увеличивать semaphore без замера** — 12 выбрано эмпирически на burst scheduler'а, при изменении нужен замер 429
+
+---
+
+## 13. Связанные процессы
+
+- **[P-08 Self-knowledge](process-08-self-knowledge.md)** — `collect_pre_search` использует `knowledge_search`, `collect_iwe_instructions` использует `get_instructions`
+- **[P-06 Observability](process-06-observability.md)** — error_classifier категоризирует Gateway ошибки как `mcp`/`claude_api`, trace correlation через `x-trace-id`
+- **P-11 Pre-generation** (TODO) — источник burst 429, из-за которого введён semaphore
+- **WP-212 B4.13** — архитектурное решение: все knowledge-запросы через Gateway (не прямо в knowledge-mcp)
+- **WP-187** — OAuth flow, source для `set_tokens` через callback
