@@ -83,6 +83,28 @@ class FeedDigestState(BaseState):
             'feed_duration': getattr(user, 'feed_duration', FEED_SESSION_DURATION_MAX),
         }
 
+    async def _recover_session_id(self, chat_id: int) -> Optional[int]:
+        """Восстанавливает session_id из БД при пустом _user_data.
+
+        Триггер: scheduler доставил дайджест (минуя _ensure_session) или
+        контейнер Railway был рестартан между генерацией и действием.
+        Ищет активную сегодняшнюю сессию, затем незавершённую сегодняшнюю.
+        Возвращает id и восстанавливает кеш _user_data для последующих обращений.
+        """
+        week = await get_current_feed_week(chat_id)
+        if not week:
+            return None
+        session = (await get_feed_session(week['id'], moscow_today())
+                   or await get_incomplete_feed_session(week['id']))
+        if not session or session.get('status') == 'completed':
+            return None
+        session_id = session['id']
+        self._user_data.setdefault(chat_id, {}).update({
+            'session_id': session_id,
+            'week_id': week['id'],
+        })
+        return session_id
+
     async def enter(self, user, context: dict = None) -> Optional[str]:
         """
         Показываем дайджест на сегодня.
@@ -320,7 +342,7 @@ class FeedDigestState(BaseState):
         lang = self._get_lang(user)
 
         data = self._user_data.get(chat_id, {})
-        session_id = data.get('session_id')
+        session_id = data.get('session_id') or await self._recover_session_id(chat_id)
 
         if not session_id:
             await callback.answer(t('errors.try_again', lang), show_alert=True)
@@ -454,21 +476,7 @@ class FeedDigestState(BaseState):
             return None
 
         data = self._user_data.get(chat_id, {})
-        session_id = data.get('session_id')
-
-        # Fallback на БД: дайджест мог быть доставлен scheduler'ом или
-        # после рестарта контейнера — _user_data пуст, но сессия в БД есть.
-        if not session_id:
-            week = await get_current_feed_week(chat_id)
-            if week:
-                session = (await get_feed_session(week['id'], moscow_today())
-                           or await get_incomplete_feed_session(week['id']))
-                if session and session.get('status') != 'completed':
-                    session_id = session['id']
-                    self._user_data.setdefault(chat_id, {}).update({
-                        'session_id': session_id,
-                        'week_id': week['id'],
-                    })
+        session_id = data.get('session_id') or await self._recover_session_id(chat_id)
 
         if not session_id:
             await self.send(user, t('feed.start_digest_first', lang))
@@ -667,7 +675,7 @@ class FeedDigestState(BaseState):
         elif data == "feed_skip":
             # Пропустить дайджест (не считается фиксацией, depth не растёт)
             session_data = self._user_data.get(chat_id, {})
-            session_id = session_data.get('session_id')
+            session_id = session_data.get('session_id') or await self._recover_session_id(chat_id)
             if session_id:
                 await update_feed_session(session_id, {'status': 'skipped'})
                 logger.info(f"[Feed] User {chat_id} skipped digest session {session_id}")
