@@ -1,6 +1,8 @@
 # P-04 Сбор статистики
 
-> Процесс агрегации данных для команды /progress и других отчётов.
+> Процесс агрегации данных для команды /progress и других отчётов пользователя.
+>
+> ⚠️ **Не путать с observability-метриками** (p95 latency, error rate, RPM, DAU/WAU/MAU, cohort retention) — они вынесены в отдельный процесс [P-06 Observability](process-06-observability.md). P-04 — только user-facing stats (серия, темы, фиксации), которые показываются самому пользователю.
 
 ---
 
@@ -8,9 +10,10 @@
 
 | Параметр | Значение |
 |----------|----------|
-| Тип | Процесс |
+| Тип | Процесс (агрегация user-facing статистики) |
 | Файлы | `db/queries/answers.py`, `db/queries/activity.py` |
 | Использует | `/progress`, `/profile` |
+| Связанные | [P-06 Observability](process-06-observability.md) — dev/admin метрики (Grafana, error_classifier), [P-07 DT Engagement Sync](process-07-dt-engagement-sync.md) — engagement view как источник для ЦД |
 
 ---
 
