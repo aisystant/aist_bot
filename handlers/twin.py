@@ -260,21 +260,16 @@ async def cmd_twin(message: Message):
         return
 
     # По умолчанию: показать профиль
-    logger.info(f"[/twin] default path start for {telegram_user_id}")
     await message.answer(t('twin.loading_profile', lang))
-    logger.info(f"[/twin] loading_profile sent for {telegram_user_id}")
     try:
         async with keep_typing(message):
-            logger.info(f"[/twin] before get_user_profile_ex for {telegram_user_id}")
             profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
-            logger.info(f"[/twin] after get_user_profile_ex for {telegram_user_id}: reason={reason}, profile_is_none={profile is None}")
     except Exception as e:
         logger.error(f"[/twin] get_user_profile_ex raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
         await message.answer(t('twin.temporary_error', lang))
         return
 
     if profile is None:
-        logger.info(f"[/twin] profile is None, reason={reason}, sending UX branch for {telegram_user_id}")
         # Показываем конкретную причину вместо generic "unavailable"
         if reason in ("disconnected", "token_expired", "not_authorized"):
             # Токен протух / отключён → предложить переподключиться кнопкой
@@ -296,14 +291,11 @@ async def cmd_twin(message: Message):
             await message.answer(t('twin.empty_profile', lang))
         return
 
-    logger.info(f"[/twin] profile received, profile type={type(profile).__name__} for {telegram_user_id}")
-
     # WP-218 Ф2: единая точка чтения ЦД — gateway_mcp (→ dt-mcp → Neon по ory_id).
     # Убран повторный enrich через get_engagement_data() — он ходил по user_uuid
     # из development.engagement, который для некоторых chat_id возвращает ДРУГОЙ
     # UUID (дубль в engagement view) и перезаписывал корректный _derived на
     # устаревшие данные. Принцип №4: stateless-интерфейсы — читаем ровно один раз.
-    logger.info(f"[/twin] building keyboard for {telegram_user_id}")
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -315,14 +307,12 @@ async def cmd_twin(message: Message):
         ],
     ])
 
-    logger.info(f"[/twin] keyboard built, building profile text for {telegram_user_id}, profile_type={type(profile).__name__}")
     try:
         text = _profile_text(profile, lang, intern=intern)
     except Exception as e:
         logger.error(f"[/twin] _profile_text raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
         await message.answer(t('twin.temporary_error', lang))
         return
-    logger.info(f"[/twin] sending profile for {telegram_user_id}, text_len={len(text)}")
     try:
         await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
     except Exception as e:
