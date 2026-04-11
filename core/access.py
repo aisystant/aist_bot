@@ -16,6 +16,7 @@ Gateway (mcp.aisystant.com) доступен только при активно�
 """
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
