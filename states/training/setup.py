@@ -6,7 +6,7 @@ Flow: выбор режима (4 сценария) -> дашборд.
 Когнитивный уровень = postformal (фиксирован, Phase 2 — тренировка ребёнка).
 """
 
-from typing import Optional, Dict
+from typing import Optional
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -31,21 +31,12 @@ class TrainingSetupState(BaseState):
     }
     allow_global = []
 
-    _user_data: Dict[int, Dict] = {}
-
-    def _get_chat_id(self, user) -> int:
-        if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
-
     async def enter(self, user, context: dict = None) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
-
-        self._user_data[chat_id] = {
+        await self.save_state(user, {
             'step': 'mode',
             'training_mode': None,
             'single_principle': None,
-        }
+        })
 
         await self._show_mode_selection(user)
         return None
@@ -102,8 +93,7 @@ class TrainingSetupState(BaseState):
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.get(chat_id, {})
+        data = await self.load_state(user)
         cb = callback.data or ''
 
         step = data.get('step', 'mode')
@@ -116,20 +106,19 @@ class TrainingSetupState(BaseState):
         # === Выбор режима ===
         if step == 'mode':
             if cb == 'setup_mode_shuffle':
-                data['training_mode'] = 'shuffle'
-                self._user_data[chat_id] = data
+                data = {**data, 'training_mode': 'shuffle'}
+                await self.save_state(user, data)
                 await callback.answer("Режим: все вперемешку")
-                return await self._finalize(user, chat_id, data)
+                return await self._finalize(user, data)
 
             if cb == 'setup_mode_sequential':
-                data['training_mode'] = 'sequential'
-                self._user_data[chat_id] = data
+                data = {**data, 'training_mode': 'sequential'}
+                await self.save_state(user, data)
                 await callback.answer("Режим: по порядку")
-                return await self._finalize(user, chat_id, data)
+                return await self._finalize(user, data)
 
             if cb == 'setup_mode_pick_zp':
-                data['step'] = 'pick_zp'
-                self._user_data[chat_id] = data
+                await self.save_state(user, {**data, 'step': 'pick_zp'})
                 await callback.answer()
                 await self._show_pick_zp(user)
                 return None
@@ -144,8 +133,7 @@ class TrainingSetupState(BaseState):
         # === Выбор конкретного ZP ===
         if step == 'pick_zp':
             if cb == 'setup_mode_back':
-                data['step'] = 'mode'
-                self._user_data[chat_id] = data
+                await self.save_state(user, {**data, 'step': 'mode'})
                 await callback.answer()
                 await self._show_mode_selection(user)
                 return None
@@ -153,19 +141,19 @@ class TrainingSetupState(BaseState):
             if cb.startswith('setup_pick_'):
                 principle_id = cb.replace('setup_pick_', '')
                 if principle_id in ZP_PRINCIPLES:
-                    data['training_mode'] = 'single'
-                    data['single_principle'] = principle_id
-                    self._user_data[chat_id] = data
+                    data = {**data, 'training_mode': 'single', 'single_principle': principle_id}
+                    await self.save_state(user, data)
                     name = get_principle_name(principle_id)
                     await callback.answer(f"Выбран: {principle_id} {name}")
-                    return await self._finalize(user, chat_id, data)
+                    return await self._finalize(user, data)
                 await callback.answer("Неизвестный принцип", show_alert=True)
                 return None
 
         return None
 
-    async def _finalize(self, user, chat_id: int, data: dict) -> str:
+    async def _finalize(self, user, data: dict) -> str:
         """Сохранить настройки и перейти к дашборду."""
+        chat_id = self._get_chat_id_from_user(user)
         engine = TrainingEngine(chat_id)
         mode = data.get('training_mode', 'shuffle')
         single = data.get('single_principle')
@@ -193,6 +181,5 @@ class TrainingSetupState(BaseState):
         return "setup_complete"
 
     async def exit(self, user) -> dict:
-        chat_id = self._get_chat_id(user)
-        self._user_data.pop(chat_id, None)
+        await self.clear_state(user)
         return {}

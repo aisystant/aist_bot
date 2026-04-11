@@ -46,20 +46,11 @@ class FeedTopicsState(BaseState):
     }
     allow_global = ["consultation", "notes"]
 
-    # Хранение выбранных тем для пользователя (chat_id -> data)
-    _user_data: Dict[int, Dict] = {}
-
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
         if isinstance(user, dict):
             return user.get('language', 'ru') or 'ru'
         return getattr(user, 'language', 'ru') or 'ru'
-
-    def _get_chat_id(self, user) -> int:
-        """Получить chat_id пользователя."""
-        if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
 
     def _user_to_intern_dict(self, user) -> dict:
         """Конвертировать user в dict для совместимости."""
@@ -98,7 +89,7 @@ class FeedTopicsState(BaseState):
             "topics_selected" если уже есть активная неделя, None иначе
         """
         lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
         intern = self._user_to_intern_dict(user)
         context = context or {}
 
@@ -169,14 +160,13 @@ class FeedTopicsState(BaseState):
 
     async def _show_topic_selection(self, user, topics: List[Dict]) -> None:
         """Показывает интерфейс выбора тем."""
-        chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
-        # Сохраняем темы во временное хранилище
-        self._user_data[chat_id] = {
+        # Сохраняем темы в БД (переживает Railway redeploy)
+        await self.save_state(user, {
             'suggested_topics': topics,
             'selected_indices': []
-        }
+        })
 
         # Формируем текст
         text = f"📚 *{t('feed.suggested_topics', lang)}*\n\n"
@@ -230,14 +220,14 @@ class FeedTopicsState(BaseState):
         """
         text = (message.text or "").strip()
         lang = self._get_lang(user)
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
 
         if text.startswith('/'):
             # Команды обрабатываются отдельно
             return None
 
         # Получаем сохранённые темы
-        data = self._user_data.get(chat_id, {})
+        data = await self.load_state(user)
         topics = data.get('suggested_topics', [])
 
         if not topics:
@@ -269,8 +259,7 @@ class FeedTopicsState(BaseState):
         success = await self._accept_topics(chat_id, selected_titles, lang)
 
         if success:
-            # Очищаем временные данные
-            self._user_data.pop(chat_id, None)
+            await self.clear_state(user)
             return "topics_selected"
 
         return None
@@ -380,10 +369,10 @@ class FeedTopicsState(BaseState):
         Вызывается из роутера callback-ов.
         """
         data = callback.data
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
         lang = self._get_lang(user)
 
-        user_data = self._user_data.get(chat_id, {})
+        user_data = await self.load_state(user)
         topics = user_data.get('suggested_topics', [])
         selected = list(user_data.get('selected_indices', []))
 
@@ -399,8 +388,8 @@ class FeedTopicsState(BaseState):
                     return None
                 selected.append(index)
 
-            # Обновляем данные
-            self._user_data[chat_id]['selected_indices'] = selected
+            # Обновляем данные в БД
+            await self.save_state(user, {**user_data, 'selected_indices': selected})
 
             # Обновляем кнопки
             buttons = []
@@ -443,7 +432,7 @@ class FeedTopicsState(BaseState):
             success = await self._accept_topics(chat_id, selected_titles, lang)
 
             if success:
-                self._user_data.pop(chat_id, None)
+                await self.clear_state(user)
                 await callback.answer()
                 return "topics_selected"
 
@@ -459,7 +448,5 @@ class FeedTopicsState(BaseState):
 
     async def exit(self, user) -> dict:
         """Передаём контекст следующему стейту."""
-        chat_id = self._get_chat_id(user)
-        # Очищаем временные данные
-        self._user_data.pop(chat_id, None)
+        await self.clear_state(user)
         return {}

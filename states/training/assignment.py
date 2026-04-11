@@ -5,7 +5,7 @@
 Генерирует задание, принимает ответ, оценивает через AI.
 """
 
-from typing import Optional, Dict
+from typing import Optional
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -28,15 +28,8 @@ class TrainingAssignmentState(BaseState):
     }
     allow_global = ["consultation", "notes"]
 
-    _user_data: Dict[int, Dict] = {}
-
-    def _get_chat_id(self, user) -> int:
-        if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
-
     async def enter(self, user, context: dict = None) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
         principle_id = (context or {}).get('principle_id')
 
         if not principle_id:
@@ -62,12 +55,12 @@ class TrainingAssignmentState(BaseState):
             await self.send(user, error_text)
             return "back"
 
-        # Сохранить данные задания
-        self._user_data[chat_id] = {
+        # Сохранить данные задания в БД (переживает Railway redeploy)
+        await self.save_state(user, {
             'principle_id': principle_id,
             'depth': assignment['depth'],
             'assignment_text': assignment['assignment_text'],
-        }
+        })
 
         lines = [
             f"📝 *{assignment['principle_name']}* — Глубина {assignment['depth']} ({assignment.get('bloom_level', '')})",
@@ -85,7 +78,6 @@ class TrainingAssignmentState(BaseState):
         return None
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
         answer_text = (message.text or '').strip()
 
         if len(answer_text) < TRAINING_MIN_ANSWER_LENGTH:
@@ -95,7 +87,7 @@ class TrainingAssignmentState(BaseState):
             )
             return None
 
-        data = self._user_data.get(chat_id, {})
+        data = await self.load_state(user)
         principle_id = data.get('principle_id')
         depth = data.get('depth')
         assignment_text = data.get('assignment_text', '')
@@ -111,8 +103,6 @@ class TrainingAssignmentState(BaseState):
         )
 
         if result.get('passed'):
-            # Сбросить счётчик неудач
-            data['fail_count'] = 0
             new_depth = result.get('new_depth', depth)
             if new_depth >= TRAINING_MAX_DEPTH:
                 text = f"🎉 *Принцип пройден полностью!*\n\nГлубина {new_depth}/{TRAINING_MAX_DEPTH}"
@@ -123,9 +113,9 @@ class TrainingAssignmentState(BaseState):
             await self.send(user, text, parse_mode="Markdown")
             return "passed"
         else:
-            # Подсчёт неудач подряд
+            # Подсчёт неудач подряд (персистентный через БД)
             fail_count = data.get('fail_count', 0) + 1
-            data['fail_count'] = fail_count
+            await self.save_state(user, {**data, 'fail_count': fail_count})
 
             if result.get('partial'):
                 text = f"🔶 *Частично верно*\n\n{result.get('feedback', '')}"
@@ -160,8 +150,7 @@ class TrainingAssignmentState(BaseState):
         if data == "train_retry":
             await callback.answer()
             # Показать сохранённое задание заново (без генерации нового)
-            chat_id = self._get_chat_id(user)
-            saved = self._user_data.get(chat_id, {})
+            saved = await self.load_state(user)
             principle_id = saved.get('principle_id')
             depth = saved.get('depth')
             assignment_text = saved.get('assignment_text', '')
@@ -183,6 +172,6 @@ class TrainingAssignmentState(BaseState):
         return None
 
     async def exit(self, user) -> dict:
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.pop(chat_id, {})
+        data = await self.load_state(user)
+        await self.clear_state(user)
         return data

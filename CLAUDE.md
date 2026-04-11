@@ -678,3 +678,11 @@ Railway UI отображает значения переменных с обр�
 ### 10.35. fsm_states.data затирается fallback state.clear()
 
 `fallback.py:on_unknown_message` вызывает `state.clear()` перед маршрутизацией в SM. Это **затирает `fsm_states.data`**. НЕ хранить персистентный контекст SM-стейтов в `fsm_states.data` — использовать `current_context` в `development.user_state` (через `update_intern`). Пример: `mydata.py` — контекст `awaiting_delete`.
+
+### 10.36. SM-стейты: persistence только через BaseState API
+
+**Запрещено** хранить прогресс стейта в class-level dict: `_user_data: Dict[int, Dict] = {}`. При Railway redeploy процесс умирает → dict обнуляется → LLM оценивает ответ против пустой строки → тихая порча БД.
+
+**Паттерн:** использовать `BaseState.save_state(user, data)` / `load_state(user)` / `clear_state(user)`. Данные хранятся в `development.user_state.current_context` (JSONB) под namespace-ключом стейта — переживают redeploy.
+
+**Исключение:** UI-флаги без побочных эффектов (например, `waiting_fixation` в `digest.py`) допустимы в памяти, если потеря флага при redeploy приводит только к повторному показу интерфейса (не к порче данных).

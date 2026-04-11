@@ -12,7 +12,7 @@
 """
 
 import json
-from typing import Optional, Dict
+from typing import Optional
 
 from aiogram.types import (
     Message,
@@ -51,7 +51,7 @@ class AssessmentFlowState(BaseState):
     Стейт прохождения теста.
 
     Управляет фазами внутри себя: intro → questions → self_check → open → done.
-    Прогресс хранится в _user_data (in-memory) по chat_id.
+    Прогресс хранится в development.user_state.current_context (JSONB, переживает redeploy).
     """
 
     name = "workshop.assessment.flow"
@@ -63,29 +63,22 @@ class AssessmentFlowState(BaseState):
     }
     allow_global = []  # Assessment не прерывается глобальными событиями
 
-    # In-memory хранение прогресса (chat_id → data)
-    _user_data: Dict[int, Dict] = {}
-
     def _get_lang(self, user) -> str:
         if isinstance(user, dict):
             return user.get('language', 'ru') or 'ru'
         return getattr(user, 'language', 'ru') or 'ru'
 
-    def _get_chat_id(self, user) -> int:
-        if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
-
-    def _get_data(self, chat_id: int) -> dict:
-        """Получить данные прохождения."""
-        if chat_id not in self._user_data:
-            self._user_data[chat_id] = {
+    async def _get_data(self, user) -> dict:
+        """Загрузить данные прохождения из БД (или вернуть дефолт)."""
+        data = await self.load_state(user)
+        if not data:
+            return {
                 'phase': PHASE_INTRO,
                 'assessment_id': DEFAULT_ASSESSMENT,
                 'question_index': 0,
                 'answers': {},
             }
-        return self._user_data[chat_id]
+        return data
 
     # =================================================================
     # ENTER
@@ -93,7 +86,6 @@ class AssessmentFlowState(BaseState):
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
         """Показываем intro с кнопками Начать/Отмена."""
-        chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
 
         # Загружаем тест
@@ -103,15 +95,16 @@ class AssessmentFlowState(BaseState):
             await self.send(user, t('assessment.not_found', lang))
             return "cancel"
 
-        # Инициализируем данные
-        self._user_data[chat_id] = {
+        # Инициализируем данные и сохраняем в БД (переживает Railway redeploy)
+        init_data = {
             'phase': PHASE_INTRO,
             'assessment_id': assessment_id,
             'question_index': 0,
             'answers': {},
         }
+        await self.save_state(user, init_data)
 
-        # Показываем intro
+        # Показываем intro (используем init_data как локальный data для этого шага)
         title = assessment.get('title', {}).get(lang, assessment.get('title', {}).get('ru', ''))
         intro = assessment.get('intro', {}).get(lang, assessment.get('intro', {}).get('ru', ''))
         total = get_total_questions(assessment)
@@ -140,9 +133,8 @@ class AssessmentFlowState(BaseState):
 
     async def handle(self, user, message: Message) -> Optional[str]:
         """Обработка текстовых сообщений (только для open_question фазы)."""
-        chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
-        data = self._get_data(chat_id)
+        data = await self._get_data(user)
         text = (message.text or "").strip()
 
         phase = data.get('phase', PHASE_INTRO)
@@ -151,14 +143,14 @@ class AssessmentFlowState(BaseState):
         if phase == PHASE_OPEN:
             skip_words = ["пропустить", "skip", "saltar", "passer", "/skip"]
             if text.lower() in skip_words:
-                data['open_response'] = None
+                await self.save_state(user, {**data, 'open_response': None})
                 return "done"
 
             if len(text) < 10:
                 await self.send(user, t('assessment.open_too_short', lang))
                 return None
 
-            data['open_response'] = text
+            await self.save_state(user, {**data, 'open_response': text})
             return "done"
 
         # В остальных фазах текст не ожидается — подсказка
@@ -177,9 +169,8 @@ class AssessmentFlowState(BaseState):
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
         """Обработка нажатий inline-кнопок."""
-        chat_id = self._get_chat_id(user)
         lang = self._get_lang(user)
-        data = self._get_data(chat_id)
+        data = await self._get_data(user)
         cb_data = callback.data
 
         phase = data.get('phase', PHASE_INTRO)
@@ -189,16 +180,15 @@ class AssessmentFlowState(BaseState):
             if cb_data == "assess_start":
                 await callback.answer()
                 await callback.message.edit_reply_markup()
-                data['phase'] = PHASE_QUESTIONS
-                data['question_index'] = 0
-                data['answers'] = {}
+                data = {**data, 'phase': PHASE_QUESTIONS, 'question_index': 0, 'answers': {}}
+                await self.save_state(user, data)
                 await self._send_question(user, data, lang)
                 return None
 
             if cb_data == "assess_cancel":
                 await callback.answer()
                 await callback.message.edit_text(t('assessment.cancelled', lang))
-                self._cleanup(chat_id)
+                await self.clear_state(user)
                 return "cancel"
 
         # --- QUESTIONS ---
@@ -212,7 +202,7 @@ class AssessmentFlowState(BaseState):
             if cb_data.startswith("assess_self_"):
                 await callback.answer()
                 choice = cb_data.replace("assess_self_", "")
-                data['self_check'] = choice
+                data = {**data, 'self_check': choice}
 
                 # Edit message to show choice
                 assessment = load_assessment(data['assessment_id'])
@@ -229,7 +219,8 @@ class AssessmentFlowState(BaseState):
                 )
 
                 # Переходим к открытому вопросу
-                data['phase'] = PHASE_OPEN
+                data = {**data, 'phase': PHASE_OPEN}
+                await self.save_state(user, data)
                 await self._send_open_question(user, data, lang)
                 return None
 
@@ -242,8 +233,8 @@ class AssessmentFlowState(BaseState):
 
     async def exit(self, user) -> dict:
         """Передаём данные в result state."""
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.get(chat_id, {})
+        data = await self.load_state(user)
+        await self.clear_state(user)
         return {
             'assessment_id': data.get('assessment_id', DEFAULT_ASSESSMENT),
             'answers': data.get('answers', {}),
@@ -268,8 +259,9 @@ class AssessmentFlowState(BaseState):
         if not question:
             return "cancel"
 
-        # Записываем ответ
-        data['answers'][question['id']] = answer
+        # Записываем ответ (копируем answers чтобы не мутировать in-place)
+        answers = {**data.get('answers', {}), question['id']: answer}
+        data = {**data, 'answers': answers}
 
         # Edit текущее сообщение — показать ответ
         total = get_total_questions(assessment)
@@ -284,7 +276,8 @@ class AssessmentFlowState(BaseState):
         # Следующий вопрос или переход к результатам
         next_qi = qi + 1
         if next_qi < total:
-            data['question_index'] = next_qi
+            data = {**data, 'question_index': next_qi}
+            await self.save_state(user, data)
             await self._send_question(user, data, lang)
             return None
         else:
@@ -294,7 +287,8 @@ class AssessmentFlowState(BaseState):
             await self.send(user, result_text, parse_mode="Markdown")
 
             # Переходим к self-check
-            data['phase'] = PHASE_SELF_CHECK
+            data = {**data, 'phase': PHASE_SELF_CHECK}
+            await self.save_state(user, data)
             await self._send_self_check(user, data, lang)
             return None
 
@@ -375,6 +369,3 @@ class AssessmentFlowState(BaseState):
             parse_mode="Markdown",
         )
 
-    def _cleanup(self, chat_id: int) -> None:
-        """Очистить данные прохождения."""
-        self._user_data.pop(chat_id, None)

@@ -5,7 +5,7 @@
 Показывает прогресс по принципам. Кнопки: Продолжить, Сменить режим, Настройки.
 """
 
-from typing import Optional, Dict
+from typing import Optional
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -32,20 +32,13 @@ class TrainingDashboardState(BaseState):
     }
     allow_global = ["consultation", "notes"]
 
-    _user_data: Dict[int, Dict] = {}
-
-    def _get_chat_id(self, user) -> int:
-        if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
-
     def _get_lang(self, user) -> str:
         if isinstance(user, dict):
             return user.get('language', 'ru') or 'ru'
         return getattr(user, 'language', 'ru') or 'ru'
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
         engine = TrainingEngine(chat_id)
 
         # Проверить setup
@@ -191,21 +184,21 @@ class TrainingDashboardState(BaseState):
 
     async def handle(self, user, message: Message) -> Optional[str]:
         text = (message.text or '').strip()
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
 
         if text.startswith('train_start_'):
             principle_id = text.replace('train_start_', '')
-            self._user_data[chat_id] = {'principle_id': principle_id}
+            await self.save_state(user, {'principle_id': principle_id})
             return "select_principle"
 
         # Ввод имени ребёнка
-        data = self._user_data.get(chat_id, {})
+        data = await self.load_state(user)
         if data.get('waiting_child_name') and text:
             cognitive_level = data.get('child_cognitive_level', 'concrete_operational')
             engine = TrainingEngine(chat_id)
             child = await engine.add_child(text, cognitive_level)
             if child:
-                self._user_data[chat_id] = {'child_id': child['id']}
+                await self.save_state(user, {'child_id': child['id']})
                 return "child_selected"
             else:
                 await self.send(user, "Не удалось добавить ребёнка. Попробуйте ещё раз.")
@@ -216,13 +209,13 @@ class TrainingDashboardState(BaseState):
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
         """Обработка inline-кнопок."""
         data = callback.data or ''
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
 
         if data == 'train_continue':
             engine = TrainingEngine(chat_id)
             next_pid = await engine.get_next_principle()
             if next_pid:
-                self._user_data[chat_id] = {'principle_id': next_pid}
+                await self.save_state(user, {'principle_id': next_pid})
                 await callback.answer("Генерирую задание...")
                 return "select_principle"
             else:
@@ -230,13 +223,13 @@ class TrainingDashboardState(BaseState):
                 return None
 
         if data == 'train_change_mode':
-            self._user_data[chat_id] = {'mode_only': True}
+            await self.save_state(user, {'mode_only': True})
             await callback.answer()
             return "change_mode"
 
         if data.startswith('train_start_'):
             principle_id = data.replace('train_start_', '')
-            self._user_data[chat_id] = {'principle_id': principle_id}
+            await self.save_state(user, {'principle_id': principle_id})
             await callback.answer("Генерирую задание...")
             return "select_principle"
 
@@ -247,7 +240,7 @@ class TrainingDashboardState(BaseState):
 
         if data.startswith('train_child_select_'):
             child_id = int(data.replace('train_child_select_', ''))
-            self._user_data[chat_id] = {'child_id': child_id}
+            await self.save_state(user, {'child_id': child_id})
             await callback.answer()
             return "child_selected"
 
@@ -258,10 +251,10 @@ class TrainingDashboardState(BaseState):
 
         if data.startswith('train_child_age_'):
             level = data.replace('train_child_age_', '')
-            self._user_data[chat_id] = {
+            await self.save_state(user, {
                 'waiting_child_name': True,
                 'child_cognitive_level': level,
-            }
+            })
             await callback.answer()
             await self.send(user, "✏️ Напишите имя ребёнка:")
             return None
@@ -318,6 +311,6 @@ class TrainingDashboardState(BaseState):
         return None
 
     async def exit(self, user) -> dict:
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.pop(chat_id, {})
+        data = await self.load_state(user)
+        await self.clear_state(user)
         return data

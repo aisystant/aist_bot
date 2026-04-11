@@ -6,7 +6,7 @@
 взрослый отмечает результат (self-report или ввод ответа ребёнка).
 """
 
-from typing import Optional, Dict
+from typing import Optional
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
@@ -34,25 +34,18 @@ class TrainingChildAssignmentState(BaseState):
     }
     allow_global = ["consultation", "notes"]
 
-    _user_data: Dict[int, Dict] = {}
-
-    def _get_chat_id(self, user) -> int:
-        if isinstance(user, dict):
-            return user.get('chat_id')
-        return getattr(user, 'chat_id', None)
-
     async def enter(self, user, context: dict = None) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
+        chat_id = self._get_chat_id_from_user(user)
         child_id = (context or {}).get('child_id')
 
         if not child_id:
             return "back"
 
-        self._user_data[chat_id] = {'child_id': child_id, 'step': 'dashboard'}
+        await self.save_state(user, {'child_id': child_id, 'step': 'dashboard'})
         await self._show_child_dashboard(user, chat_id, child_id)
         return None
 
-    async def _show_child_dashboard(self, user, chat_id: int, child_id: int):
+    async def _show_child_dashboard(self, user, chat_id: int, child_id: int):  # noqa: ARG002
         """Показать дашборд ребёнка."""
         engine = TrainingEngine(chat_id)
         data = await engine.get_child_dashboard_data(child_id)
@@ -117,13 +110,13 @@ class TrainingChildAssignmentState(BaseState):
             await self._show_child_dashboard(user, chat_id, child_id)
             return
 
-        self._user_data[chat_id] = {
+        await self.save_state(user, {
             'child_id': child_id,
             'step': 'assignment',
             'principle_id': principle_id,
             'depth': assignment['depth'],
             'assignment_text': assignment['assignment_text'],
-        }
+        })
 
         lines = [
             f"👶 *Занятие для {assignment['child_name']}*",
@@ -159,8 +152,8 @@ class TrainingChildAssignmentState(BaseState):
         await self.send(user, '\n'.join(lines), reply_markup=keyboard, parse_mode="Markdown")
 
     async def handle(self, user, message: Message) -> Optional[str]:
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.get(chat_id, {})
+        chat_id = self._get_chat_id_from_user(user)
+        data = await self.load_state(user)
         text = (message.text or '').strip()
 
         # Ожидание ответа ребёнка
@@ -197,15 +190,15 @@ class TrainingChildAssignmentState(BaseState):
             keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
             await self.send(user, msg, reply_markup=keyboard, parse_mode="Markdown")
 
-            self._user_data[chat_id]['step'] = 'result'
+            await self.save_state(user, {**data, 'step': 'result'})
             return None
 
         return None
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
         cb = callback.data or ''
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.get(chat_id, {})
+        chat_id = self._get_chat_id_from_user(user)
+        data = await self.load_state(user)
         child_id = data.get('child_id')
 
         if cb == 'child_back':
@@ -259,11 +252,11 @@ class TrainingChildAssignmentState(BaseState):
             await callback.answer("Записано!")
             await self.send(user, msg, reply_markup=keyboard, parse_mode="Markdown")
 
-            self._user_data[chat_id]['step'] = 'result'
+            await self.save_state(user, {**data, 'step': 'result'})
             return None
 
         if cb == 'child_enter_answer':
-            self._user_data[chat_id]['step'] = 'waiting_answer'
+            await self.save_state(user, {**data, 'step': 'waiting_answer'})
             await callback.answer()
             await self.send(user, "✏️ Введите ответ ребёнка (что он сказал/сделал):")
             return None
@@ -294,26 +287,26 @@ class TrainingChildAssignmentState(BaseState):
                 reply_markup=keyboard,
             )
 
-            self._user_data[chat_id]['step'] = 'result'
+            await self.save_state(user, {**data, 'step': 'result'})
             return None
 
         if cb == 'child_assignment_back':
             await callback.answer()
             if child_id:
-                self._user_data[chat_id]['step'] = 'dashboard'
+                await self.save_state(user, {**data, 'step': 'dashboard'})
                 await self._show_child_dashboard(user, chat_id, child_id)
             return None
 
         if cb == 'child_to_dashboard':
             await callback.answer()
             if child_id:
-                self._user_data[chat_id]['step'] = 'dashboard'
+                await self.save_state(user, {**data, 'step': 'dashboard'})
                 await self._show_child_dashboard(user, chat_id, child_id)
             return None
 
         return None
 
     async def exit(self, user) -> dict:
-        chat_id = self._get_chat_id(user)
-        data = self._user_data.pop(chat_id, {})
+        data = await self.load_state(user)
+        await self.clear_state(user)
         return data

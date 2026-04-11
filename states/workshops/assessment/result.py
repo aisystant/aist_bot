@@ -176,10 +176,6 @@ class AssessmentResultState(BaseState):
         except Exception:
             await self.send(user, "\n".join(lines).replace("*", "").replace("_", ""))
 
-        # Очистка данных flow-стейта
-        from states.workshops.assessment.flow import AssessmentFlowState
-        AssessmentFlowState._user_data.pop(chat_id, None)
-
         # Рекомендация: марафон + профиль
         rec_lines = [t('assessment.recommend_marathon', lang)]
         if self._is_profile_sparse(user):

@@ -23,6 +23,7 @@
             return "next_event"  # или None чтобы остаться
 """
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
@@ -287,6 +288,98 @@ class BaseState(ABC):
             Название стейта на указанном языке
         """
         return self.display_name.get(lang, self.display_name.get("ru", self.name))
+
+    # =========================================
+    # Persistence API (C6 — anti-pattern fix)
+    # =========================================
+    # Стейты ОБЯЗАНЫ использовать эти методы вместо class-level _user_data dict.
+    # Данные хранятся в development.user_state.current_context (JSONB) под
+    # namespace-ключом равным self.name (напр. "training.assignment").
+    # Переживает Railway redeploy. Эталон: states/utilities/feedback.py.
+
+    def _state_ns(self) -> str:
+        """Namespace-ключ для current_context: имя стейта с точками→подчёркивания."""
+        return self.name.replace('.', '_') + '_state'
+
+    def _get_chat_id_from_user(self, user) -> Optional[int]:
+        """Универсальное извлечение chat_id из user (dict или object)."""
+        if isinstance(user, dict):
+            return user.get('chat_id') or user.get('telegram_id')
+        return getattr(user, 'chat_id', None) or getattr(user, 'telegram_id', None)
+
+    async def save_state(self, user, data: dict) -> None:
+        """
+        Сохранить данные стейта в current_context (JSONB, namespaced).
+
+        Args:
+            user: Объект пользователя
+            data: Данные для сохранения (любой JSON-сериализуемый dict)
+        """
+        from db.queries import get_intern, update_intern
+        chat_id = self._get_chat_id_from_user(user)
+        if not chat_id:
+            logger.warning(f"[{self.name}] save_state: no chat_id for user {user!r}")
+            return
+        intern = await get_intern(chat_id)
+        ctx = {}
+        if intern and intern.get('current_context'):
+            try:
+                ctx = (
+                    json.loads(intern['current_context'])
+                    if isinstance(intern['current_context'], str)
+                    else intern['current_context']
+                )
+            except (json.JSONDecodeError, TypeError):
+                ctx = {}
+        ctx[self._state_ns()] = data
+        await update_intern(chat_id, current_context=ctx)
+
+    async def load_state(self, user) -> dict:
+        """
+        Загрузить данные стейта из current_context.
+
+        Returns:
+            dict с данными стейта, или {} если нет данных
+        """
+        from db.queries import get_intern
+        chat_id = self._get_chat_id_from_user(user)
+        if not chat_id:
+            return {}
+        intern = await get_intern(chat_id)
+        if not intern or not intern.get('current_context'):
+            return {}
+        try:
+            ctx = (
+                json.loads(intern['current_context'])
+                if isinstance(intern['current_context'], str)
+                else intern['current_context']
+            )
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return ctx.get(self._state_ns()) or {}
+
+    async def clear_state(self, user) -> None:
+        """
+        Удалить данные стейта из current_context.
+        Вызывать в exit() или при явном сбросе прогресса.
+        """
+        from db.queries import get_intern, update_intern
+        chat_id = self._get_chat_id_from_user(user)
+        if not chat_id:
+            return
+        intern = await get_intern(chat_id)
+        ctx = {}
+        if intern and intern.get('current_context'):
+            try:
+                ctx = (
+                    json.loads(intern['current_context'])
+                    if isinstance(intern['current_context'], str)
+                    else intern['current_context']
+                )
+            except (json.JSONDecodeError, TypeError):
+                ctx = {}
+        ctx.pop(self._state_ns(), None)
+        await update_intern(chat_id, current_context=ctx)
 
     def __repr__(self) -> str:
         return f"<State: {self.name}>"
