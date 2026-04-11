@@ -91,6 +91,18 @@ PERSONAL_PATTERNS: Dict[str, Dict[str, Any]] = {
         'paths': ["1_declarative/1_3_selfeval/08_Фокусные методы"],
         'label': "Фокусные методы",
     },
+    'learning_progress': {
+        'patterns': [
+            "мой прогресс", "моя статистика", "сколько я прошёл", "сколько я прошел",
+            "на каком я дне", "мой день марафона", "прогресс по марафону",
+            "прогресс марафона", "что я уже изучил", "сколько осталось",
+            "мой день", "мои уроки", "мои задания",
+            "my progress", "how much i completed", "what day am i on",
+            "marathon progress",
+        ],
+        'paths': ["2_collected/2_2_courses/01_Прогресс обучения"],
+        'label': "Прогресс обучения",
+    },
     'full_profile': {
         'patterns': [
             "мой профиль", "обо мне", "расскажи обо мне",
