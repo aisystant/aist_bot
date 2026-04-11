@@ -74,19 +74,21 @@ Error logged → error_logs (category=NULL)
 |---------------|-----------|
 | `clients.claude`, `anthropic` | claude_api |
 | `aiogram` | telegram_api |
-| `core.unstick`, `core.tracing` | fsm |
+| `core.unstick` | fsm |
+| `core.tracing` | fsm |
 | `db.`, `asyncpg` | db |
 | `clients.mcp` | mcp |
-| `core.scheduler`, `engines.feed` | scheduler |
+| `core.scheduler` | scheduler |
+| `engines.feed` | scheduler |
 
 Severity по умолчанию — L1.
 
 ### 2.4. Haiku fallback
 
 Если ни regex, ни logger hint не сработали — категория `unknown`. В конце цикла `classify_unprocessed()` до **5 unknown ошибок** классифицируются через Claude Haiku:
-- Budget: ≤50 токенов/вызов, 8s timeout
-- Возвращает `{category, severity, action}` с валидацией
-- На фейл возвращается в `unknown`
+- Budget: `max_tokens=100`, 8s timeout
+- Возвращает `{category, severity, action}` с валидацией (whitelist категорий и severity)
+- На фейл возвращается в `unknown`, обработается в следующем цикле
 
 ---
 
@@ -189,10 +191,12 @@ WHERE severity = 'L1'
 
 ## 7. Grafana Dashboard
 
-**Файл:** `monitoring/grafana-dashboard.json` (28 панелей, 3 секции)
+**Файл:** `monitoring/grafana-dashboard.json` (26 data-панелей + 2 row-секции = 28 объектов)
 **Datasource:** PostgreSQL → Neon (`error_logs`, `traces`)
 
-### 7.1. Секция Errors
+Структура: первые 9 панелей — Errors (flat, без row-группировки), затем row **Performance & Throughput (WP-45 Ф2)** → 8 панелей, затем row **Engagement Analytics** → 9 панелей.
+
+### 7.1. Errors (первые 9 панелей, flat)
 
 | Панель | Тип | Метрика |
 |--------|-----|---------|
@@ -206,7 +210,7 @@ WHERE severity = 'L1'
 | Recent Classified Errors | table | последние 20 с category/severity |
 | Unknown Errors (Triage) | table | `category = 'unknown' ORDER BY occurrence_count DESC` |
 
-### 7.2. Секция Performance & Throughput (WP-45 Ф2)
+### 7.2. Row: Performance & Throughput (WP-45 Ф2)
 
 | Панель | Метрика |
 |--------|---------|
@@ -218,7 +222,7 @@ WHERE severity = 'L1'
 | Error Rate % | `errors / total * 100` |
 | Slowest Spans (avg ms by span type) | `AVG(duration_ms) GROUP BY span_type` |
 
-### 7.3. Секция Engagement Analytics
+### 7.3. Row: Engagement Analytics
 
 DAU, WAU, MAU, sessions (24h), avg session (min), QA helpful %, DAU trend (30d), sessions per day, retention cohorts (D1/D7/D30), session entry points.
 
@@ -228,24 +232,27 @@ DAU, WAU, MAU, sessions (24h), avg session (min), QA helpful %, DAU trend (30d),
 
 ## 8. Schema `error_logs`
 
-```sql
-CREATE TABLE error_logs (
-    id              SERIAL PRIMARY KEY,
-    logger_name     TEXT NOT NULL,
-    message         TEXT NOT NULL,
-    traceback       TEXT,
-    context         JSONB,
-    category        TEXT,              -- NULL = unprocessed
-    severity        TEXT,              -- L1..L4
-    suggested_action TEXT,
-    occurrence_count INT DEFAULT 1,
-    first_seen_at   TIMESTAMPTZ DEFAULT NOW(),
-    last_seen_at    TIMESTAMPTZ DEFAULT NOW(),
-    escalated       BOOLEAN DEFAULT FALSE
-);
-```
+Фактическая схема (`db/models.py` + ALTER миграции):
 
-Retention: 7 дней (midnight cleanup в scheduler).
+| Поле | Тип | Назначение |
+|------|-----|-----------|
+| `id` | SERIAL PK | — |
+| `logger_name` | TEXT NOT NULL | Источник ошибки (для logger hints) |
+| `message` | TEXT NOT NULL | Основное сообщение |
+| `traceback` | TEXT | Stack trace (опционально) |
+| `context` | JSONB | Дополнительный контекст (user_id, handler, state) |
+| `category` | TEXT | `NULL` = unprocessed, иначе одна из 8 категорий |
+| `severity` | TEXT | `L1`..`L4` |
+| `suggested_action` | TEXT | Из паттерна или Haiku |
+| `occurrence_count` | INT DEFAULT 1 | Инкремент при duplicate detection |
+| `first_seen_at` | TIMESTAMPTZ | Для L1→L2 escalation (age > 1h) |
+| `last_seen_at` | TIMESTAMPTZ | Последнее появление, для retention |
+| `alerted` | BOOLEAN DEFAULT FALSE | **Legacy** (до WP-45), ещё используется в индексе |
+| `escalated` | BOOLEAN DEFAULT FALSE | **Актуальное** поле — ставится после TG escalation (`check_escalation`, `_escalate_persistent_l1`) |
+
+**⚠️ Несогласованность имён:** таблица содержит оба поля `alerted` и `escalated` — первое legacy (индекс `idx_error_logs_alerted` пока существует), второе актуальное. Чистка legacy — отдельный техдолг (WP-7).
+
+Retention: 7 дней (midnight cleanup в scheduler → `cleanup_old_errors(days=7)`).
 
 ---
 
