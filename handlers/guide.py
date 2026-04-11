@@ -52,6 +52,13 @@ async def cmd_guide(message: Message):
         is_connected = gateway_mcp.is_connected(chat_id)
 
         if not is_connected:
+            from core.access import access_layer
+            if not await access_layer.has_gateway_access(chat_id):
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t('aisystant_sub.btn_subscribe', lang), callback_data="aisystant_subscribe")]
+                ])
+                await message.answer(t('twin.br_paywall', lang), parse_mode="Markdown", reply_markup=keyboard)
+                return
             from clients.ory_oauth import ory_oauth
             auth_url, _state = await ory_oauth.get_authorization_url(chat_id)
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -90,7 +97,14 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
         except Exception:
             pass
 
-        # Не подключён — показываем приглашение
+        # Не подключён — проверяем подписку, затем показываем приглашение
+        from core.access import access_layer
+        if not await access_layer.has_gateway_access(chat_id):
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('aisystant_sub.btn_subscribe', lang), callback_data="aisystant_subscribe")]
+            ])
+            await message.answer(t('twin.br_paywall', lang), parse_mode="Markdown", reply_markup=keyboard)
+            return
         from clients.ory_oauth import ory_oauth
         auth_url, _state = await ory_oauth.get_authorization_url(chat_id)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

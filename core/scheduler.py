@@ -867,13 +867,6 @@ async def scheduled_check():
         except (ValueError, Exception) as e:
             logger.error(f"[Scheduler] Feedback digest error: {e}")
 
-    # ⭐ Trial expiry notifications (10:00 MSK daily)
-    if now.hour == 10 and now.minute == 0:
-        try:
-            await send_trial_expiry_notifications()
-        except Exception as e:
-            logger.error(f"[Scheduler] Trial expiry notification error: {e}")
-
     # 🎯 Milestone notifications (11:00 MSK daily — C3, DP.ARCH.002 § 12.5)
     if now.hour == 11 and now.minute == 0:
         try:
@@ -1305,76 +1298,6 @@ async def _sync_dt_connected_users():
                 await gateway_mcp.sync_profile(user_id, intern)
         except Exception as e:
             logger.error(f"[DT Sync] Retry failed for user {user_id}: {e}")
-
-
-# ═══════════════════════════════════════════════════════════
-# TRIAL EXPIRY NOTIFICATIONS
-# ═══════════════════════════════════════════════════════════
-
-async def send_trial_expiry_notifications():
-    """Уведомить пользователей, чей триал истекает через 1 день или сегодня."""
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from db.queries.subscription import get_trial_expiring_users
-
-    bot = Bot(token=_bot_token)
-    sem = asyncio.Semaphore(20)  # TG rate limit: 30 msg/sec, safe margin
-
-    try:
-        sent_chat_ids = set()  # dedup: один пользователь может попасть в оба days_ahead (UTC/MSK стык)
-
-        for days_ahead in [1, 0]:
-            chat_ids = await get_trial_expiring_users(days_ahead)
-
-            async def _send_one(chat_id: int, _days=days_ahead):
-                if chat_id in sent_chat_ids:
-                    return
-
-                async with sem:
-                    # WP-85: проверить подписку БР на Aisystant (SQL фильтрует только TG Stars)
-                    # Trade-off: при сбое API — fallthrough к отправке (ложное уведомление
-                    # для подписчика лучше, чем crash scheduler для всех).
-                    try:
-                        from db.queries.aisystant import get_aisystant_id
-                        from clients.aisystant import aisystant
-                        aisystant_id = await get_aisystant_id(chat_id)
-                        if aisystant_id and await aisystant.has_active_subscription(aisystant_id):
-                            logger.info(f"[Scheduler] {chat_id} has active Aisystant subscription, skip trial notification")
-                            sent_chat_ids.add(chat_id)
-                            return
-                    except Exception as e:
-                        logger.warning(f"[Scheduler] Aisystant sub check failed for {chat_id}: {e}")
-
-                    sent_chat_ids.add(chat_id)
-
-                    # WP-152: idempotency через notification_log
-                    from db.queries.notifications import try_insert_notification
-                    today_str = moscow_now().strftime('%Y-%m-%d')
-                    trial_key = f"trial_expiry:{chat_id}:{today_str}:{_days}d"
-                    if not await try_insert_notification(chat_id, 'trial_expiry', trial_key):
-                        logger.info(f"[Scheduler] Trial expiry already sent to {chat_id} (days_ahead={_days}), skip")
-                        return
-
-                    intern = await get_intern(chat_id)
-                    lang = intern.get('language', 'ru') or 'ru'
-                    text = t('subscription.trial_expiring', lang) if _days == 1 else t('subscription.trial_expired', lang)
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text=t('aisystant_sub.btn_subscribe', lang),
-                            callback_data="aisystant_subscribe",
-                        )]
-                    ])
-                    try:
-                        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode="Markdown")
-                        logger.info(f"[Scheduler] Trial expiry notification sent to {chat_id} (days_ahead={_days})")
-                    except Exception as e:
-                        if _is_user_unavailable(e):
-                            await _handle_unavailable_user(chat_id, "trial expiry")
-                        else:
-                            logger.error(f"[Scheduler] Trial notification error for {chat_id}: {e}")
-
-            await asyncio.gather(*[_send_one(cid) for cid in chat_ids])
-    finally:
-        await bot.session.close()
 
 
 # ═══════════════════════════════════════════════════════════

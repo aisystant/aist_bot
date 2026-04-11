@@ -6,7 +6,6 @@
 - _user_to_dict() — marathon + activity fields в intern dict
 - _build_user_profile() — complexity_level не выводится
 - assemble_context() — progress_section в результате
-- FREE_TRIAL_DAYS — триал T2 (30 дней)
 - Tier prompts — {progress_section} placeholder
 
 Запуск: python3 tests/test_user_progress.py
@@ -527,20 +526,6 @@ def test_assemble_context_all_default_keys():
 
 
 # =========================================================================
-# 6. FREE_TRIAL_DAYS — триал T2 для новых пользователей
-# =========================================================================
-
-def test_free_trial_days_configured():
-    """FREE_TRIAL_DAYS = 30 (триал T2 для новых пользователей)."""
-    from config.settings import FREE_TRIAL_DAYS
-    assert FREE_TRIAL_DAYS == 30, (
-        f"FREE_TRIAL_DAYS={FREE_TRIAL_DAYS}, ожидалось 30. "
-        "Триал = 30 дней T2-доступа от регистрации."
-    )
-    print(f"✅ FREE_TRIAL_DAYS = {FREE_TRIAL_DAYS}")
-
-
-# =========================================================================
 # 7. Tier prompts — {progress_section} placeholder
 # =========================================================================
 
@@ -628,8 +613,6 @@ if __name__ == "__main__":
         test_assemble_context_progress_populated,
         test_assemble_context_progress_for_feed_user,
         test_assemble_context_all_default_keys,
-        # 6. FREE_TRIAL_DAYS
-        test_free_trial_days_configured,
         # 7. Tier prompts
         test_tier_prompts_have_progress_placeholder,
         test_tier_prompts_have_progress_rule,

@@ -5236,8 +5236,11 @@ twin:
     ru: "Цифровой двойник подключён, но профиль пока пустой.\n\nЗаполните профиль в IWE или через команду `/twin objective <цель>`."
     en: "Digital Twin is connected, but the profile is empty.\n\nFill in your profile in IWE or use `/twin objective <goal>`."
   no_subscription:
-    ru: "Для доступа к Цифровому двойнику нужна подписка «Бесконечное развитие»."
-    en: "Digital Twin requires a Lifetime Development subscription."
+    ru: "Подписка «Бесконечное развитие» истекла. Цифровой двойник недоступен."
+    en: "«Infinite Development» subscription expired. Digital Twin is unavailable."
+  br_paywall:
+    ru: "*Цифровой двойник — по подписке «Бесконечное развитие»*\n\nДля подключения нужна активная подписка на Aisystant."
+    en: "*Digital Twin requires «Infinite Development» subscription*\n\nAn active Aisystant subscription is required to connect."
   temporary_error:
     ru: "Цифровой двойник временно недоступен. Попробуйте через минуту."
     en: "Digital Twin is temporarily unavailable. Try again in a minute."
@@ -5659,9 +5662,6 @@ paywall:
   plans:
     ru: "📋 *Планы* помогают организовать работу: /plan — недельный план, /rp — рабочие продукты."
     en: "📋 *Plans* help organize work: /plan — weekly plan, /rp — work products."
-  trial_hint:
-    ru: "Попробуй бесплатно 30 дней → оформи подписку «Бесконечное развитие» на Aisystant."
-    en: "Try free for 30 days → subscribe to «Infinite Development» on Aisystant."
 
 # ═══════════════════════════════════════════════════════════
 # WP-79: Aisystant subscription (БР)

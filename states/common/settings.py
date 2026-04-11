@@ -878,19 +878,27 @@ class SettingsState(BaseState):
                 text = "🌐 *Подключение к IWE*\n\nПодключение временно недоступно."
                 buttons = [[InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]]
             else:
-                auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
-                text = (
-                    "🌐 *Подключение к IWE*\n\n"
-                    "Авторизуйтесь, чтобы бот мог:\n"
-                    "• Искать по знаниям платформы и вашим личным репо\n"
-                    "• Читать ваш Цифровой двойник\n"
-                    "• Персонализировать ответы\n\n"
-                    "Нажмите кнопку ниже для авторизации."
-                )
-                buttons = [
-                    [InlineKeyboardButton(text="🔗 Подключить", url=auth_url)],
-                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
-                ]
+                from core.access import access_layer
+                if not await access_layer.has_gateway_access(chat_id):
+                    text = t('twin.br_paywall', lang)
+                    buttons = [
+                        [InlineKeyboardButton(text=t('aisystant_sub.btn_subscribe', lang), callback_data="aisystant_subscribe")],
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+                    ]
+                else:
+                    auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
+                    text = (
+                        "🌐 *Подключение к IWE*\n\n"
+                        "Авторизуйтесь, чтобы бот мог:\n"
+                        "• Искать по знаниям платформы и вашим личным репо\n"
+                        "• Читать ваш Цифровой двойник\n"
+                        "• Персонализировать ответы\n\n"
+                        "Нажмите кнопку ниже для авторизации."
+                    )
+                    buttons = [
+                        [InlineKeyboardButton(text="🔗 Подключить", url=auth_url)],
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+                    ]
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -1167,27 +1175,38 @@ class SettingsState(BaseState):
                 "\n".join(lines), parse_mode="Markdown", reply_markup=keyboard
             )
         else:
-            try:
-                from clients.ory_oauth import ory_oauth
-                auth_url, state = await ory_oauth.get_authorization_url(chat_id)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)],
-                    [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
-                ])
+            from core.access import access_layer
+            if not await access_layer.has_gateway_access(chat_id):
                 await callback.message.edit_text(
-                    f"🤖 *{t('twin.connect_title', lang)}*\n\n{t('twin.connect_desc', lang)}",
-                    parse_mode="Markdown",
-                    reply_markup=keyboard,
-                )
-            except Exception as e:
-                logger.error(f"DT OAuth error: {e}")
-                await callback.message.edit_text(
-                    f"🤖 *{t('settings.twin_label', lang)}*\n\n{t('twin.unavailable_short', lang)}",
+                    t('twin.br_paywall', lang),
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                        [InlineKeyboardButton(text=t('aisystant_sub.btn_subscribe', lang), callback_data="aisystant_subscribe")],
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
                     ]),
                 )
+            else:
+                try:
+                    from clients.ory_oauth import ory_oauth
+                    auth_url, state = await ory_oauth.get_authorization_url(chat_id)
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=t('twin.btn_connect', lang), url=auth_url)],
+                        [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")],
+                    ])
+                    await callback.message.edit_text(
+                        f"🤖 *{t('twin.connect_title', lang)}*\n\n{t('twin.connect_desc', lang)}",
+                        parse_mode="Markdown",
+                        reply_markup=keyboard,
+                    )
+                except Exception as e:
+                    logger.error(f"DT OAuth error: {e}")
+                    await callback.message.edit_text(
+                        f"🤖 *{t('settings.twin_label', lang)}*\n\n{t('twin.unavailable_short', lang)}",
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="upd_connections")]
+                        ]),
+                    )
 
         return None
 

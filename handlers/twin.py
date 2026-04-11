@@ -213,6 +213,13 @@ async def cmd_twin(message: Message):
         return
 
     if not is_connected:
+        from core.access import access_layer
+        if not await access_layer.has_gateway_access(telegram_user_id):
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t('aisystant_sub.btn_subscribe', lang), callback_data="aisystant_subscribe")]
+            ])
+            await message.answer(t('twin.br_paywall', lang), parse_mode="Markdown", reply_markup=keyboard)
+            return
         from clients.ory_oauth import ory_oauth
         auth_url, state = await ory_oauth.get_authorization_url(telegram_user_id)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

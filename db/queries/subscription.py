@@ -100,29 +100,3 @@ async def get_subscription_history(chat_id: int, limit: int = 10) -> list[dict]:
             chat_id, limit,
         )
         return [dict(r) for r in rows]
-
-
-async def get_trial_expiring_users(days_ahead: int = 0) -> list[int]:
-    """Найти пользователей, чей триал истекает через N дней.
-
-    Args:
-        days_ahead: 0 = сегодня, 1 = завтра.
-
-    Returns:
-        Список chat_id.
-    """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        from config.settings import FREE_TRIAL_DAYS
-        # NB: Aisystant БР проверяется в scheduler._send_one() через API.
-        # TG Stars (таблица subscriptions) = донаты, НЕ влияют на доступ (WP-85).
-        rows = await conn.fetch(
-            '''SELECT chat_id FROM development.user_state
-               WHERE onboarding_completed = TRUE
-                 AND trial_started_at IS NOT NULL
-                 AND trial_started_at + INTERVAL '1 day' * $1 <= NOW()
-                 AND trial_started_at + INTERVAL '1 day' * ($1 + 1) > NOW()
-            ''',
-            FREE_TRIAL_DAYS - days_ahead,
-        )
-        return [r['chat_id'] for r in rows]

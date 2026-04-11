@@ -3,22 +3,24 @@
 
 Биллинг = слой доступа, не домен в меню (DP.AISYS.014 § 4.4).
 
-Модель доступа (WP-85, 2026-03-12):
+Модель доступа (WP-85, WP-210 Ф2a, 2026-04-11):
   1. Бесплатный сервис (не в LOCKED_SERVICES) → True
   2. Подписка «Бесконечное развитие» на Aisystant (system-school.ru) → True
-  3. В пределах 30-дневного триала от /start → True (T2 features)
-  4. Иначе → False (paywall)
+  3. Иначе → False (paywall)
 
+Триал убран (WP-210 Ф2a): единственный источник права на T2+ — активная БР-подписка.
 TG Stars = донаты (благодарность), НЕ влияют на доступ.
+
+Gateway (mcp.aisystant.com) доступен только при активной БР (DP.SC.112).
+Используй has_gateway_access() для проверки перед OAuth к Gateway.
 """
 
 import logging
-from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from config.settings import LOCKED_SERVICES, FREE_TRIAL_DAYS
+from config.settings import LOCKED_SERVICES
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -30,22 +32,17 @@ class AccessLayer:
     async def has_access(self, user_id: int, service_id: str) -> bool:
         """Проверяет, имеет ли пользователь доступ к сервису.
 
-        Логика (WP-85):
+        Логика (WP-85, WP-210 Ф2a):
         1. Бесплатный сервис → True
         2. Активная подписка БР на Aisystant → True
-        3. В пределах триала (30 дней от /start) → True
-        4. Иначе → False
+        3. Иначе → False
 
         TG Stars донаты НЕ влияют на доступ.
         """
         if service_id not in LOCKED_SERVICES:
             return True
 
-        # Aisystant «Бесконечное развитие»
-        if await self._has_aisystant_subscription(user_id):
-            return True
-
-        return await self.is_in_trial(user_id)
+        return await self._has_aisystant_subscription(user_id)
 
     async def _has_aisystant_subscription(self, user_id: int) -> bool:
         """Проверить подписку БР через Aisystant API."""
@@ -60,57 +57,30 @@ class AccessLayer:
             logger.warning(f"[Access] Aisystant subscription check failed: {e}")
             return False
 
-    async def is_in_trial(self, user_id: int) -> bool:
-        """Проверить, находится ли пользователь в пределах бесплатного триала."""
-        from db.queries import get_intern
-        user = await get_intern(user_id)
+    async def has_gateway_access(self, user_id: int) -> bool:
+        """Проверить право на Gateway (mcp.aisystant.com).
 
-        trial_start = user.get('trial_started_at') or user.get('created_at')
-        if trial_start is None:
-            return True  # новый пользователь, ещё не завершил онбординг
-
-        # Приводим к aware datetime
-        if hasattr(trial_start, 'tzinfo') and trial_start.tzinfo is None:
-            trial_start = trial_start.replace(tzinfo=timezone.utc)
-
-        trial_end = trial_start + timedelta(days=FREE_TRIAL_DAYS)
-        return datetime.now(timezone.utc) < trial_end
-
-    async def get_trial_days_remaining(self, user_id: int) -> int:
-        """Сколько дней осталось в триале. 0 = триал истёк."""
-        from db.queries import get_intern
-        user = await get_intern(user_id)
-
-        trial_start = user.get('trial_started_at') or user.get('created_at')
-        if trial_start is None:
-            return FREE_TRIAL_DAYS
-
-        if hasattr(trial_start, 'tzinfo') and trial_start.tzinfo is None:
-            trial_start = trial_start.replace(tzinfo=timezone.utc)
-
-        trial_end = trial_start + timedelta(days=FREE_TRIAL_DAYS)
-        remaining = (trial_end - datetime.now(timezone.utc)).days
-        return max(0, remaining)
+        Требует активную оплаченную БР-подписку.
+        Триал НЕ даёт доступ к Gateway (DP.SC.112, WP-210 Ф2a).
+        """
+        return await self._has_aisystant_subscription(user_id)
 
     async def get_paywall(self, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
         """Получить текст paywall и кнопку подписки.
 
         WP-79: Paywall ведёт на Aisystant «Бесконечное развитие».
-        Telegram Stars = донаты (не подписка).
         П2: Контекстный paywall — описание конкретного сервиса.
 
         Returns:
             (text, keyboard) — сообщение и кнопка подписки.
         """
-        # Контекстное описание сервиса (если есть)
         context_key = f'paywall.{service_id}'
         context_text = t(context_key, lang)
         if context_text.startswith('paywall.'):
-            # Ключ не найден — fallback на generic
             context_text = ""
 
         if context_text:
-            text = context_text + "\n\n" + t('paywall.trial_hint', lang)
+            text = context_text + "\n\n" + t('aisystant_sub.title', lang) + "\n" + t('aisystant_sub.desc', lang)
         else:
             text = t('aisystant_sub.title', lang) + "\n\n" + t('aisystant_sub.desc', lang)
 

@@ -99,22 +99,18 @@ async def _get_aisystant_id(chat_id: int) -> str | None:
 
 
 async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
-    """Check if user has active Aisystant БР subscription OR is in trial.
+    """Check if user has active Aisystant БР subscription.
 
-    WP-85: Aisystant «Бесконечное развитие» OR 30-day trial from /start.
+    WP-85, WP-210 Ф2a: только оплаченная «Бесконечное развитие».
+    Триал убран — единственный источник T2+ права = активная БР.
     TG Stars donations do NOT affect this check.
     """
-    # Primary: Aisystant БР
     try:
         from clients.aisystant import aisystant
-        if await aisystant.has_active_subscription(aisystant_id):
-            return True
+        return await aisystant.has_active_subscription(aisystant_id)
     except Exception as e:
         logger.warning(f"[Tier] Aisystant subscription check failed: {e}")
-
-    # Fallback: 30-day trial from /start
-    from core.access import access_layer
-    return await access_layer.is_in_trial(chat_id)
+        return False
 
 
 async def _is_github_connected(chat_id: int) -> bool:

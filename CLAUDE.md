@@ -477,13 +477,13 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 **Tier detection (payment-first, WP-85):**
 - T0: анонимный / без профиля (UITier.T0)
-- T1: привязан к Aisystant, нет подписки БР и триал истёк (UITier.T1)
-- T2: подписка «Бесконечное развитие» на Aisystant ИЛИ 30-дн. триал от /start
+- T1: привязан к Aisystant, нет активной подписки БР (UITier.T1)
+- T2: подписка «Бесконечное развитие» на Aisystant (UITier.T2_LEARNING)
 - T3: T2 + ЦД подключён
 - T4: T3 + GitHub подключён
 - TD1: DEVELOPER_CHAT_ID
 - TG Stars = донаты (благодарность), НЕ влияют на тир/доступ
-- Тир падает до T1 при истечении подписки БР и триала
+- Тир падает до T1 при истечении подписки БР (WP-210 Ф2a)
 
 **Правила:**
 - ⚙️ Настройки = universal settings (Language first, Profile link)

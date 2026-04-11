@@ -188,13 +188,11 @@ async def cmd_start(message: Message, state: FSMContext):
     name = message.from_user.first_name or message.from_user.username or 'User'
 
     # Сразу создаём профиль и завершаем онбординг
-    from datetime import datetime
     await update_intern(
         message.chat.id,
         name=name,
         language=lang,
         onboarding_completed=True,
-        trial_started_at=datetime.utcnow(),
     )
     # Сохраняем tg_username для привязки Aisystant
     if message.from_user.username:
@@ -419,11 +417,9 @@ async def on_start_date(callback: CallbackQuery, state: FSMContext):
 async def on_confirm(callback: CallbackQuery, state: FSMContext):
     chat_id = callback.message.chat.id
     try:
-        from datetime import datetime
         await update_intern(
             chat_id,
             onboarding_completed=True,
-            trial_started_at=datetime.utcnow(),  # naive UTC — DB column is TIMESTAMP (not TIMESTAMPTZ)
         )
         intern = await get_intern(chat_id)
         lang = intern.get('language', 'ru') or 'ru'
