@@ -456,6 +456,20 @@ class FeedDigestState(BaseState):
         data = self._user_data.get(chat_id, {})
         session_id = data.get('session_id')
 
+        # Fallback на БД: дайджест мог быть доставлен scheduler'ом или
+        # после рестарта контейнера — _user_data пуст, но сессия в БД есть.
+        if not session_id:
+            week = await get_current_feed_week(chat_id)
+            if week:
+                session = (await get_feed_session(week['id'], moscow_today())
+                           or await get_incomplete_feed_session(week['id']))
+                if session and session.get('status') != 'completed':
+                    session_id = session['id']
+                    self._user_data.setdefault(chat_id, {}).update({
+                        'session_id': session_id,
+                        'week_id': week['id'],
+                    })
+
         if not session_id:
             await self.send(user, t('feed.start_digest_first', lang))
             return None
