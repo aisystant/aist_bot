@@ -43,27 +43,29 @@ DT MCP worker ◄──READ (по запросу пользователя)      
 
 **Что НЕ делает бот:**
 - ❌ Не вычисляет `3_derived` (student_stage, agency_index, slot_regularity, mastery_by_area)
-- ❌ Не создаёт VIEW'ы `development.engagement` / `development.notification_engagement` — они создаются **вне бота** (другой collector DS-ai-systems)
 - ❌ Не содержит `dt_calc.py` — удалён в WP-218 Ф2, calculator теперь в `DS-ai-systems/profiler/scripts/recalculate_derived.py`
+
+**Что владеет бот:**
+- ✅ Определения VIEW `development.engagement` и `development.notification_engagement` — создаются при инициализации БД из `db/models.py`. Другие потребители (DT MCP worker, Profiler) читают эти VIEW, но не определяют их.
 
 ---
 
 ## 2. Расписание
 
-| Триггер | Интервал | Функция | Что делает |
-|---------|----------|---------|-----------|
+| Триггер | Момент срабатывания | Функция | Что делает |
+|---------|---------------------|---------|-----------|
 | APScheduler cron | ежедневно 04:30 MSK | `sync_engagement_to_dt()` | Полный collector-проход по всем пользователям с `user_uuid`. |
-| scheduler loop | 1 раз/час | `_sync_dt_connected_users()` | Retry для подключённых через OAuth (`dt_tokens`), у кого свежая ошибка. |
+| scheduler loop | в начале каждого часа (`minute == 0`) | `_sync_dt_connected_users()` | Retry для подключённых через OAuth (`dt_tokens`), у кого свежая ошибка. |
 
-Регистрация: `core/scheduler.py` строка 133.
+Регистрация: `core/scheduler.py` — `_scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)` и условие `if now.minute == 0` в maintenance loop.
 
 ---
 
 ## 3. Источники данных
 
-### 3.1. `development.engagement` VIEW (read-only)
+### 3.1. `development.engagement` VIEW
 
-Основной источник. 25+ полей на пользователя:
+Основной источник, 25+ полей на пользователя. **Владение VIEW:** определение хранится в `db/models.py` (строки 1108+, `CREATE VIEW development.engagement ...` при инициализации/миграции БД) — бот является owner этого VIEW. Другие потребители (DT MCP worker, R28 Profiler) читают VIEW, но не определяют его.
 
 | Поле | Используется в секции |
 |------|----------------------|
@@ -74,7 +76,7 @@ DT MCP worker ◄──READ (по запросу пользователя)      
 | `active_days`, `events_last_7d`, `events_last_30d`, `ai_chats_total` | `2_4_time` |
 | `onboarding_completed_total`, `mode_changes_total`, `settings_changes_total`, `reminders_delivered_total`, `reminders_opened_total`, `errors_shown_total`, `help_views_total`, `progress_views_total`, `marathon_completions_total` | `2_8_operations` |
 
-> **⚠️ VIEW не создаётся в боте.** Бот — read-only consumer. Источник определения — DS-ai-systems collectors (ingest в `development.user_events` → VIEW).
+> Сама таблица `development.user_events` (данные, на которых VIEW агрегирует) наполняется несколькими сервисами — бот пишет события о взаимодействии пользователя, экзокортекс-collector пишет события с `source='iwe'`/`source='exocortex'`. Бот не единственный producer данных, но единственный owner определения VIEW.
 
 ### 3.2. `development.notification_engagement` VIEW
 
@@ -193,7 +195,7 @@ ON CONFLICT (user_id) DO UPDATE SET
 
 Причина: DT MCP worker (Cloudflare) при запросе `/twin` читает по `dt_user_id`. Если бот напишет по `user_uuid`, а пользователь после OAuth, worker не найдёт — нужен consistent key.
 
-**Упоминается также в [WP-227](../../../DS-my-strategy/inbox/WP-227-dt-separate-database-unified-user-id.md)** — unified user_id policy в отдельной БД (T0→users.id, T1+→ory_id, один ряд на человека). До завершения WP-227 действует гибридный режим выше.
+**Затрагивается в WP-227** (отдельная БД для digital_twins + unified user_id policy: T0→users.id, T1+→ory_id, один ряд на человека). До завершения WP-227 действует гибридный режим выше.
 
 ---
 
