@@ -71,6 +71,18 @@ class GatewayMCPClient:
         # первый рефрешит, остальные ждут и видят свежий token в double-check.
         self._refresh_locks: Dict[int, asyncio.Lock] = {}
 
+        # WP-209 Ф4: счётчик Cloudflare rate limit events. Читается из
+        # dev-команды /errors для мониторинга 429.
+        self._rate_limited_total: int = 0
+
+        # WP-209 Ф4: global semaphore — ограничивает общее число одновременных
+        # запросов к Gateway. Источник 64 × 429 в сутки — burst от scheduler
+        # pre_generate_upcoming (Semaphore 20 × N MCP-вызовов на user → 40-60
+        # параллельных запросов в Gateway). Cloudflare WAF срабатывает на
+        # burst. 12 concurrent — компромисс: пропускает user-facing запросы,
+        # сглаживает scheduler fan-out.
+        self._call_semaphore = asyncio.Semaphore(12)
+
         # Circuit breaker
         self._failures = 0
         self._last_failure = 0.0
@@ -282,6 +294,15 @@ class GatewayMCPClient:
             self._last_call_error = "circuit_open"
             return None
 
+        # WP-209 Ф4: сериализуем запросы к Gateway через global semaphore.
+        # Защита от Cloudflare 429 (burst от scheduler pre-gen fan-out).
+        async with self._call_semaphore:
+            return await self._do_call(tool_name, arguments, telegram_user_id)
+
+    async def _do_call(self, tool_name: str, arguments: dict,
+                       telegram_user_id: Optional[int] = None) -> Optional[dict]:
+        """Фактический HTTP call. Вызывается только из _call под semaphore."""
+
         payload = {
             "jsonrpc": "2.0",
             "method": "tools/call",
@@ -353,6 +374,28 @@ class GatewayMCPClient:
                     if resp.status == 403:
                         logger.warning(f"Gateway: 403 for user {telegram_user_id} — no subscription")
                         self._last_call_error = "no_subscription"
+                        return None
+                    if resp.status == 429 and attempt == 0:
+                        # WP-209 Ф4: Cloudflare rate limit. Парсим Retry-After,
+                        # ждём, повторяем (max 1 попытка). Источник бёрстов —
+                        # scheduler-jobs (pre-gen, digest fan-out) из-за WP-212
+                        # B4.13 (все knowledge-запросы через Gateway).
+                        retry_after_raw = resp.headers.get("Retry-After", "1")
+                        try:
+                            retry_after = min(float(retry_after_raw), 5.0)
+                        except (ValueError, TypeError):
+                            retry_after = 1.0
+                        logger.warning(
+                            f"Gateway: 429 rate limited, Retry-After={retry_after_raw} "
+                            f"→ sleeping {retry_after:.1f}s (user={telegram_user_id})"
+                        )
+                        self._rate_limited_total += 1
+                        await asyncio.sleep(retry_after)
+                        continue
+                    elif resp.status == 429:
+                        logger.warning(f"Gateway: 429 after retry (user={telegram_user_id})")
+                        self._last_call_error = "rate_limited"
+                        self._record_failure()
                         return None
                     if resp.status == 200:
                         data = await resp.json()
@@ -571,7 +614,8 @@ class GatewayMCPClient:
             (profile_dict_or_None, reason)
             reason ∈ {"ok", "empty", "disconnected", "token_expired",
                       "no_subscription", "http_error", "timeout",
-                      "circuit_open", "rpc_error", "not_authorized"}
+                      "circuit_open", "rpc_error", "not_authorized",
+                      "rate_limited"}
         """
         profile = await self.dt_read("", telegram_user_id)
         reason = self._last_call_error

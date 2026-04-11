@@ -285,7 +285,7 @@ async def cmd_twin(message: Message):
             )
         elif reason == "no_subscription":
             await message.answer(t('twin.no_subscription', lang))
-        elif reason in ("timeout", "http_error", "circuit_open", "rpc_error"):
+        elif reason in ("timeout", "http_error", "circuit_open", "rpc_error", "rate_limited"):
             await message.answer(t('twin.temporary_error', lang))
         else:  # "empty"
             await message.answer(t('twin.empty_profile', lang))
