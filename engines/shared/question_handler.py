@@ -527,7 +527,13 @@ async def handle_question_with_tools(
         'fr': "RAPPEL: Toute la réponse doit être en FRANÇAIS!"
     }.get(lang, "REMINDER: The entire answer must be in ENGLISH!")
 
-    context_info = f"\nТекущая тема изучения: {context_topic}" if context_topic else ""
+    # Текущая дата в Москве — Claude иначе угадывает её по WeekPlan-фразам и
+    # ошибается на 1-2 дня (тестирование WP-209 Ф3, замечание #3, 11 апр 2026)
+    from datetime import datetime, timezone, timedelta
+    _msk_now = datetime.now(timezone.utc) + timedelta(hours=3)
+    _date_info = f"\nСегодняшняя дата (МСК): {_msk_now.strftime('%Y-%m-%d')} ({['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'][_msk_now.weekday()]})"
+
+    context_info = (_date_info + (f"\nТекущая тема изучения: {context_topic}" if context_topic else ""))
     occupation_info = f"\nПрофессия/занятие пользователя: {occupation}" if occupation else ""
 
     # Context Pipeline: collectors по тиру (параллельно)
