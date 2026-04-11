@@ -64,6 +64,13 @@ class GatewayMCPClient:
         # Per-user tokens: telegram_user_id -> {access_token, refresh_token, expires_at, ory_id}
         self._tokens: Dict[int, Dict[str, Any]] = {}
 
+        # WP-209 Ф5: per-user locks для refresh. Устраняет thundering herd:
+        # при параллельных запросах от одного user все получают 401, каждый
+        # вызывает refresh, Ory rotation инвалидирует старый refresh_token для
+        # всех кроме первого → invalid_grant → disconnect. Lock сериализует:
+        # первый рефрешит, остальные ждут и видят свежий token в double-check.
+        self._refresh_locks: Dict[int, asyncio.Lock] = {}
+
         # Circuit breaker
         self._failures = 0
         self._last_failure = 0.0
@@ -134,29 +141,67 @@ class GatewayMCPClient:
     async def refresh_expiring_tokens(self, margin_seconds: int = 600):
         """Proactive refresh — обновляет токены, истекающие в ближайшие margin_seconds.
 
-        Вызывается из scheduler каждые 10 мин.
+        Вызывается из scheduler каждые 10 мин. Делегирует в _refresh_single_token,
+        который сериализован через per-user lock — устраняет race с reactive путём
+        (WP-209 Ф5).
         """
-        from clients.ory_oauth import ory_oauth
-        from db.queries.ory_tokens import save_ory_tokens
-
         now = datetime.utcnow()
         refreshed = 0
         failed = 0
 
+        # Snapshot кандидатов перед итерацией — self._tokens может меняться
+        candidates: List[int] = []
         for user_id, data in list(self._tokens.items()):
             expires_at = data.get("expires_at")
-            if not expires_at:
+            if not isinstance(expires_at, datetime):
                 continue
-
-            # naive datetime comparison
-            if isinstance(expires_at, datetime) and expires_at > now + timedelta(seconds=margin_seconds):
+            if expires_at > now + timedelta(seconds=margin_seconds):
                 continue  # не истекает скоро
+            if not data.get("refresh_token"):
+                continue
+            candidates.append(user_id)
+
+        for user_id in candidates:
+            ok = await self._refresh_single_token(user_id)
+            if ok:
+                refreshed += 1
+            else:
+                failed += 1
+                # Proactive видит явный invalid_grant → refresh_token действительно
+                # невалиден (в отличие от reactive race), можно безопасно удалить.
+                logger.warning(f"Gateway: proactive refresh failed for user {user_id}, removing tokens")
+                self._tokens.pop(user_id, None)
+                self._refresh_locks.pop(user_id, None)
+
+        if refreshed or failed:
+            logger.info(f"Gateway: proactive refresh — {refreshed} ok, {failed} failed")
+
+    async def _refresh_single_token(self, telegram_user_id: int) -> bool:
+        """Refresh Ory token для одного пользователя (при 401). Возвращает True при успехе.
+
+        Сериализован через per-user asyncio.Lock. При thundering herd (N параллельных
+        вызовов из одной корутины) только первый делает реальный POST в Ory, остальные
+        ждут lock и попадают в double-check ветку со свежим токеном.
+        """
+        lock = self._refresh_locks.setdefault(telegram_user_id, asyncio.Lock())
+        async with lock:
+            data = self._tokens.get(telegram_user_id)
+            if not data:
+                return False
+
+            # Double-check: пока ждали lock, другая корутина могла уже обновить
+            expires_at = data.get("expires_at")
+            if isinstance(expires_at, datetime) and expires_at > datetime.utcnow() + timedelta(seconds=60):
+                logger.debug(f"Gateway: refresh skipped for user {telegram_user_id} — token already fresh")
+                return True
 
             refresh_token = data.get("refresh_token")
             if not refresh_token:
-                continue
-
+                return False
             try:
+                from clients.ory_oauth import ory_oauth
+                from db.queries.ory_tokens import save_ory_tokens
+
                 new_tokens = await ory_oauth.refresh_access_token(refresh_token)
                 if new_tokens:
                     new_expires_at = datetime.utcnow() + timedelta(
@@ -165,73 +210,25 @@ class GatewayMCPClient:
                     new_access = new_tokens["access_token"]
                     new_refresh = new_tokens.get("refresh_token", refresh_token)
 
-                    # Обновляем in-memory
-                    self._tokens[user_id] = {
+                    self._tokens[telegram_user_id] = {
                         "access_token": new_access,
                         "refresh_token": new_refresh,
                         "expires_at": new_expires_at,
                         "ory_id": data.get("ory_id"),
                     }
-
-                    # Обновляем в БД
                     await save_ory_tokens(
-                        chat_id=user_id,
+                        chat_id=telegram_user_id,
                         access_token=new_access,
                         refresh_token=new_refresh,
                         expires_at=new_expires_at,
                         ory_id=data.get("ory_id"),
                     )
-                    refreshed += 1
-                else:
-                    failed += 1
-                    logger.warning(f"Gateway: refresh failed for user {user_id}, removing tokens")
-                    del self._tokens[user_id]
+                    logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
+                    return True
+                return False
             except Exception as e:
-                failed += 1
-                logger.error(f"Gateway: refresh error for user {user_id}: {e}")
-
-        if refreshed or failed:
-            logger.info(f"Gateway: proactive refresh — {refreshed} ok, {failed} failed")
-
-    async def _refresh_single_token(self, telegram_user_id: int) -> bool:
-        """Refresh Ory token для одного пользователя (при 401). Возвращает True при успехе."""
-        data = self._tokens.get(telegram_user_id)
-        if not data:
-            return False
-        refresh_token = data.get("refresh_token")
-        if not refresh_token:
-            return False
-        try:
-            from clients.ory_oauth import ory_oauth
-            from db.queries.ory_tokens import save_ory_tokens
-
-            new_tokens = await ory_oauth.refresh_access_token(refresh_token)
-            if new_tokens:
-                new_expires_at = datetime.utcnow() + timedelta(
-                    seconds=new_tokens.get("expires_in", 3600)
-                )
-                new_access = new_tokens["access_token"]
-                new_refresh = new_tokens.get("refresh_token", refresh_token)
-
-                self._tokens[telegram_user_id] = {
-                    "access_token": new_access,
-                    "refresh_token": new_refresh,
-                    "expires_at": new_expires_at,
-                    "ory_id": data.get("ory_id"),
-                }
-                await save_ory_tokens(
-                    chat_id=telegram_user_id,
-                    access_token=new_access,
-                    refresh_token=new_refresh,
-                    expires_at=new_expires_at,
-                    ory_id=data.get("ory_id"),
-                )
-                logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}")
-            return False
+                logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}")
+                return False
 
     # =========================================================================
     # CIRCUIT BREAKER
@@ -340,9 +337,14 @@ class GatewayMCPClient:
                                 headers["Authorization"] = f"Bearer {new_token}"
                             continue
                         else:
-                            logger.warning(f"Gateway: refresh failed for user {telegram_user_id}, disconnecting")
-                            self.disconnect(telegram_user_id)
-                            self._last_call_error = "disconnected"
+                            # WP-209 Ф5: не disconnect() в reactive пути. Raced
+                            # thundering herd мог успешно обновить токен в другой
+                            # корутине — disconnect всё сносит. Помечаем как
+                            # token_expired, UX показывает кнопку переподключения.
+                            # Окончательный disconnect — только в proactive cron
+                            # после явного invalid_grant от Ory.
+                            logger.warning(f"Gateway: refresh failed for user {telegram_user_id} (not disconnecting)")
+                            self._last_call_error = "token_expired"
                             return None
                     elif resp.status == 401:
                         logger.warning(f"Gateway: 401 for user {telegram_user_id} after retry")
@@ -601,6 +603,8 @@ class GatewayMCPClient:
         if telegram_user_id in self._tokens:
             del self._tokens[telegram_user_id]
             logger.info(f"Gateway: disconnected user {telegram_user_id}")
+        # Очистить per-user lock (WP-209 Ф5)
+        self._refresh_locks.pop(telegram_user_id, None)
         # Удалить из DB (fire-and-forget)
         asyncio.ensure_future(self._delete_ory_tokens_from_db(telegram_user_id))
 
