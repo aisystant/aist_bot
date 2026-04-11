@@ -396,12 +396,56 @@ class OnboardingStates(StatesGroup):
 
 | Файл | Строки | Назначение |
 |------|--------|-----------|
-| `bot.py` | 216-227 | FSM состояния |
-| `bot.py` | 1367-1601 | Все хэндлеры онбординга |
-| `bot.py` | 1255-1340 | Функции клавиатур |
-| `db/queries/users.py` | — | Работа с БД |
-| `locales.py` | 769-787 | Определение языка |
-| `locales.py` | 12-759 | Все переводы |
+| `handlers/onboarding.py` | — | Онбординг handlers (после рефакторинга) |
+| `states/common/start.py` | — | SM entry state |
+| `db/queries/users.py` | — | `ensure_user_exists`, `update_intern` |
+| `i18n/translations/*.yaml` | — | Все переводы интерфейса |
+
+---
+
+## 10. OAuth state через PostgreSQL (WP-212)
+
+Онбординг включает OAuth-шаги для интеграций: Aisystant (LMS), Ory (ЦД), GitHub (заметки/публикации), Google Calendar, Linear, Wakatime.
+
+### 10.1. Проблема in-memory state
+
+Раньше OAuth `state` (UUID для защиты от CSRF) хранился в памяти бота. При redeploy Railway — instance перезапускается, memory очищается, callback с редиректа приходит на новый instance → `state` не найден → OAuth падает.
+
+### 10.2. Решение: `oauth_pending_states` таблица
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `state` | TEXT | PK, random UUID |
+| `provider` | TEXT | `github` / `ory` / `google_calendar` / `linear` / `wakatime` / `discourse` |
+| `telegram_user_id` | BIGINT | ID пользователя |
+| `created_at` | TIMESTAMP | Для cleanup (TTL 15 мин рекомендуется) |
+
+См. [tables.md §4.3](../../data/tables.md).
+
+### 10.3. Flow
+
+```
+1. cmd_<provider> → generate UUID state
+2. oauth_pending_states INSERT (state, provider, telegram_user_id)
+3. Отправка redirect URL с ?state=<uuid>
+4. User в браузере проходит consent
+5. Callback приходит на /oauth/callback/{provider}?state=<uuid>
+6. handlers/oauth_callback.py читает oauth_pending_states WHERE state=<uuid>
+7. Получает telegram_user_id → сохраняет tokens в *_connections таблицу
+8. oauth_pending_states DELETE (или TTL cleanup)
+```
+
+### 10.4. Cleanup
+
+Индекс `idx_oauth_states_created` поддерживает cleanup устаревших states. TTL логика — в scheduler (старше 15 минут → DELETE).
+
+### 10.5. Правило
+
+Любой новый OAuth-провайдер должен:
+1. Использовать `oauth_pending_states` (НЕ in-memory dict)
+2. Указать свой `provider` literal в INSERT
+3. Обработать callback в `handlers/oauth_callback.py`
+4. Сохранить токены в свою `*_connections` таблицу
 
 ---
 
@@ -409,5 +453,6 @@ class OnboardingStates(StatesGroup):
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-04-11 | Добавлена §10: OAuth state через PostgreSQL (WP-212). Обновлены ключевые файлы после рефакторинга (`handlers/onboarding.py` вместо `bot.py`). |
 | 2026-01-23 | Добавлена строка прогресса в "С возвращением" (режим, дни активности, streak) |
 | 2026-01-22 | Создание документа |
