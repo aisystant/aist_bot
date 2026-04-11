@@ -1,0 +1,126 @@
+#!/bin/bash
+# Pre-commit hook: warning-only напоминание про синхронизацию кода и документации.
+# НЕ блокирует commit — только печатает напоминание, если diff касается областей,
+# которые обычно требуют обновления docs/.
+#
+# Активация: git config core.hooksPath .githooks
+#
+# Обоснование: WP-7 DOC2 — снизить drift между кодом и документацией. Каждый раз
+# когда разработчик меняет handler / core / models / миграции, pre-commit должен
+# напомнить про соответствующие docs (§4.3 CLAUDE.md — таблица «Изменение кода →
+# Категория документации»).
+
+# ─── Собираем staged diff ───
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ -z "$staged_files" ]; then
+    exit 0
+fi
+
+# ─── Флаги того, что было затронуто ───
+touched_handlers=0
+touched_core=0
+touched_models=0
+touched_migrations=0
+touched_engines=0
+touched_queries=0
+touched_states=0
+touched_dev=0
+touched_admin=0
+
+while IFS= read -r file; do
+    case "$file" in
+        handlers/dev.py)
+            touched_dev=1
+            ;;
+        handlers/feedback.py|handlers/workshop.py)
+            touched_admin=1
+            touched_handlers=1
+            ;;
+        handlers/*.py)
+            touched_handlers=1
+            ;;
+        core/*.py)
+            touched_core=1
+            ;;
+        db/models.py)
+            touched_models=1
+            ;;
+        db/migrations/*|db/migrations/**/*)
+            touched_migrations=1
+            ;;
+        db/queries/*.py)
+            touched_queries=1
+            ;;
+        engines/*.py|engines/**/*.py)
+            touched_engines=1
+            ;;
+        states/*.py|states/**/*.py)
+            touched_states=1
+            ;;
+    esac
+done <<< "$staged_files"
+
+# ─── Если ничего не затронуто — выходим ───
+total_touched=$((touched_handlers + touched_core + touched_models + touched_migrations + touched_engines + touched_queries + touched_states + touched_dev + touched_admin))
+if [ $total_touched -eq 0 ]; then
+    exit 0
+fi
+
+# ─── Проверка: были ли затронуты docs в том же commit ───
+docs_touched=0
+if echo "$staged_files" | grep -q "^docs/"; then
+    docs_touched=1
+fi
+
+# ─── Печатаем напоминание ───
+echo ""
+echo "📝 Pre-commit reminder (warning-only, commit продолжится):"
+echo ""
+
+if [ $touched_handlers -eq 1 ]; then
+    echo "   • handlers/*.py изменены → обнови docs/scenarios/ (§4.2-4.3 CLAUDE.md)"
+    echo "     Вид A: 01-основные/, Вид B: 02-вспомогательные/, Вид C: 03-микро/"
+fi
+
+if [ $touched_states -eq 1 ]; then
+    echo "   • states/*.py изменены → обнови docs/scenarios/ (обычно вид B, FSM wizard)"
+fi
+
+if [ $touched_core -eq 1 ] || [ $touched_engines -eq 1 ]; then
+    echo "   • core/*.py или engines/*.py изменены → обнови docs/processes/"
+fi
+
+if [ $touched_queries -eq 1 ]; then
+    echo "   • db/queries/*.py изменены → обнови docs/processes/ или docs/data/"
+fi
+
+if [ $touched_models -eq 1 ]; then
+    echo "   • db/models.py изменён → обнови docs/data/tables.md и/или docs/data/metrics.md"
+fi
+
+if [ $touched_migrations -eq 1 ]; then
+    echo "   • db/migrations/ изменены → обнови docs/data/tables.md (инвариант source-of-truth)"
+fi
+
+if [ $touched_dev -eq 1 ]; then
+    echo "   • handlers/dev.py изменён → обнови docs/dev-commands.md"
+fi
+
+if [ $touched_admin -eq 1 ]; then
+    echo "   • admin command (/reports или /community_report) изменены → обнови docs/admin-commands.md"
+fi
+
+if [ $docs_touched -eq 1 ]; then
+    echo ""
+    echo "   ✓ docs/ также в этом commit — хорошо."
+else
+    echo ""
+    echo "   ⚠️  docs/ в этом commit НЕ изменены. Подумай: нужно ли обновить документацию?"
+fi
+
+echo ""
+echo "   Это только напоминание. Commit продолжится в любом случае."
+echo ""
+
+exit 0

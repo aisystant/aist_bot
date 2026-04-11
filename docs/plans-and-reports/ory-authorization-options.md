@@ -1,8 +1,55 @@
 # Варианты авторизации бота через Ory для Digital Twin MCP
 
-> Дата: 2026-02-03
-> Статус: Анализ
-> Связано с: Неделя 7.5 — Digital Twin MCP Integration
+> Дата создания: 2026-02-03
+> Обновлено: 2026-04-11
+> Статус: **Реализовано** — см. §«Принятое решение» ниже
+
+---
+
+## Принятое решение (WP-212, Ф 2026-04-10)
+
+**Архитектура:**
+- **Authorization Code Flow с PKCE** (Вариант 1 ниже) + Ory Hydra в качестве OAuth provider
+- **Bearer token** в header `Authorization: Bearer <access_token>` при вызовах Gateway MCP
+- **JWT access tokens** (`strategies.access_token: jwt`) — глобально переключён 2026-04-10. Sub в top-level claims, ory_id = sub
+- **Persistent OAuth state** в PostgreSQL таблице `oauth_pending_states` (не in-memory) — переживает Railway redeploy
+- **Per-user refresh lock** (`asyncio.Lock`) в Gateway MCP client — защита от thundering herd при параллельных 401
+
+**Хранение токенов:** таблица `ory_tokens (chat_id PK, access_token, refresh_token, expires_at, ory_id)`, см. [tables.md §4.1](../data/tables.md).
+
+### Этапы реализации (завершены)
+
+- **B4.13 (WP-212):** knowledge-запросы переключены на Gateway MCP (не прямое подключение)
+- **B4.21 (2026-04-10):** Паша переключил `strategies.access_token: jwt` глобально — RS256 JWT, sub=ory_id top-level
+- **B4.22 (BLOCKED 2026-04-11):** план использовать `pg_session_jwt` extension упёрся в Hydra-специфичную проблему — Hydra держит два независимых JWK sets (`hydra.openid.id-token` публикуется, `hydra.jwt.access-token` НЕ публикуется). Access_token подписан вторым, `kid=""`, `pg_session_jwt` физически не может верифицировать через `/.well-known/jwks.json`. Решение ждёт ответа Паши (13 апр)
+
+### Варианты, отвергнутые 2026-04-10 (повторный АрхГейт ЭМОГССБ v3)
+
+После того как Neon упразднил кастомный JWKS в «Neon Authorize» (остался только HTTP Data API, ломает asyncpg), был проведён АрхГейт варианта D-G:
+
+| Вариант | Оценка | Причина отказа |
+|---------|--------|-----------------|
+| D. Neon Data API (HTTP) | Отвергнут | Ломает asyncpg → переписывать все queries |
+| **E. pg_session_jwt режим A** | **Выбран (рекомендован)** | Extension 0.4.0 доступен в Neon, open source, portable, TCB=Ory+DB, 1⚠️ |
+| F. pg_session_jwt режим B | Отвергнут | Сложнее интеграция, нет преимуществ |
+| G. Keto | Отвергнут | Доп. сервис без выгоды |
+
+3⚠️ приняты: обвязка JWKS в gateway-mcp +2h, audit-log отложен, раскатка по таблицам через Neon branch.
+
+### Архитектурный принцип (warn-before-block)
+
+Новые гейты безопасности стартуют в `action:warn`, промоция в `block` после 2 недель + fire rate>0 + FP<10%. Применено к B4.23 (раскатка RLS по таблицам) — см. WP-229 §2-й уровень.
+
+### Инцидент и защиты
+
+- **9 апр утечка access tokens** → фикс deployed: все токены через Gateway с proper RLS
+- **thundering herd** (WP-209 Ф5): 8× invalid_grant за 55 секунд на одного user → per-user `asyncio.Lock` + double-check pattern + правило «НЕ disconnect в reactive пути, только в proactive cron»
+- **Cloudflare 429** (WP-209 Ф4): 64× в сутки → `Semaphore(12)` + Retry-After parsing + circuit breaker
+
+### Связь с процессами
+
+- [P-10 Gateway MCP](../processes/process-10-gateway-mcp.md) — полная архитектура клиента
+- [scenario-02-01 Onboarding §10](../scenarios/02-вспомогательные/scenario-02-01-onboarding.md) — OAuth state persistence
 
 ---
 
