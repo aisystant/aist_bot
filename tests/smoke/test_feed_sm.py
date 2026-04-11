@@ -87,16 +87,18 @@ async def test_topics_callback_confirm(patch_topics_deps):
     state, bot = _make_topics_state()
     user = make_intern(mode="feed")
 
-    # Симулируем что пользователь выбрал темы (through _user_data)
-    chat_id = user["chat_id"]
-    state._user_data = {chat_id: {
-        "selected": [0, 1],
-        "suggested": ["Тема 1", "Тема 2", "Тема 3"],
+    # Симулируем что пользователь выбрал темы (через BaseState API)
+    with patch.object(state, "load_state", new=AsyncMock(return_value={
+        "suggested_topics": [
+            {"title": "Тема 1"},
+            {"title": "Тема 2"},
+            {"title": "Тема 3"},
+        ],
+        "selected_indices": [0, 1],
         "week_id": 1,
-    }}
-
-    callback = make_callback_obj(data="feed_confirm", bot=bot)
-    result = await state.handle_callback(user, callback)
+    })), patch.object(state, "clear_state", new=AsyncMock()):
+        callback = make_callback_obj(data="feed_confirm", bot=bot)
+        result = await state.handle_callback(user, callback)
 
     # feed_confirm может вернуть topics_selected или None (если _accept_topics не сработал)
     assert result in ("topics_selected", None), f"Неожиданный результат: {result}"
