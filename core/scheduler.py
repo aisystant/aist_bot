@@ -333,6 +333,7 @@ async def pre_generate_upcoming():
                 _schedule_retry(chat_id, 'marathon')
             except Exception as e:
                 logger.error(f"[PreGen] Error for {chat_id}: {e}")
+                _schedule_retry(chat_id, 'marathon')
 
     await asyncio.gather(*[_pregen_one(cid) for cid in users])
 
