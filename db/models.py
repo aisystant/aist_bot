@@ -782,6 +782,11 @@ async def create_tables(pool: asyncpg.Pool):
             ON error_logs (category, last_seen_at DESC)
         ''')
 
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_escalated
+            ON error_logs (escalated, last_seen_at DESC)
+        ''')
+
         # ═══════════════════════════════════════════════════════════
         # L2 AUTO-FIX (WP-45)
         # ═══════════════════════════════════════════════════════════

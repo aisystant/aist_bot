@@ -92,8 +92,10 @@ class GatewayMCPClient:
         self._session: Optional[aiohttp.ClientSession] = None
 
         # Last error code from _call() — consumed by callers to show precise UX
-        # Values: "ok" | "disconnected" | "token_expired" | "no_subscription"
+        # Values: "ok" | "token_expired" | "no_subscription"
         #         | "http_error" | "timeout" | "circuit_open" | "rpc_error" | "not_authorized"
+        #         | "rate_limited"
+        # Note: "disconnected" was an early draft value — never set in code, removed.
         self._last_call_error: str = "ok"
 
     async def _get_session(self) -> aiohttp.ClientSession:

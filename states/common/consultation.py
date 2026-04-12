@@ -578,12 +578,12 @@ class ConsultationState(BaseState):
 
         typing_task = None
         try:
-            # --- L1: Structured Lookup (YAML данные марафона из RAM, ~0ms) ---
+            # --- L0: Structured Lookup (YAML данные марафона из RAM, ~0ms) ---
             # Проверяем ДО FAQ: если есть точные данные марафона — FAQ не нужен
             structured_hit = None if (deep_search or _skip_faq) else structured_lookup(question, lang)
             structured_context = format_structured_context(structured_hit, lang) if structured_hit else ""
 
-            # --- L0: FAQ-матч (только если L1 не нашёл структурированных данных) ---
+            # --- L1: FAQ-матч (только если L0 не нашёл структурированных данных) ---
             faq_answer = None if (deep_search or structured_hit or is_refinement or _skip_faq) else match_faq(question, lang)
             if faq_answer:
                 _answer_for_history = faq_answer
