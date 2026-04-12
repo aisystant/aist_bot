@@ -10,8 +10,8 @@
 |----------|----------|
 | Тип | Процесс (инфраструктура доставки) |
 | Источник | WP-152 Ф3 — унификация идемпотентности; `CLAUDE.md § 10.10` |
-| Файлы | `db/queries/notifications.py` (138), `db/queries/nudges.py` (97, deprecated) |
-| Таблица | `notification_log` (единая), `nudge_log` (deprecated, переходный период) |
+| Файлы | `db/queries/notifications.py`, `db/queries/nudges.py` (get_nudge_candidates только) |
+| Таблица | `notification_log` (единая) |
 | Принцип | **Log-before-send** — запись в БД ПЕРЕД отправкой |
 
 ---
@@ -24,7 +24,7 @@
 |-------|----------------|----------|
 | Reminders | `reminders.sent` | SELECT+UPDATE race condition, scheduler каждую минуту |
 | Marathon content | `marathon_content.notification_sent_at` | Отдельное поле, catch-up логика |
-| Nudges | `nudge_log` | Cooldown-based, не полная идемпотентность |
+| Nudges | `nudge_log` (удалён W15) | Cooldown-based, не полная идемпотентность |
 | Conversion events | milestone dedup в `conversion_events` | Inline логика |
 | Trial expiry | — | Без guard → возможны дубли |
 | Feed digest | — | Без guard → возможны дубли |
@@ -164,23 +164,13 @@ FOR UPDATE OF r SKIP LOCKED
 
 ---
 
-## 7. Deprecated: `nudge_log` (переходный период)
+## 7. `nudge_log` — удалён (W15)
 
-**Файл:** `db/queries/nudges.py` (97 строк).
+**Статус:** DONE. Удалён в W15 (WP-7 сессия 6, 12 апр).
 
-**Статус:** deprecated, в docstring зафиксировано: «После стабилизации (W15+): удалить nudge_log, was_nudge_sent_recently, log_nudge_sent».
+**Cooldown через notification_log:** `notifications.was_nudge_sent_recently(chat_id, nudge_key, cooldown_days)` — LIKE-запрос по `idempotency_key LIKE 'nudge:{chat_id}:%:{nudge_key}'` за последние `cooldown_days` дней. Семантика cooldown сохранена.
 
-**Зачем оставлен:** cooldown-логика nudges отличается от простой идемпотентности. `was_nudge_sent_recently(chat_id, key, cooldown_days)` — проверка «отправлялся ли за последние N дней», а `notification_log` — «отправлялся ли вообще с этим ключом». Для nudges с cooldown нужна первая семантика.
-
-**Двойная запись (WP-152 переходная):** в `core/scheduler.py:1582-1588`:
-```python
-await try_insert_notification(chat_id, 'nudge', notif_key)  # global
-await log_nudge_sent(chat_id, rule_id, nudge_key)            # cooldown
-```
-
-**План удаления:** после W15+ `nudge_key` переводится в `idempotency_key` с датой (`nudge:{chat_id}:{rule_id}:{date}`) → cooldown заменяется частотой (`get_notification_stats()`-based). Тогда `nudge_log` удаляется, `nudges.py` — тоже.
-
-**Функция `get_nudge_candidates()`** остаётся — она не про идемпотентность, а про выборку T1+ пользователей с engagement/derived данными для nudge-анализа.
+**`get_nudge_candidates()`** остаётся в `nudges.py` — выборка T1+ пользователей с engagement/derived данными для nudge-анализа. К идемпотентности не относится.
 
 ---
 
@@ -193,7 +183,7 @@ await log_nudge_sent(chat_id, rule_id, nudge_key)            # cooldown
 | `:705` | `reminder` | Напоминания пользователю |
 | `:1350` | `trial_expiry` | Уведомления об истечении триала |
 | `:1472` | `milestone` | Достижение milestones |
-| `:1582` | `nudge` | Nudge-система (+ nudge_log) |
+| `:1582` | `nudge` | Nudge-система |
 | `:1673` | `event` | Событийные уведомления |
 
 **Правило добавления нового notification type:**
@@ -210,7 +200,7 @@ await log_nudge_sent(chat_id, rule_id, nudge_key)            # cooldown
 - ❌ Использовать UUID / timestamp в `idempotency_key` — каждый вызов создаст новую запись, guard бесполезен
 - ❌ Не ловить `UniqueViolation` вручную — это уже делает `try_insert_notification`, пробрасывать стек наружу не надо
 - ❌ Писать в `notification_log` без уникального ключа, полагаясь на `UPDATE ... WHERE NOT EXISTS` — race condition; только INSERT + UNIQUE constraint
-- ❌ Смешивать naive и aware datetime в `created_at` — nudges.py исторически использует `NOW() AT TIME ZONE 'utc'`, notification_log использует `NOW()`. Не менять без синхронизации с §10.6
+- ❌ Смешивать naive и aware datetime в `created_at` — notification_log использует `NOW()` (naive UTC). Не менять без синхронизации с §10.6
 - ❌ Запускать scheduler цикл `for days_ahead in [1, 0]` без `sent_chat_ids: set()` — защита от дублей на стыке условий внутри одного tick (см. §10.10 правило dedup)
 
 ---
