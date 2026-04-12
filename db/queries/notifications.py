@@ -120,6 +120,29 @@ async def send_idempotent(
     return True
 
 
+async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: int) -> bool:
+    """Проверить cooldown nudge через notification_log.
+
+    Заменяет nudges.was_nudge_sent_recently (WP-152 deprecation).
+    Idempotency key формат: nudge:{chat_id}:{date}:{nudge_key}
+    Ищет любую запись за последние cooldown_days дней.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT id FROM notification_log
+               WHERE chat_id = $1
+                 AND notification_type = 'nudge'
+                 AND idempotency_key LIKE $2
+                 AND created_at >= NOW() - INTERVAL '1 day' * $3
+               LIMIT 1''',
+            chat_id,
+            f'nudge:{chat_id}:%:{nudge_key}',
+            cooldown_days,
+        )
+        return row is not None
+
+
 async def get_notification_stats(chat_id: int, days: int = 30) -> dict:
     """Статистика уведомлений пользователя за N дней.
 

@@ -356,7 +356,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ═══════════════════════════════════════════════════════════
         # УНИВЕРСАЛЬНЫЙ ЛОГ УВЕДОМЛЕНИЙ (WP-152)
         # Единая таблица idempotent notifications, заменяет:
-        # reminders.sent, notification_sent_at, nudge_log
+        # reminders.sent, notification_sent_at
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS notification_log (
