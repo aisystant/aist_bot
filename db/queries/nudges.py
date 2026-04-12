@@ -1,35 +1,15 @@
 """
 DB-запросы для nudge-системы (WP-85, Phase 5C).
 
-Таблица nudge_log хранит историю отправленных nudges для cooldown-проверки.
-
-DEPRECATED (WP-152): nudge_log заменяется notification_log.
-Двойная запись на переходный период. После стабилизации (W15+):
-удалить nudge_log, was_nudge_sent_recently, log_nudge_sent.
+Cooldown и dedup перенесены в notification_log (WP-152).
+Этот модуль содержит только получение кандидатов.
 """
 
 import logging
-from datetime import datetime, timezone
 
 from db.connection import get_pool
 
 logger = logging.getLogger(__name__)
-
-
-async def ensure_nudge_tables():
-    """Создать таблицу nudge_log (idempotent)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS nudge_log (
-                id SERIAL PRIMARY KEY,
-                chat_id BIGINT NOT NULL,
-                rule_id TEXT NOT NULL,
-                nudge_key TEXT NOT NULL,
-                sent_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
-                UNIQUE(chat_id, nudge_key)
-            )
-        ''')
 
 
 async def get_nudge_candidates() -> list[dict]:
@@ -68,30 +48,3 @@ async def get_nudge_candidates() -> list[dict]:
         return [dict(r) for r in rows]
 
 
-async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: int) -> bool:
-    """Проверить, был ли nudge отправлен в пределах cooldown."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow('''
-            SELECT sent_at FROM nudge_log
-            WHERE chat_id = $1 AND nudge_key = $2
-        ''', chat_id, nudge_key)
-
-        if not row:
-            return False
-
-        sent_at = row['sent_at']
-        days_ago = (datetime.utcnow() - sent_at).days
-        return days_ago < cooldown_days
-
-
-async def log_nudge_sent(chat_id: int, rule_id: str, nudge_key: str):
-    """Записать факт отправки nudge (upsert для cooldown)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute('''
-            INSERT INTO nudge_log (chat_id, rule_id, nudge_key, sent_at)
-            VALUES ($1, $2, $3, NOW() AT TIME ZONE 'utc')
-            ON CONFLICT (chat_id, nudge_key) DO UPDATE
-            SET sent_at = NOW() AT TIME ZONE 'utc', rule_id = $2
-        ''', chat_id, rule_id, nudge_key)

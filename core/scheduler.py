@@ -1428,13 +1428,11 @@ async def send_engagement_nudges():
     """Проанализировать engagement-данные T3+ и отправить nudge-уведомления."""
     import json
     from core.engagement_analyzer import analyze
-    from db.queries.nudges import (
-        ensure_nudge_tables, get_nudge_candidates,
-        was_nudge_sent_recently, log_nudge_sent,
+    from db.queries.nudges import get_nudge_candidates
+    from db.queries.notifications import (
+        was_nudge_sent_recently, try_insert_notification,
     )
     from i18n import t
-
-    await ensure_nudge_tables()
 
     candidates = await get_nudge_candidates()
     if not candidates:
@@ -1502,14 +1500,13 @@ async def send_engagement_nudges():
                     continue
 
                 try:
-                    # WP-152: двойная запись в notification_log
-                    from db.queries.notifications import try_insert_notification
                     today_str = moscow_now().strftime('%Y-%m-%d')
                     notif_key = f"nudge:{chat_id}:{today_str}:{nudge_key}"
-                    await try_insert_notification(chat_id, 'nudge', notif_key)
+                    inserted = await try_insert_notification(chat_id, 'nudge', notif_key)
+                    if not inserted:
+                        # Дубль — уже отправляли сегодня
+                        continue
 
-                    # Логируем ПЕРЕД отправкой — предотвращает дубль при retry (legacy)
-                    await log_nudge_sent(chat_id, rule_id, nudge_key)
                     await bot.send_message(chat_id, text, parse_mode="Markdown")
                     total_sent += 1
                     logger.info(f"[Nudge] Sent {nudge_key} to {chat_id}")
