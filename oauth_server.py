@@ -398,13 +398,12 @@ async def github_callback_handler(request: web.Request) -> web.Response:
         error_description = request.query.get("error_description", "Unknown error")
         logger.error(f"GitHub OAuth error: {error} - {error_description}")
         return web.Response(
-            text=f"""
+            text="""
             <html>
             <head><title>Ошибка авторизации</title></head>
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h1>Ошибка авторизации GitHub</h1>
-                <p>{error_description}</p>
-                <p>Вернитесь в Telegram и попробуйте снова.</p>
+                <p>Не удалось завершить авторизацию. Вернитесь в Telegram и попробуйте снова.</p>
             </body>
             </html>
             """,
@@ -914,7 +913,7 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
         logger.error(f"[WorkshopWebhook] error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return web.Response(text=json.dumps({"ok": False, "error": str(e)}),
+        return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 
 
@@ -965,7 +964,7 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
         logger.error(f"[YooKassa Webhook] error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return web.Response(text=json.dumps({"ok": False, "error": str(e)}),
+        return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 
 
@@ -1289,13 +1288,12 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
         error_description = request.query.get("error_description", "Unknown error")
         logger.error(f"Ory OAuth error: {error} - {error_description}")
         return web.Response(
-            text=f"""
+            text="""
             <html>
             <head><title>Ошибка авторизации</title></head>
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h1>Ошибка авторизации</h1>
-                <p>{error_description}</p>
-                <p>Вернитесь в Telegram и попробуйте снова.</p>
+                <p>Не удалось завершить авторизацию. Вернитесь в Telegram и попробуйте снова.</p>
             </body>
             </html>
             """,
