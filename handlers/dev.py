@@ -635,15 +635,12 @@ async def cmd_tailor(message: Message):
     chat_id = message.chat.id
     logger.info(f"[Dev] /tailor triggered by {chat_id}")
 
-    await message.answer("⏳ Генерирую занятие Портного...")
-
-    try:
-        from engines.tailor.delivery import deliver_tailor_lesson
-        bot = message.bot
-        await deliver_tailor_lesson(chat_id, bot, force=True)
-    except Exception as e:
-        logger.error(f"[Dev] /tailor error: {e}", exc_info=True)
-        await message.answer(f"<b>/tailor error:</b>\n<code>{e}</code>", parse_mode="HTML")
+    await message.answer(
+        "⚠️ <b>/tailor не реализован</b>\n\n"
+        "deliver_tailor_lesson() переехала в activity-hub (платформа L2).\n"
+        "Интеграция: WP-149 / WP-222.",
+        parse_mode="HTML",
+    )
 
 
 @dev_router.message(Command("nudge_test"))
