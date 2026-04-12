@@ -62,9 +62,6 @@ class GoogleCalendarOAuthClient:
         self.client_secret = GOOGLE_CALENDAR_CLIENT_SECRET
         self.redirect_uri = GOOGLE_CALENDAR_REDIRECT_URI
 
-        # state -> {telegram_user_id, created_at} (TTL 10 мин)
-        self._pending_states: Dict[str, Dict[str, Any]] = {}
-
         # telegram_user_id -> cached token data (in-memory)
         self._cache: Dict[int, Dict[str, Any]] = {}
 
@@ -89,19 +86,15 @@ class GoogleCalendarOAuthClient:
             return self._cache[telegram_user_id]
         return await self._load_from_db(telegram_user_id)
 
-    def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
+    async def get_authorization_url(self, telegram_user_id: int) -> Tuple[str, str]:
         """Генерирует URL для OAuth авторизации Google Calendar."""
         if not self.client_id:
             raise ValueError("GOOGLE_CALENDAR_CLIENT_ID not configured")
 
         state = secrets.token_urlsafe(32)
 
-        self._pending_states[state] = {
-            "telegram_user_id": telegram_user_id,
-            "created_at": time.time(),
-        }
-
-        self._cleanup_old_states()
+        from db.queries.oauth_states import save_oauth_state
+        await save_oauth_state(state, "google_calendar", telegram_user_id)
 
         params = {
             "client_id": self.client_id,
@@ -118,38 +111,19 @@ class GoogleCalendarOAuthClient:
 
         return auth_url, state
 
-    def _cleanup_old_states(self):
-        """Удаляет просроченные states (>10 мин)."""
-        now = time.time()
-        expired = [
-            state
-            for state, data in self._pending_states.items()
-            if now - data["created_at"] > 600
-        ]
-        for state in expired:
-            del self._pending_states[state]
-
-    def validate_state(self, state: str) -> Optional[int]:
+    async def validate_state(self, state: str) -> Optional[int]:
         """Проверяет state и возвращает telegram_user_id."""
-        data = self._pending_states.get(state)
-        if not data:
+        from db.queries.oauth_states import validate_oauth_state
+        telegram_user_id = await validate_oauth_state(state)
+        if not telegram_user_id:
             logger.warning(f"Invalid or expired Google Calendar state: {state[:10]}...")
-            return None
-
-        if time.time() - data["created_at"] > 600:
-            del self._pending_states[state]
-            logger.warning(f"Expired Google Calendar state: {state[:10]}...")
-            return None
-
-        return data["telegram_user_id"]
+        return telegram_user_id
 
     async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
         """Обменивает authorization code на access_token + refresh_token."""
-        telegram_user_id = self.validate_state(state)
+        telegram_user_id = await self.validate_state(state)
         if not telegram_user_id:
             return None
-
-        del self._pending_states[state]
 
         payload = {
             "client_id": self.client_id,

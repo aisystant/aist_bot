@@ -604,7 +604,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
             status=400,
         )
 
-    telegram_user_id = google_calendar_oauth.validate_state(state)
+    telegram_user_id = await google_calendar_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
             text="""
@@ -763,7 +763,7 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    telegram_user_id = wakatime_oauth.validate_state(state)
+    telegram_user_id = await wakatime_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
             text="""

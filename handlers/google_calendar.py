@@ -142,7 +142,7 @@ async def _show_connect(message: Message, telegram_user_id: int):
     from clients.google_calendar_oauth import google_calendar_oauth
 
     try:
-        auth_url, state = google_calendar_oauth.get_authorization_url(telegram_user_id)
+        auth_url, state = await google_calendar_oauth.get_authorization_url(telegram_user_id)
     except ValueError as e:
         await message.answer(f"Google Calendar не настроен: {e}")
         return
