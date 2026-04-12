@@ -637,7 +637,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
         )
 
     email = tokens.get("email", "")
-    logger.info(f"User {telegram_user_id} connected to Google Calendar ({email})")
+    logger.info(f"User {telegram_user_id} connected to Google Calendar")
 
     if _bot_instance:
         try:
