@@ -184,6 +184,19 @@ async def main():
                 return True
         return False
 
+    # Flood control: обрабатываем TelegramRetryAfter глобально
+    from aiogram.exceptions import TelegramRetryAfter
+    from aiogram.types import ErrorEvent
+
+    @dp.errors()
+    async def handle_flood_control(event: ErrorEvent) -> bool:
+        if isinstance(event.exception, TelegramRetryAfter):
+            retry_after = event.exception.retry_after
+            logger.warning(f"[FloodControl] Telegram flood control, sleeping {retry_after}s")
+            await asyncio.sleep(retry_after)
+            return True  # handled
+        return False  # propagate
+
     # Регистрируем middleware (порядок важен: Maintenance → RateLimit → Logging → Passthrough → Tracing)
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
