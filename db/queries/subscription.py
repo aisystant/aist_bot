@@ -22,7 +22,7 @@ async def get_active_subscription(chat_id: int) -> Optional[dict]:
         row = await conn.fetchrow(
             '''SELECT id, chat_id, telegram_payment_charge_id,
                       status, stars_amount, created_at AS started_at,
-                      expires_at, is_first_recurring, created_at
+                      expires_at, created_at
                FROM subscriptions
                WHERE chat_id = $1
                  AND status = 'active'
@@ -59,10 +59,10 @@ async def save_subscription(
         row_id = await conn.fetchval(
             '''INSERT INTO subscriptions
                (chat_id, telegram_payment_charge_id, status,
-                stars_amount, expires_at, is_first_recurring)
-               VALUES ($1, $2, 'active', $3, $4, $5)
+                stars_amount, expires_at)
+               VALUES ($1, $2, 'active', $3, $4)
                RETURNING id''',
-            chat_id, charge_id, stars_amount, expires_at, is_first,
+            chat_id, charge_id, stars_amount, expires_at,
         )
         logger.info(
             f"[Subscription] Saved: chat_id={chat_id}, "
