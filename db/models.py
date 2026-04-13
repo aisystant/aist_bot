@@ -7,14 +7,21 @@
   development.user_state — bot state (replaces interns)
 """
 
+import os
+
 import asyncpg
 from config import get_logger
 
 logger = get_logger(__name__)
 
+SKIP_DB_MIGRATIONS = os.getenv('SKIP_DB_MIGRATIONS', '').lower() in ('true', '1', 'yes')
+
 
 async def create_tables(pool: asyncpg.Pool):
     """Создание всех таблиц и применение миграций"""
+    if SKIP_DB_MIGRATIONS:
+        logger.info("DB migrations skipped (SKIP_DB_MIGRATIONS=true)")
+        return
     async with pool.acquire() as conn:
         # ═══════════════════════════════════════════════════════════
         # DEVELOPMENT SCHEMA
