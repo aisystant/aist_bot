@@ -19,6 +19,10 @@ CLAUDE_MODEL_OPUS = "claude-opus-4-6"
 CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
 CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
+# WP-227: отдельная БД для ЦД (digitaltwin). Если не задана — fallback на DATABASE_URL.
+DT_DATABASE_URL = os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
+# WP-232: платформенная БД (subscription_grants, user_identities). Fallback на DT_DATABASE_URL.
+SUBSCRIPTION_DB_URL = os.getenv("SUBSCRIPTION_DB_URL") or os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
