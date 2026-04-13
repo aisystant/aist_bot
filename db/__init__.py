@@ -21,6 +21,7 @@ from .connection import (
 )
 
 from .models import create_tables
+from .rls import with_user_context
 
 __all__ = [
     'get_pool',
@@ -29,4 +30,5 @@ __all__ = [
     'init_db',
     'db_pool',
     'create_tables',
+    'with_user_context',
 ]
