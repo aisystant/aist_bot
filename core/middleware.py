@@ -15,6 +15,12 @@ from aiogram import BaseMiddleware
 from aiogram.enums import ChatAction
 from aiogram.types import Message, CallbackQuery, TelegramObject
 
+from config.settings import (
+    DEVELOPER_CHAT_ID,
+    MAINTENANCE_MODE,
+    ALLOWED_TESTERS,
+    MAINTENANCE_REDIRECT_BOT,
+)
 from core.tracing import start_trace, finish_trace
 
 logger = logging.getLogger(__name__)
@@ -46,8 +52,6 @@ class RateLimitMiddleware(BaseMiddleware):
         return True
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
-        from config.settings import DEVELOPER_CHAT_ID
-
         user_id = None
         if isinstance(event, Message) and event.from_user:
             user_id = event.from_user.id
@@ -69,8 +73,6 @@ class MaintenanceMiddleware(BaseMiddleware):
     """
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
-        from config.settings import MAINTENANCE_MODE, ALLOWED_TESTERS, MAINTENANCE_REDIRECT_BOT
-
         if not MAINTENANCE_MODE:
             return await handler(event, data)
 

@@ -100,8 +100,28 @@ state_machine = None
 
 # ============= ЗАПУСК =============
 
+async def _validate_middleware():
+    """Boot-time: проверить что все middleware импортируются без ошибок.
+
+    Если lazy import в __call__ сломан — краш здесь, ДО регистрации webhook.
+    Railway не заменит рабочий инстанс сломанным.
+    """
+    from core.middleware import (
+        RateLimitMiddleware,
+        MaintenanceMiddleware,
+        LoggingMiddleware,
+        TracingMiddleware,
+        ConsultationPassthroughMiddleware,
+    )
+    from config.settings import DEVELOPER_CHAT_ID, MAINTENANCE_MODE, ALLOWED_TESTERS
+    logger.info("✅ Middleware validation passed")
+
+
 async def main():
     global state_machine
+
+    # Boot-time валидация middleware (ловит ImportError до webhook)
+    await _validate_middleware()
 
     # Инициализация БД
     await init_db()
