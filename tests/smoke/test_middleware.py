@@ -87,6 +87,7 @@ class TestMiddlewareImports:
         assert isinstance(DEVELOPER_CHAT_ID, int)
         assert isinstance(MAINTENANCE_MODE, bool)
         assert isinstance(ALLOWED_TESTERS, set)
+        assert isinstance(MAINTENANCE_REDIRECT_BOT, str)
 
 
 class TestMiddlewareInit:
@@ -166,6 +167,50 @@ class TestMiddlewareCall:
             assert handler_called
         finally:
             mw_module.MAINTENANCE_MODE = original
+
+    async def test_maintenance_on_blocks_non_tester(self):
+        """MaintenanceMiddleware при MAINTENANCE_MODE=True блокирует обычных пользователей."""
+        from core.middleware import MaintenanceMiddleware
+        import core.middleware as mw_module
+
+        original = mw_module.MAINTENANCE_MODE
+        try:
+            mw_module.MAINTENANCE_MODE = True
+            mw = MaintenanceMiddleware()
+            msg = _make_fake_message(user_id=99999)  # не тестер
+            handler_called = []
+
+            async def handler(event, data):
+                handler_called.append(True)
+
+            await mw(handler, msg, {})
+            assert not handler_called, "Обычный пользователь не должен проходить при MAINTENANCE_MODE=True"
+        finally:
+            mw_module.MAINTENANCE_MODE = original
+
+    async def test_maintenance_on_allows_tester(self):
+        """MaintenanceMiddleware при MAINTENANCE_MODE=True пропускает ALLOWED_TESTERS."""
+        from core.middleware import MaintenanceMiddleware
+        import core.middleware as mw_module
+
+        original_mode = mw_module.MAINTENANCE_MODE
+        original_testers = mw_module.ALLOWED_TESTERS
+        tester_id = 777777
+        try:
+            mw_module.MAINTENANCE_MODE = True
+            mw_module.ALLOWED_TESTERS = {tester_id}
+            mw = MaintenanceMiddleware()
+            msg = _make_fake_message(user_id=tester_id)
+            handler_called = []
+
+            async def handler(event, data):
+                handler_called.append(True)
+
+            await mw(handler, msg, {})
+            assert handler_called, "Тестер должен проходить при MAINTENANCE_MODE=True"
+        finally:
+            mw_module.MAINTENANCE_MODE = original_mode
+            mw_module.ALLOWED_TESTERS = original_testers
 
     async def test_rate_limit_blocks_after_limit(self):
         """RateLimitMiddleware блокирует после превышения лимита."""

@@ -145,6 +145,11 @@ from .settings import (
 
     # Разработчик (rate limit bypass)
     DEVELOPER_CHAT_ID,
+
+    # Maintenance mode
+    MAINTENANCE_MODE,
+    MAINTENANCE_REDIRECT_BOT,
+    ALLOWED_TESTERS,
 )
 
 __all__ = [
@@ -230,6 +235,9 @@ __all__ = [
     'CHANNEL_CONTEXTS',
     'get_channel_context',
     'DEVELOPER_CHAT_ID',
+    'MAINTENANCE_MODE',
+    'MAINTENANCE_REDIRECT_BOT',
+    'ALLOWED_TESTERS',
     'ORY_BASE_URL',
     'ORY_CLIENT_ID',
     'ORY_CLIENT_SECRET',
