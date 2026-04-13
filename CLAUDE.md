@@ -686,3 +686,28 @@ Railway UI отображает значения переменных с обр�
 **Паттерн:** использовать `BaseState.save_state(user, data)` / `load_state(user)` / `clear_state(user)`. Данные хранятся в `development.user_state.current_context` (JSONB) под namespace-ключом стейта — переживают redeploy.
 
 **Исключение:** UI-флаги без побочных эффектов (например, `waiting_fixation` в `digest.py`) допустимы в памяти, если потеря флага при redeploy приводит только к повторному показу интерфейса (не к порче данных).
+
+### 10.37. Middleware: запрет lazy imports, обязательный smoke-тест
+
+**Инцидент-источник:** B4.3 (12 апр 2026) добавил `RateLimitMiddleware` с `from config.settings import DEVELOPER_CHAT_ID` внутри `__call__`. Константа не существовала → `ImportError` на каждом сообщении → aiogram глотал молча → бот не отвечал 14 часов. Webhook возвращал 200, Railway показывал SUCCESS — проблема не была видна снаружи.
+
+**Правило 1 — Все imports на уровне модуля:**
+```python
+# ❌ Запрещено
+async def __call__(self, handler, event, data):
+    from config.settings import SOME_CONSTANT  # lazy import в __call__
+
+# ✅ Правильно
+from config.settings import SOME_CONSTANT  # на уровне модуля
+
+async def __call__(self, handler, event, data):
+    ...  # использовать SOME_CONSTANT напрямую
+```
+
+**Правило 2 — Smoke-тест обязателен:**
+При добавлении нового middleware → добавить в `tests/smoke/test_middleware.py`:
+- `test_import_<name>` — проверяет что класс импортируется
+- `test_<name>_call_does_not_crash` — вызывает `__call__` с fake Message
+
+**Правило 3 — config/__init__.py barrel sync (правило 10.17):**
+Любая новая константа из `config/settings.py`, используемая в middleware, должна быть добавлена в оба места `config/__init__.py` (import + `__all__`).

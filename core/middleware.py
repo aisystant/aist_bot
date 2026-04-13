@@ -3,18 +3,66 @@ Middleware для aiogram.
 
 LoggingMiddleware — логирование входящих сообщений.
 TracingMiddleware — request-scoped трейсинг с записью в Neon.
+RateLimitMiddleware — per-user rate limiting (sliding window, in-memory).
 """
 
 import asyncio
+import collections
 import logging
+import time
 
 from aiogram import BaseMiddleware
 from aiogram.enums import ChatAction
 from aiogram.types import Message, CallbackQuery, TelegramObject
 
+from config.settings import (
+    DEVELOPER_CHAT_ID,
+    MAINTENANCE_MODE,
+    ALLOWED_TESTERS,
+    MAINTENANCE_REDIRECT_BOT,
+)
 from core.tracing import start_trace, finish_trace
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimitMiddleware(BaseMiddleware):
+    """Per-user rate limiting — sliding window, in-memory.
+
+    Defaults: 20 messages per 60 seconds per user.
+    Превышение: молча игнорируем (не отвечаем, не спамим).
+    Администраторы (DEVELOPER_CHAT_ID) не ограничены.
+    """
+
+    def __init__(self, max_messages: int = 20, window_seconds: int = 60):
+        self._max = max_messages
+        self._window = window_seconds
+        # user_id -> deque of timestamps
+        self._windows: dict[int, collections.deque] = {}
+
+    def _is_allowed(self, user_id: int) -> bool:
+        now = time.monotonic()
+        dq = self._windows.setdefault(user_id, collections.deque())
+        # Убираем устаревшие записи
+        while dq and now - dq[0] > self._window:
+            dq.popleft()
+        if len(dq) >= self._max:
+            return False
+        dq.append(now)
+        return True
+
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        user_id = None
+        if isinstance(event, Message) and event.from_user:
+            user_id = event.from_user.id
+        elif isinstance(event, CallbackQuery) and event.from_user:
+            user_id = event.from_user.id
+
+        if user_id and user_id != DEVELOPER_CHAT_ID and not self._is_allowed(user_id):
+            logger.warning(f"[RateLimit] user_id={user_id} превысил лимит {self._max}/{self._window}s — запрос отброшен")
+            return  # молча игнорируем
+
+        return await handler(event, data)
 
 
 class MaintenanceMiddleware(BaseMiddleware):
@@ -25,8 +73,6 @@ class MaintenanceMiddleware(BaseMiddleware):
     """
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
-        from config.settings import MAINTENANCE_MODE, ALLOWED_TESTERS, MAINTENANCE_REDIRECT_BOT
-
         if not MAINTENANCE_MODE:
             return await handler(event, data)
 

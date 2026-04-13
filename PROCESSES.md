@@ -101,11 +101,18 @@ updated: 2026-02-10
 2. `git log new-architecture..pilot --oneline` → показать список коммитов пользователю
 3. Получить подтверждение
 4. `git merge pilot` → разрешить конфликты (если есть)
-5. `git push origin new-architecture`
-6. Проверить Railway деплой прода (aist_me_bot)
-7. Smoke test на проде
+5. **Pre-push: smoke suite** — `pytest tests/smoke/ -q` → все тесты зелёные (включая `test_middleware.py`)
+6. `git push origin new-architecture` (pre-push hook запускает smoke автоматически)
+7. Проверить Railway деплой прода (aist_me_bot) — статус `SUCCESS` в Railway dashboard
+8. **Boot-time check:** в логах Railway должна быть строка `✅ Middleware validation passed`
+9. Проверить webhook: `getWebhookInfo` → `last_error_message` пустой, `pending_update_count` = 0
 
 **Выход:** Прод обновлён, pilot и new-architecture синхронизированы
+
+**Инцидент-сигналы (немедленно реагировать):**
+- Логи: `ImportError` / `cannot import name` в middleware → бот не отвечает никому
+- Логи: все POST /telegram возвращают 401 → неверный webhook secret
+- Логи: `[Webhook] Response: 200` есть, но `[MIDDLEWARE] Получено сообщение` отсутствует → middleware глотает ошибку
 
 ---
 
