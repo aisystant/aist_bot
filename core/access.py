@@ -63,7 +63,35 @@ class AccessLayer:
 
         Требует активную оплаченную БР-подписку.
         Триал НЕ даёт доступ к Gateway (DP.SC.112, WP-210 Ф2a).
+
+        Порядок проверки (WP-231, WP-232):
+        1. subscription_grants в platform БД (source of truth)
+        2. Fallback: Aisystant API (для пользователей не в platform, до завершения WP-231 Ф2 sync)
         """
+        # 1. Platform БД — subscription_grants
+        try:
+            from db.connection import get_platform_pool
+            from db.queries.identity import get_user_by_telegram
+            user = await get_user_by_telegram(user_id)
+            ory_id = user.get("ory_id") if user else None
+            if ory_id:
+                platform_pool = await get_platform_pool()
+                async with platform_pool.acquire() as conn:
+                    has_grant = await conn.fetchval(
+                        """SELECT EXISTS (
+                            SELECT 1 FROM subscription_grants
+                            WHERE ory_id = $1
+                              AND (valid_until IS NULL OR valid_until > now())
+                              AND revoked_at IS NULL
+                        )""",
+                        ory_id,
+                    )
+                if has_grant:
+                    return True
+        except Exception as e:
+            logger.warning(f"[Access] platform subscription_grants check failed: {e}")
+
+        # 2. Fallback: Aisystant API (до завершения WP-231 Ф2 sync)
         return await self._has_aisystant_subscription(user_id)
 
     async def get_paywall(self, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
