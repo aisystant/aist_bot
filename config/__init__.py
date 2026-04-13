@@ -142,6 +142,9 @@ from .settings import (
     # Channel contexts (SC.118)
     CHANNEL_CONTEXTS,
     get_channel_context,
+
+    # Разработчик (rate limit bypass)
+    DEVELOPER_CHAT_ID,
 )
 
 __all__ = [
@@ -226,6 +229,7 @@ __all__ = [
     'YOOKASSA_SECRET_KEY',
     'CHANNEL_CONTEXTS',
     'get_channel_context',
+    'DEVELOPER_CHAT_ID',
     'ORY_BASE_URL',
     'ORY_CLIENT_ID',
     'ORY_CLIENT_SECRET',
