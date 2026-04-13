@@ -21,8 +21,8 @@ async def get_active_subscription(chat_id: int) -> Optional[dict]:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''SELECT id, chat_id, telegram_payment_charge_id,
-                      status, stars_amount, started_at, expires_at,
-                      cancelled_at, is_first_recurring, created_at
+                      status, stars_amount, created_at AS started_at,
+                      expires_at, cancelled_at, is_first_recurring, created_at
                FROM subscriptions
                WHERE chat_id = $1
                  AND status = 'active'
@@ -91,8 +91,8 @@ async def get_subscription_history(chat_id: int, limit: int = 10) -> list[dict]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT id, status, stars_amount, started_at, expires_at,
-                      cancelled_at, created_at
+            '''SELECT id, status, stars_amount, created_at AS started_at,
+                      expires_at, cancelled_at, created_at
                FROM subscriptions
                WHERE chat_id = $1
                ORDER BY created_at DESC
