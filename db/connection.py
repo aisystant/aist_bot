@@ -7,12 +7,15 @@
 import asyncpg
 from typing import Optional
 
-from config import DATABASE_URL, get_logger
+from config import DATABASE_URL, DT_DATABASE_URL, get_logger
 
 logger = get_logger(__name__)
 
-# Глобальный пул соединений
+# Глобальный пул соединений (aist_bot БД)
 _pool: Optional[asyncpg.Pool] = None
+
+# Пул для digitaltwin БД (WP-227)
+_dt_pool: Optional[asyncpg.Pool] = None
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -34,13 +37,39 @@ async def get_pool() -> asyncpg.Pool:
     return _pool
 
 
+async def get_dt_pool() -> asyncpg.Pool:
+    """Получить пул соединений к digitaltwin БД (WP-227).
+
+    Если DT_DATABASE_URL не задан — использует DATABASE_URL (fallback до cutover).
+    """
+    global _dt_pool
+    if _dt_pool is None:
+        try:
+            _dt_pool = await asyncpg.create_pool(
+                DT_DATABASE_URL,
+                statement_cache_size=0,
+                min_size=2,
+                max_size=10,
+                command_timeout=30,
+            )
+            logger.info("✅ DT пул соединений создан (digitaltwin)")
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания DT пула соединений: {e}")
+            raise
+    return _dt_pool
+
+
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool
+    global _pool, _dt_pool
     if _pool:
         await _pool.close()
         _pool = None
         logger.info("🔒 Пул соединений закрыт")
+    if _dt_pool:
+        await _dt_pool.close()
+        _dt_pool = None
+        logger.info("🔒 DT пул соединений закрыт")
 
 
 async def acquire():

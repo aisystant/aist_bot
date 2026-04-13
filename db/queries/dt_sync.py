@@ -25,10 +25,12 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-from db.connection import get_pool
+from db.connection import get_pool, get_dt_pool
 # WP-218 Ф2: calculator removed from bot — R28 Profiler is now single source
 # of 3_derived. See DS-ai-systems/profiler/scripts/recalculate_derived.py
 # (stand-alone runtime that reads digital_twins.data from Neon directly).
+# WP-227: бот читает development.engagement из aist_bot (get_pool),
+# но пишет digital_twins в digitaltwin БД (get_dt_pool). T0 не пишет в ЦД.
 
 logger = logging.getLogger(__name__)
 
@@ -134,19 +136,11 @@ async def sync_engagement_to_dt() -> dict:
         {"synced": N, "skipped": N, "errors": N, "first_error": str|None}
     """
     pool = await get_pool()
+    dt_pool = await get_dt_pool()
     stats = {"synced": 0, "skipped": 0, "errors": 0, "first_error": None}
 
     try:
-        async with pool.acquire() as conn:
-            # Ensure table exists (same schema as DT MCP worker)
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS digital_twins (
-                    user_id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL DEFAULT '{}',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-            ''')
+        async with pool.acquire() as conn, dt_pool.acquire() as dt_conn:
 
             # ─── Notification engagement (WP-152 Ф4) ───
             # Предзагрузка: user_id → notification stats (для merge ниже)
@@ -438,28 +432,14 @@ async def sync_engagement_to_dt() -> dict:
                             'decision_weight_7d_avg': decision_7d['decision_weight_7d_avg'] if decision_7d else 0,
                         }
 
-                    # Fallback: если user_events пусто, подтянуть из digital_twins
-                    # (dt-collect snapshot, переходный период)
-                    if '2_6_coding' not in collected_data or '2_7_iwe' not in collected_data:
-                        existing = await conn.fetchval(
-                            "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
-                            user_id,
-                        )
-                        if existing:
-                            existing_collected = json.loads(existing) if isinstance(existing, str) else existing
-                            for key in ('2_6_coding', '2_7_iwe'):
-                                if key in existing_collected and key not in collected_data:
-                                    collected_data[key] = existing_collected[key]
-
                     # WP-218 Ф2: бот — только collector (писатель 2_collected).
-                    # Расчёт 3_derived делает R28 Profiler (standalone runtime)
-                    # DS-ai-systems/profiler/scripts/recalculate_derived.py
-                    # — читает полный 2_collected из БД и пересчитывает stateless.
+                    # Расчёт 3_derived делает R28 Profiler (standalone runtime).
+                    # WP-227: пишем в digitaltwin БД через dt_conn (только T1+).
                     merge_payload = {
                         '2_collected': collected_data,
                     }
 
-                    await conn.execute('''
+                    await dt_conn.execute('''
                         INSERT INTO digital_twins (user_id, data, created_at, updated_at)
                         VALUES ($1, $2::jsonb, NOW(), NOW())
                         ON CONFLICT (user_id) DO UPDATE SET
@@ -518,10 +498,11 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
         True если collect прошёл успешно, False при ошибке.
     """
     pool = await get_pool()
+    dt_pool = await get_dt_pool()
     now = datetime.now(timezone.utc)
 
     try:
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, dt_pool.acquire() as dt_conn:
             # Находим пользователя по dt_user_id (Ory UUID) или user_uuid
             row = await conn.fetchrow('''
                 SELECT
@@ -740,7 +721,8 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             # заменить этот путь на вызов recalculate_derived --user-id ...
             merge_payload = {'2_collected': collected_data}
 
-            await conn.execute('''
+            # WP-227: пишем в digitaltwin БД через dt_conn
+            await dt_conn.execute('''
                 INSERT INTO digital_twins (user_id, data, created_at, updated_at)
                 VALUES ($1, $2::jsonb, NOW(), NOW())
                 ON CONFLICT (user_id) DO UPDATE SET
