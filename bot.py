@@ -113,7 +113,7 @@ async def _validate_middleware():
         TracingMiddleware,
         ConsultationPassthroughMiddleware,
     )
-    from config.settings import DEVELOPER_CHAT_ID, MAINTENANCE_MODE, ALLOWED_TESTERS
+    from config.settings import DEVELOPER_CHAT_ID, MAINTENANCE_MODE, ALLOWED_TESTERS, MAINTENANCE_REDIRECT_BOT
     logger.info("✅ Middleware validation passed")
 
 
