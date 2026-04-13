@@ -120,6 +120,9 @@ MAINTENANCE_REDIRECT_BOT = os.getenv("MAINTENANCE_REDIRECT_BOT", "@aist_me_bot")
 _allowed = os.getenv("ALLOWED_TESTERS", "")
 ALLOWED_TESTERS: set[int] = {int(x.strip()) for x in _allowed.split(",") if x.strip().isdigit()}
 
+# Telegram ID разработчика — освобождён от rate limiting
+DEVELOPER_CHAT_ID: int = int(os.getenv("DEVELOPER_CHAT_ID", "0"))
+
 # ============= ЛОГИРОВАНИЕ =============
 # logging.basicConfig() вызывается в bot.py (единая точка конфигурации)
 
