@@ -239,9 +239,15 @@ class GatewayMCPClient:
                     )
                     logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
                     return True
+                # B4.20 диагностика: ory_oauth вернул None (детали выше в [OryOAuth] логе)
+                logger.warning(
+                    f"Gateway: refresh returned None for user {telegram_user_id} "
+                    f"(ory_id={data.get('ory_id', '?')[:8]}..., "
+                    f"token_age={(datetime.utcnow() - expires_at).seconds // 60 if isinstance(expires_at, datetime) else '?'}min expired)"
+                )
                 return False
             except Exception as e:
-                logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}")
+                logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}", exc_info=True)
                 return False
 
     # =========================================================================
