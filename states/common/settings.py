@@ -1064,7 +1064,8 @@ class SettingsState(BaseState):
 
         await callback.message.edit_text(
             f"✅ {t('settings.github_repo', lang)}: `{repo_full_name}`\n"
-            f"{t('settings.github_path', lang)}: `{notes_path}`",
+            f"{t('settings.github_path', lang)}: `{notes_path}`\n\n"
+            f"Также можно выбрать репо для публикаций в Клуб — нажмите Назад.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
