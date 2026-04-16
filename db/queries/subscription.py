@@ -117,9 +117,13 @@ async def upsert_subscription_grant(
     когда email неизвестен — только telegram_id.
 
     Логика:
-    - Если активный грант по telegram_id уже есть → продлить valid_until если новая дата позже.
+    - Ищем активный грант по telegram_id с source IN ('tg_stars', 'bot_payment').
+    - Если найден → продлить valid_until до наибольшего значения.
     - Если нет → INSERT новой строки.
     - ory_id не заполняется — появится позже через Вариант A (Gateway OAuth) или sync.
+
+    Не используем ON CONFLICT — в subscription_grants нет UNIQUE на telegram_id
+    (у одного telegram_id может быть несколько грантов из разных источников: lms_sync, manual).
 
     Args:
         telegram_id: Telegram chat_id пользователя.
@@ -128,20 +132,35 @@ async def upsert_subscription_grant(
     """
     pool = await get_platform_pool()
     async with pool.acquire() as conn:
+        updated = await conn.execute(
+            '''
+            UPDATE subscription_grants
+            SET valid_until = GREATEST(valid_until, $1),
+                source = $2
+            WHERE telegram_id = $3
+              AND source IN ('tg_stars', 'bot_payment')
+              AND revoked_at IS NULL
+            ''',
+            valid_until, source, telegram_id,
+        )
+        # asyncpg returns 'UPDATE N' — если N > 0, строка обновлена
+        if updated and updated.split()[-1] != '0':
+            logger.info(
+                f"[SubscriptionGrant] Extended: telegram_id={telegram_id}, "
+                f"source={source}, valid_until={valid_until}"
+            )
+            return
+
         await conn.execute(
             '''
             INSERT INTO subscription_grants
                 (telegram_id, product, source, valid_from, valid_until, granted_by)
             VALUES
                 ($1, 'br', $2, NOW(), $3, 'system')
-            ON CONFLICT (telegram_id) WHERE ory_id IS NULL
-            DO UPDATE SET
-                valid_until = GREATEST(subscription_grants.valid_until, EXCLUDED.valid_until),
-                source = EXCLUDED.source
             ''',
             telegram_id, source, valid_until,
         )
         logger.info(
-            f"[SubscriptionGrant] Upserted: telegram_id={telegram_id}, "
+            f"[SubscriptionGrant] Created: telegram_id={telegram_id}, "
             f"source={source}, valid_until={valid_until}"
         )
