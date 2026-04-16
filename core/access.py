@@ -11,8 +11,10 @@
 Триал убран (WP-210 Ф2a): единственный источник права на T2+ — активная БР-подписка.
 TG Stars = донаты (благодарность), НЕ влияют на доступ.
 
-Gateway (mcp.aisystant.com) доступен только при активной БР (DP.SC.112).
-Используй has_gateway_access() для проверки перед OAuth к Gateway.
+Gateway (mcp.aisystant.com) двухуровневый (DP.SC.112, 2026-04-16):
+  - knowledge_* (L2 платформенные знания) — бесплатно при авторизации Ory
+  - dt_*, personal_*, search, github_* — требуют активную БР-подписку
+Используй has_gateway_access() для проверки перед подписочными tools Gateway.
 """
 
 import logging
@@ -61,8 +63,9 @@ class AccessLayer:
     async def has_gateway_access(self, user_id: int) -> bool:
         """Проверить право на Gateway (mcp.aisystant.com).
 
-        Требует активную оплаченную БР-подписку.
-        Триал НЕ даёт доступ к Gateway (DP.SC.112, WP-210 Ф2a).
+        Требует активную оплаченную БР-подписку для dt_*, personal_*, search, github_*.
+        knowledge_* доступен бесплатно (проверка на стороне Gateway, не бота).
+        Триал НЕ даёт доступ к подписочным tools Gateway (DP.SC.112, 2026-04-16).
 
         Порядок проверки (WP-231, WP-232):
         1. subscription_grants в platform БД (source of truth)

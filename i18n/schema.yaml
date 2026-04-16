@@ -6023,6 +6023,13 @@ features:
     desc:
       ru: "Быстрая запись мыслей в GitHub"
       en: "Quick thoughts to GitHub"
+  knowledge_gateway:
+    name:
+      ru: "Knowledge Gateway"
+      en: "Knowledge Gateway"
+    desc:
+      ru: "Поиск по базе знаний в Claude Code, claude.ai"
+      en: "Knowledge search in Claude Code, claude.ai"
   iwe_template:
     name:
       ru: "IWE Template"

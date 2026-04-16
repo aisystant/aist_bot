@@ -211,7 +211,7 @@ OPEN   ← 2 failures     CLOSED ← success
 | `circuit_open` | Circuit breaker открыт | «MCP временно недоступен» |
 | `not_authorized` | Нужен telegram_user_id, но токенов нет | Кнопка «Подключить ЦД» |
 | `token_expired` | 401 после failed refresh (без disconnect) | Кнопка «Переподключить» |
-| `no_subscription` | 403 от Gateway | Paywall |
+| `no_subscription` | 403 от Gateway (только для dt_*/personal_*/search/github_*; knowledge_* бесплатен) | Paywall |
 | `rate_limited` | 429 после retry | «Много запросов, попробуйте позже» |
 | `timeout` | `asyncio.TimeoutError` после retry | «Долгий ответ, повторите» |
 | `http_error` | Другой HTTP / exception | Generic error |

@@ -248,6 +248,16 @@ PLATFORM_FEATURES: list[PlatformFeature] = [
 
     # --- AUTOMATION (IWE / external) ---
     PlatformFeature(
+        id="knowledge_gateway",
+        icon="🧠",
+        i18n_key="knowledge_gateway",
+        category="automation",
+        min_tier=0,
+        order=5,
+        external=True,
+        status_check=_check_external,
+    ),
+    PlatformFeature(
         id="iwe_template",
         icon="🧠",
         i18n_key="iwe_template",
