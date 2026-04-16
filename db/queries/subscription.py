@@ -1,12 +1,16 @@
 """
-Запросы для работы с подписками (таблица subscriptions).
+Запросы для работы с подписками.
+
+Две таблицы:
+- subscriptions (aist_bot БД) — Stars-донаты, внутренний учёт бота
+- subscription_grants (platform БД) — реестр прав доступа к Gateway (WP-231 Ф-H)
 """
 
 from datetime import datetime
 from typing import Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_pool, get_platform_pool
 
 logger = get_logger(__name__)
 
@@ -100,3 +104,44 @@ async def get_subscription_history(chat_id: int, limit: int = 10) -> list[dict]:
             chat_id, limit,
         )
         return [dict(r) for r in rows]
+
+
+async def upsert_subscription_grant(
+    telegram_id: int,
+    valid_until: datetime,
+    source: str,
+) -> None:
+    """Записать/продлить право доступа в реестр подписок (platform БД).
+
+    WP-231 Ф-H: вызывается после успешной оплаты через бота (Stars, ЮКасса),
+    когда email неизвестен — только telegram_id.
+
+    Логика:
+    - Если активный грант по telegram_id уже есть → продлить valid_until если новая дата позже.
+    - Если нет → INSERT новой строки.
+    - ory_id не заполняется — появится позже через Вариант A (Gateway OAuth) или sync.
+
+    Args:
+        telegram_id: Telegram chat_id пользователя.
+        valid_until: Дата окончания подписки (naive UTC).
+        source: Источник права — 'tg_stars' или 'bot_payment'.
+    """
+    pool = await get_platform_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''
+            INSERT INTO subscription_grants
+                (telegram_id, product, source, valid_from, valid_until, granted_by)
+            VALUES
+                ($1, 'br', $2, NOW(), $3, 'system')
+            ON CONFLICT (telegram_id) WHERE ory_id IS NULL
+            DO UPDATE SET
+                valid_until = GREATEST(subscription_grants.valid_until, EXCLUDED.valid_until),
+                source = EXCLUDED.source
+            ''',
+            telegram_id, source, valid_until,
+        )
+        logger.info(
+            f"[SubscriptionGrant] Upserted: telegram_id={telegram_id}, "
+            f"source={source}, valid_until={valid_until}"
+        )

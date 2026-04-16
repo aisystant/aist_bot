@@ -7,6 +7,9 @@ WP-85: Stars = донаты (благодарность), НЕ влияют на
 Два варианта донатов:
 - donate_once: разовый донат (без subscription_period)
 - donate_recurring: ежемесячный донат (subscription_period=30 дней)
+
+WP-231 Ф-H: при ежемесячном донате (sub_ payload) дополнительно пишем
+в subscription_grants (platform БД) — право доступа к Gateway по telegram_id.
 """
 
 import logging
@@ -24,7 +27,7 @@ from aiogram.types import (
 
 from core.pricing import get_current_price
 from db.queries import get_intern
-from db.queries.subscription import save_subscription, get_active_subscription
+from db.queries.subscription import save_subscription, get_active_subscription, upsert_subscription_grant
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -205,6 +208,17 @@ async def on_successful_payment(message: Message):
             expires_at=expires_at,
             is_first=is_first,
         )
+
+        # WP-231 Ф-H: фиксируем право доступа к Gateway по telegram_id
+        # Fire-and-forget — ошибка не должна ломать основной flow
+        try:
+            await upsert_subscription_grant(
+                telegram_id=chat_id,
+                valid_until=expires_at,
+                source='tg_stars',
+            )
+        except Exception as grant_err:
+            logger.error(f"[Payments] Failed to upsert subscription_grant: {grant_err}")
 
         is_recurring = getattr(payment, 'is_recurring', False)
         if is_recurring and not is_first:
