@@ -23,7 +23,6 @@ import os
 from aiogram import Router, F, Bot
 from aiogram.types import (
     CallbackQuery,
-    ChatJoinRequest,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     LabeledPrice,

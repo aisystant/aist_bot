@@ -6256,10 +6256,6 @@ showcase:
     ru: "📤 Поделиться"
     en: "📤 Share"
 
-  views_count:
-    ru: "{count} просмотров"
-    en: "{count} views"
-
   free_label:
     ru: "Бесплатно"
     en: "Free"
