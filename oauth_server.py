@@ -491,8 +491,14 @@ async def github_callback_handler(request: web.Request) -> web.Response:
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="Выбрать репо для заметок",
+                            text="📝 Выбрать репо для заметок",
                             callback_data="github_select_repo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="📖 Выбрать репо для публикаций",
+                            callback_data="github_select_knowledge_repo",
                         )
                     ],
                     [
@@ -509,7 +515,10 @@ async def github_callback_handler(request: web.Request) -> web.Response:
                 text=(
                     f"*GitHub подключён!*\n\n"
                     f"Пользователь: *{github_login}*\n\n"
-                    f"Теперь выберите репозиторий для исчезающих заметок."
+                    f"Можно подключить два разных репозитория:\n"
+                    f"📝 *Заметки* — быстрый захват мыслей из Telegram\n"
+                    f"📖 *Публикации* — посты в Клуб\n\n"
+                    f"Выберите нужный ниже."
                 ),
                 parse_mode="Markdown",
                 reply_markup=keyboard,

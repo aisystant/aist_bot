@@ -1175,16 +1175,20 @@ settings:
     en: "User"
 
   github_repo:
-    ru: "Репозиторий"
-    en: "Repository"
+    ru: "📝 Репо для заметок"
+    en: "📝 Notes repo"
 
   github_path:
     ru: "Путь"
     en: "Path"
 
   github_select_repo:
-    ru: "Выбрать репозиторий"
-    en: "Select repository"
+    ru: "Выбрать репо для заметок"
+    en: "Select notes repo"
+
+  github_change_repo:
+    ru: "Сменить репо для заметок"
+    en: "Change notes repo"
 
   github_disconnect:
     ru: "Отключить GitHub"
@@ -1195,8 +1199,8 @@ settings:
     en: "Connect GitHub"
 
   github_connect_desc:
-    ru: "Подключите GitHub для записи заметок прямо из Telegram в ваш репозиторий."
-    en: "Connect GitHub to save notes from Telegram to your repository."
+    ru: "Подключите GitHub, чтобы сохранять заметки из Telegram и публиковать посты в Клуб.\n\nМожно подключить два разных репозитория:\n📝 для заметок — быстрый захват мыслей\n📖 для публикаций — посты в Клуб"
+    en: "Connect GitHub to save notes from Telegram and publish posts.\n\nYou can connect two different repos:\n📝 for notes — quick thought capture\n📖 for publications — posts to the Club"
 
   github_unavailable:
     ru: "GitHub-интеграция временно недоступна."
@@ -1227,16 +1231,16 @@ settings:
     en: "Disconnect WakaTime"
 
   github_knowledge_repo:
-    ru: "Индекс знаний"
-    en: "Knowledge Index"
+    ru: "📖 Репо для публикаций"
+    en: "📖 Publications repo"
 
   github_select_knowledge_repo:
-    ru: "Выбрать индекс знаний"
-    en: "Select Knowledge Index"
+    ru: "Выбрать репо для публикаций"
+    en: "Select publications repo"
 
   github_change_knowledge_repo:
-    ru: "Сменить индекс знаний"
-    en: "Change Knowledge Index"
+    ru: "Сменить репо для публикаций"
+    en: "Change publications repo"
 
   # IWE template updates (WP-90)
   iwe_updates_label:

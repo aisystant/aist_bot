@@ -930,18 +930,25 @@ class SettingsState(BaseState):
             notes_path = await github_oauth.get_notes_path(chat_id)
 
             lines = [f"🐙 *GitHub {t('settings.connected', lang)}*\n"]
-            lines.append(f"{t('settings.github_user', lang)}: *{login}*")
+            lines.append(f"{t('settings.github_user', lang)}: *{login}*\n")
 
+            # Репо для заметок
             buttons = []
             if target_repo:
                 lines.append(f"{t('settings.github_repo', lang)}: `{target_repo}`")
                 lines.append(f"{t('settings.github_path', lang)}: `{notes_path}`")
+                buttons.append([InlineKeyboardButton(
+                    text=t('settings.github_change_repo', lang),
+                    callback_data="github_select_repo",
+                )])
             else:
+                lines.append(f"{t('settings.github_repo', lang)}: _не выбран_")
                 buttons.append([InlineKeyboardButton(
                     text=t('settings.github_select_repo', lang),
                     callback_data="github_select_repo",
                 )])
 
+            # Репо для публикаций
             knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
             if knowledge_repo:
                 lines.append(f"{t('settings.github_knowledge_repo', lang)}: `{knowledge_repo}`")
@@ -950,10 +957,16 @@ class SettingsState(BaseState):
                     callback_data="github_select_knowledge_repo",
                 )])
             else:
+                lines.append(f"{t('settings.github_knowledge_repo', lang)}: _не выбран_")
                 buttons.append([InlineKeyboardButton(
                     text=t('settings.github_select_knowledge_repo', lang),
                     callback_data="github_select_knowledge_repo",
                 )])
+
+            # Strategy repo (read-only, настраивается через /strategy)
+            strategy_repo = await github_oauth.get_strategy_repo(chat_id)
+            if strategy_repo:
+                lines.append(f"\n📋 Стратегия: `{strategy_repo}`")
 
             buttons.append([InlineKeyboardButton(
                 text=t('settings.github_disconnect', lang),
@@ -1031,7 +1044,8 @@ class SettingsState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await callback.message.edit_text(
-            f"🐙 *{t('settings.github_select_repo', lang)}:*",
+            f"📝 *{t('settings.github_select_repo', lang)}:*\n\n"
+            f"Заметки из Telegram будут записываться в этот репозиторий.",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
@@ -1097,7 +1111,8 @@ class SettingsState(BaseState):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         await callback.message.edit_text(
-            f"🐙 *{t('settings.github_select_knowledge_repo', lang)}:*",
+            f"📖 *{t('settings.github_select_knowledge_repo', lang)}:*\n\n"
+            f"Посты для Клуба будут публиковаться из этого репозитория.",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
