@@ -112,7 +112,7 @@ async def linear_callback_handler(request: web.Request) -> web.Response:
         )
 
     # Обмениваем code на токен
-    tokens = await linear_oauth.exchange_code(code, state, telegram_user_id=telegram_user_id)
+    tokens = await linear_oauth.exchange_code(code, telegram_user_id)
     if not tokens:
         logger.error(f"Failed to exchange code for user {telegram_user_id}")
         return web.Response(
@@ -442,7 +442,7 @@ async def github_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    tokens = await github_oauth.exchange_code(code, state, telegram_user_id=telegram_user_id)
+    tokens = await github_oauth.exchange_code(code, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
@@ -619,7 +619,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
             status=400,
         )
 
-    tokens = await google_calendar_oauth.exchange_code(code, state)
+    tokens = await google_calendar_oauth.exchange_code(code, state, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
@@ -778,7 +778,7 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    tokens = await wakatime_oauth.exchange_code(code, state)
+    tokens = await wakatime_oauth.exchange_code(code, state, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
@@ -1316,8 +1316,25 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
             status=400
         )
 
+    # Валидируем state и получаем user_id
+    telegram_user_id = await ory_oauth.validate_state(state)
+    if not telegram_user_id:
+        return web.Response(
+            text="""
+            <html>
+            <head><title>Сессия истекла</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                <h1>Сессия авторизации истекла</h1>
+                <p>Вернитесь в Telegram и начните авторизацию заново.</p>
+            </body>
+            </html>
+            """,
+            content_type="text/html",
+            status=400,
+        )
+
     # Обмениваем code на токен
-    tokens = await ory_oauth.exchange_code(code, state)
+    tokens = await ory_oauth.exchange_code(code, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""

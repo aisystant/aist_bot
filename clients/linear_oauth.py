@@ -11,7 +11,7 @@ Linear OAuth клиент — тестовая интеграция.
     auth_url, state = await linear_oauth.get_authorization_url(telegram_user_id=123456)
 
     # После callback обменять code на токены
-    tokens = await linear_oauth.exchange_code(code, state)
+    tokens = await linear_oauth.exchange_code(code, telegram_user_id)
 
     # Использовать API Linear
     issues = await linear_oauth.get_my_issues(telegram_user_id=123456)
@@ -91,12 +91,13 @@ class LinearOAuthClient:
             logger.warning(f"Invalid or expired Linear state: {state[:10]}...")
         return telegram_user_id
 
-    async def exchange_code(self, code: str, state: str, telegram_user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access token."""
-        if not telegram_user_id:
-            telegram_user_id = await self.validate_state(state)
-        if not telegram_user_id:
-            return None
+    async def exchange_code(self, code: str, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+        """Обменивает authorization code на access token.
+
+        Args:
+            code: Authorization code из OAuth callback.
+            telegram_user_id: ID пользователя (уже проверен через validate_state в callback handler).
+        """
 
         payload = {
             "grant_type": "authorization_code",
