@@ -611,7 +611,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
         dict с сырыми 2_collected или None (если engagement view пуст).
         Без '_derived' ключа — пользователь видит только сырые метрики.
     """
-    from db.connection import get_pool
+    from db.connection import get_pool, get_dt_pool
 
     try:
         pool = await get_pool()
@@ -660,34 +660,38 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                 },
             }
 
-            # Merge existing 2_6/2_7 if available (WP-174 builder path data)
+            # Получаем ory_id для чтения digital_twins из digitaltwin БД (WP-227)
             user_uuid_row = await conn.fetchval(
                 "SELECT user_uuid FROM development.engagement WHERE user_id = $1",
                 chat_id,
             )
-            if user_uuid_row:
-                existing = await conn.fetchval(
-                    "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
-                    str(user_uuid_row),
-                )
-                if existing:
-                    existing_c = json.loads(existing) if isinstance(existing, str) else existing
-                    for key in ('2_6_coding', '2_7_iwe'):
-                        if key in existing_c and key not in collected:
-                            collected[key] = existing_c[key]
 
-            # Read existing 3_derived if digital_twins already has one
-            # (not computing here — just reading).
-            if user_uuid_row:
-                existing_derived = await conn.fetchval(
-                    "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
-                    str(user_uuid_row),
-                )
-                if existing_derived:
-                    derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
-                    collected['_derived'] = derived
+        # Merge existing 2_6/2_7 и 3_derived из digitaltwin БД (WP-227)
+        if user_uuid_row:
+            try:
+                dt_pool = await get_dt_pool()
+                async with dt_pool.acquire() as dt_conn:
+                    existing = await dt_conn.fetchval(
+                        "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                        str(user_uuid_row),
+                    )
+                    if existing:
+                        existing_c = json.loads(existing) if isinstance(existing, str) else existing
+                        for key in ('2_6_coding', '2_7_iwe'):
+                            if key in existing_c and key not in collected:
+                                collected[key] = existing_c[key]
 
-            return collected
+                    existing_derived = await dt_conn.fetchval(
+                        "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
+                        str(user_uuid_row),
+                    )
+                    if existing_derived:
+                        derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
+                        collected['_derived'] = derived
+            except Exception as dt_e:
+                logger.warning(f"[/me] Fallback dt_pool read failed: {dt_e}")
+
+        return collected
     except Exception as e:
         logger.warning(f"[/me] Fallback engagement failed: {e}")
         return None

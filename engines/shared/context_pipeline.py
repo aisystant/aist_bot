@@ -129,6 +129,8 @@ async def collect_pre_search(
             query=question, limit=5, telegram_user_id=telegram_user_id
         )
 
+        # B4.20: knowledge_search уже делает fallback внутри при token_expired,
+        # но если results пустые по другой причине — не пытаемся снова.
         if not results:
             return ("knowledge_section", "")
 
@@ -152,7 +154,8 @@ async def collect_pre_search(
             "Используй эту информацию для ответа. Если нужно больше деталей — "
             "вызови search_knowledge или search_guides для уточняющего поиска."
         )
-        logger.info(f"Pre-search: {len(parts)} results, {len(section)} chars for question '{question[:50]}...'")
+        auth_note = "" if telegram_user_id else " [anon fallback]"
+        logger.info(f"Pre-search{auth_note}: {len(parts)} results, {len(section)} chars for question '{question[:50]}...'")
         return ("knowledge_section", section)
     except Exception as e:
         logger.warning(f"Pre-search error: {e}")

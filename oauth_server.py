@@ -612,7 +612,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
             status=400,
         )
 
-    telegram_user_id = await google_calendar_oauth.validate_state(state)
+    telegram_user_id = google_calendar_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
             text="""
@@ -628,7 +628,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
             status=400,
         )
 
-    tokens = await google_calendar_oauth.exchange_code(code, telegram_user_id)
+    tokens = await google_calendar_oauth.exchange_code(code, state, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
@@ -645,7 +645,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
         )
 
     email = tokens.get("email", "")
-    logger.info(f"User {telegram_user_id} connected to Google Calendar")
+    logger.info(f"User {telegram_user_id} connected to Google Calendar ({email})")
 
     if _bot_instance:
         try:
@@ -771,7 +771,7 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    telegram_user_id = await wakatime_oauth.validate_state(state)
+    telegram_user_id = wakatime_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
             text="""
@@ -787,7 +787,7 @@ async def wakatime_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    tokens = await wakatime_oauth.exchange_code(code, telegram_user_id)
+    tokens = await wakatime_oauth.exchange_code(code, state, telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
@@ -1325,7 +1325,7 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
             status=400
         )
 
-    # Валидация state (DELETE из БД — одноразовый)
+    # Валидируем state и получаем user_id
     telegram_user_id = await ory_oauth.validate_state(state)
     if not telegram_user_id:
         return web.Response(
@@ -1339,7 +1339,7 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
             </html>
             """,
             content_type="text/html",
-            status=400
+            status=400,
         )
 
     # Обмениваем code на токен
@@ -1358,6 +1358,8 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
             content_type="text/html",
             status=500
         )
+
+    telegram_user_id = tokens["telegram_user_id"]
     access_token = tokens.get("access_token")
 
     # Получаем профиль из Ory
@@ -1413,6 +1415,23 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
         logger.info(f"[OryOAuth] Linked ory_id={ory_id} for telegram_id={telegram_user_id}")
     else:
         logger.warning(f"[OryOAuth] link_ory returned False for telegram_id={telegram_user_id}")
+
+    # WP-227 Ф6: backfill ЦД при T0→T1 OAuth (вариант B).
+    # T0 пользователь впервые получает ory_id — создаём запись в digitaltwin БД.
+    # Если запись уже существует (повторный OAuth) — не перезаписываем 2_collected.
+    try:
+        from db.connection import get_dt_pool
+        import json as _json
+        dt_pool = await get_dt_pool()
+        async with dt_pool.acquire() as dt_conn:
+            await dt_conn.execute('''
+                INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                VALUES ($1, '{}'::jsonb, NOW(), NOW())
+                ON CONFLICT (user_id) DO NOTHING
+            ''', ory_id)
+            logger.info(f"[OryOAuth] WP-227: digitaltwin record ensured for ory_id={ory_id[:8]}")
+    except Exception as e:
+        logger.warning(f"[OryOAuth] WP-227: digitaltwin backfill failed for {ory_id[:8]}: {e}")
 
     # Уведомляем пользователя в Telegram
     if _bot_instance:

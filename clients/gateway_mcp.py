@@ -239,9 +239,15 @@ class GatewayMCPClient:
                     )
                     logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
                     return True
+                # B4.20 диагностика: ory_oauth вернул None (детали выше в [OryOAuth] логе)
+                logger.warning(
+                    f"Gateway: refresh returned None for user {telegram_user_id} "
+                    f"(ory_id={data.get('ory_id', '?')[:8]}..., "
+                    f"token_age={(datetime.utcnow() - expires_at).seconds // 60 if isinstance(expires_at, datetime) else '?'}min expired)"
+                )
                 return False
             except Exception as e:
-                logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}")
+                logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}", exc_info=True)
                 return False
 
     # =========================================================================
@@ -487,7 +493,12 @@ class GatewayMCPClient:
     async def knowledge_search(self, query: str, limit: int = 5,
                                source_type: Optional[str] = None,
                                telegram_user_id: Optional[int] = None) -> List[dict]:
-        """Поиск по знаниям (L2: Pack, guides, DS)."""
+        """Поиск по знаниям (L2: Pack, guides, DS).
+
+        B4.20: при token_expired — fallback на анонимный запрос (без Bearer).
+        knowledge-mcp (L2) возвращает платформенные документы (user_id IS NULL)
+        без аутентификации. Личные документы (L4) не возвращаются — это ожидаемо.
+        """
         args: Dict[str, Any] = {"query": query, "limit": limit}
         if source_type:
             args["source_type"] = source_type
@@ -496,6 +507,15 @@ class GatewayMCPClient:
         data = self._parse_text_content(result)
         if isinstance(data, list):
             return data
+
+        # B4.20: fallback — токен истёк или refresh не прошёл, но L2 публичный
+        if self._last_call_error == "token_expired" and telegram_user_id:
+            logger.info(f"Gateway: knowledge_search fallback (no auth) for user {telegram_user_id}")
+            result = await self._call("knowledge_search", args, telegram_user_id=None)
+            data = self._parse_text_content(result)
+            if isinstance(data, list):
+                return data
+
         return []
 
     async def knowledge_get_document(self, filename: str,

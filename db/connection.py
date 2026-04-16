@@ -41,7 +41,10 @@ async def get_pool() -> asyncpg.Pool:
 
 
 async def get_dt_pool() -> asyncpg.Pool:
-    """Получить пул соединений к digitaltwin БД (WP-227)."""
+    """Получить пул соединений к digitaltwin БД (WP-227).
+
+    Если DT_DATABASE_URL не задан — использует DATABASE_URL (fallback до cutover).
+    """
     global _dt_pool
     if _dt_pool is None:
         try:
@@ -63,6 +66,7 @@ async def get_platform_pool() -> asyncpg.Pool:
     """Получить пул соединений к platform БД (WP-232).
 
     Используется для subscription_grants, user_identities.
+    Fallback: DT_DATABASE_URL → DATABASE_URL (до полного cutover WP-232).
     """
     global _platform_pool
     if _platform_pool is None:
