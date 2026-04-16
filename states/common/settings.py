@@ -1129,8 +1129,21 @@ class SettingsState(BaseState):
         repo_full_name = data.split(":", 1)[1]
         await github_oauth.set_knowledge_repo(chat_id, repo_full_name)
 
+        # Сводка: показать оба репо если target_repo тоже выбран
+        target_repo = await github_oauth.get_target_repo(chat_id)
+        lines = [f"✅ {t('settings.github_knowledge_repo', lang)}: `{repo_full_name}`"]
+        if target_repo:
+            notes_path = await github_oauth.get_notes_path(chat_id)
+            lines.append("")
+            lines.append(f"*GitHub настроен:*")
+            lines.append(f"📝 Заметки: `{target_repo}` (`{notes_path}`)")
+            lines.append(f"📖 Публикации: `{repo_full_name}`")
+        else:
+            lines.append("")
+            lines.append("Также можно выбрать репо для заметок — нажмите Назад.")
+
         await callback.message.edit_text(
-            f"✅ {t('settings.github_knowledge_repo', lang)}: `{repo_full_name}`",
+            "\n".join(lines),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="conn_github")]
