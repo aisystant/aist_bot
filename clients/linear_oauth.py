@@ -91,9 +91,10 @@ class LinearOAuthClient:
             logger.warning(f"Invalid or expired Linear state: {state[:10]}...")
         return telegram_user_id
 
-    async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
+    async def exchange_code(self, code: str, state: str, telegram_user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Обменивает authorization code на access token."""
-        telegram_user_id = await self.validate_state(state)
+        if not telegram_user_id:
+            telegram_user_id = await self.validate_state(state)
         if not telegram_user_id:
             return None
 

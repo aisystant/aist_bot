@@ -112,7 +112,7 @@ async def linear_callback_handler(request: web.Request) -> web.Response:
         )
 
     # Обмениваем code на токен
-    tokens = await linear_oauth.exchange_code(code, state)
+    tokens = await linear_oauth.exchange_code(code, state, telegram_user_id=telegram_user_id)
     if not tokens:
         logger.error(f"Failed to exchange code for user {telegram_user_id}")
         return web.Response(
@@ -442,7 +442,7 @@ async def github_callback_handler(request: web.Request) -> web.Response:
             status=400,
         )
 
-    tokens = await github_oauth.exchange_code(code, state)
+    tokens = await github_oauth.exchange_code(code, state, telegram_user_id=telegram_user_id)
     if not tokens:
         return web.Response(
             text="""
