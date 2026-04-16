@@ -481,8 +481,6 @@ connect:
     ru: |
       *Claude (claude.ai)*
 
-      Нужна подписка Claude Pro ($20/мес).
-
       1. Открой claude.ai → имя профиля → Settings
       2. Раздел Integrations → Add custom integration
       3. Name: `IWE`, URL: `{gateway_url}`
@@ -491,8 +489,6 @@ connect:
       Открой новый чат и напиши: «С чего мне начать?»
     en: |
       *Claude (claude.ai)*
-
-      Requires Claude Pro subscription ($20/mo).
 
       1. Open claude.ai → profile name → Settings
       2. Integrations → Add custom integration
