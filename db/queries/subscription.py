@@ -135,13 +135,12 @@ async def upsert_subscription_grant(
         updated = await conn.execute(
             '''
             UPDATE subscription_grants
-            SET valid_until = GREATEST(valid_until, $1),
-                source = $2
-            WHERE telegram_id = $3
+            SET valid_until = GREATEST(valid_until, $1)
+            WHERE telegram_id = $2
               AND source IN ('tg_stars', 'bot_payment')
               AND revoked_at IS NULL
             ''',
-            valid_until, source, telegram_id,
+            valid_until, telegram_id,
         )
         # asyncpg returns 'UPDATE N' — если N > 0, строка обновлена
         if updated and updated.split()[-1] != '0':
