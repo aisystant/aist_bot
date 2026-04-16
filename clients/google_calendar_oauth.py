@@ -14,7 +14,7 @@ In-memory кеш ускоряет повторные обращения.
     auth_url, state = google_calendar_oauth.get_authorization_url(telegram_user_id=123456)
 
     # После callback обменять code на токены
-    tokens = await google_calendar_oauth.exchange_code(code, state)
+    tokens = await google_calendar_oauth.exchange_code(code, telegram_user_id)
 
     # Получить события на сегодня
     events = await google_calendar_oauth.get_today_events(telegram_user_id=123456)
@@ -119,11 +119,13 @@ class GoogleCalendarOAuthClient:
             logger.warning(f"Invalid or expired Google Calendar state: {state[:10]}...")
         return telegram_user_id
 
-    async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access_token + refresh_token."""
-        telegram_user_id = await self.validate_state(state)
-        if not telegram_user_id:
-            return None
+    async def exchange_code(self, code: str, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+        """Обменивает authorization code на access_token + refresh_token.
+
+        Args:
+            code: Authorization code из OAuth callback.
+            telegram_user_id: ID пользователя (уже проверен через validate_state в callback handler).
+        """
 
         payload = {
             "client_id": self.client_id,

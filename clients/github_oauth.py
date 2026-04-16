@@ -14,7 +14,7 @@ In-memory кеш ускоряет повторные обращения.
     auth_url, state = await github_oauth.get_authorization_url(telegram_user_id=123456)
 
     # После callback обменять code на токены
-    tokens = await github_oauth.exchange_code(code, state)
+    tokens = await github_oauth.exchange_code(code, telegram_user_id)
 
     # Получить список репо
     repos = await github_oauth.get_repos(telegram_user_id=123456)
@@ -118,12 +118,13 @@ class GitHubOAuthClient:
             logger.warning(f"Invalid or expired GitHub state: {state[:10]}...")
         return telegram_user_id
 
-    async def exchange_code(self, code: str, state: str, telegram_user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access token и сохраняет в БД."""
-        if not telegram_user_id:
-            telegram_user_id = await self.validate_state(state)
-        if not telegram_user_id:
-            return None
+    async def exchange_code(self, code: str, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+        """Обменивает authorization code на access token и сохраняет в БД.
+
+        Args:
+            code: Authorization code из OAuth callback.
+            telegram_user_id: ID пользователя (уже проверен через validate_state в callback handler).
+        """
 
         payload = {
             "client_id": self.client_id,

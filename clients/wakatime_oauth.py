@@ -13,7 +13,7 @@ Scope 'read_stats' даёт доступ к статистике времени.
     auth_url, state = wakatime_oauth.get_authorization_url(telegram_user_id=123456)
 
     # После callback обменять code на токены
-    tokens = await wakatime_oauth.exchange_code(code, state)
+    tokens = await wakatime_oauth.exchange_code(code, telegram_user_id)
 """
 
 import secrets
@@ -84,11 +84,13 @@ class WakaTimeOAuthClient:
             logger.warning(f"Invalid or expired WakaTime state: {state[:10]}...")
         return telegram_user_id
 
-    async def exchange_code(self, code: str, state: str) -> Optional[Dict[str, Any]]:
-        """Обменивает authorization code на access token и сохраняет в user_integrations."""
-        telegram_user_id = await self.validate_state(state)
-        if not telegram_user_id:
-            return None
+    async def exchange_code(self, code: str, telegram_user_id: int) -> Optional[Dict[str, Any]]:
+        """Обменивает authorization code на access token и сохраняет в user_integrations.
+
+        Args:
+            code: Authorization code из OAuth callback.
+            telegram_user_id: ID пользователя (уже проверен через validate_state в callback handler).
+        """
 
         payload = {
             "client_id": self.client_id,
