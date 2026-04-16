@@ -87,7 +87,7 @@ async def cmd_wakatime(message: Message):
         from clients.wakatime_oauth import wakatime_oauth
         buttons = []
         try:
-            auth_url, state = await wakatime_oauth.get_authorization_url(telegram_user_id)
+            auth_url, state = wakatime_oauth.get_authorization_url(telegram_user_id)
             buttons.append([
                 InlineKeyboardButton(
                     text="Подключить WakaTime",
