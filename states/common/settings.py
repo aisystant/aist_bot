@@ -92,6 +92,9 @@ class SettingsState(BaseState):
         waka_conn = await get_wakatime_connection(chat_id)
         waka_status = "✅" if waka_conn else "☐"
 
+        from clients.github_oauth import github_oauth
+        github_status = "✅" if await github_oauth.is_connected(chat_id) else "☐"
+
         from clients.google_calendar_oauth import google_calendar_oauth
         gcal_connected = await google_calendar_oauth.is_connected(chat_id)
         gcal_status = "✅" if gcal_connected else "☐"
@@ -108,6 +111,7 @@ class SettingsState(BaseState):
         # --- Собираем текст ---
         connections_summary = (
             f"  {gateway_status} Gateway (IWE)\n"
+            f"  {github_status} GitHub\n"
             f"  {waka_status} WakaTime\n"
             f"  {gcal_status} Календарь Google"
         )
@@ -767,6 +771,10 @@ class SettingsState(BaseState):
         from clients.gateway_mcp import gateway_mcp
         gateway_connected = gateway_mcp.is_connected(chat_id)
 
+        # GitHub
+        from clients.github_oauth import github_oauth
+        github_connected = await github_oauth.is_connected(chat_id)
+
         # WakaTime (отдельный сервис, не через Gateway)
         from db.queries.wakatime import get_wakatime_connection
         waka_conn = await get_wakatime_connection(chat_id)
@@ -786,6 +794,7 @@ class SettingsState(BaseState):
         text = (
             f"*{t('settings.connections_label', lang)}*\n\n"
             f"{chk(gateway_connected)} Gateway (IWE)\n"
+            f"{chk(github_connected)} GitHub\n"
             f"{chk(waka_conn)} WakaTime\n"
             f"{chk(gcal_connected)} Календарь Google\n"
         )
@@ -795,6 +804,7 @@ class SettingsState(BaseState):
         buttons = [
             [
                 InlineKeyboardButton(text="🌐 Gateway (IWE)", callback_data="conn_gateway"),
+                InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
             ],
             [
                 InlineKeyboardButton(text="📊 WakaTime", callback_data="conn_waka"),
@@ -810,7 +820,7 @@ class SettingsState(BaseState):
 
         toggle_row = []
         if iwe_visible:
-            toggle_row.append(InlineKeyboardButton(text="🔔 IWE", callback_data="conn_iwe_toggle"))
+            toggle_row.append(InlineKeyboardButton(text="🔔 Обновления IWE", callback_data="conn_iwe_toggle"))
         if nudges_visible:
             toggle_row.append(InlineKeyboardButton(text="💪 " + t('nudges.settings_nudges_button', lang), callback_data="conn_nudges_toggle"))
         if toggle_row:
