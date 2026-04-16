@@ -6272,6 +6272,10 @@ showcase:
     ru: "✅ Вы уже приобрели этот семинар"
     en: "✅ You already purchased this seminar"
 
+  error:
+    ru: "Не удалось загрузить витрину. Попробуйте позже."
+    en: "Failed to load showcase. Try again later."
+
   not_found:
     ru: "Семинар не найден."
     en: "Seminar not found."

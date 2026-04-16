@@ -1,7 +1,8 @@
 """
 DB-запросы для витрины семинаров (WP-5).
 
-Таблицы: seminars, seminar_payments.
+Таблица: products (type='seminar'), finance_payments.
+Миграция: payment-registry/migrations/009-products-and-mentor-assignments.sql
 """
 
 from db.connection import get_pool
@@ -10,103 +11,96 @@ from config import get_logger
 logger = get_logger(__name__)
 
 
-# ── seminars (каталог) ────────────────────────────────
+# ── products (каталог семинаров) ─────────────────────
 
 
 async def get_active_seminars(*, free_only: bool = False) -> list[dict]:
-    """Получить активные семинары, отсортированные по sort_order."""
+    """Получить активные семинары из products, отсортированные по sort_order."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         if free_only:
             rows = await conn.fetch(
-                """SELECT * FROM seminars
-                   WHERE active = TRUE AND is_free = TRUE
+                """SELECT * FROM products
+                   WHERE type = 'seminar' AND active = TRUE AND is_free = TRUE
                    ORDER BY sort_order""",
             )
         else:
             rows = await conn.fetch(
-                """SELECT * FROM seminars
-                   WHERE active = TRUE
+                """SELECT * FROM products
+                   WHERE type = 'seminar' AND active = TRUE
                    ORDER BY sort_order""",
             )
     return [dict(r) for r in rows]
 
 
-async def get_seminar_by_id(seminar_id: int) -> dict | None:
-    """Получить семинар по id."""
+async def get_seminar_by_code(code: str) -> dict | None:
+    """Получить семинар по code (PK)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM seminars WHERE id = $1 AND active = TRUE",
-            seminar_id,
+            "SELECT * FROM products WHERE code = $1 AND type = 'seminar' AND active = TRUE",
+            code,
         )
     return dict(row) if row else None
 
 
-async def get_seminar_by_code(tilda_uid: str) -> dict | None:
-    """Получить семинар по коду (tilda_uid)."""
+async def get_seminar_by_tilda_uid(tilda_uid: str) -> dict | None:
+    """Получить семинар по tilda_uid (в metadata)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM seminars WHERE tilda_uid = $1 AND active = TRUE",
+            """SELECT * FROM products
+               WHERE type = 'seminar' AND active = TRUE
+                 AND metadata->>'tilda_uid' = $1""",
             tilda_uid,
         )
     return dict(row) if row else None
 
 
-# ── seminar_payments ──────────────────────────────────
+# ── finance_payments (оплата) ────────────────────────
 
 
 async def create_seminar_payment(
     telegram_id: int,
-    seminar_id: int,
+    product_code: str,
     amount: float,
     currency: str = "RUB",
     *,
     source: str = "bot",
     payment_id: str | None = None,
 ) -> int:
-    """Создать и сразу подтвердить оплату семинара. Возвращает id."""
+    """Записать оплату семинара в finance_payments. Возвращает id."""
     pool = await get_pool()
+    # Определяем channel: 9=bot-stars, 10=bot-yookassa
+    channel = 9 if currency == "XTR" else 10
+
     async with pool.acquire() as conn:
         row_id = await conn.fetchval(
-            """INSERT INTO seminar_payments
-                   (telegram_id, seminar_id, amount, currency, source, payment_id,
-                    status, paid_at, created_at)
-               VALUES ($1, $2, $3, $4, $5, $6, 'success', NOW(), NOW())
-               ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL DO NOTHING
+            """INSERT INTO finance_payments
+                   (telegram_id, code, amount, currency, channel, success,
+                    purpose, ext_id, created_at)
+               VALUES ($1, $2, $3, $4, $5, TRUE, 'SEMINAR', $6, NOW())
+               ON CONFLICT (ext_id) WHERE ext_id IS NOT NULL DO NOTHING
                RETURNING id""",
-            telegram_id, seminar_id, amount, currency, source, payment_id,
+            telegram_id, product_code, amount, currency, channel, payment_id,
         )
     if row_id is None:
-        logger.info(f"[Showcase] duplicate payment_id={payment_id}, skipped")
+        logger.info(f"[Showcase] duplicate payment ext_id={payment_id}, skipped")
         return 0
-    logger.info(f"[Showcase] payment: id={row_id}, tg={telegram_id}, seminar={seminar_id}, amount={amount} {currency}")
+    logger.info(f"[Showcase] payment: id={row_id}, tg={telegram_id}, product={product_code}, amount={amount} {currency}")
     return row_id
 
 
-async def has_seminar_access(telegram_id: int, seminar_id: int) -> bool:
+async def has_seminar_access(telegram_id: int, product_code: str) -> bool:
     """Проверить, оплачен ли семинар пользователем."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
-            """SELECT COUNT(*) FROM seminar_payments
-               WHERE telegram_id = $1 AND seminar_id = $2 AND status = 'success'""",
-            telegram_id, seminar_id,
+            """SELECT COUNT(*) FROM finance_payments
+               WHERE telegram_id = $1 AND code = $2 AND success = TRUE""",
+            telegram_id, product_code,
         )
     return (count or 0) > 0
-
-
-async def increment_seminar_views(seminar_id: int) -> int:
-    """Инкрементировать счётчик просмотров. Возвращает новое значение."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        count = await conn.fetchval(
-            """UPDATE seminars SET view_count = COALESCE(view_count, 0) + 1
-               WHERE id = $1 RETURNING view_count""",
-            seminar_id,
-        )
-    return count or 0
 
 
 async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
@@ -114,21 +108,23 @@ async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
     pool = await get_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
-            """SELECT COUNT(*) FROM seminar_payments sp
-               JOIN seminars s ON s.id = sp.seminar_id
-               WHERE sp.telegram_id = $1 AND s.chat_id = $2 AND sp.status = 'success'""",
+            """SELECT COUNT(*) FROM finance_payments fp
+               JOIN products p ON p.code = fp.code
+               WHERE fp.telegram_id = $1 AND p.tg_chat_id = $2
+                 AND fp.success = TRUE AND p.type = 'seminar'""",
             telegram_id, chat_id,
         )
     return (count or 0) > 0
 
 
-async def get_user_seminar_ids(telegram_id: int) -> set[int]:
-    """Получить set id оплаченных семинаров пользователя."""
+async def get_user_seminar_codes(telegram_id: int) -> set[str]:
+    """Получить set кодов оплаченных семинаров пользователя."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT DISTINCT seminar_id FROM seminar_payments
-               WHERE telegram_id = $1 AND status = 'success'""",
+            """SELECT DISTINCT fp.code FROM finance_payments fp
+               JOIN products p ON p.code = fp.code
+               WHERE fp.telegram_id = $1 AND fp.success = TRUE AND p.type = 'seminar'""",
             telegram_id,
         )
-    return {r["seminar_id"] for r in rows}
+    return {r["code"] for r in rows}
