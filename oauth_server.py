@@ -1359,7 +1359,6 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
             status=500
         )
 
-    telegram_user_id = tokens["telegram_user_id"]
     access_token = tokens.get("access_token")
 
     # Получаем профиль из Ory
