@@ -101,7 +101,6 @@ class OryOAuthClient:
                     return None
 
                 tokens = await resp.json()
-                tokens["telegram_user_id"] = telegram_user_id
                 logger.info(f"[OryOAuth] Token exchanged for user {telegram_user_id}")
                 return tokens
 

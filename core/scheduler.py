@@ -1014,6 +1014,18 @@ async def scheduled_check():
             await cleanup_expired_oauth_states()
         except Exception as e:
             logger.error(f"[Scheduler] OAuth states cleanup error: {e}")
+        try:
+            from db.connection import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    "DELETE FROM fsm_states WHERE updated_at < NOW() - INTERVAL '30 days'"
+                )
+                count = int(result.split()[-1]) if result else 0
+                if count > 0:
+                    logger.info(f"[Scheduler] FSM cleanup: удалено {count} устаревших сессий (>30 дней)")
+        except Exception as e:
+            logger.error(f"[Scheduler] FSM cleanup error: {e}")
 
         # Финализация устаревших сессий
         try:

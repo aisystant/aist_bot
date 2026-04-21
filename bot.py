@@ -79,7 +79,7 @@ from core.topics import (
 
 # ============= ИНФРАСТРУКТУРА (из core/) =============
 from core.storage import PostgresStorage
-from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware
+from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware
 
 # ============= СОСТОЯНИЯ FSM (re-exports для обратной совместимости) =============
 from handlers.onboarding import OnboardingStates
@@ -204,9 +204,25 @@ async def main():
                 return True
         return False
 
-    # Регистрируем middleware (порядок важен: Maintenance → Logging → Passthrough → Tracing)
+    # Flood control: обрабатываем TelegramRetryAfter глобально
+    from aiogram.exceptions import TelegramRetryAfter
+    from aiogram.types import ErrorEvent
+
+    @dp.errors()
+    async def handle_flood_control(event: ErrorEvent) -> bool:
+        if isinstance(event.exception, TelegramRetryAfter):
+            retry_after = event.exception.retry_after
+            logger.warning(f"[FloodControl] Telegram flood control, sleeping {retry_after}s")
+            await asyncio.sleep(retry_after)
+            return True  # handled
+        return False  # propagate
+
+    # Регистрируем middleware (порядок важен: Maintenance → RateLimit → Logging → Passthrough → Tracing)
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
+    rate_limiter = RateLimitMiddleware(max_messages=20, window_seconds=60)
+    dp.message.middleware(rate_limiter)
+    dp.callback_query.middleware(rate_limiter)
     dp.message.middleware(LoggingMiddleware())
     dp.message.middleware(ConsultationPassthroughMiddleware())
     dp.message.middleware(TracingMiddleware())
