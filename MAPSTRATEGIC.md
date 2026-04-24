@@ -266,6 +266,8 @@ GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` e
 
 #### Тест владения Принципами
 
+*Principles Proficiency Test*
+
 Адаптивный бот-тест по аналогии с IELTS placement test. Тестирует каждый ZP-принцип независимо (3-5 вопросов), определяет глубину 0-5 (Bloom), выдаёт векторный профиль `{ZP.1:3, ZP.2:1, ...}`.
 
 - **Источник:** MIM.WP.008 (Diagnostic Assessment).
