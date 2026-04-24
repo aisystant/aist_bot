@@ -205,12 +205,12 @@ updated: 2026-02-09
 | Идея | Источник | Фаза |
 |------|----------|------|
 | ~~Интеграция с systemsworld.club~~ ✅ WP-53 Phase 1-3 done (21 фев) | заметка 14 фев 09:22 | ✅ Done |
-| **Мультиплатформенная публикация** — Content Adapter Layer: source post → Claude API adapts per platform (Twitter thread/280, LinkedIn prof tone, TG channel concise, VK long-read) → direct platform APIs. target в frontmatter = список платформ. АрхГейт: 8.3/10 (Вариант C). НЕ использовать Postiz/n8n (6.5/10 — тяжёлые middlemen). | сессия WP-53, 21 фев | Phase 3 |
+| [**Мультиплатформенная публикация**](#мультиплатформенная-публикация) — Content Adapter Layer per platform | сессия WP-53, 21 фев | Phase 3 |
 | Стратег в боте — диалог + запись в DS-my-strategy | заметка 14 фев 09:22 | Phase 2 |
 | Питч для инвесторов (развитие бота) | заметка 14 фев 09:22 | Phase 3 |
-| **MCP-сервер Railway** — обёртка Railway API для логов, деплоев, метрик. Claude Code получает логи как tool (Context Engineering). Паттерн переносим на любой PaaS → генеративность для шаблона экзокортекса (T3). ArchGate: выигрывает по эволюционируемости, масштабируемости, генеративности, современности vs прямой CLI | сессия 16 фев, ArchGate-оценка | Phase 2 |
-| **Publisher: OAuth вместо PAT** — GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var. Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient. АрхГейт: 8.8/10 (обучаемость 9, генеративность 8 — шаблонные пользователи не трогают env vars). | сессия 21 фев | Phase 2 |
-| **Тест владения Принципами (Principles Proficiency Test)** — адаптивный бот-тест по аналогии с IELTS placement test. Тестирует каждый ZP-принцип независимо (3-5 вопросов), определяет глубину 0-5 (Bloom), выдаёт векторный профиль `{ZP.1:3, ZP.2:1, ...}`. Источник: MIM.WP.008 (Diagnostic Assessment), рубрика: can-do из MIM.MAP.001. Формат: `/test` → адаптивный диалог → результат = профиль + bottleneck + рекомендация стратегии. Данные: в digital-twin (профиль → MIM.WP.007 Learning Progression Map). | сессия 21 фев (WP-50) | Phase 2-3 |
+| [**MCP-сервер Railway**](#mcp-сервер-railway) — обёртка Railway API (логи, деплои, метрики) как tool | сессия 16 фев, ArchGate-оценка | Phase 2 |
+| [**Publisher: OAuth вместо PAT**](#publisher-oauth-вместо-pat) — self-service через `/github` + `github_connections`, fallback на env var | сессия 21 фев | Phase 2 |
+| [**Тест владения Принципами**](#тест-владения-принципами) — адаптивный IELTS-подобный тест, профиль ZP → digital-twin | сессия 21 фев (WP-50) | Phase 2-3 |
 | **Проводник по маршруту** — FSM-состояния в боте для навигации по учебному маршруту. 5 SM-состояний, интеграция DT-данных для персонализации. Источник: WP-33. | WP-33 (13 фев) | Phase 2-3 |
 | **Circuit breaker** — единый паттерн для Claude API + MCP + Neon. Источник: WP-44 Phase 1. | WP-44 (17 фев) | Phase 1 |
 | **Horizontal scaling** — 2+ Railway instances + load balancer. Требует webhook (done). Источник: WP-44 Phase 1. | WP-44 | Phase 2 |
@@ -226,6 +226,54 @@ updated: 2026-02-09
 | **Celebration message при tier upgrade** — «🎉 Вы перешли на уровень...». Источник: WP-52. | WP-52 | Phase 1 |
 | **Customizable KB (T3+)** — user_settings.custom_keyboard, Profile → настройка клавиатуры. Источник: WP-52 Phase 4. Deferred. | WP-52 | Phase 3 |
 | **Publisher: Multi-platform** — Content Adapter Layer → Twitter, LinkedIn, TG channel, VK. Источник: WP-53 Phase 4. | WP-53 (20 фев) | Phase 3 |
+
+---
+
+### 7.1. Детали бэклога с ArchGate-оценкой
+
+> Длинные описания и архгейт-обоснования вынесены из таблицы — чтобы реестр читался, а детали оставались по якорю.
+
+#### Мультиплатформенная публикация
+
+**Content Adapter Layer.** Source post → Claude API adapts per platform → direct platform APIs.
+
+- Twitter: thread/280
+- LinkedIn: professional tone
+- TG channel: concise
+- VK: long-read
+
+Target в frontmatter = список платформ.
+
+**АрхГейт:** 8.3/10 (Вариант C). НЕ использовать Postiz/n8n — 6.5/10, тяжёлые middlemen.
+
+*Источник: сессия WP-53, 21 фев. Фаза: Phase 3.*
+
+#### MCP-сервер Railway
+
+Обёртка Railway API для логов, деплоев, метрик. Claude Code получает логи как tool (Context Engineering). Паттерн переносим на любой PaaS → генеративность для шаблона экзокортекса (T3).
+
+**ArchGate:** выигрывает по эволюционируемости, масштабируемости, генеративности, современности vs прямой CLI.
+
+*Источник: сессия 16 фев. Фаза: Phase 2.*
+
+#### Publisher: OAuth вместо PAT
+
+GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var. Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient.
+
+**АрхГейт:** 8.8/10 (обучаемость 9, генеративность 8 — шаблонные пользователи не трогают env vars).
+
+*Источник: сессия 21 фев. Фаза: Phase 2.*
+
+#### Тест владения Принципами
+
+Адаптивный бот-тест по аналогии с IELTS placement test. Тестирует каждый ZP-принцип независимо (3-5 вопросов), определяет глубину 0-5 (Bloom), выдаёт векторный профиль `{ZP.1:3, ZP.2:1, ...}`.
+
+- **Источник:** MIM.WP.008 (Diagnostic Assessment).
+- **Рубрика:** can-do из MIM.MAP.001.
+- **Формат:** `/test` → адаптивный диалог → результат = профиль + bottleneck + рекомендация стратегии.
+- **Данные:** в digital-twin (профиль → MIM.WP.007 Learning Progression Map).
+
+*Источник: сессия 21 фев (WP-50). Фаза: Phase 2-3.*
 
 ---
 
