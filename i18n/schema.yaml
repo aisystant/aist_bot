@@ -6025,8 +6025,8 @@ features:
       en: "Quick thoughts to GitHub"
   knowledge_gateway:
     name:
-      ru: "Knowledge Gateway"
-      en: "Knowledge Gateway"
+      ru: "Aisystant MCP"
+      en: "Aisystant MCP"
     desc:
       ru: "Поиск по базе знаний в Claude Code, claude.ai"
       en: "Knowledge search in Claude Code, claude.ai"
