@@ -258,7 +258,9 @@ Target в frontmatter = список платформ.
 
 #### Publisher: OAuth вместо PAT
 
-GitHubContentClient (Publisher, AutoFix) использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var. Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient.
+GitHubContentClient (Publisher, AutoFix) сейчас использует `GITHUB_BOT_PAT` env var. Для шаблонных пользователей нужен self-service: владелец бота подключает GitHub через `/github` OAuth → Publisher берёт токен из `github_connections` DB вместо env var.
+
+Fallback: env var (backward compat). Паттерн уже работает в GitHubStrategyClient.
 
 **АрхГейт:** 8.8/10 (обучаемость 9, генеративность 8 — шаблонные пользователи не трогают env vars).
 
