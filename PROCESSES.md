@@ -236,7 +236,7 @@ new → classified → routed → in_progress → resolved → confirmed
 **Действие:**
 1. Прочитать `unsatisfied-questions.md` — структурированный отчёт (замечания, urgent, кластеры, lifecycle, SLA)
 2. Прочитать 2 файловых intake: fleeting-notes.md, captures.md
-3. Прочитать текущий `WP-7-bot-tech-debt.md` backlog
+3. Прочитать текущий `WP-7-platform-tech-debt.md` backlog
 4. Review предклассифицированных тикетов (`feedback_unified` — category/severity/cluster/suggested_action)
 5. Оценить бюджет каждого (0.5h / 1h / 2h+)
 6. Предложить: что берём, что отложить, что отклонить
