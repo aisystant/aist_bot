@@ -124,6 +124,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(scheduled_check, 'cron', minute='*', max_instances=2)
     _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*', max_instances=2)  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
+    _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37')  # Discourse: scheduled posts (offset from :00/:30)
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
     _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
@@ -1255,6 +1256,28 @@ async def _neon_keep_alive():
             await conn.fetchval('SELECT 1')
     except Exception as e:
         logger.warning(f"[Scheduler] Neon keep-alive failed: {e}")
+
+
+async def _better_stack_heartbeat():
+    """WP-244 — пинг Better Stack heartbeat каждую минуту.
+
+    Если бот лежит >grace (180s) — Better Stack создаёт incident,
+    наш CF Worker observability-webhook постит «🔴 Бот недоступен» в @aisystant_status.
+    URL берётся из env BETTER_STACK_HEARTBEAT_URL (опц.; пустой = no-op).
+    """
+    import os
+    url = os.getenv("BETTER_STACK_HEARTBEAT_URL", "").strip()
+    if not url:
+        return
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.head(url) as r:
+                if r.status >= 400:
+                    logger.warning(f"[Heartbeat] BS returned {r.status}")
+    except Exception as e:
+        # Не валим scheduler из-за heartbeat. Если bot жив, но BS не отвечает — пропуск.
+        logger.warning(f"[Heartbeat] BS ping failed: {e}")
 
 
 # ═══════════════════════════════════════════════════════════

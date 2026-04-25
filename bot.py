@@ -253,6 +253,7 @@ async def main():
         BotCommand(command="me", description="Обо мне — дашборд и данные"),
         BotCommand(command="features", description="Возможности платформы"),
         BotCommand(command="settings", description="Настройки и профиль"),
+        BotCommand(command="status", description="Статус платформы"),
         BotCommand(command="help", description="Справка"),
     ])
     await bot.set_my_commands([
@@ -262,6 +263,7 @@ async def main():
         BotCommand(command="me", description="About me — dashboard & data"),
         BotCommand(command="features", description="Platform features"),
         BotCommand(command="settings", description="Settings & profile"),
+        BotCommand(command="status", description="Platform status"),
         BotCommand(command="help", description="Help"),
     ], language_code="en")
     await bot.set_my_commands([
@@ -271,6 +273,7 @@ async def main():
         BotCommand(command="me", description="Sobre mí — panel y datos"),
         BotCommand(command="features", description="Funciones de la plataforma"),
         BotCommand(command="settings", description="Ajustes y perfil"),
+        BotCommand(command="status", description="Estado de la plataforma"),
         BotCommand(command="help", description="Ayuda"),
     ], language_code="es")
     await bot.set_my_commands([
@@ -280,6 +283,7 @@ async def main():
         BotCommand(command="me", description="À propos de moi — tableau de bord"),
         BotCommand(command="features", description="Fonctionnalités"),
         BotCommand(command="settings", description="Paramètres et profil"),
+        BotCommand(command="status", description="Statut de la plateforme"),
         BotCommand(command="help", description="Aide"),
     ], language_code="fr")
     await bot.set_my_commands([
@@ -289,6 +293,7 @@ async def main():
         BotCommand(command="me", description="关于我 — 仪表板和数据"),
         BotCommand(command="features", description="平台功能"),
         BotCommand(command="settings", description="设置与档案"),
+        BotCommand(command="status", description="平台状态"),
         BotCommand(command="help", description="帮助"),
     ], language_code="zh")
 
