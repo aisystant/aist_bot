@@ -763,11 +763,14 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             logger.info(f"[DT Sync] sync_one_user done: {effective_user_id}")
 
             # WP-268 Phase 2 dual-write: per-user dt_recalc
+            # Audit fix (Phase 2): epoch_ns заменён на hourly day-bucket (как в bulk
+            # выше) — webhook retry в течение часа идемпотентен (один external_id).
             now = datetime.utcnow()
+            day_bucket = now.strftime("%Y-%m-%dT%H")
             try:
                 asyncio.create_task(post_event(
                     source="aist-bot",
-                    external_id=f"dt-recalc-{effective_user_id}-{int(now.timestamp() * 1_000_000_000)}",
+                    external_id=f"dt-recalc-{effective_user_id}-{day_bucket}",
                     event_type="dt_recalc",
                     schema_version="v1",
                     occurred_at=now,

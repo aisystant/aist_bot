@@ -307,20 +307,36 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     # WP-268 Phase 2 dual-write: DT OAuth callback завершён
     # Высокоуровневое событие — фактически "пользователь подключил DT через OAuth UI"
     # update_user_dt() ниже отдельно эмитит dt_linked.v1 (низкоуровневая привязка id).
+    # Audit fix (Phase 2): (1) PII — убран raw chat_id из payload, account_id =
+    # ory_id через resolve_ory_id_from_chat; (2) external_id — стабильный (один на
+    # OAuth flow для пользователя), без epoch_ns, чтобы retry не дублировал событие.
     try:
-        from helpers.dual_write import post_event as _post_event
+        from helpers.dual_write import (
+            post_event as _post_event,
+            resolve_ory_id_from_chat as _resolve_ory,
+        )
         from datetime import datetime as _dt
         import asyncio as _asyncio
+        import hashlib as _hashlib
         _now = _dt.utcnow()
+        _ory = await _resolve_ory(telegram_user_id)
+        # external_id стабильный: предпочтительно ory_id (один на flow), fallback
+        # для T0 — sha1 от chat_id (без timestamp; идемпотентно для retry).
+        if _ory:
+            _ext_id = f"dt-oauth-completed-{_ory}"
+        else:
+            _chat_hash = _hashlib.sha1(str(telegram_user_id).encode()).hexdigest()[:12]
+            _ext_id = f"dt-oauth-completed-anon-{_chat_hash}"
         _asyncio.create_task(_post_event(
             source="aist-bot",
-            external_id=f"dt-oauth-{telegram_user_id}-{int(_now.timestamp() * 1_000_000_000)}",
+            external_id=_ext_id,
             event_type="dt_oauth_completed",
             schema_version="v1",
             occurred_at=_now,
-            account_id=None,  # на этот момент dt_user_id ещё не прочитан (см. блок ниже)
+            account_id=_ory,  # ory UUID если привязан, иначе None
             payload={
-                "telegram_id": telegram_user_id,
+                # PII-инвариант: telegram_id НЕ передаётся.
+                "via": "dt_oauth_callback",
             },
         ))
     except Exception as _exc:

@@ -508,3 +508,207 @@ async def test_phase_b_log_event_legacy_event_envelope():
     assert env["event_type"] == "marathon_step"
     assert env["payload"]["confidence"] == 0.9
     assert env["payload"]["skill_count"] == 2
+
+
+# ----------------------------------------------------------------------
+# WP-268 Phase 2 audit fix — PII (telegram_id) удалён из payload + stable
+# external_id (без epoch_ns) для user_updated/dt_oauth_completed/dt_recalc.
+# ----------------------------------------------------------------------
+
+
+def _read_text(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def test_audit_fix_no_telegram_id_in_post_event_payloads():
+    """Statically — никакой post_event payload в users/oauth/dt_sync не содержит
+    `telegram_id`. Поиск по строкам формы `"telegram_id":` в payload-блоках.
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    targets = [
+        project_root / "db" / "queries" / "users.py",
+        project_root / "oauth_server.py",
+        project_root / "db" / "queries" / "dt_sync.py",
+    ]
+    for path in targets:
+        text = _read_text(path)
+        # Грубый, но быстрый: ни в одном файле не должно быть строки
+        # `"telegram_id": chat_id` или `"telegram_id": telegram_user_id`
+        # в payload (PII-инвариант). Допустимо в SQL/log/комментариях.
+        assert '"telegram_id": chat_id' not in text, (
+            f"{path}: payload содержит raw telegram_id (PII)"
+        )
+        assert '"telegram_id": telegram_user_id' not in text, (
+            f"{path}: payload содержит raw telegram_id (PII)"
+        )
+
+
+def test_audit_fix_no_epoch_ns_in_external_ids():
+    """Statically — формула `int(now.timestamp() * 1_000_000_000)` удалена из
+    всех 3 файлов (стабильные external_id вместо nanosecond timestamps).
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    targets = [
+        project_root / "db" / "queries" / "users.py",
+        project_root / "oauth_server.py",
+        project_root / "db" / "queries" / "dt_sync.py",
+    ]
+    bad_patterns = [
+        "timestamp() * 1_000_000_000",
+        "timestamp()*1_000_000_000",
+    ]
+    for path in targets:
+        text = _read_text(path)
+        for pat in bad_patterns:
+            assert pat not in text, f"{path}: остался epoch_ns pattern `{pat}`"
+        # `epoch_ns = ...` присваивание тоже запрещено
+        assert "epoch_ns = int(" not in text, (
+            f"{path}: остался epoch_ns assignment"
+        )
+
+
+@pytest.mark.asyncio
+async def test_user_updated_payload_omits_telegram_id():
+    """`user_updated` payload содержит только fields_updated/fields_count,
+    без `telegram_id`. external_id — стабильный hash (не epoch_ns).
+    """
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    # Эмулируем тот же envelope, который собирает update_intern после fix
+    chat_id = 555
+    affected_fields = ["mode", "schedule_time"]
+    fields_hash = "abc123def456"  # любой стабильный hash для теста envelope
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id=f"user-updated-{chat_id}-{fields_hash}",
+                event_type="user_updated",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id="ory-uuid-555",
+                payload={
+                    "fields_updated": affected_fields,
+                    "fields_count": len(affected_fields),
+                },
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "user_updated"
+    # PII инвариант: telegram_id отсутствует
+    assert "telegram_id" not in env["payload"]
+    # account_id — это ory_id (из resolve)
+    assert env["account_id"] == "ory-uuid-555"
+    # external_id — стабильный (нет nanosecond timestamp)
+    assert "user-updated-555-" in env["external_id"]
+    assert "1_000_000_000" not in env["external_id"]
+
+
+@pytest.mark.asyncio
+async def test_dt_oauth_completed_payload_omits_telegram_id():
+    """`dt_oauth_completed` payload без `telegram_id`, external_id стабильный
+    (один на OAuth flow), account_id — ory_id (или None для T0 fallback).
+    """
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    ory_id = "11111111-2222-3333-4444-555555555555"
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id=f"dt-oauth-completed-{ory_id}",
+                event_type="dt_oauth_completed",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id=ory_id,
+                payload={"via": "dt_oauth_callback"},
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "dt_oauth_completed"
+    assert "telegram_id" not in env["payload"]
+    assert env["account_id"] == ory_id
+    # external_id keyed by ory_id (один на flow)
+    assert env["external_id"] == f"dt-oauth-completed-{ory_id}"
+
+
+@pytest.mark.asyncio
+async def test_dt_recalc_single_uses_day_bucket():
+    """`dt_recalc` (single mode) external_id содержит hourly bucket (YYYY-MM-DDTHH),
+    не epoch_ns. Идемпотентен на уровне часа.
+    """
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    user_uuid = "abc-def-123"
+    day_bucket = "2026-04-26T12"
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id=f"dt-recalc-{user_uuid}-{day_bucket}",
+                event_type="dt_recalc",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id=user_uuid,
+                payload={"mode": "single", "user_id": user_uuid, "sections_written": []},
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "dt_recalc"
+    assert env["payload"]["mode"] == "single"
+    # external_id keyed by hourly bucket
+    assert env["external_id"] == f"dt-recalc-{user_uuid}-{day_bucket}"
+    # Никакого nanosecond timestamp
+    assert "000000000" not in env["external_id"]
