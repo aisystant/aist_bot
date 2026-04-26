@@ -122,21 +122,10 @@ async def get_intern(chat_id: int) -> dict:
             VALUES ($1, $2) ON CONFLICT DO NOTHING
         ''', user_id, chat_id)
 
-        # WP-268 Phase 2 dual-write: новый пользователь зарегистрирован
-        # account_id=None — у T0 ory_id ещё нет (появится при link_ory)
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"user-registered-{user_id}",
-            event_type="user_registered",
-            schema_version="v1",
-            occurred_at=datetime.utcnow(),
-            account_id=None,
-            payload={
-                "user_id": str(user_id),
-                "registration_source": "bot_get_intern",
-                "tier": "T0",
-            },
-        ))
+        # WP-268 Phase 2 Issue 5 fix (verifier subagent a321d6bc):
+        # user_registered.v1 эмитится ТОЛЬКО из identity.py:get_or_create_user
+        # (более низкий уровень). Здесь — НЕТ дубликата emit.
+        # Source-of-truth для регистрации = identity layer, не users.get_intern.
 
         result = _get_default_intern(chat_id)
         result['user_id'] = user_id

@@ -712,3 +712,81 @@ async def test_dt_recalc_single_uses_day_bucket():
     assert env["external_id"] == f"dt-recalc-{user_uuid}-{day_bucket}"
     # Никакого nanosecond timestamp
     assert "000000000" not in env["external_id"]
+
+
+# ----------------------------------------------------------------------
+# WP-268 Phase 2 Issue 5 fix (verifier subagent a321d6bc, 26 апр 2026)
+# user_registered.v1 — единственный owner = identity.py:get_or_create_user.
+# До фикса дублировался в users.py:get_intern (UNIQUE constraint защищал в БД,
+# но 2 кодопути для одного факта = noise + размытие source-of-truth).
+# ----------------------------------------------------------------------
+
+import re
+
+
+def _grep_event_emits(file_path: Path, event_type: str) -> list:
+    """Найти строки с `event_type="X"` в файле. Возвращает список номеров строк."""
+    pattern = re.compile(rf'event_type\s*=\s*["\']({re.escape(event_type)})["\']')
+    matches = []
+    text = file_path.read_text(encoding="utf-8")
+    for i, line in enumerate(text.splitlines(), start=1):
+        if pattern.search(line):
+            matches.append(i)
+    return matches
+
+
+def test_issue5_user_registered_emit_only_in_identity():
+    """Issue 5: user_registered.v1 эмитится ТОЛЬКО из identity.py.
+
+    Регрессия-страж против повторного добавления emit'а в users.py.
+    """
+    project_root = Path(__file__).resolve().parents[2]
+    users_py = project_root / "db" / "queries" / "users.py"
+    identity_py = project_root / "db" / "queries" / "identity.py"
+
+    users_emits = _grep_event_emits(users_py, "user_registered")
+    identity_emits = _grep_event_emits(identity_py, "user_registered")
+
+    assert users_emits == [], (
+        f"Issue 5 регрессия: user_registered эмитится из users.py "
+        f"строки={users_emits}. SoT для регистрации = identity.py:get_or_create_user."
+    )
+    assert len(identity_emits) >= 1, (
+        f"user_registered НЕ эмитится из identity.py — пропал owner-эмит. "
+        f"Ожидается ≥1 строка с event_type='user_registered' в "
+        f"identity.py:get_or_create_user."
+    )
+
+
+def test_issue5_no_duplicate_external_id_pattern():
+    """external_id pattern `user-registered-{user_id}` живёт ТОЛЬКО в identity.py."""
+    project_root = Path(__file__).resolve().parents[2]
+    users_py = project_root / "db" / "queries" / "users.py"
+    identity_py = project_root / "db" / "queries" / "identity.py"
+
+    users_text = users_py.read_text(encoding="utf-8")
+    identity_text = identity_py.read_text(encoding="utf-8")
+
+    pat = re.compile(r'user-registered-\{')
+    users_matches = pat.findall(users_text)
+    identity_matches = pat.findall(identity_text)
+
+    assert users_matches == [], (
+        f"users.py содержит pattern 'user-registered-{{...}}' "
+        f"({len(users_matches)} совпадений). После Issue 5 fix — должно быть 0."
+    )
+    assert len(identity_matches) >= 1, (
+        "identity.py НЕ содержит pattern 'user-registered-{...}' — "
+        "регрессия Issue 5 fix (owner-emit пропал)."
+    )
+
+
+def test_issue5_users_py_still_emits_user_updated():
+    """Regression guard: users.py остаётся owner для user_updated."""
+    project_root = Path(__file__).resolve().parents[2]
+    users_py = project_root / "db" / "queries" / "users.py"
+    user_updated = _grep_event_emits(users_py, "user_updated")
+    assert len(user_updated) >= 1, (
+        "users.py больше НЕ эмитит user_updated — Issue 5 fix удалил лишнее. "
+        "Ожидается ≥1 emit в update_intern path."
+    )
