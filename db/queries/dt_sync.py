@@ -18,7 +18,6 @@
 Частота: ежедневно (scheduler cron).
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -471,28 +470,26 @@ async def sync_engagement_to_dt() -> dict:
         f"{stats['skipped']} skipped, {stats['errors']} errors"
     )
 
-    # WP-268 Phase 2 dual-write: bulk dt_recalc событие на весь батч
-    # external_id привязан к "началу" cron-запуска, чтобы повторный запуск
-    # с теми же stats был идемпотентен на уровне дня.
-    try:
-        now = datetime.utcnow()
-        day_bucket = now.strftime("%Y-%m-%dT%H")  # часовой бакет — cron 04:30 MSK раз в день
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"dt-recalc-bulk-{day_bucket}",
-            event_type="dt_recalc",
-            schema_version="v1",
-            occurred_at=now,
-            account_id=None,  # bulk — много пользователей, конкретного ory_id нет
-            payload={
-                "mode": "bulk",
-                "synced": stats.get("synced", 0),
-                "skipped": stats.get("skipped", 0),
-                "errors": stats.get("errors", 0),
-            },
-        ))
-    except Exception as exc:
-        logger.warning(f"[dual-write] dt_recalc bulk fire failed: {exc}")
+    # WP-268 cut-over: bulk dt_recalc событие — single-write на event-gateway.
+    # legacy INSERT в digital_twins (dt_pool / digitaltwin БД) — это Pattern 2
+    # (новая БД, не aist_bot legacy), поэтому остаётся неизменным.
+    # external_id привязан к hourly bucket — повторный cron-запуск идемпотентен.
+    now = datetime.utcnow()
+    day_bucket = now.strftime("%Y-%m-%dT%H")
+    await post_event(
+        source="aist-bot",
+        external_id=f"dt-recalc-bulk-{day_bucket}",
+        event_type="dt_recalc",
+        schema_version="v1",
+        occurred_at=now,
+        account_id=None,
+        payload={
+            "mode": "bulk",
+            "synced": stats.get("synced", 0),
+            "skipped": stats.get("skipped", 0),
+            "errors": stats.get("errors", 0),
+        },
+    )
 
     return stats
 
@@ -762,27 +759,24 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
 
             logger.info(f"[DT Sync] sync_one_user done: {effective_user_id}")
 
-            # WP-268 Phase 2 dual-write: per-user dt_recalc
-            # Audit fix (Phase 2): epoch_ns заменён на hourly day-bucket (как в bulk
-            # выше) — webhook retry в течение часа идемпотентен (один external_id).
+            # WP-268 cut-over: per-user dt_recalc — single-write на event-gateway.
+            # Pattern 2: INSERT в digital_twins (dt_pool/digitaltwin БД) уже на
+            # новую БД, остаётся. Hourly bucket для idempotency.
             now = datetime.utcnow()
             day_bucket = now.strftime("%Y-%m-%dT%H")
-            try:
-                asyncio.create_task(post_event(
-                    source="aist-bot",
-                    external_id=f"dt-recalc-{effective_user_id}-{day_bucket}",
-                    event_type="dt_recalc",
-                    schema_version="v1",
-                    occurred_at=now,
-                    account_id=str(effective_user_id),  # это Ory UUID
-                    payload={
-                        "mode": "single",
-                        "user_id": str(effective_user_id),
-                        "sections_written": list(collected_data.keys()) if collected_data else [],
-                    },
-                ))
-            except Exception as exc:
-                logger.warning(f"[dual-write] dt_recalc single fire failed: {exc}")
+            await post_event(
+                source="aist-bot",
+                external_id=f"dt-recalc-{effective_user_id}-{day_bucket}",
+                event_type="dt_recalc",
+                schema_version="v1",
+                occurred_at=now,
+                account_id=str(effective_user_id),
+                payload={
+                    "mode": "single",
+                    "user_id": str(effective_user_id),
+                    "sections_written": list(collected_data.keys()) if collected_data else [],
+                },
+            )
 
             return True
 

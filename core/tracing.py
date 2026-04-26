@@ -108,7 +108,20 @@ async def span(name: str, **metadata):
 
 
 async def finish_trace(trace: Trace) -> None:
-    """Завершить trace и записать в Neon."""
+    """Завершить trace — single-write на event-gateway (WP-268 cut-over).
+
+    WP-268 cut-over: legacy INSERT INTO request_traces УДАЛЁН (_save_trace_to_db
+    больше не вызывается). Источник истины — event-gateway (request_traced.v1).
+
+    ⚠️ Performance / Latency: legacy был fire-and-forget create_task → ноль
+    дополнительной latency на запрос. Cut-over оставляет fire-and-forget
+    create_task на gateway (network call), но если gateway медленный —
+    create_task'ов накопится много. Не критично для bot-traffic, но мониторить.
+
+    ⚠️ Caller'ы, которые ЧИТАЮТ request_traces (Grafana p50/p95/p99, /traces
+    dev-команда) больше не получат свежих traces. Перенести в WP-269 на
+    Memory.Observed или Langfuse-only (если есть).
+    """
     total = trace.total_ms
     _current_trace.set(None)
 
@@ -121,29 +134,20 @@ async def finish_trace(trace: Trace) -> None:
         f"user={trace.user_id} state={trace.state} | {spans_summary}"
     )
 
-    # Записываем в БД (true fire-and-forget: не ждём DB write)
-    asyncio.create_task(_save_trace_to_db(trace))
-
-    # WP-268 Phase 2 Phase B: dual-write request_traced.v1.
-    # Параллельно с legacy записью в request_traces. Lazy import helpers/db
-    # чтобы не создавать circular dependency на module-load (tracing
-    # импортируется очень рано, db.queries.identity — позже).
-    asyncio.create_task(_dual_write_trace(trace))
+    # WP-268 cut-over: единственный writer — event-gateway. Fire-and-forget
+    # сохраняем (не блокировать каждый bot-запрос на network call).
+    asyncio.create_task(_emit_trace_event(trace))
 
 
-async def _dual_write_trace(trace: Trace) -> None:
-    """Dual-write trace в event-gateway. Fire-and-forget, не блокирует.
+async def _emit_trace_event(trace: Trace) -> None:
+    """Emit request_traced.v1 в event-gateway (single writer, WP-268 cut-over).
 
-    PII: НЕ передаём raw command (может содержать /linked? хвост с PII или
-    callback_data). Передаём только первое слово (сама команда) + метрики.
+    PII: НЕ передаём raw command (может содержать /start ref=email@x.com).
+    Передаём только первое слово команды + метрики.
     """
     try:
         from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
-        # Извлекаем имя команды (первое слово), не весь текст.
-        # `trace.command` уже обрезан до 100 символов в _save_trace_to_db,
-        # но raw полный — здесь дополнительно убираем потенциальный
-        # PII-хвост (например `/start ref=email@x.com`).
         command_name = (trace.command or "").split()[0] if trace.command else ""
 
         ory = await resolve_ory_id_from_chat(trace.user_id) if trace.user_id else None
@@ -156,37 +160,16 @@ async def _dual_write_trace(trace: Trace) -> None:
             account_id=ory,
             payload={
                 "trace_id": trace.trace_id,
-                "command": command_name[:50],  # safety bound
+                "command": command_name[:50],
                 "state": trace.state,
                 "total_ms": round(trace.total_ms, 1),
                 "spans_count": len(trace.spans),
             },
         )
     except Exception as exc:
-        logger.warning(f"[TRACE] dual-write failed: {exc}")
+        logger.warning(f"[TRACE] emit failed: {exc}")
 
 
-async def _save_trace_to_db(trace: Trace) -> None:
-    """Записать trace в таблицу request_traces (fire-and-forget task)."""
-    try:
-        from db.connection import acquire
-
-        spans_json = json.dumps([
-            {"name": s.name, "duration_ms": round(s.duration_ms, 1), **s.metadata}
-            for s in trace.spans
-        ])
-
-        async with await acquire() as conn:
-            await conn.execute(
-                """INSERT INTO request_traces
-                   (trace_id, user_id, command, state, total_ms, spans, created_at)
-                   VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
-                trace.trace_id,
-                trace.user_id,
-                trace.command[:100],
-                trace.state,
-                round(trace.total_ms, 1),
-                spans_json,
-            )
-    except Exception as e:
-        logger.warning(f"[TRACE] Failed to save trace: {e}")
+# WP-268 cut-over: _save_trace_to_db() удалён. legacy request_traces больше не
+# заполняется ботом. Caller'ы Grafana / /traces dev-команды должны мигрировать
+# на новую БД (см. TODO в finish_trace).

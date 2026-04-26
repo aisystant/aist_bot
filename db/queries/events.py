@@ -10,14 +10,11 @@ Integrity Pipeline (WP-109 Bot Adapter):
 - Совместимость с Activity Hub (общий unique index на source+external_id)
 """
 
-import asyncio
-import json
 import logging
 import time
 from datetime import datetime
 from typing import Optional
 
-from db.connection import get_pool
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
@@ -40,106 +37,65 @@ async def log_event(
     skill_ids: Optional[list] = None,
     source: str = 'bot',
 ) -> Optional[int]:
-    """Записать событие в development.user_events через Integrity Pipeline.
+    """Записать событие — single-write на event-gateway (WP-268 cut-over).
+
+    WP-268 cut-over: legacy INSERT INTO development.user_events УДАЛЁН.
+    Источник истины — event-gateway (permissive schema legacy_bot_event.v1
+    accept'ит любой event_type без schema-регистрации).
 
     Args:
-        user_id: chat_id пользователя (пока без FK на public.users)
+        user_id: chat_id пользователя
         event_type: тип события (session_start, ai_chat, marathon_step, ...)
-        payload: произвольные данные события (JSONB)
-        confidence: сила сигнала 0.0–1.0 (тест=0.9, самооценка=0.3)
-        skill_ids: затронутые компетенции (TEXT[])
+        payload: произвольные данные события (передаются только keys, не values)
+        confidence: сила сигнала 0.0–1.0
+        skill_ids: затронутые компетенции (количество, не сами id)
         source: продьюсер ('bot', 'lms', 'club', 'web_app')
 
     Returns:
-        id записи или None при ошибке/dedup
+        Синтетический event_id (для совместимости с caller'ами, которые ждут int).
+        Реальный id будет назначен gateway/проекцией; этот возвращаемый id —
+        локальный hash, не используется для join'ов в legacy.
+
+    ⚠️ Caller'ы, которые ЧИТАЮТ user_events (get_user_events, get_event_counts,
+    development.engagement view, dt_sync.py 2_6_coding/2_7_iwe aggregation)
+    больше не получат записи от бота. Это касается:
+    - dt_sync.sync_engagement_to_dt — ЦД получит stale данные после cut-over
+    - /analytics dev-команда
+    - tier_detector (если читает ai_chat events)
+    Все они должны мигрировать на новую БД (Memory.Observed) в WP-269.
     """
+    # Резолв user_uuid (read-only, переходный — для account_id обогащения).
+    user_uuid = None
     try:
-        pool = await get_pool()
-        # Resolve user_uuid from public.users (WP-82 Phase 2)
-        user_uuid = None
-        try:
-            from db.queries.identity import get_user_uuid
-            user_uuid = await get_user_uuid(user_id)
-        except Exception:
-            pass
+        from db.queries.identity import get_user_uuid
+        user_uuid = await get_user_uuid(user_id)
+    except Exception:
+        pass
 
-        external_id = _make_external_id(user_id, event_type)
+    external_id = _make_external_id(user_id, event_type)
 
-        async with pool.acquire() as conn:
-            # Попытка 1: с external_id + dedup (Neon с миграцией Hub)
-            try:
-                row = await conn.fetchrow('''
-                    INSERT INTO development.user_events
-                        (user_id, event_type, source, payload, confidence,
-                         skill_ids, user_uuid, external_id)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
-                    ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
-                    DO NOTHING
-                    RETURNING id
-                ''',
-                    user_id,
-                    event_type,
-                    source,
-                    json.dumps(payload) if payload else '{}',
-                    confidence,
-                    skill_ids or [],
-                    user_uuid,
-                    external_id,
-                )
-            except Exception:
-                # Fallback: без external_id (pilot DB без миграции Hub)
-                row = await conn.fetchrow('''
-                    INSERT INTO development.user_events
-                        (user_id, event_type, source, payload, confidence,
-                         skill_ids, user_uuid)
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
-                    RETURNING id
-                ''',
-                    user_id,
-                    event_type,
-                    source,
-                    json.dumps(payload) if payload else '{}',
-                    confidence,
-                    skill_ids or [],
-                    user_uuid,
-                )
-
-            event_id = row['id'] if row else None
-            if event_id:
-                logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")
-
-                # WP-268 Phase 2 Phase B: dual-write центрального event log.
-                # Gateway имеет permissive schema legacy_bot_event.v1 для всех
-                # 36+ event_types бота — пропустит любой event_type без
-                # дополнительной schema-регистрации.
-                # Только при успешной legacy записи (event_id != None) — иначе
-                # dedup-skip раздваивается, легаси и gateway получат разное.
-                try:
-                    asyncio.create_task(post_event(
-                        source="aist-bot",
-                        external_id=external_id,  # уже идемпотентный (см. _make_external_id)
-                        event_type=event_type,
-                        schema_version="v1",
-                        occurred_at=datetime.utcnow(),
-                        account_id=str(user_uuid) if user_uuid else None,
-                        # Сохраняем payload как есть — gateway применяет
-                        # FORBIDDEN_FIELDS-фильтрацию для PII (email, password, etc.).
-                        payload={
-                            "user_id": str(user_id),
-                            "source": source,
-                            "confidence": confidence,
-                            "skill_count": len(skill_ids) if skill_ids else 0,
-                            "payload_keys": list(payload.keys()) if payload else [],
-                        },
-                    ))
-                except Exception as exc:
-                    # Никогда не блокировать legacy путь.
-                    logger.warning(f"[Events] dual-write task schedule failed: {exc}")
-            else:
-                logger.debug(f"[Events] {event_type} dedup skip for {user_id}")
-            return event_id
+    try:
+        await post_event(
+            source="aist-bot",
+            external_id=external_id,  # идемпотентный (timestamp_ns, см. _make_external_id)
+            event_type=event_type,
+            schema_version="v1",
+            occurred_at=datetime.utcnow(),
+            account_id=str(user_uuid) if user_uuid else None,
+            payload={
+                "user_id": str(user_id),
+                "source": source,
+                "confidence": confidence,
+                "skill_count": len(skill_ids) if skill_ids else 0,
+                "payload_keys": list(payload.keys()) if payload else [],
+            },
+        )
+        # Синтетический id для backward-compat с caller'ами:
+        synthetic_id = abs(hash(external_id)) % (2**31)
+        logger.info(f"[Events] {event_type} emitted for {user_id} (synth_id={synthetic_id})")
+        return synthetic_id
     except Exception as e:
-        logger.warning(f"[Events] Failed to log {event_type} for {user_id}: {e}")
+        logger.warning(f"[Events] Failed to emit {event_type} for {user_id}: {e}")
         return None
 
 

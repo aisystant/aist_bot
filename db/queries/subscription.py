@@ -6,12 +6,11 @@
 - subscription_grants (platform БД) — реестр прав доступа к Gateway (WP-231 Ф-H)
 """
 
-import asyncio
 from datetime import datetime
 from typing import Optional
 
 from config import get_logger
-from db.connection import get_pool, get_platform_pool
+from db.connection import get_pool
 from helpers.dual_write import post_event
 
 logger = get_logger(__name__)
@@ -113,88 +112,65 @@ async def upsert_subscription_grant(
     valid_until: datetime,
     source: str,
 ) -> None:
-    """Записать/продлить право доступа в реестр подписок (platform БД).
+    """Subscription grant — single-write на event-gateway (WP-268 cut-over).
 
-    WP-231 Ф-H: вызывается после успешной оплаты через бота (Stars, ЮКасса),
-    когда email неизвестен — только telegram_id.
+    WP-268 cut-over: legacy UPDATE/INSERT INTO subscription_grants (platform БД)
+    УДАЛЕНЫ. Источник истины для grant'ов теперь — event-gateway projection.
 
-    Логика:
-    - Ищем активный грант по telegram_id с source IN ('tg_stars', 'bot_payment').
-    - Если найден → продлить valid_until до наибольшего значения.
-    - Если нет → INSERT новой строки.
-    - ory_id не заполняется — появится позже через Вариант A (Gateway OAuth) или sync.
+    ⚠️ КРИТИЧЕСКАЯ ОСОБЕННОСТЬ: subscription_grants была расположена в platform
+    БД, которая НЕ aist_bot legacy. Это уже была "новая БД" (Pattern 2). Cut-over
+    в этом случае означает миграцию с прямого write → event-driven write.
+    Это намеренное решение Tseren'а: subscription_grants gets rebuilt from
+    events. Без legacy WRITE → bot не может больше синхронно гарантировать
+    активный грант после оплаты — это делает projection.
 
-    Не используем ON CONFLICT — в subscription_grants нет UNIQUE на telegram_id
-    (у одного telegram_id может быть несколько грантов из разных источников: lms_sync, manual).
+    ⚠️ READ path (Gateway authorization → SELECT FROM subscription_grants)
+    продолжает работать ТОЛЬКО ЕСЛИ projection догнала. Если projection
+    задержалась — пользователь может получить "no active grant" сразу после
+    оплаты. Mitigation: webhook YooKassa retry (idempotent через external_id).
+
+    Идемпотентность: external_id привязан к (telegram_id, source, valid_until).
+    Повторный вызов с теми же args = тот же external_id = gateway dedup.
 
     Args:
         telegram_id: Telegram chat_id пользователя.
         valid_until: Дата окончания подписки (naive UTC).
         source: Источник права — 'tg_stars' или 'bot_payment'.
     """
-    pool = await get_platform_pool()
-    async with pool.acquire() as conn:
-        updated = await conn.execute(
-            '''
-            UPDATE subscription_grants
-            SET valid_until = GREATEST(valid_until, $1)
-            WHERE telegram_id = $2
-              AND source IN ('tg_stars', 'bot_payment')
-              AND revoked_at IS NULL
-            ''',
-            valid_until, telegram_id,
-        )
-        # asyncpg returns 'UPDATE N' — если N > 0, строка обновлена
-        if updated and updated.split()[-1] != '0':
-            logger.info(
-                f"[SubscriptionGrant] Extended: telegram_id={telegram_id}, "
-                f"source={source}, valid_until={valid_until}"
-            )
-            _fire_subscription_granted(telegram_id, source, valid_until, mode="extended")
-            return
-
-        await conn.execute(
-            '''
-            INSERT INTO subscription_grants
-                (telegram_id, product, source, valid_from, valid_until, granted_by)
-            VALUES
-                ($1, 'br', $2, NOW(), $3, 'system')
-            ''',
-            telegram_id, source, valid_until,
-        )
-        logger.info(
-            f"[SubscriptionGrant] Created: telegram_id={telegram_id}, "
-            f"source={source}, valid_until={valid_until}"
-        )
-        _fire_subscription_granted(telegram_id, source, valid_until, mode="created")
+    # WP-268 cut-over: единственный writer — event-gateway. mode='upsert'
+    # потому что без read-modify-write мы не знаем «extend vs create».
+    # Projection в новой БД должна сама решать (LATEST valid_until WINS).
+    await _emit_subscription_granted(telegram_id, source, valid_until, mode="upsert")
+    logger.info(
+        f"[SubscriptionGrant] Emitted (event-only): telegram_id={telegram_id}, "
+        f"source={source}, valid_until={valid_until}"
+    )
 
 
-def _fire_subscription_granted(
+async def _emit_subscription_granted(
     telegram_id: int,
     source: str,
     valid_until: datetime,
     mode: str,
 ) -> None:
-    """WP-268 Phase 2 dual-write: subscription_granted event."""
-    try:
-        now = datetime.utcnow()
-        # external_id идемпотентен по комбинации (telegram_id, source, valid_until ISO)
-        # Если оплата идемпотентно вызывает upsert — событие тоже идемпотентно.
-        valid_until_iso = valid_until.isoformat() if hasattr(valid_until, "isoformat") else str(valid_until)
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"sub-granted-{telegram_id}-{source}-{valid_until_iso}",
-            event_type="subscription_granted",
-            schema_version="v1",
-            occurred_at=now,
-            account_id=None,  # ory_id здесь не доступен (bot-scope только telegram_id)
-            payload={
-                "telegram_id": telegram_id,
-                "product": "br",
-                "source": source,
-                "valid_until": valid_until_iso,
-                "mode": mode,  # "created" | "extended"
-            },
-        ))
-    except Exception as exc:
-        logger.warning(f"[dual-write] subscription_granted fire failed: {exc}")
+    """WP-268 cut-over: subscription_granted event (single writer)."""
+    now = datetime.utcnow()
+    valid_until_iso = valid_until.isoformat() if hasattr(valid_until, "isoformat") else str(valid_until)
+    await post_event(
+        source="aist-bot",
+        external_id=f"sub-granted-{telegram_id}-{source}-{valid_until_iso}",
+        event_type="subscription_granted",
+        schema_version="v1",
+        occurred_at=now,
+        account_id=None,  # ory_id не доступен (bot-scope = только telegram_id)
+        payload={
+            # ⚠️ telegram_id остаётся в payload (бизнес-нужда: subscription_grants
+            # projection должна знать кому grant). Это документированное
+            # отклонение от PII-инварианта (DP.ARCH.004 §2: payment data tier).
+            "telegram_id": telegram_id,
+            "product": "br",
+            "source": source,
+            "valid_until": valid_until_iso,
+            "mode": mode,  # "upsert" — projection решает create vs extend
+        },
+    )

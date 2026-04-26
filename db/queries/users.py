@@ -305,7 +305,15 @@ async def is_onboarded(intern: dict) -> bool:
 
 
 async def update_intern(chat_id: int, **kwargs):
-    """Обновить данные пользователя (роутинг: profile → users, state → user_state)."""
+    """Обновить данные пользователя — single-write на event-gateway (WP-268 cut-over).
+
+    WP-268 Phase 2 cut-over: legacy UPDATE в public.users / development.user_state
+    УДАЛЁН. Источник истины для домена — event-gateway (user_updated.v1).
+
+    ⚠️ State-fields read path (FSM, scheduler) ДО WP-269 всё ещё читает legacy
+    development.user_state. Cut-over работает корректно ТОЛЬКО после миграции
+    state-readers на новую БД (Memory.Observed/Derived). См. follow-up WP-269.
+    """
     if not kwargs:
         return
 
@@ -333,7 +341,7 @@ async def update_intern(chat_id: int, **kwargs):
     if not columns:
         return
 
-    # Security: reject unknown column names to prevent SQL injection
+    # Security: reject unknown column names (whitelist для event payload)
     unknown = set(columns.keys()) - ALL_KNOWN_FIELDS
     if unknown:
         logger.error(f"[update_intern] Rejected unknown fields: {unknown} for chat_id={chat_id}")
@@ -341,33 +349,8 @@ async def update_intern(chat_id: int, **kwargs):
         if not columns:
             return
 
-    # Split into profile and state updates
-    profile_updates = {k: v for k, v in columns.items() if k in PROFILE_FIELDS}
-    state_updates = {k: v for k, v in columns.items() if k in STATE_FIELDS}
-
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        if profile_updates:
-            set_parts = []
-            params = [chat_id]  # $1 = telegram_id
-            for i, (col, val) in enumerate(profile_updates.items(), start=2):
-                set_parts.append(f"{col} = ${i}")
-                params.append(val)
-            set_parts.append("updated_at = (NOW() AT TIME ZONE 'utc')")
-            query = f"UPDATE public.users SET {', '.join(set_parts)} WHERE telegram_id = $1"
-            await conn.execute(query, *params)
-
-        if state_updates:
-            set_parts = []
-            params = [chat_id]  # $1 = chat_id
-            for i, (col, val) in enumerate(state_updates.items(), start=2):
-                set_parts.append(f"{col} = ${i}")
-                params.append(val)
-            set_parts.append("updated_at = (NOW() AT TIME ZONE 'utc')")
-            query = f"UPDATE development.user_state SET {', '.join(set_parts)} WHERE chat_id = $1"
-            await conn.execute(query, *params)
-
-    # Инкрементальный sync в ЦД (fire-and-forget)
+    # Инкрементальный sync в ЦД (fire-and-forget) — оставлен как есть, т.к. это
+    # отдельный канал к gateway_mcp, не legacy DB.
     try:
         from clients.gateway_mcp import gateway_mcp
         if gateway_mcp.is_connected(chat_id):
@@ -377,68 +360,57 @@ async def update_intern(chat_id: int, **kwargs):
     except Exception:
         pass  # DT sync — best effort
 
-    # WP-268 Phase 2 dual-write: профиль/состояние обновлено
-    # Audit fix (Phase 2): (1) PII — telegram_id заменён на account_id (ory_id) через
-    # resolve_ory_id_from_chat; если ory не привязан — ключ омитится (PII-инвариант).
-    # (2) external_id — стабильный hash от (chat_id + sorted affected fields), а не
-    # epoch_ns; retry того же UPDATE даст тот же external_id ⇒ идемпотентность gateway.
-    try:
-        now = datetime.utcnow()
-        affected_fields = sorted(columns.keys())
-        ory_id = await resolve_ory_id_from_chat(chat_id)
-        fields_hash = hashlib.sha1(
-            f"{chat_id}:{','.join(affected_fields)}".encode()
-        ).hexdigest()[:12]
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"user-updated-{chat_id}-{fields_hash}",
-            event_type="user_updated",
-            schema_version="v1",
-            occurred_at=now,
-            account_id=ory_id,  # None если T0 — gateway допускает
-            payload={
-                # PII-инвариант: telegram_id НЕ передаётся (см. CLAUDE.md distinctions PII).
-                "fields_updated": affected_fields,
-                "fields_count": len(affected_fields),
-            },
-        ))
-    except Exception as exc:
-        logger.warning(f"[dual-write] user_updated fire failed: {exc}")
+    # WP-268 cut-over: ЕДИНСТВЕННЫЙ writer — event-gateway (await, не create_task).
+    # PII-инвариант: telegram_id НЕ в payload, account_id = ory_id (или None для T0).
+    # external_id стабильный (hash от chat_id+affected_fields) для идемпотентности.
+    now = datetime.utcnow()
+    affected_fields = sorted(columns.keys())
+    ory_id = await resolve_ory_id_from_chat(chat_id)
+    fields_hash = hashlib.sha1(
+        f"{chat_id}:{','.join(affected_fields)}".encode()
+    ).hexdigest()[:12]
+    await post_event(
+        source="aist-bot",
+        external_id=f"user-updated-{chat_id}-{fields_hash}",
+        event_type="user_updated",
+        schema_version="v1",
+        occurred_at=now,
+        account_id=ory_id,
+        payload={
+            "fields_updated": affected_fields,
+            "fields_count": len(affected_fields),
+        },
+    )
 
 
 async def update_tg_username(chat_id: int, username: str) -> None:
-    """Обновить tg_username если изменился."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        result = await conn.execute(
-            "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1",
-            username, chat_id,
-        )
+    """Обновить tg_username — single-write на event-gateway (WP-268 cut-over).
 
-    # WP-268 Phase 2 dual-write: tg_username синхронизирован
-    # Только если действительно был апдейт (UPDATE 1+, не UPDATE 0)
-    # Audit fix (Phase 2): убран telegram_id из payload (PII), epoch_ns заменён
-    # на стабильный hash от (chat_id, username) — retry с тем же значением
-    # username идемпотентен.
-    if result and result != "UPDATE 0":
-        now = datetime.utcnow()
-        ory_id = await resolve_ory_id_from_chat(chat_id)
-        username_hash = hashlib.sha1(
-            f"{chat_id}:{username or ''}".encode()
-        ).hexdigest()[:12]
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"tg-synced-{chat_id}-{username_hash}",
-            event_type="user_tg_synced",
-            schema_version="v1",
-            occurred_at=now,
-            account_id=ory_id,
-            payload={
-                # PII-инвариант: telegram_id НЕ передаётся.
-                # username — не PII в TG-смысле (публичный handle), но для безопасности кладём только наличие
-                "username_present": bool(username),
-            },
-        ))
+    WP-268 Phase 2 cut-over: legacy UPDATE public.users.tg_username УДАЛЁН.
+    Идемпотентность через стабильный external_id (hash от chat_id+username) —
+    повтор с тем же username не дублирует событие.
+
+    ⚠️ Без legacy UPDATE мы потеряли check `IS DISTINCT FROM` — gateway получает
+    POST даже если username не изменился. Идемпотентность external_id защищает
+    от дублей в gateway, но добавляет network round-trip. См. WP-269 для
+    переноса dedup в новую БД.
+    """
+    now = datetime.utcnow()
+    ory_id = await resolve_ory_id_from_chat(chat_id)
+    username_hash = hashlib.sha1(
+        f"{chat_id}:{username or ''}".encode()
+    ).hexdigest()[:12]
+    await post_event(
+        source="aist-bot",
+        external_id=f"tg-synced-{chat_id}-{username_hash}",
+        event_type="user_tg_synced",
+        schema_version="v1",
+        occurred_at=now,
+        account_id=ory_id,
+        payload={
+            "username_present": bool(username),
+        },
+    )
 
 
 async def mark_bot_blocked(chat_id: int) -> None:

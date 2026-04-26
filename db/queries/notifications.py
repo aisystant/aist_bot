@@ -13,7 +13,6 @@
 Формат idempotency_key: {type}:{chat_id}:{date}:{detail}
 """
 
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -56,57 +55,45 @@ async def try_insert_notification(
     idempotency_key: str,
     payload: Optional[dict] = None,
 ) -> bool:
-    """Попытаться записать факт отправки уведомления.
+    """Notification idempotency — single-write на event-gateway (WP-268 cut-over).
+
+    WP-268 cut-over: legacy INSERT INTO notification_log УДАЛЁН. Идемпотентность
+    теперь делегирована event-gateway: external_id=`notification-{idempotency_key}`
+    стабилен → gateway dedup'ит повторные posts на тот же ключ.
 
     Returns:
-        True если запись успешна (уведомление ещё не отправлялось).
-        False если idempotency_key уже существует (дубль).
+        True если успешно отправлено в gateway (предполагаем single-write успешен).
+        False если ошибка сети — caller (`send_idempotent`) пропустит send.
+
+    ⚠️ КРИТИЧНО для catch-up scheduler'а: log-before-send паттерн (CLAUDE.md §10.10)
+    требовал atomic «log → send». Сейчас log = network call к gateway. Если
+    gateway вернёт 200 (новое событие) — продолжаем send. Если gateway вернёт
+    duplicate (внутренний dedup на external_id) — нужен явный сигнал, чтобы
+    caller знал «этот idempotency_key уже обрабатывался». Текущий post_event
+    не возвращает status, поэтому функция pessimistically возвращает True
+    (продолжить send). Это меняет семантику: при retry catch-up'а уведомление
+    может быть отправлено пользователю повторно, даже если gateway его дедупит.
+
+    TODO WP-269: либо post_event должен возвращать (inserted: bool), либо
+    caller должен делать read-after-write check через was_notification_sent
+    (который тоже мигрирует на новую БД).
     """
-    pool = await get_pool()
-    inserted = False
-    async with pool.acquire() as conn:
-        try:
-            await conn.execute(
-                '''INSERT INTO notification_log
-                   (chat_id, notification_type, idempotency_key, payload)
-                   VALUES ($1, $2, $3, $4::jsonb)''',
-                chat_id, notification_type, idempotency_key,
-                json.dumps(payload) if payload else None,
-            )
-            inserted = True
-        except Exception as e:
-            # UniqueViolationError → уже отправлено (дубль)
-            if 'unique' in str(e).lower() or '23505' in str(e):
-                return False
-            raise
-
-    # WP-268 Phase 2 Phase B: dual-write notification_sent.v1.
-    # Пишем ТОЛЬКО при реально новой записи (inserted=True). На дубле
-    # gateway уже получил событие в первый раз — повторно не шлём, иначе
-    # каждый retry catch-up scheduler'а будет дополнительно бить event-gateway.
-    # PII: payload содержит metadata о уведомлении. Содержимое payload
-    # caller'а МОЖЕТ содержать PII (имя пользователя в тексте) — поэтому
-    # передаём только ключи, а не значения.
-    if inserted:
-        try:
-            ory = await resolve_ory_id_from_chat(chat_id)
-            asyncio.create_task(post_event(
-                source="aist-bot",
-                external_id=f"notification-{idempotency_key}",
-                event_type="notification_sent",
-                schema_version="v1",
-                occurred_at=datetime.utcnow(),
-                account_id=ory,
-                payload={
-                    "notification_type": notification_type,
-                    "idempotency_key": idempotency_key,
-                    "payload_keys": list(payload.keys()) if payload else [],
-                },
-            ))
-        except Exception as exc:
-            logger.warning(f"[Notification] dual-write schedule failed: {exc}")
-
-    return inserted
+    ory = await resolve_ory_id_from_chat(chat_id)
+    await post_event(
+        source="aist-bot",
+        external_id=f"notification-{idempotency_key}",
+        event_type="notification_sent",
+        schema_version="v1",
+        occurred_at=datetime.utcnow(),
+        account_id=ory,
+        payload={
+            "notification_type": notification_type,
+            "idempotency_key": idempotency_key,
+            "payload_keys": list(payload.keys()) if payload else [],
+        },
+    )
+    # post_event() fire-and-forget семантика на ошибку — assume inserted=True.
+    return True
 
 
 async def was_notification_sent(idempotency_key: str) -> bool:

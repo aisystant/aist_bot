@@ -2,7 +2,6 @@
 Запросы для истории вопросов и ответов.
 """
 
-import asyncio
 import json
 from datetime import datetime
 from typing import List, Optional
@@ -16,45 +15,46 @@ logger = get_logger(__name__)
 
 async def save_qa(chat_id: int, mode: str, context_topic: str,
                   question: str, answer: str, mcp_sources: List[str] = None) -> Optional[int]:
-    """Сохранить вопрос и ответ. Возвращает id записи."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow('''
-            INSERT INTO qa_history
-            (chat_id, mode, context_topic, question, answer, mcp_sources)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id
-        ''', chat_id, mode, context_topic, question, answer,
-            json.dumps(mcp_sources or []))
-        qa_id = row['id'] if row else None
+    """Сохранить вопрос и ответ — single-write на event-gateway (WP-268 cut-over).
 
-    # WP-268 Phase 2 Phase B: dual-write события qa_query.v1.
-    # PII БЕЗОПАСНОСТЬ: payload содержит ТОЛЬКО metadata — длины строк, mode,
-    # context_topic, sources count. Сырые question/answer НЕ передаются
-    # в gateway (потенциальная PII: пользователь может задать вопрос с email,
-    # ФИО, телефоном). Источник истины для содержимого Q&A остаётся в legacy
-    # qa_history; gateway получает только сигнал «было обращение».
-    if qa_id is not None:
-        try:
-            ory = await resolve_ory_id_from_chat(chat_id)
-            asyncio.create_task(post_event(
-                source="aist-bot",
-                external_id=f"qa-{qa_id}",
-                event_type="qa_query",
-                schema_version="v1",
-                occurred_at=datetime.utcnow(),
-                account_id=ory,
-                payload={
-                    "qa_id": qa_id,
-                    "mode": mode,
-                    "context_topic": context_topic or "",
-                    "question_length": len(question or ""),
-                    "answer_length": len(answer or ""),
-                    "mcp_sources_count": len(mcp_sources or []),
-                },
-            ))
-        except Exception as exc:
-            logger.warning(f"[QA] dual-write task schedule failed: {exc}")
+    WP-268 cut-over: legacy INSERT INTO qa_history УДАЛЁН.
+    Возвращаем синтетический id (hash от chat_id + content) — caller'ы используют
+    его как ссылку для feedback (update_qa_helpful/comment).
+
+    PII-инвариант: ни question, ни answer не передаются в gateway (только длины).
+
+    ⚠️ Caller'ы, которые ЧИТАЮТ qa_history (get_qa_history, get_qa_by_id) —
+    не работают для новых записей. Эти reader'ы должны мигрировать на новую БД
+    в WP-269. До миграции (а) get_qa_history вернёт пустой список для cut-over
+    периода, (б) get_qa_by_id вернёт None для синтетических id.
+    """
+    import hashlib as _hashlib
+
+    # Синтетический qa_id — hash от content для идемпотентности retry.
+    # Длина 8 hex chars = ~4 млрд значений, коллизии маловероятны для bot scale.
+    content_hash = _hashlib.sha1(
+        f"{chat_id}:{mode}:{question or ''}:{answer or ''}".encode()
+    ).hexdigest()[:12]
+    # int(...) для совместимости со старым тип-контрактом (int qa_id).
+    qa_id = int(content_hash, 16) % (2**31)
+
+    ory = await resolve_ory_id_from_chat(chat_id)
+    await post_event(
+        source="aist-bot",
+        external_id=f"qa-{content_hash}",
+        event_type="qa_query",
+        schema_version="v1",
+        occurred_at=datetime.utcnow(),
+        account_id=ory,
+        payload={
+            "qa_id": qa_id,
+            "mode": mode,
+            "context_topic": context_topic or "",
+            "question_length": len(question or ""),
+            "answer_length": len(answer or ""),
+            "mcp_sources_count": len(mcp_sources or []),
+        },
+    )
 
     return qa_id
 
@@ -113,83 +113,58 @@ async def get_latest_qa_id(chat_id: int) -> Optional[int]:
         return row['id'] if row else None
 
 
-async def update_qa_helpful(qa_id: int, helpful: bool):
-    """Записать feedback (helpful/not helpful)."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'UPDATE qa_history SET helpful = $1 WHERE id = $2',
-            helpful, qa_id
-        )
+async def update_qa_helpful(qa_id: int, helpful: bool, chat_id: Optional[int] = None):
+    """Feedback (helpful) — single-write на event-gateway (WP-268 cut-over).
 
-    # WP-268 Phase 2 Phase B: dual-write feedback события.
-    # external_id привязан к qa_id+helpful (идемпотентен при ретрае).
-    try:
-        chat_id = await _get_chat_id_for_qa(qa_id)
-        ory = await resolve_ory_id_from_chat(chat_id) if chat_id else None
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"qa-feedback-{qa_id}-{int(helpful)}",
-            event_type="qa_feedback",
-            schema_version="v1",
-            occurred_at=datetime.utcnow(),
-            account_id=ory,
-            payload={
-                "qa_id": qa_id,
-                "helpful": helpful,
-            },
-        ))
-    except Exception as exc:
-        logger.warning(f"[QA] feedback dual-write schedule failed: {exc}")
+    WP-268 cut-over: legacy UPDATE qa_history УДАЛЁН.
 
+    ⚠️ Сигнатура расширена: chat_id теперь параметр (раньше резолвили через
+    _get_chat_id_for_qa, который читал legacy qa_history). Caller'ы должны
+    передавать chat_id явно. Если None — account_id=None в envelope.
 
-async def update_qa_comment(qa_id: int, comment: str):
-    """Записать замечание пользователя."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'UPDATE qa_history SET user_comment = $1 WHERE id = $2',
-            comment, qa_id
-        )
-
-    # WP-268 Phase 2 Phase B: dual-write события user_comment.
-    # PII: сам текст comment'а НЕ передаётся (пользователь может вписать
-    # личные данные). Только длина и факт обращения.
-    try:
-        chat_id = await _get_chat_id_for_qa(qa_id)
-        ory = await resolve_ory_id_from_chat(chat_id) if chat_id else None
-        asyncio.create_task(post_event(
-            source="aist-bot",
-            external_id=f"qa-comment-{qa_id}",
-            event_type="qa_comment",
-            schema_version="v1",
-            occurred_at=datetime.utcnow(),
-            account_id=ory,
-            payload={
-                "qa_id": qa_id,
-                "comment_length": len(comment or ""),
-            },
-        ))
-    except Exception as exc:
-        logger.warning(f"[QA] comment dual-write schedule failed: {exc}")
-
-
-async def _get_chat_id_for_qa(qa_id: int) -> Optional[int]:
-    """Внутренний helper для dual-write: вытаскивает chat_id из qa_history.
-
-    Используется в update_qa_helpful/update_qa_comment чтобы получить ory_id
-    через resolve_ory_id_from_chat. Best-effort: на ошибке возвращает None,
-    dual-write пройдёт с account_id=None (gateway допускает).
+    Идемпотентность через external_id (qa_id+helpful flag).
     """
-    try:
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT chat_id FROM qa_history WHERE id = $1', qa_id
-            )
-            return row['chat_id'] if row else None
-    except Exception:
-        return None
+    ory = await resolve_ory_id_from_chat(chat_id) if chat_id else None
+    await post_event(
+        source="aist-bot",
+        external_id=f"qa-feedback-{qa_id}-{int(helpful)}",
+        event_type="qa_feedback",
+        schema_version="v1",
+        occurred_at=datetime.utcnow(),
+        account_id=ory,
+        payload={
+            "qa_id": qa_id,
+            "helpful": helpful,
+        },
+    )
+
+
+async def update_qa_comment(qa_id: int, comment: str, chat_id: Optional[int] = None):
+    """Comment feedback — single-write на event-gateway (WP-268 cut-over).
+
+    WP-268 cut-over: legacy UPDATE qa_history.user_comment УДАЛЁН.
+
+    ⚠️ Сигнатура расширена: chat_id теперь параметр (см. update_qa_helpful).
+    PII: сам текст comment'а НЕ передаётся (только длина).
+    """
+    ory = await resolve_ory_id_from_chat(chat_id) if chat_id else None
+    await post_event(
+        source="aist-bot",
+        external_id=f"qa-comment-{qa_id}",
+        event_type="qa_comment",
+        schema_version="v1",
+        occurred_at=datetime.utcnow(),
+        account_id=ory,
+        payload={
+            "qa_id": qa_id,
+            "comment_length": len(comment or ""),
+        },
+    )
+
+
+# WP-268 cut-over: _get_chat_id_for_qa(qa_id) удалён. После cut-over qa_history
+# legacy не пишется → SELECT по qa_id вернёт None или старые записи. Caller'ы
+# update_qa_helpful/update_qa_comment теперь принимают chat_id явно.
 
 
 async def get_qa_count(chat_id: int) -> int:
