@@ -304,6 +304,28 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     except Exception as e:
         logger.warning(f"Failed to persist DT connection for {telegram_user_id}: {e}")
 
+    # WP-268 Phase 2 dual-write: DT OAuth callback завершён
+    # Высокоуровневое событие — фактически "пользователь подключил DT через OAuth UI"
+    # update_user_dt() ниже отдельно эмитит dt_linked.v1 (низкоуровневая привязка id).
+    try:
+        from helpers.dual_write import post_event as _post_event
+        from datetime import datetime as _dt
+        import asyncio as _asyncio
+        _now = _dt.utcnow()
+        _asyncio.create_task(_post_event(
+            source="aist-bot",
+            external_id=f"dt-oauth-{telegram_user_id}-{int(_now.timestamp() * 1_000_000_000)}",
+            event_type="dt_oauth_completed",
+            schema_version="v1",
+            occurred_at=_now,
+            account_id=None,  # на этот момент dt_user_id ещё не прочитан (см. блок ниже)
+            payload={
+                "telegram_id": telegram_user_id,
+            },
+        ))
+    except Exception as _exc:
+        logger.warning(f"[dual-write] dt_oauth_completed fire failed: {_exc}")
+
     # Автоматический перелив профиля бота → ЦД
     # NB: sync_profile требует Ory tokens (gateway_mcp). Если пользователь подключился
     # через DT OAuth (legacy), но не через Ory — sync пропускается (вернёт 0).

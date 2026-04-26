@@ -15,6 +15,7 @@ from typing import Optional, List
 
 from config import get_logger, MOSCOW_TZ
 from db.connection import get_pool
+from helpers.dual_write import post_event
 
 logger = get_logger(__name__)
 
@@ -119,6 +120,22 @@ async def get_intern(chat_id: int) -> dict:
             INSERT INTO development.user_state (user_id, chat_id)
             VALUES ($1, $2) ON CONFLICT DO NOTHING
         ''', user_id, chat_id)
+
+        # WP-268 Phase 2 dual-write: новый пользователь зарегистрирован
+        # account_id=None — у T0 ory_id ещё нет (появится при link_ory)
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"user-registered-{user_id}",
+            event_type="user_registered",
+            schema_version="v1",
+            occurred_at=datetime.utcnow(),
+            account_id=None,
+            payload={
+                "user_id": str(user_id),
+                "registration_source": "bot_get_intern",
+                "tier": "T0",
+            },
+        ))
 
         result = _get_default_intern(chat_id)
         result['user_id'] = user_id
@@ -370,15 +387,57 @@ async def update_intern(chat_id: int, **kwargs):
     except Exception:
         pass  # DT sync — best effort
 
+    # WP-268 Phase 2 dual-write: профиль/состояние обновлено
+    # Идемпотентный external_id = chat_id + epoch_ns (несколько update_intern в секунду различаются)
+    try:
+        now = datetime.utcnow()
+        epoch_ns = int(now.timestamp() * 1_000_000_000)
+        # Не дублируем PII в payload — только список затронутых полей
+        affected_fields = sorted(columns.keys())
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"user-updated-{chat_id}-{epoch_ns}",
+            event_type="user_updated",
+            schema_version="v1",
+            occurred_at=now,
+            account_id=None,  # ory_id здесь не доступен; gateway допускает NULL
+            payload={
+                "telegram_id": chat_id,
+                "fields_updated": affected_fields,
+                "fields_count": len(affected_fields),
+            },
+        ))
+    except Exception as exc:
+        logger.warning(f"[dual-write] user_updated fire failed: {exc}")
+
 
 async def update_tg_username(chat_id: int, username: str) -> None:
     """Обновить tg_username если изменился."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
+        result = await conn.execute(
             "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1",
             username, chat_id,
         )
+
+    # WP-268 Phase 2 dual-write: tg_username синхронизирован
+    # Только если действительно был апдейт (UPDATE 1+, не UPDATE 0)
+    if result and result != "UPDATE 0":
+        now = datetime.utcnow()
+        epoch_ns = int(now.timestamp() * 1_000_000_000)
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"tg-synced-{chat_id}-{epoch_ns}",
+            event_type="user_tg_synced",
+            schema_version="v1",
+            occurred_at=now,
+            account_id=None,
+            payload={
+                "telegram_id": chat_id,
+                # username — не PII в TG-смысле (публичный handle), но для безопасности кладём только наличие
+                "username_present": bool(username),
+            },
+        ))
 
 
 async def mark_bot_blocked(chat_id: int) -> None:
