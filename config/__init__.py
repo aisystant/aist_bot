@@ -152,6 +152,11 @@ from .settings import (
     MAINTENANCE_MODE,
     MAINTENANCE_REDIRECT_BOT,
     ALLOWED_TESTERS,
+
+    # Event Gateway (WP-268 Phase 2 dual-write)
+    EVENT_GATEWAY_URL,
+    EVENT_GATEWAY_TIMEOUT,
+    EVENT_GATEWAY_ENABLED,
 )
 
 __all__ = [
@@ -246,4 +251,7 @@ __all__ = [
     'ORY_CLIENT_ID',
     'ORY_CLIENT_SECRET',
     'ORY_REDIRECT_URI',
+    'EVENT_GATEWAY_URL',
+    'EVENT_GATEWAY_TIMEOUT',
+    'EVENT_GATEWAY_ENABLED',
 ]

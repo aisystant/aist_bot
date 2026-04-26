@@ -127,6 +127,14 @@ ALLOWED_TESTERS: set[int] = {int(x.strip()) for x in _allowed.split(",") if x.st
 # Telegram ID разработчика — освобождён от rate limiting
 DEVELOPER_CHAT_ID: int = int(os.getenv("DEVELOPER_CHAT_ID", "0"))
 
+# ============= EVENT GATEWAY (WP-268 Phase 2 dual-write) =============
+# Cloudflare Worker, принимающий доменные события от бота
+# Dual-write: legacy DB (источник истины) + event-gateway (fire-and-forget)
+EVENT_GATEWAY_URL: str = os.getenv("EVENT_GATEWAY_URL", "https://event-gateway.aisystant.workers.dev")
+EVENT_GATEWAY_TIMEOUT: float = float(os.getenv("EVENT_GATEWAY_TIMEOUT", "5.0"))
+# Feature flag: можно отключить dual-write на проде через env var
+EVENT_GATEWAY_ENABLED: bool = os.getenv("EVENT_GATEWAY_ENABLED", "true").lower() == "true"
+
 # ============= ЛОГИРОВАНИЕ =============
 # logging.basicConfig() вызывается в bot.py (единая точка конфигурации)
 

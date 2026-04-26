@@ -9,12 +9,14 @@ get_intern() и update_intern() — адаптеры, возвращающие �
 """
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 
 from config import get_logger, MOSCOW_TZ
 from db.connection import get_pool
+from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
 logger = get_logger(__name__)
 
@@ -119,6 +121,11 @@ async def get_intern(chat_id: int) -> dict:
             INSERT INTO development.user_state (user_id, chat_id)
             VALUES ($1, $2) ON CONFLICT DO NOTHING
         ''', user_id, chat_id)
+
+        # WP-268 Phase 2 Issue 5 fix (verifier subagent a321d6bc):
+        # user_registered.v1 эмитится ТОЛЬКО из identity.py:get_or_create_user
+        # (более низкий уровень). Здесь — НЕТ дубликата emit.
+        # Source-of-truth для регистрации = identity layer, не users.get_intern.
 
         result = _get_default_intern(chat_id)
         result['user_id'] = user_id
@@ -370,15 +377,68 @@ async def update_intern(chat_id: int, **kwargs):
     except Exception:
         pass  # DT sync — best effort
 
+    # WP-268 Phase 2 dual-write: профиль/состояние обновлено
+    # Audit fix (Phase 2): (1) PII — telegram_id заменён на account_id (ory_id) через
+    # resolve_ory_id_from_chat; если ory не привязан — ключ омитится (PII-инвариант).
+    # (2) external_id — стабильный hash от (chat_id + sorted affected fields), а не
+    # epoch_ns; retry того же UPDATE даст тот же external_id ⇒ идемпотентность gateway.
+    try:
+        now = datetime.utcnow()
+        affected_fields = sorted(columns.keys())
+        ory_id = await resolve_ory_id_from_chat(chat_id)
+        fields_hash = hashlib.sha1(
+            f"{chat_id}:{','.join(affected_fields)}".encode()
+        ).hexdigest()[:12]
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"user-updated-{chat_id}-{fields_hash}",
+            event_type="user_updated",
+            schema_version="v1",
+            occurred_at=now,
+            account_id=ory_id,  # None если T0 — gateway допускает
+            payload={
+                # PII-инвариант: telegram_id НЕ передаётся (см. CLAUDE.md distinctions PII).
+                "fields_updated": affected_fields,
+                "fields_count": len(affected_fields),
+            },
+        ))
+    except Exception as exc:
+        logger.warning(f"[dual-write] user_updated fire failed: {exc}")
+
 
 async def update_tg_username(chat_id: int, username: str) -> None:
     """Обновить tg_username если изменился."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
+        result = await conn.execute(
             "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1",
             username, chat_id,
         )
+
+    # WP-268 Phase 2 dual-write: tg_username синхронизирован
+    # Только если действительно был апдейт (UPDATE 1+, не UPDATE 0)
+    # Audit fix (Phase 2): убран telegram_id из payload (PII), epoch_ns заменён
+    # на стабильный hash от (chat_id, username) — retry с тем же значением
+    # username идемпотентен.
+    if result and result != "UPDATE 0":
+        now = datetime.utcnow()
+        ory_id = await resolve_ory_id_from_chat(chat_id)
+        username_hash = hashlib.sha1(
+            f"{chat_id}:{username or ''}".encode()
+        ).hexdigest()[:12]
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"tg-synced-{chat_id}-{username_hash}",
+            event_type="user_tg_synced",
+            schema_version="v1",
+            occurred_at=now,
+            account_id=ory_id,
+            payload={
+                # PII-инвариант: telegram_id НЕ передаётся.
+                # username — не PII в TG-смысле (публичный handle), но для безопасности кладём только наличие
+                "username_present": bool(username),
+            },
+        ))
 
 
 async def mark_bot_blocked(chat_id: int) -> None:

@@ -6,11 +6,13 @@
 - subscription_grants (platform БД) — реестр прав доступа к Gateway (WP-231 Ф-H)
 """
 
+import asyncio
 from datetime import datetime
 from typing import Optional
 
 from config import get_logger
 from db.connection import get_pool, get_platform_pool
+from helpers.dual_write import post_event
 
 logger = get_logger(__name__)
 
@@ -148,6 +150,7 @@ async def upsert_subscription_grant(
                 f"[SubscriptionGrant] Extended: telegram_id={telegram_id}, "
                 f"source={source}, valid_until={valid_until}"
             )
+            _fire_subscription_granted(telegram_id, source, valid_until, mode="extended")
             return
 
         await conn.execute(
@@ -163,3 +166,35 @@ async def upsert_subscription_grant(
             f"[SubscriptionGrant] Created: telegram_id={telegram_id}, "
             f"source={source}, valid_until={valid_until}"
         )
+        _fire_subscription_granted(telegram_id, source, valid_until, mode="created")
+
+
+def _fire_subscription_granted(
+    telegram_id: int,
+    source: str,
+    valid_until: datetime,
+    mode: str,
+) -> None:
+    """WP-268 Phase 2 dual-write: subscription_granted event."""
+    try:
+        now = datetime.utcnow()
+        # external_id идемпотентен по комбинации (telegram_id, source, valid_until ISO)
+        # Если оплата идемпотентно вызывает upsert — событие тоже идемпотентно.
+        valid_until_iso = valid_until.isoformat() if hasattr(valid_until, "isoformat") else str(valid_until)
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"sub-granted-{telegram_id}-{source}-{valid_until_iso}",
+            event_type="subscription_granted",
+            schema_version="v1",
+            occurred_at=now,
+            account_id=None,  # ory_id здесь не доступен (bot-scope только telegram_id)
+            payload={
+                "telegram_id": telegram_id,
+                "product": "br",
+                "source": source,
+                "valid_until": valid_until_iso,
+                "mode": mode,  # "created" | "extended"
+            },
+        ))
+    except Exception as exc:
+        logger.warning(f"[dual-write] subscription_granted fire failed: {exc}")
