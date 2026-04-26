@@ -13,11 +13,14 @@
 Формат idempotency_key: {type}:{chat_id}:{date}:{detail}
 """
 
+import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Optional, Callable, Awaitable
 
 from db.connection import get_pool
+from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,7 @@ async def try_insert_notification(
         False если idempotency_key уже существует (дубль).
     """
     pool = await get_pool()
+    inserted = False
     async with pool.acquire() as conn:
         try:
             await conn.execute(
@@ -69,12 +73,40 @@ async def try_insert_notification(
                 chat_id, notification_type, idempotency_key,
                 json.dumps(payload) if payload else None,
             )
-            return True
+            inserted = True
         except Exception as e:
-            # UniqueViolationError → уже отправлено
+            # UniqueViolationError → уже отправлено (дубль)
             if 'unique' in str(e).lower() or '23505' in str(e):
                 return False
             raise
+
+    # WP-268 Phase 2 Phase B: dual-write notification_sent.v1.
+    # Пишем ТОЛЬКО при реально новой записи (inserted=True). На дубле
+    # gateway уже получил событие в первый раз — повторно не шлём, иначе
+    # каждый retry catch-up scheduler'а будет дополнительно бить event-gateway.
+    # PII: payload содержит metadata о уведомлении. Содержимое payload
+    # caller'а МОЖЕТ содержать PII (имя пользователя в тексте) — поэтому
+    # передаём только ключи, а не значения.
+    if inserted:
+        try:
+            ory = await resolve_ory_id_from_chat(chat_id)
+            asyncio.create_task(post_event(
+                source="aist-bot",
+                external_id=f"notification-{idempotency_key}",
+                event_type="notification_sent",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id=ory,
+                payload={
+                    "notification_type": notification_type,
+                    "idempotency_key": idempotency_key,
+                    "payload_keys": list(payload.keys()) if payload else [],
+                },
+            ))
+        except Exception as exc:
+            logger.warning(f"[Notification] dual-write schedule failed: {exc}")
+
+    return inserted
 
 
 async def was_notification_sent(idempotency_key: str) -> bool:

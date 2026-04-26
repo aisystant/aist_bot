@@ -28,6 +28,7 @@ import logging
 from contextvars import ContextVar
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional, List
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,47 @@ async def finish_trace(trace: Trace) -> None:
 
     # Записываем в БД (true fire-and-forget: не ждём DB write)
     asyncio.create_task(_save_trace_to_db(trace))
+
+    # WP-268 Phase 2 Phase B: dual-write request_traced.v1.
+    # Параллельно с legacy записью в request_traces. Lazy import helpers/db
+    # чтобы не создавать circular dependency на module-load (tracing
+    # импортируется очень рано, db.queries.identity — позже).
+    asyncio.create_task(_dual_write_trace(trace))
+
+
+async def _dual_write_trace(trace: Trace) -> None:
+    """Dual-write trace в event-gateway. Fire-and-forget, не блокирует.
+
+    PII: НЕ передаём raw command (может содержать /linked? хвост с PII или
+    callback_data). Передаём только первое слово (сама команда) + метрики.
+    """
+    try:
+        from helpers.dual_write import post_event, resolve_ory_id_from_chat
+
+        # Извлекаем имя команды (первое слово), не весь текст.
+        # `trace.command` уже обрезан до 100 символов в _save_trace_to_db,
+        # но raw полный — здесь дополнительно убираем потенциальный
+        # PII-хвост (например `/start ref=email@x.com`).
+        command_name = (trace.command or "").split()[0] if trace.command else ""
+
+        ory = await resolve_ory_id_from_chat(trace.user_id) if trace.user_id else None
+        await post_event(
+            source="aist-bot",
+            external_id=f"trace-{trace.trace_id}",
+            event_type="request_traced",
+            schema_version="v1",
+            occurred_at=datetime.utcnow(),
+            account_id=ory,
+            payload={
+                "trace_id": trace.trace_id,
+                "command": command_name[:50],  # safety bound
+                "state": trace.state,
+                "total_ms": round(trace.total_ms, 1),
+                "spans_count": len(trace.spans),
+            },
+        )
+    except Exception as exc:
+        logger.warning(f"[TRACE] dual-write failed: {exc}")
 
 
 async def _save_trace_to_db(trace: Trace) -> None:
