@@ -227,24 +227,45 @@ def test_cutover_get_intern_bootstrap_remains():
 # ---------------------------------------------------------------------------
 
 
+# Снимок sys.modules ДО грязных тестов (autouse fixture восстановит).
+_PRISTINE_MODULES = None
+
+
+@pytest.fixture(autouse=True)
+def _isolate_sys_modules():
+    """Защищает другие smoke-тесты от sys.modules стабов из cut-over functional
+    тестов. Создаёт snapshot перед тестом и восстанавливает после."""
+    snapshot = dict(sys.modules)
+    yield
+    # Удалить всё что появилось во время теста
+    new_keys = set(sys.modules.keys()) - set(snapshot.keys())
+    for k in new_keys:
+        sys.modules.pop(k, None)
+    # Восстановить переписанные
+    for k, v in snapshot.items():
+        sys.modules[k] = v
+
+
 def _load_module_isolated(name, relative_path):
     """Загрузить модуль напрямую без триггера db/queries/__init__.py
     (который импортирует feed.py — там Python 3.10 union syntax `dict | None`,
-    несовместим с 3.9)."""
+    несовместим с 3.9). Очистка sys.modules — через autouse fixture."""
     import importlib.util
     import types
-    # Создаём минимальные namespace package shells
-    sys.modules.setdefault("db", types.ModuleType("db"))
-    sys.modules.setdefault("db.queries", types.ModuleType("db.queries"))
-    sys.modules.setdefault("db.connection", types.ModuleType("db.connection"))
-    # db.connection.get_pool stub (для модулей, которые делают from db.connection import get_pool)
-    if not hasattr(sys.modules["db.connection"], "get_pool"):
-        async def _stub_get_pool():
-            raise AssertionError("get_pool stub: should not be called in cut-over tests")
-        sys.modules["db.connection"].get_pool = _stub_get_pool
-        sys.modules["db.connection"].get_dt_pool = _stub_get_pool
-        sys.modules["db.connection"].get_platform_pool = _stub_get_pool
-        sys.modules["db.connection"].acquire = _stub_get_pool
+    # Удалить старые версии (из autouse snapshot восстановления)
+    for victim in ("db", "db.queries", "db.connection", name):
+        sys.modules.pop(victim, None)
+    sys.modules["db"] = types.ModuleType("db")
+    sys.modules["db.queries"] = types.ModuleType("db.queries")
+    sys.modules["db.connection"] = types.ModuleType("db.connection")
+
+    async def _stub_get_pool():
+        raise AssertionError("get_pool stub: should not be called in cut-over tests")
+    sys.modules["db.connection"].get_pool = _stub_get_pool
+    sys.modules["db.connection"].get_dt_pool = _stub_get_pool
+    sys.modules["db.connection"].get_platform_pool = _stub_get_pool
+    sys.modules["db.connection"].acquire = _stub_get_pool
+
     abs_path = Path(_PROJECT_ROOT) / relative_path
     spec = importlib.util.spec_from_file_location(name, abs_path)
     mod = importlib.util.module_from_spec(spec)
