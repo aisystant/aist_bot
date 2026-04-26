@@ -35,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 _session: Optional[aiohttp.ClientSession] = None
 
+# Cache: telegram_id (chat_id) → ory_id (str) или None (нет ory привязки).
+# Заполняется лениво в resolve_ory_id_from_chat(); используется high-volume
+# writers'ами Phase B (qa, notifications, traces) чтобы не дёргать БД на каждое
+# сообщение. Размер ограничен — clear() при превышении (см. _ORY_CACHE_LIMIT).
+_ory_cache: dict = {}
+_ORY_CACHE_LIMIT = 10_000
+
 
 def _get_session() -> aiohttp.ClientSession:
     """Lazy-init shared aiohttp session (reuses connections across calls)."""
@@ -108,6 +115,44 @@ async def post_event(
                 )
     except Exception as exc:
         logger.warning(f"[dual-write] {event_type} POST exception: {exc}")
+
+
+async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
+    """Cache-first lookup `chat_id (telegram_id) → ory_id (str)`.
+
+    Используется high-volume writers'ами (qa, notifications, traces) для
+    обогащения envelope account_id без блокирования основного flow.
+
+    Returns:
+        ory_id как строка (UUID) если есть. None если T0 (ещё не привязан) или
+        пользователя нет в БД. На любой ошибке возвращает None и логирует
+        warning (fire-and-forget семантика — не должен ломать caller).
+    """
+    if chat_id is None:
+        return None
+    # Cache hit (включая отрицательный кэш None — T0 пользователи).
+    if chat_id in _ory_cache:
+        return _ory_cache[chat_id]
+
+    try:
+        # Lazy import — избегаем circular dependency (db.connection → config → ...).
+        from db.connection import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            ory = await conn.fetchval(
+                "SELECT ory_id::text FROM public.users WHERE telegram_id = $1",
+                chat_id,
+            )
+    except Exception as exc:
+        logger.warning(f"[dual-write] resolve_ory_id_from_chat({chat_id}) failed: {exc}")
+        return None
+
+    # Cache size management: clear полностью при превышении лимита.
+    # Простой LRU не нужен: ory_id стабилен, повторное заполнение дёшево.
+    if len(_ory_cache) >= _ORY_CACHE_LIMIT:
+        _ory_cache.clear()
+    _ory_cache[chat_id] = ory
+    return ory
 
 
 def fire_event(

@@ -227,3 +227,284 @@ def test_to_iso_utc_aware_preserved():
     aware = datetime(2026, 4, 26, 12, 0, 0, tzinfo=timezone.utc)
     iso = _to_iso_utc(aware)
     assert "+00:00" in iso
+
+
+# ----------------------------------------------------------------------
+# WP-268 Phase 2 Phase B — high-volume writers (events/qa/notify/traces)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_ory_id_cache_hit():
+    """resolve_ory_id_from_chat кэширует результат — повторный вызов не идёт в БД."""
+    from helpers import dual_write
+
+    # Очистить кэш
+    dual_write._ory_cache.clear()
+
+    db_calls = {"n": 0}
+
+    class FakeConn:
+        async def fetchval(self, sql, chat_id):
+            db_calls["n"] += 1
+            return "11111111-2222-3333-4444-555555555555"
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakePool:
+        def acquire(self):
+            return FakeConn()
+
+    async def fake_get_pool():
+        return FakePool()
+
+    with patch("db.connection.get_pool", fake_get_pool):
+        ory1 = await dual_write.resolve_ory_id_from_chat(123456)
+        ory2 = await dual_write.resolve_ory_id_from_chat(123456)
+
+    assert ory1 == "11111111-2222-3333-4444-555555555555"
+    assert ory2 == ory1
+    assert db_calls["n"] == 1  # Второй вызов из кэша
+
+
+@pytest.mark.asyncio
+async def test_resolve_ory_id_negative_cache():
+    """T0 пользователь (нет ory_id) кэшируется как None — повторный вызов не идёт в БД."""
+    from helpers import dual_write
+
+    dual_write._ory_cache.clear()
+
+    db_calls = {"n": 0}
+
+    class FakeConn:
+        async def fetchval(self, sql, chat_id):
+            db_calls["n"] += 1
+            return None  # T0 — ory_id ещё не привязан
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakePool:
+        def acquire(self):
+            return FakeConn()
+
+    async def fake_get_pool():
+        return FakePool()
+
+    with patch("db.connection.get_pool", fake_get_pool):
+        r1 = await dual_write.resolve_ory_id_from_chat(999)
+        r2 = await dual_write.resolve_ory_id_from_chat(999)
+
+    assert r1 is None
+    assert r2 is None
+    assert db_calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_ory_id_db_error_returns_none():
+    """На ошибке БД resolve возвращает None и не raise."""
+    from helpers import dual_write
+
+    dual_write._ory_cache.clear()
+
+    async def broken_get_pool():
+        raise ConnectionError("db down")
+
+    with patch("db.connection.get_pool", broken_get_pool):
+        result = await dual_write.resolve_ory_id_from_chat(42)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_phase_b_qa_query_envelope():
+    """qa_query.v1 — payload без raw question/answer, account_id из cache."""
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id="qa-42",
+                event_type="qa_query",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id="abc-uuid",
+                payload={
+                    "qa_id": 42,
+                    "mode": "marathon",
+                    "context_topic": "topic-1",
+                    "question_length": 47,
+                    "answer_length": 230,
+                    "mcp_sources_count": 3,
+                },
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "qa_query"
+    assert env["external_id"] == "qa-42"
+    assert env["account_id"] == "abc-uuid"
+    # PII инвариант: ни question, ни answer не в payload
+    assert "question" not in env["payload"]
+    assert "answer" not in env["payload"]
+    assert env["payload"]["question_length"] == 47
+
+
+@pytest.mark.asyncio
+async def test_phase_b_notification_sent_envelope():
+    """notification_sent.v1 — payload только metadata (нет содержимого payload caller'а)."""
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    caller_payload = {"user_name": "Иван", "topic_title": "Урок 3"}
+
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id="notification-marathon:111:2026-04-26:lesson_1",
+                event_type="notification_sent",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id="user-uuid",
+                payload={
+                    "notification_type": "marathon",
+                    "idempotency_key": "marathon:111:2026-04-26:lesson_1",
+                    "payload_keys": list(caller_payload.keys()),
+                },
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "notification_sent"
+    # PII инвариант: значения caller_payload (имя, заголовок) НЕ передаются
+    assert "user_name" not in env["payload"]
+    assert "topic_title" not in env["payload"]
+    assert env["payload"]["payload_keys"] == ["user_name", "topic_title"]
+
+
+@pytest.mark.asyncio
+async def test_phase_b_request_traced_envelope():
+    """request_traced.v1 — command обрезан до первого слова, нет хвоста."""
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id="trace-abc123def456",
+                event_type="request_traced",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id="user-uuid-2",
+                payload={
+                    "trace_id": "abc123def456",
+                    "command": "/start",
+                    "state": "common.start",
+                    "total_ms": 245.7,
+                    "spans_count": 3,
+                },
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "request_traced"
+    assert env["payload"]["command"] == "/start"
+    assert env["payload"]["spans_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_phase_b_log_event_legacy_event_envelope():
+    """legacy event_type (любой) — gateway accept'ит через permissive schema."""
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+        async def text(self):
+            return ""
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return None
+
+    class FakeSession:
+        closed = False
+        def post(self, url, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()):
+        with patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True):
+            await dual_write.post_event(
+                source="aist-bot",
+                external_id="bot-555-marathon_step-1234567890",
+                event_type="marathon_step",
+                schema_version="v1",
+                occurred_at=datetime.utcnow(),
+                account_id="user-uuid-3",
+                payload={
+                    "user_id": "555",
+                    "source": "bot",
+                    "confidence": 0.9,
+                    "skill_count": 2,
+                    "payload_keys": ["topic_id", "result"],
+                },
+            )
+
+    env = captured["json"]
+    assert env["event_type"] == "marathon_step"
+    assert env["payload"]["confidence"] == 0.9
+    assert env["payload"]["skill_count"] == 2

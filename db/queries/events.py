@@ -10,12 +10,15 @@ Integrity Pipeline (WP-109 Bot Adapter):
 - Совместимость с Activity Hub (общий unique index на source+external_id)
 """
 
+import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Optional
 
 from db.connection import get_pool
+from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,34 @@ async def log_event(
             event_id = row['id'] if row else None
             if event_id:
                 logger.info(f"[Events] {event_type} logged for {user_id} (id={event_id})")
+
+                # WP-268 Phase 2 Phase B: dual-write центрального event log.
+                # Gateway имеет permissive schema legacy_bot_event.v1 для всех
+                # 36+ event_types бота — пропустит любой event_type без
+                # дополнительной schema-регистрации.
+                # Только при успешной legacy записи (event_id != None) — иначе
+                # dedup-skip раздваивается, легаси и gateway получат разное.
+                try:
+                    asyncio.create_task(post_event(
+                        source="aist-bot",
+                        external_id=external_id,  # уже идемпотентный (см. _make_external_id)
+                        event_type=event_type,
+                        schema_version="v1",
+                        occurred_at=datetime.utcnow(),
+                        account_id=str(user_uuid) if user_uuid else None,
+                        # Сохраняем payload как есть — gateway применяет
+                        # FORBIDDEN_FIELDS-фильтрацию для PII (email, password, etc.).
+                        payload={
+                            "user_id": str(user_id),
+                            "source": source,
+                            "confidence": confidence,
+                            "skill_count": len(skill_ids) if skill_ids else 0,
+                            "payload_keys": list(payload.keys()) if payload else [],
+                        },
+                    ))
+                except Exception as exc:
+                    # Никогда не блокировать legacy путь.
+                    logger.warning(f"[Events] dual-write task schedule failed: {exc}")
             else:
                 logger.debug(f"[Events] {event_type} dedup skip for {user_id}")
             return event_id
