@@ -73,7 +73,6 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
         occurred_at=now,
         account_id=account_id_str,
         payload={
-            "telegram_id": chat_id,
             "aisystant_id": str(aisystant_id),
         },
     ))
@@ -89,7 +88,6 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
             payload={
                 "source": "lms",
                 "external_id": str(aisystant_id),
-                "telegram_id": chat_id,
             },
         ))
 
@@ -126,7 +124,6 @@ async def remove_aisystant_link(chat_id: int):
             occurred_at=now,
             account_id=account_id_str,
             payload={
-                "telegram_id": chat_id,
                 "aisystant_id_was": str(prev_aisystant_id) if prev_aisystant_id else None,
             },
         ))
