@@ -1,8 +1,9 @@
 # CLAUDE.md — AIST_me_bot (new-architecture)
 
-> **Общие инструкции:** см. `/Users/tserentserenov/IWE/CLAUDE.md`
->
+> **Общие инструкции:** см. [`/Users/tserentserenov/IWE/CLAUDE.md`](../../CLAUDE.md) (загружается Claude Code автоматически как parent).
 > Этот файл содержит только специфику данного репозитория.
+>
+> **Last sync review:** 2026-04-26 (WP-265 audit). Универсальные правила root § 2 применимы и здесь: **WP Gate, Pilot-First Push, IntegrationGate, LegacyPortGate, Автономность (БЛОКИРУЮЩЕЕ — не спрашивать подтверждений)**. См. также Pilot-First в `MEMORY.md`.
 
 ---
 
