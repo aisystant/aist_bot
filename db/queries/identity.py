@@ -115,7 +115,6 @@ async def link_ory(telegram_id: int, ory_id: str, email: Optional[str] = None) -
                 occurred_at=datetime.utcnow(),
                 account_id=ory_id,
                 payload={
-                    "telegram_id": telegram_id,
                     "tier_to": "T1",
                     "email_present": bool(email),
                 },
@@ -142,9 +141,7 @@ async def update_user_dt(telegram_id: int, dt_user_id: str) -> bool:
                 schema_version="v1",
                 occurred_at=datetime.utcnow(),
                 account_id=str(dt_user_id),  # dt_user_id = Ory UUID (см. CLAUDE.md §12b)
-                payload={
-                    "telegram_id": telegram_id,
-                },
+                payload={},
             ))
             return True
         return False
@@ -177,7 +174,6 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
                 occurred_at=now,
                 account_id=ory_id_str,
                 payload={
-                    "telegram_id": telegram_id,
                     "tier_from": prev_tier,
                     "tier_to": tier,
                 },

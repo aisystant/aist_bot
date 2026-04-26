@@ -188,8 +188,9 @@ def _fire_subscription_granted(
             schema_version="v1",
             occurred_at=now,
             account_id=None,  # ory_id здесь не доступен (bot-scope только telegram_id)
+            # PII fix (26 апр): telegram_id убран из payload (FORBIDDEN_FIELDS gateway).
+            # Для projection-worker'а (WP-270) — извлекается из external_id префикса.
             payload={
-                "telegram_id": telegram_id,
                 "product": "br",
                 "source": source,
                 "valid_until": valid_until_iso,
