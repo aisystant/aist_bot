@@ -17,6 +17,7 @@ Gateway (mcp.aisystant.com) двухуровневый (DP.SC.112, 2026-04-16):
 Используй has_gateway_access() для проверки перед подписочными tools Gateway.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional
@@ -67,34 +68,46 @@ class AccessLayer:
         knowledge_* доступен бесплатно (проверка на стороне Gateway, не бота).
         Триал НЕ даёт доступ к подписочным tools Gateway (DP.SC.112, 2026-04-16).
 
-        Порядок проверки (WP-231, WP-232):
-        1. subscription_grants в platform БД (source of truth)
-        2. Fallback: Aisystant API (для пользователей не в platform, до завершения WP-231 Ф2 sync)
+        WP-269 + ArchGate B7.3 mitigation:
+        1. Resolve telegram_id → account_id через persona.ory_identity
+        2. Check subscription.contract status='active' AND valid_to > now()
+           Retry-loop 5×1сек для projection lag после payment (B4 payment race 100-5000ms).
+        3. Fallback: Aisystant API (для пользователей без ory_id в persona)
         """
-        # 1. Platform БД — subscription_grants
         try:
-            from db.connection import get_platform_pool
-            from db.queries.identity import get_user_by_telegram
-            user = await get_user_by_telegram(user_id)
-            ory_id = user.get("ory_id") if user else None
-            if ory_id:
-                platform_pool = await get_platform_pool()
-                async with platform_pool.acquire() as conn:
-                    has_grant = await conn.fetchval(
-                        """SELECT EXISTS (
-                            SELECT 1 FROM subscription_grants
-                            WHERE ory_id = $1
-                              AND (valid_until IS NULL OR valid_until > now())
-                              AND revoked_at IS NULL
-                        )""",
-                        ory_id,
-                    )
-                if has_grant:
-                    return True
-        except Exception as e:
-            logger.warning(f"[Access] platform subscription_grants check failed: {e}")
+            from db.connection import get_persona_pool, get_subscription_pool
 
-        # 2. Fallback: Aisystant API (до завершения WP-231 Ф2 sync)
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as conn:
+                account_id = await conn.fetchval(
+                    "SELECT account_id FROM ory_identity WHERE telegram_id = $1",
+                    user_id,
+                )
+
+            if account_id:
+                subscription_pool = await get_subscription_pool()
+                # Retry-loop: 5 попыток × 1 sec = до 5 sec для свежего payment.
+                # TODO WP-269 Phase 2: optimize — retry только при recent payment event
+                # (избежать 5-sec latency для пользователей без подписки).
+                for attempt in range(5):
+                    async with subscription_pool.acquire() as conn:
+                        has_grant = await conn.fetchval(
+                            """SELECT EXISTS (
+                                SELECT 1 FROM contract
+                                WHERE account_id = $1
+                                  AND status = 'active'
+                                  AND valid_to > now()
+                            )""",
+                            account_id,
+                        )
+                    if has_grant:
+                        return True
+                    if attempt < 4:
+                        await asyncio.sleep(1.0)
+        except Exception as e:
+            logger.warning(f"[Access] subscription.contract check failed: {e}")
+
+        # Fallback: Aisystant API (legacy users без ory_id или БД недоступна)
         return await self._has_aisystant_subscription(user_id)
 
     async def get_paywall(self, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
