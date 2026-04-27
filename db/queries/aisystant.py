@@ -1,15 +1,15 @@
 """
 DB-запросы для привязки Aisystant аккаунта (WP-79).
 
-Хранит aisystant_id в public.users для:
-- Проверки подписки БР (определяет T2)
-- Запросов к Aisystant API (программы, оплата, занятия)
+Read-path (WP-269): persona.ory_identity.traits->>'aisystant_id' через PERSONA_URL.
+Write-path (WP-268 Phase B): event-gateway POST (aisystant_linked / aisystant_unlinked /
+lms_mapping_added) + legacy UPDATE для backward-совместимости (postcutover можно убрать).
 """
 
 import asyncio
 from datetime import datetime
 
-from db.connection import get_pool
+from db.connection import get_pool, get_persona_pool
 from config import get_logger
 from helpers.dual_write import post_event
 
@@ -17,11 +17,14 @@ logger = get_logger(__name__)
 
 
 async def get_aisystant_id(chat_id: int) -> str | None:
-    """Получить aisystant_id по chat_id. None если не привязан."""
-    pool = await get_pool()
+    """Получить aisystant_id по chat_id. None если не привязан.
+
+    WP-269: чтение из persona.ory_identity.traits.aisystant_id (новая per-domain БД).
+    """
+    pool = await get_persona_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT aisystant_id FROM public.users WHERE telegram_id = $1',
+            "SELECT traits->>'aisystant_id' AS aisystant_id FROM ory_identity WHERE telegram_id = $1",
             chat_id,
         )
         if row and row['aisystant_id']:
