@@ -19,7 +19,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Callable, Awaitable
 
-from db.connection import get_pool
+from db.connection import get_pool, get_learning_pool
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
 logger = logging.getLogger(__name__)
@@ -110,12 +110,17 @@ async def try_insert_notification(
 
 
 async def was_notification_sent(idempotency_key: str) -> bool:
-    """Проверить, было ли уведомление уже отправлено."""
-    pool = await get_pool()
+    """Проверить, было ли уведомление уже отправлено.
+
+    WP-269: чтение из learning.domain_event (notification_sent events).
+    Idempotency через (source, external_id) UNIQUE: external_id = f"notification-{idempotency_key}".
+    """
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT id FROM notification_log WHERE idempotency_key = $1',
-            idempotency_key,
+            "SELECT 1 FROM domain_event "
+            "WHERE source = 'aist-bot' AND event_type = 'notification_sent' AND external_id = $1",
+            f"notification-{idempotency_key}",
         )
         return row is not None
 
