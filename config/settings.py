@@ -20,9 +20,19 @@ CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
 CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
 # WP-227: отдельная БД для ЦД (digitaltwin). Если не задана — fallback на DATABASE_URL.
+# Note: WP-268 Phase 2 (26 апр) — БД digitaltwin DROPPED. Используй INDICATORS_URL.
 DT_DATABASE_URL = os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
 # WP-232: платформенная БД (subscription_grants, user_identities). Fallback на DT_DATABASE_URL.
+# Note: WP-268 Phase 2 — aist_bot.subscription_grants DROPPED. Используй SUBSCRIPTION_URL.
 SUBSCRIPTION_DB_URL = os.getenv("SUBSCRIPTION_DB_URL") or os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
+
+# WP-269 read-path migration (cut-over deploy 26 апр): новые per-domain БД.
+# После DROP legacy БД бот читает из этих pools.
+# Fallback на DATABASE_URL только для локального dev — в production должны быть set.
+PERSONA_URL = os.getenv("PERSONA_URL") or os.getenv("DATABASE_URL")  # persona.ory_identity, persona.identity_map
+SUBSCRIPTION_URL = os.getenv("SUBSCRIPTION_URL") or os.getenv("DATABASE_URL")  # subscription.contract
+INDICATORS_URL = os.getenv("INDICATORS_URL") or os.getenv("DATABASE_URL")  # indicators.calculated_profile (заменяет digitaltwin)
+LEARNING_URL = os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")  # learning.domain_event (qa, notifications, traces)
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
