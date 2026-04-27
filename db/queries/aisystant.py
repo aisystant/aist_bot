@@ -20,16 +20,36 @@ async def get_aisystant_id(chat_id: int) -> str | None:
     """Получить aisystant_id по chat_id. None если не привязан.
 
     WP-269: чтение из persona.ory_identity.traits.aisystant_id (новая per-domain БД).
+    Fallback на legacy platform.public.users — для existing users, которые ещё не
+    мигрированы в persona.ory_identity (backfill ETL pending). Удалить после backfill.
     """
-    pool = await get_persona_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT traits->>'aisystant_id' AS aisystant_id FROM ory_identity WHERE telegram_id = $1",
-            chat_id,
-        )
-        if row and row['aisystant_id']:
-            return row['aisystant_id']
-        return None
+    # Primary: persona.ory_identity (новая архитектура)
+    try:
+        pool = await get_persona_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT traits->>'aisystant_id' AS aisystant_id FROM ory_identity WHERE telegram_id = $1",
+                chat_id,
+            )
+            if row and row['aisystant_id']:
+                return row['aisystant_id']
+    except Exception as e:
+        logger.warning(f"[Aisystant] persona.ory_identity read failed: {e}")
+
+    # Fallback: legacy platform.public.users (для existing users до backfill ETL)
+    try:
+        main_pool = await get_pool()
+        async with main_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT aisystant_id FROM public.users WHERE telegram_id = $1',
+                chat_id,
+            )
+            if row and row['aisystant_id']:
+                return row['aisystant_id']
+    except Exception as e:
+        logger.warning(f"[Aisystant] legacy public.users fallback failed: {e}")
+
+    return None
 
 
 async def save_aisystant_link(chat_id: int, aisystant_id: str):
