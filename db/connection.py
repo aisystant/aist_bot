@@ -9,8 +9,6 @@ from typing import Optional
 
 from config import (
     DATABASE_URL,
-    DT_DATABASE_URL,
-    SUBSCRIPTION_DB_URL,
     PERSONA_URL,
     SUBSCRIPTION_URL,
     INDICATORS_URL,
@@ -20,14 +18,9 @@ from config import (
 
 logger = get_logger(__name__)
 
-# Глобальный пул соединений (aist_bot БД)
+# Глобальный пул соединений (platform БД — legacy таблицы: users, digital_twins,
+# subscription_grants, products, finance_payments, fsm_states, и т.д.)
 _pool: Optional[asyncpg.Pool] = None
-
-# Пул для digitaltwin БД (WP-227, DROPPED 26 апр — keep for transition migration)
-_dt_pool: Optional[asyncpg.Pool] = None
-
-# Пул для platform БД — subscription_grants, user_identities (WP-232, DROPPED 26 апр — keep for transition)
-_platform_pool: Optional[asyncpg.Pool] = None
 
 # WP-269 read-path migration: новые per-domain pools.
 _persona_pool: Optional[asyncpg.Pool] = None       # persona.ory_identity, persona.identity_map
@@ -53,51 +46,6 @@ async def get_pool() -> asyncpg.Pool:
             logger.error(f"❌ Ошибка создания пула соединений: {e}")
             raise
     return _pool
-
-
-async def get_dt_pool() -> asyncpg.Pool:
-    """Получить пул соединений к digitaltwin БД (WP-227).
-
-    Если DT_DATABASE_URL не задан — использует DATABASE_URL (fallback до cutover).
-    """
-    global _dt_pool
-    if _dt_pool is None:
-        try:
-            _dt_pool = await asyncpg.create_pool(
-                DT_DATABASE_URL,
-                statement_cache_size=0,
-                min_size=2,
-                max_size=10,
-                command_timeout=30,
-            )
-            logger.info("✅ DT пул соединений создан (digitaltwin)")
-        except Exception as e:
-            logger.error(f"❌ Ошибка создания DT пула соединений: {e}")
-            raise
-    return _dt_pool
-
-
-async def get_platform_pool() -> asyncpg.Pool:
-    """Получить пул соединений к platform БД (WP-232).
-
-    Используется для subscription_grants, user_identities.
-    Fallback: DT_DATABASE_URL → DATABASE_URL (до полного cutover WP-232).
-    """
-    global _platform_pool
-    if _platform_pool is None:
-        try:
-            _platform_pool = await asyncpg.create_pool(
-                SUBSCRIPTION_DB_URL,
-                statement_cache_size=0,
-                min_size=1,
-                max_size=5,
-                command_timeout=30,
-            )
-            logger.info("✅ Platform пул соединений создан (subscription_grants)")
-        except Exception as e:
-            logger.error(f"❌ Ошибка создания platform пула соединений: {e}")
-            raise
-    return _platform_pool
 
 
 async def get_persona_pool() -> asyncpg.Pool:
@@ -162,19 +110,11 @@ async def get_learning_pool() -> asyncpg.Pool:
 
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _dt_pool, _platform_pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool
     if _pool:
         await _pool.close()
         _pool = None
         logger.info("🔒 Пул соединений закрыт")
-    if _dt_pool:
-        await _dt_pool.close()
-        _dt_pool = None
-        logger.info("🔒 DT пул соединений закрыт")
-    if _platform_pool:
-        await _platform_pool.close()
-        _platform_pool = None
-        logger.info("🔒 Platform пул соединений закрыт")
     if _persona_pool:
         await _persona_pool.close()
         _persona_pool = None

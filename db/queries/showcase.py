@@ -5,7 +5,7 @@ DB-запросы для витрины семинаров (WP-5).
 Миграция: payment-registry/migrations/009-products-and-mentor-assignments.sql
 """
 
-from db.connection import get_platform_pool
+from db.connection import get_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 
 async def get_active_seminars(*, free_only: bool = False) -> list[dict]:
     """Получить активные семинары из products, отсортированные по sort_order."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         if free_only:
             rows = await conn.fetch(
@@ -35,7 +35,7 @@ async def get_active_seminars(*, free_only: bool = False) -> list[dict]:
 
 async def get_seminar_by_code(code: str) -> dict | None:
     """Получить семинар по code (PK)."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM products WHERE code = $1 AND type = 'seminar' AND active = TRUE",
@@ -46,7 +46,7 @@ async def get_seminar_by_code(code: str) -> dict | None:
 
 async def get_seminar_by_tilda_uid(tilda_uid: str) -> dict | None:
     """Получить семинар по tilda_uid (в metadata)."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """SELECT * FROM products
@@ -70,7 +70,7 @@ async def create_seminar_payment(
     payment_id: str | None = None,
 ) -> int:
     """Записать оплату семинара в finance_payments. Возвращает id."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     # Определяем channel: 9=bot-stars, 10=bot-yookassa
     channel = 9 if currency == "XTR" else 10
 
@@ -93,7 +93,7 @@ async def create_seminar_payment(
 
 async def has_seminar_access(telegram_id: int, product_code: str) -> bool:
     """Проверить, оплачен ли семинар пользователем."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
             """SELECT COUNT(*) FROM finance_payments
@@ -105,7 +105,7 @@ async def has_seminar_access(telegram_id: int, product_code: str) -> bool:
 
 async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
     """Проверить, есть ли у пользователя оплаченный семинар с данным chat_id."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
             """SELECT COUNT(*) FROM finance_payments fp
@@ -119,7 +119,7 @@ async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
 
 async def get_user_seminar_codes(telegram_id: int) -> set[str]:
     """Получить set кодов оплаченных семинаров пользователя."""
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT DISTINCT fp.code FROM finance_payments fp

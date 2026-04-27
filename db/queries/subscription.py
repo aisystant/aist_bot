@@ -1,9 +1,9 @@
 """
 Запросы для работы с подписками.
 
-Две таблицы:
-- subscriptions (aist_bot БД) — Stars-донаты, внутренний учёт бота
-- subscription_grants (platform БД) — реестр прав доступа к Gateway (WP-231 Ф-H)
+Две таблицы (обе в platform БД):
+- subscriptions — Stars-донаты, внутренний учёт бота
+- subscription_grants — реестр прав доступа к Gateway (WP-231 Ф-H)
 """
 
 import asyncio
@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 from config import get_logger
-from db.connection import get_pool, get_platform_pool
+from db.connection import get_pool
 from helpers.dual_write import post_event
 
 logger = get_logger(__name__)
@@ -132,7 +132,7 @@ async def upsert_subscription_grant(
         valid_until: Дата окончания подписки (naive UTC).
         source: Источник права — 'tg_stars' или 'bot_payment'.
     """
-    pool = await get_platform_pool()
+    pool = await get_pool()
     async with pool.acquire() as conn:
         updated = await conn.execute(
             '''

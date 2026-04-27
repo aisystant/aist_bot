@@ -19,12 +19,6 @@ CLAUDE_MODEL_OPUS = "claude-opus-4-6"
 CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
 CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
-# WP-227: отдельная БД для ЦД (digitaltwin). Если не задана — fallback на DATABASE_URL.
-# Note: WP-268 Phase 2 (26 апр) — БД digitaltwin DROPPED. Используй INDICATORS_URL.
-DT_DATABASE_URL = os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
-# WP-232: платформенная БД (subscription_grants, user_identities). Fallback на DT_DATABASE_URL.
-# Note: WP-268 Phase 2 — aist_bot.subscription_grants DROPPED. Используй SUBSCRIPTION_URL.
-SUBSCRIPTION_DB_URL = os.getenv("SUBSCRIPTION_DB_URL") or os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
 
 # WP-269 read-path migration (cut-over deploy 26 апр): новые per-domain БД.
 # После DROP legacy БД бот читает из этих pools.
