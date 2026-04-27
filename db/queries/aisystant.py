@@ -23,12 +23,15 @@ async def get_aisystant_id(chat_id: int) -> str | None:
     Fallback на legacy platform.public.users — для existing users, которые ещё не
     мигрированы в persona.ory_identity (backfill ETL pending). Удалить после backfill.
     """
-    # Primary: persona.ory_identity (новая архитектура)
+    # Primary: persona.ory_identity (новая архитектура).
+    # Ключ в traits — `aisystant_suser_id` (LMS suser.id, термин из WP-268 ETL).
+    # `aisystant_id` оставлен в COALESCE как fallback на случай переименования.
     try:
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT traits->>'aisystant_id' AS aisystant_id FROM ory_identity WHERE telegram_id = $1",
+                """SELECT COALESCE(traits->>'aisystant_suser_id', traits->>'aisystant_id')
+                   AS aisystant_id FROM ory_identity WHERE telegram_id = $1""",
                 chat_id,
             )
             if row and row['aisystant_id']:
