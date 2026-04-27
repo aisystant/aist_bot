@@ -40,7 +40,7 @@ async def with_user_context(
     """Выполнить fn внутри транзакции с установленным app.user_id.
 
     Args:
-        pool: asyncpg Pool (из get_pool() или get_dt_pool())
+        pool: asyncpg Pool (из get_pool())
         ory_id: Ory user UUID. None/empty → SET LOCAL не вызывается (платформенный запрос)
         fn: async-функция, получающая asyncpg.Connection
 

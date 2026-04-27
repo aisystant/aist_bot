@@ -26,13 +26,13 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-from db.connection import get_pool, get_dt_pool
+from db.connection import get_pool
 from helpers.dual_write import post_event
 # WP-218 Ф2: calculator removed from bot — R28 Profiler is now single source
 # of 3_derived. See DS-ai-systems/profiler/scripts/recalculate_derived.py
 # (stand-alone runtime that reads digital_twins.data from Neon directly).
-# WP-227: бот читает development.engagement из aist_bot (get_pool),
-# но пишет digital_twins в digitaltwin БД (get_dt_pool). T0 не пишет в ЦД.
+# WP-227: бот читает development.engagement и пишет digital_twins в одной
+# platform БД (raw табличные имена, без префикса схемы). T0 не пишет в ЦД.
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +138,10 @@ async def sync_engagement_to_dt() -> dict:
         {"synced": N, "skipped": N, "errors": N, "first_error": str|None}
     """
     pool = await get_pool()
-    dt_pool = await get_dt_pool()
     stats = {"synced": 0, "skipped": 0, "errors": 0, "first_error": None}
 
     try:
-        async with pool.acquire() as conn, dt_pool.acquire() as dt_conn:
+        async with pool.acquire() as conn, pool.acquire() as dt_conn:
 
             # ─── Notification engagement (WP-152 Ф4) ───
             # Предзагрузка: user_id → notification stats (для merge ниже)
@@ -524,11 +523,10 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
         True если collect прошёл успешно, False при ошибке.
     """
     pool = await get_pool()
-    dt_pool = await get_dt_pool()
     now = datetime.now(timezone.utc)
 
     try:
-        async with pool.acquire() as conn, dt_pool.acquire() as dt_conn:
+        async with pool.acquire() as conn, pool.acquire() as dt_conn:
             # Находим пользователя по dt_user_id (Ory UUID) или user_uuid
             row = await conn.fetchrow('''
                 SELECT

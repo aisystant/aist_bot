@@ -611,7 +611,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
         dict с сырыми 2_collected или None (если engagement view пуст).
         Без '_derived' ключа — пользователь видит только сырые метрики.
     """
-    from db.connection import get_pool, get_dt_pool
+    from db.connection import get_pool
 
     try:
         pool = await get_pool()
@@ -666,11 +666,10 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                 chat_id,
             )
 
-        # Merge existing 2_6/2_7 и 3_derived из digitaltwin БД (WP-227)
+        # Merge existing 2_6/2_7 и 3_derived из digital_twins (WP-227)
         if user_uuid_row:
             try:
-                dt_pool = await get_dt_pool()
-                async with dt_pool.acquire() as dt_conn:
+                async with pool.acquire() as dt_conn:
                     existing = await dt_conn.fetchval(
                         "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
                         str(user_uuid_row),
@@ -689,7 +688,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                         derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
                         collected['_derived'] = derived
             except Exception as dt_e:
-                logger.warning(f"[/me] Fallback dt_pool read failed: {dt_e}")
+                logger.warning(f"[/me] Fallback digital_twins read failed: {dt_e}")
 
         return collected
     except Exception as e:
