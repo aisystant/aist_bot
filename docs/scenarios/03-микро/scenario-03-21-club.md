@@ -22,10 +22,30 @@
 | Состояние | Что видит user |
 |-----------|----------------|
 | Без подключения | Инструкция + `/club connect` |
-| `/club connect` | Стартует OAuth flow к Discourse |
-| Подключён | Статус + `[📝 Опубликовать]` + `[Отключить]` |
+| `/club connect` | Просьба прислать username+URL; ownership-check ниже |
+| Подключён | Статус + `[📝 Опубликовать]` + `[Отвязать]` + подсказка «не мой аккаунт» |
 | `/club publish` | Запускает publisher flow → выбор файла → scheduled_publications |
 | `/club disconnect` | Очистка `discourse_accounts` |
+
+### 1a. Connect ownership-check (WP-7 DC1+DC2, 27 апр 2026)
+
+При подключении бот проверяет, что Telegram-юзер реально владеет указанной категорией. Discourse-семантика: блог-категория принадлежит личной группе юзера (`user-N`), которая получает `permission_type=1` (full edit) в `category.group_permissions`. Проверка: пересечение `user.groups` с группами категории, владеющими ею.
+
+| Сценарий | Действие |
+|----------|----------|
+| URL `c/blogs/blogs-user-N/<id>` без явного username | Reject: «Ссылка содержит slug категории, не username — пришли username отдельно» |
+| Username не существует в Discourse | Reject: «Пользователь не найден в клубе» |
+| Username существует, но НЕ владеет category_id | Reject: «Категория принадлежит другому юзеру» |
+| Категория без явного владельца (только `everyone`) | Reject: «Общая категория клуба, в неё через бота нельзя» |
+| Все проверки PASS | INSERT в `discourse_accounts` + клавиатура с кнопкой «✗ Это не мой аккаунт» |
+
+**Helpers** (`handlers/discourse.py`):
+- `_category_owner_groups(cat)` — извлекает группы с `permission_type=1`, исключая `everyone`
+- `_user_is_category_owner(user, cat)` — проверяет пересечение групп
+
+**Эвристика-предшественник удалена.** До 27 апр 2026 функция `_resolve_username_from_category` угадывала владельца по названию категории через slugify+search — это позволяло привязать чужой блог к Telegram-юзеру (incident WP-7 DC: Андрей↔Tseren).
+
+**Тесты:** `tests/smoke/test_discourse_ownership.py` (9 кейсов).
 
 ## 2. Publishing flow (§10.6 Publisher правила)
 
@@ -69,3 +89,4 @@
 | Дата | Изменение |
 |------|-----------|
 | 2026-04-11 | Создание документа (DOC1.C batch) |
+| 2026-04-27 | WP-7 DC1+DC2: ownership-check через `category.group_permissions` (вместо эвристики `_resolve_username_from_category` + slug-парс), inline-кнопка «✗ Это не мой аккаунт». Тесты `test_discourse_ownership.py`. |

@@ -320,7 +320,8 @@ async def cmd_club(message: Message, state: FSMContext):
             f"*Клуб подключён*\n\n"
             f"Username: `{username}`\n"
             f"Блог: категория {cat_id}\n"
-            f"Публикаций: {len(posts)}",
+            f"Публикаций: {len(posts)}\n\n"
+            "Если это не твой аккаунт — «Отвязать», потом /club connect.",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
@@ -427,65 +428,41 @@ async def on_blog_url_input(message: Message, state: FSMContext):
     await _connect_full(message, username, category_id)
 
 
-async def _resolve_username_from_category(discourse, category_id: int, slug: str) -> str | None:
-    """Resolve real username from blogs-user-* slug via category name + user search.
+def _category_owner_groups(cat: dict) -> list[str]:
+    # Discourse: блог-категория принадлежит личной группе юзера (`user-N`),
+    # которая получает permission_type=1 (full edit) в group_permissions.
+    perms = cat.get("group_permissions") or []
+    return [
+        p.get("group_name")
+        for p in perms
+        if p.get("permission_type") == 1 and p.get("group_name") not in (None, "everyone")
+    ]
 
-    Strategy:
-    1. Get category by ID → extract name (e.g. "Tseren Tserenov")
-    2. Slugify name → guess username (e.g. "tseren-tserenov")
-    3. Verify via get_user (always works, unlike search_users which may 403)
-    4. Fallback: search_users if slugified guess didn't match
-    """
-    cat = await discourse.get_category(category_id)
-    if not cat:
-        logger.info(f"[resolve] get_category({category_id}) → None")
-        return None
-    cat_name = cat.get("name", "")
-    logger.info(f"[resolve] cat_name='{cat_name}'")
-    # Strip typical suffixes: "(блоги)", "(blogs)"
-    clean_name = re.sub(r'\s*\((?:блоги|blogs)\)\s*$', '', cat_name).strip()
-    if not clean_name:
-        return None
 
-    # Strategy 1: slugify name → verify via get_user (no special scope needed)
-    guessed = re.sub(r'[^a-zA-Z0-9]+', '-', clean_name).strip('-').lower()
-    if guessed:
-        logger.info(f"[resolve] trying guessed username '{guessed}'")
-        user = await discourse.get_user(guessed)
-        if user:
-            return guessed
-
-    # Strategy 2: search_users (may 403 depending on API key scope)
-    results = await discourse.search_users(clean_name)
-    logger.info(f"[resolve] search_users('{clean_name}') → {len(results)} results")
-    if results and len(results) == 1:
-        return results[0].get("username")
-    for u in results:
-        if u.get("name", "").lower() == clean_name.lower():
-            return u.get("username")
-    return None
+def _user_is_category_owner(user: dict, cat: dict) -> bool:
+    owner_groups = _category_owner_groups(cat)
+    if not owner_groups:
+        return False
+    user_groups = {g.get("name") for g in (user.get("groups") or [])}
+    return any(g in user_groups for g in owner_groups)
 
 
 async def _connect_full(message: Message, username: str, category_id: int):
-    """Verify username + category and save. Max 2 API calls."""
+    """Verify username + category, check ownership, save."""
     from clients.discourse import discourse
 
-    # 0. Resolve blogs-user-* slug → real username
+    # 0. Slug категории как username — отказ с просьбой указать реальный username.
+    # Слаги вида blogs-user-N — это Discourse-имена групп, не username владельца.
     if re.match(r'^blogs-user-\d+$', username):
-        resolved = await _resolve_username_from_category(discourse, category_id, username)
-        if resolved:
-            logger.info(f"Resolved slug '{username}' → username '{resolved}'")
-            username = resolved
-        else:
-            await message.answer(
-                f"Ссылка содержит slug категории `{username}`, а не username.\n"
-                "Не удалось определить владельца блога автоматически.\n\n"
-                "Напиши свой username в клубе (без угловых скобок).\n"
-                "Его можно найти на systemsworld.club в профиле.\n\n"
-                "Например: `/club connect tseren-tserenov`",
-                parse_mode="Markdown",
-            )
-            return
+        await message.answer(
+            "Ссылка содержит slug категории, а не твой username.\n\n"
+            "Напиши свой username в клубе (без `@`) — его можно найти "
+            "в URL твоего профиля: `https://systemsworld.club/u/<username>/...`\n\n"
+            "Пример: `/club connect tseren-tserenov 37`\n"
+            "Или просто пришли username — потом бот спросит URL блога.",
+            parse_mode="Markdown",
+        )
+        return
 
     # 1. Verify username
     user = await discourse.get_user(username)
@@ -504,7 +481,32 @@ async def _connect_full(message: Message, username: str, category_id: int):
         )
         return
 
-    # 3. Save
+    # 3. Ownership check — `username` реально владеет category_id?
+    if not _user_is_category_owner(user, cat):
+        cat_name = cat.get("name", f"#{category_id}")
+        owner_groups = _category_owner_groups(cat)
+        if not owner_groups:
+            hint = (
+                "У этой категории нет личного владельца (общая категория клуба) — "
+                "публиковать в неё через бота нельзя."
+            )
+        else:
+            hint = (
+                f"Категория *{cat_name}* (#{category_id}) принадлежит другому юзеру.\n\n"
+                "Возможные причины:\n"
+                "• Прислал URL чужого блога — пришли URL своего\n"
+                "• У тебя нет личного блога-категории на платформе. "
+                "Личные блоги создаёт администратор клуба — обратись в поддержку."
+            )
+        logger.warning(
+            f"[discourse] ownership mismatch: chat_id={message.chat.id} "
+            f"username={username} category_id={category_id} "
+            f"owner_groups={owner_groups} user_groups={[g.get('name') for g in (user.get('groups') or [])]}"
+        )
+        await message.answer(hint, parse_mode="Markdown")
+        return
+
+    # 4. Save
     cat_slug = cat.get("slug", "")
     cat_name = cat.get("name", f"#{category_id}")
     await link_discourse_account(
@@ -516,11 +518,13 @@ async def _connect_full(message: Message, username: str, category_id: int):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Опубликовать", callback_data="club_publish_start")],
+        [InlineKeyboardButton(text="✗ Это не мой аккаунт", callback_data="club_disconnect")],
     ])
 
     await message.answer(
         f"Аккаунт подключён: `{username}`\n"
-        f"Блог: *{cat_name}* (категория {category_id})",
+        f"Блог: *{cat_name}* (категория {category_id})\n\n"
+        "Если это не твой аккаунт — нажми «Это не мой аккаунт» и подключи свой.",
         parse_mode="Markdown",
         reply_markup=keyboard,
     )
