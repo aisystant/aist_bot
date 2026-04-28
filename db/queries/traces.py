@@ -11,7 +11,7 @@
 """
 
 from typing import List, Optional
-from db.connection import acquire
+from db.connection import acquire, get_learning_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -154,14 +154,27 @@ async def get_latency_report(hours: int = 24) -> dict:
 async def check_latency_alerts(minutes: int = 15) -> Optional[str]:
     """Check recent traces for red-zone violations.
 
+    WP-253 B-port (28 апр): чтение из learning.public.domain_event
+    (event_type='request_traced', source='aist-bot'). Writer (core/tracing.py:_dual_write_trace)
+    кладёт command/state/total_ms в payload jsonb.
+
+    INVARIANT: writer ОБЯЗАН формировать payload с полями command, state, total_ms.
+
     Returns alert message (HTML) if there are red-zone requests, None otherwise.
     """
-    async with await acquire() as conn:
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT command, total_ms, state, created_at
-            FROM request_traces
-            WHERE created_at > NOW() - INTERVAL '1 minute' * $1
-            ORDER BY total_ms DESC
+            SELECT
+                payload->>'command' AS command,
+                (payload->>'total_ms')::numeric AS total_ms,
+                payload->>'state' AS state,
+                ingested_at AS created_at
+            FROM domain_event
+            WHERE source = 'aist-bot'
+              AND event_type = 'request_traced'
+              AND ingested_at > NOW() - INTERVAL '1 minute' * $1
+            ORDER BY (payload->>'total_ms')::numeric DESC
         """, minutes)
 
     if not rows:

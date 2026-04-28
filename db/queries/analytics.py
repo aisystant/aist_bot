@@ -10,7 +10,7 @@
 
 import logging
 
-from db.connection import get_pool
+from db.connection import get_pool, get_learning_pool
 
 logger = logging.getLogger(__name__)
 
@@ -270,27 +270,36 @@ async def _get_error_metrics(conn, hours: int) -> dict:
 
 
 async def _get_command_metrics(conn, hours: int) -> dict:
-    """Per-command request count and latency from request_traces (WP-45)."""
-    top = await conn.fetch('''
-        SELECT command, COUNT(*) as count,
-               COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms
-        FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND command IS NOT NULL
-        GROUP BY command ORDER BY count DESC LIMIT 7
-    ''', str(hours))
+    """Per-command request count and latency from learning.domain_event (WP-253 B-port).
 
-    slowest = await conn.fetch('''
-        SELECT command, COUNT(*) as count,
-               COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms,
-               COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p95_ms
-        FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND command IS NOT NULL
-        GROUP BY command
-        HAVING COUNT(*) >= 3
-        ORDER BY avg_ms DESC LIMIT 5
-    ''', str(hours))
+    WP-253 B-port (28 апр): миграция с legacy `platform.request_traces` на
+    `learning.public.domain_event` (event_type='request_traced').
+    Параметр `conn` игнорируется — функция переключилась на learning pool.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as lc:
+        top = await lc.fetch('''
+            SELECT payload->>'command' AS command, COUNT(*) AS count,
+                   COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND payload->>'command' IS NOT NULL AND payload->>'command' != ''
+            GROUP BY 1 ORDER BY count DESC LIMIT 7
+        ''', str(hours))
+
+        slowest = await lc.fetch('''
+            SELECT payload->>'command' AS command, COUNT(*) AS count,
+                   COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms,
+                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p95_ms
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND payload->>'command' IS NOT NULL AND payload->>'command' != ''
+            GROUP BY 1
+            HAVING COUNT(*) >= 3
+            ORDER BY avg_ms DESC LIMIT 5
+        ''', str(hours))
 
     return {
         'top': [dict(r) for r in top],
