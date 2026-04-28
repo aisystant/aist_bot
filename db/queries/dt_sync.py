@@ -7,8 +7,7 @@
 Секции 2_collected:
   2_1_account, 2_2_courses, 2_3_practice, 2_4_time — из development.engagement
   2_5_notifications — из development.notification_engagement (WP-152 Ф4)
-  2_6_coding, 2_7_iwe — из development.user_events source='iwe' (ADR-009, WP-109 Ф3)
-                         fallback: dt-collect.sh snapshot в digital_twins
+  2_6_coding, 2_7_iwe — из learning.domain_event source='iwe' (12-BC архитектура)
 
 Квалификация (WP-151 fix):
   2_2_courses.qualification_level — из LMS DB (qualification_level_event).
@@ -26,7 +25,7 @@ from datetime import datetime, timezone
 
 import asyncpg
 
-from db.connection import get_pool
+from db.connection import get_pool, get_learning_pool
 from helpers.dual_write import post_event
 # WP-218 Ф2: calculator removed from bot — R28 Profiler is now single source
 # of 3_derived. See DS-ai-systems/profiler/scripts/recalculate_derived.py
@@ -138,10 +137,12 @@ async def sync_engagement_to_dt() -> dict:
         {"synced": N, "skipped": N, "errors": N, "first_error": str|None}
     """
     pool = await get_pool()
+    learning_pool = await get_learning_pool()
     stats = {"synced": 0, "skipped": 0, "errors": 0, "first_error": None}
 
     try:
-        async with pool.acquire() as conn, pool.acquire() as dt_conn:
+        async with pool.acquire() as conn, pool.acquire() as dt_conn, \
+                   learning_pool.acquire() as lconn:
 
             # ─── Notification engagement (WP-152 Ф4) ───
             # Предзагрузка: user_id → notification stats (для merge ниже)
@@ -330,55 +331,54 @@ async def sync_engagement_to_dt() -> dict:
                             "last_notification_at": _ts(notif['last_notification_at']),
                         }
 
-                    # ─── 2_6_coding from user_events (ADR-009, WP-109 Ф3) ───
-                    # Агрегация coding_time и commit данных из user_events
-                    # вместо подтягивания из digital_twins (dt-collect).
-                    iwe_stats = await conn.fetchrow('''
+                    # ─── 2_6_coding / 2_7_iwe from learning.domain_event ───
+                    # Читает из новой 12-BC архитектуры (мигрировано из development.user_events)
+                    iwe_stats = await lconn.fetchrow('''
                         SELECT
                             COALESCE(SUM(CASE
                                 WHEN event_type = 'coding_time'
-                                AND created_at >= NOW() - INTERVAL '1 day'
+                                AND occurred_at >= NOW() - INTERVAL '1 day'
                                 THEN (payload->>'total_seconds')::numeric::int
                             END), 0) AS coding_seconds_today,
                             COALESCE(SUM(CASE
                                 WHEN event_type = 'coding_time'
-                                AND created_at >= NOW() - INTERVAL '7 days'
+                                AND occurred_at >= NOW() - INTERVAL '7 days'
                                 THEN (payload->>'total_seconds')::numeric::int
                             END), 0) AS coding_seconds_7d,
                             COALESCE(SUM(CASE
                                 WHEN event_type = 'coding_time'
-                                AND created_at >= NOW() - INTERVAL '30 days'
+                                AND occurred_at >= NOW() - INTERVAL '30 days'
                                 THEN (payload->>'total_seconds')::numeric::int
                             END), 0) AS coding_seconds_30d,
                             COUNT(DISTINCT CASE
                                 WHEN event_type = 'coding_time'
-                                AND created_at >= NOW() - INTERVAL '30 days'
-                                THEN DATE(created_at)
+                                AND occurred_at >= NOW() - INTERVAL '30 days'
+                                THEN DATE(occurred_at)
                             END) AS coding_active_days_30d,
                             COUNT(CASE
                                 WHEN event_type = 'commit_created'
-                                AND created_at >= NOW() - INTERVAL '1 day'
+                                AND occurred_at >= NOW() - INTERVAL '1 day'
                                 THEN 1
                             END) AS commits_today,
                             COUNT(CASE
                                 WHEN event_type = 'commit_created'
-                                AND created_at >= NOW() - INTERVAL '7 days'
+                                AND occurred_at >= NOW() - INTERVAL '7 days'
                                 THEN 1
                             END) AS commits_7d,
                             COUNT(CASE
                                 WHEN event_type = 'commit_created'
-                                AND created_at >= NOW() - INTERVAL '30 days'
+                                AND occurred_at >= NOW() - INTERVAL '30 days'
                                 THEN 1
                             END) AS commits_30d,
                             COUNT(DISTINCT CASE
                                 WHEN event_type = 'day_open'
-                                AND created_at >= NOW() - INTERVAL '30 days'
-                                THEN DATE(created_at)
+                                AND occurred_at >= NOW() - INTERVAL '30 days'
+                                THEN DATE(occurred_at)
                             END) AS day_opens_30d
-                        FROM development.user_events
-                        WHERE user_uuid = $1::uuid
+                        FROM domain_event
+                        WHERE account_id = $1::uuid
                           AND source = 'iwe'
-                          AND created_at >= NOW() - INTERVAL '30 days'
+                          AND occurred_at >= NOW() - INTERVAL '30 days'
                     ''', user_id)
 
                     if iwe_stats and iwe_stats['coding_seconds_30d'] > 0:
@@ -526,7 +526,8 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
     now = datetime.now(timezone.utc)
 
     try:
-        async with pool.acquire() as conn, pool.acquire() as dt_conn:
+        learning_pool = await get_learning_pool()
+        async with pool.acquire() as conn, pool.acquire() as dt_conn, learning_pool.acquire() as lconn:
             # Находим пользователя по dt_user_id (Ory UUID) или user_uuid
             row = await conn.fetchrow('''
                 SELECT
@@ -661,53 +662,53 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     "last_notification_at": _ts(notif['last_notification_at']),
                 }
 
-            # ─── 2_6_coding from user_events (ADR-009, WP-109 Ф3) ───
-            iwe_stats = await conn.fetchrow('''
+            # ─── 2_6_coding from learning.domain_event source='iwe' (12-BC архитектура) ───
+            iwe_stats = await lconn.fetchrow('''
                 SELECT
                     COALESCE(SUM(CASE
                         WHEN event_type = 'coding_time'
-                        AND created_at >= NOW() - INTERVAL '1 day'
+                        AND occurred_at >= NOW() - INTERVAL '1 day'
                         THEN (payload->>'total_seconds')::numeric::int
                     END), 0) AS coding_seconds_today,
                     COALESCE(SUM(CASE
                         WHEN event_type = 'coding_time'
-                        AND created_at >= NOW() - INTERVAL '7 days'
+                        AND occurred_at >= NOW() - INTERVAL '7 days'
                         THEN (payload->>'total_seconds')::numeric::int
                     END), 0) AS coding_seconds_7d,
                     COALESCE(SUM(CASE
                         WHEN event_type = 'coding_time'
-                        AND created_at >= NOW() - INTERVAL '30 days'
+                        AND occurred_at >= NOW() - INTERVAL '30 days'
                         THEN (payload->>'total_seconds')::numeric::int
                     END), 0) AS coding_seconds_30d,
                     COUNT(DISTINCT CASE
                         WHEN event_type = 'coding_time'
-                        AND created_at >= NOW() - INTERVAL '30 days'
-                        THEN DATE(created_at)
+                        AND occurred_at >= NOW() - INTERVAL '30 days'
+                        THEN DATE(occurred_at)
                     END) AS coding_active_days_30d,
                     COUNT(CASE
                         WHEN event_type = 'commit_created'
-                        AND created_at >= NOW() - INTERVAL '1 day'
+                        AND occurred_at >= NOW() - INTERVAL '1 day'
                         THEN 1
                     END) AS commits_today,
                     COUNT(CASE
                         WHEN event_type = 'commit_created'
-                        AND created_at >= NOW() - INTERVAL '7 days'
+                        AND occurred_at >= NOW() - INTERVAL '7 days'
                         THEN 1
                     END) AS commits_7d,
                     COUNT(CASE
                         WHEN event_type = 'commit_created'
-                        AND created_at >= NOW() - INTERVAL '30 days'
+                        AND occurred_at >= NOW() - INTERVAL '30 days'
                         THEN 1
                     END) AS commits_30d,
                     COUNT(DISTINCT CASE
                         WHEN event_type = 'day_open'
-                        AND created_at >= NOW() - INTERVAL '30 days'
-                        THEN DATE(created_at)
+                        AND occurred_at >= NOW() - INTERVAL '30 days'
+                        THEN DATE(occurred_at)
                     END) AS day_opens_30d
-                FROM development.user_events
-                WHERE user_uuid = $1::uuid
+                FROM domain_event
+                WHERE account_id = $1::uuid
                   AND source = 'iwe'
-                  AND created_at >= NOW() - INTERVAL '30 days'
+                  AND occurred_at >= NOW() - INTERVAL '30 days'
             ''', effective_user_id)
 
             if iwe_stats and iwe_stats['coding_seconds_30d'] > 0:
