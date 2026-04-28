@@ -102,18 +102,26 @@ async def _get_session_metrics(conn, hours: int) -> dict:
 
 
 async def _get_quality_metrics(conn, hours: int) -> dict:
-    """Latency + QA quality."""
-    latency = await conn.fetchrow('''
-        SELECT
-            COUNT(*) as total_requests,
-            COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms,
-            COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p50_ms,
-            COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p95_ms,
-            COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p99_ms,
-            COUNT(*) FILTER (WHERE total_ms > 8000) as red_zone
-        FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    """Latency + QA quality.
+
+    WP-253 B-port (28 апр): latency мигрирована на learning.public.domain_event
+    (event_type='request_traced'). QA quality остаётся на legacy qa_history до G2 решения.
+    Параметр `conn` используется только для qa_history — для latency открывается learning pool.
+    """
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        latency = await lc.fetchrow('''
+            SELECT
+                COUNT(*) AS total_requests,
+                COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms,
+                COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p50_ms,
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p95_ms,
+                COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p99_ms,
+                COUNT(*) FILTER (WHERE (payload->>'total_ms')::numeric > 8000) AS red_zone
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+        ''', str(hours))
 
     qa = await conn.fetchrow('''
         SELECT
@@ -235,10 +243,14 @@ async def _get_error_metrics(conn, hours: int) -> dict:
     ''', str(hours))
 
     # Error rate = errors / requests
-    requests = await conn.fetchval('''
-        SELECT COUNT(*) FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    # WP-253 B-port (28 апр): request count из learning.domain_event.
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        requests = await lc.fetchval('''
+            SELECT COUNT(*) FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+        ''', str(hours))
 
     total_err = totals['total_errors'] if totals and totals['total_errors'] else 0
     error_rate = round(total_err / requests * 100, 1) if requests and requests > 0 else 0

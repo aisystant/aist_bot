@@ -81,36 +81,56 @@ async def cleanup_old_traces(days: int = 7) -> int:
 async def get_latency_report(hours: int = 24) -> dict:
     """Get latency report for the last N hours.
 
+    WP-253 B-port (28 апр): summary, by_command, all_traces (для red detection)
+    мигрированы на learning.public.domain_event. slowest_spans остаётся на legacy
+    request_traces — event payload содержит spans_count, не spans jsonb array.
+    Полная миграция slowest_spans требует writer payload expansion (child-WP под G6).
+
     Returns dict with:
       - summary: {total_requests, avg_ms, p95_ms, red_count}
       - by_command: [{command, avg_ms, p95_ms, max_ms, count, color}]
       - red_traces: [{command, total_ms, state, created_at}] (last 5 red)
-      - slowest_spans: [{name, avg_ms, max_ms, count}]
+      - slowest_spans: [{name, avg_ms, max_ms, count}] (legacy, до payload expansion)
     """
-    async with await acquire() as conn:
-        # Summary
-        summary = await conn.fetchrow("""
+    # WP-253: 3 из 4 запросов — на learning pool
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        summary = await lc.fetchrow("""
             SELECT COUNT(*) AS total,
-                   COALESCE(AVG(total_ms)::int, 0) AS avg_ms,
-                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms)::int, 0) AS p95_ms
-            FROM request_traces
-            WHERE created_at > NOW() - INTERVAL '1 hour' * $1
+                   COALESCE(AVG((payload->>'total_ms')::numeric)::int, 0) AS avg_ms,
+                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::int, 0) AS p95_ms
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - INTERVAL '1 hour' * $1
         """, hours)
 
-        # By command
-        by_command = await conn.fetch("""
-            SELECT command,
-                   AVG(total_ms)::int AS avg_ms,
-                   percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms)::int AS p95_ms,
-                   MAX(total_ms)::int AS max_ms,
+        by_command = await lc.fetch("""
+            SELECT payload->>'command' AS command,
+                   AVG((payload->>'total_ms')::numeric)::int AS avg_ms,
+                   percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::int AS p95_ms,
+                   MAX((payload->>'total_ms')::numeric)::int AS max_ms,
                    COUNT(*) AS count
-            FROM request_traces
-            WHERE created_at > NOW() - INTERVAL '1 hour' * $1
-            GROUP BY command
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - INTERVAL '1 hour' * $1
+              AND payload->>'command' IS NOT NULL
+            GROUP BY 1
             ORDER BY avg_ms DESC
         """, hours)
 
-        # Slowest spans
+        all_traces = await lc.fetch("""
+            SELECT payload->>'command' AS command,
+                   (payload->>'total_ms')::numeric AS total_ms,
+                   payload->>'state' AS state,
+                   ingested_at AS created_at
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - INTERVAL '1 hour' * $1
+            ORDER BY ingested_at DESC
+        """, hours)
+
+    # slowest_spans остаётся на legacy: event payload содержит только spans_count
+    async with await acquire() as conn:
         slowest_spans = await conn.fetch("""
             SELECT s->>'name' AS name,
                    AVG((s->>'duration_ms')::numeric)::int AS avg_ms,
@@ -121,14 +141,6 @@ async def get_latency_report(hours: int = 24) -> dict:
             GROUP BY name
             ORDER BY avg_ms DESC
             LIMIT 10
-        """, hours)
-
-        # Count red traces
-        all_traces = await conn.fetch("""
-            SELECT command, total_ms, state, created_at
-            FROM request_traces
-            WHERE created_at > NOW() - INTERVAL '1 hour' * $1
-            ORDER BY created_at DESC
         """, hours)
 
     # Classify and find red
