@@ -123,14 +123,25 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
         ''', str(hours))
 
-    qa = await conn.fetchrow('''
-        SELECT
-            COUNT(*) as total,
-            COUNT(*) FILTER (WHERE helpful = TRUE) as helpful,
-            COUNT(*) FILTER (WHERE helpful = FALSE) as not_helpful
-        FROM qa_history
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    # WP-253 B-port (28 апр): QA метрики из learning.domain_event.
+    # total — count qa_query events (каждое Q&A взаимодействие).
+    # helpful/not_helpful — count qa_feedback events с payload.helpful TRUE/FALSE.
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        qa = await lc.fetchrow('''
+            SELECT
+                (SELECT COUNT(*) FROM domain_event
+                 WHERE source='aist-bot' AND event_type='qa_query'
+                   AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS total,
+                (SELECT COUNT(*) FROM domain_event
+                 WHERE source='aist-bot' AND event_type='qa_feedback'
+                   AND payload->>'helpful' = 'true'
+                   AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS helpful,
+                (SELECT COUNT(*) FROM domain_event
+                 WHERE source='aist-bot' AND event_type='qa_feedback'
+                   AND payload->>'helpful' = 'false'
+                   AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS not_helpful
+        ''', str(hours))
 
     qa_total = qa['total'] if qa else 0
     qa_helpful = qa['helpful'] if qa else 0
