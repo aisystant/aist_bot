@@ -181,84 +181,87 @@ class WakaTimeOAuthClient:
         refresh_token: str = None,
         scope: str = "",
     ) -> None:
-        """Сохраняет WakaTime-токен в development.user_integrations."""
-        from db.connection import get_pool
+        """Сохраняет WakaTime-токен в persona.user_integrations."""
+        from db.connection import get_persona_pool
 
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            # Резолвим user_uuid из public.users
-            row = await conn.fetchrow(
-                'SELECT id FROM public.users WHERE telegram_id = $1', telegram_user_id
-            )
-            if not row or not row['id']:
-                logger.warning(
-                    f"WakaTime save: no user_uuid for chat_id={telegram_user_id}"
+        try:
+            pool = await get_persona_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT account_id FROM ory_identity WHERE telegram_id = $1', telegram_user_id
                 )
-                return
+                if not row or not row['account_id']:
+                    logger.warning(
+                        f"WakaTime save: no account_id in ory_identity for telegram_id={telegram_user_id}"
+                    )
+                    return
 
-            user_uuid = row['id']
+                account_id = row['account_id']
 
-            try:
                 await conn.execute('''
-                    INSERT INTO development.user_integrations
-                        (user_uuid, service, access_token, refresh_token, scope,
+                    INSERT INTO user_integrations
+                        (account_id, service, access_token, refresh_token, scope,
                          metadata, connected_at, updated_at, active)
                     VALUES ($1, 'wakatime', $2, $3, $4, '{}', NOW(), NOW(), TRUE)
-                    ON CONFLICT (user_uuid, service) DO UPDATE SET
+                    ON CONFLICT (account_id, service) DO UPDATE SET
                         access_token = $2,
-                        refresh_token = COALESCE($3, development.user_integrations.refresh_token),
+                        refresh_token = COALESCE($3, user_integrations.refresh_token),
                         scope = $4,
                         updated_at = NOW(),
                         active = TRUE
                 ''',
-                    user_uuid,
+                    account_id,
                     access_token,
                     refresh_token,
                     scope,
                 )
-                logger.info(f"Saved WakaTime connection for chat_id={telegram_user_id}")
-            except Exception as e:
-                if 'does not exist' in str(e):
-                    logger.warning(f"user_integrations table missing (pilot?): {e}")
-                else:
-                    raise
+                logger.info(f"Saved WakaTime connection for telegram_id={telegram_user_id}")
+        except Exception as e:
+            if 'does not exist' in str(e):
+                logger.warning(
+                    f"WakaTime save skipped: persona tables not available (pilot?): {e}"
+                )
+            else:
+                raise
 
     async def is_connected(self, telegram_user_id: int) -> bool:
         """Проверяет, подключён ли пользователь к WakaTime."""
-        from db.connection import get_pool
+        from db.connection import get_persona_pool
 
-        pool = await get_pool()
+        pool = await get_persona_pool()
         try:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow('''
-                    SELECT 1 FROM development.user_integrations ui
-                    JOIN public.users u ON u.id = ui.user_uuid
-                    WHERE u.telegram_id = $1 AND ui.service = 'wakatime' AND ui.active = TRUE
+                    SELECT 1 FROM user_integrations ui
+                    JOIN ory_identity oi ON oi.account_id = ui.account_id
+                    WHERE oi.telegram_id = $1 AND ui.service = 'wakatime' AND ui.active = TRUE
                 ''', telegram_user_id)
                 return row is not None
         except Exception as e:
-            if 'does not exist' in str(e):
-                logger.warning(f"user_integrations table missing (pilot?): {e}")
-                return False
-            raise
+            logger.warning(f"WakaTime is_connected error: {e}")
+            return False
 
     async def disconnect(self, telegram_user_id: int) -> None:
         """Отключает пользователя от WakaTime."""
-        from db.connection import get_pool
+        from db.connection import get_persona_pool
 
-        pool = await get_pool()
         try:
+            pool = await get_persona_pool()
             async with pool.acquire() as conn:
                 await conn.execute('''
-                    UPDATE development.user_integrations
+                    UPDATE user_integrations
                     SET active = FALSE, updated_at = NOW()
-                    WHERE user_uuid = (SELECT id FROM public.users WHERE telegram_id = $1)
-                        AND service = 'wakatime'
+                    WHERE account_id = (
+                        SELECT account_id FROM ory_identity WHERE telegram_id = $1
+                    )
+                    AND service = 'wakatime'
                 ''', telegram_user_id)
-            logger.info(f"Disconnected user {telegram_user_id} from WakaTime")
+            logger.info(f"Disconnected telegram_id={telegram_user_id} from WakaTime")
         except Exception as e:
             if 'does not exist' in str(e):
-                logger.warning(f"user_integrations table missing (pilot?): {e}")
+                logger.warning(
+                    f"WakaTime disconnect skipped: persona tables not available (pilot?): {e}"
+                )
             else:
                 raise
 

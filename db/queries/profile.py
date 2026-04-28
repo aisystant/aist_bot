@@ -85,7 +85,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['user_state'] = _parse_delete_count(deleted)
 
-            # development.user_integrations (WakaTime, GitHub OAuth tokens)
+            # development.user_integrations (WakaTime, GitHub OAuth tokens — legacy)
             try:
                 deleted = await conn.execute(
                     'DELETE FROM development.user_integrations WHERE user_uuid = (SELECT id FROM public.users WHERE telegram_id = $1)',
@@ -103,6 +103,24 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 'DELETE FROM public.users WHERE telegram_id = $1', chat_id
             )
             result['users'] = _parse_delete_count(deleted)
+
+    # persona.user_integrations (WakaTime, GitHub OAuth tokens — 12-BC архитектура)
+    # Отдельная БД — вне основной транзакции
+    try:
+        from db.connection import get_persona_pool
+        persona_pool = await get_persona_pool()
+        async with persona_pool.acquire() as pconn:
+            deleted = await pconn.execute(
+                'DELETE FROM user_integrations WHERE account_id = (SELECT account_id FROM ory_identity WHERE telegram_id = $1)',
+                chat_id
+            )
+            result['persona_user_integrations'] = _parse_delete_count(deleted)
+    except Exception as e:
+        if 'does not exist' in str(e):
+            result['persona_user_integrations'] = 0
+        else:
+            logger.warning(f"[DELETE] persona user_integrations cleanup failed: {e}")
+            result['persona_user_integrations'] = 0
 
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")
