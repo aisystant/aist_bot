@@ -158,41 +158,51 @@ async def send_idempotent(
 
 
 async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: int) -> bool:
-    """Проверить cooldown nudge через notification_log.
+    """Проверить cooldown nudge через learning.domain_event (WP-253 B-port).
 
-    Заменяет nudges.was_nudge_sent_recently (WP-152 deprecation).
-    Idempotency key формат: nudge:{chat_id}:{date}:{nudge_key}
+    WP-253 B-port (28 апр): миграция с legacy `platform.notification_log` на
+    `learning.public.domain_event` (event_type='notification_sent', source='aist-bot').
+
+    Idempotency key формат legacy: nudge:{chat_id}:{date}:{nudge_key}
+    Event external_id формат: notification-{idempotency_key} (см. try_insert_notification:95)
+    Поэтому LIKE-паттерн: 'notification-nudge:{chat_id}:%:{nudge_key}'.
+
     Ищет любую запись за последние cooldown_days дней.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''SELECT id FROM notification_log
-               WHERE chat_id = $1
-                 AND notification_type = 'nudge'
-                 AND idempotency_key LIKE $2
-                 AND created_at >= NOW() - INTERVAL '1 day' * $3
-               LIMIT 1''',
-            chat_id,
-            f'nudge:{chat_id}:%:{nudge_key}',
+            """SELECT 1 FROM domain_event
+               WHERE source = 'aist-bot'
+                 AND event_type = 'notification_sent'
+                 AND external_id LIKE $1
+                 AND ingested_at >= NOW() - INTERVAL '1 day' * $2
+               LIMIT 1""",
+            f'notification-nudge:{chat_id}:%:{nudge_key}',
             cooldown_days,
         )
         return row is not None
 
 
 async def get_notification_stats(chat_id: int, days: int = 30) -> dict:
-    """Статистика уведомлений пользователя за N дней.
+    """Статистика уведомлений пользователя за N дней (WP-253 B-port).
+
+    WP-253 B-port (28 апр): миграция на learning.public.domain_event.
+    notification_type извлекается из payload jsonb (writer кладёт его в payload — см. try_insert_notification:101).
 
     Используется для Ф4 (notification_engagement → ЦД).
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT notification_type, COUNT(*) as cnt
-               FROM notification_log
-               WHERE chat_id = $1
-                 AND created_at >= NOW() - INTERVAL '1 day' * $2
-               GROUP BY notification_type''',
-            chat_id, days,
+            """SELECT payload->>'notification_type' AS notification_type, COUNT(*) AS cnt
+               FROM domain_event
+               WHERE source = 'aist-bot'
+                 AND event_type = 'notification_sent'
+                 AND payload->>'idempotency_key' LIKE $1
+                 AND ingested_at >= NOW() - INTERVAL '1 day' * $2
+               GROUP BY 1""",
+            f'%:{chat_id}:%',
+            days,
         )
-        return {row['notification_type']: row['cnt'] for row in rows}
+        return {row['notification_type']: row['cnt'] for row in rows if row['notification_type']}
