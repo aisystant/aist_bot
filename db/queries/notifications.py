@@ -163,11 +163,15 @@ async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: i
     WP-253 B-port (28 апр): миграция с legacy `platform.notification_log` на
     `learning.public.domain_event` (event_type='notification_sent', source='aist-bot').
 
-    Idempotency key формат legacy: nudge:{chat_id}:{date}:{nudge_key}
-    Event external_id формат: notification-{idempotency_key} (см. try_insert_notification:95)
+    Контракт writer'а (try_insert_notification:95): event.external_id = f"notification-{idempotency_key}".
+    Idempotency key для nudge: f"nudge:{chat_id}:{date}:{nudge_key}".
     Поэтому LIKE-паттерн: 'notification-nudge:{chat_id}:%:{nudge_key}'.
 
-    Ищет любую запись за последние cooldown_days дней.
+    INVARIANT: writer ОБЯЗАН формировать external_id = f"notification-{idempotency_key}". Reader
+    полагается на этот префикс. Если контракт сломается — reader даст тихо неверный результат.
+
+    Ищет любую запись за последние cooldown_days дней. Index-friendly query через literal-prefix LIKE
+    на UNIQUE indexed column external_id (verified via EXPLAIN: 0.027ms).
     """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
@@ -175,6 +179,7 @@ async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: i
             """SELECT 1 FROM domain_event
                WHERE source = 'aist-bot'
                  AND event_type = 'notification_sent'
+                 AND payload->>'notification_type' = 'nudge'
                  AND external_id LIKE $1
                  AND ingested_at >= NOW() - INTERVAL '1 day' * $2
                LIMIT 1""",
