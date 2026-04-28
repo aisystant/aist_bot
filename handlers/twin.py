@@ -599,17 +599,15 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
 
 
 async def _fallback_engagement(chat_id: int) -> dict | None:
-    """Fallback: read raw engagement view if user не имеет digital_twins записи.
+    """Fallback: сырые метрики из development.engagement + профиль из indicators.digital_twins.
 
-    WP-218 Ф2: НЕ вычисляет 3_derived. Бот — pure reader.
-    Если у пользователя ещё нет digital_twins записи (новый user, sync ещё
-    не пробежал), показываем ему сырые collected metrics без derived-индексов.
-    Для получения 3_derived — нужно дождаться cron R28 Profiler (04:30 MSK)
-    или запустить recalculate_derived.py вручную.
+    WP-218 Ф2 + WP-269: бот — pure reader. Источники по слоям:
+    - Сырые метрики (2_collected): development.engagement view (platform DB)
+    - account_id (canonical UUID): persona.ory_identity WHERE telegram_id (persona DB)
+    - 3_derived + 2_6/2_7: indicators.digital_twins (новая БД, не platform!)
 
-    Returns:
-        dict с сырыми 2_collected или None (если engagement view пуст).
-        Без '_derived' ключа — пользователь видит только сырые метрики.
+    Использует persona.ory_identity как source of truth для UUID — исключает дрейф
+    development.engagement.user_uuid, который мог содержать устаревший дублирующий UUID.
     """
     from db.connection import get_pool
 
@@ -660,19 +658,28 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                 },
             }
 
-            # Получаем ory_id для чтения digital_twins из digitaltwin БД (WP-227)
-            user_uuid_row = await conn.fetchval(
-                "SELECT user_uuid FROM development.engagement WHERE user_id = $1",
-                chat_id,
-            )
+        # WP-269: canonical account_id из persona.ory_identity (source of truth для UUID)
+        account_id = None
+        try:
+            from db.connection import get_persona_pool
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as persona_conn:
+                account_id = await persona_conn.fetchval(
+                    "SELECT account_id FROM ory_identity WHERE telegram_id = $1",
+                    chat_id,
+                )
+        except Exception as pe:
+            logger.warning(f"[/me] Persona account_id lookup failed: {pe}")
 
-        # Merge existing 2_6/2_7 и 3_derived из digital_twins (WP-227)
-        if user_uuid_row:
+        # Merge 2_6/2_7 и 3_derived из indicators.digital_twins (WP-269: новая БД)
+        if account_id:
             try:
-                async with pool.acquire() as dt_conn:
-                    existing = await dt_conn.fetchval(
+                from db.connection import get_indicators_pool
+                ind_pool = await get_indicators_pool()
+                async with ind_pool.acquire() as ind_conn:
+                    existing = await ind_conn.fetchval(
                         "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
-                        str(user_uuid_row),
+                        str(account_id),
                     )
                     if existing:
                         existing_c = json.loads(existing) if isinstance(existing, str) else existing
@@ -680,9 +687,9 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                             if key in existing_c and key not in collected:
                                 collected[key] = existing_c[key]
 
-                    existing_derived = await dt_conn.fetchval(
+                    existing_derived = await ind_conn.fetchval(
                         "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
-                        str(user_uuid_row),
+                        str(account_id),
                     )
                     if existing_derived:
                         derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
