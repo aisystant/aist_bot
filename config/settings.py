@@ -41,7 +41,7 @@ JOURNAL_URL = os.getenv("JOURNAL_URL") or os.getenv("DATABASE_URL")
 # Наблюдаемость системы и сессии. Health BD — special (не entity).
 HEALTH_URL = os.getenv("HEALTH_URL") or os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
-DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
+DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://twin.aisystant.com/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
 
 # ============= LANGFUSE (L5 Observability, WP-179) =============
