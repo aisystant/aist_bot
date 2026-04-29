@@ -14,6 +14,7 @@ from config import (
     INDICATORS_URL,
     LEARNING_URL,
     FSM_URL,
+    JOURNAL_URL,
     get_logger,
 )
 
@@ -31,6 +32,9 @@ _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, 
 
 # WP-268 Phase 3 Block 1: aiogram fsm_states вынесен в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
 _fsm_pool: Optional[asyncpg.Pool] = None           # fsm_states (Railway-local Postgres)
+
+# WP-268 Phase 3 Block 2: qa_history + feedback_triage вынесены в Neon journal БД (DP.ARCH.004 §3.2).
+_journal_pool: Optional[asyncpg.Pool] = None       # qa_history, feedback_triage (Neon journal БД)
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -131,9 +135,28 @@ async def get_fsm_pool() -> asyncpg.Pool:
     return _fsm_pool
 
 
+async def get_journal_pool() -> asyncpg.Pool:
+    """Пул соединений к journal БД (WP-268 Phase 3 Block 2): qa_history, feedback_triage.
+
+    Neon БД `journal` (DP.ARCH.004 §3.2) — Память.Observed: session events
+    с PII content (Q&A текст). Категория WP-257.
+    """
+    global _journal_pool
+    if _journal_pool is None:
+        _journal_pool = await asyncpg.create_pool(
+            JOURNAL_URL,
+            statement_cache_size=0,
+            min_size=1,
+            max_size=10,
+            command_timeout=30,
+        )
+        logger.info("✅ Journal пул соединений создан (min=1, max=10)")
+    return _journal_pool
+
+
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _fsm_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _fsm_pool, _journal_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -158,6 +181,10 @@ async def close_pool():
         await _fsm_pool.close()
         _fsm_pool = None
         logger.info("🔒 FSM пул соединений закрыт")
+    if _journal_pool:
+        await _journal_pool.close()
+        _journal_pool = None
+        logger.info("🔒 Journal пул соединений закрыт")
 
 
 async def acquire():

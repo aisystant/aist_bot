@@ -1069,8 +1069,9 @@ class MyDataState(BaseState):
         """Очистить историю Q&A."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
-        from db import get_pool
-        pool = await get_pool()
+        # WP-268 Phase 3 Block 2: qa_history живёт в journal БД
+        from db import get_journal_pool
+        pool = await get_journal_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(
                 'DELETE FROM qa_history WHERE chat_id = $1', chat_id,

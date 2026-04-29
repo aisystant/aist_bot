@@ -5,7 +5,7 @@
 from typing import List
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_pool, get_journal_pool
 
 logger = get_logger(__name__)
 
@@ -117,8 +117,8 @@ async def get_schedule_distribution() -> List[dict]:
 # === /qa — качество консультаций ===
 
 async def get_qa_stats() -> dict:
-    """Статистика консультаций."""
-    pool = await get_pool()
+    """Статистика консультаций (WP-268 Phase 3 Block 2: журнал БД)."""
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
             SELECT
@@ -136,8 +136,8 @@ async def get_qa_stats() -> dict:
 
 
 async def get_qa_top_topics(limit: int = 10) -> List[dict]:
-    """Топ тем вопросов."""
-    pool = await get_pool()
+    """Топ тем вопросов (WP-268 Phase 3 Block 2: журнал БД)."""
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT context_topic AS topic, COUNT(*) AS cnt
@@ -155,9 +155,10 @@ async def get_qa_top_topics(limit: int = 10) -> List[dict]:
 async def get_table_sizes() -> List[dict]:
     """Количество записей в каждой таблице."""
     pool = await get_pool()
+    # WP-268 Phase 3 Block 2: qa_history теперь в journal БД (см. отдельный count в get_qa_stats)
     tables = [
         'public.users', 'development.user_state', 'answers', 'activity_log',
-        'qa_history', 'feed_weeks', 'feed_sessions', 'assessments',
+        'feed_weeks', 'feed_sessions', 'assessments',
         'feedback_reports', 'github_connections', 'service_usage',
         'marathon_content',
     ]

@@ -31,6 +31,10 @@ LEARNING_URL = os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")  # learnin
 # WP-268 Phase 3 Block 1: fsm_states вынос в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
 # В production должно быть set явно. Fallback на DATABASE_URL — только для локального dev.
 FSM_URL = os.getenv("FSM_URL") or os.getenv("DATABASE_URL")
+
+# WP-268 Phase 3 Block 2: qa_history + feedback_triage вынос в Neon БД `journal` (DP.ARCH.004 §3.2).
+# Категория WP-257: Память.Observed (session events). PII content (Q&A текст).
+JOURNAL_URL = os.getenv("JOURNAL_URL") or os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
