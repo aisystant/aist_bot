@@ -20,14 +20,16 @@ from config import (
 
 logger = get_logger(__name__)
 
-# Глобальный пул соединений (platform БД — legacy таблицы: users, digital_twins,
-# subscription_grants, products, finance_payments, fsm_states, и т.д.)
+# Глобальный пул соединений (Railway-local Postgres `bot_data` после WP-268 Phase 4
+# lift-and-shift, 29 апр 2026): users, digital_twins, subscription_grants, products,
+# finance_payments, marathon_content, reminders, user_state, user_events, и т.д.
+# Tech debt: до полной 12-BC миграции (G1-G9, ≥W19) — см. DP.ARCH.004 §10.11.
 _pool: Optional[asyncpg.Pool] = None
 
 # WP-269 read-path migration: новые per-domain pools.
 _persona_pool: Optional[asyncpg.Pool] = None       # persona.ory_identity, persona.identity_map
 _subscription_pool: Optional[asyncpg.Pool] = None  # subscription.contract
-_indicators_pool: Optional[asyncpg.Pool] = None    # indicators.calculated_profile (заменяет digital_twins)
+_indicators_pool: Optional[asyncpg.Pool] = None    # indicators.calculated_profile (Память.Derived: ЦД)
 _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, notifications, traces)
 
 # WP-268 Phase 3 Block 1: aiogram fsm_states вынесен в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
