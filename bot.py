@@ -126,6 +126,14 @@ async def main():
     # Инициализация БД
     await init_db()
 
+    # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
+    from config.settings import HEALTH_URL
+    if HEALTH_URL != DATABASE_URL:
+        from db.models import create_tables_health
+        from db.connection import get_health_pool
+        health_pool = await get_health_pool()
+        await create_tables_health(health_pool)
+
     # Мониторинг ошибок (после init_db — нужен пул)
     from core.error_handler import setup_error_handler
     await setup_error_handler()
