@@ -134,6 +134,36 @@ async def main():
         health_pool = await get_health_pool()
         await create_tables_health(health_pool)
 
+    # Параллельный прогрев всех Neon-пулов при старте (perf fix: устраняет lazy-init
+    # внутри первого запроса пользователя, который добавлял 5-8 сек латентности).
+    from db.connection import (
+        get_fsm_pool, get_persona_pool, get_subscription_pool,
+        get_indicators_pool, get_learning_pool, get_rewards_pool, get_journal_pool,
+    )
+    from config.settings import (
+        FSM_URL, PERSONA_URL, SUBSCRIPTION_URL,
+        INDICATORS_URL, LEARNING_URL, REWARDS_URL, JOURNAL_URL,
+    )
+    _pool_warmup = [
+        (FSM_URL, get_fsm_pool, "FSM"),
+        (PERSONA_URL, get_persona_pool, "Persona"),
+        (SUBSCRIPTION_URL, get_subscription_pool, "Subscription"),
+        (INDICATORS_URL, get_indicators_pool, "Indicators"),
+        (LEARNING_URL, get_learning_pool, "Learning"),
+        (REWARDS_URL, get_rewards_pool, "Rewards"),
+        (JOURNAL_URL, get_journal_pool, "Journal"),
+    ]
+    _active_pools = [(name, fn) for url, fn, name in _pool_warmup if url]
+    if _active_pools:
+        _warmup_results = await asyncio.gather(
+            *[fn() for _, fn in _active_pools], return_exceptions=True
+        )
+        _ok = sum(1 for r in _warmup_results if not isinstance(r, Exception))
+        for (name, _), result in zip(_active_pools, _warmup_results):
+            if isinstance(result, Exception):
+                logger.warning(f"⚠️ Pool warm-up failed [{name}]: {result}")
+        logger.info(f"✅ Пулы прогреты при старте: {_ok}/{len(_active_pools)}")
+
     # Мониторинг ошибок (после init_db — нужен пул)
     from core.error_handler import setup_error_handler
     await setup_error_handler()
