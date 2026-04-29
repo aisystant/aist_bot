@@ -19,13 +19,9 @@ logger = get_logger(__name__)
 async def get_aisystant_id(chat_id: int) -> str | None:
     """Получить aisystant_id по chat_id. None если не привязан.
 
-    WP-269: чтение из persona.ory_identity.traits.aisystant_id (новая per-domain БД).
-    Fallback на legacy platform.public.users — для existing users, которые ещё не
-    мигрированы в persona.ory_identity (backfill ETL pending). Удалить после backfill.
+    WP-269: чтение из persona.ory_identity (новая архитектура, backfill завершён 28 апр).
+    COALESCE покрывает оба ключа ETL: aisystant_suser_id (WP-268) и aisystant_id (alias).
     """
-    # Primary: persona.ory_identity (новая архитектура).
-    # Ключ в traits — `aisystant_suser_id` (LMS suser.id, термин из WP-268 ETL).
-    # `aisystant_id` оставлен в COALESCE как fallback на случай переименования.
     try:
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
@@ -38,19 +34,6 @@ async def get_aisystant_id(chat_id: int) -> str | None:
                 return row['aisystant_id']
     except Exception as e:
         logger.warning(f"[Aisystant] persona.ory_identity read failed: {e}")
-
-    # Fallback: legacy platform.public.users (для existing users до backfill ETL)
-    try:
-        main_pool = await get_pool()
-        async with main_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT aisystant_id FROM public.users WHERE telegram_id = $1',
-                chat_id,
-            )
-            if row and row['aisystant_id']:
-                return row['aisystant_id']
-    except Exception as e:
-        logger.warning(f"[Aisystant] legacy public.users fallback failed: {e}")
 
     return None
 
