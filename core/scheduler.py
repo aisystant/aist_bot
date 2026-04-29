@@ -1016,8 +1016,9 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] OAuth states cleanup error: {e}")
         try:
-            from db.connection import get_pool
-            pool = await get_pool()
+            # WP-268 Phase 3 Block 1: fsm_states живёт в FSM_URL (Railway-local PG, паттерн §10.10)
+            from db.connection import get_fsm_pool
+            pool = await get_fsm_pool()
             async with pool.acquire() as conn:
                 result = await conn.execute(
                     "DELETE FROM fsm_states WHERE updated_at < NOW() - INTERVAL '30 days'"

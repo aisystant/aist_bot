@@ -11,7 +11,7 @@ from typing import Optional
 
 from aiogram.fsm.storage.base import BaseStorage, StorageKey, StateType
 
-from db import get_pool
+from db import get_fsm_pool
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class PostgresStorage(BaseStorage):
         logger.debug(f"[FSM] set_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={state_str}")
 
         async def _do():
-            async with (await get_pool()).acquire() as conn:
+            async with (await get_fsm_pool()).acquire() as conn:
                 await conn.execute('''
                     INSERT INTO fsm_states (chat_id, state, updated_at)
                     VALUES ($1, $2, NOW())
@@ -61,7 +61,7 @@ class PostgresStorage(BaseStorage):
     async def get_state(self, key: StorageKey) -> Optional[str]:
         """Получить состояние"""
         async def _do():
-            async with (await get_pool()).acquire() as conn:
+            async with (await get_fsm_pool()).acquire() as conn:
                 row = await conn.fetchrow(
                     'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
                 )
@@ -76,7 +76,7 @@ class PostgresStorage(BaseStorage):
         data_str = json.dumps(data, ensure_ascii=False)
 
         async def _do():
-            async with (await get_pool()).acquire() as conn:
+            async with (await get_fsm_pool()).acquire() as conn:
                 await conn.execute('''
                     INSERT INTO fsm_states (chat_id, data, updated_at)
                     VALUES ($1, $2, NOW())
@@ -88,7 +88,7 @@ class PostgresStorage(BaseStorage):
     async def get_data(self, key: StorageKey) -> dict:
         """Получить данные состояния"""
         async def _do():
-            async with (await get_pool()).acquire() as conn:
+            async with (await get_fsm_pool()).acquire() as conn:
                 row = await conn.fetchrow(
                     'SELECT data FROM fsm_states WHERE chat_id = $1', key.chat_id
                 )
