@@ -255,18 +255,35 @@ async def _get_trend_metrics(conn) -> dict:
 
 
 async def _get_error_metrics(conn, hours: int) -> dict:
-    """Error rate, breakdown by category/severity from error_logs (WP-45)."""
-    totals = await conn.fetchrow('''
-        SELECT
-            SUM(occurrence_count)::BIGINT as total_errors,
-            COUNT(*) FILTER (WHERE severity IN ('L3', 'L4')) as l3_plus,
-            COUNT(*) FILTER (WHERE category = 'unknown') as unknown
-        FROM error_logs
-        WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    """Error rate, breakdown by category/severity from error_logs (WP-268 Phase 5 G5 Tier2: health BD)."""
+    hp = await get_health_pool()
+    async with hp.acquire() as hc:
+        totals = await hc.fetchrow('''
+            SELECT
+                SUM(occurrence_count)::BIGINT as total_errors,
+                COUNT(*) FILTER (WHERE severity IN ('L3', 'L4')) as l3_plus,
+                COUNT(*) FILTER (WHERE category = 'unknown') as unknown
+            FROM error_logs
+            WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
+        ''', str(hours))
 
-    # Error rate = errors / requests
-    # WP-253 B-port (28 апр): request count из learning.domain_event.
+        by_category = await hc.fetch('''
+            SELECT category, SUM(occurrence_count)::BIGINT as count
+            FROM error_logs
+            WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND category IS NOT NULL
+            GROUP BY category ORDER BY count DESC LIMIT 5
+        ''', str(hours))
+
+        by_severity = await hc.fetch('''
+            SELECT severity, COUNT(*) as count
+            FROM error_logs
+            WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND severity IS NOT NULL
+            GROUP BY severity ORDER BY severity
+        ''', str(hours))
+
+    # Error rate = errors / requests (WP-253 B-port: request count из learning.domain_event)
     learning_pool = await get_learning_pool()
     async with learning_pool.acquire() as lc:
         requests = await lc.fetchval('''
@@ -277,22 +294,6 @@ async def _get_error_metrics(conn, hours: int) -> dict:
 
     total_err = totals['total_errors'] if totals and totals['total_errors'] else 0
     error_rate = round(total_err / requests * 100, 1) if requests and requests > 0 else 0
-
-    by_category = await conn.fetch('''
-        SELECT category, SUM(occurrence_count)::BIGINT as count
-        FROM error_logs
-        WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND category IS NOT NULL
-        GROUP BY category ORDER BY count DESC LIMIT 5
-    ''', str(hours))
-
-    by_severity = await conn.fetch('''
-        SELECT severity, COUNT(*) as count
-        FROM error_logs
-        WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND severity IS NOT NULL
-        GROUP BY severity ORDER BY severity
-    ''', str(hours))
 
     return {
         'total': total_err,

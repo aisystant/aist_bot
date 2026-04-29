@@ -5,7 +5,7 @@
 from typing import List
 
 from config import get_logger
-from db.connection import get_pool, get_journal_pool, get_learning_pool
+from db.connection import get_pool, get_journal_pool, get_learning_pool, get_health_pool
 
 logger = get_logger(__name__)
 
@@ -193,6 +193,16 @@ async def get_table_sizes() -> List[dict]:
                 results.append({'table': f'learning.{table}', 'count': row['cnt']})
             except Exception:
                 results.append({'table': f'learning.{table}', 'count': -1})
+
+    # health BD tables (WP-268 Phase 5 G5 Tier2)
+    health_pool = await get_health_pool()
+    async with health_pool.acquire() as hc:
+        for table in ['error_logs', 'user_sessions', 'pending_fixes']:
+            try:
+                row = await hc.fetchrow(f'SELECT COUNT(*) AS cnt FROM {table}')
+                results.append({'table': f'health.{table}', 'count': row['cnt']})
+            except Exception:
+                results.append({'table': f'health.{table}', 'count': -1})
 
     return results
 
