@@ -1,7 +1,11 @@
 """
 Универсальная идемпотентность доставки сообщений (WP-152).
 
-Единая таблица notification_log с idempotency key заменяет 6+ разрозненных guard-ов:
+WP-268 Phase 5 cutover: idempotency gate перенесён с notification_log (bot_data)
+на learning.domain_event (UNIQUE source+external_id). Паттерн Log-before-send
+теперь пишет синхронно напрямую в learning BD через insert_domain_event_direct().
+
+Заменяет 6+ разрозненных guard-ов:
 - reminders.sent
 - marathon_content.notification_sent_at
 - nudge_log
@@ -9,18 +13,17 @@
 - trial expiry (без guard → теперь с guard)
 - feed digest (без guard → теперь с guard)
 
-Паттерн: Log-before-send (§10.10). Запись в notification_log ПЕРЕД отправкой.
 Формат idempotency_key: {type}:{chat_id}:{date}:{detail}
 """
 
-import asyncio
 import json
 import logging
-from datetime import datetime
+import uuid as _uuid_mod
+from datetime import datetime, timezone
 from typing import Optional, Callable, Awaitable
 
 from db.connection import get_pool, get_learning_pool
-from helpers.dual_write import post_event, resolve_ory_id_from_chat
+from helpers.dual_write import resolve_ory_id_from_chat
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,48 @@ async def ensure_notification_log():
         ''')
 
 
+async def insert_domain_event_direct(
+    source: str,
+    external_id: str,
+    event_type: str,
+    schema_version: str,
+    occurred_at: datetime,
+    account_id: Optional[str],
+    payload: dict,
+) -> bool:
+    """Синхронный INSERT в learning.domain_event (WP-268 Phase 5 cutover).
+
+    Idempotency gate: UNIQUE(source, external_id) в domain_event.
+    Заменяет async event-gateway path для notification_sent events.
+
+    Returns True если новая запись, False если дубль (ON CONFLICT DO NOTHING).
+    """
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+
+    account_uuid = None
+    if account_id:
+        try:
+            account_uuid = _uuid_mod.UUID(account_id)
+        except (ValueError, AttributeError):
+            pass
+
+    lp = await get_learning_pool()
+    async with lp.acquire() as conn:
+        row = await conn.fetchrow(
+            '''INSERT INTO domain_event
+               (source, external_id, event_type, schema_version,
+                occurred_at, account_id, payload)
+               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+               ON CONFLICT (source, external_id) DO NOTHING
+               RETURNING id''',
+            source, external_id, event_type, schema_version,
+            occurred_at, account_uuid,
+            json.dumps(payload),
+        )
+    return row is not None
+
+
 async def try_insert_notification(
     chat_id: int,
     notification_type: str,
@@ -58,55 +103,29 @@ async def try_insert_notification(
 ) -> bool:
     """Попытаться записать факт отправки уведомления.
 
+    WP-268 Phase 5 cutover: пишет напрямую в learning.domain_event
+    (синхронный INSERT через get_learning_pool()), не через notification_log.
+    Idempotency gate: UNIQUE(source, external_id) в domain_event.
+    external_id = f"notification-{idempotency_key}" — контракт с was_notification_sent().
+
     Returns:
         True если запись успешна (уведомление ещё не отправлялось).
-        False если idempotency_key уже существует (дубль).
+        False если дубль (idempotency_key уже существует в domain_event).
     """
-    pool = await get_pool()
-    inserted = False
-    async with pool.acquire() as conn:
-        try:
-            await conn.execute(
-                '''INSERT INTO notification_log
-                   (chat_id, notification_type, idempotency_key, payload)
-                   VALUES ($1, $2, $3, $4::jsonb)''',
-                chat_id, notification_type, idempotency_key,
-                json.dumps(payload) if payload else None,
-            )
-            inserted = True
-        except Exception as e:
-            # UniqueViolationError → уже отправлено (дубль)
-            if 'unique' in str(e).lower() or '23505' in str(e):
-                return False
-            raise
-
-    # WP-268 Phase 2 Phase B: dual-write notification_sent.v1.
-    # Пишем ТОЛЬКО при реально новой записи (inserted=True). На дубле
-    # gateway уже получил событие в первый раз — повторно не шлём, иначе
-    # каждый retry catch-up scheduler'а будет дополнительно бить event-gateway.
-    # PII: payload содержит metadata о уведомлении. Содержимое payload
-    # caller'а МОЖЕТ содержать PII (имя пользователя в тексте) — поэтому
-    # передаём только ключи, а не значения.
-    if inserted:
-        try:
-            ory = await resolve_ory_id_from_chat(chat_id)
-            asyncio.create_task(post_event(
-                source="aist-bot",
-                external_id=f"notification-{idempotency_key}",
-                event_type="notification_sent",
-                schema_version="v1",
-                occurred_at=datetime.utcnow(),
-                account_id=ory,
-                payload={
-                    "notification_type": notification_type,
-                    "idempotency_key": idempotency_key,
-                    "payload_keys": list(payload.keys()) if payload else [],
-                },
-            ))
-        except Exception as exc:
-            logger.warning(f"[Notification] dual-write schedule failed: {exc}")
-
-    return inserted
+    ory = await resolve_ory_id_from_chat(chat_id)
+    return await insert_domain_event_direct(
+        source="aist-bot",
+        external_id=f"notification-{idempotency_key}",
+        event_type="notification_sent",
+        schema_version="v1",
+        occurred_at=datetime.utcnow(),
+        account_id=ory,
+        payload={
+            "notification_type": notification_type,
+            "idempotency_key": idempotency_key,
+            "payload_keys": list(payload.keys()) if payload else [],
+        },
+    )
 
 
 async def was_notification_sent(idempotency_key: str) -> bool:
@@ -134,7 +153,7 @@ async def send_idempotent(
 ) -> bool:
     """Log-before-send с idempotency key.
 
-    1. Записать в notification_log (log-before-send, §10.10)
+    1. Записать в domain_event (log-before-send, §10.10, WP-268 cutover)
     2. Если запись успешна — вызвать send_fn()
     3. Если дубль — пропустить
 
