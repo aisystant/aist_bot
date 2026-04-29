@@ -191,24 +191,27 @@ async def _get_retention_metrics(conn) -> dict:
 
 async def _get_trend_metrics(conn) -> dict:
     """Week-over-week trends: DAU, sessions."""
-    row = await conn.fetchrow('''
-        WITH this_week AS (
+    # activity_log → learning BD (мигрировано в Phase 5 G5)
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        row = await lc.fetchrow('''
+            WITH this_week AS (
+                SELECT
+                    COUNT(DISTINCT chat_id) as dau_avg
+                FROM activity_log
+                WHERE activity_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6
+            ),
+            last_week AS (
+                SELECT
+                    COUNT(DISTINCT chat_id) as dau_avg
+                FROM activity_log
+                WHERE activity_date BETWEEN (NOW() AT TIME ZONE 'Europe/Moscow')::date - 13 AND (NOW() AT TIME ZONE 'Europe/Moscow')::date - 7
+            )
             SELECT
-                COUNT(DISTINCT chat_id) as dau_avg
-            FROM activity_log
-            WHERE activity_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6
-        ),
-        last_week AS (
-            SELECT
-                COUNT(DISTINCT chat_id) as dau_avg
-            FROM activity_log
-            WHERE activity_date BETWEEN (NOW() AT TIME ZONE 'Europe/Moscow')::date - 13 AND (NOW() AT TIME ZONE 'Europe/Moscow')::date - 7
-        )
-        SELECT
-            tw.dau_avg as this_week_dau,
-            lw.dau_avg as last_week_dau
-        FROM this_week tw, last_week lw
-    ''')
+                tw.dau_avg as this_week_dau,
+                lw.dau_avg as last_week_dau
+            FROM this_week tw, last_week lw
+        ''')
 
     this_w = row['this_week_dau'] if row else 0
     last_w = row['last_week_dau'] if row else 0

@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_learning_pool
 
 logger = get_logger(__name__)
 
@@ -17,7 +17,7 @@ async def save_answer(chat_id: int, topic_index: int, answer: str,
                       topic_id: str = None, work_product_category: str = None,
                       complexity_level: int = None, feed_session_id: int = None):
     """Сохранить ответ пользователя"""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
             INSERT INTO answers 
@@ -30,7 +30,7 @@ async def save_answer(chat_id: int, topic_index: int, answer: str,
 
 async def get_answers(chat_id: int, limit: int = 100) -> List[dict]:
     """Получить ответы пользователя"""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT * FROM answers
@@ -50,7 +50,7 @@ async def delete_marathon_answers(chat_id: int) -> int:
     Returns:
         Количество удалённых записей
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''
             DELETE FROM answers
@@ -80,7 +80,7 @@ async def get_weekly_work_products(chat_id: int, week_offset: int = 0) -> List[d
     week_start = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
     week_end = week_start + timedelta(days=7)
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT 
@@ -99,7 +99,7 @@ async def get_weekly_work_products(chat_id: int, week_offset: int = 0) -> List[d
 
 async def get_answers_count_by_type(chat_id: int) -> dict:
     """Получить количество ответов по типам"""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT answer_type, COUNT(*) as count
@@ -125,7 +125,7 @@ async def get_work_products_by_day(chat_id: int, topics_list: list) -> dict:
     Returns:
         {day_number: work_products_count}
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         # Считаем уникальные topic_index для каждого РП
         rows = await conn.fetch('''
@@ -163,7 +163,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
     today = moscow_today()
     week_start = today - timedelta(days=today.weekday())  # Понедельник
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         # Активные дни за неделю (марафон)
         active_days = await conn.fetchval('''
@@ -232,9 +232,9 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
     today = moscow_today()
     week_start = today - timedelta(days=today.weekday())
 
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        # Активные дни за неделю (лента)
+    # activity_log → learning BD
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as conn:
         active_days = await conn.fetchval('''
             SELECT COUNT(DISTINCT activity_date)
             FROM activity_log
@@ -243,6 +243,10 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
               AND activity_date >= $2
         ''', chat_id, week_start)
 
+    # feed_sessions / feed_weeks → bot_data (ещё не мигрированы)
+    from db.connection import get_pool as _get_main_pool
+    main_pool = await _get_main_pool()
+    async with main_pool.acquire() as conn:
         # Дайджесты за неделю (все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
@@ -292,8 +296,9 @@ async def get_total_stats(chat_id: int) -> dict:
     today = moscow_today()
     stats_reset_date = user.get('stats_reset_date')
 
-    pool = await get_pool()
-    async with pool.acquire() as conn:
+    # activity_log + answers → learning BD
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as conn:
         # Определяем дату регистрации
         created_at = user.get('created_at')
         if created_at:
@@ -333,6 +338,10 @@ async def get_total_stats(chat_id: int) -> dict:
               AND created_at >= $2
         ''', chat_id, count_from)
 
+    # feed_sessions / feed_weeks → bot_data (ещё не мигрированы)
+    from db.connection import get_pool as _get_main_pool
+    main_pool = await _get_main_pool()
+    async with main_pool.acquire() as conn:
         # Всего дайджестов (от даты сброса, все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
@@ -372,7 +381,7 @@ async def get_theory_count_at_level(chat_id: int, complexity_level: int) -> int:
     Источник истины для topics_at_current_complexity (вместо мутируемого счётчика).
     SOTA.012: View, не копия — считаем из журнала событий (answers), не храним.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval('''
             SELECT COUNT(*)

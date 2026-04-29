@@ -171,8 +171,9 @@ def _infer_reason(from_tier: int, to_tier: int) -> str:
 async def _log_tier_transition(chat_id: int, from_tier: int, to_tier: int, reason: str) -> None:
     """Log tier transition to tier_events table (fire-and-forget)."""
     try:
-        from db.connection import acquire
-        async with await acquire() as conn:
+        from db.connection import get_rewards_pool
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO tier_events (chat_id, from_tier, to_tier, reason, created_at)
                    VALUES ($1, $2, $3, $4, $5)""",

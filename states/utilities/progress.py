@@ -189,8 +189,8 @@ class ProgressState(BaseState):
         # Assessment
         last_assessment = None
         try:
-            from db.connection import get_pool
-            pool = await get_pool()
+            from db.connection import get_learning_pool
+            pool = await get_learning_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
                     'SELECT scores, dominant_state, created_at FROM assessments WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
