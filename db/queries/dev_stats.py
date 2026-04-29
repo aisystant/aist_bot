@@ -165,22 +165,35 @@ async def get_qa_top_topics(limit: int = 10) -> List[dict]:
 
 async def get_table_sizes() -> List[dict]:
     """Количество записей в каждой таблице."""
-    pool = await get_pool()
-    # WP-268 Phase 3 Block 2: qa_history теперь в journal БД (см. отдельный count в get_qa_stats)
-    tables = [
-        'public.users', 'development.user_state', 'answers', 'activity_log',
-        'feed_weeks', 'feed_sessions', 'assessments',
-        'feedback_reports', 'github_connections', 'service_usage',
-        'marathon_content',
-    ]
     results = []
+
+    # bot_data tables
+    # WP-268 Phase 3 Block 2: qa_history теперь в journal БД
+    # WP-268 Phase 5 G5: answers/activity_log/assessments → learning BD (см. ниже)
+    pool = await get_pool()
     async with pool.acquire() as conn:
-        for table in tables:
+        for table in [
+            'public.users', 'development.user_state',
+            'feed_weeks', 'feed_sessions',
+            'feedback_reports', 'github_connections', 'service_usage',
+            'marathon_content',
+        ]:
             try:
                 row = await conn.fetchrow(f'SELECT COUNT(*) AS cnt FROM {table}')
                 results.append({'table': table, 'count': row['cnt']})
             except Exception:
                 results.append({'table': table, 'count': -1})
+
+    # learning BD tables (WP-268 Phase 5 G5)
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        for table in ['answers', 'activity_log', 'assessments']:
+            try:
+                row = await lc.fetchrow(f'SELECT COUNT(*) AS cnt FROM {table}')
+                results.append({'table': f'learning.{table}', 'count': row['cnt']})
+            except Exception:
+                results.append({'table': f'learning.{table}', 'count': -1})
+
     return results
 
 
