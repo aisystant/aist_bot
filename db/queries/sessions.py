@@ -11,7 +11,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from db.connection import get_pool
+from db.connection import get_health_pool
 from db.queries.events import log_event
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ async def get_or_create_session(chat_id: int, command: str):
     Если active session < SESSION_TIMEOUT — обновить.
     Если нет — финализировать старую + создать новую.
     """
-    pool = await get_pool()
+    pool = await get_health_pool()
     async with pool.acquire() as conn:
         # Найти последнюю незакрытую сессию пользователя
         row = await conn.fetchrow('''
@@ -85,7 +85,7 @@ async def finalize_stale_sessions():
 
     Вызывается из scheduler midnight cleanup.
     """
-    pool = await get_pool()
+    pool = await get_health_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''
             UPDATE user_sessions
@@ -108,7 +108,7 @@ async def get_session_stats(hours: int = 24) -> dict:
     Returns:
         {count, avg_duration_sec, avg_requests, entry_points: [{point, count}]}
     """
-    pool = await get_pool()
+    pool = await get_health_pool()
     async with pool.acquire() as conn:
         stats = await conn.fetchrow('''
             SELECT

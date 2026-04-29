@@ -16,6 +16,7 @@ from config import (
     REWARDS_URL,
     FSM_URL,
     JOURNAL_URL,
+    HEALTH_URL,
     get_logger,
 )
 
@@ -39,6 +40,9 @@ _fsm_pool: Optional[asyncpg.Pool] = None           # fsm_states (Railway-local P
 
 # WP-268 Phase 3 Block 2: qa_history + feedback_triage вынесены в Neon journal БД (DP.ARCH.004 §3.2).
 _journal_pool: Optional[asyncpg.Pool] = None       # qa_history, feedback_triage (Neon journal БД)
+
+# WP-268 Phase 5 G5 Tier2: error_logs, user_sessions, pending_fixes → Neon health БД (DP.ARCH.004 §8).
+_health_pool: Optional[asyncpg.Pool] = None        # error_logs, user_sessions, pending_fixes (Neon health БД)
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -177,9 +181,27 @@ async def get_journal_pool() -> asyncpg.Pool:
     return _journal_pool
 
 
+async def get_health_pool() -> asyncpg.Pool:
+    """Пул соединений к health БД (WP-268 Phase 5 G5 Tier2): error_logs, user_sessions, pending_fixes.
+
+    Neon БД `health` (DP.ARCH.004 §8) — наблюдаемость системы и сессии пользователей.
+    """
+    global _health_pool
+    if _health_pool is None:
+        _health_pool = await asyncpg.create_pool(
+            HEALTH_URL,
+            statement_cache_size=0,
+            min_size=1,
+            max_size=10,
+            command_timeout=30,
+        )
+        logger.info("✅ Health пул соединений создан (min=1, max=10)")
+    return _health_pool
+
+
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool, _health_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -212,6 +234,10 @@ async def close_pool():
         await _journal_pool.close()
         _journal_pool = None
         logger.info("🔒 Journal пул соединений закрыт")
+    if _health_pool:
+        await _health_pool.close()
+        _health_pool = None
+        logger.info("🔒 Health пул соединений закрыт")
 
 
 async def acquire():

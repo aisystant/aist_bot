@@ -36,6 +36,10 @@ FSM_URL = os.getenv("FSM_URL") or os.getenv("DATABASE_URL")
 # WP-268 Phase 3 Block 2: qa_history + feedback_triage вынос в Neon БД `journal` (DP.ARCH.004 §3.2).
 # Категория WP-257: Память.Observed (session events). PII content (Q&A текст).
 JOURNAL_URL = os.getenv("JOURNAL_URL") or os.getenv("DATABASE_URL")
+
+# WP-268 Phase 5 G5 Tier2: error_logs, user_sessions, pending_fixes → Neon health БД (DP.ARCH.004 §8).
+# Наблюдаемость системы и сессии. Health BD — special (не entity).
+HEALTH_URL = os.getenv("HEALTH_URL") or os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
