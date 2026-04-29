@@ -1399,3 +1399,98 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
     logger.info("All tables created/updated")
+
+
+async def create_tables_health(pool: asyncpg.Pool):
+    """Создать таблицы в health БД (WP-268 Phase 5 G5 Tier2).
+
+    Вызывается при первом подключении к health BD (Neon health).
+    Идемпотентно: CREATE TABLE IF NOT EXISTS + ALTER ADD COLUMN IF NOT EXISTS.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS error_logs (
+                id SERIAL PRIMARY KEY,
+                error_key TEXT NOT NULL,
+                level TEXT NOT NULL DEFAULT 'ERROR',
+                logger_name TEXT NOT NULL,
+                message TEXT NOT NULL,
+                traceback TEXT,
+                context JSONB DEFAULT '{}',
+                occurrence_count INTEGER DEFAULT 1,
+                first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+                last_seen_at TIMESTAMPTZ DEFAULT NOW(),
+                alerted BOOLEAN DEFAULT FALSE
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_last_seen
+            ON error_logs (last_seen_at DESC)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_alerted
+            ON error_logs (alerted, last_seen_at DESC)
+        ''')
+        for col, typedef in [
+            ('category', 'TEXT'),
+            ('severity', 'TEXT'),
+            ('suggested_action', 'TEXT'),
+            ('escalated', 'BOOLEAN DEFAULT FALSE'),
+        ]:
+            await conn.execute(f'''
+                ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
+            ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_category
+            ON error_logs (category, last_seen_at DESC)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_error_logs_escalated
+            ON error_logs (escalated, last_seen_at DESC)
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS pending_fixes (
+                id SERIAL PRIMARY KEY,
+                error_log_id INTEGER NOT NULL,
+                error_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                diagnosis TEXT NOT NULL,
+                archgate_eval TEXT NOT NULL,
+                proposed_diff TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                pr_url TEXT,
+                branch_name TEXT,
+                tg_message_id BIGINT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            )
+        ''')
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_error_key_active
+            ON pending_fixes (error_key) WHERE status IN ('pending', 'approved')
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                ended_at TIMESTAMPTZ,
+                duration_seconds INTEGER,
+                request_count INTEGER DEFAULT 1,
+                commands JSONB DEFAULT '[]',
+                entry_point TEXT,
+                exit_point TEXT
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_chat_id
+            ON user_sessions (chat_id)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_sessions_started
+            ON user_sessions (started_at DESC)
+        ''')
+
+    logger.info("Health BD tables created/updated")
