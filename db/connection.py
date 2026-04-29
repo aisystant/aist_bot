@@ -13,6 +13,7 @@ from config import (
     SUBSCRIPTION_URL,
     INDICATORS_URL,
     LEARNING_URL,
+    REWARDS_URL,
     FSM_URL,
     JOURNAL_URL,
     get_logger,
@@ -31,6 +32,7 @@ _persona_pool: Optional[asyncpg.Pool] = None       # persona.ory_identity, perso
 _subscription_pool: Optional[asyncpg.Pool] = None  # subscription.contract
 _indicators_pool: Optional[asyncpg.Pool] = None    # indicators.calculated_profile (Память.Derived: ЦД)
 _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, notifications, traces)
+_rewards_pool: Optional[asyncpg.Pool] = None       # rewards.point_balances (WP-253 Ф9.3 проекция)
 
 # WP-268 Phase 3 Block 1: aiogram fsm_states вынесен в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
 _fsm_pool: Optional[asyncpg.Pool] = None           # fsm_states (Railway-local Postgres)
@@ -118,6 +120,25 @@ async def get_learning_pool() -> asyncpg.Pool:
     return _learning_pool
 
 
+async def get_rewards_pool() -> asyncpg.Pool:
+    """Пул соединений к rewards БД (WP-253 Ф9.3): point_balances.
+
+    Read-only для бота — writer = projection-worker (DP.SC.122). Latency p95 ≤1s
+    после INSERT в learning.domain_event.
+    """
+    global _rewards_pool
+    if _rewards_pool is None:
+        _rewards_pool = await asyncpg.create_pool(
+            REWARDS_URL,
+            statement_cache_size=0,
+            min_size=1,
+            max_size=5,
+            command_timeout=30,
+        )
+        logger.info("✅ Rewards пул соединений создан")
+    return _rewards_pool
+
+
 async def get_fsm_pool() -> asyncpg.Pool:
     """Пул соединений к fsm БД (WP-268 Phase 3 Block 1, паттерн DP.ARCH.004 §10.10): fsm_states.
 
@@ -158,7 +179,7 @@ async def get_journal_pool() -> asyncpg.Pool:
 
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _fsm_pool, _journal_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -179,6 +200,10 @@ async def close_pool():
         await _learning_pool.close()
         _learning_pool = None
         logger.info("🔒 Learning пул соединений закрыт")
+    if _rewards_pool:
+        await _rewards_pool.close()
+        _rewards_pool = None
+        logger.info("🔒 Rewards пул соединений закрыт")
     if _fsm_pool:
         await _fsm_pool.close()
         _fsm_pool = None

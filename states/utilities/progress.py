@@ -63,6 +63,22 @@ class ProgressState(BaseState):
 
     # ─── PREFETCH ─────────────────────────────────────────────
 
+    async def _fetch_points(self, chat_id: int):
+        """Баланс баллов через rewards.point_balances. Read-only.
+
+        Возвращает Decimal или None (нет привязки Ory / нет начислений / ошибка).
+        """
+        try:
+            from helpers.dual_write import resolve_ory_id_from_chat
+            from db.queries.rewards import get_points_balance
+            ory_id = await resolve_ory_id_from_chat(chat_id)
+            if not ory_id:
+                return None
+            return await get_points_balance(ory_id)
+        except Exception as e:
+            logger.error(f"[Progress] _fetch_points error: {e}")
+            return None
+
     async def _prefetch(self, chat_id: int) -> dict:
         """Загрузить ВСЕ данные одним батчем (asyncio.gather)."""
         from db.queries import get_intern
@@ -88,6 +104,7 @@ class ProgressState(BaseState):
             total_stats,
             qa_stats,
             github,
+            points_balance,
         ) = await asyncio.gather(
             get_activity_stats(chat_id),
             get_activity_calendar(chat_id, weeks=4),
@@ -96,6 +113,7 @@ class ProgressState(BaseState):
             get_total_stats(chat_id),
             get_user_qa_stats(chat_id),
             get_github_connection(chat_id),
+            self._fetch_points(chat_id),
             return_exceptions=True,
         )
 
@@ -121,6 +139,9 @@ class ProgressState(BaseState):
         if isinstance(github, Exception):
             logger.error(f"[Progress] github error: {github}")
             github = None
+        if isinstance(points_balance, Exception):
+            logger.error(f"[Progress] points_balance error: {points_balance}")
+            points_balance = None
 
         # Марафон
         completed_topics = intern.get('completed_topics', [])
@@ -221,6 +242,8 @@ class ProgressState(BaseState):
             'longest_streak': activity_stats.get('longest_streak', 0),
             'active_days_total': activity_stats.get('total', 0),
             'days_active_week': activity_stats.get('days_active_this_week', 0),
+            # Rewards (WP-253 Ф9.3 проекция)
+            'points_balance': points_balance,
             # Calendar
             'calendar': cal_data,
             'most_active_wd': most_active_wd,
@@ -307,10 +330,14 @@ class ProgressState(BaseState):
         complexity = cache.get('complexity_level', 1)
         reg_date = cache.get('reg_date', '—')
 
+        points = cache.get('points_balance')
+
         text = f"<b>{t('progress.title_hub', lang, name=name)}</b>\n\n"
         text += f"🔥 {t('progress.streak_line', lang)}: {streak} {t('progress.days', lang)} | {t('progress.record', lang)}: {longest} {t('progress.days', lang)}\n"
         text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
         text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
+        if points is not None:
+            text += f"🏆 Баллы: {int(points)}\n"
         text += f"📆 {t('progress.since', lang)}: {reg_date}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[

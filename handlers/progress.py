@@ -77,6 +77,17 @@ async def cmd_progress(message: Message, state: FSMContext = None):
         marathon_stats = {'work_products': 0}
         feed_stats = {'digests': 0, 'fixations': 0}
 
+    # WP-253 Ф9.3 проекция баллов: read-only из rewards.point_balances
+    points_balance = None
+    try:
+        from helpers.dual_write import resolve_ory_id_from_chat
+        from db.queries.rewards import get_points_balance
+        ory_id = await resolve_ory_id_from_chat(chat_id)
+        if ory_id:
+            points_balance = await get_points_balance(ory_id)
+    except Exception as e:
+        logger.error(f"Ошибка получения баллов для {chat_id}: {e}")
+
     days_active_week = activity_stats.get('days_active_this_week', 0)
 
     marathon_day = b['get_marathon_day'](intern)
@@ -94,7 +105,10 @@ async def cmd_progress(message: Message, state: FSMContext = None):
         feed_topics_text = t('progress.topics_not_selected', lang)
 
     text = f"{t('progress.title', lang, name=intern['name'])}\n\n"
-    text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n\n"
+    text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n"
+    if points_balance is not None:
+        text += f"🏆 Баллы: {int(points_balance)}\n"
+    text += "\n"
 
     text += f"🏃 *{t('progress.marathon_title', lang)}*\n"
     text += f"{t('progress.day_of_total', lang, day=marathon_day, total=MARATHON_DAYS)}\n"

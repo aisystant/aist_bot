@@ -27,6 +27,7 @@ PERSONA_URL = os.getenv("PERSONA_URL") or os.getenv("DATABASE_URL")  # persona.o
 SUBSCRIPTION_URL = os.getenv("SUBSCRIPTION_URL") or os.getenv("DATABASE_URL")  # subscription.contract
 INDICATORS_URL = os.getenv("INDICATORS_URL") or os.getenv("DATABASE_URL")  # indicators.calculated_profile (заменяет digitaltwin)
 LEARNING_URL = os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")  # learning.domain_event (qa, notifications, traces)
+REWARDS_URL = os.getenv("REWARDS_URL") or os.getenv("DATABASE_URL")  # rewards.point_balances (WP-253 Ф9.3, проекция баллов)
 
 # WP-268 Phase 3 Block 1: fsm_states вынос в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
 # В production должно быть set явно. Fallback на DATABASE_URL — только для локального dev.
