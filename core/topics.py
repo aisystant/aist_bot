@@ -455,7 +455,7 @@ def get_personalization_prompt(intern: dict, marathon_day: int = 1) -> str:
 
 async def save_answer(chat_id: int, topic_index: int, answer: str):
     """Сохранить ответ стажера"""
-    from db import get_pool
+    from db.connection import get_learning_pool
 
     if answer.startswith('[РП]'):
         answer_type = 'work_product'
@@ -464,7 +464,7 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
     else:
         answer_type = 'theory_answer'
 
-    async with (await get_pool()).acquire() as conn:
+    async with (await get_learning_pool()).acquire() as conn:
         await conn.execute(
             '''INSERT INTO answers (chat_id, topic_index, answer, answer_type, mode)
                VALUES ($1, $2, $3, $4, $5)''',

@@ -6,7 +6,7 @@ import json
 from typing import Optional, List
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_learning_pool
 
 logger = get_logger(__name__)
 
@@ -34,7 +34,7 @@ async def save_assessment(
     Returns:
         ID записи или None
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''INSERT INTO assessments
@@ -65,7 +65,7 @@ async def get_latest_assessment(
     Returns:
         Словарь с результатом или None
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         if assessment_id:
             row = await conn.fetchrow(
@@ -111,7 +111,7 @@ async def get_assessment_history(
     Returns:
         Список результатов
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         if assessment_id:
             rows = await conn.fetch(

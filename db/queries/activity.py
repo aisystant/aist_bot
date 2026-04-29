@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_pool, get_learning_pool
 
 logger = get_logger(__name__)
 
@@ -48,7 +48,7 @@ async def record_active_day(chat_id: int, activity_type: str,
     """
     from .users import get_intern, update_intern, moscow_today
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     today = moscow_today()
 
     # 1. Записать в лог активности
@@ -95,7 +95,7 @@ async def get_activity_stats(chat_id: int) -> dict:
     """Получить статистику активности пользователя"""
     from .users import get_intern, moscow_today
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     user = await get_intern(chat_id)
     today = moscow_today()
 
@@ -164,7 +164,7 @@ async def get_activity_calendar(chat_id: int, weeks: int = 4) -> List[dict]:
     """
     from .users import moscow_today
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     today = moscow_today()
     start_date = today - timedelta(weeks=weeks)
 

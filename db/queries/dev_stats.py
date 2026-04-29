@@ -5,7 +5,7 @@
 from typing import List
 
 from config import get_logger
-from db.connection import get_pool, get_journal_pool
+from db.connection import get_pool, get_journal_pool, get_learning_pool
 
 logger = get_logger(__name__)
 
@@ -65,15 +65,26 @@ async def get_complexity_distribution() -> List[dict]:
 
 async def get_integration_stats() -> dict:
     """Статистика интеграций (GitHub, Assessment, ЦД)."""
+    # github_connections → bot_data
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow('''
+        github_row = await conn.fetchrow(
+            'SELECT COUNT(*) AS github_connected FROM github_connections'
+        )
+    # assessments → learning BD (мигрировано Phase 5 G5)
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        assess_row = await lc.fetchrow('''
             SELECT
-                (SELECT COUNT(*) FROM github_connections) AS github_connected,
-                (SELECT COUNT(DISTINCT chat_id) FROM assessments) AS assessed_users,
-                (SELECT COUNT(*) FROM assessments) AS total_assessments
+                COUNT(DISTINCT chat_id) AS assessed_users,
+                COUNT(*) AS total_assessments
+            FROM assessments
         ''')
-        return dict(row) if row else {}
+    return {
+        'github_connected': github_row['github_connected'] if github_row else 0,
+        'assessed_users': assess_row['assessed_users'] if assess_row else 0,
+        'total_assessments': assess_row['total_assessments'] if assess_row else 0,
+    }
 
 
 # === /usage — популярность сервисов ===
