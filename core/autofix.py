@@ -329,8 +329,8 @@ async def send_fix_proposal(
             reply_markup=keyboard,
         )
         # Update tg_message_id
-        from db.connection import acquire
-        async with await acquire() as conn:
+        from db.connection import get_health_pool
+        async with (await get_health_pool()).acquire() as conn:
             await conn.execute(
                 "UPDATE pending_fixes SET tg_message_id = $1 WHERE id = $2",
                 sent.message_id, fix_id,

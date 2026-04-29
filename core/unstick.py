@@ -14,7 +14,7 @@ import os
 import logging
 from datetime import datetime, timezone
 
-from db.connection import get_pool
+from db.connection import get_health_pool
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ async def detect_repeated_errors(minutes: int = ERROR_WINDOW_MINUTES,
     Returns:
         [{user_id, error_count, last_error}]
     """
-    pool = await get_pool()
+    pool = await get_health_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT
@@ -74,7 +74,7 @@ async def detect_stuck_users(timeout_minutes: int = STUCK_TIMEOUT_MINUTES) -> li
     Returns:
         [{user_id, state, last_activity}]
     """
-    pool = await get_pool()
+    pool = await get_health_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             WITH latest_traces AS (

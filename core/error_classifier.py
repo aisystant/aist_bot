@@ -32,7 +32,7 @@ import re
 import logging
 from typing import Optional
 
-from db.connection import acquire
+from db.connection import get_health_pool
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +323,7 @@ async def classify_unprocessed(limit: int = 100) -> int:
     Phase 2: Haiku fallback for unknowns (≤5 calls, async).
     Returns number of classified errors.
     """
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, logger_name, message, traceback
             FROM error_logs
@@ -366,7 +366,7 @@ async def classify_unprocessed(limit: int = 100) -> int:
                     haiku_upgraded += 1
                     break
 
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         await conn.executemany("""
             UPDATE error_logs
             SET category = $2, severity = $3, suggested_action = $4
@@ -392,7 +392,7 @@ async def _escalate_persistent_l1() -> int:
     Повышаем severity до L2 → попадёт в autofix pipeline.
     Returns number of escalated errors.
     """
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         result = await conn.execute("""
             UPDATE error_logs
             SET severity = 'L2',
@@ -419,7 +419,7 @@ async def check_escalation() -> Optional[str]:
     # Phase 1: upgrade persistent L1 → L2 (код-баги, не transient)
     await _escalate_persistent_l1()
 
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, category, severity, logger_name, message,
                    occurrence_count, context, last_seen_at
@@ -463,7 +463,7 @@ async def check_escalation() -> Optional[str]:
 
     # Mark as escalated
     ids = [r['id'] for r in rows]
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         await conn.execute(
             "UPDATE error_logs SET escalated = TRUE WHERE id = ANY($1::int[])", ids
         )

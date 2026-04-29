@@ -17,7 +17,7 @@ import aiohttp
 from aiogram import Bot
 
 from config import get_logger
-from db.connection import acquire
+from db.connection import get_health_pool
 
 logger = get_logger(__name__)
 
@@ -34,7 +34,7 @@ L3_COOLDOWN_MINUTES = 30
 
 async def _count_cascade_errors(minutes: int = 5) -> int:
     """Count unique error_keys in last N minutes."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         row = await conn.fetchrow("""
             SELECT COUNT(DISTINCT error_key) AS unique_count
             FROM error_logs
@@ -46,7 +46,7 @@ async def _count_cascade_errors(minutes: int = 5) -> int:
 
 async def _has_pool_exhaustion(minutes: int = 5) -> bool:
     """Check for DB pool/connection errors in last N minutes."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS cnt
             FROM error_logs

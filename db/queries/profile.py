@@ -6,7 +6,7 @@
 
 from typing import Optional
 
-from db.connection import get_pool, get_learning_pool, get_journal_pool
+from db.connection import get_pool, get_learning_pool, get_journal_pool, get_health_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -106,7 +106,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (см. ниже)
             tables_chat_id = [
                 'reminders', 'feed_weeks', 'marathon_content',
-                'feedback_reports', 'subscriptions', 'user_sessions',
+                'feedback_reports', 'subscriptions',
                 'github_connections',
             ]
             for table in tables_chat_id:
@@ -214,6 +214,18 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:
         logger.warning(f"[DELETE] learning cleanup failed: {e}")
+
+    # WP-268 Phase 5 G5 Tier2: user_sessions вынесены в health BD
+    try:
+        health_pool = await get_health_pool()
+        async with health_pool.acquire() as hconn:
+            deleted = await hconn.execute(
+                'DELETE FROM user_sessions WHERE chat_id = $1', chat_id
+            )
+            result['user_sessions'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] health cleanup failed: {e}")
+        result['user_sessions'] = 0
 
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")

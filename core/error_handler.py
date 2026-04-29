@@ -139,8 +139,8 @@ class AsyncDBLogHandler(logging.Handler):
                 grouped[key] = item
 
         try:
-            from db.connection import get_pool
-            pool = await get_pool()
+            from db.connection import get_health_pool
+            pool = await get_health_pool()
             async with pool.acquire() as conn:
                 for item in grouped.values():
                     ctx_json = json.dumps(item['context'])
