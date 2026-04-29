@@ -80,11 +80,10 @@ async def cmd_progress(message: Message, state: FSMContext = None):
     # WP-253 Ф9.3 проекция баллов: read-only из rewards.point_balances
     points_balance = None
     try:
-        from helpers.dual_write import resolve_ory_id_from_chat
         from db.queries.rewards import get_points_balance
-        ory_id = await resolve_ory_id_from_chat(chat_id)
-        if ory_id:
-            points_balance = await get_points_balance(ory_id)
+        account_id = intern.get('dt_user_id')
+        if account_id:
+            points_balance = await get_points_balance(account_id)
     except Exception as e:
         logger.error(f"Ошибка получения баллов для {chat_id}: {e}")
 

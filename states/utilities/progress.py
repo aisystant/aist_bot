@@ -63,18 +63,17 @@ class ProgressState(BaseState):
 
     # ─── PREFETCH ─────────────────────────────────────────────
 
-    async def _fetch_points(self, chat_id: int):
+    async def _fetch_points(self, account_id: Optional[str]):
         """Баланс баллов через rewards.point_balances. Read-only.
 
-        Возвращает Decimal или None (нет привязки Ory / нет начислений / ошибка).
+        account_id = intern['dt_user_id'] (Ory UUID, хранится в public.users).
+        Возвращает Decimal или None (нет dt_user_id / нет начислений / ошибка).
         """
+        if not account_id:
+            return None
         try:
-            from helpers.dual_write import resolve_ory_id_from_chat
             from db.queries.rewards import get_points_balance
-            ory_id = await resolve_ory_id_from_chat(chat_id)
-            if not ory_id:
-                return None
-            return await get_points_balance(ory_id)
+            return await get_points_balance(account_id)
         except Exception as e:
             logger.error(f"[Progress] _fetch_points error: {e}")
             return None
@@ -113,7 +112,7 @@ class ProgressState(BaseState):
             get_total_stats(chat_id),
             get_user_qa_stats(chat_id),
             get_github_connection(chat_id),
-            self._fetch_points(chat_id),
+            self._fetch_points(intern.get('dt_user_id')),
             return_exceptions=True,
         )
 
