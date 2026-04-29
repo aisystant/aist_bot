@@ -52,12 +52,12 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
 
-            # Все остальные таблицы с chat_id / user_id
+            # Все остальные таблицы с chat_id / user_id (legacy pool)
             tables_chat_id = [
                 'answers', 'reminders', 'feed_weeks', 'marathon_content',
                 'activity_log', 'qa_history', 'assessments',
                 'feedback_reports', 'subscriptions', 'user_sessions',
-                'github_connections', 'fsm_states',
+                'github_connections',
             ]
             for table in tables_chat_id:
                 deleted = await conn.execute(
@@ -122,6 +122,19 @@ async def delete_all_user_data(chat_id: int) -> dict:
             logger.warning(f"[DELETE] persona user_integrations cleanup failed: {e}")
             result['persona_user_integrations'] = 0
 
+    # WP-268 Phase 3 Block 1: fsm_states живёт в отдельной БД (FSM_URL, Railway-local Postgres)
+    try:
+        from db.connection import get_fsm_pool
+        fsm_pool = await get_fsm_pool()
+        async with fsm_pool.acquire() as fconn:
+            deleted = await fconn.execute(
+                'DELETE FROM fsm_states WHERE chat_id = $1', chat_id
+            )
+            result['fsm_states'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] fsm_states cleanup failed: {e}")
+        result['fsm_states'] = 0
+
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")
     return result
@@ -151,10 +164,10 @@ async def reset_learning_data(chat_id: int) -> dict:
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
 
-            # Удаляем учебные данные из связанных таблиц
+            # Удаляем учебные данные из связанных таблиц (legacy pool)
             learning_tables = [
                 'answers', 'feed_weeks', 'marathon_content',
-                'activity_log', 'assessments', 'fsm_states',
+                'activity_log', 'assessments',
             ]
             for table in learning_tables:
                 deleted = await conn.execute(
@@ -189,6 +202,19 @@ async def reset_learning_data(chat_id: int) -> dict:
                 WHERE chat_id = $1
             ''', chat_id)
             result['user_state_reset'] = 1
+
+    # WP-268 Phase 3 Block 1: fsm_states теперь в отдельной БД (FSM_URL, Railway-local)
+    try:
+        from db.connection import get_fsm_pool
+        fsm_pool = await get_fsm_pool()
+        async with fsm_pool.acquire() as fconn:
+            deleted = await fconn.execute(
+                'DELETE FROM fsm_states WHERE chat_id = $1', chat_id
+            )
+            result['fsm_states'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[RESET] fsm_states cleanup failed: {e}")
+        result['fsm_states'] = 0
 
     total = sum(result.values())
     logger.info(f"[RESET] user {chat_id}: learning data reset, {total} rows affected across {len(result)} tables")

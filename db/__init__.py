@@ -14,6 +14,7 @@
 
 from .connection import (
     get_pool,
+    get_fsm_pool,
     close_pool,
     acquire,
     init_db,
@@ -25,6 +26,7 @@ from .rls import with_user_context
 
 __all__ = [
     'get_pool',
+    'get_fsm_pool',
     'close_pool',
     'acquire',
     'init_db',

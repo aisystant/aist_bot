@@ -27,6 +27,10 @@ PERSONA_URL = os.getenv("PERSONA_URL") or os.getenv("DATABASE_URL")  # persona.o
 SUBSCRIPTION_URL = os.getenv("SUBSCRIPTION_URL") or os.getenv("DATABASE_URL")  # subscription.contract
 INDICATORS_URL = os.getenv("INDICATORS_URL") or os.getenv("DATABASE_URL")  # indicators.calculated_profile (заменяет digitaltwin)
 LEARNING_URL = os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")  # learning.domain_event (qa, notifications, traces)
+
+# WP-268 Phase 3 Block 1: fsm_states вынос в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
+# В production должно быть set явно. Fallback на DATABASE_URL — только для локального dev.
+FSM_URL = os.getenv("FSM_URL") or os.getenv("DATABASE_URL")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://digital-twin-mcp.aisystant.workers.dev/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")

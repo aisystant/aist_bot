@@ -13,6 +13,7 @@ from config import (
     SUBSCRIPTION_URL,
     INDICATORS_URL,
     LEARNING_URL,
+    FSM_URL,
     get_logger,
 )
 
@@ -27,6 +28,9 @@ _persona_pool: Optional[asyncpg.Pool] = None       # persona.ory_identity, perso
 _subscription_pool: Optional[asyncpg.Pool] = None  # subscription.contract
 _indicators_pool: Optional[asyncpg.Pool] = None    # indicators.calculated_profile (заменяет digital_twins)
 _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, notifications, traces)
+
+# WP-268 Phase 3 Block 1: aiogram fsm_states вынесен в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
+_fsm_pool: Optional[asyncpg.Pool] = None           # fsm_states (Railway-local Postgres)
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -108,9 +112,28 @@ async def get_learning_pool() -> asyncpg.Pool:
     return _learning_pool
 
 
+async def get_fsm_pool() -> asyncpg.Pool:
+    """Пул соединений к fsm БД (WP-268 Phase 3 Block 1, паттерн DP.ARCH.004 §10.10): fsm_states.
+
+    Railway-local Postgres рядом с ботом. State-files живут вне Neon entity-БД
+    по принципу различения «State file ≠ Лог ≠ Инцидент» (DP.D.049).
+    """
+    global _fsm_pool
+    if _fsm_pool is None:
+        _fsm_pool = await asyncpg.create_pool(
+            FSM_URL,
+            statement_cache_size=0,
+            min_size=2,
+            max_size=20,
+            command_timeout=30,
+        )
+        logger.info("✅ FSM пул соединений создан (min=2, max=20)")
+    return _fsm_pool
+
+
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _fsm_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -131,6 +154,10 @@ async def close_pool():
         await _learning_pool.close()
         _learning_pool = None
         logger.info("🔒 Learning пул соединений закрыт")
+    if _fsm_pool:
+        await _fsm_pool.close()
+        _fsm_pool = None
+        logger.info("🔒 FSM пул соединений закрыт")
 
 
 async def acquire():
