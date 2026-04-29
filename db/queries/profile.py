@@ -53,9 +53,10 @@ async def delete_all_user_data(chat_id: int) -> dict:
             result['feed_sessions'] = _parse_delete_count(deleted)
 
             # Все остальные таблицы с chat_id / user_id (legacy pool)
+            # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже отдельный DELETE)
             tables_chat_id = [
                 'answers', 'reminders', 'feed_weeks', 'marathon_content',
-                'activity_log', 'qa_history', 'assessments',
+                'activity_log', 'assessments',
                 'feedback_reports', 'subscriptions', 'user_sessions',
                 'github_connections',
             ]
@@ -134,6 +135,24 @@ async def delete_all_user_data(chat_id: int) -> dict:
     except Exception as e:
         logger.warning(f"[DELETE] fsm_states cleanup failed: {e}")
         result['fsm_states'] = 0
+
+    # WP-268 Phase 3 Block 2: qa_history + feedback_triage живут в journal БД
+    try:
+        from db.connection import get_journal_pool
+        journal_pool = await get_journal_pool()
+        async with journal_pool.acquire() as jconn:
+            # feedback_triage сначала (FK на qa_history)
+            deleted = await jconn.execute(
+                'DELETE FROM feedback_triage WHERE chat_id = $1', chat_id
+            )
+            result['feedback_triage'] = _parse_delete_count(deleted)
+            deleted = await jconn.execute(
+                'DELETE FROM qa_history WHERE chat_id = $1', chat_id
+            )
+            result['qa_history'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] journal cleanup failed: {e}")
+        result['qa_history'] = 0
 
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")

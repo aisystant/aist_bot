@@ -19,7 +19,7 @@ from typing import Optional
 
 import aiohttp
 
-from db.connection import acquire
+from db.connection import get_journal_pool
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ async def _save_triage(
     classification: dict, has_comment: bool, user_comment: Optional[str]
 ) -> Optional[int]:
     """Save triage result to DB. Returns triage ID or None on conflict."""
-    async with await acquire() as conn:
+    async with (await get_journal_pool()).acquire() as conn:
         try:
             row = await conn.fetchrow("""
                 INSERT INTO feedback_triage
@@ -217,7 +217,7 @@ async def _send_alert(qa_id: int, chat_id: int, question: str,
             await bot.send_message(int(dev_chat_id), text, parse_mode="HTML")
             logger.info(f"[FeedbackTriage] Alert sent: qa_id={qa_id} sev={sev}")
             # Mark as notified
-            async with await acquire() as conn:
+            async with (await get_journal_pool()).acquire() as conn:
                 await conn.execute(
                     "UPDATE feedback_triage SET notified_at = NOW() WHERE qa_id = $1",
                     qa_id,
@@ -250,7 +250,7 @@ async def triage_feedback(qa_id: int, feedback_type: str = "not_helpful"):
     chat_id = qa.get("chat_id", 0)
 
     # Check for existing comment
-    async with await acquire() as conn:
+    async with (await get_journal_pool()).acquire() as conn:
         row = await conn.fetchrow(
             "SELECT user_comment FROM qa_history WHERE id = $1", qa_id
         )

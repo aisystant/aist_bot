@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_journal_pool
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
 logger = get_logger(__name__)
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 async def save_qa(chat_id: int, mode: str, context_topic: str,
                   question: str, answer: str, mcp_sources: List[str] = None) -> Optional[int]:
     """Сохранить вопрос и ответ. Возвращает id записи."""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
             INSERT INTO qa_history
@@ -61,7 +61,7 @@ async def save_qa(chat_id: int, mode: str, context_topic: str,
 
 async def get_qa_history(chat_id: int, limit: int = 50) -> List[dict]:
     """Получить историю вопросов и ответов"""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT * FROM qa_history
@@ -83,7 +83,7 @@ async def get_qa_history(chat_id: int, limit: int = 50) -> List[dict]:
 
 async def get_qa_by_id(qa_id: int) -> Optional[dict]:
     """Получить конкретный Q&A по ID."""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             'SELECT * FROM qa_history WHERE id = $1', qa_id
@@ -104,7 +104,7 @@ async def get_qa_by_id(qa_id: int) -> Optional[dict]:
 
 async def get_latest_qa_id(chat_id: int) -> Optional[int]:
     """Получить ID последнего Q&A для пользователя."""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             'SELECT id FROM qa_history WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
@@ -115,7 +115,7 @@ async def get_latest_qa_id(chat_id: int) -> Optional[int]:
 
 async def update_qa_helpful(qa_id: int, helpful: bool):
     """Записать feedback (helpful/not helpful)."""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'UPDATE qa_history SET helpful = $1 WHERE id = $2',
@@ -145,7 +145,7 @@ async def update_qa_helpful(qa_id: int, helpful: bool):
 
 async def update_qa_comment(qa_id: int, comment: str):
     """Записать замечание пользователя."""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'UPDATE qa_history SET user_comment = $1 WHERE id = $2',
@@ -182,7 +182,7 @@ async def _get_chat_id_for_qa(qa_id: int) -> Optional[int]:
     dual-write пройдёт с account_id=None (gateway допускает).
     """
     try:
-        pool = await get_pool()
+        pool = await get_journal_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 'SELECT chat_id FROM qa_history WHERE id = $1', qa_id
@@ -194,7 +194,7 @@ async def _get_chat_id_for_qa(qa_id: int) -> Optional[int]:
 
 async def get_qa_count(chat_id: int) -> int:
     """Получить количество заданных вопросов"""
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             'SELECT COUNT(*) as count FROM qa_history WHERE chat_id = $1',
@@ -215,7 +215,7 @@ async def get_user_qa_stats(chat_id: int) -> dict:
     today = moscow_today()
     week_start = today - timedelta(days=today.weekday())
 
-    pool = await get_pool()
+    pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
             SELECT
