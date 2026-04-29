@@ -9,6 +9,7 @@
 """
 
 import logging
+from datetime import timedelta
 
 from db.connection import get_pool, get_learning_pool
 
@@ -160,31 +161,37 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
 
 
 async def _get_retention_metrics(conn) -> dict:
-    """Retention D1/D7/D30 на основе activity_log и users.created_at."""
+    """Retention D1/D7/D30 — cohort из bot_data, activity_log из learning BD (WP-268 Phase 5 G5)."""
+    learning_pool = await get_learning_pool()
     result = {}
     for days, label in [(1, 'd1'), (7, 'd7'), (30, 'd30')]:
-        row = await conn.fetchrow('''
-            WITH cohort AS (
-                SELECT s.chat_id, u.created_at::date as cohort_date
-                FROM development.user_state s
-                JOIN public.users u ON u.telegram_id = s.chat_id
-                WHERE s.onboarding_completed = TRUE
-                  AND u.created_at < NOW() - make_interval(days := $1)
-            ),
-            retained AS (
-                SELECT DISTINCT c.chat_id
-                FROM cohort c
-                JOIN activity_log a ON c.chat_id = a.chat_id
-                  AND a.activity_date = c.cohort_date + $1
-            )
-            SELECT
-                (SELECT COUNT(*) FROM cohort) as cohort_size,
-                (SELECT COUNT(*) FROM retained) as retained_count
+        # 1. Cohort from bot_data (user_state + users)
+        cohort_rows = await conn.fetch('''
+            SELECT s.chat_id, u.created_at::date as cohort_date
+            FROM development.user_state s
+            JOIN public.users u ON u.telegram_id = s.chat_id
+            WHERE s.onboarding_completed = TRUE
+              AND u.created_at < NOW() - make_interval(days := $1)
         ''', days)
 
-        cohort_size = row['cohort_size'] if row else 0
-        retained = row['retained_count'] if row else 0
-        result[label] = round(retained / cohort_size * 100) if cohort_size > 0 else 0
+        cohort_size = len(cohort_rows)
+        if cohort_size == 0:
+            result[label] = 0
+            continue
+
+        # 2. Retained count from learning BD — users active on their cohort_date + days
+        chat_ids = [r['chat_id'] for r in cohort_rows]
+        target_dates = [r['cohort_date'] + timedelta(days=days) for r in cohort_rows]
+        async with learning_pool.acquire() as lc:
+            retained = await lc.fetchval('''
+                SELECT COUNT(DISTINCT a.chat_id)
+                FROM activity_log a
+                WHERE (a.chat_id, a.activity_date) IN (
+                    SELECT unnest($1::bigint[]), unnest($2::date[])
+                )
+            ''', chat_ids, target_dates)
+
+        result[label] = round((retained or 0) / cohort_size * 100)
 
     return result
 

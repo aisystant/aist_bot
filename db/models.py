@@ -689,17 +689,11 @@ async def create_tables(pool: asyncpg.Pool):
                 s.last_active_date,
                 -- Timestamps / DT
                 u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id,
-                -- Aggregates: answers
-                (SELECT COUNT(*) FROM answers a
-                 WHERE a.chat_id = s.chat_id AND a.answer_type = 'theory_answer')
-                    AS theory_answers_count,
-                (SELECT COUNT(*) FROM answers a
-                 WHERE a.chat_id = s.chat_id AND a.answer_type = 'work_product')
-                    AS work_products_count,
-                -- Aggregates: QA
-                (SELECT COUNT(*) FROM qa_history q
-                 WHERE q.chat_id = s.chat_id)
-                    AS qa_count,
+                -- Aggregates: answers — мигрированы в learning BD (WP-268 Phase 5 G5)
+                0::bigint AS theory_answers_count,
+                0::bigint AS work_products_count,
+                -- Aggregates: QA — мигрированы в journal BD (WP-268 Phase 3 Block 2)
+                0::bigint AS qa_count,
                 -- Aggregates: Feed
                 (SELECT COUNT(*) FROM feed_sessions fs
                  JOIN feed_weeks fw ON fs.week_id = fw.id

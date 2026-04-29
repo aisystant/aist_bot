@@ -6,29 +6,78 @@
 
 from typing import Optional
 
-from db import get_pool
+from db.connection import get_pool, get_learning_pool, get_journal_pool
 from config import get_logger
 
 logger = get_logger(__name__)
 
 
 async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
-    """Агрегированный профиль знаний пользователя.
+    """Агрегированный профиль знаний пользователя (мультипул после WP-268 Phase 5 G5).
 
-    Возвращает данные из VIEW user_knowledge_profile:
-    - Профиль (name, occupation, role, domain, interests, goals)
-    - Состояние обучения (marathon_status, feed_status, complexity_level)
-    - Систематичность (active_days_total, streak, longest_streak)
-    - Агрегаты (theory_answers_count, work_products_count, qa_count,
-      total_digests, total_fixations, current_feed_topics)
+    - Профиль + состояние + feed stats: bot_data
+    - Ответы (theory/wp counts): learning BD
+    - QA count: journal BD
     """
+    # 1. Base profile + feed stats from bot_data
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            'SELECT * FROM user_knowledge_profile WHERE chat_id = $1',
-            chat_id
-        )
-        return dict(row) if row else None
+        row = await conn.fetchrow('''
+            SELECT
+                s.chat_id,
+                u.name, u.occupation, u.role, u.domain,
+                u.interests, u.goals, u.motivation,
+                u.language, u.experience_level,
+                s.mode, s.marathon_status, s.feed_status,
+                s.current_topic_index, s.complexity_level,
+                s.assessment_state, s.assessment_date,
+                s.active_days_total, s.active_days_streak, s.longest_streak,
+                s.last_active_date,
+                u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id,
+                (SELECT COUNT(*) FROM feed_sessions fs
+                 JOIN feed_weeks fw ON fs.week_id = fw.id
+                 WHERE fw.chat_id = s.chat_id) AS total_digests,
+                (SELECT COUNT(*) FROM feed_sessions fs
+                 JOIN feed_weeks fw ON fs.week_id = fw.id
+                 WHERE fw.chat_id = s.chat_id AND fs.status = 'completed') AS total_fixations,
+                (SELECT fw2.accepted_topics FROM feed_weeks fw2
+                 WHERE fw2.chat_id = s.chat_id AND fw2.status = 'active'
+                 ORDER BY fw2.created_at DESC LIMIT 1) AS current_feed_topics
+            FROM development.user_state s
+            JOIN public.users u ON u.id = s.user_id
+            WHERE s.chat_id = $1
+        ''', chat_id)
+    if not row:
+        return None
+    result = dict(row)
+
+    # 2. Answer counts from learning BD
+    try:
+        lp = await get_learning_pool()
+        async with lp.acquire() as lc:
+            theory = await lc.fetchval(
+                "SELECT COUNT(*) FROM answers WHERE chat_id=$1 AND answer_type='theory_answer'", chat_id)
+            wp = await lc.fetchval(
+                "SELECT COUNT(*) FROM answers WHERE chat_id=$1 AND answer_type='work_product'", chat_id)
+        result['theory_answers_count'] = theory or 0
+        result['work_products_count'] = wp or 0
+    except Exception as e:
+        logger.warning(f"[Profile] learning pool answers failed: {e}")
+        result['theory_answers_count'] = 0
+        result['work_products_count'] = 0
+
+    # 3. QA count from journal BD
+    try:
+        jp = await get_journal_pool()
+        async with jp.acquire() as jc:
+            qa_count = await jc.fetchval(
+                "SELECT COUNT(*) FROM qa_history WHERE chat_id=$1", chat_id)
+        result['qa_count'] = qa_count or 0
+    except Exception as e:
+        logger.warning(f"[Profile] journal pool qa failed: {e}")
+        result['qa_count'] = 0
+
+    return result
 
 
 async def delete_all_user_data(chat_id: int) -> dict:
@@ -52,11 +101,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
 
-            # Все остальные таблицы с chat_id / user_id (legacy pool)
-            # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже отдельный DELETE)
+            # Таблицы в bot_data (legacy pool)
+            # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже)
+            # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (см. ниже)
             tables_chat_id = [
-                'answers', 'reminders', 'feed_weeks', 'marathon_content',
-                'activity_log', 'assessments',
+                'reminders', 'feed_weeks', 'marathon_content',
                 'feedback_reports', 'subscriptions', 'user_sessions',
                 'github_connections',
             ]
@@ -154,6 +203,18 @@ async def delete_all_user_data(chat_id: int) -> dict:
         logger.warning(f"[DELETE] journal cleanup failed: {e}")
         result['qa_history'] = 0
 
+    # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD
+    try:
+        learning_pool = await get_learning_pool()
+        async with learning_pool.acquire() as lconn:
+            for table in ('answers', 'activity_log', 'assessments'):
+                deleted = await lconn.execute(
+                    f'DELETE FROM {table} WHERE chat_id = $1', chat_id
+                )
+                result[table] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] learning cleanup failed: {e}")
+
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")
     return result
@@ -183,12 +244,9 @@ async def reset_learning_data(chat_id: int) -> dict:
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
 
-            # Удаляем учебные данные из связанных таблиц (legacy pool)
-            learning_tables = [
-                'answers', 'feed_weeks', 'marathon_content',
-                'activity_log', 'assessments',
-            ]
-            for table in learning_tables:
+            # Учебные данные в bot_data (feed_weeks, marathon_content)
+            # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (ниже)
+            for table in ('feed_weeks', 'marathon_content'):
                 deleted = await conn.execute(
                     f'DELETE FROM {table} WHERE chat_id = $1', chat_id
                 )
@@ -234,6 +292,18 @@ async def reset_learning_data(chat_id: int) -> dict:
     except Exception as e:
         logger.warning(f"[RESET] fsm_states cleanup failed: {e}")
         result['fsm_states'] = 0
+
+    # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD
+    try:
+        learning_pool = await get_learning_pool()
+        async with learning_pool.acquire() as lconn:
+            for table in ('answers', 'activity_log', 'assessments'):
+                deleted = await lconn.execute(
+                    f'DELETE FROM {table} WHERE chat_id = $1', chat_id
+                )
+                result[table] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[RESET] learning cleanup failed: {e}")
 
     total = sum(result.values())
     logger.info(f"[RESET] user {chat_id}: learning data reset, {total} rows affected across {len(result)} tables")
