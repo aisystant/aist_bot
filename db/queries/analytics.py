@@ -10,7 +10,7 @@
 
 import logging
 
-from db.connection import get_pool
+from db.connection import get_pool, get_learning_pool
 
 logger = logging.getLogger(__name__)
 
@@ -102,27 +102,46 @@ async def _get_session_metrics(conn, hours: int) -> dict:
 
 
 async def _get_quality_metrics(conn, hours: int) -> dict:
-    """Latency + QA quality."""
-    latency = await conn.fetchrow('''
-        SELECT
-            COUNT(*) as total_requests,
-            COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms,
-            COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p50_ms,
-            COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p95_ms,
-            COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p99_ms,
-            COUNT(*) FILTER (WHERE total_ms > 8000) as red_zone
-        FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    """Latency + QA quality.
 
-    qa = await conn.fetchrow('''
-        SELECT
-            COUNT(*) as total,
-            COUNT(*) FILTER (WHERE helpful = TRUE) as helpful,
-            COUNT(*) FILTER (WHERE helpful = FALSE) as not_helpful
-        FROM qa_history
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    WP-253 B-port (28 апр): latency мигрирована на learning.public.domain_event
+    (event_type='request_traced'). QA quality остаётся на legacy qa_history до G2 решения.
+    Параметр `conn` используется только для qa_history — для latency открывается learning pool.
+    """
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        latency = await lc.fetchrow('''
+            SELECT
+                COUNT(*) AS total_requests,
+                COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms,
+                COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p50_ms,
+                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p95_ms,
+                COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p99_ms,
+                COUNT(*) FILTER (WHERE (payload->>'total_ms')::numeric > 8000) AS red_zone
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+        ''', str(hours))
+
+    # WP-253 B-port (28 апр): QA метрики из learning.domain_event.
+    # total — count qa_query events (каждое Q&A взаимодействие).
+    # helpful/not_helpful — count qa_feedback events с payload.helpful TRUE/FALSE.
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        qa = await lc.fetchrow('''
+            SELECT
+                (SELECT COUNT(*) FROM domain_event
+                 WHERE source='aist-bot' AND event_type='qa_query'
+                   AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS total,
+                (SELECT COUNT(*) FROM domain_event
+                 WHERE source='aist-bot' AND event_type='qa_feedback'
+                   AND payload->>'helpful' = 'true'
+                   AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS helpful,
+                (SELECT COUNT(*) FROM domain_event
+                 WHERE source='aist-bot' AND event_type='qa_feedback'
+                   AND payload->>'helpful' = 'false'
+                   AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS not_helpful
+        ''', str(hours))
 
     qa_total = qa['total'] if qa else 0
     qa_helpful = qa['helpful'] if qa else 0
@@ -235,10 +254,14 @@ async def _get_error_metrics(conn, hours: int) -> dict:
     ''', str(hours))
 
     # Error rate = errors / requests
-    requests = await conn.fetchval('''
-        SELECT COUNT(*) FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-    ''', str(hours))
+    # WP-253 B-port (28 апр): request count из learning.domain_event.
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as lc:
+        requests = await lc.fetchval('''
+            SELECT COUNT(*) FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+        ''', str(hours))
 
     total_err = totals['total_errors'] if totals and totals['total_errors'] else 0
     error_rate = round(total_err / requests * 100, 1) if requests and requests > 0 else 0
@@ -270,27 +293,36 @@ async def _get_error_metrics(conn, hours: int) -> dict:
 
 
 async def _get_command_metrics(conn, hours: int) -> dict:
-    """Per-command request count and latency from request_traces (WP-45)."""
-    top = await conn.fetch('''
-        SELECT command, COUNT(*) as count,
-               COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms
-        FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND command IS NOT NULL
-        GROUP BY command ORDER BY count DESC LIMIT 7
-    ''', str(hours))
+    """Per-command request count and latency from learning.domain_event (WP-253 B-port).
 
-    slowest = await conn.fetch('''
-        SELECT command, COUNT(*) as count,
-               COALESCE(AVG(total_ms), 0)::INTEGER as avg_ms,
-               COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms), 0)::INTEGER as p95_ms
-        FROM request_traces
-        WHERE created_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND command IS NOT NULL
-        GROUP BY command
-        HAVING COUNT(*) >= 3
-        ORDER BY avg_ms DESC LIMIT 5
-    ''', str(hours))
+    WP-253 B-port (28 апр): миграция с legacy `platform.request_traces` на
+    `learning.public.domain_event` (event_type='request_traced').
+    Параметр `conn` игнорируется — функция переключилась на learning pool.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as lc:
+        top = await lc.fetch('''
+            SELECT payload->>'command' AS command, COUNT(*) AS count,
+                   COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND payload->>'command' IS NOT NULL AND payload->>'command' != ''
+            GROUP BY 1 ORDER BY count DESC LIMIT 7
+        ''', str(hours))
+
+        slowest = await lc.fetch('''
+            SELECT payload->>'command' AS command, COUNT(*) AS count,
+                   COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms,
+                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p95_ms
+            FROM domain_event
+            WHERE source = 'aist-bot' AND event_type = 'request_traced'
+              AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND payload->>'command' IS NOT NULL AND payload->>'command' != ''
+            GROUP BY 1
+            HAVING COUNT(*) >= 3
+            ORDER BY avg_ms DESC LIMIT 5
+        ''', str(hours))
 
     return {
         'top': [dict(r) for r in top],
