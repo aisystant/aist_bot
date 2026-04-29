@@ -813,9 +813,12 @@ class ClaudeClient:
         chat_id = intern.get('chat_id', '')
         cache_key = f"practice:{topic_id}:{lang}:{chat_id}" if topic_id and chat_id else None
         if cache_key:
-            cached = await cache_get(cache_key)
-            if cached:
-                return self._parse_practice_response(cached, topic)
+            try:
+                cached = await cache_get(cache_key)
+                if cached:
+                    return self._parse_practice_response(cached, topic)
+            except Exception:
+                logger.warning(f"[Cache] Practice intro get failed, treating as miss: {topic_id}")
         lp = get_practice_prompts(lang)
 
         task_ru = topic.get('task', '')
@@ -866,7 +869,10 @@ class ClaudeClient:
 
         # Сохраняем в кеш
         if cache_key:
-            await cache_set(cache_key, 'practice', result)
+            try:
+                await cache_set(cache_key, 'practice', result)
+            except Exception:
+                logger.warning(f"[Cache] Practice intro set failed: {topic_id}")
 
         # Парсим ответ
         parsed = {
@@ -981,9 +987,12 @@ class ClaudeClient:
         topic_id = topic.get('id', '')
         cache_key = f"question:{topic_id}:{level}:{lang}:{occupation}" if topic_id else None
         if cache_key:
-            cached = await cache_get(cache_key)
-            if cached:
-                return cached
+            try:
+                cached = await cache_get(cache_key)
+                if cached:
+                    return cached
+            except Exception:
+                logger.warning(f"[Cache] Question get failed, treating as miss: {topic_id}")
 
         # Пробуем загрузить метаданные темы
         metadata = load_topic_metadata(topic_id) if topic_id else None
@@ -1043,7 +1052,10 @@ class ClaudeClient:
             )
             if result:
                 if cache_key:
-                    await cache_set(cache_key, 'question', result)
+                    try:
+                        await cache_set(cache_key, 'question', result)
+                    except Exception:
+                        logger.warning(f"[Cache] Question set failed: {topic_id}")
                 return result
             logger.warning(
                 f"generate_question attempt {attempt + 1} returned None "
