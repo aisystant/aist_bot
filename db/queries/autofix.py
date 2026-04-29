@@ -10,7 +10,7 @@
 """
 
 from typing import Optional
-from db.connection import acquire
+from db.connection import get_health_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ async def get_l2_fixable_errors(
     - last_seen_at within last N minutes
     - not already in pending_fixes (status in pending/approved/applied)
     """
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         rows = await conn.fetch("""
             SELECT e.id, e.error_key, e.category, e.severity,
                    e.logger_name, e.message, e.traceback, e.context,
@@ -57,7 +57,7 @@ async def create_pending_fix(
     tg_message_id: int | None = None,
 ) -> Optional[int]:
     """Create a pending fix record. Returns fix ID."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         try:
             row = await conn.fetchrow("""
                 INSERT INTO pending_fixes
@@ -76,7 +76,7 @@ async def create_pending_fix(
 
 async def get_pending_fix(fix_id: int) -> Optional[dict]:
     """Get pending fix by ID."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         row = await conn.fetchrow("""
             SELECT * FROM pending_fixes WHERE id = $1
         """, fix_id)
@@ -90,7 +90,7 @@ async def update_fix_status(
     branch_name: str | None = None,
 ) -> None:
     """Update fix status and optional PR info."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         await conn.execute("""
             UPDATE pending_fixes
             SET status = $2,
@@ -104,7 +104,7 @@ async def update_fix_status(
 
 async def cleanup_old_fixes(days: int = 30) -> int:
     """Delete old resolved fixes."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         result = await conn.execute("""
             DELETE FROM pending_fixes
             WHERE status IN ('applied', 'rejected', 'failed')

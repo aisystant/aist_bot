@@ -9,7 +9,7 @@
 
 import html
 from typing import Optional
-from db.connection import acquire
+from db.connection import get_health_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -24,7 +24,7 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
     """
     _SEV_EMOJI = {"L4": "\U0001f534", "L3": "\U0001f7e0", "L2": "\U0001f7e1", "L1": "\U0001f7e2"}
 
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, level, logger_name, message,
                    context, occurrence_count, last_seen_at,
@@ -65,7 +65,7 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
 
     # Mark as alerted
     ids = [r['id'] for r in rows]
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         await conn.execute(
             "UPDATE error_logs SET alerted = TRUE WHERE id = ANY($1::int[])", ids
         )
@@ -81,7 +81,7 @@ async def get_error_report(hours: int = 24) -> dict:
       - recent: [{level, logger_name, message, occurrence_count, last_seen_at, context}]
       - by_logger: [{logger_name, count, total_occurrences}]
     """
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         summary = await conn.fetchrow("""
             SELECT COUNT(*) AS unique_errors,
                    COALESCE(SUM(occurrence_count), 0)::int AS total_occurrences,
@@ -120,7 +120,7 @@ async def get_error_report(hours: int = 24) -> dict:
 
 async def cleanup_old_errors(days: int = 7) -> int:
     """Delete error_logs older than N days."""
-    async with await acquire() as conn:
+    async with (await get_health_pool()).acquire() as conn:
         result = await conn.execute(
             "DELETE FROM error_logs WHERE last_seen_at < NOW() - INTERVAL '1 day' * $1",
             days,

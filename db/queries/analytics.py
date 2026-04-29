@@ -11,7 +11,7 @@
 import logging
 from datetime import timedelta
 
-from db.connection import get_pool, get_learning_pool
+from db.connection import get_pool, get_learning_pool, get_health_pool
 
 logger = logging.getLogger(__name__)
 
@@ -73,26 +73,28 @@ async def _get_user_metrics(conn) -> dict:
 
 
 async def _get_session_metrics(conn, hours: int) -> dict:
-    """Статистика сессий."""
-    row = await conn.fetchrow('''
-        SELECT
-            COUNT(*) as count,
-            COALESCE(AVG(duration_seconds), 0)::INTEGER as avg_duration_sec,
-            COALESCE(AVG(request_count), 0)::REAL as avg_requests
-        FROM user_sessions
-        WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND duration_seconds IS NOT NULL
-    ''', str(hours))
+    """Статистика сессий (WP-268 Phase 5 G5 Tier2: health BD)."""
+    hp = await get_health_pool()
+    async with hp.acquire() as hc:
+        row = await hc.fetchrow('''
+            SELECT
+                COUNT(*) as count,
+                COALESCE(AVG(duration_seconds), 0)::INTEGER as avg_duration_sec,
+                COALESCE(AVG(request_count), 0)::REAL as avg_requests
+            FROM user_sessions
+            WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND duration_seconds IS NOT NULL
+        ''', str(hours))
 
-    entry_points = await conn.fetch('''
-        SELECT entry_point as point, COUNT(*) as count
-        FROM user_sessions
-        WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
-          AND entry_point IS NOT NULL
-        GROUP BY entry_point
-        ORDER BY count DESC
-        LIMIT 5
-    ''', str(hours))
+        entry_points = await hc.fetch('''
+            SELECT entry_point as point, COUNT(*) as count
+            FROM user_sessions
+            WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
+              AND entry_point IS NOT NULL
+            GROUP BY entry_point
+            ORDER BY count DESC
+            LIMIT 5
+        ''', str(hours))
 
     return {
         'count': row['count'] if row else 0,
