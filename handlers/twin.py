@@ -111,7 +111,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     code_7d_text = f"{code_7d}ч" if code_7d is not None else "—"
     code_30d_text = f"{code_30d}ч" if code_30d is not None else "—"
 
-    # ── Agency components ──
+    # ── Agency components (v1) ──
     components = agency.get("components") or {}
     comp_parts = []
     for key, label in [("regularity", "регулярность"), ("activity", "активность"),
@@ -120,6 +120,44 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         val = components.get(key)
         if val is not None:
             comp_parts.append(f"{label}={round(val)}")
+
+    # ── 3_1_agency: часы и слоты в неделю ──
+    # IND.3.1.01 Среднее число часов саморазвития в неделю
+    # IND.3.1.02 Доля дней со слотом (регулярность)
+    # IND.3.1.05 Индекс инициативности
+    agency_group = derived.get("3_1_agency") or {}
+    hours_per_week = agency_group.get("3_1_01_hours_per_week")
+    slot_days = agency_group.get("3_1_02_slot_days_per_week")
+    initiative = agency_group.get("3_1_05_initiative_index")
+
+    # ── 3_2_mastery: мультипликатор, работа ──
+    # IND.3.2.02 Индекс рабочих продуктов
+    # IND.3.2.03 Учтённое время (ритуал)
+    # IND.3.2.04 Мультипликатор IWE (budget_hours / coding_hours)
+    mastery_group = derived.get("3_2_mastery") or {}
+    work_products = mastery_group.get("3_2_02_work_products_index")
+    accounted_time = mastery_group.get("3_2_03_accounted_time")
+    multiplier = mastery_group.get("3_2_04_multiplier")
+
+    # ── 3_9_it_level: IT-уровень ──
+    # IND.3.9 AI usage / IT competency
+    it_group = derived.get("3_9_ai_usage") or {}
+    it_level = it_group.get("it_level") or it_group.get("3_9_01_ai_adoption")
+
+    # ── 3_12_delivery_style: стиль доставки ──
+    # IND.3.12 Preference model
+    delivery_group = derived.get("3_12_delivery_style") or {}
+    delivery_style = delivery_group.get("style") or delivery_group.get("3_12_01_delivery_preference")
+
+    # ── 3_13_notification_resp: отклик на уведомления ──
+    # IND.3.13 Notification responsiveness
+    notif_group = derived.get("3_13_notification_resp") or {}
+    notif_resp = notif_group.get("response_rate") or notif_group.get("3_13_01_response_rate")
+
+    # ── 3_14_learning_autonomy: автономность в обучении ──
+    # IND.3.14 Learning autonomy
+    autonomy_group = derived.get("3_14_learning_autonomy") or {}
+    learning_autonomy = autonomy_group.get("autonomy_index") or autonomy_group.get("3_14_01_autonomy")
 
     # ── Declarative: objective, roles ──
     indicators = profile.get("indicators", {})
@@ -173,6 +211,28 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     lines.append(f"📊 Активность: {ev_7d} событий/7д  |  {ev_30d}/30д  |  {active_days} активных дней")
     lines.append(f"📚 Обучение: {lessons} уроков  |  {digests} дайджестов  |  {training} тренировок")
     lines.append("")
+
+    # ── v2.0 Profiler metrics (9 new indicators) ──
+    # Group 3_1: Agency structure (hours, regularity, initiative)
+    hours_text = f"{round(hours_per_week)}ч/нед" if hours_per_week is not None else "—"
+    slot_text = f"{round(slot_days)}" if slot_days is not None else "—"
+    init_text = f"{round(initiative)}/100" if initiative is not None else "—"
+    lines.append(f"⏱ Саморазвитие: {hours_text}  |  слот. дн.: {slot_text}  |  инициатива: {init_text}")
+
+    # Group 3_2: Mastery (work products, accounted time, multiplier)
+    prod_text = f"{round(work_products)}/100" if work_products is not None else "—"
+    time_text = f"{round(accounted_time)}%" if accounted_time is not None else "—"
+    mult_text = f"{round(multiplier, 1)}x" if multiplier is not None else "—"
+    lines.append(f"🎯 Мастерство: продукты {prod_text}  |  учёт {time_text}  |  мультипл. {mult_text}")
+
+    # Group 3_9, 3_12, 3_13, 3_14: Other indicators (IT level, delivery style, notifications, autonomy)
+    it_text = f"{round(it_level)}" if it_level is not None else "—"
+    delivery_text = str(delivery_style).title() if delivery_style else "—"
+    notif_text = f"{round(notif_resp)}/100" if notif_resp is not None else "—"
+    auto_text = f"{round(learning_autonomy)}/100" if learning_autonomy is not None else "—"
+    lines.append(f"🔧 IT-уровень: {it_text}  |  Отклик: {notif_text}  |  Автономия: {auto_text}")
+    lines.append("")
+
     lines.append(f"🎯 {t('twin.objective_label', lang)}: {objective}")
     lines.append(f"👤 {t('twin.roles_label', lang)}: {roles_text}")
     if engine_line:
