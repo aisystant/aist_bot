@@ -406,10 +406,10 @@ async def sync_engagement_to_dt() -> dict:
                     decision_stats = await conn.fetchrow('''
                         SELECT
                             COUNT(*) AS decisions_today,
-                            COALESCE(SUM((payload->>'weight')::int), 0) AS decision_weight_today
+                            COALESCE(SUM((payload->>'cognitive_weight')::int), 0) AS decision_weight_today
                         FROM development.user_events
                         WHERE user_uuid = $1::uuid
-                          AND source = 'exocortex'
+                          AND source = 'iwe'
                           AND event_type LIKE 'decision_%'
                           AND created_at >= CURRENT_DATE
                     ''', user_id)
@@ -421,10 +421,10 @@ async def sync_engagement_to_dt() -> dict:
                             )::int AS decision_weight_7d_avg
                         FROM (
                             SELECT DATE(created_at) AS d,
-                                   SUM((payload->>'weight')::int) AS daily_weight
+                                   SUM((payload->>'cognitive_weight')::int) AS daily_weight
                             FROM development.user_events
                             WHERE user_uuid = $1::uuid
-                              AND source = 'exocortex'
+                              AND source = 'iwe'
                               AND event_type LIKE 'decision_%'
                               AND created_at >= NOW() - INTERVAL '7 days'
                             GROUP BY DATE(created_at)
