@@ -336,6 +336,18 @@ async def cmd_twin(message: Message):
             await message.answer(t('twin.temporary_error', lang))
             return
 
+    # WP-218 Ф2: fallback на обычный engagement view если ЦД пуст
+    if profile is None or not profile:
+        fallback_data = await _fallback_engagement(telegram_user_id)
+        if fallback_data:
+            # Переформатируем fallback (flat structure) в структуру для _profile_text
+            profile = {
+                "2_collected": fallback_data,
+                "_derived": fallback_data.get("_derived", {})
+            }
+        else:
+            profile = None
+
     if profile is None:
         # Пользователь не подключен или ЦД пуст → показать ошибку с кнопкой переподключения
         if not is_connected:
