@@ -122,8 +122,12 @@ def validate_env():
         raise ValueError("TELEGRAM_BOT_TOKEN не установлен!")
     if not ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY не установлен!")
+    # WP-268 Phase 4: DATABASE_URL теперь Railway-local Postgres bot_data (не Neon aist_bot).
+    # Per-domain URLs (LEARNING_URL, PERSONA_URL, etc.) — основные пути после cut-over.
+    # DATABASE_URL остаётся обязательным для legacy bot_data таблиц (users, marathon_content, ...).
     if not DATABASE_URL:
-        raise ValueError("DATABASE_URL не установлен!")
+        import logging as _log
+        _log.getLogger(__name__).warning("DATABASE_URL не установлен — bot_data таблицы недоступны")
 
 # ============= FEATURE FLAGS =============
 
