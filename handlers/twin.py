@@ -637,6 +637,42 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     if roles_text:
         lines.append(f"👤 {t('twin.roles_label', lang)}: {roles_text}")
 
+    # ── v2.0 Profiler metrics (9 new indicators) ──
+    # IND.3.1: Agency structure
+    agency_group = derived.get('3_1_agency') or {}
+    hours_per_week = agency_group.get('3_1_01_hours_per_week')
+    slot_days = agency_group.get('3_1_02_slot_days_per_week')
+    initiative = agency_group.get('3_1_05_initiative_index')
+    if any(v is not None for v in (hours_per_week, slot_days, initiative)):
+        hours_t = f"{round(hours_per_week)}ч/нед" if hours_per_week is not None else "—"
+        slot_t = f"{round(slot_days)}" if slot_days is not None else "—"
+        init_t = f"{round(initiative)}/100" if initiative is not None else "—"
+        lines.append(f"⏱ Саморазвитие: {hours_t}  |  слот. дн.: {slot_t}  |  инициатива: {init_t}")
+
+    # IND.3.2: Mastery
+    mastery_group = derived.get('3_2_mastery') or {}
+    work_products = mastery_group.get('3_2_02_work_products_index')
+    accounted_time = mastery_group.get('3_2_03_accounted_time')
+    multiplier = mastery_group.get('3_2_04_multiplier')
+    if any(v is not None for v in (work_products, accounted_time, multiplier)):
+        prod_t = f"{round(work_products)}/100" if work_products is not None else "—"
+        time_t = f"{round(accounted_time)}%" if accounted_time is not None else "—"
+        mult_t = f"{round(multiplier, 1)}x" if multiplier is not None else "—"
+        lines.append(f"🎯 Мастерство: продукты {prod_t}  |  учёт {time_t}  |  мультипл. {mult_t}")
+
+    # IND.3.9, 3.13, 3.14: IT level, notification response, learning autonomy
+    it_group = derived.get('3_9_ai_usage') or {}
+    it_level = it_group.get('it_level') or it_group.get('3_9_01_ai_adoption')
+    notif_group = derived.get('3_13_notification_resp') or {}
+    notif_resp = notif_group.get('response_rate') or notif_group.get('3_13_01_response_rate')
+    autonomy_group = derived.get('3_14_learning_autonomy') or {}
+    learning_autonomy = autonomy_group.get('autonomy_index') or autonomy_group.get('3_14_01_autonomy')
+    if any(v is not None for v in (it_level, notif_resp, learning_autonomy)):
+        it_t = f"{round(it_level)}" if it_level is not None else "—"
+        notif_t = f"{round(notif_resp)}/100" if notif_resp is not None else "—"
+        auto_t = f"{round(learning_autonomy)}/100" if learning_autonomy is not None else "—"
+        lines.append(f"🔧 IT-уровень: {it_t}  |  Отклик: {notif_t}  |  Автономия: {auto_t}")
+
     # Agency components
     components = integral.get('components') or {}
     if components:
