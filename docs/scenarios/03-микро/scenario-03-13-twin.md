@@ -62,5 +62,6 @@
 
 | Дата | Изменение |
 |------|-----------|
-| 2026-04-30 | Fix: /twin race condition — use safe get_user_profile() pattern (WP-218 Ф2) |
+| 2026-04-30 | Fix: /twin fallback на development.engagement когда ЦД пуст (WP-218 Ф2) |
+| 2026-04-30 | Fix: /twin race condition — use safe get_user_profile() pattern |
 | 2026-04-11 | Создание документа (DOC1.C batch) |
