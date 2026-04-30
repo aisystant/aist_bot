@@ -62,7 +62,7 @@ class GitHubContentClient:
         url = f"{self.base_url}/repos/{self.repo}/contents/{path}"
         async with session.get(url, headers=self._headers()) as resp:
             if resp.status >= 400:
-                logger.error(f"GitHub list_files {path} error {resp.status}")
+                logger.debug(f"GitHub list_files {path} error {resp.status}")
                 return []
             data = await resp.json()
             if isinstance(data, list):
