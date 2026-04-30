@@ -322,18 +322,22 @@ async def cmd_twin(message: Message):
 
     # По умолчанию: показать профиль
     await message.answer(t('twin.loading_profile', lang))
-    try:
-        async with keep_typing(message):
-            profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
-    except Exception as e:
-        logger.error(f"[/twin] get_user_profile_ex raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
-        await message.answer(t('twin.temporary_error', lang))
-        return
+
+    # WP-218 Ф2: единая точка чтения ЦД — gateway_mcp (→ dt-mcp → Neon по ory_id).
+    # Используем get_user_profile() как в /me, чтобы избежать race-condition на _last_call_error
+    profile = None
+    if is_connected and gateway_mcp.is_connected(telegram_user_id):
+        try:
+            async with keep_typing(message):
+                profile = await gateway_mcp.get_user_profile(telegram_user_id)
+        except Exception as e:
+            logger.error(f"[/twin] get_user_profile raised for {telegram_user_id}: {type(e).__name__}: {e}", exc_info=True)
+            await message.answer(t('twin.temporary_error', lang))
+            return
 
     if profile is None:
-        # Показываем конкретную причину вместо generic "unavailable"
-        if reason in ("disconnected", "token_expired", "not_authorized"):
-            # Токен протух / отключён → предложить переподключиться кнопкой
+        # Пользователь не подключен или ЦД пуст → показать ошибку с кнопкой переподключения
+        if not is_connected:
             from clients.ory_oauth import ory_oauth
             auth_url, _state = await ory_oauth.get_authorization_url(telegram_user_id)
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -344,11 +348,7 @@ async def cmd_twin(message: Message):
                 parse_mode="Markdown",
                 reply_markup=keyboard,
             )
-        elif reason == "no_subscription":
-            await message.answer(t('twin.no_subscription', lang))
-        elif reason in ("timeout", "http_error", "circuit_open", "rpc_error", "rate_limited"):
-            await message.answer(t('twin.temporary_error', lang))
-        else:  # "empty"
+        else:
             await message.answer(t('twin.empty_profile', lang))
         return
 
