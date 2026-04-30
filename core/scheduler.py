@@ -131,7 +131,10 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
-    _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)  # DT: sync engagement → digital_twins daily 04:30 MSK (WP-85 Phase 4)
+    # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
+    # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
+    # Новая архитектура: projection-worker (WP-270) → indicators.calculated_profile (Neon).
+    # _scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)
     _scheduler.start()
 
     # One-time cleanup: обнулить question_content с текстом ошибки (bug fix)
