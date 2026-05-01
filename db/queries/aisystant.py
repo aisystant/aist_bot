@@ -48,10 +48,13 @@ async def get_aisystant_id(chat_id: int) -> str | None:
                 chat_id,
             )
             if row and row['aisystant_id']:
-                logger.debug(f"[Aisystant] persona miss, fallback public.users hit for {chat_id}")
-                return str(row['aisystant_id'])
+                aisystant_id_str = str(row['aisystant_id'])
+                logger.info(f"[Aisystant] fallback hit: {chat_id} → {aisystant_id_str}")
+                return aisystant_id_str
+            else:
+                logger.debug(f"[Aisystant] fallback: public.users has no aisystant_id for {chat_id} (row={row})")
     except Exception as e:
-        logger.warning(f"[Aisystant] public.users fallback read failed: {e}")
+        logger.warning(f"[Aisystant] public.users fallback read failed for {chat_id}: {e}")
 
     return None
 
@@ -64,7 +67,7 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
+        result = await conn.execute(
             '''UPDATE public.users
                SET aisystant_id = $2,
                    aisystant_linked_at = NOW(),
@@ -72,11 +75,15 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                WHERE telegram_id = $1''',
             chat_id, aisystant_id,
         )
+        logger.info(f"[Aisystant] UPDATE result: {result} for chat_id={chat_id}")
+
         # Lazy write в identity_map для Activity Hub (WP-109)
         user_uuid = await conn.fetchval(
             'SELECT id FROM public.users WHERE telegram_id = $1',
             chat_id,
         )
+        logger.info(f"[Aisystant] user_uuid from SELECT: {user_uuid}")
+
         if user_uuid:
             await conn.execute(
                 '''INSERT INTO development.identity_map (source, external_id, user_uuid)
@@ -84,7 +91,9 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                    ON CONFLICT (source, external_id) DO NOTHING''',
                 str(aisystant_id), user_uuid,
             )
-    logger.info(f"Aisystant linked: chat_id={chat_id}, aisystant_id={aisystant_id}")
+            logger.info(f"[Aisystant] identity_map INSERT for {user_uuid}")
+
+    logger.info(f"[Aisystant] linked: chat_id={chat_id}, aisystant_id={aisystant_id}")
 
     # WP-268 Phase 2 dual-write: 2 события на одну операцию
     # (a) aisystant_linked — привязка Aisystant аккаунта к нашему user

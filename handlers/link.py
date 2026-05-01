@@ -138,12 +138,25 @@ async def _refresh_tier_keyboard(message, chat_id: int, lang: str):
     try:
         from core.tier_detector import detect_ui_tier
         from core.tier_ui import build_reply_keyboard, sync_menu_commands
+        from db.queries.aisystant import get_aisystant_id
+
+        # Диагностика: проверяем что aisystant_id действительно записан
+        aisystant_id = await get_aisystant_id(chat_id)
+        logger.info(f"[Link] tier_keyboard debug: chat_id={chat_id}, aisystant_id={aisystant_id}")
+
         tier = await detect_ui_tier(chat_id)
+        logger.info(f"[Link] tier detected: chat_id={chat_id}, tier={tier}")
+
         keyboard = build_reply_keyboard(tier, lang)
+        logger.debug(f"[Link] keyboard built for tier {tier}, sending to {chat_id}")
+
         await message.answer("👌", reply_markup=keyboard)
+        logger.info(f"[Link] keyboard message sent to {chat_id}")
+
         await sync_menu_commands(message.bot, chat_id, tier, lang)
+        logger.info(f"[Link] menu commands synced for {chat_id}, tier={tier}")
     except Exception as e:
-        logger.error(f"[Link] refresh tier keyboard error: {e}")
+        logger.error(f"[Link] refresh tier keyboard error: {e}", exc_info=True)
 
 
 async def _send_link_next_steps(message, chat_id: int, lang: str):
