@@ -163,7 +163,6 @@ async def main():
             if isinstance(result, Exception):
                 logger.warning(f"⚠️ Pool warm-up failed [{name}]: {result}")
         logger.info(f"✅ Пулы прогреты при старте: {_ok}/{len(_active_pools)}")
-
     # Мониторинг ошибок (после init_db — нужен пул)
     from core.error_handler import setup_error_handler
     await setup_error_handler()

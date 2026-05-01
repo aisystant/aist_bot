@@ -2,6 +2,7 @@
 Хендлеры интеграции с Digital Twin.
 """
 
+import asyncio
 import json
 import logging
 
@@ -924,10 +925,13 @@ async def cmd_me(message: Message):
                 logger.debug(f"[/me] Audit trail failed: {e}")
             return
 
-    # T0-T2 path: базовый dashboard из user_state
-    activity = await get_activity_stats(telegram_user_id)
-    learning = await get_weekly_marathon_stats(telegram_user_id)
-    feed = await get_weekly_feed_stats(telegram_user_id)
+    # T0-T2 path: базовый dashboard из user_state (параллельная загрузка)
+    activity, learning, feed = await asyncio.gather(
+        get_activity_stats(telegram_user_id),
+        get_weekly_marathon_stats(telegram_user_id),
+        get_weekly_feed_stats(telegram_user_id),
+        return_exceptions=False
+    )
 
     # Merge feed stats into learning dict
     learning['digests'] = feed.get('digests', 0) if feed else 0

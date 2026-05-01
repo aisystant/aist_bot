@@ -2,6 +2,7 @@
 Хендлеры прогресса (/progress, full report, progress_back).
 """
 
+import asyncio
 import logging
 
 from aiogram import Router, F
@@ -68,11 +69,24 @@ async def cmd_progress(message: Message, state: FSMContext = None):
     lang = intern.get('language', 'ru') or 'ru'
 
     try:
-        activity_stats = await get_activity_stats(chat_id)
-        marathon_stats = await get_weekly_marathon_stats(chat_id)
-        feed_stats = await get_weekly_feed_stats(chat_id)
+        activity_stats, marathon_stats, feed_stats = await asyncio.gather(
+            get_activity_stats(chat_id),
+            get_weekly_marathon_stats(chat_id),
+            get_weekly_feed_stats(chat_id),
+            return_exceptions=True
+        )
+        # Handle exceptions from parallel tasks
+        if isinstance(activity_stats, Exception):
+            logger.error(f"Ошибка получения activity для {chat_id}: {activity_stats}")
+            activity_stats = {'days_active_this_week': 0}
+        if isinstance(marathon_stats, Exception):
+            logger.error(f"Ошибка получения marathon для {chat_id}: {marathon_stats}")
+            marathon_stats = {'work_products': 0}
+        if isinstance(feed_stats, Exception):
+            logger.error(f"Ошибка получения feed для {chat_id}: {feed_stats}")
+            feed_stats = {'digests': 0, 'fixations': 0}
     except Exception as e:
-        logger.error(f"Ошибка получения статистики для {chat_id}: {e}")
+        logger.error(f"Ошибка при параллельной загрузке статистики для {chat_id}: {e}")
         activity_stats = {'days_active_this_week': 0}
         marathon_stats = {'work_products': 0}
         feed_stats = {'digests': 0, 'fixations': 0}
