@@ -5355,8 +5355,8 @@ reset:
 # ═══════════════════════════════════════════════════════════
 link:
   already_linked:
-    ru: "✅ Аккаунт Aisystant уже привязан."
-    en: "✅ Aisystant account is already linked."
+    ru: "✅ Аккаунт Aisystant найден и привязан!\n\nТеперь вам доступны расписание, программы и оплата."
+    en: "✅ Aisystant account found and linked!\n\nSchedule, programs, and payments are now available."
 
   found_auto:
     ru: "✅ Аккаунт Aisystant найден и привязан!\n\nТеперь вам доступны расписание, программы и оплата."
