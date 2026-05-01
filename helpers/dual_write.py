@@ -136,11 +136,12 @@ async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
 
     try:
         # Lazy import — избегаем circular dependency (db.connection → config → ...).
-        from db.connection import get_pool
-        pool = await get_pool()
+        # После WP-268 cut-over читаем из persona.ory_identity, не из legacy public.users.
+        from db.connection import get_persona_pool
+        pool = await get_persona_pool()
         async with pool.acquire() as conn:
             ory = await conn.fetchval(
-                "SELECT ory_id::text FROM public.users WHERE telegram_id = $1",
+                "SELECT account_id::text FROM public.ory_identity WHERE telegram_id = $1",
                 chat_id,
             )
     except Exception as exc:
