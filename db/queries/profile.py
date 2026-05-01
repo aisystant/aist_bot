@@ -135,19 +135,6 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['user_state'] = _parse_delete_count(deleted)
 
-            # development.user_integrations (WakaTime, GitHub OAuth tokens — legacy)
-            try:
-                deleted = await conn.execute(
-                    'DELETE FROM development.user_integrations WHERE user_uuid = (SELECT id FROM public.users WHERE telegram_id = $1)',
-                    chat_id
-                )
-                result['user_integrations'] = _parse_delete_count(deleted)
-            except Exception as e:
-                if 'does not exist' in str(e):
-                    result['user_integrations'] = 0
-                else:
-                    raise
-
             # Identity — последняя (FK от user_state)
             deleted = await conn.execute(
                 'DELETE FROM public.users WHERE telegram_id = $1', chat_id

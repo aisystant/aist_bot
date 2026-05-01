@@ -4,7 +4,7 @@ WakaTime OAuth клиент — интеграция для Activity Hub (WP-109
 Использует OAuth 2.0 Authorization Code Flow.
 Scope 'read_stats' даёт доступ к статистике времени.
 
-Токены хранятся в development.user_integrations (общая таблица Activity Hub).
+Токены хранятся в persona.user_integrations.
 
 Использование:
     from clients.wakatime_oauth import wakatime_oauth
@@ -46,7 +46,7 @@ class WakaTimeOAuthClient:
     Реализует Authorization Code Flow:
     1. Генерация URL авторизации
     2. Обмен code на access_token + refresh_token
-    3. Хранение токенов в development.user_integrations
+    3. Хранение токенов в persona.user_integrations
     """
 
     def __init__(self):
