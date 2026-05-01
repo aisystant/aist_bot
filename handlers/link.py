@@ -66,6 +66,7 @@ async def cmd_link(message: Message):
         await _migrate_workshop_payments(chat_id, aisystant_id)
         await message.answer(t('link.found_auto', lang))
         # Обновляем тир и клавиатуру
+        logger.info(f"[Link] ABOUT TO CALL _refresh_tier_keyboard for {chat_id}")
         await _refresh_tier_keyboard(message, chat_id, lang)
         # Показываем что делать дальше
         await _send_link_next_steps(message, chat_id, lang)
@@ -117,9 +118,13 @@ async def callback_link_check(callback: CallbackQuery):
         await callback.answer(t('link.check_success', lang), show_alert=True)
         await callback.message.edit_text(t('link.check_success', lang))
         # Обновляем тир и клавиатуру
+        logger.info(f"[Link] callback: ABOUT TO CALL _refresh_tier_keyboard for {chat_id}")
         await _refresh_tier_keyboard(callback.message, chat_id, lang)
+        logger.info(f"[Link] callback: _refresh_tier_keyboard returned for {chat_id}")
         # Показываем что делать дальше
+        logger.info(f"[Link] callback: ABOUT TO CALL _send_link_next_steps for {chat_id}")
         await _send_link_next_steps(callback.message, chat_id, lang)
+        logger.info(f"[Link] callback: _send_link_next_steps returned for {chat_id}")
     else:
         await callback.answer(t('link.check_not_yet', lang), show_alert=True)
 
@@ -135,12 +140,16 @@ async def _migrate_workshop_payments(chat_id: int, aisystant_id: str):
 
 async def _refresh_tier_keyboard(message, chat_id: int, lang: str):
     """Обновить ReplyKeyboard и меню после смены тира."""
+    logger.info(f"[Link] _refresh_tier_keyboard ENTERED for {chat_id}")
     try:
+        logger.info(f"[Link] importing tier modules...")
         from core.tier_detector import detect_ui_tier
         from core.tier_ui import build_reply_keyboard, sync_menu_commands
         from db.queries.aisystant import get_aisystant_id
+        logger.info(f"[Link] imports successful")
 
         # Диагностика: проверяем что aisystant_id действительно записан
+        logger.info(f"[Link] calling get_aisystant_id...")
         aisystant_id = await get_aisystant_id(chat_id)
         logger.info(f"[Link] tier_keyboard debug: chat_id={chat_id}, aisystant_id={aisystant_id}")
 
@@ -150,13 +159,17 @@ async def _refresh_tier_keyboard(message, chat_id: int, lang: str):
         keyboard = build_reply_keyboard(tier, lang)
         logger.debug(f"[Link] keyboard built for tier {tier}, sending to {chat_id}")
 
+        logger.info(f"[Link] SENDING keyboard message (👌) to {chat_id}...")
         await message.answer("👌", reply_markup=keyboard)
         logger.info(f"[Link] keyboard message sent to {chat_id}")
 
+        logger.info(f"[Link] syncing menu commands for {chat_id}...")
         await sync_menu_commands(message.bot, chat_id, tier, lang)
         logger.info(f"[Link] menu commands synced for {chat_id}, tier={tier}")
+        logger.info(f"[Link] _refresh_tier_keyboard COMPLETED SUCCESSFULLY for {chat_id}")
     except Exception as e:
-        logger.error(f"[Link] refresh tier keyboard error: {e}", exc_info=True)
+        logger.error(f"[Link] refresh tier keyboard error for {chat_id}: {e}", exc_info=True)
+        logger.error(f"[Link] FAILED to refresh tier keyboard for {chat_id}")
 
 
 async def _send_link_next_steps(message, chat_id: int, lang: str):
