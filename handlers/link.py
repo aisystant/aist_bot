@@ -67,6 +67,8 @@ async def cmd_link(message: Message):
         await message.answer(t('link.found_auto', lang))
         # Обновляем тир и клавиатуру
         await _refresh_tier_keyboard(message, chat_id, lang)
+        # Показываем что делать дальше
+        await _send_link_next_steps(message, chat_id, lang)
         return
 
     # Не найден → показываем ссылку для привязки
@@ -116,6 +118,8 @@ async def callback_link_check(callback: CallbackQuery):
         await callback.message.edit_text(t('link.check_success', lang))
         # Обновляем тир и клавиатуру
         await _refresh_tier_keyboard(callback.message, chat_id, lang)
+        # Показываем что делать дальше
+        await _send_link_next_steps(callback.message, chat_id, lang)
     else:
         await callback.answer(t('link.check_not_yet', lang), show_alert=True)
 
@@ -140,3 +144,31 @@ async def _refresh_tier_keyboard(message, chat_id: int, lang: str):
         await sync_menu_commands(message.bot, chat_id, tier, lang)
     except Exception as e:
         logger.error(f"[Link] refresh tier keyboard error: {e}")
+
+
+async def _send_link_next_steps(message, chat_id: int, lang: str):
+    """Показать 'что делать дальше' после успешной привязки."""
+    try:
+        from core.tier_detector import detect_ui_tier
+        from core.tier_config import UITier
+        from config import AISYSTANT_BASE_URL
+
+        tier = await detect_ui_tier(chat_id)
+
+        if tier <= UITier.T1:
+            text = t('link.next_steps_no_sub', lang)
+            buttons = [
+                [InlineKeyboardButton(text=t('link.btn_subscribe', lang), callback_data="aisystant_subscribe")],
+                [InlineKeyboardButton(text=t('link.btn_connect_ai', lang), callback_data="iwe_connect_start")],
+                [InlineKeyboardButton(text=t('link.btn_programs', lang), url=f"{AISYSTANT_BASE_URL}/programs")],
+            ]
+        else:
+            text = t('link.next_steps_with_sub', lang)
+            buttons = [
+                [InlineKeyboardButton(text=t('link.btn_connect_ai', lang), callback_data="iwe_connect_start")],
+                [InlineKeyboardButton(text=t('link.btn_programs', lang), url=f"{AISYSTANT_BASE_URL}/programs")],
+            ]
+
+        await message.answer(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    except Exception as e:
+        logger.error(f"[Link] next steps error: {e}")

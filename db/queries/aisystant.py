@@ -21,6 +21,9 @@ async def get_aisystant_id(chat_id: int) -> str | None:
 
     WP-269: чтение из persona.ory_identity (новая архитектура, backfill завершён 28 апр).
     COALESCE покрывает оба ключа ETL: aisystant_suser_id (WP-268) и aisystant_id (alias).
+
+    Fallback к public.users: event pipeline обновляет persona асинхронно (секунды–минуты),
+    поэтому после /link persona может ещё не содержать aisystant_id — читаем из write-source.
     """
     try:
         pool = await get_persona_pool()
@@ -34,6 +37,21 @@ async def get_aisystant_id(chat_id: int) -> str | None:
                 return row['aisystant_id']
     except Exception as e:
         logger.warning(f"[Aisystant] persona.ory_identity read failed: {e}")
+
+    # Fallback: public.users is the immediate write target of save_aisystant_link.
+    # Persona is only updated after the aisystant_linked event propagates through the pipeline.
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT aisystant_id FROM public.users WHERE telegram_id = $1",
+                chat_id,
+            )
+            if row and row['aisystant_id']:
+                logger.debug(f"[Aisystant] persona miss, fallback public.users hit for {chat_id}")
+                return str(row['aisystant_id'])
+    except Exception as e:
+        logger.warning(f"[Aisystant] public.users fallback read failed: {e}")
 
     return None
 

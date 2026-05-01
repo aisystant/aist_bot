@@ -5382,6 +5382,26 @@ link:
     ru: "Привязка ещё не завершена.\n\nПерейдите по ссылке выше и привяжите Telegram в личном кабинете Aisystant."
     en: "Link not yet completed.\n\nFollow the link above and connect Telegram in your Aisystant account."
 
+  next_steps_no_sub:
+    ru: "📋 *Что делать дальше:*\n\n1️⃣ Оформи подписку «Бесконечное развитие» — открывает все программы и AI-ассистент\n2️⃣ Или начни бесплатный марафон прямо сейчас → нажми «Учиться» на клавиатуре"
+    en: "📋 *What to do next:*\n\n1️⃣ Get «Infinite Development» subscription — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
+
+  next_steps_with_sub:
+    ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни обучение"
+    en: "📋 *What to do next:*\n\n1️⃣ Connect your AI assistant (claude.ai or Claude Code) to the platform — tap the button below\n2️⃣ Choose a program in LMS and start learning"
+
+  btn_connect_ai:
+    ru: "🌐 Подключить AI-ассистент"
+    en: "🌐 Connect AI assistant"
+
+  btn_subscribe:
+    ru: "💎 Оформить подписку"
+    en: "💎 Get subscription"
+
+  btn_programs:
+    ru: "📅 Программы обучения"
+    en: "📅 Learning programs"
+
   unlinked:
     ru: "Привязка Aisystant удалена."
     en: "Aisystant link removed."
