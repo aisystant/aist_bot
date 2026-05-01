@@ -257,10 +257,10 @@ async def test_resolve_ory_id_cache_hit():
         def acquire(self):
             return FakeConn()
 
-    async def fake_get_pool():
+    async def fake_get_persona_pool():
         return FakePool()
 
-    with patch("db.connection.get_pool", fake_get_pool):
+    with patch("db.connection.get_persona_pool", fake_get_persona_pool):
         ory1 = await dual_write.resolve_ory_id_from_chat(123456)
         ory2 = await dual_write.resolve_ory_id_from_chat(123456)
 
@@ -291,10 +291,10 @@ async def test_resolve_ory_id_negative_cache():
         def acquire(self):
             return FakeConn()
 
-    async def fake_get_pool():
+    async def fake_get_persona_pool():
         return FakePool()
 
-    with patch("db.connection.get_pool", fake_get_pool):
+    with patch("db.connection.get_persona_pool", fake_get_persona_pool):
         r1 = await dual_write.resolve_ory_id_from_chat(999)
         r2 = await dual_write.resolve_ory_id_from_chat(999)
 
@@ -310,10 +310,10 @@ async def test_resolve_ory_id_db_error_returns_none():
 
     dual_write._ory_cache.clear()
 
-    async def broken_get_pool():
+    async def broken_get_persona_pool():
         raise ConnectionError("db down")
 
-    with patch("db.connection.get_pool", broken_get_pool):
+    with patch("db.connection.get_persona_pool", broken_get_persona_pool):
         result = await dual_write.resolve_ory_id_from_chat(42)
 
     assert result is None

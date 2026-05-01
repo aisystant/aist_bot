@@ -228,13 +228,17 @@ async def sync_engagement_to_dt() -> dict:
             except Exception as e:
                 logger.warning(f"[DT Sync] LMS qualification mapping failed: {e}")
 
-            # Пользователи с user_uuid (T1+). Если есть dt_user_id (OAuth) —
-            # писать по нему (worker ищет по этому ключу). Fallback на user_uuid.
+            # Пользователи с user_uuid (T1+). Canonical key для digital_twins:
+            # 1) dt_user_id (Ory UUID из OAuth/dt_tokens) — наиболее надёжный
+            # 2) u.ory_id (Ory UUID из users) — fallback если dt_tokens нет
+            # 3) user_uuid (может быть users.id, не ory_id) — T0/legacy fallback
+            # WP-218 Ф7.1: добавлен LEFT JOIN users для разрешения ory_id без dt_tokens
             rows = await conn.fetch('''
                 SELECT
                     e.user_uuid,
                     e.user_id,
                     dt.dt_user_id,
+                    u.ory_id AS user_ory_id,
                     e.sessions_total,
                     e.ai_chats_total,
                     e.marathon_steps_total,
@@ -260,13 +264,14 @@ async def sync_engagement_to_dt() -> dict:
                     e.events_last_30d
                 FROM development.engagement e
                 LEFT JOIN dt_tokens dt ON dt.chat_id = e.user_id
+                LEFT JOIN public.users u ON u.telegram_id = e.user_id
                 WHERE e.user_uuid IS NOT NULL
             ''')
 
             for row in rows:
                 try:
-                    # Prefer dt_user_id (Ory OAuth) — worker reads by this key
-                    user_id = str(row['dt_user_id'] or row['user_uuid'])
+                    # Canonical key: dt_user_id > ory_id (from users) > user_uuid
+                    user_id = str(row['dt_user_id'] or row['user_ory_id'] or row['user_uuid'])
                     now_iso = datetime.now(timezone.utc).isoformat()
 
                     collected_data = {
@@ -401,10 +406,10 @@ async def sync_engagement_to_dt() -> dict:
                     decision_stats = await conn.fetchrow('''
                         SELECT
                             COUNT(*) AS decisions_today,
-                            COALESCE(SUM((payload->>'weight')::int), 0) AS decision_weight_today
+                            COALESCE(SUM((payload->>'cognitive_weight')::int), 0) AS decision_weight_today
                         FROM development.user_events
                         WHERE user_uuid = $1::uuid
-                          AND source = 'exocortex'
+                          AND source = 'iwe'
                           AND event_type LIKE 'decision_%'
                           AND created_at >= CURRENT_DATE
                     ''', user_id)
@@ -416,10 +421,10 @@ async def sync_engagement_to_dt() -> dict:
                             )::int AS decision_weight_7d_avg
                         FROM (
                             SELECT DATE(created_at) AS d,
-                                   SUM((payload->>'weight')::int) AS daily_weight
+                                   SUM((payload->>'cognitive_weight')::int) AS daily_weight
                             FROM development.user_events
                             WHERE user_uuid = $1::uuid
-                              AND source = 'exocortex'
+                              AND source = 'iwe'
                               AND event_type LIKE 'decision_%'
                               AND created_at >= NOW() - INTERVAL '7 days'
                             GROUP BY DATE(created_at)
@@ -528,12 +533,13 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
     try:
         learning_pool = await get_learning_pool()
         async with pool.acquire() as conn, pool.acquire() as dt_conn, learning_pool.acquire() as lconn:
-            # Находим пользователя по dt_user_id (Ory UUID) или user_uuid
+            # WP-218 Ф7.1: добавлен LEFT JOIN users для разрешения ory_id
             row = await conn.fetchrow('''
                 SELECT
                     e.user_uuid,
                     e.user_id,
                     dt.dt_user_id,
+                    u.ory_id AS user_ory_id,
                     e.sessions_total,
                     e.ai_chats_total,
                     e.marathon_steps_total,
@@ -559,8 +565,10 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     e.events_last_30d
                 FROM development.engagement e
                 LEFT JOIN dt_tokens dt ON dt.chat_id = e.user_id
+                LEFT JOIN public.users u ON u.telegram_id = e.user_id
                 WHERE e.user_uuid IS NOT NULL
-                  AND (dt.dt_user_id = $1 OR e.user_uuid::TEXT = $1)
+                  AND (dt.dt_user_id = $1 OR e.user_uuid::TEXT = $1
+                       OR u.ory_id::TEXT = $1)
                 LIMIT 1
             ''', user_id)
 
@@ -604,7 +612,8 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             except Exception as e:
                 logger.warning(f"[DT Sync] learning_history not available: {e}")
 
-            effective_user_id = str(row['dt_user_id'] or row['user_uuid'])
+            # WP-218 Ф7.1: canonical key — dt_user_id > ory_id (users) > user_uuid
+            effective_user_id = str(row['dt_user_id'] or row['user_ory_id'] or row['user_uuid'])
 
             collected_data = {
                 "2_1_account": {

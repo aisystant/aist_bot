@@ -1493,6 +1493,9 @@ async def create_tables_health(pool: asyncpg.Pool):
             ON user_sessions (started_at DESC)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # ТРЕЙСИНГ ЗАПРОСОВ (для Grafana, WP-7 Ф2)
+        # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS request_traces (
                 id SERIAL PRIMARY KEY,
