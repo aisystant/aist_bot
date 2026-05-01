@@ -50,6 +50,7 @@ async def cmd_link(message: Message):
     existing = await get_aisystant_id(chat_id)
     if existing:
         await message.answer(t('link.already_linked', lang))
+        await _refresh_tier_keyboard(message, chat_id, lang)
         return
 
     # Пробуем найти автоматически
