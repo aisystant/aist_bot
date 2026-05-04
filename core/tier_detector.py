@@ -1,17 +1,17 @@
 """
-UI Tier detection — subscription + trial + connections.
+UI Tier detection — subscription + connections.
 
 Source-of-truth: WP-52 + WP-79 + WP-85
 
 Tier model (cumulative, payment-first):
   T0 (0):  not linked to Aisystant
-  T1 (1): linked, no БР subscription AND trial expired
-  T2: Aisystant «Бесконечное развитие» subscription active OR 30-day trial from /start
+  T1 (1): linked, no active БР subscription
+  T2: Aisystant «Бесконечное развитие» subscription active
   T3: T2 + Digital Twin connected
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
 
-Tier drops to T1 if БР subscription expires AND trial expired.
+Tier drops to T1 if БР subscription expires.
 Tier drops to T0 if aisystant link removed (unlikely).
 
 TG Stars = donations only, do NOT affect tier (WP-85 decision 2026-03-12).

@@ -1390,11 +1390,7 @@ async def send_milestone_notifications():
                          marathon_status='',
                          encouragement=encouragement)
 
-                # Специальные вставки для day_7 и day_14
-                if day == 7:
-                    trial_text = t('milestones.day_7_trial', lang)
-                    text += trial_text
-
+                # Специальные вставки для day_14
                 if day == 14:
                     marathon_done = user.get('marathon_status') == 'completed'
                     if marathon_done:
