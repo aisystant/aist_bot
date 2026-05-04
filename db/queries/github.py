@@ -210,6 +210,17 @@ async def sync_github_to_user_integrations(
 
         account_id = row['account_id']
 
+        # WP-253 Gap 1 fix: encrypt token before writing to user_integrations.
+        # Format: 'pgp:' + base64(pgp_sym_encrypt(token, key)).
+        # Legacy plaintext rows (no 'pgp:' prefix) remain readable by Activity Hub during migration.
+        if GITHUB_TOKEN_ENCRYPTION_KEY:
+            stored_token = await conn.fetchval(
+                "SELECT 'pgp:' || encode(pgp_sym_encrypt($1, $2), 'base64')",
+                access_token, GITHUB_TOKEN_ENCRYPTION_KEY,
+            )
+        else:
+            stored_token = access_token
+
         await conn.execute('''
             INSERT INTO user_integrations
                 (account_id, service, access_token, scope, metadata, connected_at, updated_at, active)
@@ -222,7 +233,7 @@ async def sync_github_to_user_integrations(
                 active = TRUE
         ''',
             account_id,
-            access_token,
+            stored_token,
             scope,
             _json.dumps({"github_username": github_username}),
         )
