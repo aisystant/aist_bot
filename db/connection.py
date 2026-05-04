@@ -17,6 +17,7 @@ from config import (
     FSM_URL,
     JOURNAL_URL,
     HEALTH_URL,
+    SECRETS_URL,
     get_logger,
 )
 
@@ -43,6 +44,10 @@ _journal_pool: Optional[asyncpg.Pool] = None       # qa_history, feedback_triage
 
 # WP-268 Phase 5 G5 Tier2: error_logs, user_sessions, pending_fixes → Neon health БД (DP.ARCH.004 §8).
 _health_pool: Optional[asyncpg.Pool] = None        # error_logs, user_sessions, pending_fixes (Neon health БД)
+
+# WP-253 Пробел C: OAuth-токены интеграций (GitHub и будущие) — Neon secrets БД.
+# DP.ARCH.004 §B7.3.1: secrets ∩ PII → pgcrypto column-level + RLS.
+_secrets_pool: Optional[asyncpg.Pool] = None       # github_connections (Neon secrets БД)
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -199,9 +204,28 @@ async def get_health_pool() -> asyncpg.Pool:
     return _health_pool
 
 
+async def get_secrets_pool() -> asyncpg.Pool:
+    """Пул соединений к secrets БД (WP-253 Пробел C): github_connections.
+
+    Neon БД `secrets` (DP.ARCH.004 §B7.3.1) — OAuth-токены интеграций.
+    Токены хранятся в зашифрованном виде (pgp_sym_encrypt + RLS).
+    """
+    global _secrets_pool
+    if _secrets_pool is None:
+        _secrets_pool = await asyncpg.create_pool(
+            SECRETS_URL,
+            statement_cache_size=0,
+            min_size=1,
+            max_size=5,
+            command_timeout=30,
+        )
+        logger.info("✅ Secrets пул соединений создан (min=1, max=5)")
+    return _secrets_pool
+
+
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool, _health_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -238,6 +262,10 @@ async def close_pool():
         await _health_pool.close()
         _health_pool = None
         logger.info("🔒 Health пул соединений закрыт")
+    if _secrets_pool:
+        await _secrets_pool.close()
+        _secrets_pool = None
+        logger.info("🔒 Secrets пул соединений закрыт")
 
 
 async def acquire():

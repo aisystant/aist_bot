@@ -40,6 +40,14 @@ JOURNAL_URL = os.getenv("JOURNAL_URL") or os.getenv("DATABASE_URL")
 # WP-268 Phase 5 G5 Tier2: error_logs, user_sessions, pending_fixes → Neon health БД (DP.ARCH.004 §8).
 # Наблюдаемость системы и сессии. Health BD — special (не entity).
 HEALTH_URL = os.getenv("HEALTH_URL") or os.getenv("DATABASE_URL")
+
+# WP-253 Пробел C: OAuth-токены интеграций (GitHub, etc.) — Neon secrets БД.
+# DP.ARCH.004 §B7.3.1: secrets ∩ PII → pgcrypto column-level + RLS.
+# Fallback на DATABASE_URL только для локального dev; в production обязателен.
+SECRETS_URL = os.getenv("SECRETS_URL") or os.getenv("DATABASE_URL")
+# Ключ для pgp_sym_encrypt/decrypt токенов в secrets БД.
+# В production: Railway env var GITHUB_TOKEN_ENCRYPTION_KEY (случайный hex, ≥32 байта).
+GITHUB_TOKEN_ENCRYPTION_KEY = os.getenv("GITHUB_TOKEN_ENCRYPTION_KEY", "")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://twin.aisystant.com/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")

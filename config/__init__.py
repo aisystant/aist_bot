@@ -163,6 +163,10 @@ from .settings import (
     EVENT_GATEWAY_URL,
     EVENT_GATEWAY_TIMEOUT,
     EVENT_GATEWAY_ENABLED,
+
+    # WP-253 Пробел C: secrets БД (OAuth-токены)
+    SECRETS_URL,
+    GITHUB_TOKEN_ENCRYPTION_KEY,
 )
 
 __all__ = [
@@ -266,4 +270,6 @@ __all__ = [
     'EVENT_GATEWAY_URL',
     'EVENT_GATEWAY_TIMEOUT',
     'EVENT_GATEWAY_ENABLED',
+    'SECRETS_URL',
+    'GITHUB_TOKEN_ENCRYPTION_KEY',
 ]

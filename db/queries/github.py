@@ -1,22 +1,50 @@
 """
 Запросы для работы с GitHub подключениями (таблица github_connections).
+
+WP-253 Пробел C: хранилище перенесено из bot_data в Neon secrets БД.
+access_token хранится в зашифрованном виде (pgp_sym_encrypt/pgp_sym_decrypt).
+Ключ шифрования: GITHUB_TOKEN_ENCRYPTION_KEY (Railway env).
+DP.ARCH.004 §B7.3.1: OAuth tokens = secrets ∩ PII → pgcrypto + RLS.
 """
 
 from typing import Optional, Dict, Any
 
-from config import get_logger
-from db.connection import get_pool
+from config import get_logger, GITHUB_TOKEN_ENCRYPTION_KEY
+from db.connection import get_secrets_pool
 
 logger = get_logger(__name__)
 
 
+def _warn_if_no_key() -> None:
+    if not GITHUB_TOKEN_ENCRYPTION_KEY:
+        logger.warning("GITHUB_TOKEN_ENCRYPTION_KEY не установлен — токены хранятся в незашифрованном виде")
+
+
 async def get_github_connection(chat_id: int) -> Optional[Dict[str, Any]]:
-    """Получить GitHub подключение пользователя."""
-    pool = await get_pool()
+    """Получить GitHub подключение пользователя (с расшифровкой токена)."""
+    _warn_if_no_key()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            'SELECT * FROM github_connections WHERE chat_id = $1', chat_id
-        )
+        if GITHUB_TOKEN_ENCRYPTION_KEY:
+            row = await conn.fetchrow('''
+                SELECT
+                    user_uuid, chat_id,
+                    pgp_sym_decrypt(access_token_encrypted, $2)::text AS access_token,
+                    token_type, scope, github_username,
+                    target_repo, notes_path, strategy_repo, knowledge_repo,
+                    default_branch, strategy_default_branch,
+                    created_at, updated_at
+                FROM github_connections
+                WHERE chat_id = $1
+            ''', chat_id, GITHUB_TOKEN_ENCRYPTION_KEY)
+        else:
+            # Fallback без расшифровки (dev без ключа)
+            row = await conn.fetchrow(
+                'SELECT chat_id, token_type, scope, github_username, target_repo, notes_path, '
+                'strategy_repo, knowledge_repo, default_branch, strategy_default_branch, '
+                'created_at, updated_at FROM github_connections WHERE chat_id = $1',
+                chat_id,
+            )
         if row:
             return dict(row)
         return None
@@ -28,26 +56,55 @@ async def save_github_connection(
     token_type: str = 'bearer',
     scope: str = None,
     github_username: str = None,
+    user_uuid=None,
 ) -> None:
-    """Сохранить или обновить GitHub подключение."""
-    pool = await get_pool()
+    """Сохранить или обновить GitHub подключение (с шифрованием токена).
+
+    user_uuid: Ory UUID пользователя. Если None — пытаемся получить из ory_identity.
+    """
+    _warn_if_no_key()
+    if user_uuid is None:
+        user_uuid = await _get_user_uuid_by_chat_id(chat_id)
+
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
-        await conn.execute('''
-            INSERT INTO github_connections (chat_id, access_token, token_type, scope, github_username)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (chat_id) DO UPDATE SET
-                access_token = $2,
-                token_type = $3,
-                scope = $4,
-                github_username = COALESCE($5, github_connections.github_username),
-                updated_at = NOW()
-        ''', chat_id, access_token, token_type, scope, github_username)
+        if GITHUB_TOKEN_ENCRYPTION_KEY:
+            await conn.execute('''
+                INSERT INTO github_connections
+                    (user_uuid, chat_id, access_token_encrypted, token_type, scope, github_username)
+                VALUES (
+                    $1, $2,
+                    pgp_sym_encrypt($3, $6),
+                    $4, $5, $7
+                )
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    access_token_encrypted = pgp_sym_encrypt($3, $6),
+                    token_type = $4,
+                    scope = $5,
+                    github_username = COALESCE($7, github_connections.github_username),
+                    updated_at = NOW()
+            ''', user_uuid, chat_id, access_token, token_type, scope,
+                GITHUB_TOKEN_ENCRYPTION_KEY, github_username)
+        else:
+            # Fallback для локального dev без ключа: не пишем зашифрованный контент
+            logger.warning(f"save_github_connection: no encryption key, storing placeholder for chat_id={chat_id}")
+            await conn.execute('''
+                INSERT INTO github_connections
+                    (user_uuid, chat_id, access_token_encrypted, token_type, scope, github_username)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    access_token_encrypted = $3,
+                    token_type = $4,
+                    scope = $5,
+                    github_username = COALESCE($6, github_connections.github_username),
+                    updated_at = NOW()
+            ''', user_uuid, chat_id, b'no-key', token_type, scope, github_username)
     logger.info(f"Saved GitHub connection for user {chat_id}")
 
 
 async def update_github_repo(chat_id: int, target_repo: str, default_branch: str = "main") -> None:
     """Обновить целевой репозиторий для заметок."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'UPDATE github_connections SET target_repo = $1, default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
@@ -57,7 +114,7 @@ async def update_github_repo(chat_id: int, target_repo: str, default_branch: str
 
 async def update_github_notes_path(chat_id: int, notes_path: str) -> None:
     """Обновить путь к файлу заметок."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'UPDATE github_connections SET notes_path = $1, updated_at = NOW() WHERE chat_id = $2',
@@ -67,7 +124,7 @@ async def update_github_notes_path(chat_id: int, notes_path: str) -> None:
 
 async def update_github_strategy_repo(chat_id: int, strategy_repo: str, strategy_default_branch: str = "main") -> None:
     """Обновить репозиторий стратега."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'UPDATE github_connections SET strategy_repo = $1, strategy_default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
@@ -77,7 +134,7 @@ async def update_github_strategy_repo(chat_id: int, strategy_repo: str, strategy
 
 async def update_github_knowledge_repo(chat_id: int, knowledge_repo: str) -> None:
     """Обновить репозиторий индекса знаний (для Публикатора)."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'UPDATE github_connections SET knowledge_repo = $1, updated_at = NOW() WHERE chat_id = $2',
@@ -86,18 +143,29 @@ async def update_github_knowledge_repo(chat_id: int, knowledge_repo: str) -> Non
 
 
 async def get_users_with_knowledge_repo() -> list[dict]:
-    """Получить всех пользователей с настроенным knowledge_repo."""
-    pool = await get_pool()
+    """Получить всех пользователей с настроенным knowledge_repo (с расшифровкой токена)."""
+    _warn_if_no_key()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            'SELECT chat_id, access_token, knowledge_repo FROM github_connections WHERE knowledge_repo IS NOT NULL'
-        )
+        if GITHUB_TOKEN_ENCRYPTION_KEY:
+            rows = await conn.fetch('''
+                SELECT
+                    chat_id,
+                    pgp_sym_decrypt(access_token_encrypted, $1)::text AS access_token,
+                    knowledge_repo
+                FROM github_connections
+                WHERE knowledge_repo IS NOT NULL
+            ''', GITHUB_TOKEN_ENCRYPTION_KEY)
+        else:
+            rows = await conn.fetch(
+                'SELECT chat_id, knowledge_repo FROM github_connections WHERE knowledge_repo IS NOT NULL'
+            )
         return [dict(r) for r in rows]
 
 
 async def delete_github_connection(chat_id: int) -> None:
     """Удалить GitHub подключение (disconnect)."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'DELETE FROM github_connections WHERE chat_id = $1', chat_id
@@ -149,3 +217,19 @@ async def sync_github_to_user_integrations(
             _json.dumps({"github_username": github_username}),
         )
         logger.info(f"Synced GitHub token to persona.user_integrations for chat_id={chat_id}")
+
+
+async def _get_user_uuid_by_chat_id(chat_id: int):
+    """Получить Ory UUID по telegram chat_id из persona.ory_identity."""
+    try:
+        from db.connection import get_persona_pool
+        pool = await get_persona_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT account_id FROM ory_identity WHERE telegram_id = $1', chat_id
+            )
+            if row and row['account_id']:
+                return row['account_id']
+    except Exception as e:
+        logger.warning(f"_get_user_uuid_by_chat_id: failed to get UUID for chat_id={chat_id}: {e}")
+    return None
