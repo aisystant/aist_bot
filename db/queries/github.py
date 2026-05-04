@@ -66,6 +66,15 @@ async def save_github_connection(
     if user_uuid is None:
         user_uuid = await _get_user_uuid_by_chat_id(chat_id)
 
+    if user_uuid is None:
+        # GitHub OAuth callback требует Ory linkage: без user_uuid не сохраняем.
+        # Это не должно происходить в нормальном flow — Ory link обязателен ДО GitHub OAuth.
+        raise RuntimeError(
+            f"save_github_connection: no Ory user_uuid for chat_id={chat_id}; user must be linked to Ory first"
+        )
+
+    # ON CONFLICT (user_uuid): при смене Telegram-аккаунта тот же Ory-пользователь обновит свой chat_id.
+    # Это корректнее чем ON CONFLICT (chat_id), который ломается при коллизии user_uuid.
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         if GITHUB_TOKEN_ENCRYPTION_KEY:
@@ -77,7 +86,8 @@ async def save_github_connection(
                     pgp_sym_encrypt($3, $6),
                     $4, $5, $7
                 )
-                ON CONFLICT (chat_id) DO UPDATE SET
+                ON CONFLICT (user_uuid) DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
                     access_token_encrypted = pgp_sym_encrypt($3, $6),
                     token_type = $4,
                     scope = $5,
@@ -86,20 +96,20 @@ async def save_github_connection(
             ''', user_uuid, chat_id, access_token, token_type, scope,
                 GITHUB_TOKEN_ENCRYPTION_KEY, github_username)
         else:
-            # Fallback для локального dev без ключа: не пишем зашифрованный контент
             logger.warning(f"save_github_connection: no encryption key, storing placeholder for chat_id={chat_id}")
             await conn.execute('''
                 INSERT INTO github_connections
                     (user_uuid, chat_id, access_token_encrypted, token_type, scope, github_username)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (chat_id) DO UPDATE SET
+                ON CONFLICT (user_uuid) DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
                     access_token_encrypted = $3,
                     token_type = $4,
                     scope = $5,
                     github_username = COALESCE($6, github_connections.github_username),
                     updated_at = NOW()
             ''', user_uuid, chat_id, b'no-key', token_type, scope, github_username)
-    logger.info(f"Saved GitHub connection for user {chat_id}")
+    logger.info(f"Saved GitHub connection for user {chat_id} (user_uuid={user_uuid})")
 
 
 async def update_github_repo(chat_id: int, target_repo: str, default_branch: str = "main") -> None:
