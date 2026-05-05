@@ -1330,21 +1330,10 @@ async def _notify_github_relink():
         for u in users:
             chat_id = u["chat_id"]
             try:
+                # Atomic log-before-send (§10.10): INSERT ... RETURNING
+                # Если INSERT вернул строку — мы первые → слать. Пусто → уже отправлено.
                 async with bot_pool.acquire() as conn:
-                    existing = await conn.fetchrow(
-                        """SELECT id FROM development.user_events
-                           WHERE source = 'github_relink_notif'
-                             AND external_id = $1
-                           LIMIT 1""",
-                        str(chat_id),
-                    )
-                if existing:
-                    skipped += 1
-                    continue
-
-                # Log before send (§10.10)
-                async with bot_pool.acquire() as conn:
-                    await conn.execute(
+                    inserted = await conn.fetchrow(
                         """INSERT INTO development.user_events
                                (user_id, user_uuid, event_type, source, payload,
                                 confidence, created_at, external_id)
@@ -1352,10 +1341,14 @@ async def _notify_github_relink():
                                    '{}', 1.0, NOW(), $2)
                            ON CONFLICT (source, external_id)
                                WHERE external_id IS NOT NULL
-                           DO NOTHING""",
+                           DO NOTHING
+                           RETURNING id""",
                         _uuid.UUID(str(u["account_id"])),
                         str(chat_id),
                     )
+                if not inserted:
+                    skipped += 1
+                    continue
 
                 text = (
                     "🔗 <b>Требуется повторное подключение GitHub</b>\n\n"
