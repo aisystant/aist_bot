@@ -114,7 +114,7 @@ async def cb_stars_sub_select(callback: CallbackQuery):
             title=f"Подписка БР — {tariff['label']}",
             description=(
                 f"«Бесконечное развитие» на {tariff['months']} мес. "
-                "Доступ к полному курсу, Ленте, ЦД и Gateway."
+                "Доступ к полному курсу, Ленте, ЦД и Aisystant MCP."
             ),
             payload=payload,
             currency="XTR",

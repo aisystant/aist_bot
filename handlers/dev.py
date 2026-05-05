@@ -701,7 +701,7 @@ _RECONNECT_MESSAGE = {
         "⚠️ <b>Сервис авторизации обновлён</b>\n\n"
         "Из-за обновления системы безопасности платформы нужно "
         "переподключить IWE к боту.\n\n"
-        "Открой <b>Настройки → 🔗 Подключения → 🌐 Gateway (IWE) → 🔄 Переподключить</b>.\n\n"
+        "Открой <b>Настройки → 🔗 Подключения → 🌐 Aisystant MCP (IWE) → 🔄 Переподключить</b>.\n\n"
         "После этого /twin, /me и поиск по знаниям снова заработают. "
         "Займёт 10 секунд."
     ),
@@ -709,7 +709,7 @@ _RECONNECT_MESSAGE = {
         "⚠️ <b>Authorization service updated</b>\n\n"
         "Due to a platform security upgrade, you need to reconnect "
         "IWE to the bot.\n\n"
-        "Open <b>Settings → 🔗 Connections → 🌐 Gateway (IWE) → 🔄 Reconnect</b>.\n\n"
+        "Open <b>Settings → 🔗 Connections → 🌐 Aisystant MCP (IWE) → 🔄 Reconnect</b>.\n\n"
         "After that /twin, /me and knowledge search will work again. "
         "Takes 10 seconds."
     ),
@@ -717,7 +717,7 @@ _RECONNECT_MESSAGE = {
         "⚠️ <b>Servicio de autorización actualizado</b>\n\n"
         "Debido a una actualización de seguridad de la plataforma, "
         "necesitas reconectar IWE al bot.\n\n"
-        "Abre <b>Ajustes → 🔗 Conexiones → 🌐 Gateway (IWE) → 🔄 Reconectar</b>.\n\n"
+        "Abre <b>Ajustes → 🔗 Conexiones → 🌐 Aisystant MCP (IWE) → 🔄 Reconectar</b>.\n\n"
         "Después /twin, /me y la búsqueda de conocimiento volverán a funcionar. "
         "Toma 10 segundos."
     ),
@@ -725,14 +725,14 @@ _RECONNECT_MESSAGE = {
         "⚠️ <b>Service d'autorisation mis à jour</b>\n\n"
         "Suite à une mise à jour de sécurité de la plateforme, "
         "vous devez reconnecter IWE au bot.\n\n"
-        "Ouvrez <b>Paramètres → 🔗 Connexions → 🌐 Gateway (IWE) → 🔄 Reconnecter</b>.\n\n"
+        "Ouvrez <b>Paramètres → 🔗 Connexions → 🌐 Aisystant MCP (IWE) → 🔄 Reconnecter</b>.\n\n"
         "Après cela /twin, /me et la recherche de connaissances fonctionneront à nouveau. "
         "10 secondes."
     ),
     'zh': (
         "⚠️ <b>授权服务已更新</b>\n\n"
         "由于平台安全升级，您需要将 IWE 重新连接到机器人。\n\n"
-        "打开 <b>设置 → 🔗 连接 → 🌐 Gateway (IWE) → 🔄 重新连接</b>。\n\n"
+        "打开 <b>设置 → 🔗 连接 → 🌐 Aisystant MCP (IWE) → 🔄 重新连接</b>。\n\n"
         "之后 /twin、/me 和知识搜索将再次正常工作。需要 10 秒。"
     ),
 }
