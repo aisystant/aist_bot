@@ -140,6 +140,9 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # One-time cleanup: обнулить question_content с текстом ошибки (bug fix)
     _scheduler.add_job(cleanup_error_questions, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=30), id='cleanup_error_questions')
 
+    # WP-253 Gap C: one-time notification to users needing GitHub relink (10 min after start)
+    _scheduler.add_job(_notify_github_relink, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=10), id='github_relink_notification')
+
     logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse + publisher startup scan)")
     return _scheduler
 
@@ -1301,6 +1304,74 @@ async def _gateway_proactive_refresh():
 
 
 # ═══════════════════════════════════════════════════════════
+# WP-253 GAP C: ONE-TIME GITHUB RELINK NOTIFICATION
+# ═══════════════════════════════════════════════════════════
+
+async def _notify_github_relink():
+    """One-time notification to users who had GitHub connected pre-Gap-C cutover.
+
+    Finds users in persona.user_integrations (service='github') that are missing
+    from secrets.github_connections — they need to re-link via /github.
+    Dedup: skips users already logged in development.user_events (source='github_relink_notif').
+    """
+    try:
+        from db.queries.github import get_users_needing_github_relink
+        from db.connection import get_pool
+        import uuid as _uuid
+
+        users = await get_users_needing_github_relink()
+        if not users:
+            logger.info("[GithubRelink] No users needing relink notification")
+            return
+
+        bot_pool = await get_pool()
+        sent = 0
+        skipped = 0
+        for u in users:
+            chat_id = u["chat_id"]
+            try:
+                async with bot_pool.acquire() as conn:
+                    existing = await conn.fetchrow(
+                        """SELECT id FROM development.user_events
+                           WHERE source = 'github_relink_notif'
+                             AND external_id = $1
+                           LIMIT 1""",
+                        str(chat_id),
+                    )
+                if existing:
+                    skipped += 1
+                    continue
+
+                # Log before send (§10.10)
+                async with bot_pool.acquire() as conn:
+                    await conn.execute(
+                        """INSERT INTO development.user_events
+                               (user_id, user_uuid, event_type, source, payload,
+                                confidence, created_at, external_id)
+                           VALUES (0, $1, 'notification_sent', 'github_relink_notif',
+                                   '{}', 1.0, NOW(), $2)
+                           ON CONFLICT (source, external_id)
+                               WHERE external_id IS NOT NULL
+                           DO NOTHING""",
+                        _uuid.UUID(str(u["account_id"])),
+                        str(chat_id),
+                    )
+
+                text = (
+                    "🔗 <b>Требуется повторное подключение GitHub</b>\n\n"
+                    "После обновления платформы ваше подключение GitHub нужно обновить. "
+                    "Нажмите /github чтобы переподключить — это займёт 30 секунд."
+                )
+                await bot.send_message(chat_id, text, parse_mode="HTML")
+                sent += 1
+            except Exception as e:
+                logger.warning("[GithubRelink] Failed to notify chat_id=%s: %s", chat_id, e)
+
+        logger.info("[GithubRelink] Notifications sent=%d skipped(already_notified)=%d", sent, skipped)
+    except Exception as e:
+        logger.error("[GithubRelink] Notification job failed: %s", e)
+
+
 # DIGITAL TWIN ENGAGEMENT SYNC (WP-85 Phase 4)
 # ═══════════════════════════════════════════════════════════
 

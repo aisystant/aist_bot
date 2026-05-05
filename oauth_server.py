@@ -1252,19 +1252,29 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
             content_type="application/json", status=400,
         )
 
-    from db.connection import get_pool
+    from db.connection import get_pool, get_secrets_pool
     from db.queries.dt_sync import sync_one_user_to_dt
 
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """SELECT dt.dt_user_id, gh.chat_id
-               FROM github_connections gh
-               LEFT JOIN dt_tokens dt ON dt.chat_id = gh.chat_id
-               WHERE gh.github_username = $1
-               LIMIT 1""",
+    # github_connections moved to secrets DB (WP-253 Gap C). Two-step lookup:
+    # step 1: chat_id from secrets, step 2: dt_user_id from bot_data (dt_tokens).
+    secrets_pool = await get_secrets_pool()
+    async with secrets_pool.acquire() as conn:
+        gh_row = await conn.fetchrow(
+            "SELECT chat_id FROM github_connections WHERE github_username = $1 LIMIT 1",
             pusher_login,
         )
+
+    row = None
+    if gh_row and gh_row["chat_id"]:
+        chat_id = gh_row["chat_id"]
+        bot_pool = await get_pool()
+        async with bot_pool.acquire() as conn:
+            dt_row = await conn.fetchrow(
+                "SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1 LIMIT 1",
+                chat_id,
+            )
+        if dt_row:
+            row = {"dt_user_id": dt_row["dt_user_id"], "chat_id": chat_id}
 
     if not row or not row["dt_user_id"]:
         logger.warning(
@@ -1280,7 +1290,7 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
 
     # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
     try:
-        async with pool.acquire() as conn:
+        async with bot_pool.acquire() as conn:
             await conn.fetchrow(
                 """
                 INSERT INTO development.user_events

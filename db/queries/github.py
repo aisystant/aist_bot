@@ -173,6 +173,40 @@ async def get_users_with_knowledge_repo() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+async def get_users_needing_github_relink() -> list[dict]:
+    """Users with active GitHub in user_integrations but missing from secrets.github_connections.
+
+    Cross-DB query (persona + secrets): Python-side set diff.
+    Used by scheduler to send one-time relink notification after Gap C cutover.
+    """
+    from db.connection import get_persona_pool
+
+    # Step 1: chat_ids already linked in secrets (no notification needed)
+    pool = await get_secrets_pool()
+    async with pool.acquire() as conn:
+        linked = {
+            row["chat_id"]
+            for row in await conn.fetch(
+                "SELECT chat_id FROM github_connections WHERE chat_id IS NOT NULL"
+            )
+        }
+
+    # Step 2: users with github in persona.user_integrations + their telegram chat_id
+    persona_pool = await get_persona_pool()
+    async with persona_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT oi.telegram_id AS chat_id, ui.account_id
+            FROM user_integrations ui
+            JOIN ory_identity oi ON oi.account_id = ui.account_id
+            WHERE ui.service = 'github' AND ui.active = TRUE
+              AND oi.telegram_id IS NOT NULL
+            """
+        )
+
+    return [dict(r) for r in rows if r["chat_id"] not in linked]
+
+
 async def delete_github_connection(chat_id: int) -> None:
     """Удалить GitHub подключение (disconnect)."""
     pool = await get_secrets_pool()

@@ -787,13 +787,27 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                             if key in existing_c and key not in collected:
                                 collected[key] = existing_c[key]
 
-                    existing_derived = await ind_conn.fetchval(
-                        "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
+                    # F1: предпочитаем calculated_profile.indicators->'3_derived'
+                    # (F2 dual-write заполняет с 4 мая; fallback на digital_twins)
+                    cp_indicators = await ind_conn.fetchval(
+                        "SELECT indicators FROM public.calculated_profile WHERE account_id = $1::uuid",
                         str(account_id),
                     )
-                    if existing_derived:
-                        derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
-                        collected['_derived'] = derived
+                    if cp_indicators:
+                        cp_data = json.loads(cp_indicators) if isinstance(cp_indicators, str) else cp_indicators
+                        derived = cp_data.get('3_derived')
+                        if derived:
+                            collected['_derived'] = derived
+
+                    # Fallback: legacy digital_twins (пока calculated_profile не заполнен)
+                    if '_derived' not in collected:
+                        existing_derived = await ind_conn.fetchval(
+                            "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
+                            str(account_id),
+                        )
+                        if existing_derived:
+                            derived = json.loads(existing_derived) if isinstance(existing_derived, str) else existing_derived
+                            collected['_derived'] = derived
             except Exception as dt_e:
                 logger.warning(f"[/me] Fallback digital_twins read failed: {dt_e}")
 
