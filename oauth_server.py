@@ -1527,6 +1527,76 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def internal_notify_handler(request: web.Request) -> web.Response:
+    """WP-5 Ф12: внутреннее уведомление от gateway-mcp о начале индексации форкнутого репо.
+
+    POST /internal/notify
+    Headers: X-Notify-Signature: sha256=<hmac>
+    Body JSON: {type, telegram_id, repo_name, user_id}
+    """
+    import os
+    import hashlib
+    import hmac
+    import json
+
+    secret = os.getenv('INTERNAL_NOTIFY_SECRET', '')
+    if not secret:
+        logger.warning("[InternalNotify] INTERNAL_NOTIFY_SECRET not configured")
+        return web.Response(text="Service unavailable", status=503)
+
+    raw_body = await request.read()
+
+    # HMAC-SHA256 verification
+    provided_sig = request.headers.get('X-Notify-Signature', '')
+    expected_mac = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    expected_sig = f"sha256={expected_mac}"
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        logger.warning("[InternalNotify] Invalid HMAC signature")
+        return web.Response(text="Forbidden", status=403)
+
+    try:
+        body = json.loads(raw_body)
+    except Exception:
+        return web.Response(text="Bad request", status=400)
+
+    notify_type = body.get('type')
+    telegram_id = body.get('telegram_id')
+    repo_name = body.get('repo_name', '')
+
+    if notify_type != 'repo_indexing_started' or not telegram_id:
+        logger.warning("[InternalNotify] Unknown type or missing telegram_id: %s", body)
+        return web.Response(text=json.dumps({"ok": False, "reason": "unknown_type"}), content_type="application/json")
+
+    if not _bot_instance:
+        logger.warning("[InternalNotify] Bot instance not ready")
+        return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
+
+    try:
+        from db.queries.notifications import send_idempotent
+
+        idempotency_key = f"repo_indexing:{telegram_id}:{repo_name}"
+        text = (
+            f"🔄 <b>Репо {repo_name}</b> добавлен и начал индексироваться.\n"
+            f"Через несколько минут его содержимое будет доступно в поиске."
+        )
+
+        async def _send():
+            await _bot_instance.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
+
+        sent = await send_idempotent(
+            chat_id=telegram_id,
+            notification_type="repo_indexing_started",
+            idempotency_key=idempotency_key,
+            send_fn=_send,
+        )
+        logger.info("[InternalNotify] repo=%s telegram_id=%s sent=%s", repo_name, telegram_id, sent)
+        return web.Response(text=json.dumps({"ok": True, "sent": sent}), content_type="application/json")
+
+    except Exception as e:
+        logger.exception("[InternalNotify] Error sending notification: %s", e)
+        return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -1560,6 +1630,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_post("/webhook/workshop-payment", workshop_payment_handler)
     app.router.add_post("/webhook/yookassa", yookassa_webhook_handler)
     app.router.add_post("/webhook/github/workbook", github_workbook_webhook_handler)
+    app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:
