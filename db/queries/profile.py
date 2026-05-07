@@ -107,7 +107,6 @@ async def delete_all_user_data(chat_id: int) -> dict:
             tables_chat_id = [
                 'reminders', 'feed_weeks', 'marathon_content',
                 'feedback_reports', 'subscriptions',
-                'github_connections',
             ]
             for table in tables_chat_id:
                 deleted = await conn.execute(
@@ -158,6 +157,31 @@ async def delete_all_user_data(chat_id: int) -> dict:
         else:
             logger.warning(f"[DELETE] persona user_integrations cleanup failed: {e}")
             result['persona_user_integrations'] = 0
+
+    # WP-253 Gap C: github_connections живут в secrets Neon БД (после миграции от bot_data)
+    # Neon не поддерживает cross-DB JOIN — сначала UUID из persona, потом DELETE в secrets
+    try:
+        from db.connection import get_secrets_pool, get_persona_pool
+        persona_pool = await get_persona_pool()
+        async with persona_pool.acquire() as pconn:
+            row = await pconn.fetchrow(
+                'SELECT id AS account_id FROM ory_identity WHERE telegram_id = $1', chat_id
+            )
+        if row:
+            secrets_pool = await get_secrets_pool()
+            async with secrets_pool.acquire() as sconn:
+                deleted = await sconn.execute(
+                    'DELETE FROM github_connections WHERE user_uuid = $1', row['account_id']
+                )
+                result['secrets_github_connections'] = _parse_delete_count(deleted)
+        else:
+            result['secrets_github_connections'] = 0
+    except Exception as e:
+        if 'does not exist' in str(e):
+            result['secrets_github_connections'] = 0
+        else:
+            logger.warning(f"[DELETE] secrets github_connections cleanup failed: {e}")
+            result['secrets_github_connections'] = 0
 
     # WP-268 Phase 3 Block 1: fsm_states живёт в отдельной БД (FSM_URL, Railway-local Postgres)
     try:
