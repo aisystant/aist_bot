@@ -660,16 +660,34 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
 
 
+async def _get_blocked_chat_ids() -> set[int]:
+    """WP-253 lift-and-shift: получить список заблокированных пользователей.
+
+    После lift-and-shift таблица reminder в learning БД, user_state — в bot_data.
+    Cross-DB JOIN невозможен → отдельный запрос к user_state pool.
+    """
+    from db.connection import get_pool as _get_user_state_pool
+    user_state_pool = await _get_user_state_pool()
+    async with user_state_pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT chat_id FROM development.user_state WHERE bot_blocked IS TRUE'
+        )
+    return {r['chat_id'] for r in rows}
+
+
 async def schedule_reminders(chat_id: int, intern: dict):
-    """Планирует напоминания для пользователя."""
-    from db import get_pool
+    """Планирует напоминания для пользователя.
+
+    WP-253 lift-and-shift: таблица reminders → learning.reminder.
+    """
+    from db.connection import get_learning_pool
 
     now = moscow_now()
 
-    async with (await get_pool()).acquire() as conn:
+    async with (await get_learning_pool()).acquire() as conn:
         # Удаляем старые неотправленные напоминания
         await conn.execute(
-            'DELETE FROM reminders WHERE chat_id = $1 AND sent = FALSE',
+            'DELETE FROM reminder WHERE chat_id = $1 AND sent = FALSE',
             chat_id
         )
 
@@ -679,7 +697,7 @@ async def schedule_reminders(chat_id: int, intern: dict):
             # Убираем timezone для совместимости с TIMESTAMP (без timezone)
             reminder_time_naive = reminder_time.replace(tzinfo=None)
             await conn.execute(
-                '''INSERT INTO reminders (chat_id, reminder_type, scheduled_for)
+                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for)
                    VALUES ($1, $2, $3)''',
                 chat_id, f'+{hours}h', reminder_time_naive
             )
@@ -752,33 +770,39 @@ async def check_reminders():
     Использует SELECT FOR UPDATE SKIP LOCKED для предотвращения дублей:
     если предыдущий scheduled_check ещё обрабатывает напоминания,
     следующий цикл (через 1 мин) пропустит уже залоченные строки.
+
+    WP-253 lift-and-shift: таблица reminder в learning БД, user_state — в bot_data.
+    Cross-DB JOIN невозможен → pre-fetch blocked chat_ids отдельным запросом
+    и фильтруем через ANY(...) на уровне learning pool.
     """
-    from db import get_pool
+    from db.connection import get_learning_pool
 
     now = moscow_now()
     now_naive = now.replace(tzinfo=None)
 
-    pool = await get_pool()
+    # Pre-fetch заблокированных пользователей из user_state pool (bot_data).
+    blocked_ids = await _get_blocked_chat_ids()
+    blocked_list = list(blocked_ids) if blocked_ids else [0]  # NULL-safe placeholder
+
+    pool = await get_learning_pool()
     bot = Bot(token=_bot_token)
 
     try:
         async with pool.acquire() as conn:
             # Обрабатываем по одному в транзакции: claim → send → mark sent
-            # JOIN user_state — исключаем заблокированных пользователей
             while True:
                 row = await conn.fetchrow(
-                    '''UPDATE reminders SET sent = TRUE
+                    '''UPDATE reminder SET sent = TRUE
                        WHERE id = (
-                           SELECT r.id FROM reminders r
-                           JOIN development.user_state s ON s.chat_id = r.chat_id
+                           SELECT r.id FROM reminder r
                            WHERE r.sent = FALSE AND r.scheduled_for <= $1
-                             AND s.bot_blocked IS NOT TRUE
+                             AND NOT (r.chat_id = ANY($2::bigint[]))
                            ORDER BY r.scheduled_for
                            LIMIT 1
                            FOR UPDATE OF r SKIP LOCKED
                        )
                        RETURNING id, chat_id, reminder_type''',
-                    now_naive
+                    now_naive, blocked_list
                 )
                 if not row:
                     break
@@ -793,7 +817,7 @@ async def check_reminders():
                     else:
                         # Retry limit: increment fail_count, give up after 3 attempts
                         fail_count = await conn.fetchval(
-                            'SELECT COALESCE(fail_count, 0) FROM reminders WHERE id = $1',
+                            'SELECT COALESCE(fail_count, 0) FROM reminder WHERE id = $1',
                             row['id']
                         )
                         if fail_count is not None and fail_count >= 2:
@@ -802,7 +826,7 @@ async def check_reminders():
                         else:
                             # Откатываем sent=TRUE и инкрементируем fail_count для retry
                             await conn.execute(
-                                'UPDATE reminders SET sent = FALSE, fail_count = COALESCE(fail_count, 0) + 1 WHERE id = $1',
+                                'UPDATE reminder SET sent = FALSE, fail_count = COALESCE(fail_count, 0) + 1 WHERE id = $1',
                                 row['id']
                             )
                             logger.error(f"Failed to send reminder to {row['chat_id']} (attempt {(fail_count or 0) + 1}/3): {e}")
