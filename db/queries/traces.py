@@ -11,7 +11,7 @@
 """
 
 from typing import List, Optional
-from db.connection import acquire, get_learning_pool
+from db.connection import get_health_pool, get_learning_pool
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -66,8 +66,12 @@ def get_color(total_ms: float, category: str) -> str:
 
 
 async def cleanup_old_traces(days: int = 7) -> int:
-    """Удалить traces старше N дней. Возвращает количество удалённых."""
-    async with await acquire() as conn:
+    """Удалить traces старше N дней. Возвращает количество удалённых.
+
+    WP-253 G4: cleanup на health БД.
+    """
+    pool = await get_health_pool()
+    async with pool.acquire() as conn:
         result = await conn.execute(
             "DELETE FROM request_traces WHERE created_at < NOW() - INTERVAL '1 day' * $1",
             days,
@@ -129,8 +133,12 @@ async def get_latency_report(hours: int = 24) -> dict:
             ORDER BY ingested_at DESC
         """, hours)
 
-    # slowest_spans остаётся на legacy: event payload содержит только spans_count
-    async with await acquire() as conn:
+    # slowest_spans читается из health БД (WP-253 G4 migration 8 мая):
+    # writer (core/tracing.py:_save_trace_to_db) пишет в health.request_traces.
+    # Event payload содержит только spans_count, поэтому slowest_spans
+    # требует физическую таблицу со span jsonb массивом.
+    health_pool = await get_health_pool()
+    async with health_pool.acquire() as conn:
         slowest_spans = await conn.fetch("""
             SELECT s->>'name' AS name,
                    AVG((s->>'duration_ms')::numeric)::int AS avg_ms,

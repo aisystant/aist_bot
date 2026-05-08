@@ -114,13 +114,23 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result[table] = _parse_delete_count(deleted)
 
-            # Таблицы с user_id вместо chat_id
-            tables_user_id = ['service_usage', 'request_traces']
+            # Таблицы с user_id вместо chat_id (только legacy — request_traces переехал в health)
+            tables_user_id = ['service_usage']
             for table in tables_user_id:
                 deleted = await conn.execute(
                     f'DELETE FROM {table} WHERE user_id = $1', chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
+            # Legacy bot_data.request_traces — historical, будет DROPPED после soak.
+            # Удаляем для GDPR-полноты пока таблица существует.
+            try:
+                deleted = await conn.execute(
+                    'DELETE FROM request_traces WHERE user_id = $1', chat_id
+                )
+                result['request_traces_legacy'] = _parse_delete_count(deleted)
+            except Exception as e:
+                logger.warning(f"[DELETE] legacy request_traces cleanup failed: {e}")
+                result['request_traces_legacy'] = 0
 
             # development.user_events
             deleted = await conn.execute(
@@ -227,6 +237,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         logger.warning(f"[DELETE] learning cleanup failed: {e}")
 
     # WP-268 Phase 5 G5 Tier2: user_sessions вынесены в health BD
+    # WP-253 G4 (8 мая): + request_traces переехал в health (writer core/tracing.py)
     try:
         health_pool = await get_health_pool()
         async with health_pool.acquire() as hconn:
@@ -234,9 +245,14 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 'DELETE FROM user_sessions WHERE chat_id = $1', chat_id
             )
             result['user_sessions'] = _parse_delete_count(deleted)
+            deleted = await hconn.execute(
+                'DELETE FROM request_traces WHERE user_id = $1', chat_id
+            )
+            result['request_traces'] = _parse_delete_count(deleted)
     except Exception as e:
         logger.warning(f"[DELETE] health cleanup failed: {e}")
         result['user_sessions'] = 0
+        result['request_traces'] = 0
 
     total = sum(result.values())
     logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")
