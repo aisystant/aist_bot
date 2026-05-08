@@ -8,6 +8,7 @@
 Сервисы не на клавиатуре доступны через /command или /help.
 """
 
+import asyncio
 import random
 from typing import Optional
 
@@ -18,7 +19,7 @@ from core.tier_ui import build_reply_keyboard, sync_menu_commands
 from core.tier_detector import detect_ui_tier
 from core.tier_config import UITier
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
-from db.queries.users import get_intern, update_intern
+from db.queries.users import update_intern
 
 
 # Tier → i18n key suffix for tier label
@@ -142,18 +143,19 @@ class ModeSelectState(BaseState):
             greeting = t('welcome.menu_greeting', lang, name=name, tier_label=tier_label, tip=tip)
 
         await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
-        await sync_menu_commands(self.bot, chat_id, tier, lang)
+        # fire-and-forget: set_my_commands не блокирует ответ пользователю
+        asyncio.create_task(sync_menu_commands(self.bot, chat_id, tier, lang))
 
         # WP-151 Ф2: показать вопросы о стиле подачи после первого урока
-        intern = await get_intern(chat_id)
-        ctx = intern.get('current_context', {}) or {}
+        # user_dict уже загружен выше — не делаем повторный get_intern()
+        ctx = user_dict.get('current_context', {}) or {}
         if ctx.get('delivery_prefs_pending'):
             from integrations.telegram.keyboards import kb_delivery_format
             await self.send(user, t('delivery.ask_format', lang),
                             reply_markup=kb_delivery_format(lang))
 
         # WP-156: предложить Навигатора при возврате после паузы >7 дней
-        last_active = intern.get('last_active_date')
+        last_active = user_dict.get('last_active_date')
         if last_active:
             from db.queries.users import moscow_today
             from datetime import date
