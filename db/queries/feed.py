@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 from config import get_logger, FeedWeekStatus
-from db.connection import get_pool
+from db.connection import get_learning_pool
 
 logger = get_logger(__name__)
 
@@ -18,7 +18,7 @@ async def create_feed_week(chat_id: int, suggested_topics: List[str] = None,
     """Создать новую неделю Ленты"""
     from .users import moscow_today
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     today = moscow_today()
     week_start = today - timedelta(days=today.weekday())  # Понедельник
 
@@ -26,12 +26,12 @@ async def create_feed_week(chat_id: int, suggested_topics: List[str] = None,
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
             SELECT COALESCE(MAX(week_number), 0) + 1 as next_week
-            FROM feed_weeks WHERE chat_id = $1
+            FROM feed_week WHERE chat_id = $1
         ''', chat_id)
         week_number = row['next_week']
 
         result = await conn.fetchrow('''
-            INSERT INTO feed_weeks
+            INSERT INTO feed_week
             (chat_id, week_number, week_start, suggested_topics, accepted_topics, status)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id, week_number
@@ -49,10 +49,10 @@ async def get_current_feed_week(chat_id: int) -> Optional[dict]:
     Continuous mode: COMPLETED недели тоже возвращаются для re-activation.
     Приоритет: ACTIVE > COMPLETED > PLANNING.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
-            SELECT * FROM feed_weeks
+            SELECT * FROM feed_week
             WHERE chat_id = $1 AND status IN ($2, $3, $4)
             ORDER BY
                 CASE WHEN status = $3 THEN 0
@@ -79,14 +79,14 @@ async def get_current_feed_week(chat_id: int) -> Optional[dict]:
 
 async def update_feed_week(week_id: int, updates: dict):
     """Обновить неделю Ленты"""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         for key, value in updates.items():
             if key in ['suggested_topics', 'accepted_topics']:
                 value = json.dumps(value) if not isinstance(value, str) else value
 
             await conn.execute(
-                f'UPDATE feed_weeks SET {key} = $1 WHERE id = $2',
+                f'UPDATE feed_week SET {key} = $1 WHERE id = $2',
                 value, week_id
             )
 
@@ -105,10 +105,10 @@ async def create_feed_session(week_id: int, day_number: int,
     Returns:
         dict сессии или None (если active/completed уже существует)
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.fetchrow('''
-            INSERT INTO feed_sessions
+            INSERT INTO feed_session
             (week_id, day_number, topic_title, content, session_date, status)
             VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (week_id, session_date) DO UPDATE SET
@@ -117,7 +117,7 @@ async def create_feed_session(week_id: int, day_number: int,
                 topic_title = EXCLUDED.topic_title,
                 status = EXCLUDED.status,
                 created_at = NOW()
-            WHERE feed_sessions.status = 'pending'
+            WHERE feed_session.status = 'pending'
             RETURNING id, status
         ''', week_id, day_number, topic_title, json.dumps(content), session_date, status)
 
@@ -137,24 +137,24 @@ async def create_feed_session(week_id: int, day_number: int,
 
 async def update_feed_session(session_id: int, updates: dict):
     """Обновить сессию Ленты"""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         for key, value in updates.items():
             if key == 'content':
                 value = json.dumps(value) if not isinstance(value, str) else value
 
             await conn.execute(
-                f'UPDATE feed_sessions SET {key} = $1 WHERE id = $2',
+                f'UPDATE feed_session SET {key} = $1 WHERE id = $2',
                 value, session_id
             )
 
 
 async def get_feed_session_by_id(session_id: int) -> Optional[dict]:
     """Получить сессию по ID"""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT * FROM feed_sessions WHERE id = $1',
+            'SELECT * FROM feed_session WHERE id = $1',
             session_id
         )
 
@@ -179,10 +179,10 @@ async def get_feed_session(week_id: int, session_date: date) -> Optional[dict]:
     При дубликатах (несколько сессий на один день) приоритет:
     completed > active, затем по created_at DESC.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''SELECT * FROM feed_sessions
+            '''SELECT * FROM feed_session
                WHERE week_id = $1 AND session_date = $2
                ORDER BY
                    CASE WHEN status = 'completed' THEN 0
@@ -216,19 +216,19 @@ async def get_incomplete_feed_session(week_id: int, today_only: bool = True) -> 
         today_only: если True (default), ищет только сегодняшние active сессии.
             Вчерашние active авто-экспайрятся scheduler'ом / cleanup'ом.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         if today_only:
             today = moscow_today()
             row = await conn.fetchrow(
-                '''SELECT * FROM feed_sessions
+                '''SELECT * FROM feed_session
                    WHERE week_id = $1 AND status = 'active' AND session_date = $2
                    LIMIT 1''',
                 week_id, today
             )
         else:
             row = await conn.fetchrow(
-                '''SELECT * FROM feed_sessions
+                '''SELECT * FROM feed_session
                    WHERE week_id = $1 AND status = 'active'
                    ORDER BY session_date DESC
                    LIMIT 1''',
@@ -259,11 +259,11 @@ async def expire_old_feed_sessions(chat_id: int):
     from .users import moscow_today
 
     today = moscow_today()
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            '''UPDATE feed_sessions SET status = 'expired'
-               WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)
+            '''UPDATE feed_session SET status = 'expired'
+               WHERE week_id IN (SELECT id FROM feed_week WHERE chat_id = $1)
                  AND status IN ('pending', 'active')
                  AND session_date < $2''',
             chat_id, today,
@@ -278,16 +278,16 @@ async def delete_feed_sessions(week_id: int, keep_completed: bool = False):
     Args:
         keep_completed: если True, сохраняет терминальные сессии (completed/skipped/expired).
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         if keep_completed:
             deleted = await conn.execute(
-                "DELETE FROM feed_sessions WHERE week_id = $1 AND status NOT IN ('completed', 'skipped', 'expired')",
+                "DELETE FROM feed_session WHERE week_id = $1 AND status NOT IN ('completed', 'skipped', 'expired')",
                 week_id
             )
         else:
             deleted = await conn.execute(
-                'DELETE FROM feed_sessions WHERE week_id = $1',
+                'DELETE FROM feed_session WHERE week_id = $1',
                 week_id
             )
         logger.info(f"Deleted feed sessions for week {week_id} (keep_completed={keep_completed}): {deleted}")
@@ -295,13 +295,13 @@ async def delete_feed_sessions(week_id: int, keep_completed: bool = False):
 
 async def get_feed_history(chat_id: int, limit: int = 10) -> List[dict]:
     """Получить историю сессий Ленты (completed + expired + skipped)."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT s.id, s.topic_title, s.fixation_text, s.session_date,
                    s.completed_at, s.status, s.day_number
-            FROM feed_sessions s
-            JOIN feed_weeks w ON s.week_id = w.id
+            FROM feed_session s
+            JOIN feed_week w ON s.week_id = w.id
             WHERE w.chat_id = $1 AND s.status IN ('completed', 'expired', 'skipped')
             ORDER BY s.session_date DESC
             LIMIT $2
@@ -312,10 +312,10 @@ async def get_feed_history(chat_id: int, limit: int = 10) -> List[dict]:
 
 async def get_feed_session_content(session_id: int) -> Optional[dict]:
     """Получить полный контент сессии (для пересмотра в истории)."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT id, content, topic_title, fixation_text, session_date, status FROM feed_sessions WHERE id = $1',
+            'SELECT id, content, topic_title, fixation_text, session_date, status FROM feed_session WHERE id = $1',
             session_id
         )
         if row:

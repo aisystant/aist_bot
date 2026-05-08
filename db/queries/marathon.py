@@ -4,7 +4,7 @@
 
 import json
 
-from db import get_pool
+from db.connection import get_learning_pool
 from db.queries.users import moscow_today
 from config import get_logger
 
@@ -25,7 +25,7 @@ async def save_marathon_content(
     """
     practice_json = json.dumps(practice_content) if practice_content else None
 
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''INSERT INTO marathon_content
@@ -52,7 +52,7 @@ async def get_marathon_content(chat_id: int, topic_index: int) -> dict | None:
         dict с ключами lesson_content, question_content, practice_content (parsed JSON),
         bloom_level, status. Или None если не найден.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''SELECT * FROM marathon_content
@@ -83,7 +83,7 @@ async def mark_notification_sent(chat_id: int, topic_index: int):
     Двойная запись на переходный период. После стабилизации (W15+):
     удалить эту функцию и колонку notification_sent_at.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''UPDATE marathon_content
@@ -95,7 +95,7 @@ async def mark_notification_sent(chat_id: int, topic_index: int):
 
 async def mark_content_delivered(chat_id: int, topic_index: int):
     """Отметить контент как доставленный."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''UPDATE marathon_content
@@ -107,7 +107,7 @@ async def mark_content_delivered(chat_id: int, topic_index: int):
 
 async def invalidate_user_content(chat_id: int):
     """Удалить пре-генерированный контент пользователя (при смене языка и т.п.)."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
             '''DELETE FROM marathon_content
@@ -124,7 +124,7 @@ async def cleanup_error_questions():
     Эта функция обнуляет question_content для таких записей, чтобы при следующей
     загрузке вопрос был сгенерирован заново.
     """
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
             '''UPDATE marathon_content
@@ -147,7 +147,7 @@ async def cleanup_expired_content():
           но не от pending от завершённых/неактивных недель).
     """
     today = moscow_today()
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
             '''DELETE FROM marathon_content
@@ -158,7 +158,7 @@ async def cleanup_expired_content():
 
         # Feed: expire (не delete) — сохраняем для аналитики
         feed_result = await conn.execute(
-            '''UPDATE feed_sessions SET status = 'expired'
+            '''UPDATE feed_session SET status = 'expired'
                WHERE status IN ('pending', 'active') AND session_date < $1''',
             today,
         )
