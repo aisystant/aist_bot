@@ -45,6 +45,14 @@ HEALTH_URL = os.getenv("HEALTH_URL") or os.getenv("DATABASE_URL")
 # DP.ARCH.004 §B7.3.1: secrets ∩ PII → pgcrypto column-level + RLS.
 # Fallback на DATABASE_URL только для локального dev; в production обязателен.
 SECRETS_URL = os.getenv("SECRETS_URL") or os.getenv("DATABASE_URL")
+
+# WP-253 lift-and-shift bot_data → 12 BC БД (8 мая 2026):
+# Дополнительные per-BC БД для оставшихся таблиц bot_data.
+PUBLICATION_URL = os.getenv("PUBLICATION_URL") or os.getenv("DATABASE_URL")  # scheduled_post, published_post, channel_monitor, channel_mention_log
+COMMUNITY_URL = os.getenv("COMMUNITY_URL") or os.getenv("DATABASE_URL")      # club_account (discourse), mentorship
+LEAD_URL = os.getenv("LEAD_URL") or os.getenv("DATABASE_URL")                # conversion_event, funnel_record, claim
+REFERENCE_URL = os.getenv("REFERENCE_URL") or os.getenv("DATABASE_URL")      # product, training_setting, training_child, tariffs
+
 # Ключ для pgp_sym_encrypt/decrypt токенов в secrets БД.
 # В production: Railway env var GITHUB_TOKEN_ENCRYPTION_KEY (случайный hex, ≥32 байта).
 GITHUB_TOKEN_ENCRYPTION_KEY = os.getenv("GITHUB_TOKEN_ENCRYPTION_KEY", "")

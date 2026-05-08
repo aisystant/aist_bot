@@ -167,6 +167,12 @@ from .settings import (
     # WP-253 Пробел C: secrets БД (OAuth-токены)
     SECRETS_URL,
     GITHUB_TOKEN_ENCRYPTION_KEY,
+
+    # WP-253 lift-and-shift (8 мая): остальные BC БД
+    PUBLICATION_URL,
+    COMMUNITY_URL,
+    LEAD_URL,
+    REFERENCE_URL,
 )
 
 __all__ = [
@@ -272,4 +278,8 @@ __all__ = [
     'EVENT_GATEWAY_ENABLED',
     'SECRETS_URL',
     'GITHUB_TOKEN_ENCRYPTION_KEY',
+    'PUBLICATION_URL',
+    'COMMUNITY_URL',
+    'LEAD_URL',
+    'REFERENCE_URL',
 ]
