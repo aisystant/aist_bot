@@ -20,6 +20,11 @@ CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
 CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# WP-253 tech debt bridge: products + finance_payments до ETL в Neon (G3/G5).
+# DT_DATABASE_URL = Railway /bot_data — содержит public.products + public.finance_payments.
+# После ETL products → reference + finance_payments → payment удалить этот pool.
+BOT_DATA_URL = os.getenv("DT_DATABASE_URL") or os.getenv("DATABASE_URL")
+
 # WP-269 read-path migration (cut-over deploy 26 апр): новые per-domain БД.
 # После DROP legacy БД бот читает из этих pools.
 # Fallback на DATABASE_URL только для локального dev — в production должны быть set.

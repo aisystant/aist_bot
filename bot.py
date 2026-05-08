@@ -139,10 +139,12 @@ async def main():
     from db.connection import (
         get_fsm_pool, get_persona_pool, get_subscription_pool,
         get_indicators_pool, get_learning_pool, get_rewards_pool, get_journal_pool,
+        get_reference_pool, get_publication_pool, get_community_pool, get_lead_pool,
     )
     from config.settings import (
         FSM_URL, PERSONA_URL, SUBSCRIPTION_URL,
         INDICATORS_URL, LEARNING_URL, REWARDS_URL, JOURNAL_URL,
+        REFERENCE_URL, PUBLICATION_URL, COMMUNITY_URL, LEAD_URL,
     )
     _pool_warmup = [
         (FSM_URL, get_fsm_pool, "FSM"),
@@ -152,6 +154,10 @@ async def main():
         (LEARNING_URL, get_learning_pool, "Learning"),
         (REWARDS_URL, get_rewards_pool, "Rewards"),
         (JOURNAL_URL, get_journal_pool, "Journal"),
+        (REFERENCE_URL, get_reference_pool, "Reference"),
+        (PUBLICATION_URL, get_publication_pool, "Publication"),
+        (COMMUNITY_URL, get_community_pool, "Community"),
+        (LEAD_URL, get_lead_pool, "Lead"),
     ]
     _active_pools = [(name, fn) for url, fn, name in _pool_warmup if url]
     if _active_pools:
