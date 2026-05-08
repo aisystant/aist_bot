@@ -37,7 +37,10 @@ _tier_cache: dict[int, int] = {}
 # TTL timestamps: chat_id → monotonic time of last full detection.
 # Avoids repeated Aisystant HTTP calls on every command within the TTL window.
 _tier_cache_ts: dict[int, float] = {}
-_TIER_CACHE_TTL = 60  # seconds
+_TIER_CACHE_TTL = 300  # seconds (5 min — tier changes are rare; reduces Aisystant HTTP calls)
+
+# DEVELOPER_CHAT_ID read once at module level to avoid os.getenv on every call
+_DEV_CHAT_ID: str | None = os.getenv("DEVELOPER_CHAT_ID")
 
 _TIER_NAMES = {
     UITier.T0: "New",
@@ -61,8 +64,7 @@ async def detect_ui_tier(chat_id: int) -> int:
         UITier constant (0-5)
     """
     # T5: Platform admin (always, regardless of subscription)
-    dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
-    if dev_chat_id and str(chat_id) == dev_chat_id:
+    if _DEV_CHAT_ID and str(chat_id) == _DEV_CHAT_ID:
         return UITier.T5_ADMIN
 
     # TTL cache: return cached tier if detected recently (avoids Aisystant HTTP on every command)
@@ -70,19 +72,26 @@ async def detect_ui_tier(chat_id: int) -> int:
     if chat_id in _tier_cache and now - _tier_cache_ts.get(chat_id, 0) < _TIER_CACHE_TTL:
         return _tier_cache[chat_id]
 
-    # WP-79: Check Aisystant link first
+    # WP-79: Check Aisystant link first (needed for subscription check)
     aisystant_id = await _get_aisystant_id(chat_id)
 
     if not aisystant_id:
         new_tier = UITier.T0
-    elif not await _has_active_subscription(chat_id, aisystant_id):
-        new_tier = UITier.T1
-    elif await _is_github_connected(chat_id):
-        new_tier = UITier.T4_CREATION
-    elif await _is_dt_connected(chat_id):
-        new_tier = UITier.T3_PERSONALIZATION
     else:
-        new_tier = UITier.T2_LEARNING
+        # Parallel: subscription + github + dt checks (Aisystant HTTP dominates; save sequential DB round-trips)
+        has_sub, is_github, is_dt = await asyncio.gather(
+            _has_active_subscription(chat_id, aisystant_id),
+            _is_github_connected(chat_id),
+            _is_dt_connected(chat_id),
+        )
+        if not has_sub:
+            new_tier = UITier.T1
+        elif is_github:
+            new_tier = UITier.T4_CREATION
+        elif is_dt:
+            new_tier = UITier.T3_PERSONALIZATION
+        else:
+            new_tier = UITier.T2_LEARNING
 
     # Track tier transition (fire-and-forget)
     prev_tier = _tier_cache.get(chat_id)
