@@ -3,13 +3,15 @@ Persistence для токенов Digital Twin OAuth.
 
 Таблица dt_tokens хранит access/refresh токены, чтобы подключение
 к ЦД не терялось при редеплое бота (WP-82, WP-7 D4).
+
+WP-253 lift-and-shift (8 мая): хранилище перенесено из bot_data в Neon secrets БД.
 """
 
 from datetime import datetime
 from typing import Dict, List, Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_secrets_pool
 
 logger = get_logger(__name__)
 
@@ -22,7 +24,7 @@ async def save_dt_tokens(
     dt_user_id: Optional[str] = None,
 ) -> None:
     """Сохранить или обновить токены ЦД для пользователя."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''INSERT INTO dt_tokens (chat_id, access_token, refresh_token, expires_at, dt_user_id, updated_at)
@@ -43,7 +45,7 @@ async def load_all_dt_tokens() -> List[Dict]:
     Returns:
         Список словарей {chat_id, access_token, refresh_token, expires_at, dt_user_id}
     """
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, dt_user_id
@@ -55,7 +57,7 @@ async def load_all_dt_tokens() -> List[Dict]:
 
 async def delete_dt_tokens(chat_id: int) -> None:
     """Удалить токены при отключении от ЦД."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'DELETE FROM dt_tokens WHERE chat_id = $1',
@@ -65,7 +67,7 @@ async def delete_dt_tokens(chat_id: int) -> None:
 
 async def get_dt_user_id(chat_id: int) -> Optional[str]:
     """Получить dt_user_id для пользователя."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         return await conn.fetchval(
             'SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1',

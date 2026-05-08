@@ -1255,8 +1255,8 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     from db.connection import get_pool, get_secrets_pool
     from db.queries.dt_sync import sync_one_user_to_dt
 
-    # github_connections moved to secrets DB (WP-253 Gap C). Two-step lookup:
-    # step 1: chat_id from secrets, step 2: dt_user_id from bot_data (dt_tokens).
+    # WP-253 lift-and-shift (8 мая): github_connections + dt_tokens оба в secrets DB.
+    # Two-step lookup: chat_id from github_connections, dt_user_id from dt_tokens.
     secrets_pool = await get_secrets_pool()
     async with secrets_pool.acquire() as conn:
         gh_row = await conn.fetchrow(
@@ -1268,7 +1268,7 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     bot_pool = await get_pool()
     if gh_row and gh_row["chat_id"]:
         chat_id = gh_row["chat_id"]
-        async with bot_pool.acquire() as conn:
+        async with secrets_pool.acquire() as conn:
             dt_row = await conn.fetchrow(
                 "SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1 LIMIT 1",
                 chat_id,
