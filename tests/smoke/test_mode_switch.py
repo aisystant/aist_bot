@@ -17,19 +17,16 @@ from tests.smoke.sm_helpers import create_state, make_message_obj, make_callback
 @pytest.fixture(autouse=True)
 def patch_mode_deps():
     """Мокаем зависимости mode_select."""
-    with patch("states.common.mode_select.get_intern", new_callable=AsyncMock) as mock_get, \
-         patch("states.common.mode_select.update_intern", new_callable=AsyncMock) as mock_upd, \
+    with patch("states.common.mode_select.update_intern", new_callable=AsyncMock) as mock_upd, \
          patch("states.common.mode_select.detect_ui_tier", new_callable=AsyncMock) as mock_tier, \
          patch("states.common.mode_select.build_reply_keyboard", side_effect=lambda *a, **kw: ReplyKeyboardMarkup(
              keyboard=[[KeyboardButton(text="Test")]], resize_keyboard=True,
          )) as mock_kb, \
          patch("states.common.mode_select.sync_menu_commands", new_callable=AsyncMock) as mock_sync:
 
-        mock_get.return_value = make_intern(onboarding_completed=True, name="Тест")
         mock_tier.return_value = 1  # T1
 
         yield {
-            "get_intern": mock_get,
             "update_intern": mock_upd,
             "detect_tier": mock_tier,
             "build_kb": mock_kb,
