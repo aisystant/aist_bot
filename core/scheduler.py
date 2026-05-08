@@ -1116,11 +1116,25 @@ async def _catch_up_missed_deliveries():
     Использует notification_sent_at (не created_at) для проверки —
     контент может быть пре-генерирован заранее, но уведомление не отправлено.
     """
-    from db.connection import get_pool
+    # WP-253 lift-and-shift: marathon_content переехал в learning БД,
+    # user_state остался в bot_data (G1 hold-out). Cross-DB JOIN невозможен,
+    # split на 2 round-trip.
+    from db.connection import get_pool, get_learning_pool
 
     now = moscow_now()
     time_str = f"{now.hour:02d}:{now.minute:02d}"
+    today_msk = now.date()
 
+    # Шаг 1: chat_ids уже получивших уведомление сегодня (learning БД).
+    learning_pool_inst = await get_learning_pool()
+    async with learning_pool_inst.acquire() as lconn:
+        notified_rows = await lconn.fetch('''
+            SELECT DISTINCT chat_id FROM marathon_content
+            WHERE notification_sent_at >= $1::date
+        ''', today_msk)
+    notified_chat_ids = [r['chat_id'] for r in notified_rows]
+
+    # Шаг 2: candidates из user_state, исключая уже notified.
     pool = await get_pool()
     async with pool.acquire() as conn:
         missed = await conn.fetch('''
@@ -1131,12 +1145,8 @@ async def _catch_up_missed_deliveries():
               AND s.schedule_time IS NOT NULL
               AND s.schedule_time <= $1
               AND s.bot_blocked IS NOT TRUE
-              AND NOT EXISTS (
-                  SELECT 1 FROM marathon_content mc
-                  WHERE mc.chat_id = s.chat_id
-                    AND mc.notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
-              )
-        ''', time_str)
+              AND NOT (s.chat_id = ANY($2::bigint[]))
+        ''', time_str, notified_chat_ids)
 
     if not missed:
         return
