@@ -4,13 +4,15 @@ Persistence для Ory OAuth tokens (WP-209 Ф0).
 Таблица ory_tokens хранит access/refresh токены, чтобы бот мог
 вызывать Gateway MCP от имени пользователя.
 Паттерн скопирован с dt_tokens.py.
+
+WP-253 lift-and-shift (8 мая): хранилище перенесено из bot_data в Neon secrets БД.
 """
 
 from datetime import datetime
 from typing import Dict, List, Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_secrets_pool
 
 logger = get_logger(__name__)
 
@@ -23,7 +25,7 @@ async def save_ory_tokens(
     ory_id: Optional[str] = None,
 ) -> None:
     """Сохранить или обновить Ory tokens для пользователя."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''INSERT INTO ory_tokens (chat_id, access_token, refresh_token, expires_at, ory_id, updated_at)
@@ -44,7 +46,7 @@ async def load_all_ory_tokens() -> List[Dict]:
     Returns:
         Список словарей {chat_id, access_token, refresh_token, expires_at, ory_id}
     """
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
@@ -56,7 +58,7 @@ async def load_all_ory_tokens() -> List[Dict]:
 
 async def delete_ory_tokens(chat_id: int) -> None:
     """Удалить Ory tokens при отключении."""
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             'DELETE FROM ory_tokens WHERE chat_id = $1',
@@ -69,7 +71,7 @@ async def get_expiring_ory_tokens(margin_seconds: int = 600) -> List[Dict]:
 
     Используется для proactive refresh.
     """
-    pool = await get_pool()
+    pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
