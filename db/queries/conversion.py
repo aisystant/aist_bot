@@ -1,7 +1,10 @@
 """
 Запросы для конверсионных событий (DP.ARCH.002 § 12.8).
 
-Таблица conversion_events:
+WP-253 lift-and-shift (8 мая 2026): таблица переехала в Neon lead БД.
+- conversion_events → lead.conversion_event (lead pool)
+
+Таблица lead.conversion_event:
 - trigger_type: C1-C7 (тип триггера)
 - milestone: day_7, day_14, day_30, day_60, day_90
 - action: shown / clicked / dismissed
@@ -11,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from config import get_logger
-from db.connection import get_pool
+from db.connection import get_lead_pool, get_pool
 
 logger = get_logger(__name__)
 
@@ -29,10 +32,10 @@ async def log_conversion_event(
     action: str = "shown",
 ) -> None:
     """Записать конверсионное событие."""
-    pool = await get_pool()
+    pool = await get_lead_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO conversion_events
+            '''INSERT INTO conversion_event
                (chat_id, trigger_type, milestone, action)
                VALUES ($1, $2, $3, $4)''',
             chat_id, trigger_type, milestone, action,
@@ -45,11 +48,11 @@ async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = N
     Args:
         trigger_type: если None — ищет по любому trigger_type.
     """
-    pool = await get_pool()
+    pool = await get_lead_pool()
     async with pool.acquire() as conn:
         if trigger_type:
             row = await conn.fetchval(
-                '''SELECT 1 FROM conversion_events
+                '''SELECT 1 FROM conversion_event
                    WHERE chat_id = $1
                      AND trigger_type = $2
                      AND milestone = $3
@@ -58,7 +61,7 @@ async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = N
             )
         else:
             row = await conn.fetchval(
-                '''SELECT 1 FROM conversion_events
+                '''SELECT 1 FROM conversion_event
                    WHERE chat_id = $1
                      AND milestone = $2
                    LIMIT 1''',
@@ -69,10 +72,10 @@ async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = N
 
 async def is_cooldown_active(chat_id: int) -> bool:
     """Проверить, активен ли cooldown (7 дней с последнего предложения)."""
-    pool = await get_pool()
+    pool = await get_lead_pool()
     async with pool.acquire() as conn:
         last = await conn.fetchval(
-            '''SELECT MAX(shown_at) FROM conversion_events
+            '''SELECT MAX(shown_at) FROM conversion_event
                WHERE chat_id = $1''',
             chat_id,
         )
@@ -94,14 +97,34 @@ async def get_milestone_eligible_users(milestone_day: int) -> list[dict]:
     - created_at ровно milestone_day дней назад (±1 день)
     - onboarding_completed = TRUE
     - НЕ получали C3 milestone для этого дня
-    - НЕ в cooldown (нет conversion_events за последние 7 дней)
+    - НЕ в cooldown (нет conversion_event за последние 7 дней)
+
+    NOTE (WP-253 lift-and-shift): conversion_event в lead БД,
+    user_state/users в legacy bot_data — JOIN делаем в Python.
 
     Returns:
         Список dict с chat_id, language, mode, completed_topics и т.д.
     """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        milestone = f"day_{milestone_day}"
+    milestone = f"day_{milestone_day}"
+
+    # 1) Список chat_id, которые УЖЕ получали этот milestone (C3)
+    # 2) Список chat_id в активном cooldown (последние 7 дней)
+    lead_pool = await get_lead_pool()
+    async with lead_pool.acquire() as conn:
+        already_rows = await conn.fetch(
+            '''SELECT DISTINCT chat_id FROM conversion_event
+               WHERE trigger_type = 'C3' AND milestone = $1''',
+            milestone,
+        )
+        cooldown_rows = await conn.fetch(
+            '''SELECT DISTINCT chat_id FROM conversion_event
+               WHERE shown_at > NOW() - INTERVAL '7 days' '''
+        )
+    excluded_chat_ids = {r["chat_id"] for r in already_rows} | {r["chat_id"] for r in cooldown_rows}
+
+    # 3) Кандидаты из legacy bot_data: user_state JOIN users по milestone_day
+    legacy_pool = await get_pool()
+    async with legacy_pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT s.chat_id, u.language, s.mode,
                       s.completed_topics, s.marathon_status,
@@ -112,16 +135,9 @@ async def get_milestone_eligible_users(milestone_day: int) -> list[dict]:
                WHERE s.onboarding_completed = TRUE
                  AND u.created_at IS NOT NULL
                  AND u.created_at + INTERVAL '1 day' * $1 <= NOW()
-                 AND u.created_at + INTERVAL '1 day' * ($1 + 1) > NOW()
-                 AND s.chat_id NOT IN (
-                     SELECT ce.chat_id FROM conversion_events ce
-                     WHERE ce.trigger_type = 'C3'
-                       AND ce.milestone = $2
-                 )
-                 AND s.chat_id NOT IN (
-                     SELECT ce2.chat_id FROM conversion_events ce2
-                     WHERE ce2.shown_at > NOW() - INTERVAL '7 days'
-                 )''',
-            milestone_day, milestone,
+                 AND u.created_at + INTERVAL '1 day' * ($1 + 1) > NOW()''',
+            milestone_day,
         )
-        return [dict(r) for r in rows]
+
+    # 4) Фильтр в Python (исключаем уже получавших и в cooldown)
+    return [dict(r) for r in rows if r["chat_id"] not in excluded_chat_ids]
