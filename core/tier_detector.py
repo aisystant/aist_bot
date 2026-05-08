@@ -23,15 +23,21 @@ Downgrade T2+→T1 triggers user notification.
 import asyncio
 import os
 import logging
+import time
 from datetime import datetime
 
 from core.tier_config import UITier
 
 logger = logging.getLogger(__name__)
 
-# In-memory tier cache: chat_id → last known tier.
+# In-memory tier cache: chat_id → last known tier (for transition tracking).
 # Resets on deploy — intentional: avoids false transition logs on startup.
 _tier_cache: dict[int, int] = {}
+
+# TTL timestamps: chat_id → monotonic time of last full detection.
+# Avoids repeated Aisystant HTTP calls on every command within the TTL window.
+_tier_cache_ts: dict[int, float] = {}
+_TIER_CACHE_TTL = 60  # seconds
 
 _TIER_NAMES = {
     UITier.T0: "New",
@@ -59,6 +65,11 @@ async def detect_ui_tier(chat_id: int) -> int:
     if dev_chat_id and str(chat_id) == dev_chat_id:
         return UITier.T5_ADMIN
 
+    # TTL cache: return cached tier if detected recently (avoids Aisystant HTTP on every command)
+    now = time.monotonic()
+    if chat_id in _tier_cache and now - _tier_cache_ts.get(chat_id, 0) < _TIER_CACHE_TTL:
+        return _tier_cache[chat_id]
+
     # WP-79: Check Aisystant link first
     aisystant_id = await _get_aisystant_id(chat_id)
 
@@ -85,6 +96,7 @@ async def detect_ui_tier(chat_id: int) -> int:
         # First detection after deploy — persist current tier
         asyncio.create_task(_persist_tier(chat_id, new_tier))
     _tier_cache[chat_id] = new_tier
+    _tier_cache_ts[chat_id] = now
 
     return new_tier
 
