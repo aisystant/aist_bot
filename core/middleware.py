@@ -103,11 +103,9 @@ class LoggingMiddleware(BaseMiddleware):
     """Middleware для логирования всех входящих сообщений"""
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
-        from aiogram.fsm.context import FSMContext
-
         if isinstance(event, Message):
-            state: FSMContext = data.get('state')
-            current_state = await state.get_state() if state else None
+            # data['raw_state'] — aiogram кэширует FSM state до middleware; не нужен лишний get_state()
+            current_state = data.get('raw_state')
             # Security: НЕ логируем текст сообщения (PII, пароли, личные данные)
             msg_type = "command" if (event.text and event.text.startswith("/")) else "text" if event.text else "media"
             logger.info(f"[MIDDLEWARE] Получено сообщение: chat_id={event.chat.id}, "
@@ -115,11 +113,13 @@ class LoggingMiddleware(BaseMiddleware):
                        f"type={msg_type}, "
                        f"state={current_state}")
 
-            # Typing indicator — мгновенная обратная связь пользователю
-            try:
-                await event.bot.send_chat_action(chat_id=event.chat.id, action=ChatAction.TYPING)
-            except Exception:
-                pass
+            # Typing indicator — fire-and-forget, не блокируем обработку запроса
+            async def _send_typing():
+                try:
+                    await event.bot.send_chat_action(chat_id=event.chat.id, action=ChatAction.TYPING)
+                except Exception:
+                    pass
+            asyncio.create_task(_send_typing())
 
             # Fire-and-forget: сохранить/обновить tg_username + снять bot_blocked
             if event.from_user:
@@ -136,13 +136,15 @@ class LoggingMiddleware(BaseMiddleware):
                         pass
 
         elif isinstance(event, CallbackQuery) and event.message:
-            # Typing для callbacks (кнопки «Подробнее», навигация)
-            try:
-                await event.bot.send_chat_action(
-                    chat_id=event.message.chat.id, action=ChatAction.TYPING
-                )
-            except Exception:
-                pass
+            # Typing для callbacks — fire-and-forget
+            async def _send_typing_cb():
+                try:
+                    await event.bot.send_chat_action(
+                        chat_id=event.message.chat.id, action=ChatAction.TYPING
+                    )
+                except Exception:
+                    pass
+            asyncio.create_task(_send_typing_cb())
 
         return await handler(event, data)
 
@@ -201,10 +203,8 @@ class TracingMiddleware(BaseMiddleware):
             # Для других типов событий — пропускаем трейсинг
             return await handler(event, data)
 
-        # Определяем текущий SM state
-        from aiogram.fsm.context import FSMContext
-        state_ctx: FSMContext = data.get('state')
-        sm_state = await state_ctx.get_state() if state_ctx else "unknown"
+        # data['raw_state'] — aiogram кэширует FSM state до middleware; избегаем второго get_state()
+        sm_state = data.get('raw_state') or "unknown"
 
         # Создаём trace (Neon DB)
         trace = start_trace(
