@@ -122,10 +122,15 @@ class GatewayMCPClient:
         from db.queries.ory_tokens import load_all_ory_tokens
         rows = await load_all_ory_tokens()
         for row in rows:
+            expires_at = row["expires_at"]
+            # Neon secrets DB возвращает TIMESTAMPTZ как aware datetime;
+            # весь код сравнивает с datetime.utcnow() (naive) — нормализуем.
+            if isinstance(expires_at, datetime) and expires_at.tzinfo is not None:
+                expires_at = expires_at.replace(tzinfo=None)
             self._tokens[row["chat_id"]] = {
                 "access_token": row["access_token"],
                 "refresh_token": row["refresh_token"],
-                "expires_at": row["expires_at"],
+                "expires_at": expires_at,
                 "ory_id": row.get("ory_id"),
             }
         logger.info(f"Gateway: loaded {len(rows)} Ory tokens from DB")
@@ -169,6 +174,8 @@ class GatewayMCPClient:
             expires_at = data.get("expires_at")
             if not isinstance(expires_at, datetime):
                 continue
+            if expires_at.tzinfo is not None:
+                expires_at = expires_at.replace(tzinfo=None)
             if expires_at > now + timedelta(seconds=margin_seconds):
                 continue  # не истекает скоро
             if not data.get("refresh_token"):
@@ -205,6 +212,8 @@ class GatewayMCPClient:
 
             # Double-check: пока ждали lock, другая корутина могла уже обновить
             expires_at = data.get("expires_at")
+            if isinstance(expires_at, datetime) and expires_at.tzinfo is not None:
+                expires_at = expires_at.replace(tzinfo=None)
             if isinstance(expires_at, datetime) and expires_at > datetime.utcnow() + timedelta(seconds=60):
                 logger.debug(f"Gateway: refresh skipped for user {telegram_user_id} — token already fresh")
                 return True
