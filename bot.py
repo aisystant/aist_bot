@@ -169,6 +169,19 @@ async def main():
             if isinstance(result, Exception):
                 logger.warning(f"⚠️ Pool warm-up failed [{name}]: {result}")
         logger.info(f"✅ Пулы прогреты при старте: {_ok}/{len(_active_pools)}")
+
+    # WP-253 G5: one-time ETL products /bot_data → reference.product
+    from db.connection import get_bot_data_pool, get_reference_pool
+    from db.migrations.migrate_products import migrate_products_if_needed
+    try:
+        _migrated = await migrate_products_if_needed(
+            await get_bot_data_pool(), await get_reference_pool()
+        )
+        if _migrated:
+            logger.info(f"✅ products ETL: {_migrated} строк → reference.product")
+    except Exception as _e:
+        logger.warning(f"⚠️ products ETL пропущен: {_e}")
+
     # Мониторинг ошибок (после init_db — нужен пул)
     from core.error_handler import setup_error_handler
     await setup_error_handler()
