@@ -18,6 +18,10 @@ from config import (
     JOURNAL_URL,
     HEALTH_URL,
     SECRETS_URL,
+    PUBLICATION_URL,
+    COMMUNITY_URL,
+    LEAD_URL,
+    REFERENCE_URL,
     get_logger,
 )
 
@@ -48,6 +52,12 @@ _health_pool: Optional[asyncpg.Pool] = None        # error_logs, user_sessions, 
 # WP-253 Пробел C: OAuth-токены интеграций (GitHub и будущие) — Neon secrets БД.
 # DP.ARCH.004 §B7.3.1: secrets ∩ PII → pgcrypto column-level + RLS.
 _secrets_pool: Optional[asyncpg.Pool] = None       # github_connections (Neon secrets БД)
+
+# WP-253 lift-and-shift (8 мая 2026): остальные BC БД для bot_data таблиц.
+_publication_pool: Optional[asyncpg.Pool] = None   # scheduled_post, published_post, channel_monitor, channel_mention_log
+_community_pool: Optional[asyncpg.Pool] = None     # club_account (discourse)
+_lead_pool: Optional[asyncpg.Pool] = None          # conversion_event
+_reference_pool: Optional[asyncpg.Pool] = None     # product, training_setting, training_child
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -223,9 +233,53 @@ async def get_secrets_pool() -> asyncpg.Pool:
     return _secrets_pool
 
 
+async def get_publication_pool() -> asyncpg.Pool:
+    """Пул соединений к publication БД (WP-253 lift-and-shift): scheduled_post, published_post, channel_monitor, channel_mention_log."""
+    global _publication_pool
+    if _publication_pool is None:
+        _publication_pool = await asyncpg.create_pool(
+            PUBLICATION_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+        )
+        logger.info("✅ Publication пул соединений создан")
+    return _publication_pool
+
+
+async def get_community_pool() -> asyncpg.Pool:
+    """Пул соединений к community БД (WP-253 lift-and-shift): club_account (discourse), mentorship."""
+    global _community_pool
+    if _community_pool is None:
+        _community_pool = await asyncpg.create_pool(
+            COMMUNITY_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+        )
+        logger.info("✅ Community пул соединений создан")
+    return _community_pool
+
+
+async def get_lead_pool() -> asyncpg.Pool:
+    """Пул соединений к lead БД (WP-253 lift-and-shift): conversion_event, funnel_record, claim."""
+    global _lead_pool
+    if _lead_pool is None:
+        _lead_pool = await asyncpg.create_pool(
+            LEAD_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+        )
+        logger.info("✅ Lead пул соединений создан")
+    return _lead_pool
+
+
+async def get_reference_pool() -> asyncpg.Pool:
+    """Пул соединений к reference БД (WP-253 lift-and-shift): product, training_setting, training_child, tariffs."""
+    global _reference_pool
+    if _reference_pool is None:
+        _reference_pool = await asyncpg.create_pool(
+            REFERENCE_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+        )
+        logger.info("✅ Reference пул соединений создан")
+    return _reference_pool
+
+
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool, _publication_pool, _community_pool, _lead_pool, _reference_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -266,6 +320,18 @@ async def close_pool():
         await _secrets_pool.close()
         _secrets_pool = None
         logger.info("🔒 Secrets пул соединений закрыт")
+    if _publication_pool:
+        await _publication_pool.close()
+        _publication_pool = None
+    if _community_pool:
+        await _community_pool.close()
+        _community_pool = None
+    if _lead_pool:
+        await _lead_pool.close()
+        _lead_pool = None
+    if _reference_pool:
+        await _reference_pool.close()
+        _reference_pool = None
 
 
 async def acquire():
