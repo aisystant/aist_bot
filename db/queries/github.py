@@ -21,30 +21,29 @@ def _warn_if_no_key() -> None:
 
 
 async def get_github_connection(chat_id: int) -> Optional[Dict[str, Any]]:
-    """Получить GitHub подключение пользователя (с расшифровкой токена)."""
-    _warn_if_no_key()
+    """Получить GitHub подключение пользователя (с расшифровкой токена).
+
+    Возвращает None если ключ не установлен — лучше явный сбой,
+    чем неполная строка без access_token.
+    """
+    if not GITHUB_TOKEN_ENCRYPTION_KEY:
+        logger.error(
+            "GITHUB_TOKEN_ENCRYPTION_KEY не установлен — get_github_connection недоступен"
+        )
+        return None
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
-        if GITHUB_TOKEN_ENCRYPTION_KEY:
-            row = await conn.fetchrow('''
-                SELECT
-                    user_uuid, chat_id,
-                    pgp_sym_decrypt(access_token_encrypted, $2)::text AS access_token,
-                    token_type, scope, github_username,
-                    target_repo, notes_path, strategy_repo, knowledge_repo,
-                    default_branch, strategy_default_branch,
-                    created_at, updated_at
-                FROM github_connections
-                WHERE chat_id = $1
-            ''', chat_id, GITHUB_TOKEN_ENCRYPTION_KEY)
-        else:
-            # Fallback без расшифровки (dev без ключа)
-            row = await conn.fetchrow(
-                'SELECT chat_id, token_type, scope, github_username, target_repo, notes_path, '
-                'strategy_repo, knowledge_repo, default_branch, strategy_default_branch, '
-                'created_at, updated_at FROM github_connections WHERE chat_id = $1',
-                chat_id,
-            )
+        row = await conn.fetchrow('''
+            SELECT
+                user_uuid, chat_id,
+                pgp_sym_decrypt(access_token_encrypted, $2)::text AS access_token,
+                token_type, scope, github_username,
+                target_repo, notes_path, strategy_repo, knowledge_repo,
+                default_branch, strategy_default_branch,
+                created_at, updated_at
+            FROM github_connections
+            WHERE chat_id = $1
+        ''', chat_id, GITHUB_TOKEN_ENCRYPTION_KEY)
         if row:
             return dict(row)
         return None
@@ -153,23 +152,25 @@ async def update_github_knowledge_repo(chat_id: int, knowledge_repo: str) -> Non
 
 
 async def get_users_with_knowledge_repo() -> list[dict]:
-    """Получить всех пользователей с настроенным knowledge_repo (с расшифровкой токена)."""
-    _warn_if_no_key()
+    """Получить всех пользователей с настроенным knowledge_repo (с расшифровкой токена).
+
+    Возвращает [] если ключ не установлен — без access_token строки бесполезны.
+    """
+    if not GITHUB_TOKEN_ENCRYPTION_KEY:
+        logger.error(
+            "GITHUB_TOKEN_ENCRYPTION_KEY не установлен — get_users_with_knowledge_repo недоступен"
+        )
+        return []
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
-        if GITHUB_TOKEN_ENCRYPTION_KEY:
-            rows = await conn.fetch('''
-                SELECT
-                    chat_id,
-                    pgp_sym_decrypt(access_token_encrypted, $1)::text AS access_token,
-                    knowledge_repo
-                FROM github_connections
-                WHERE knowledge_repo IS NOT NULL
-            ''', GITHUB_TOKEN_ENCRYPTION_KEY)
-        else:
-            rows = await conn.fetch(
-                'SELECT chat_id, knowledge_repo FROM github_connections WHERE knowledge_repo IS NOT NULL'
-            )
+        rows = await conn.fetch('''
+            SELECT
+                chat_id,
+                pgp_sym_decrypt(access_token_encrypted, $1)::text AS access_token,
+                knowledge_repo
+            FROM github_connections
+            WHERE knowledge_repo IS NOT NULL
+        ''', GITHUB_TOKEN_ENCRYPTION_KEY)
         return [dict(r) for r in rows]
 
 

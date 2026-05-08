@@ -1265,9 +1265,9 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
         )
 
     row = None
+    bot_pool = await get_pool()
     if gh_row and gh_row["chat_id"]:
         chat_id = gh_row["chat_id"]
-        bot_pool = await get_pool()
         async with bot_pool.acquire() as conn:
             dt_row = await conn.fetchrow(
                 "SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1 LIMIT 1",
