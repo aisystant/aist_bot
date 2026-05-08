@@ -167,16 +167,20 @@ async def _dual_write_trace(trace: Trace) -> None:
 
 
 async def _save_trace_to_db(trace: Trace) -> None:
-    """Записать trace в таблицу request_traces (fire-and-forget task)."""
+    """Записать trace в health.request_traces (fire-and-forget task).
+
+    WP-253 G4 health migration: writer переключён с bot_data на Neon health БД.
+    """
     try:
-        from db.connection import acquire
+        from db.connection import get_health_pool
 
         spans_json = json.dumps([
             {"name": s.name, "duration_ms": round(s.duration_ms, 1), **s.metadata}
             for s in trace.spans
         ])
 
-        async with await acquire() as conn:
+        pool = await get_health_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO request_traces
                    (trace_id, user_id, command, state, total_ms, spans, created_at)
