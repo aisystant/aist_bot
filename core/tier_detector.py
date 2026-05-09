@@ -72,19 +72,18 @@ async def detect_ui_tier(chat_id: int) -> int:
     if chat_id in _tier_cache and now - _tier_cache_ts.get(chat_id, 0) < _TIER_CACHE_TTL:
         return _tier_cache[chat_id]
 
-    # Parallel: aisystant_id (persona pool) + github (secrets pool) + dt (in-memory).
-    # Два разных Neon пула — при холодном старте греются одновременно, экономя ~1с.
-    # _has_active_subscription (Aisystant HTTP) идёт следом — требует aisystant_id.
-    aisystant_id, is_github, is_dt = await asyncio.gather(
-        _get_aisystant_id(chat_id),
-        _is_github_connected(chat_id),
-        _is_dt_connected(chat_id),
-    )
+    aisystant_id = await _get_aisystant_id(chat_id)
 
     if not aisystant_id:
         new_tier = UITier.T0
     else:
-        has_sub = await _has_active_subscription(chat_id, aisystant_id)
+        # Parallel: subscription check (Aisystant HTTP) + github (secrets pool) + dt (in-memory).
+        # Все три нужны только для T1+; запускаем параллельно после подтверждения aisystant_id.
+        has_sub, is_github, is_dt = await asyncio.gather(
+            _has_active_subscription(chat_id, aisystant_id),
+            _is_github_connected(chat_id),
+            _is_dt_connected(chat_id),
+        )
         if not has_sub:
             new_tier = UITier.T1
         elif is_github:
