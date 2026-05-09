@@ -106,20 +106,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # feed_sessions зависит от feed_weeks (FK week_id)
-            deleted = await conn.execute(
-                '''DELETE FROM feed_sessions
-                   WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)''',
-                chat_id
-            )
-            result['feed_sessions'] = _parse_delete_count(deleted)
-
-            # Таблицы в bot_data (legacy pool)
             # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже)
             # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (см. ниже)
+            # WP-253: feed_week/feed_session/marathon_content → learning pool (см. ниже)
             tables_chat_id = [
-                'reminders', 'feed_weeks', 'marathon_content',
-                'feedback_reports', 'subscriptions',
+                'reminders', 'feedback_reports', 'subscriptions',
             ]
             for table in tables_chat_id:
                 deleted = await conn.execute(
@@ -237,11 +228,18 @@ async def delete_all_user_data(chat_id: int) -> dict:
         logger.warning(f"[DELETE] journal cleanup failed: {e}")
         result['qa_history'] = 0
 
-    # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD
+    # WP-268 Phase 5 G5 + WP-253: learning pool — answers, feed, marathon
     try:
         learning_pool = await get_learning_pool()
         async with learning_pool.acquire() as lconn:
-            for table in ('answers', 'activity_log', 'assessments'):
+            # feed_session зависит от feed_week (FK week_id) — удалять первой
+            deleted = await lconn.execute(
+                '''DELETE FROM feed_session
+                   WHERE week_id IN (SELECT id FROM feed_week WHERE chat_id = $1)''',
+                chat_id
+            )
+            result['feed_session'] = _parse_delete_count(deleted)
+            for table in ('feed_week', 'marathon_content', 'answers', 'activity_log', 'assessments'):
                 deleted = await lconn.execute(
                     f'DELETE FROM {table} WHERE chat_id = $1', chat_id
                 )
@@ -288,22 +286,7 @@ async def reset_learning_data(chat_id: int) -> dict:
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # feed_sessions зависит от feed_weeks (FK week_id)
-            deleted = await conn.execute(
-                '''DELETE FROM feed_sessions
-                   WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)''',
-                chat_id
-            )
-            result['feed_sessions'] = _parse_delete_count(deleted)
-
-            # Учебные данные в bot_data (feed_weeks, marathon_content)
-            # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (ниже)
-            for table in ('feed_weeks', 'marathon_content'):
-                deleted = await conn.execute(
-                    f'DELETE FROM {table} WHERE chat_id = $1', chat_id
-                )
-                result[table] = _parse_delete_count(deleted)
-
+            # WP-253: feed_week/feed_session/marathon_content → learning pool (см. ниже)
             # Сбрасываем поля прогресса в user_state (профиль в users сохраняется)
             await conn.execute('''
                 UPDATE development.user_state SET
@@ -345,11 +328,18 @@ async def reset_learning_data(chat_id: int) -> dict:
         logger.warning(f"[RESET] fsm_states cleanup failed: {e}")
         result['fsm_states'] = 0
 
-    # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD
+    # WP-268 Phase 5 G5 + WP-253: learning pool — answers, feed, marathon
     try:
         learning_pool = await get_learning_pool()
         async with learning_pool.acquire() as lconn:
-            for table in ('answers', 'activity_log', 'assessments'):
+            # feed_session зависит от feed_week (FK week_id) — удалять первой
+            deleted = await lconn.execute(
+                '''DELETE FROM feed_session
+                   WHERE week_id IN (SELECT id FROM feed_week WHERE chat_id = $1)''',
+                chat_id
+            )
+            result['feed_session'] = _parse_delete_count(deleted)
+            for table in ('feed_week', 'marathon_content', 'answers', 'activity_log', 'assessments'):
                 deleted = await lconn.execute(
                     f'DELETE FROM {table} WHERE chat_id = $1', chat_id
                 )

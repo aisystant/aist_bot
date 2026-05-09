@@ -814,22 +814,7 @@ async def create_tables(pool: asyncpg.Pool):
             ON pending_fixes (error_key) WHERE status IN ('pending', 'approved')
         ''')
 
-        # ═══════════════════════════════════════════════════════════
-        # КЕШ КОНТЕНТА
-        # ═══════════════════════════════════════════════════════════
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS content_cache (
-                cache_key TEXT PRIMARY KEY,
-                content_type TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                expires_at TIMESTAMPTZ NOT NULL
-            )
-        ''')
-        await conn.execute('''
-            CREATE INDEX IF NOT EXISTS idx_content_cache_expires
-            ON content_cache (expires_at)
-        ''')
+        # content_cache → learning pool (WP-253, cache.py использует get_learning_pool)
 
         # ═══════════════════════════════════════════════════════════
         # СЕССИИ ПОЛЬЗОВАТЕЛЕЙ
