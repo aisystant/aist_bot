@@ -19,7 +19,7 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
     - Ответы (theory/wp counts): learning BD
     - QA count: journal BD
     """
-    # 1. Base profile + feed stats from bot_data
+    # 1. Base profile from main pool (users + user_state)
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
@@ -33,16 +33,7 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
                 s.assessment_state, s.assessment_date,
                 s.active_days_total, s.active_days_streak, s.longest_streak,
                 s.last_active_date,
-                u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id,
-                (SELECT COUNT(*) FROM feed_sessions fs
-                 JOIN feed_weeks fw ON fs.week_id = fw.id
-                 WHERE fw.chat_id = s.chat_id) AS total_digests,
-                (SELECT COUNT(*) FROM feed_sessions fs
-                 JOIN feed_weeks fw ON fs.week_id = fw.id
-                 WHERE fw.chat_id = s.chat_id AND fs.status = 'completed') AS total_fixations,
-                (SELECT fw2.accepted_topics FROM feed_weeks fw2
-                 WHERE fw2.chat_id = s.chat_id AND fw2.status = 'active'
-                 ORDER BY fw2.created_at DESC LIMIT 1) AS current_feed_topics
+                u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id
             FROM development.user_state s
             JOIN public.users u ON u.id = s.user_id
             WHERE s.chat_id = $1
@@ -50,6 +41,28 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
     if not row:
         return None
     result = dict(row)
+
+    # 1b. Feed stats from learning pool (feed_weeks/feed_sessions → WP-253)
+    try:
+        lpool = await get_learning_pool()
+        async with lpool.acquire() as lc:
+            result['total_digests'] = await lc.fetchval(
+                '''SELECT COUNT(*) FROM feed_sessions fs
+                   JOIN feed_weeks fw ON fs.week_id = fw.id
+                   WHERE fw.chat_id = $1''', chat_id) or 0
+            result['total_fixations'] = await lc.fetchval(
+                '''SELECT COUNT(*) FROM feed_sessions fs
+                   JOIN feed_weeks fw ON fs.week_id = fw.id
+                   WHERE fw.chat_id = $1 AND fs.status = 'completed' ''', chat_id) or 0
+            result['current_feed_topics'] = await lc.fetchval(
+                '''SELECT accepted_topics FROM feed_weeks
+                   WHERE chat_id = $1 AND status = 'active'
+                   ORDER BY created_at DESC LIMIT 1''', chat_id)
+    except Exception as e:
+        logger.warning(f"[Profile] learning pool feed stats failed: {e}")
+        result['total_digests'] = 0
+        result['total_fixations'] = 0
+        result['current_feed_topics'] = None
 
     # 2. Answer counts from learning BD
     try:

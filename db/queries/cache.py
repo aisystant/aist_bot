@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from config import get_logger, MOSCOW_TZ
-from db.connection import get_pool
+from db.connection import get_learning_pool
 
 logger = get_logger(__name__)
 
@@ -20,7 +20,7 @@ DEFAULT_TTL_DAYS = 7
 
 async def cache_get(cache_key: str) -> Optional[str]:
     """Получить контент из кеша. Возвращает None если нет или истёк."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''SELECT content FROM content_cache
@@ -35,7 +35,7 @@ async def cache_get(cache_key: str) -> Optional[str]:
 
 async def cache_set(cache_key: str, content_type: str, content: str, ttl_days: int = DEFAULT_TTL_DAYS):
     """Сохранить контент в кеш."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     expires = datetime.now(MOSCOW_TZ) + timedelta(days=ttl_days)
     async with pool.acquire() as conn:
         await conn.execute(
@@ -50,7 +50,7 @@ async def cache_set(cache_key: str, content_type: str, content: str, ttl_days: i
 
 async def cache_cleanup():
     """Удалить истекшие записи. Вызывается из scheduler раз в сутки."""
-    pool = await get_pool()
+    pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
             'DELETE FROM content_cache WHERE expires_at < NOW()'

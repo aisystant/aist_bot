@@ -243,10 +243,10 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
               AND activity_date >= $2
         ''', chat_id, week_start)
 
-    # feed_sessions / feed_weeks → bot_data (ещё не мигрированы)
-    from db.connection import get_pool as _get_main_pool
-    main_pool = await _get_main_pool()
-    async with main_pool.acquire() as conn:
+    # feed_sessions / feed_weeks → learning pool (WP-253)
+    from db.connection import get_learning_pool as _get_learning_pool
+    learning_pool = await _get_learning_pool()
+    async with learning_pool.acquire() as conn:
         # Дайджесты за неделю (все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
@@ -338,10 +338,10 @@ async def get_total_stats(chat_id: int) -> dict:
               AND created_at >= $2
         ''', chat_id, count_from)
 
-    # feed_sessions / feed_weeks → bot_data (ещё не мигрированы)
-    from db.connection import get_pool as _get_main_pool
-    main_pool = await _get_main_pool()
-    async with main_pool.acquire() as conn:
+    # feed_sessions / feed_weeks → learning pool (WP-253)
+    from db.connection import get_learning_pool as _get_learning_pool
+    learning_pool = await _get_learning_pool()
+    async with learning_pool.acquire() as conn:
         # Всего дайджестов (от даты сброса, все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
