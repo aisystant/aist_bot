@@ -26,6 +26,42 @@ from db.queries.users import get_intern, update_intern
 logger = logging.getLogger(__name__)
 
 
+async def _safe_gateway_check(gateway_mcp, chat_id: int):
+    """Проверка Gateway с обработкой ошибок (graceful degradation)."""
+    try:
+        return gateway_mcp.is_connected(chat_id)
+    except Exception as e:
+        logger.debug(f"[Settings] Gateway check error: {e}")
+        raise
+
+
+async def _safe_github_check(github_oauth, chat_id: int):
+    """Проверка GitHub с обработкой ошибок (graceful degradation)."""
+    try:
+        return await github_oauth.is_connected(chat_id)
+    except Exception as e:
+        logger.debug(f"[Settings] GitHub check error: {e}")
+        raise
+
+
+async def _safe_gcal_check(google_calendar_oauth, chat_id: int):
+    """Проверка Google Calendar с обработкой ошибок (graceful degradation)."""
+    try:
+        return await google_calendar_oauth.is_connected(chat_id)
+    except Exception as e:
+        logger.debug(f"[Settings] Google Calendar check error: {e}")
+        raise
+
+
+async def _safe_subscription_check(get_active_subscription_fn, chat_id: int):
+    """Проверка подписки с обработкой ошибок (graceful degradation)."""
+    try:
+        return await get_active_subscription_fn(chat_id)
+    except Exception as e:
+        logger.debug(f"[Settings] Subscription check error: {e}")
+        raise
+
+
 class SettingsState(BaseState):
     """
     Стейт настроек системы.
@@ -85,28 +121,53 @@ class SettingsState(BaseState):
         lang = intern.get('language', 'ru') or 'ru'
 
         # --- Подключения: сводка (WP-209: Gateway вместо Aisystant+DT+GitHub) ---
-        from clients.gateway_mcp import gateway_mcp
-        gateway_status = "✅" if gateway_mcp.is_connected(chat_id) else "☐"
+        # Graceful degradation: если одна проверка падает, стейт всё равно работает (WP-52 Ф2c)
+        # Причина: архитектура пилот (Railway-local) vs прод (Neon распределённая) различна
+        import asyncio
+        import logging
+        logger = logging.getLogger(__name__)
 
+        from clients.gateway_mcp import gateway_mcp
         from db.queries.wakatime import get_wakatime_connection
-        waka_conn = await get_wakatime_connection(chat_id)
+        from clients.github_oauth import github_oauth
+        from clients.google_calendar_oauth import google_calendar_oauth
+        from db.queries.subscription import get_active_subscription
+
+        # Запуск всех проверок параллельно, каждая может упасть без краша стейта
+        results = await asyncio.gather(
+            _safe_gateway_check(gateway_mcp, chat_id),
+            get_wakatime_connection(chat_id),
+            _safe_github_check(github_oauth, chat_id),
+            _safe_gcal_check(google_calendar_oauth, chat_id),
+            _safe_subscription_check(get_active_subscription, chat_id),
+            return_exceptions=True  # Exception объекты вместо краша
+        )
+
+        # Обработка результатов: Exception → False (не подключено)
+        gateway_conn = results[0] if not isinstance(results[0], Exception) else None
+        gateway_status = "✅" if gateway_conn else "☐"
+
+        waka_conn = results[1] if not isinstance(results[1], Exception) else None
         waka_status = "✅" if waka_conn else "☐"
 
-        from clients.github_oauth import github_oauth
-        github_status = "✅" if await github_oauth.is_connected(chat_id) else "☐"
+        github_conn = results[2] if not isinstance(results[2], Exception) else None
+        github_status = "✅" if github_conn else "☐"
 
-        from clients.google_calendar_oauth import google_calendar_oauth
-        gcal_connected = await google_calendar_oauth.is_connected(chat_id)
-        gcal_status = "✅" if gcal_connected else "☐"
+        gcal_conn = results[3] if not isinstance(results[3], Exception) else None
+        gcal_status = "✅" if gcal_conn else "☐"
 
-        # --- Донаты: сводка ---
-        from db.queries.subscription import get_active_subscription
-        sub = await get_active_subscription(chat_id)
+        sub = results[4] if not isinstance(results[4], Exception) else None
         if sub:
             amount = sub.get('stars_amount', 0)
             donation_line = t('settings.active_donation', lang, amount=amount)
         else:
             donation_line = t('settings.no_active_donations', lang)
+
+        # Логировать ошибки при наличии
+        for idx, result in enumerate(results):
+            if isinstance(result, Exception):
+                check_names = ['gateway', 'wakatime', 'github', 'google_calendar', 'subscription']
+                logger.warning(f"[Settings] {check_names[idx]} check failed: {result}")
 
         # --- Собираем текст ---
         connections_summary = (
