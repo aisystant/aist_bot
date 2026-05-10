@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern
-from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
+from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT, is_onboarded
 from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
     kb_study_duration, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
@@ -565,6 +565,12 @@ async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     if not intern:
+        await callback.message.answer(t('profile.first_start', 'ru'))
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
+    if not await is_onboarded(intern):
+        await callback.message.answer(t('profile.first_start', lang))
         return
 
     from handlers import get_dispatcher
@@ -572,6 +578,8 @@ async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
     if dispatcher and dispatcher.is_sm_active:
         await state.clear()
         await dispatcher.route_command('navigator', intern)
+    else:
+        await callback.message.answer(t('errors.processing_error', lang))
 
 
 # ============= WP-79: AUTO-LINK AISYSTANT =============
