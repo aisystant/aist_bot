@@ -463,9 +463,12 @@ class ConsultationState(BaseState):
 
         # --- Проверка доступа (подписка/триал) ---
         chat_id = self._get_chat_id(user)
+        logger.info(f"[Consultation] enter: chat_id={chat_id}, force_role={context.get('force_role')}, question={bool(context.get('question'))}")
         if chat_id:
             from core.access import access_layer
-            if not await access_layer.has_access(chat_id, 'consultation'):
+            has_access = await access_layer.has_access(chat_id, 'consultation')
+            logger.info(f"[Consultation] access check for chat_id={chat_id}: {has_access}")
+            if not has_access:
                 lang = self._get_lang(user)
                 text, kb = await access_layer.get_paywall('consultation', lang)
                 await self.send(user, text, reply_markup=kb)
