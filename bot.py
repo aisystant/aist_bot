@@ -177,6 +177,7 @@ async def main():
     init_i18n()
     logger.info("✅ Langfuse и i18n инициализированы при старте")
 
+
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
     from db.migrations.migrate_products import migrate_products_if_needed
