@@ -292,15 +292,22 @@ def _get_default_intern(chat_id: int) -> dict:
 async def is_onboarded(intern: dict) -> bool:
     """Check if user completed onboarding, auto-heal if active but flag is False."""
     if not intern:
+        logger.debug(f"[is_onboarded] intern is None/empty")
         return False
-    if intern.get('onboarding_completed'):
+    chat_id = intern.get('chat_id')
+    onb = intern.get('onboarding_completed')
+    if onb:
+        logger.debug(f"[is_onboarded] {chat_id} already onboarded")
         return True
     # Auto-heal: user has active marathon/feed → clearly onboarded
-    if (intern.get('marathon_status', 'not_started') != 'not_started'
-            or intern.get('feed_status', 'not_started') != 'not_started'):
-        await update_intern(intern['chat_id'], onboarding_completed=True)
-        logger.info(f"[auto-heal] onboarding_completed set for chat_id={intern['chat_id']}")
+    marathon_status = intern.get('marathon_status', 'not_started')
+    feed_status = intern.get('feed_status', 'not_started')
+    if marathon_status != 'not_started' or feed_status != 'not_started':
+        logger.info(f"[is_onboarded] auto-heal {chat_id}: marathon={marathon_status}, feed={feed_status}")
+        await update_intern(chat_id, onboarding_completed=True)
+        logger.info(f"[auto-heal] onboarding_completed set for chat_id={chat_id}")
         return True
+    logger.debug(f"[is_onboarded] {chat_id} NOT onboarded (flag=False, both statuses=not_started)")
     return False
 
 
