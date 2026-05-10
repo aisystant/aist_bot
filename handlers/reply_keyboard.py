@@ -31,6 +31,10 @@ async def on_reply_keyboard_press(message: Message, state: FSMContext):
 
     intern = await get_intern(message.chat.id)
     if not await is_onboarded(intern):
+        logger.warning(f"[ReplyKB] {message.chat.id} not onboarded: {message.text}")
+        from i18n import t
+        lang = intern.get('language', 'ru') if intern else 'ru'
+        await message.answer(t('errors.onboarding_required', lang) if intern else "Пожалуйста, выполните /start сначала")
         return
 
     from handlers import get_dispatcher
