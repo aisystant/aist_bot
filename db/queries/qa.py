@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для истории вопросов и ответов.
 """

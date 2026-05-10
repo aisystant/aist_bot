@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Витрина семинаров (WP-5).
 

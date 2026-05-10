@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Platform Feature Catalog — unified registry of all platform capabilities.
 

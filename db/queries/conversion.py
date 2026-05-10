@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для конверсионных событий (DP.ARCH.002 § 12.8).
 

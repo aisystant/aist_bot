@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Чтение баланса баллов из новой Neon БД `rewards` (WP-253 Ф9.3).
 

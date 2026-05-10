@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 CRUD для public.users — единый identity layer (WP-82 Phase 2).
 

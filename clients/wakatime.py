@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 WakaTime API клиент — получение статистики рабочего времени.
 

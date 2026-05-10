@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 DB-запросы для nudge-системы (WP-85, Phase 5C).
 

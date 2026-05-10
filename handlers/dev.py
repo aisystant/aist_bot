@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Команды разработчика: /stats, /usage, /qa, /health, /latency, /errors, /tailor, autofix callbacks.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Хендлеры интеграции с Discourse (systemsworld.club).
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Стейт: Мои данные (/mydata).
 

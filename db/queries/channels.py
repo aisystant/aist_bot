@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для мониторинга каналов (SC.118).
 

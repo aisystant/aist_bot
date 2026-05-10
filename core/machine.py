@@ -17,7 +17,7 @@ State Machine — центральный диспетчер состояний �
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Set, Union
 
 import yaml
 
@@ -46,9 +46,9 @@ class StateMachine:
         self._previous_states: dict[int, str] = {}
         # First-contact keyboard verification after bot restart.
         # Ensures stale reply keyboards are cleaned on first interaction.
-        self._keyboard_verified: set[int] = set()
+        self._keyboard_verified: Set[int] = set()
 
-    def load_transitions(self, path: str | Path) -> None:
+    def load_transitions(self, path: Union[str, Path]) -> None:
         """
         Загружает таблицу переходов из YAML.
 

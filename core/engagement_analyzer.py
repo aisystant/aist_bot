@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Engagement Analyzer — threshold rules для автоматических nudges.
 

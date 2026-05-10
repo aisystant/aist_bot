@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Трейсинг запросов — request-scoped traces с записью в Neon.
 

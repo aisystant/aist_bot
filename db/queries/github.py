@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для работы с GitHub подключениями (таблица github_connections).
 

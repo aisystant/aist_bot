@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Persistence для Ory OAuth tokens (WP-209 Ф0).
 

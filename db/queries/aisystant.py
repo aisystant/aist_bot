@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 DB-запросы для привязки Aisystant аккаунта (WP-79).
 

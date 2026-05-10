@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запись событий в development.user_events (WP-85, DP.ARCH.003, WP-109).
 

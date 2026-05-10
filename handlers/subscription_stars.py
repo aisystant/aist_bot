@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Stars-подписки «Бесконечное развитие» (WP-246 Ф1.1).
 

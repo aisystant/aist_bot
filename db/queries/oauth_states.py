@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OAuth pending states — персистентное хранилище state-токенов.
 

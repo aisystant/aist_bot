@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Синхронизация engagement данных из Neon → digital_twins JSONB (WP-85, Phase 4).
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы аналитики для разработчика (/stats, /usage, /qa, /health).
 """

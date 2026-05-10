@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Кеш контента — экономия Claude API на повторной генерации.
 

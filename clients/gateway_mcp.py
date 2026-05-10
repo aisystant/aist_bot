@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Gateway MCP клиент (WP-209 Ф0).
 

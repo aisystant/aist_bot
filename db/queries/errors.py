@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для таблицы error_logs (мониторинг ошибок).
 

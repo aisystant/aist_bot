@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Хендлеры прогресса (/progress, full report, progress_back).
 """

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Стейт: Обратная связь (/feedback).
 

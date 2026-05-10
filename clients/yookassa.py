@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Клиент ЮКасса API (WP-181 Ф7).
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 GitHub Contents API — запись файлов в репозитории.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Error Classifier: маппинг error_logs → категории RUNBOOK (DP.RUNBOOK.001).
 

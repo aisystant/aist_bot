@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Aisystant LMS API клиент — расписание, оплата, подписки, привязка аккаунта.
 

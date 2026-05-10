@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для пре-генерированного контента Марафона (marathon_content).
 """

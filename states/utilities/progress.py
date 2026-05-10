@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Стейт: Статистика и прогресс (/progress).
 

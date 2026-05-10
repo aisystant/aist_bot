@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Discourse API клиент — публикация постов на systemsworld.club.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для таблицы pending_fixes (L2 Auto-Fix, WP-45 Phase 3).
 

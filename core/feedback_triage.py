@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Auto-triage для QA feedback (WP-7 F3, WP-178 Feedback Loop).
 

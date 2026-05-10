@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 GitHub Content API клиент — доступ к индексу знаний (DS-Knowledge-Index).
 

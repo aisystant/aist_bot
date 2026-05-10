@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Хендлер обратной связи: /feedback + !текст (shortcut) + /reports (dev).
 

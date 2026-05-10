@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Запросы для работы с Google Calendar подключениями (таблица google_calendar).
 

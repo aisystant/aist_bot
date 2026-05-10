@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Аналитические запросы для /analytics команды.
 

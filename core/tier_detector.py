@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 UI Tier detection — subscription + connections.
 
