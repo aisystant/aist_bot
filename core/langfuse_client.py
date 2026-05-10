@@ -192,6 +192,11 @@ def langfuse_end_trace() -> None:
         logger.debug(f"[Langfuse] end trace error: {e}")
 
 
+def init_langfuse() -> None:
+    """Eager init Langfuse at startup — eliminates ~600ms latency on first request."""
+    _get_langfuse()
+
+
 def langfuse_flush() -> None:
     """Flush Langfuse queue (при shutdown)."""
     lf = _get_langfuse()

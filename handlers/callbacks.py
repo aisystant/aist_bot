@@ -362,8 +362,8 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
-async def _is_in_sm_mode_select_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в common.mode_select стейте SM."""
+async def _is_in_sm_mode_select_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в common.mode_select стейте SM. Returns dict to avoid double get_intern."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -372,22 +372,19 @@ async def _is_in_sm_mode_select_state(callback: CallbackQuery) -> bool:
     intern = await get_intern(callback.message.chat.id)
     if not intern:
         return False
-    return intern.get('current_state') == "common.mode_select"
+    if intern.get('current_state') != "common.mode_select":
+        return False
+    return {"intern": intern}
 
 
 @callbacks_router.callback_query(
     F.data.in_({"show_language", "lang_back"}) | F.data.startswith("lang_"),
     _is_in_sm_mode_select_state
 )
-async def cb_mode_select_language(callback: CallbackQuery, state: FSMContext):
+async def cb_mode_select_language(callback: CallbackQuery, state: FSMContext, intern: dict):
     """Language callback из главного меню через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
-
-    intern = await get_intern(callback.message.chat.id)
-    if not intern:
-        await callback.answer()
-        return
 
     logger.info(f"[CB] Mode select language callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:
@@ -397,8 +394,8 @@ async def cb_mode_select_language(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
 
-async def _is_in_sm_profile_or_settings_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в common.profile или common.settings стейте SM."""
+async def _is_in_sm_profile_or_settings_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в common.profile или common.settings стейте SM. Returns dict to avoid double get_intern."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -408,22 +405,19 @@ async def _is_in_sm_profile_or_settings_state(callback: CallbackQuery) -> bool:
     if not intern:
         return False
     current = intern.get('current_state', '')
-    return current in ("common.profile", "common.settings")
+    if current not in ("common.profile", "common.settings"):
+        return False
+    return {"intern": intern}
 
 
 @callbacks_router.callback_query(
     F.data.startswith("upd_") | F.data.startswith("settings_") | F.data.startswith("duration_") | F.data.startswith("bloom_") | F.data.startswith("lang_") | F.data.startswith("conn_") | F.data.startswith("github_") | F.data.startswith("reset_") | (F.data == "show_resets") | (F.data == "show_commands"),
     _is_in_sm_profile_or_settings_state
 )
-async def cb_settings_actions(callback: CallbackQuery, state: FSMContext):
+async def cb_settings_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
     """Profile/Settings callback-ы через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
-
-    intern = await get_intern(callback.message.chat.id)
-    if not intern:
-        await callback.answer()
-        return
 
     logger.info(f"[CB] Profile/Settings callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:
@@ -531,8 +525,8 @@ async def cb_go_progress(callback: CallbackQuery, state: FSMContext):
     await cmd_progress(callback.message)
 
 
-async def _is_in_sm_progress_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в utility.progress стейте SM."""
+async def _is_in_sm_progress_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в utility.progress стейте SM. Returns dict to avoid double get_intern."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -541,22 +535,19 @@ async def _is_in_sm_progress_state(callback: CallbackQuery) -> bool:
     intern = await get_intern(callback.message.chat.id)
     if not intern:
         return False
-    return intern.get('current_state') == "utility.progress"
+    if intern.get('current_state') != "utility.progress":
+        return False
+    return {"intern": intern}
 
 
 @callbacks_router.callback_query(
     F.data.startswith("progress_"),
     _is_in_sm_progress_state
 )
-async def cb_progress_actions(callback: CallbackQuery, state: FSMContext):
+async def cb_progress_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
     """Progress section callback-ы через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
-
-    intern = await get_intern(callback.message.chat.id)
-    if not intern:
-        await callback.answer()
-        return
 
     logger.info(f"[CB] Progress callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:
@@ -570,8 +561,8 @@ async def cb_progress_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
-async def _is_in_sm_plans_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в common.plans стейте SM."""
+async def _is_in_sm_plans_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в common.plans стейте SM. Returns dict to avoid double get_intern."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -580,22 +571,19 @@ async def _is_in_sm_plans_state(callback: CallbackQuery) -> bool:
     intern = await get_intern(callback.message.chat.id)
     if not intern:
         return False
-    return intern.get('current_state') == "common.plans"
+    if intern.get('current_state') != "common.plans":
+        return False
+    return {"intern": intern}
 
 
 @callbacks_router.callback_query(
     F.data.startswith("plans_"),
     _is_in_sm_plans_state
 )
-async def cb_plans_actions(callback: CallbackQuery, state: FSMContext):
+async def cb_plans_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
     """Plans callback-ы через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
-
-    intern = await get_intern(callback.message.chat.id)
-    if not intern:
-        await callback.answer()
-        return
 
     logger.info(f"[CB] Plans callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:
@@ -609,8 +597,8 @@ async def cb_plans_actions(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(t('errors.try_again', lang))
 
 
-async def _is_in_sm_assessment_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в workshop.assessment.* стейте SM."""
+async def _is_in_sm_assessment_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в workshop.assessment.* стейте SM. Returns dict to avoid double get_intern."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -619,22 +607,19 @@ async def _is_in_sm_assessment_state(callback: CallbackQuery) -> bool:
     intern = await get_intern(callback.message.chat.id)
     if not intern:
         return False
-    return (intern.get('current_state') or '').startswith("workshop.assessment.")
+    if not (intern.get('current_state') or '').startswith("workshop.assessment."):
+        return False
+    return {"intern": intern}
 
 
 @callbacks_router.callback_query(
     F.data.startswith("assess_"),
     _is_in_sm_assessment_state
 )
-async def cb_assessment_actions(callback: CallbackQuery, state: FSMContext):
+async def cb_assessment_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
     """Assessment callback-ы через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
-
-    intern = await get_intern(callback.message.chat.id)
-    if not intern:
-        await callback.answer()
-        return
 
     logger.info(f"[CB] Assessment callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:
@@ -805,8 +790,8 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
 
 # === Feedback: обратная связь и баг-репорты ===
 
-async def _is_in_sm_feedback_state(callback: CallbackQuery) -> bool:
-    """Фильтр: пользователь в utility.feedback стейте SM."""
+async def _is_in_sm_feedback_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в utility.feedback стейте SM. Returns dict to avoid double get_intern."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -815,22 +800,19 @@ async def _is_in_sm_feedback_state(callback: CallbackQuery) -> bool:
     intern = await get_intern(callback.message.chat.id)
     if not intern:
         return False
-    return intern.get('current_state') == "utility.feedback"
+    if intern.get('current_state') != "utility.feedback":
+        return False
+    return {"intern": intern}
 
 
 @callbacks_router.callback_query(
     F.data.startswith("feedback:"),
     _is_in_sm_feedback_state
 )
-async def cb_feedback_actions(callback: CallbackQuery, state: FSMContext):
+async def cb_feedback_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
     """Feedback callback-ы через SM."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
-
-    intern = await get_intern(callback.message.chat.id)
-    if not intern:
-        await callback.answer()
-        return
 
     logger.info(f"[CB] Feedback callback '{callback.data}' for chat_id={callback.message.chat.id}")
     try:

@@ -211,6 +211,11 @@ def get_i18n() -> I18n:
     return _i18n
 
 
+def init_i18n() -> I18n:
+    """Eager init I18n singleton at startup — eliminates lazy-load latency on first request."""
+    return get_i18n()
+
+
 def t(key: str, lang: str = 'ru', **kwargs) -> str:
     """
     Получить перевод по ключу (короткий алиас)

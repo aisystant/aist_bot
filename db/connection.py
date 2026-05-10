@@ -72,10 +72,11 @@ async def get_pool() -> asyncpg.Pool:
         try:
             _pool = await asyncpg.create_pool(
                 DATABASE_URL,
-                statement_cache_size=0,
+                statement_cache_size=100,
                 min_size=10,
                 max_size=50,
                 command_timeout=30,
+                max_inactive_connection_lifetime=60,
             )
             logger.info("✅ Пул соединений создан (min=10, max=50)")
         except Exception as e:
@@ -90,10 +91,11 @@ async def get_persona_pool() -> asyncpg.Pool:
     if _persona_pool is None:
         _persona_pool = await asyncpg.create_pool(
             PERSONA_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=10,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Persona пул соединений создан")
     return _persona_pool
@@ -105,10 +107,11 @@ async def get_subscription_pool() -> asyncpg.Pool:
     if _subscription_pool is None:
         _subscription_pool = await asyncpg.create_pool(
             SUBSCRIPTION_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=5,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Subscription пул соединений создан")
     return _subscription_pool
@@ -120,10 +123,11 @@ async def get_indicators_pool() -> asyncpg.Pool:
     if _indicators_pool is None:
         _indicators_pool = await asyncpg.create_pool(
             INDICATORS_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=5,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Indicators пул соединений создан")
     return _indicators_pool
@@ -135,10 +139,11 @@ async def get_learning_pool() -> asyncpg.Pool:
     if _learning_pool is None:
         _learning_pool = await asyncpg.create_pool(
             LEARNING_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=10,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Learning пул соединений создан")
     return _learning_pool
@@ -154,10 +159,11 @@ async def get_rewards_pool() -> asyncpg.Pool:
     if _rewards_pool is None:
         _rewards_pool = await asyncpg.create_pool(
             REWARDS_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=5,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Rewards пул соединений создан")
     return _rewards_pool
@@ -173,10 +179,11 @@ async def get_fsm_pool() -> asyncpg.Pool:
     if _fsm_pool is None:
         _fsm_pool = await asyncpg.create_pool(
             FSM_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=2,
             max_size=20,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ FSM пул соединений создан (min=2, max=20)")
     return _fsm_pool
@@ -192,10 +199,11 @@ async def get_journal_pool() -> asyncpg.Pool:
     if _journal_pool is None:
         _journal_pool = await asyncpg.create_pool(
             JOURNAL_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=10,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Journal пул соединений создан (min=1, max=10)")
     return _journal_pool
@@ -210,10 +218,11 @@ async def get_health_pool() -> asyncpg.Pool:
     if _health_pool is None:
         _health_pool = await asyncpg.create_pool(
             HEALTH_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=10,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Health пул соединений создан (min=1, max=10)")
     return _health_pool
@@ -229,10 +238,11 @@ async def get_secrets_pool() -> asyncpg.Pool:
     if _secrets_pool is None:
         _secrets_pool = await asyncpg.create_pool(
             SECRETS_URL,
-            statement_cache_size=0,
+            statement_cache_size=100,
             min_size=1,
             max_size=5,
             command_timeout=30,
+            max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Secrets пул соединений создан (min=1, max=5)")
     return _secrets_pool
@@ -243,7 +253,7 @@ async def get_publication_pool() -> asyncpg.Pool:
     global _publication_pool
     if _publication_pool is None:
         _publication_pool = await asyncpg.create_pool(
-            PUBLICATION_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+            PUBLICATION_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Publication пул соединений создан")
     return _publication_pool
@@ -254,7 +264,7 @@ async def get_community_pool() -> asyncpg.Pool:
     global _community_pool
     if _community_pool is None:
         _community_pool = await asyncpg.create_pool(
-            COMMUNITY_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+            COMMUNITY_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Community пул соединений создан")
     return _community_pool
@@ -265,7 +275,7 @@ async def get_lead_pool() -> asyncpg.Pool:
     global _lead_pool
     if _lead_pool is None:
         _lead_pool = await asyncpg.create_pool(
-            LEAD_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+            LEAD_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Lead пул соединений создан")
     return _lead_pool
@@ -276,7 +286,7 @@ async def get_reference_pool() -> asyncpg.Pool:
     global _reference_pool
     if _reference_pool is None:
         _reference_pool = await asyncpg.create_pool(
-            REFERENCE_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+            REFERENCE_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Reference пул соединений создан")
     return _reference_pool
@@ -291,7 +301,7 @@ async def get_bot_data_pool() -> asyncpg.Pool:
     global _bot_data_pool
     if _bot_data_pool is None:
         _bot_data_pool = await asyncpg.create_pool(
-            BOT_DATA_URL, statement_cache_size=0, min_size=1, max_size=5, command_timeout=30,
+            BOT_DATA_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ BotData пул соединений создан (tech debt bridge)")
     return _bot_data_pool

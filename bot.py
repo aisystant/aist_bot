@@ -170,6 +170,13 @@ async def main():
                 logger.warning(f"⚠️ Pool warm-up failed [{name}]: {result}")
         logger.info(f"✅ Пулы прогреты при старте: {_ok}/{len(_active_pools)}")
 
+    # Eager init — eliminates first-request lazy-load latency (~600ms Langfuse, ~300ms i18n)
+    from core.langfuse_client import init_langfuse
+    from i18n.loader import init_i18n
+    init_langfuse()
+    init_i18n()
+    logger.info("✅ Langfuse и i18n инициализированы при старте")
+
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
     from db.migrations.migrate_products import migrate_products_if_needed
