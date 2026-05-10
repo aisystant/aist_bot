@@ -565,12 +565,6 @@ async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     if not intern:
-        await callback.message.answer(t('profile.first_start', 'ru'))
-        return
-
-    lang = intern.get('language', 'ru') or 'ru'
-    if not await is_onboarded(intern):
-        await callback.message.answer(t('profile.first_start', lang))
         return
 
     from handlers import get_dispatcher
@@ -579,6 +573,7 @@ async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         await dispatcher.route_command('navigator', intern)
     else:
+        lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.processing_error', lang))
 
 
