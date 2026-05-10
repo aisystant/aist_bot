@@ -433,7 +433,7 @@ onboarding:
     en: "Let's start over!\n\nWhat's your name?"
 
   navigator_offer:
-    ru: "Не знаешь с чего нача��ь? Навигатор поможет выбрать путь."
+    ru: "Не знаешь с чего начать? Навигатор поможет выбрать путь."
     en: "Not sure where to start? The Navigator will help you choose a path."
 
   navigator_hint:
@@ -957,7 +957,7 @@ difficulty:
     en: "Deep dive"
 
 # -----------------------------------------------------------------------------
-# Предпочтения стиля подач�� (WP-151 Ф2)
+# Предпочтения стиля подачи (WP-151 Ф2)
 # -----------------------------------------------------------------------------
 delivery:
   ask_format:
