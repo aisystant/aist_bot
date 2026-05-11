@@ -106,13 +106,42 @@ def _type_icon(doc_type: str) -> Optional[str]:
 
 
 def _inline_format(text: str) -> str:
-    """Конвертирует inline Markdown → HTML."""
-    # Экранируем HTML
+    """Конвертирует inline Markdown → HTML.
+
+    Если строка содержит HTML-теги (например <details>, <summary>, <b>)
+    — защищаем их placeholder'ами ДО html.escape(), восстанавливаем после.
+    Это предотвращает двойной escape: &lt;details&gt; вместо <details>.
+    """
+    _PH = "\x00PH"
+    placeholders: list[str] = []
+
+    def _save_html_tag(match: re.Match) -> str:
+        idx = len(placeholders)
+        placeholders.append(match.group(0))
+        return f"{_PH}{idx}{_PH}"
+
+    # Защищаем HTML-теги допустимые в Telegram + структурные (<details>, <summary>)
+    # Telegram HTML: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <tg-spoiler>
+    # + <details>, <summary> (Telegram поддерживает их в последних версиях)
+    text = re.sub(
+        r"</?(?:b|i|u|s|code|pre|a|tg-spoiler|details|summary)(?:\s[^>]*)?>",
+        _save_html_tag,
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Экранируем HTML в оставшемся тексте
     text = html.escape(text)
+
     # **bold** → <b>bold</b>
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     # `code` → <code>code</code>
     text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+
+    # Восстанавливаем HTML-теги
+    for i, tag in enumerate(placeholders):
+        text = text.replace(f"{_PH}{i}{_PH}", tag)
+
     return text
 
 
