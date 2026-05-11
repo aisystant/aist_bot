@@ -29,16 +29,19 @@ logger = logging.getLogger(__name__)
 # gateway имеет собственный fallback (resolveActivityDomain в db.ts), но явная передача
 # позволяет корректно классифицировать новые event_type до следующего деплоя gateway.
 _ACTIVITY_DOMAIN_MAP: dict[str, str] = {
-    # learning
+    # learning — программа обучения (Марафон, Лента, тренировки, тесты)
     "lesson_completed": "learning", "qualification_granted": "learning",
-    "training_passed": "learning", "marathon_tasks": "learning",
-    "marathon_step_completed": "learning", "knowledge_extracted": "learning",
+    "training_passed": "learning", "training_attempt": "learning",
+    "marathon_tasks": "learning", "marathon_step": "learning",
+    "marathon_step_completed": "learning", "marathon_task": "learning",
+    "marathon_completed": "learning", "assessment_completed": "learning",
+    "feed_completed": "learning", "knowledge_extracted": "learning",
     "strategy_session_completed": "learning", "club_post_created": "learning",
     "club_topic_created": "learning", "test_passed": "learning",
     "task_submitted": "learning", "text_submitted": "learning",
     "table_submitted": "learning", "topic_created": "learning",
     "tailor_lesson_sent": "learning",
-    # practice
+    # practice — ОРЗ, IWE, Pack
     "day_plan_opened": "practice", "day_plan_closed": "practice",
     "day_open": "practice", "day_close": "practice",
     "week_plan_created": "practice", "week_plan_closed": "practice",
@@ -48,11 +51,15 @@ _ACTIVITY_DOMAIN_MAP: dict[str, str] = {
     "wp_completed": "practice", "wp_blocked": "practice",
     "pomodoro_completed": "practice", "note_to_capture": "practice",
     "bot_reflection": "practice", "command_invoked": "practice",
-    # work
+    # work — взаимодействие с инструментом (UI, onboarding, runtime)
     "session_start": "work", "ai_chat": "work", "ai_interaction": "work",
     "qa_query": "work", "notification_sent": "work", "reminder_delivered": "work",
-    "nudge_sent": "work", "content_published": "work", "comment_created": "work",
+    "reminder_opened": "work", "nudge_sent": "work",
+    "content_published": "work", "comment_created": "work",
     "user_updated": "work", "tier_changed": "work", "payment_received": "work",
+    "onboarding_step": "work", "onboarding_completed": "work",
+    "mode_changed": "work", "settings_changed": "work",
+    "progress_viewed": "work", "help_viewed": "work", "error_shown": "work",
 }
 
 
