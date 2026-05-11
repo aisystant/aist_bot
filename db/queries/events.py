@@ -25,6 +25,37 @@ from helpers.dual_write import post_event
 logger = logging.getLogger(__name__)
 
 
+# WP-214 Ф10.7: activity_domain для gateway. Mirrors migration 210 CASE + iwe_event_emit.sh map.
+# gateway имеет собственный fallback (resolveActivityDomain в db.ts), но явная передача
+# позволяет корректно классифицировать новые event_type до следующего деплоя gateway.
+_ACTIVITY_DOMAIN_MAP: dict[str, str] = {
+    # learning
+    "lesson_completed": "learning", "qualification_granted": "learning",
+    "training_passed": "learning", "marathon_tasks": "learning",
+    "marathon_step_completed": "learning", "knowledge_extracted": "learning",
+    "strategy_session_completed": "learning", "club_post_created": "learning",
+    "club_topic_created": "learning", "test_passed": "learning",
+    "task_submitted": "learning", "text_submitted": "learning",
+    "table_submitted": "learning", "topic_created": "learning",
+    "tailor_lesson_sent": "learning",
+    # practice
+    "day_plan_opened": "practice", "day_plan_closed": "practice",
+    "day_open": "practice", "day_close": "practice",
+    "week_plan_created": "practice", "week_plan_closed": "practice",
+    "month_plan_closed": "practice", "slot_logged": "practice",
+    "pack_updated": "practice", "iwe_session": "practice",
+    "wp_created": "practice", "wp_closed": "practice",
+    "wp_completed": "practice", "wp_blocked": "practice",
+    "pomodoro_completed": "practice", "note_to_capture": "practice",
+    "bot_reflection": "practice", "command_invoked": "practice",
+    # work
+    "session_start": "work", "ai_chat": "work", "ai_interaction": "work",
+    "qa_query": "work", "notification_sent": "work", "reminder_delivered": "work",
+    "nudge_sent": "work", "content_published": "work", "comment_created": "work",
+    "user_updated": "work", "tier_changed": "work", "payment_received": "work",
+}
+
+
 def _make_external_id(user_id: int, event_type: str) -> str:
     """Генерация unique external_id для dedup.
 
@@ -117,6 +148,18 @@ async def log_event(
                 # Только при успешной legacy записи (event_id != None) — иначе
                 # dedup-skip раздваивается, легаси и gateway получат разное.
                 try:
+                    gw_payload: dict = {
+                        "user_id": str(user_id),
+                        "source": source,
+                        "confidence": confidence,
+                        "skill_count": len(skill_ids) if skill_ids else 0,
+                        "payload_keys": list(payload.keys()) if payload else [],
+                    }
+                    # WP-214 Ф10.7: явно передаём activity_domain чтобы gateway
+                    # записал его в колонку (не только в payload JSONB).
+                    domain = _ACTIVITY_DOMAIN_MAP.get(event_type)
+                    if domain:
+                        gw_payload["activity_domain"] = domain
                     asyncio.create_task(post_event(
                         source="aist-bot",
                         external_id=external_id,  # уже идемпотентный (см. _make_external_id)
@@ -124,15 +167,7 @@ async def log_event(
                         schema_version="v1",
                         occurred_at=datetime.utcnow(),
                         account_id=str(user_uuid) if user_uuid else None,
-                        # Сохраняем payload как есть — gateway применяет
-                        # FORBIDDEN_FIELDS-фильтрацию для PII (email, password, etc.).
-                        payload={
-                            "user_id": str(user_id),
-                            "source": source,
-                            "confidence": confidence,
-                            "skill_count": len(skill_ids) if skill_ids else 0,
-                            "payload_keys": list(payload.keys()) if payload else [],
-                        },
+                        payload=gw_payload,
                     ))
                 except Exception as exc:
                     # Никогда не блокировать legacy путь.
