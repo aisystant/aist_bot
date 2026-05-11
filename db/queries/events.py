@@ -28,19 +28,24 @@ logger = logging.getLogger(__name__)
 # WP-214 Ф10.7: activity_domain для gateway. Mirrors migration 210 CASE + iwe_event_emit.sh map.
 # gateway имеет собственный fallback (resolveActivityDomain в db.ts), но явная передача
 # позволяет корректно классифицировать новые event_type до следующего деплоя gateway.
+# SoT: reference.event_type_domain_map в Neon (миграция 212, WP-214 Ф8).
+# Локальная копия для low-latency write при INSERT в legacy user_events.
+# Drift-guard: scripts/verify-activity-domain-sync.py в DS-IT-systems/neon-migrations.
 _ACTIVITY_DOMAIN_MAP: dict[str, str] = {
-    # learning — программа обучения (Марафон, Лента, тренировки, тесты)
-    "lesson_completed": "learning", "qualification_granted": "learning",
-    "training_passed": "learning", "training_attempt": "learning",
-    "marathon_tasks": "learning", "marathon_step": "learning",
-    "marathon_step_completed": "learning", "marathon_task": "learning",
-    "marathon_completed": "learning", "assessment_completed": "learning",
-    "feed_completed": "learning", "knowledge_extracted": "learning",
-    "strategy_session_completed": "learning", "club_post_created": "learning",
-    "club_topic_created": "learning", "test_passed": "learning",
-    "task_submitted": "learning", "text_submitted": "learning",
-    "table_submitted": "learning", "topic_created": "learning",
-    "tailor_lesson_sent": "learning",
+    # learning — освоение нового
+    "lesson_completed": "learning", "learning_completed": "learning",
+    "qualification_granted": "learning", "training_passed": "learning",
+    "training_attempt": "learning", "test_passed": "learning",
+    "assessment_completed": "learning", "task_submitted": "learning",
+    "text_submitted": "learning", "table_submitted": "learning",
+    "feed_completed": "learning", "marathon_step": "learning",
+    "marathon_task": "learning", "marathon_tasks": "learning",
+    "marathon_step_completed": "learning", "marathon_completed": "learning",
+    "workbook_push": "learning", "strategy_session_completed": "learning",
+    "knowledge_extracted": "learning", "distinction_added": "learning",
+    "method_described": "learning", "topic_created": "learning",
+    "club_post_created": "learning", "club_topic_created": "learning",
+    "tailor_lesson_sent": "learning", "iwe_research": "learning",
     # practice — ОРЗ, IWE, Pack
     "day_plan_opened": "practice", "day_plan_closed": "practice",
     "day_open": "practice", "day_close": "practice",
@@ -50,16 +55,22 @@ _ACTIVITY_DOMAIN_MAP: dict[str, str] = {
     "wp_created": "practice", "wp_closed": "practice",
     "wp_completed": "practice", "wp_blocked": "practice",
     "pomodoro_completed": "practice", "note_to_capture": "practice",
+    "file_edited": "practice", "git_commit": "practice", "git_push": "practice",
     "bot_reflection": "practice", "command_invoked": "practice",
-    # work — взаимодействие с инструментом (UI, onboarding, runtime)
-    "session_start": "work", "ai_chat": "work", "ai_interaction": "work",
-    "qa_query": "work", "notification_sent": "work", "reminder_delivered": "work",
-    "reminder_opened": "work", "nudge_sent": "work",
-    "content_published": "work", "comment_created": "work",
-    "user_updated": "work", "tier_changed": "work", "payment_received": "work",
+    # work — взаимодействие с инструментом, runtime
+    "request_traced": "work", "session_start": "work",
+    "ai_chat": "work", "ai_interaction": "work", "qa_query": "work",
+    "coding_time": "work", "content_published": "work",
+    "comment_created": "work", "commit_created": "work",
+    "fmt_commit_merged": "work", "notification_sent": "work",
+    "reminder_delivered": "work", "reminder_opened": "work",
+    "nudge_sent": "work", "user_updated": "work",
+    "tier_changed": "work", "payment_received": "work",
     "onboarding_step": "work", "onboarding_completed": "work",
     "mode_changed": "work", "settings_changed": "work",
-    "progress_viewed": "work", "help_viewed": "work", "error_shown": "work",
+    "progress_viewed": "work", "help_viewed": "work",
+    "error_shown": "work", "dt_collect_snapshot": "work",
+    "dt_view_requested": "work",
 }
 
 
