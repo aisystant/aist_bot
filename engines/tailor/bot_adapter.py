@@ -14,6 +14,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from engines.tailor.port import LessonDeliveryResult, TailorPort
 from engines.tailor.planner import BLOOM_NAMES, DIRECTION_NAMES
+from helpers.message_split import split_message_safe
 
 logger = logging.getLogger(__name__)
 
@@ -34,31 +35,44 @@ class BotTailorAdapter(TailorPort):
         lesson: dict,
         generated: dict,
     ) -> LessonDeliveryResult:
-        """Доставить занятие через Telegram."""
+        """Доставить занятие через Telegram.
+
+        Длинные уроки (>4000 символов) разбиваются на части. Keyboard
+        прикрепляется только к последней части, иначе кнопки появятся
+        под промежуточным сообщением.
+        """
         text = await self.format_lesson(lesson, generated)
         keyboard = self._build_keyboard(lesson)
+        parts = split_message_safe(text)
+        last_idx = len(parts) - 1
 
         try:
-            try:
-                msg = await self.bot.send_message(
-                    user_id,
-                    text,
-                    parse_mode="HTML",
-                    reply_markup=keyboard,
-                )
-            except Exception:
-                # Fallback: без форматирования
-                clean = re.sub(r'<[^>]+>', '', text)
-                msg = await self.bot.send_message(
-                    user_id,
-                    clean,
-                    reply_markup=keyboard,
-                )
+            last_msg = None
+            for i, part in enumerate(parts):
+                rm = keyboard if i == last_idx else None
+                try:
+                    last_msg = await self.bot.send_message(
+                        user_id,
+                        part,
+                        parse_mode="HTML",
+                        reply_markup=rm,
+                    )
+                except Exception:
+                    # Fallback: без форматирования
+                    clean = re.sub(r'<[^>]+>', '', part)
+                    last_msg = await self.bot.send_message(
+                        user_id,
+                        clean,
+                        reply_markup=rm,
+                    )
 
-            logger.info(f"[Tailor/Bot] Delivered lesson to {user_id}")
+            logger.info(
+                f"[Tailor/Bot] Delivered lesson to {user_id} "
+                f"(parts={len(parts)}, total_len={len(text)})"
+            )
             return LessonDeliveryResult(
                 delivered=True,
-                message_id=msg.message_id,
+                message_id=last_msg.message_id if last_msg else 0,
             )
 
         except Exception as e:

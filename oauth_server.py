@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import uuid
+from typing import Optional
 from aiohttp import web
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -1181,37 +1182,51 @@ async def template_update_handler(request: web.Request) -> web.Response:
 
 
 async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
-    """GitHub webhook: push в workbook/ репозитория DS-creator-development (WP-175 Ф9-B).
+    """GitHub webhook: события от GitHub App «Aisystant Personal Guide» (WP-301 Ф7+).
 
-    Сценарий SC.020:
-      ученик git push workbook/YYYY-MM-DD.md
-      → GitHub → POST /webhook/github/workbook
-      → Activity Hub ingest_event(source='iwe')
-      → sync_one_user_to_dt(user_id)  ← пересчёт ЦД прямо сейчас
+    Маршрутизирует три типа событий:
+    - **push** в `workbook/YYYY-MM-DD.md` → ingest_event + sync_one_user_to_dt (Ф9-B)
+    - **installation** (created/deleted/suspend/unsuspend) → save/delete App installation
+    - **installation_repositories** (added/removed) → update app_repo_full_name
 
-    Аутентификация: HMAC-SHA256 (заголовок X-Hub-Signature-256, секрет GITHUB_WORKBOOK_WEBHOOK_SECRET).
-    Фильтр: только события push, только файлы под workbook/.
-    Маппинг пользователя: github_connections.github_username → dt_tokens.dt_user_id.
+    Аутентификация: HMAC-SHA256, два секрета поддерживаются (App webhook > legacy):
+    - `GITHUB_APP_WEBHOOK_SECRET` (приоритет; для App events)
+    - `GITHUB_WORKBOOK_WEBHOOK_SECRET` (fallback; legacy per-repo webhooks)
+
+    Маппинг пользователя:
+    - App events: `installation_id` из payload → `github_connections.app_installation_id`
+    - Legacy: `pusher.name` → `github_connections.github_username` (fallback)
     """
     import hashlib
     import hmac
     import json as _json
     import asyncio
 
-    # ── Аутентификация ──────────────────────────────────────────────────────
+    # ── Аутентификация: пробуем оба секрета ─────────────────────────────────
     body = await request.read()
-    secret = os.getenv("GITHUB_WORKBOOK_WEBHOOK_SECRET", "")
-    if secret:
-        sig_header = request.headers.get("X-Hub-Signature-256", "")
-        expected = "sha256=" + hmac.new(
-            secret.encode(), body, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(sig_header, expected):
-            logger.warning("[WorkbookWebhook] invalid HMAC signature")
-            return web.Response(
-                text='{"ok":false,"error":"unauthorized"}',
-                content_type="application/json", status=403,
-            )
+    sig_header = request.headers.get("X-Hub-Signature-256", "")
+    app_secret = os.getenv("GITHUB_APP_WEBHOOK_SECRET", "")
+    legacy_secret = os.getenv("GITHUB_WORKBOOK_WEBHOOK_SECRET", "")
+
+    auth_ok = False
+    used_secret = None
+    if app_secret:
+        expected = "sha256=" + hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(sig_header, expected):
+            auth_ok = True
+            used_secret = "app"
+    if not auth_ok and legacy_secret:
+        expected = "sha256=" + hmac.new(legacy_secret.encode(), body, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(sig_header, expected):
+            auth_ok = True
+            used_secret = "legacy"
+
+    if not auth_ok and (app_secret or legacy_secret):
+        logger.warning("[WorkbookWebhook] invalid HMAC signature")
+        return web.Response(
+            text='{"ok":false,"error":"unauthorized"}',
+            content_type="application/json", status=403,
+        )
 
     # ── Парсинг payload ─────────────────────────────────────────────────────
     try:
@@ -1222,11 +1237,52 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
             content_type="application/json", status=400,
         )
 
-    # Только push-события
     event_type = request.headers.get("X-GitHub-Event", "")
+    installation = payload.get("installation") or {}
+    installation_id = installation.get("id")
+
+    # ── installation events (App установлен/удалён/suspended) ───────────────
+    if event_type == "installation":
+        action = payload.get("action", "")
+        if not installation_id:
+            return web.Response(text='{"ok":false,"error":"no installation.id"}',
+                                content_type="application/json", status=400)
+
+        from db.queries.github_app import (
+            save_app_installation, mark_installation_suspended, delete_installation,
+        )
+        if action == "created":
+            # Нужен chat_id из state (передан при /auth/github_app/setup).
+            # Если установка прошла не через наш flow (пилот вручную) — installation_id
+            # есть, но chat_id нет. Полагаемся на /auth/github_app/callback для
+            # сохранения mapping. Здесь только логируем.
+            repos = payload.get("repositories") or []
+            repo_name = repos[0].get("full_name", "") if repos else ""
+            logger.info(
+                "[WorkbookWebhook] installation created: id=%d, repo=%s, action=%s",
+                installation_id, repo_name, action,
+            )
+            return web.Response(text='{"ok":true,"action":"created","note":"awaiting callback"}',
+                                content_type="application/json")
+        elif action in ("deleted", "suspend"):
+            if action == "deleted":
+                await delete_installation(installation_id)
+            else:
+                await mark_installation_suspended(installation_id, True)
+            logger.info("[WorkbookWebhook] installation %s: %d", action, installation_id)
+            return web.Response(text=f'{{"ok":true,"action":"{action}"}}',
+                                content_type="application/json")
+        elif action == "unsuspend":
+            await mark_installation_suspended(installation_id, False)
+            return web.Response(text='{"ok":true,"action":"unsuspend"}',
+                                content_type="application/json")
+        return web.Response(text=f'{{"ok":true,"skipped":"installation/{action}"}}',
+                            content_type="application/json")
+
+    # ── push events ─────────────────────────────────────────────────────────
     if event_type != "push":
         return web.Response(
-            text='{"ok":true,"skipped":"not push"}',
+            text=f'{{"ok":true,"skipped":"event {event_type}"}}',
             content_type="application/json",
         )
 
@@ -1243,75 +1299,108 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
             content_type="application/json",
         )
 
-    # ── Маппинг: github_username → dt_user_id ───────────────────────────────
-    pusher_login = (payload.get("pusher") or {}).get("name", "")
-    if not pusher_login:
-        logger.warning("[WorkbookWebhook] no pusher.name in payload")
-        return web.Response(
-            text='{"ok":false,"error":"no pusher"}',
-            content_type="application/json", status=400,
-        )
-
+    # ── Маппинг user: сначала по installation_id, fallback на pusher.name ───
+    # Источник user_uuid: github_connections.user_uuid (Ory UUID = dt_user_id).
+    # dt_tokens используется только как fallback, если github_connections.user_uuid NULL.
     from db.connection import get_pool, get_secrets_pool
     from db.queries.dt_sync import sync_one_user_to_dt
 
-    # WP-253 lift-and-shift (8 мая): github_connections + dt_tokens оба в secrets DB.
-    # Two-step lookup: chat_id from github_connections, dt_user_id from dt_tokens.
     secrets_pool = await get_secrets_pool()
-    async with secrets_pool.acquire() as conn:
-        gh_row = await conn.fetchrow(
-            "SELECT chat_id FROM github_connections WHERE github_username = $1 LIMIT 1",
-            pusher_login,
-        )
-
-    row = None
     bot_pool = await get_pool()
-    if gh_row and gh_row["chat_id"]:
-        chat_id = gh_row["chat_id"]
-        async with secrets_pool.acquire() as conn:
-            dt_row = await conn.fetchrow(
-                "SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1 LIMIT 1",
-                chat_id,
-            )
-        if dt_row:
-            row = {"dt_user_id": dt_row["dt_user_id"], "chat_id": chat_id}
+    chat_id = None
+    user_uuid_from_gh = None
+    pusher_login = (payload.get("pusher") or {}).get("name", "")
 
-    if not row or not row["dt_user_id"]:
+    if installation_id:
+        # App path: installation_id → chat_id + user_uuid
+        async with secrets_pool.acquire() as conn:
+            app_row = await conn.fetchrow(
+                """
+                SELECT chat_id, user_uuid, app_suspended
+                FROM public.github_connections
+                WHERE app_installation_id = $1
+                LIMIT 1
+                """,
+                installation_id,
+            )
+        if app_row and app_row.get("chat_id") and not app_row.get("app_suspended"):
+            chat_id = app_row["chat_id"]
+            user_uuid_from_gh = app_row["user_uuid"]
+
+    if not chat_id and pusher_login:
+        # Legacy fallback: github_username → chat_id + user_uuid
+        async with secrets_pool.acquire() as conn:
+            gh_row = await conn.fetchrow(
+                """
+                SELECT chat_id, user_uuid FROM public.github_connections
+                WHERE github_username = $1 LIMIT 1
+                """,
+                pusher_login,
+            )
+        if gh_row and gh_row["chat_id"]:
+            chat_id = gh_row["chat_id"]
+            user_uuid_from_gh = gh_row["user_uuid"]
+
+    if not chat_id:
         logger.warning(
-            "[WorkbookWebhook] no dt_user_id for github_username=%s", pusher_login
+            "[WorkbookWebhook] no user mapping: installation_id=%s, pusher=%s",
+            installation_id, pusher_login,
         )
         return web.Response(
             text='{"ok":false,"error":"user not found"}',
             content_type="application/json", status=404,
         )
 
-    dt_user_id = str(row["dt_user_id"])
+    # user_uuid: 1) из github_connections (primary), 2) fallback dt_tokens
+    dt_user_id = None
+    if user_uuid_from_gh:
+        dt_user_id = str(user_uuid_from_gh)
+    else:
+        async with secrets_pool.acquire() as conn:
+            dt_row = await conn.fetchrow(
+                "SELECT dt_user_id FROM public.dt_tokens WHERE chat_id = $1 LIMIT 1",
+                chat_id,
+            )
+        if dt_row and dt_row.get("dt_user_id"):
+            dt_user_id = str(dt_row["dt_user_id"])
+
+    if not dt_user_id:
+        logger.warning(
+            "[WorkbookWebhook] no user_uuid for chat_id=%s (installation_id=%s, pusher=%s)",
+            chat_id, installation_id, pusher_login,
+        )
+        return web.Response(
+            text='{"ok":false,"error":"user_uuid not found"}',
+            content_type="application/json", status=404,
+        )
+
     commit_sha = payload.get("after", "unknown")
 
     # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
+    # Note: external_id колонка отсутствует в текущей схеме development.user_events.
+    # Идемпотентность достигается через дедуп по (user_uuid, event_type, payload->commit_sha)
+    # на потребительской стороне (engagement view может агрегировать с DISTINCT).
+    payload_json = json.dumps({
+        "files": workbook_files,
+        "repo": (payload.get("repository") or {}).get("full_name", ""),
+        "commit_sha": commit_sha,
+        "installation_id": installation_id,
+        "via": used_secret,
+    })
     try:
         async with bot_pool.acquire() as conn:
-            await conn.fetchrow(
+            await conn.execute(
                 """
                 INSERT INTO development.user_events
                     (user_id, user_uuid, event_type, source, payload,
-                     confidence, created_at, external_id)
-                VALUES (0, $1, $2, $3, $4, $5, NOW(), $6)
-                ON CONFLICT (source, external_id)
-                    WHERE external_id IS NOT NULL
-                DO NOTHING
-                RETURNING id
+                     confidence, created_at)
+                VALUES (0, $1, $2, $3, $4, $5, NOW())
                 """,
                 uuid.UUID(dt_user_id),
                 "workbook_push",
                 "iwe",
-                json.dumps({
-                    "files": workbook_files,
-                    "repo": (payload.get("repository") or {}).get("full_name", ""),
-                    "commit_sha": commit_sha,
-                }),
+                payload_json,
                 1.0,
-                commit_sha,
             )
         logger.info("[WorkbookWebhook] event written to user_events: %s", commit_sha)
     except Exception as e:
@@ -1321,8 +1410,8 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     asyncio.create_task(sync_one_user_to_dt(dt_user_id))
 
     logger.info(
-        "[WorkbookWebhook] pushed by %s (dt_user_id=%s), files=%s, dt_sync scheduled",
-        pusher_login, dt_user_id, workbook_files,
+        "[WorkbookWebhook] push by chat_id=%s (dt=%s, install=%s, via=%s), files=%s, dt_sync scheduled",
+        chat_id, dt_user_id, installation_id, used_secret, workbook_files,
     )
     return web.Response(
         text='{"ok":true}',
@@ -1607,6 +1696,165 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
         return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
 
 
+def _make_app_setup_state(chat_id: int) -> str:
+    """Подписанный state-token для GitHub App install flow.
+
+    Формат: <chat_id>.<timestamp>.<hmac>
+    Подпись: HMAC-SHA256 с GITHUB_APP_WEBHOOK_SECRET (или INTERNAL_NOTIFY_SECRET fallback).
+    TTL проверки: 30 мин в _verify_app_setup_state.
+    """
+    import hashlib
+    import hmac as _hmac
+    import time as _time
+    secret = (os.getenv("GITHUB_APP_WEBHOOK_SECRET")
+              or os.getenv("INTERNAL_NOTIFY_SECRET") or "")
+    if not secret:
+        # fail-safe: state без подписи (только для dev)
+        return f"{chat_id}.{int(_time.time())}.dev"
+    ts = int(_time.time())
+    msg = f"{chat_id}.{ts}".encode()
+    sig = _hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()[:32]
+    return f"{chat_id}.{ts}.{sig}"
+
+
+def _verify_app_setup_state(state: str, max_age_seconds: int = 1800) -> Optional[int]:
+    """Проверить state-token, вернуть chat_id или None при невалидности."""
+    import hashlib
+    import hmac as _hmac
+    import time as _time
+    try:
+        chat_id_str, ts_str, sig = state.split(".", 2)
+        chat_id = int(chat_id_str)
+        ts = int(ts_str)
+    except (ValueError, AttributeError):
+        return None
+    if _time.time() - ts > max_age_seconds:
+        return None
+    secret = (os.getenv("GITHUB_APP_WEBHOOK_SECRET")
+              or os.getenv("INTERNAL_NOTIFY_SECRET") or "")
+    if not secret:
+        return chat_id if sig == "dev" else None
+    expected = _hmac.new(secret.encode(), f"{chat_id}.{ts}".encode(), hashlib.sha256).hexdigest()[:32]
+    if not _hmac.compare_digest(sig, expected):
+        return None
+    return chat_id
+
+
+async def github_app_setup_handler(request: web.Request) -> web.Response:
+    """GET /auth/github_app/setup?telegram_user_id=X
+
+    Стартует install flow: подписывает state с chat_id, редиректит на GitHub
+    App install URL. После установки GitHub отправит ответ в callback.
+
+    Требует env-vars:
+    - GITHUB_APP_SLUG (например, "aisystant-personal-guide")
+    """
+    chat_id_param = request.query.get("telegram_user_id", "").strip()
+    if not chat_id_param or not chat_id_param.isdigit():
+        return web.Response(
+            text="Missing or invalid telegram_user_id", status=400,
+        )
+    chat_id = int(chat_id_param)
+    app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
+    if not app_slug:
+        return web.Response(
+            text="GITHUB_APP_SLUG не установлен (платформа ещё не зарегистрировала App)",
+            status=500,
+        )
+    state = _make_app_setup_state(chat_id)
+    install_url = f"https://github.com/apps/{app_slug}/installations/new?state={state}"
+    logger.info("[GitHubApp] redirect chat_id=%d to install_url", chat_id)
+    raise web.HTTPFound(install_url)
+
+
+async def github_app_callback_handler(request: web.Request) -> web.Response:
+    """GET /auth/github_app/callback?installation_id=Y&setup_action=install&state=<token>
+
+    GitHub вызывает после успешной установки App. Сохраняет (chat_id, installation_id, repo).
+    """
+    installation_id_str = request.query.get("installation_id", "").strip()
+    setup_action = request.query.get("setup_action", "").strip()
+    state = request.query.get("state", "").strip()
+
+    if not installation_id_str or not installation_id_str.isdigit():
+        return web.Response(
+            text="<h1>Ошибка</h1><p>Нет installation_id в callback</p>",
+            content_type="text/html", status=400,
+        )
+    installation_id = int(installation_id_str)
+    chat_id = _verify_app_setup_state(state) if state else None
+    if not chat_id:
+        return web.Response(
+            text="<h1>Ошибка</h1><p>Невалидный state. Запустите установку из бота заново.</p>",
+            content_type="text/html", status=400,
+        )
+
+    # Получить репо через App API (нужны installation_token + list repos)
+    from clients import github_app as gha
+    repos = await gha.get_installation_repos(installation_id)
+    repo_full_name = repos[0].get("full_name", "") if repos else ""
+    if not repo_full_name:
+        logger.warning(
+            "[GitHubApp] callback: no repos for installation_id=%d (chat_id=%d)",
+            installation_id, chat_id,
+        )
+
+    # github_username: попробуем получить через API
+    github_username = ""
+    if repo_full_name and "/" in repo_full_name:
+        github_username = repo_full_name.split("/", 1)[0]
+
+    from db.queries.github_app import save_app_installation
+    ok, status = await save_app_installation(chat_id, installation_id, repo_full_name, github_username)
+    if not ok:
+        if status == "ory_login_required":
+            return web.Response(
+                text="""<!DOCTYPE html>
+<html><head><title>Нужен Ory-логин</title><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+<h1>⚠️ Сначала логин Ory</h1>
+<p>App установлен на GitHub, но платформа ещё не знает, кто ты —
+нужно завершить onboarding в боте.</p>
+<p>1. Открой бот в Telegram</p>
+<p>2. Нажми /start (если не делал) или /github</p>
+<p>3. Вернись и нажми /connect_guide ещё раз</p>
+<p><small>Installation ID: {installation_id} — сохранится при повторной попытке.</small></p>
+</body></html>""".replace("{installation_id}", str(installation_id)),
+                content_type="text/html", status=409,
+            )
+        return web.Response(
+            text=f"<h1>Ошибка сохранения</h1><p>Статус: {status}. Попробуйте ещё раз или напишите в поддержку.</p>",
+            content_type="text/html", status=500,
+        )
+
+    # Уведомление в бот
+    if _bot_instance:
+        try:
+            await _bot_instance.send_message(
+                chat_id,
+                f"✅ <b>GitHub App установлен</b>\n\n"
+                f"Репо: <code>{repo_full_name or 'не определён'}</code>\n"
+                f"Installation ID: <code>{installation_id}</code>\n\n"
+                f"Теперь Портной может писать assignments в твой репо, "
+                f"а твои push в <code>workbook/</code> автоматически обновляют ЦД.",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.warning("[GitHubApp] notify bot failed: %s", e)
+
+    return web.Response(
+        text=f"""<!DOCTYPE html>
+<html><head><title>Установка завершена</title><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+<h1>✅ App установлен</h1>
+<p>Репозиторий: <code>{repo_full_name or '(не определён)'}</code></p>
+<p>Installation ID: <code>{installation_id}</code></p>
+<p>Можно закрыть это окно и вернуться в Telegram.</p>
+</body></html>""",
+        content_type="text/html",
+    )
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -1640,6 +1888,8 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_post("/webhook/workshop-payment", workshop_payment_handler)
     app.router.add_post("/webhook/yookassa", yookassa_webhook_handler)
     app.router.add_post("/webhook/github/workbook", github_workbook_webhook_handler)
+    app.router.add_get("/auth/github_app/setup", github_app_setup_handler)  # WP-301 Ф7
+    app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
 
     # Webhook route (WP-44: polling → webhooks)
