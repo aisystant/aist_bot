@@ -1,0 +1,74 @@
+# 03.25 Сценарий просмотра баллов
+
+> Описание команды `/points` — баланс и детализация начислений.
+
+---
+
+## Обзор
+
+| Параметр | Значение |
+|----------|----------|
+| Команда | `/points` |
+| Тип | Микро-сценарий (вид C): один экран, один ответ |
+| Источник | Neon БД `rewards` (read-only) |
+| Связь | WP-306 (реализация Ф3 WP-121), DP.SC.122 (writer — projection-worker) |
+
+---
+
+## Что показывает
+
+1. **Текущий баланс** — `rewards.point_balances.points` для `account_id = intern.dt_user_id`
+2. **Последние 10 начислений** из `rewards.applied_events` с разложением:
+   - `effective` — сколько баллов фактически зачислено
+   - `base × dom × qual × streak` — формула множителей
+   - метка «лимит дня» если `cap_truncated = TRUE`
+
+## Сообщение бота
+
+```
+🏆 Баллы: 142
+
+Последние начисления:
+
++15 · 📖 Урок
+   10 × 3 × 0.5 × 1.0
+
++30 · 💡 Извлечение знания
+   25 × 3 × 0.5 × 1.0  (лимит дня)
+
++0 · 🧪 Тест
+   12 × 3 × 0.7 × 1.0  (лимит дня)
+
+…
+
+Разложение: база × домен × квалификация × streak.
+«лимит дня» — упёрлось в дневной cap квалификации.
+```
+
+## Что НЕ показывает
+
+- Списания (`type=spent`) — отдельный РП (WP-183 Billing).
+- Историю старше 10 событий — пока не нужно. При запросе расширить через callback.
+- Прогноз / советы — это задача Навигатора (R27), не /points.
+
+## Граничные случаи
+
+| Условие | Поведение |
+|---------|-----------|
+| Не привязан Aisystant (`dt_user_id = None`) | Сообщение «Аккаунт не привязан. /settings» |
+| Нет начислений (новый user) | Баланс = 0, текст «Учитесь, делайте уроки — баллы появятся.» |
+| Ошибка БД | `t('errors.processing_error', lang)`, лог в `error_logs` |
+| HTML render error | Fallback без `<b>/<i>` (см. CLAUDE.md §10.2) |
+
+## Связи в коде
+
+| Файл | Что |
+|------|-----|
+| `handlers/points.py` | Handler `cmd_points` (router: `points_router`) |
+| `db/queries/rewards.py` | `get_points_balance()` + `get_recent_applied_events()` |
+| `core/tier_config.py` | `/points` в TIER_MENU_COMMANDS для T2-T4 |
+| `bot.py` | `/points` в global fallback BotCommand list (5 языков) |
+
+## Источник истины
+
+`rewards.point_balances` (writer: multi-domain-projection-worker, DP.ROLE.034). Бот **не пересчитывает** баллы — только читает свёрнутый projection-worker'ом результат. См. WP-121 Ф2 v2 для формулы `compute_effective_amount()`.
