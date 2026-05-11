@@ -6,6 +6,7 @@
 """
 
 import logging
+import os
 from datetime import timedelta
 
 from aiogram import Router, F
@@ -13,6 +14,26 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+
+
+def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | None:
+    """Inline-кнопка «📚 Подключи личное руководство» (WP-301 Ф7, R27 proactive trigger).
+
+    Показывается только если GitHub App зарегистрирован (`GITHUB_APP_SLUG` + `WEBHOOK_URL`
+    в env). По SC.020 — proactive предложение Навигатора после онбординга, когда пилот
+    готов получать персональные занятия через git-канал.
+
+    Returns None если App ещё не настроен — кнопка не показывается.
+    """
+    app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
+    webhook_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
+    if not app_slug or not webhook_url:
+        return None
+    setup_url = f"{webhook_url}/auth/github_app/setup?telegram_user_id={chat_id}"
+    return [InlineKeyboardButton(
+        text="📚 Подключи личное руководство",
+        url=setup_url,
+    )]
 
 from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern
@@ -224,6 +245,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # WP-156: Inline-кнопка «Помоги выбрать» → Навигатор (SS.1: ЦД пуст, задаёт вопросы)
     # WP-209 Ф1: + кнопка «Подключить IWE» → /connect wizard
+    # WP-301 Ф7: + кнопка «Подключи личное руководство» → GitHub App install (proactive)
     nav_buttons = [[
         InlineKeyboardButton(
             text="🧭 " + t('onboarding.navigator_hint', lang),
@@ -235,6 +257,9 @@ async def cmd_start(message: Message, state: FSMContext):
             callback_data="iwe_connect_start",
         )
     ]]
+    guide_btn = _personal_guide_button(message.chat.id)
+    if guide_btn:
+        nav_buttons.append(guide_btn)
     nav_kb = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
     await message.answer(
         t('onboarding.navigator_offer', lang) + "\n\n" + t('connect.onboarding_prompt', lang),
@@ -462,12 +487,17 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         await send_tier_keyboard(callback.message, intern)
 
         # WP-156: Inline-кнопка «Помоги выбрать» → Навигатор
-        nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        # WP-301 Ф7: + proactive «Подключи личное руководство»
+        nav_buttons_fsm = [[
             InlineKeyboardButton(
                 text="🧭 " + t('onboarding.navigator_hint', lang),
                 callback_data="start_navigator",
             )
-        ]])
+        ]]
+        guide_btn = _personal_guide_button(chat_id)
+        if guide_btn:
+            nav_buttons_fsm.append(guide_btn)
+        nav_kb = InlineKeyboardMarkup(inline_keyboard=nav_buttons_fsm)
         await callback.message.answer(
             t('onboarding.navigator_offer', lang),
             reply_markup=nav_kb,
