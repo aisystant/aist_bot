@@ -13,6 +13,7 @@ projection-worker уже свернул из `learning.domain_event`.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from aiogram import Router
 from aiogram.types import Message
@@ -65,23 +66,49 @@ def _event_label(event_type: str) -> str:
     return _EVENT_LABELS.get(event_type, f"• {event_type}")
 
 
+def _relative_time(applied_at) -> str:
+    """Относительное время: «5 мин назад», «3 ч назад», «2 дн назад», «12 апр»."""
+    if not applied_at:
+        return ""
+    try:
+        now = datetime.now(timezone.utc)
+        delta = now - applied_at
+        secs = int(delta.total_seconds())
+        if secs < 60:
+            return "только что"
+        if secs < 3600:
+            return f"{secs // 60} мин назад"
+        if secs < 86400:
+            return f"{secs // 3600} ч назад"
+        if secs < 7 * 86400:
+            return f"{secs // 86400} дн назад"
+        return applied_at.strftime("%d.%m")
+    except Exception:
+        return ""
+
+
 def _format_event(ev: dict) -> str:
     """Одна строка детализации.
 
-    Формат: `<emoji> <label> — <effective> (base × dom × qual × streak)`
-    Если cap_truncated — приписка «(cap)».
+    Формат: `+effective · label (HH мин назад)` + разложение base × dom × qual × streak.
     """
-    label = _event_label(ev["event_type"])
-    base = ev["base_amount"]
-    dom = ev["dom_mult"]
-    qual = ev["qual_mult"]
-    streak = ev["streak_mult"]
-    eff = ev["effective"]
-    capped = ev.get("cap_truncated", False)
+    try:
+        label = _event_label(ev["event_type"])
+        base = float(ev["base_amount"] or 0)
+        dom = float(ev["dom_mult"] or 1)
+        qual = float(ev["qual_mult"] or 1)
+        streak = float(ev["streak_mult"] or 1)
+        eff = float(ev["effective"] or 0)
+        capped = ev.get("cap_truncated", False)
+        when = _relative_time(ev.get("applied_at"))
 
-    breakdown = f"{float(base):g} × {float(dom):g} × {float(qual):g} × {float(streak):g}"
-    cap_mark = " <i>(лимит дня)</i>" if capped else ""
-    return f"<b>+{float(eff):g}</b> · {label}\n   <i>{breakdown}</i>{cap_mark}"
+        when_str = f" <i>· {when}</i>" if when else ""
+        breakdown = f"{base:g} × {dom:g} × {qual:g} × {streak:g}"
+        cap_mark = " <i>(лимит дня)</i>" if capped else ""
+        return f"<b>+{eff:g}</b> · {label}{when_str}\n   <i>{breakdown}</i>{cap_mark}"
+    except Exception as e:
+        logger.warning(f"[/points] _format_event failed: {e} (ev={ev.get('event_id')})")
+        return f"• {ev.get('event_type', '?')} (ошибка отображения)"
 
 
 @points_router.message(Command("points"))
