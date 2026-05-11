@@ -1377,31 +1377,30 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     commit_sha = payload.get("after", "unknown")
 
     # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
+    # Note: external_id колонка отсутствует в текущей схеме development.user_events.
+    # Идемпотентность достигается через дедуп по (user_uuid, event_type, payload->commit_sha)
+    # на потребительской стороне (engagement view может агрегировать с DISTINCT).
+    payload_json = json.dumps({
+        "files": workbook_files,
+        "repo": (payload.get("repository") or {}).get("full_name", ""),
+        "commit_sha": commit_sha,
+        "installation_id": installation_id,
+        "via": used_secret,
+    })
     try:
         async with bot_pool.acquire() as conn:
-            await conn.fetchrow(
+            await conn.execute(
                 """
                 INSERT INTO development.user_events
                     (user_id, user_uuid, event_type, source, payload,
-                     confidence, created_at, external_id)
-                VALUES (0, $1, $2, $3, $4, $5, NOW(), $6)
-                ON CONFLICT (source, external_id)
-                    WHERE external_id IS NOT NULL
-                DO NOTHING
-                RETURNING id
+                     confidence, created_at)
+                VALUES (0, $1, $2, $3, $4, $5, NOW())
                 """,
                 uuid.UUID(dt_user_id),
                 "workbook_push",
                 "iwe",
-                json.dumps({
-                    "files": workbook_files,
-                    "repo": (payload.get("repository") or {}).get("full_name", ""),
-                    "commit_sha": commit_sha,
-                    "installation_id": installation_id,
-                    "via": used_secret,
-                }),
+                payload_json,
                 1.0,
-                commit_sha,
             )
         logger.info("[WorkbookWebhook] event written to user_events: %s", commit_sha)
     except Exception as e:
