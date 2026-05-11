@@ -79,9 +79,9 @@ def _format_event(ev: dict) -> str:
     eff = ev["effective"]
     capped = ev.get("cap_truncated", False)
 
-    breakdown = f"{base:g} × {dom:g} × {qual:g} × {streak:g}"
+    breakdown = f"{float(base):g} × {float(dom):g} × {float(qual):g} × {float(streak):g}"
     cap_mark = " <i>(лимит дня)</i>" if capped else ""
-    return f"<b>+{eff:g}</b> · {label}\n   <i>{breakdown}</i>{cap_mark}"
+    return f"<b>+{float(eff):g}</b> · {label}\n   <i>{breakdown}</i>{cap_mark}"
 
 
 @points_router.message(Command("points"))
@@ -113,7 +113,7 @@ async def cmd_points(message: Message):
         await message.answer(t('errors.processing_error', lang))
         return
 
-    balance_text = f"{int(balance)}" if balance is not None else "0"
+    balance_text = f"{float(balance):g}" if balance is not None else "0"
     text = f"🏆 <b>Баллы:</b> {balance_text}\n\n"
 
     if not events:
