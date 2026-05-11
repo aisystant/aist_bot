@@ -9,9 +9,9 @@
 | Параметр | Значение |
 |----------|----------|
 | Тип | Процесс (outbound integration с доменной логикой) |
-| Источник | WP-209 Ф0 (клиент), Ф4 (Cloudflare 429), Ф5 (Ory refresh), WP-212 B4.13 (knowledge через Gateway) |
-| Файл | `clients/gateway_mcp.py` (727 строк) |
-| Внешний endpoint | `mcp.aisystant.com/mcp` (JSON-RPC `tools/call`) |
+| Источник | WP-209 Ф0 (клиент), Ф4 (Cloudflare 429), Ф5 (Ory refresh), WP-212 B4.13 (knowledge через Gateway), WP-5 #16 (tool discovery) |
+| Файл | `clients/gateway_mcp.py` |
+| Внешний endpoint | `mcp.aisystant.com/mcp` (JSON-RPC `tools/call` + `tools/list`) |
 | Auth | Per-user Ory Bearer token, `Authorization: Bearer <access_token>` |
 | Архитектурное решение | Заменяет прямые подключения к knowledge-mcp и digital-twin-mcp единой точкой |
 
@@ -46,6 +46,7 @@
 - ✅ Кеш per-user токенов в памяти (source-of-truth в БД: `ory_tokens` → WP-212)
 - ✅ Политика rate-limiting (semaphore, circuit breaker)
 - ✅ Fallback при недоступности Gateway (graceful degradation, return None)
+- ✅ Кэш discovered tools (`_tools_cache`, TTL 15 мин, in-memory, DP.SC.129)
 
 ---
 

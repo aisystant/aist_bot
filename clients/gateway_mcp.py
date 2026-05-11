@@ -59,12 +59,18 @@ class GatewayMCPClient:
     FAILURE_THRESHOLD = 2
     RECOVERY_TIME = 60
 
+    TOOLS_CACHE_TTL = 15 * 60  # 15 min (DP.SC.129)
+
     def __init__(self, url: str):
         self.url = url
         self._request_id = 0
 
         # Per-user tokens: telegram_user_id -> {access_token, refresh_token, expires_at, ory_id}
         self._tokens: Dict[int, Dict[str, Any]] = {}
+
+        # DP.SC.129: discovered tools cache (in-memory, single-instance)
+        self._tools_cache: List[Dict] = []
+        self._tools_cache_ts: float = 0.0
 
         # WP-209 Ф5: per-user locks для refresh. Устраняет thundering herd:
         # при параллельных запросах от одного user все получают 401, каждый
@@ -754,6 +760,65 @@ class GatewayMCPClient:
             except Exception as e:
                 logger.error(f"Gateway sync field {field} failed: {e}")
         return synced
+
+
+    # =========================================================================
+    # TOOL DISCOVERY (DP.SC.129, DP.ROLE.038)
+    # =========================================================================
+
+    async def list_tools(self) -> List[Dict]:
+        """Загрузить список tool из Gateway MCP (tools/list) и обновить кэш.
+
+        Вызывается при старте бота и как background refresh (TTL 15 мин).
+        При ошибке возвращает stale-кэш (или пустой список при cold start).
+        Не требует user token — capabilities endpoint публичный.
+        """
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "tools/list",
+            "params": {},
+            "id": self._next_id()
+        }
+        session = await self._get_session()
+        try:
+            async with self._call_semaphore:
+                async with session.post(
+                    self.url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.DEFAULT_TIMEOUT)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        mcp_tools = data.get("result", {}).get("tools", [])
+                        tools = [self._mcp_to_anthropic_tool(t) for t in mcp_tools]
+                        self._tools_cache = tools
+                        self._tools_cache_ts = time.time()
+                        logger.info(f"Gateway: discovery loaded {len(tools)} tools")
+                        return tools
+                    logger.warning(f"Gateway: tools/list HTTP {resp.status}")
+        except Exception as e:
+            logger.warning(f"Gateway: list_tools failed: {e}")
+        return list(self._tools_cache)
+
+    def _mcp_to_anthropic_tool(self, mcp_tool: Dict) -> Dict:
+        """MCP tool format → Anthropic API format (inputSchema → input_schema)."""
+        return {
+            "name": mcp_tool.get("name", ""),
+            "description": mcp_tool.get("description", ""),
+            "input_schema": mcp_tool.get("inputSchema", {
+                "type": "object",
+                "properties": {},
+                "required": []
+            })
+        }
+
+    def get_discovered_tools(self) -> List[Dict]:
+        """Список инструментов из последнего tools/list (может быть stale)."""
+        return list(self._tools_cache)
+
+    def is_tools_cache_fresh(self) -> bool:
+        """True если кэш tool свежее TTL."""
+        return (time.time() - self._tools_cache_ts) < self.TOOLS_CACHE_TTL
 
 
 # Singleton

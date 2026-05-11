@@ -153,17 +153,56 @@ TOOL_SEARCH_PERSONAL = {
 }
 
 
-def get_tools_for_tier(has_digital_twin: bool) -> List[Dict[str, Any]]:
-    """Возвращает набор tools в зависимости от тира пользователя.
+# Tools with custom executors — их descriptors захардкожены, executor имеет
+# специальную логику (401-fallback, compact output, DT paths).
+# Discovered tools с этими именами игнорируются (hybrid, DP.ROLE.038 §4).
+_HARDCODED_TOOL_NAMES = frozenset({
+    "search_knowledge", "search_guides", "read_digital_twin",
+    "get_bot_info", "search_personal",
+})
 
-    T1 (без ЦД): search_knowledge, search_guides, get_bot_info
+
+def get_tools_for_tier(has_digital_twin: bool) -> List[Dict[str, Any]]:
+    """Возвращает набор tools для Claude API.
+
+    Базовые (hardcoded): search_knowledge, search_guides, get_bot_info
     T2+ (с ЦД): + read_digital_twin, search_personal
+    Discovered (DP.SC.129): новые tool из tools/list, не покрытые hardcoded.
     """
-    tools = [TOOL_SEARCH_KNOWLEDGE, TOOL_SEARCH_GUIDES, TOOL_GET_BOT_INFO]
+    import asyncio
+
+    tools: List[Dict[str, Any]] = [TOOL_SEARCH_KNOWLEDGE, TOOL_SEARCH_GUIDES, TOOL_GET_BOT_INFO]
     if has_digital_twin:
         tools.append(TOOL_READ_DIGITAL_TWIN)
         tools.append(TOOL_SEARCH_PERSONAL)
+
+    # Append discovered tools whose names are not already in the hardcoded set.
+    # admin_* tools are skipped (require elevated permissions).
+    hardcoded_names = {t["name"] for t in tools}
+    for disc in gateway_mcp.get_discovered_tools():
+        name = disc.get("name", "")
+        if name.startswith("admin_") or name in hardcoded_names:
+            continue
+        tools.append(disc)
+
+    # Background refresh if cache is stale (fire-and-forget, does not block response)
+    if not gateway_mcp.is_tools_cache_fresh():
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(_refresh_tools_cache())
+        except Exception:
+            pass
+
     return tools
+
+
+async def _refresh_tools_cache() -> None:
+    """Fire-and-forget background refresh of tools discovery cache."""
+    try:
+        await gateway_mcp.list_tools()
+    except Exception as e:
+        logger.warning(f"Tools discovery background refresh failed: {e}")
 
 
 # =============================================================================
@@ -177,13 +216,8 @@ async def execute_tool(
 ) -> str:
     """Исполняет tool call, проксируя к существующим MCP-клиентам.
 
-    Args:
-        tool_name: имя инструмента
-        tool_input: параметры вызова
-        telegram_user_id: ID пользователя (для DT)
-
-    Returns:
-        Результат в виде строки (JSON или текст)
+    Для hardcoded tools — кастомные обёртки с fallback-логикой.
+    Для discovered tools (DP.SC.129) — generic proxy через gateway_mcp._call().
     """
     if tool_name == "search_knowledge":
         return await _exec_search_knowledge(tool_input, telegram_user_id)
@@ -196,7 +230,33 @@ async def execute_tool(
     elif tool_name == "get_bot_info":
         return _exec_get_bot_info()
     else:
-        return json.dumps({"error": f"Unknown tool: {tool_name}"})
+        return await _exec_generic_tool(tool_name, tool_input, telegram_user_id)
+
+
+async def _exec_generic_tool(
+    tool_name: str,
+    tool_input: Dict[str, Any],
+    telegram_user_id: Optional[int] = None,
+) -> str:
+    """Generic proxy для discovered tools (DP.SC.129).
+
+    Вызывает gateway_mcp._call(tool_name, tool_input) без кастомной обёртки.
+    Применяется для knowledge_concept_* и любых будущих tool без специальной логики.
+    """
+    try:
+        # pylint: disable=protected-access
+        result = await gateway_mcp._call(tool_name, tool_input, telegram_user_id)
+        if result is None:
+            return json.dumps({"error": f"Tool {tool_name} unavailable"}, ensure_ascii=False)
+        data = gateway_mcp._parse_text_content(result)
+        if data is None:
+            return json.dumps({"result": None}, ensure_ascii=False)
+        if isinstance(data, (dict, list)):
+            return json.dumps(data, ensure_ascii=False)
+        return str(data)
+    except Exception as e:
+        logger.error(f"Generic tool executor error for {tool_name}: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 def _exec_get_bot_info() -> str:

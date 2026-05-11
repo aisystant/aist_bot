@@ -205,6 +205,14 @@ async def main():
     await gateway_mcp.load_tokens_from_db()
     logger.info("✅ Gateway MCP: Ory tokens загружены")
 
+    # Bootstrap tool discovery cache (DP.SC.129). Fire-and-forget: ошибка не блокирует старт.
+    # При недоступности Gateway бот работает с hardcoded tool set.
+    try:
+        discovered = await gateway_mcp.list_tools()
+        logger.info(f"✅ Gateway MCP: discovery {len(discovered)} tools")
+    except Exception as _e:
+        logger.warning(f"Gateway MCP: tool discovery failed at startup, using hardcoded tools: {_e}")
+
     # Создаём bot с transport-layer Markdown→HTML intercept
     from core.safe_bot import SafeBot
     bot = SafeBot(token=BOT_TOKEN)
