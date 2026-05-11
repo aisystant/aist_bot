@@ -1,10 +1,10 @@
 """
 Unit-тесты для helpers.telegram_format._inline_format.
 
-Покрывают защиту HTML-тегов через placeholder-pattern (\x00PH{idx}\x00)
-из коммита 979e2a7, ветка pilot.
+Покрывают защиту HTML-тегов через placeholder-pattern (\x00PH{idx}\x00).
 
-Защищённые теги (whitelist): b, i, u, s, code, pre, a, tg-spoiler, details, summary.
+Защищённые теги (whitelist): b, i, u, s, code, pre, a, tg-spoiler.
+<details>/<summary> НЕ в whitelist — обрабатываются на уровне format_strategy_content.
 """
 
 import pytest
@@ -12,22 +12,20 @@ import pytest
 from helpers.telegram_format import _inline_format
 
 
-# ─── Защита структурных тегов ───
+# ─── <details>/<summary> — экранируются в _inline_format ───
 
-def test_details_tag_preserved():
-    """<details>...</details> не превращается в &lt;details&gt;."""
+def test_details_tag_is_escaped():
+    """<details> не в whitelist _inline_format — экранируется."""
     result = _inline_format("<details>содержимое</details>")
-    assert "<details>" in result
-    assert "</details>" in result
-    assert "&lt;details&gt;" not in result
+    assert "&lt;details&gt;" in result
+    assert "<details>" not in result
 
 
-def test_summary_tag_preserved():
-    """<summary>...</summary> сохраняется."""
+def test_summary_tag_is_escaped():
+    """<summary> не в whitelist _inline_format — экранируется."""
     result = _inline_format("<summary>Заголовок</summary>")
-    assert "<summary>" in result
-    assert "</summary>" in result
-    assert "&lt;summary&gt;" not in result
+    assert "&lt;summary&gt;" in result
+    assert "<summary>" not in result
 
 
 def test_anchor_tag_with_href_preserved():
@@ -38,10 +36,10 @@ def test_anchor_tag_with_href_preserved():
     assert "&lt;a" not in result
 
 
-# ─── Все 10 защищённых тегов (open + close) ───
+# ─── Все 8 защищённых тегов (open + close) ───
 
 @pytest.mark.parametrize("tag", [
-    "b", "i", "u", "s", "code", "pre", "a", "tg-spoiler", "details", "summary"
+    "b", "i", "u", "s", "code", "pre", "a", "tg-spoiler"
 ])
 def test_all_whitelisted_open_tags_preserved(tag):
     """Open-тег из whitelist сохраняется без экранирования."""
