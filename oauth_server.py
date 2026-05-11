@@ -1701,7 +1701,8 @@ def _make_app_setup_state(chat_id: int) -> str:
 
     Формат: <chat_id>.<timestamp>.<hmac>
     Подпись: HMAC-SHA256 с GITHUB_APP_WEBHOOK_SECRET (или INTERNAL_NOTIFY_SECRET fallback).
-    TTL проверки: 30 мин в _verify_app_setup_state.
+    TTL проверки: 2 часа в _verify_app_setup_state (расширено с 30 мин по UX feedback —
+    пилот может оставить GitHub-вкладку открытой и вернуться позже).
     """
     import hashlib
     import hmac as _hmac
@@ -1717,7 +1718,7 @@ def _make_app_setup_state(chat_id: int) -> str:
     return f"{chat_id}.{ts}.{sig}"
 
 
-def _verify_app_setup_state(state: str, max_age_seconds: int = 1800) -> Optional[int]:
+def _verify_app_setup_state(state: str, max_age_seconds: int = 7200) -> Optional[int]:
     """Проверить state-token, вернуть chat_id или None при невалидности."""
     import hashlib
     import hmac as _hmac
@@ -1783,9 +1784,40 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
         )
     installation_id = int(installation_id_str)
     chat_id = _verify_app_setup_state(state) if state else None
+
+    # Graceful fallback: state протух или невалиден, но installation_id есть в БД —
+    # значит установка уже была успешно сохранена ранее. Показать success вместо ошибки.
     if not chat_id:
+        from db.queries.github_app import find_user_by_installation_id
+        existing = await find_user_by_installation_id(installation_id)
+        if existing and existing.get("chat_id"):
+            logger.info(
+                "[GitHubApp] callback with stale state but installation_id=%d already mapped to chat_id=%s — graceful success",
+                installation_id, existing["chat_id"],
+            )
+            return web.Response(
+                text=f"""<!DOCTYPE html>
+<html><head><title>Уже установлен</title><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+<h1>✅ App уже установлен</h1>
+<p>Установка для этого репозитория уже зарегистрирована в системе ранее.</p>
+<p>Можно закрыть это окно и вернуться в Telegram или Claude Code.</p>
+<p><small>Installation ID: <code>{installation_id}</code></small></p>
+</body></html>""",
+                content_type="text/html",
+            )
         return web.Response(
-            text="<h1>Ошибка</h1><p>Невалидный state. Запустите установку из бота заново.</p>",
+            text="""<!DOCTYPE html>
+<html><head><title>Сессия истекла</title><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+<h1>⏱ Сессия установки истекла</h1>
+<p>С момента запуска установки прошло больше 2 часов, ссылка стала невалидной.</p>
+<p>Не страшно — запусти установку заново:</p>
+<ul>
+<li>В Telegram: <code>/connect_guide</code> в боте</li>
+<li>В Claude Code: <code>/connect-guide</code></li>
+</ul>
+</body></html>""",
             content_type="text/html", status=400,
         )
 
