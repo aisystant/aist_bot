@@ -9,6 +9,7 @@
 """
 
 import logging
+import os
 from datetime import datetime, timedelta
 
 from aiogram import Router, F
@@ -89,6 +90,46 @@ async def _show_update_screen(message, intern, state):
 
 
 # ============= КОМАНДЫ =============
+
+
+@settings_router.message(Command("connect_guide"))
+async def cmd_connect_guide(message: Message):
+    """Установить GitHub App «Aisystant Personal Guide» (WP-301 Ф7).
+
+    Открывает install flow на github.com. После установки платформа сможет
+    писать assignments/* в репо пилота, а push в workbook/* будет триггерить
+    обновление ЦД.
+    """
+    chat_id = message.chat.id
+    base_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
+    app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
+
+    if not app_slug:
+        await message.answer(
+            "⚠️ GitHub App ещё не зарегистрирован платформой.\n"
+            "Эта функция станет доступна после регистрации (WP-301 Ф7).",
+        )
+        return
+    if not base_url:
+        await message.answer("⚠️ WEBHOOK_URL не настроен. Напиши администратору.")
+        return
+
+    setup_url = f"{base_url}/auth/github_app/setup?telegram_user_id={chat_id}"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📥 Установить GitHub App", url=setup_url)],
+    ])
+    await message.answer(
+        "<b>Подключение персонального руководства</b>\n\n"
+        "Нажми кнопку ниже — GitHub откроет страницу установки App. "
+        "Выбери репо <code>personal-guide</code> (или создай его, если ещё нет).\n\n"
+        "После установки:\n"
+        "• Портной будет писать твои занятия в <code>assignments/</code>\n"
+        "• Твои ответы в <code>workbook/</code> автоматически обновят ЦД\n"
+        "• Завтрашний урок учтёт сегодняшний результат",
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+
 
 @settings_router.message(Command("profile"))
 async def cmd_profile(message: Message):
