@@ -533,14 +533,33 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
     now = datetime.now(timezone.utc)
 
     try:
+        # WP-301 Ф7: после WP-253 lift-and-shift dt_tokens живёт в Neon `secrets` DB,
+        # не в bot_data. Cross-DB JOIN невозможен. Получаем dt_user_id отдельно из
+        # secrets pool (если есть) ДО основного запроса.
+        from db.connection import get_secrets_pool
+        dt_user_id_from_tokens = None
+        try:
+            secrets_pool = await get_secrets_pool()
+            async with secrets_pool.acquire() as sconn:
+                # user_id может быть Ory UUID — пробуем найти соответствующий chat_id
+                # и dt_user_id из dt_tokens (если dt_user_id = user_id, то match есть).
+                dt_row = await sconn.fetchrow(
+                    "SELECT dt_user_id, chat_id FROM public.dt_tokens WHERE dt_user_id = $1 LIMIT 1",
+                    user_id,
+                )
+                if dt_row:
+                    dt_user_id_from_tokens = str(dt_row['dt_user_id'])
+        except Exception as e:
+            logger.warning(f"[DT Sync] dt_tokens lookup failed: {e}")
+
         learning_pool = await get_learning_pool()
         async with pool.acquire() as conn, pool.acquire() as dt_conn, learning_pool.acquire() as lconn:
-            # WP-218 Ф7.1: добавлен LEFT JOIN users для разрешения ory_id
+            # WP-218 Ф7.1: LEFT JOIN users для разрешения ory_id
+            # WP-301 Ф7: убран LEFT JOIN dt_tokens (cross-DB не работает на prod).
             row = await conn.fetchrow('''
                 SELECT
                     e.user_uuid,
                     e.user_id,
-                    dt.dt_user_id,
                     u.ory_id AS user_ory_id,
                     e.sessions_total,
                     e.ai_chats_total,
@@ -566,11 +585,9 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                     e.events_last_7d,
                     e.events_last_30d
                 FROM development.engagement e
-                LEFT JOIN dt_tokens dt ON dt.chat_id = e.user_id
                 LEFT JOIN public.users u ON u.telegram_id = e.user_id
                 WHERE e.user_uuid IS NOT NULL
-                  AND (dt.dt_user_id = $1 OR e.user_uuid::TEXT = $1
-                       OR u.ory_id::TEXT = $1)
+                  AND (e.user_uuid::TEXT = $1 OR u.ory_id::TEXT = $1)
                 LIMIT 1
             ''', user_id)
 
@@ -614,8 +631,8 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             except Exception as e:
                 logger.warning(f"[DT Sync] learning_history not available: {e}")
 
-            # WP-218 Ф7.1: canonical key — dt_user_id > ory_id (users) > user_uuid
-            effective_user_id = str(row['dt_user_id'] or row['user_ory_id'] or row['user_uuid'])
+            # WP-218 Ф7.1: canonical key — dt_user_id (from secrets pool) > ory_id (users) > user_uuid
+            effective_user_id = str(dt_user_id_from_tokens or row['user_ory_id'] or row['user_uuid'])
 
             collected_data = {
                 "2_1_account": {
