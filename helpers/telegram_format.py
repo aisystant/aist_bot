@@ -59,6 +59,19 @@ def format_strategy_content(content: str) -> str:
             i += 1
             continue
 
+        # --- <details>/<summary> — Telegram не поддерживает, рендерим плоско ---
+        stripped = line.strip()
+        if re.match(r'^</?details[\s>]', stripped, re.IGNORECASE) or stripped.lower() == '</details>':
+            i += 1
+            continue
+
+        summary_match = re.match(r'^<summary>(.*?)</summary>\s*$', stripped, re.IGNORECASE | re.DOTALL)
+        if summary_match:
+            inner = _inline_format(summary_match.group(1))
+            result.append(f"\n<b>{inner}</b>")
+            i += 1
+            continue
+
         # --- Таблица ---
         if line.startswith("|"):
             table_lines = []
@@ -124,7 +137,7 @@ def _inline_format(text: str) -> str:
     # Telegram HTML: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <tg-spoiler>
     # + <details>, <summary> (Telegram поддерживает их в последних версиях)
     text = re.sub(
-        r"</?(?:b|i|u|s|code|pre|a|tg-spoiler|details|summary)(?:\s[^>]*)?>",
+        r"</?(?:b|i|u|s|code|pre|a|tg-spoiler)(?:\s[^>]*)?>",
         _save_html_tag,
         text,
         flags=re.IGNORECASE,
