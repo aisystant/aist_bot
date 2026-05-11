@@ -1300,30 +1300,46 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
         )
 
     # ── Маппинг user: сначала по installation_id, fallback на pusher.name ───
+    # Источник user_uuid: github_connections.user_uuid (Ory UUID = dt_user_id).
+    # dt_tokens используется только как fallback, если github_connections.user_uuid NULL.
     from db.connection import get_pool, get_secrets_pool
     from db.queries.dt_sync import sync_one_user_to_dt
 
     secrets_pool = await get_secrets_pool()
     bot_pool = await get_pool()
     chat_id = None
+    user_uuid_from_gh = None
     pusher_login = (payload.get("pusher") or {}).get("name", "")
 
     if installation_id:
-        # App path: installation_id → chat_id
-        from db.queries.github_app import find_user_by_installation_id
-        app_row = await find_user_by_installation_id(installation_id)
+        # App path: installation_id → chat_id + user_uuid
+        async with secrets_pool.acquire() as conn:
+            app_row = await conn.fetchrow(
+                """
+                SELECT chat_id, user_uuid, app_suspended
+                FROM public.github_connections
+                WHERE app_installation_id = $1
+                LIMIT 1
+                """,
+                installation_id,
+            )
         if app_row and app_row.get("chat_id") and not app_row.get("app_suspended"):
             chat_id = app_row["chat_id"]
+            user_uuid_from_gh = app_row["user_uuid"]
 
     if not chat_id and pusher_login:
-        # Legacy fallback: github_username → chat_id
+        # Legacy fallback: github_username → chat_id + user_uuid
         async with secrets_pool.acquire() as conn:
             gh_row = await conn.fetchrow(
-                "SELECT chat_id FROM github_connections WHERE github_username = $1 LIMIT 1",
+                """
+                SELECT chat_id, user_uuid FROM public.github_connections
+                WHERE github_username = $1 LIMIT 1
+                """,
                 pusher_login,
             )
         if gh_row and gh_row["chat_id"]:
             chat_id = gh_row["chat_id"]
+            user_uuid_from_gh = gh_row["user_uuid"]
 
     if not chat_id:
         logger.warning(
@@ -1335,23 +1351,29 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
             content_type="application/json", status=404,
         )
 
-    # chat_id → dt_user_id
-    async with secrets_pool.acquire() as conn:
-        dt_row = await conn.fetchrow(
-            "SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1 LIMIT 1",
-            chat_id,
-        )
-    if not dt_row or not dt_row.get("dt_user_id"):
+    # user_uuid: 1) из github_connections (primary), 2) fallback dt_tokens
+    dt_user_id = None
+    if user_uuid_from_gh:
+        dt_user_id = str(user_uuid_from_gh)
+    else:
+        async with secrets_pool.acquire() as conn:
+            dt_row = await conn.fetchrow(
+                "SELECT dt_user_id FROM public.dt_tokens WHERE chat_id = $1 LIMIT 1",
+                chat_id,
+            )
+        if dt_row and dt_row.get("dt_user_id"):
+            dt_user_id = str(dt_row["dt_user_id"])
+
+    if not dt_user_id:
         logger.warning(
-            "[WorkbookWebhook] no dt_user_id for chat_id=%s (installation_id=%s)",
-            chat_id, installation_id,
+            "[WorkbookWebhook] no user_uuid for chat_id=%s (installation_id=%s, pusher=%s)",
+            chat_id, installation_id, pusher_login,
         )
         return web.Response(
-            text='{"ok":false,"error":"dt_user not found"}',
+            text='{"ok":false,"error":"user_uuid not found"}',
             content_type="application/json", status=404,
         )
 
-    dt_user_id = str(dt_row["dt_user_id"])
     commit_sha = payload.get("after", "unknown")
 
     # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
