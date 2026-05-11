@@ -135,7 +135,7 @@ def _inline_format(text: str) -> str:
 
     # Защищаем HTML-теги допустимые в Telegram + структурные (<details>, <summary>)
     # Telegram HTML: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <tg-spoiler>
-    # + <details>, <summary> (Telegram поддерживает их в последних версиях)
+    # <details>, <summary> НЕ поддерживаются Telegram — обрабатываются выше в format_strategy_content()
     text = re.sub(
         r"</?(?:b|i|u|s|code|pre|a|tg-spoiler)(?:\s[^>]*)?>",
         _save_html_tag,

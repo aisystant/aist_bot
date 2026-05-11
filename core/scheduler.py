@@ -7,6 +7,7 @@ from __future__ import annotations
 """
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -1239,7 +1240,7 @@ async def _check_schedule_integrity(now) -> Optional[str]:
         ''')
         if bad_times:
             for r in bad_times:
-                issues.append(f"⚠️ {r['tg_username'] or r['chat_id']}: "
+                issues.append(f"⚠️ {html.escape(str(r['tg_username'] or r['chat_id']))}: "
                               f"schedule={r['schedule_time']}, feed={r['feed_schedule_time']} (no leading zero)")
             # Auto-fix
             await conn.execute("UPDATE development.user_state SET schedule_time = LPAD(schedule_time, 5, '0') WHERE schedule_time ~ '^[0-9]:'")
@@ -1268,14 +1269,14 @@ async def _check_schedule_integrity(now) -> Optional[str]:
                 fix_ids,
             )
             for r in fixable:
-                issues.append(f"🟢 {r['tg_username'] or r['chat_id']}: "
+                issues.append(f"🟢 {html.escape(str(r['tg_username'] or r['chat_id']))}: "
                               f"auto-fixed marathon_status → active "
                               f"(had {r['current_topic_index']} topics)")
 
         # Report remaining (no progress, just start_date set)
         unfixable = [r for r in contradictions if r not in fixable]
         for r in unfixable:
-            issues.append(f"🔴 {r['tg_username'] or r['chat_id']}: "
+            issues.append(f"🔴 {html.escape(str(r['tg_username'] or r['chat_id']))}: "
                           f"marathon_status={r['marathon_status']} but "
                           f"start_date={r['marathon_start_date']}, topic_index={r['current_topic_index']}")
 

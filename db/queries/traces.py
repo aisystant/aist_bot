@@ -12,6 +12,7 @@ from __future__ import annotations
     green <8000, yellow <20000, red >=20000
 """
 
+import html
 from typing import List, Optional
 from db.connection import get_health_pool, get_learning_pool
 from config import get_logger
@@ -216,7 +217,7 @@ async def check_latency_alerts(minutes: int = 15) -> Optional[str]:
     for r in red_items[:5]:
         cat = classify_command(r['command'])
         ms = int(r['total_ms'])
-        lines.append(f"  \U0001f534 {r['command']}: <b>{ms}мс</b> ({cat})")
+        lines.append(f"  \U0001f534 {html.escape(r['command'])}: <b>{ms}мс</b> ({cat})")
 
     lines.append(f"\n\U0001f449 /latency — полный отчёт")
     return "\n".join(lines)
