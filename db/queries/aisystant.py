@@ -45,6 +45,11 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
 
     Также пишет маппинг в development.identity_map (lazy write)
     для Activity Hub (WP-109 Ф1). identity_map → crm.identity_links при WP-183.
+
+    WP-188 Ф17 фикс: дополнительно UPDATE persona.ory_identity.telegram_id —
+    иначе resolve_ory_id_from_chat возвращает None для пользователей, чей
+    ory_identity-row ETL'ом уже создан, но telegram_id не проставлен (9299/9896 на 12 мая).
+    Без этого /consent и любой другой код, требующий Ory UUID, падает после /link.
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -57,6 +62,33 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
             chat_id, aisystant_id,
         )
         logger.info(f"[Aisystant] UPDATE result: {result} for chat_id={chat_id}")
+
+    # WP-188 Ф17: завершаем мост tg ↔ ory — пишем telegram_id в persona.ory_identity,
+    # чтобы resolve_ory_id_from_chat работал сразу после /link.
+    try:
+        persona_pool = await get_persona_pool()
+        async with persona_pool.acquire() as pconn:
+            persona_result = await pconn.execute(
+                """UPDATE public.ory_identity
+                   SET telegram_id = $1
+                   WHERE (traits->>'aisystant_suser_id' = $2 OR traits->>'aisystant_id' = $2)
+                     AND (telegram_id IS NULL OR telegram_id <> $1)""",
+                chat_id, str(aisystant_id),
+            )
+            logger.info(f"[Aisystant] persona.ory_identity UPDATE: {persona_result} for chat_id={chat_id} aisystant={aisystant_id}")
+    except Exception as exc:
+        # Не блокируем /link — лучше успешная привязка с задержкой ory-моста,
+        # чем падение /link целиком. Без telegram_id в persona /consent выведет
+        # «синхронизация идёт» (graceful degrade в handlers/consent.py).
+        logger.warning(f"[Aisystant] persona.ory_identity UPDATE failed: {exc}")
+
+    # Сбрасываем negative-cache resolve_ory_id_from_chat — иначе он вернёт
+    # stale None для этого chat_id, который кэширован из предыдущего вызова.
+    try:
+        from helpers.dual_write import _ory_cache
+        _ory_cache.pop(chat_id, None)
+    except Exception:
+        pass
 
         # Lazy write в identity_map для Activity Hub (WP-109)
         user_uuid = await conn.fetchval(
