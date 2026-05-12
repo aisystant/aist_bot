@@ -1102,6 +1102,7 @@ async def _scan_all_club_posts(chat_id: int) -> list[dict]:
             if title.lower() in published_titles:
                 return None
 
+            created = str(fm.get("created", ""))
             # Определяем: scheduled из DB или index (draft/ready)
             sp = scheduled_by_file.get(file_info["path"]) or scheduled_by_title.get(title.lower())
             if sp:
@@ -1114,6 +1115,7 @@ async def _scan_all_club_posts(chat_id: int) -> list[dict]:
                     "status": "scheduled",
                     "scheduled_id": sp["id"],
                     "schedule_time": sp["schedule_time"],
+                    "created": created,
                 }
             return {
                 "path": file_info["path"],
@@ -1124,6 +1126,7 @@ async def _scan_all_club_posts(chat_id: int) -> list[dict]:
                 "status": status,  # "ready" или "draft"
                 "scheduled_id": None,
                 "schedule_time": None,
+                "created": created,
             }
 
         # Рекурсивный обход: docs/2026 → месяцы → файлы + подпапки постов
@@ -1167,9 +1170,12 @@ async def _scan_all_club_posts(chat_id: int) -> list[dict]:
                         "status": "scheduled",
                         "scheduled_id": sp["id"],
                         "schedule_time": sp["schedule_time"],
+                        "created": "",
                     })
 
-        # Сортировка: scheduled первыми, потом ready, потом draft
+        # Сортировка: сначала по created DESC (свежие сверху), затем stable по статусу
+        # (scheduled → ready → draft). Python sort стабилен — даты не теряют порядок.
+        candidates.sort(key=lambda c: c.get("created", ""), reverse=True)
         order = {"scheduled": 0, "ready": 1, "draft": 2}
         candidates.sort(key=lambda c: order.get(c["status"], 3))
 
@@ -1230,12 +1236,12 @@ async def _show_publish_options(
                 "status": c["status"],
                 "scheduled_id": c.get("scheduled_id"),
             }
-            for c in candidates[:10]  # Макс 10 кнопок
+            for c in candidates[:50]  # Макс 50 кнопок (Telegram держит до 100)
         ]
         await state.update_data(ready_posts=posts_data)
 
         icon = {"scheduled": "📅", "ready": "📄", "draft": "✏️"}
-        for i, c in enumerate(candidates[:10]):
+        for i, c in enumerate(candidates[:50]):
             prefix = icon.get(c["status"], "📄")
             time_hint = ""
             if c["status"] == "scheduled" and c.get("schedule_time"):
