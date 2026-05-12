@@ -57,6 +57,12 @@
 
 **Slot generation:** `occupied_dates` set — одна дата = один пост. `PUBLISHER_INTERVAL` (env, default=2) — минимум N дней между публикациями.
 
+### Manual publish (кнопка «Опубликовать»)
+
+`_show_publish_options` показывает все неопубликованные club-посты (📅 scheduled / 📄 ready / ✏️ draft), пилот выбирает любой → бот публикует немедленно → `status → published` (frontmatter commit). Лимит — до 50 кнопок (Telegram держит 100). Сортировка: stable по статусу (scheduled → ready → draft), внутри статуса — `created` DESC (свежие сверху).
+
+**Auto-publish vs Manual:** `_smart_publisher_scan` (05:07 МСК) подхватывает только `status: ready` для авто-планирования. Драфты доступны исключительно через ручную публикацию.
+
 ## 3. Источники
 
 | Что | Откуда |
@@ -90,3 +96,4 @@
 |------|-----------|
 | 2026-04-11 | Создание документа (DOC1.C batch) |
 | 2026-04-27 | WP-7 DC1+DC2: ownership-check через `category.group_permissions` (вместо эвристики `_resolve_username_from_category` + slug-парс), inline-кнопка «✗ Это не мой аккаунт». Тесты `test_discourse_ownership.py`. |
+| 2026-05-12 | Manual publish: лимит [:10] → [:50], сортировка по `created` DESC внутри статусов. Драфты, написанные за день, не отрезаются. |
