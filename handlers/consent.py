@@ -369,6 +369,42 @@ async def on_consent_link_now(callback: CallbackQuery):
     )
 
 
+@consent_router.callback_query(F.data == "consent_from_onboarding")
+async def on_consent_from_onboarding(callback: CallbackQuery):
+    """Точка входа из онбординг-flow (WP-188 Ф17.8).
+
+    Юзер только что прошёл /start и аккаунт Aisystant автопривязался — показываем
+    privacy-текст и предлагаем opt-in без необходимости вводить /consent.
+    """
+    await callback.answer()
+    chat_id = callback.message.chat.id
+
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        # Aisystant был «привязан» по флагу, но Ory UUID ещё не появился — sync-задержка.
+        await callback.message.answer(
+            _LINKED_BUT_SYNCING_TEXT,
+            parse_mode="HTML",
+            reply_markup=_retry_keyboard(),
+        )
+        return
+
+    consent = await get_consent(account_id)
+    if consent and consent["opt_in"]:
+        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        await callback.message.answer(
+            f"✅ Согласие уже активно. Зафиксировано: {opted_at}",
+        )
+        return
+
+    await callback.message.answer(
+        _privacy_text(),
+        parse_mode="HTML",
+        reply_markup=_accept_keyboard(),
+        disable_web_page_preview=True,
+    )
+
+
 @consent_router.callback_query(F.data == "consent_retry_status")
 async def on_consent_retry_status(callback: CallbackQuery):
     """Повторная попытка после ожидания Ory-синхронизации.

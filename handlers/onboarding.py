@@ -260,6 +260,16 @@ async def cmd_start(message: Message, state: FSMContext):
     guide_btn = _personal_guide_button(message.chat.id)
     if guide_btn:
         nav_buttons.append(guide_btn)
+    # WP-188 Ф17.8: предложение трекинга развития. Показываем только если Aisystant
+    # привязан (account_id будет резолвиться). Если не привязан — кнопка не появляется,
+    # пользователь увидит её позже после /link.
+    if linked:
+        nav_buttons.append([
+            InlineKeyboardButton(
+                text="📊 Согласие на трекинг развития",
+                callback_data="consent_from_onboarding",
+            )
+        ])
     nav_kb = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
     await message.answer(
         t('onboarding.navigator_offer', lang) + "\n\n" + t('connect.onboarding_prompt', lang),
