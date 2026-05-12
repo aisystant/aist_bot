@@ -183,6 +183,41 @@ _LINKED_BUT_SYNCING_TEXT = (
 )
 
 
+async def show_consent_optin(message: Message) -> None:
+    """Show consent opt-in privacy screen. Called from deep links (e.g. ?start=consent).
+
+    WP-188 Ф17: handles all states — not linked / syncing / already opted-in / fresh.
+    see: scenario-02-13-consent.md §5 п.3
+    """
+    chat_id = message.from_user.id if message.from_user else message.chat.id
+    intern, account_id = await _resolve_account(chat_id)
+    lang = (intern.get("language") if intern else "ru") or "ru"
+
+    if not await is_onboarded(intern):
+        await message.answer(t("profile.first_start", lang))
+        return
+
+    if not account_id:
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(chat_id)
+        if aisystant_id:
+            await message.answer(_LINKED_BUT_SYNCING_TEXT, parse_mode="HTML", reply_markup=_retry_keyboard())
+        else:
+            await message.answer(_NOT_LINKED_TEXT, parse_mode="HTML", reply_markup=_link_keyboard())
+        return
+
+    consent = await get_consent(account_id)
+    if consent and consent["opt_in"]:
+        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        await message.answer(
+            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>\n\nУправление: /consent /consent opt-out",
+            parse_mode="HTML",
+        )
+        return
+
+    await message.answer(_privacy_text(), parse_mode="HTML", reply_markup=_accept_keyboard(), disable_web_page_preview=True)
+
+
 @consent_router.message(Command("consent"))
 async def cmd_consent(message: Message, command: CommandObject):
     """Управление consent. Подкоманды: status (default), opt-in, opt-out, revoke."""

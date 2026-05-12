@@ -90,8 +90,9 @@ def _has_learning_data(intern: dict) -> bool:
 
 @onboarding_router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    # Deep link: /start seminar_{code} → карточка семинара
     args = message.text.split(maxsplit=1)
+
+    # Deep link: /start seminar_{code} → карточка семинара
     if len(args) > 1 and args[1].startswith("seminar_"):
         try:
             seminar_code = args[1].split("_", 1)[1]
@@ -101,6 +102,15 @@ async def cmd_start(message: Message, state: FSMContext):
                 return
         except (ValueError, IndexError):
             pass
+
+    # Deep link: /start consent → consent opt-in (WP-188 Ф17, scenario-02-13 §5 п.3)
+    if len(args) > 1 and args[1] == "consent":
+        intern_check = await get_intern(message.chat.id)
+        if intern_check and intern_check.get('onboarding_completed'):
+            from handlers.consent import show_consent_optin
+            await show_consent_optin(message)
+            return
+        # New user: fall through to normal onboarding; consent button shown after auto-link
 
     intern = await get_intern(message.chat.id)
 
