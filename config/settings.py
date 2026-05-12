@@ -33,6 +33,9 @@ SUBSCRIPTION_URL = os.getenv("SUBSCRIPTION_URL") or os.getenv("DATABASE_URL")  #
 INDICATORS_URL = os.getenv("INDICATORS_URL") or os.getenv("DATABASE_URL")  # indicators.calculated_profile (заменяет digitaltwin)
 LEARNING_URL = os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")  # learning.domain_event (qa, notifications, traces)
 REWARDS_URL = os.getenv("REWARDS_URL") or os.getenv("DATABASE_URL")  # rewards.point_balances (WP-253 Ф9.3, проекция баллов)
+# WP-188 Ф17: учёт opt-in/opt-out на трекинг (learning.tracking_consent) через role consent_writer
+# (миграция 113). Отдельный pool — write-pool для GDPR-границы. Fallback на LEARNING_URL — read-only path.
+CONSENT_URL = os.getenv("CONSENT_URL") or os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")
 
 # WP-268 Phase 3 Block 1: fsm_states вынос в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
 # В production должно быть set явно. Fallback на DATABASE_URL — только для локального dev.
