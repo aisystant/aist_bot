@@ -105,7 +105,8 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # Deep link: /start consent → consent opt-in (WP-188 Ф17, scenario-02-13 §5 п.3)
     if len(args) > 1 and args[1] == "consent":
-        intern_check = await get_intern(message.chat.id)
+        _uid = message.from_user.id if message.from_user else message.chat.id
+        intern_check = await get_intern(_uid)
         if intern_check and intern_check.get('onboarding_completed'):
             from handlers.consent import show_consent_optin
             await show_consent_optin(message)
