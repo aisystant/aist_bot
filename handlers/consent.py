@@ -54,8 +54,9 @@ def _format_status(consent, lang: str = "ru") -> str:
         return (
             "🔒 <b>Трекинг развития</b>\n\n"
             "Согласие на трекинг ещё не дано.\n\n"
-            "Запусти <code>/consent opt-in</code>, чтобы платформа рассчитывала твою ступень "
-            "мастерства по поведенческим индикаторам (FORM.089)."
+            "Запусти /consent opt-in — платформа начнёт рассчитывать твою ступень "
+            "мастерства по поведению (как часто практикуешь, что завершаешь, "
+            "какие методы освоил)."
         )
     status_icon = "✅" if consent["opt_in"] else "🚫"
     status_text = "включён" if consent["opt_in"] else "отозван"
@@ -65,7 +66,7 @@ def _format_status(consent, lang: str = "ru") -> str:
         f"{status_icon} <b>Трекинг развития:</b> {status_text}\n\n"
         f"<b>Что трекаем:</b>\n{scope_lines}\n\n"
         f"<i>Зафиксировано: {opted_at}</i>\n\n"
-        "Управление: <code>/consent opt-in</code> / <code>/consent opt-out</code> / <code>/consent revoke</code>"
+        "Управление: /consent opt-in /consent opt-out /consent revoke"
     )
 
 
@@ -83,9 +84,9 @@ def _privacy_text() -> str:
         "  • Не передаём данные третьим сторонам\n"
         "  • Не используем для рекламы\n"
         "  • Не анализируем содержимое заметок и текстов\n\n"
-        f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy v1.0</a>\n\n"
-        "Согласие можно отозвать в любой момент через <code>/consent opt-out</code> "
-        "или удалить запись полностью через <code>/consent revoke</code>."
+        f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy</a>\n\n"
+        "Согласие можно отозвать в любой момент через /consent opt-out "
+        "или удалить запись полностью через /consent revoke."
     )
 
 
@@ -143,11 +144,9 @@ _NOT_LINKED_TEXT = (
 
 
 _LINKED_BUT_SYNCING_TEXT = (
-    "⏳ <b>Аккаунт Aisystant привязан, но идёт синхронизация</b>\n\n"
-    "Идентификатор появится в системе в течение 1–2 минут. "
-    "Это нужно, потому что bot и stage_evaluator используют разные слои identity "
-    "(Telegram → Aisystant → Ory UUID).\n\n"
-    "Нажми «🔄 Попробовать снова» через минуту — если не получилось, напиши Tseren."
+    "⏳ <b>Аккаунт привязан, идёт синхронизация</b>\n\n"
+    "Системе нужно 1–2 минуты, чтобы связать твой Telegram с профилем Aisystant. "
+    "Нажми «🔄 Попробовать снова» через минуту. Если не получится — напиши Tseren."
 )
 
 
@@ -195,7 +194,7 @@ async def cmd_consent(message: Message, command: CommandObject):
             await message.answer(
                 f"✅ <b>Согласие уже активно.</b>\n\n"
                 f"Зафиксировано: <i>{opted_at}</i>\n\n"
-                "Управление: <code>/consent</code> (status) / <code>/consent opt-out</code> (отозвать).",
+                "Управление: /consent /consent opt-out",
                 parse_mode="HTML",
             )
             return
@@ -210,8 +209,8 @@ async def cmd_consent(message: Message, command: CommandObject):
         await set_consent(account_id, opt_in=False, scope=consent["scope"])
         await message.answer(
             "🚫 <b>Согласие отозвано.</b>\n\n"
-            "Worker stage_evaluator больше не будет обрабатывать твои данные. "
-            "История остаётся для аудита. Полное удаление: <code>/consent revoke</code>.",
+            "Платформа больше не будет учитывать твои действия для расчёта ступени. "
+            "История остаётся (для аудита). Полное удаление: /consent revoke",
             parse_mode="HTML",
         )
         return
@@ -222,9 +221,9 @@ async def cmd_consent(message: Message, command: CommandObject):
             await message.answer("🗑 Записи о согласии нет — удалять нечего.")
             return
         await message.answer(
-            "⚠️ <b>Полное удаление записи о согласии (GDPR right to erasure)</b>\n\n"
-            "Будет удалена запись из <code>learning.tracking_consent</code>. "
-            "Это действие необратимо. Для повторного включения трекинга потребуется новый <code>/consent opt-in</code>.\n\n"
+            "⚠️ <b>Полное удаление согласия</b>\n\n"
+            "Запись будет удалена. Действие необратимо — для повторного включения "
+            "потребуется новый /consent opt-in\n\n"
             "Продолжить?",
             parse_mode="HTML",
             reply_markup=_revoke_keyboard(),
@@ -233,10 +232,10 @@ async def cmd_consent(message: Message, command: CommandObject):
 
     await message.answer(
         "Неизвестная подкоманда. Доступные:\n"
-        "<code>/consent</code> — текущее состояние\n"
-        "<code>/consent opt-in</code> — дать согласие\n"
-        "<code>/consent opt-out</code> — отозвать (сохраняет историю)\n"
-        "<code>/consent revoke</code> — удалить запись (GDPR)",
+        "/consent — текущее состояние\n"
+        "/consent opt-in — дать согласие\n"
+        "/consent opt-out — отозвать (сохраняет историю)\n"
+        "/consent revoke — удалить запись",
         parse_mode="HTML",
     )
 
@@ -256,9 +255,9 @@ async def on_consent_accept(callback: CallbackQuery):
     await callback.answer("Спасибо — согласие зафиксировано.")
     await callback.message.edit_text(
         "✅ <b>Согласие зафиксировано.</b>\n\n"
-        "Теперь worker stage_evaluator будет ежедневно (04:35 МСК) пересчитывать "
-        "твою ступень мастерства по поведенческим индикаторам.\n\n"
-        "Управление: <code>/consent</code> (status) / <code>/consent opt-out</code> (отозвать).",
+        "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень "
+        "мастерства по тому, как ты практикуешь, что завершаешь и какие методы освоил.\n\n"
+        "Управление: /consent /consent opt-out",
         parse_mode="HTML",
     )
     logger.info("[consent] accept chat_id=%s account_id=%s", callback.message.chat.id, account_id)
@@ -268,7 +267,7 @@ async def on_consent_accept(callback: CallbackQuery):
 async def on_consent_decline(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(
-        "👌 Без проблем — можешь вернуться к этому позже через <code>/consent opt-in</code>.",
+        "👌 Без проблем — можешь вернуться к этому позже через /consent opt-in",
         parse_mode="HTML",
     )
 
