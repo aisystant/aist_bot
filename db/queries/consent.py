@@ -101,6 +101,30 @@ async def set_consent(
     )
 
 
+async def count_practice_events_30d(account_id: str) -> dict[str, int]:
+    """Количество событий practice/learning за 30 дней — для понимания «насколько активен пользователь».
+
+    Используется в /consent status: если события = 0, бот объясняет почему
+    ступень в /me будет 0 даже после opt_in.
+
+    Читаем через тот же _consent_pool — роль consent_writer имеет SELECT на
+    learning.tracking_consent, но на public.domain_event нет. Нужен learning-pool.
+    """
+    from db.connection import get_learning_pool
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT
+                COUNT(*) FILTER (WHERE activity_domain = 'practice') AS practice,
+                COUNT(*) FILTER (WHERE activity_domain = 'learning') AS learning
+               FROM public.domain_event
+               WHERE account_id = $1::uuid
+                 AND occurred_at >= NOW() - INTERVAL '30 days'""",
+            account_id,
+        )
+    return {"practice": int(row["practice"] or 0), "learning": int(row["learning"] or 0)}
+
+
 async def revoke_consent(account_id: str) -> bool:
     """GDPR right to erasure — полное удаление row.
 

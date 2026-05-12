@@ -29,6 +29,7 @@ from db.queries.consent import (
     get_consent,
     set_consent,
     revoke_consent,
+    count_practice_events_30d,
     DEFAULT_SCOPE,
 )
 from helpers.dual_write import resolve_ory_id_from_chat
@@ -49,25 +50,54 @@ def _scope_label(scope_name: str, lang: str = "ru") -> str:
     }.get(scope_name, f"• {scope_name}")
 
 
-def _format_status(consent, lang: str = "ru") -> str:
-    if consent is None:
+def _activity_summary(events: dict[str, int]) -> str:
+    """Краткая сводка событий + честная подсказка если активности мало."""
+    total = events["practice"] + events["learning"]
+    if total == 0:
         return (
-            "🔒 <b>Трекинг развития</b>\n\n"
-            "Согласие на трекинг ещё не дано.\n\n"
-            "Запусти /consent opt-in — платформа начнёт рассчитывать твою ступень "
-            "мастерства по поведению (как часто практикуешь, что завершаешь, "
-            "какие методы освоил)."
+            "📊 <b>Твоя активность за 30 дней:</b> пока пусто\n\n"
+            "Чтобы платформа определила твою ступень, нужны действия, которые она умеет считать:\n"
+            "  • <b>Уроки и тренировки</b> — /learn, /train в боте\n"
+            "  • <b>Day Open / Day Close</b> — в Claude Code (если работаешь в IWE Template)\n"
+            "  • <b>Заметки и фиксации</b> — через /me → Заметки\n\n"
+            "Первый realистичный stage появится после 1–2 недель регулярных действий."
         )
+    return (
+        f"📊 <b>Твоя активность за 30 дней:</b>\n"
+        f"  • Практика: {events['practice']} событий\n"
+        f"  • Обучение: {events['learning']} событий\n\n"
+        "Следующий пересчёт ступени — 04:35 МСК. Проверь /me, чтобы увидеть текущий stage."
+    )
+
+
+def _format_status_no_consent() -> str:
+    return (
+        "🔒 <b>Трекинг развития</b>\n\n"
+        "Согласие на трекинг ещё не дано.\n\n"
+        "Запусти /consent opt-in — платформа начнёт рассчитывать твою ступень "
+        "мастерства по поведению (как часто практикуешь, что завершаешь, "
+        "какие методы освоил).\n\n"
+        "<i>⚠️ Важно: opt_in сам по себе не даёт stage. Нужны действия в боте "
+        "(/learn, /train) или фиксация практики через Day Open/Close в IWE Template.</i>"
+    )
+
+
+def _format_status(consent, events: dict[str, int] | None = None, lang: str = "ru") -> str:
+    if consent is None:
+        return _format_status_no_consent()
     status_icon = "✅" if consent["opt_in"] else "🚫"
     status_text = "включён" if consent["opt_in"] else "отозван"
     scope_lines = "\n".join(f"  {_scope_label(s, lang)}" for s in (consent["scope"] or []))
     opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
-    return (
+    text = (
         f"{status_icon} <b>Трекинг развития:</b> {status_text}\n\n"
         f"<b>Что трекаем:</b>\n{scope_lines}\n\n"
         f"<i>Зафиксировано: {opted_at}</i>\n\n"
-        "Управление: /consent opt-in /consent opt-out /consent revoke"
     )
+    if consent["opt_in"] and events is not None:
+        text += _activity_summary(events) + "\n\n"
+    text += "Управление: /consent opt-in /consent opt-out /consent revoke"
+    return text
 
 
 def _privacy_text() -> str:
@@ -186,7 +216,13 @@ async def cmd_consent(message: Message, command: CommandObject):
 
     if action == "status":
         consent = await get_consent(account_id)
-        await message.answer(_format_status(consent, lang), parse_mode="HTML")
+        events = None
+        if consent and consent["opt_in"]:
+            try:
+                events = await count_practice_events_30d(account_id)
+            except Exception as exc:
+                logger.warning("[consent status] events count failed: %s", exc)
+        await message.answer(_format_status(consent, events=events, lang=lang), parse_mode="HTML")
         return
 
     if action in ("opt-in", "opt_in", "in"):
@@ -259,8 +295,10 @@ async def on_consent_accept(callback: CallbackQuery):
     await callback.answer("Спасибо — согласие зафиксировано.")
     await callback.message.edit_text(
         "✅ <b>Согласие зафиксировано.</b>\n\n"
-        "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень "
-        "мастерства по тому, как ты практикуешь, что завершаешь и какие методы освоил.\n\n"
+        "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень мастерства.\n\n"
+        "<b>Что считается:</b> /learn, /train (уроки), Day Open/Close в IWE Template, "
+        "фиксации практики. Первый realистичный stage появится через 1–2 недели регулярной активности — "
+        "проверь /consent через неделю, чтобы увидеть собранную статистику.\n\n"
         "Управление: /consent /consent opt-out",
         parse_mode="HTML",
     )
