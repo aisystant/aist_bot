@@ -15,6 +15,7 @@ from config import (
     INDICATORS_URL,
     LEARNING_URL,
     REWARDS_URL,
+    CONSENT_URL,
     FSM_URL,
     JOURNAL_URL,
     HEALTH_URL,
@@ -40,6 +41,10 @@ _subscription_pool: Optional[asyncpg.Pool] = None  # subscription.contract
 _indicators_pool: Optional[asyncpg.Pool] = None    # indicators.calculated_profile (Память.Derived: ЦД)
 _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, notifications, traces)
 _rewards_pool: Optional[asyncpg.Pool] = None       # rewards.point_balances (WP-253 Ф9.3 проекция)
+
+# WP-188 Ф17: writer-pool для learning.tracking_consent через роль consent_writer (миграция 113).
+# Отдельный pool — write-граница для GDPR. Размер маленький — операция редкая (онбординг + ручной /consent).
+_consent_pool: Optional[asyncpg.Pool] = None       # learning.tracking_consent (consent_writer role)
 
 # WP-268 Phase 3 Block 1: aiogram fsm_states вынесен в Railway-local Postgres (паттерн DP.ARCH.004 §10.10).
 _fsm_pool: Optional[asyncpg.Pool] = None           # fsm_states (Railway-local Postgres)
@@ -167,6 +172,29 @@ async def get_rewards_pool() -> asyncpg.Pool:
         )
         logger.info("✅ Rewards пул соединений создан")
     return _rewards_pool
+
+
+async def get_consent_pool() -> asyncpg.Pool:
+    """Пул соединений writer-pool для learning.tracking_consent (WP-188 Ф17).
+
+    Использует роль `consent_writer` (миграция 113): INSERT/UPDATE/DELETE/SELECT
+    только на tracking_consent. BYPASSRLS — caller ОБЯЗАН передавать явный
+    `WHERE account_id = $1` (L2-PRIVACY, см. lessons_privacy_layer2_required.md).
+
+    Маленький pool: операция редкая (онбординг + ручной /consent).
+    """
+    global _consent_pool
+    if _consent_pool is None:
+        _consent_pool = await asyncpg.create_pool(
+            CONSENT_URL,
+            statement_cache_size=0,  # Neon pooled endpoint compatibility
+            min_size=1,
+            max_size=3,
+            command_timeout=15,
+            max_inactive_connection_lifetime=60,
+        )
+        logger.info("✅ Consent пул соединений создан")
+    return _consent_pool
 
 
 async def get_fsm_pool() -> asyncpg.Pool:
@@ -309,7 +337,7 @@ async def get_bot_data_pool() -> asyncpg.Pool:
 
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool, _publication_pool, _community_pool, _lead_pool, _reference_pool, _bot_data_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _consent_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool, _publication_pool, _community_pool, _lead_pool, _reference_pool, _bot_data_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -334,6 +362,10 @@ async def close_pool():
         await _rewards_pool.close()
         _rewards_pool = None
         logger.info("🔒 Rewards пул соединений закрыт")
+    if _consent_pool:
+        await _consent_pool.close()
+        _consent_pool = None
+        logger.info("🔒 Consent пул соединений закрыт")
     if _fsm_pool:
         await _fsm_pool.close()
         _fsm_pool = None
