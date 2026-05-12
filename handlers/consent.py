@@ -31,6 +31,7 @@ from db.queries.consent import (
     revoke_consent,
     DEFAULT_SCOPE,
 )
+from helpers.dual_write import resolve_ory_id_from_chat
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -107,13 +108,47 @@ def _revoke_keyboard() -> InlineKeyboardMarkup:
 
 
 async def _resolve_account(message: Message) -> tuple[dict | None, str | None]:
-    """Returns (intern, account_id) или (intern, None) если не привязан."""
+    """Returns (intern, account_id).
+
+    Lookup account_id (Ory UUID) через persona.ory_identity — realtime,
+    не из кэшированного intern. Это важно: после /link пользователь сразу
+    должен мочь /consent, но intern dict обновляется позже (или вообще не
+    содержит ory_id — только dt_user_id, который ставится при подключении ЦД).
+    """
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
-    if intern is None:
-        return None, None
-    account_id = intern.get("dt_user_id")
+    account_id = await resolve_ory_id_from_chat(chat_id)
     return intern, account_id
+
+
+def _link_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Привязать аккаунт сейчас", callback_data="consent_link_now")],
+    ])
+
+
+def _retry_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Попробовать снова", callback_data="consent_retry_status")],
+    ])
+
+
+_NOT_LINKED_TEXT = (
+    "🔒 <b>Сначала нужно привязать аккаунт Aisystant</b>\n\n"
+    "Чтобы платформа считала твою ступень — она должна понимать, что ивенты "
+    "(уроки, практика, заметки) принадлежат именно тебе. Это даёт привязка к Aisystant.\n\n"
+    "<b>Нажми кнопку ниже</b> — бот найдёт твой Aisystant-аккаунт по Telegram username "
+    "и привяжет за 2 секунды. После этого автоматически продолжим с согласием."
+)
+
+
+_LINKED_BUT_SYNCING_TEXT = (
+    "⏳ <b>Аккаунт Aisystant привязан, но идёт синхронизация</b>\n\n"
+    "Идентификатор появится в системе в течение 1–2 минут. "
+    "Это нужно, потому что bot и stage_evaluator используют разные слои identity "
+    "(Telegram → Aisystant → Ory UUID).\n\n"
+    "Нажми «🔄 Попробовать снова» через минуту — если не получилось, напиши Tseren."
+)
 
 
 @consent_router.message(Command("consent"))
@@ -127,12 +162,22 @@ async def cmd_consent(message: Message, command: CommandObject):
         return
 
     if not account_id:
-        await message.answer(
-            "🔒 <b>Трекинг развития</b>\n\n"
-            "Аккаунт ещё не привязан к Aisystant.\n"
-            "Привяжите профиль в /settings — после этого согласие можно будет дать.",
-            parse_mode="HTML",
-        )
+        # Различить два сценария: (1) вообще не привязан Aisystant, (2) привязан, но Ory UUID
+        # ещё не появился в persona.ory_identity (sync-задержка / не было OAuth-входа).
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(message.chat.id)
+        if aisystant_id:
+            await message.answer(
+                _LINKED_BUT_SYNCING_TEXT,
+                parse_mode="HTML",
+                reply_markup=_retry_keyboard(),
+            )
+        else:
+            await message.answer(
+                _NOT_LINKED_TEXT,
+                parse_mode="HTML",
+                reply_markup=_link_keyboard(),
+            )
         return
 
     action = (command.args or "status").strip().lower()
@@ -253,3 +298,116 @@ async def on_consent_revoke_confirm(callback: CallbackQuery):
 async def on_consent_revoke_cancel(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text("↩️ Удаление отменено. Текущее состояние не изменилось.")
+
+
+@consent_router.callback_query(F.data == "consent_link_now")
+async def on_consent_link_now(callback: CallbackQuery):
+    """Запустить привязку Aisystant прямо из /consent flow.
+
+    После успешной привязки сразу показать privacy-текст для opt-in —
+    не заставлять юзера повторно искать команду.
+    """
+    await callback.answer()
+    chat_id = callback.message.chat.id
+
+    from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+    from clients import aisystant
+
+    existing = await get_aisystant_id(chat_id)
+    if existing:
+        await callback.message.edit_text(
+            "✅ Аккаунт Aisystant уже привязан. Проверяю синхронизацию…",
+            parse_mode="HTML",
+        )
+    else:
+        try:
+            aisystant_id = await aisystant.find_user_by_tg(chat_id)
+        except Exception as exc:
+            logger.error("[consent_link_now] find_user_by_tg(%s): %s", chat_id, exc)
+            await callback.message.edit_text(
+                "❌ Не удалось найти Aisystant-аккаунт автоматически.\n\n"
+                "Попробуй вручную: <b>/link</b> — там бот покажет ссылку для привязки.",
+                parse_mode="HTML",
+            )
+            return
+        if not aisystant_id:
+            await callback.message.edit_text(
+                "🔍 <b>Aisystant-аккаунт не найден по Telegram username</b>\n\n"
+                "Возможно, у тебя ещё нет аккаунта или username не указан в Aisystant. "
+                "Используй команду <b>/link</b> — она покажет ссылку для ручной привязки.",
+                parse_mode="HTML",
+            )
+            return
+        await save_aisystant_link(chat_id, aisystant_id)
+        await callback.message.edit_text(
+            "✅ <b>Аккаунт Aisystant найден и привязан.</b>\n\nПроверяю Ory-идентификатор…",
+            parse_mode="HTML",
+        )
+
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        await callback.message.answer(
+            _LINKED_BUT_SYNCING_TEXT,
+            parse_mode="HTML",
+            reply_markup=_retry_keyboard(),
+        )
+        return
+
+    consent = await get_consent(account_id)
+    if consent and consent["opt_in"]:
+        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        await callback.message.answer(
+            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    await callback.message.answer(
+        _privacy_text(),
+        parse_mode="HTML",
+        reply_markup=_accept_keyboard(),
+        disable_web_page_preview=True,
+    )
+
+
+@consent_router.callback_query(F.data == "consent_retry_status")
+async def on_consent_retry_status(callback: CallbackQuery):
+    """Повторная попытка после ожидания Ory-синхронизации.
+
+    Также сбрасывает negative-cache `resolve_ory_id_from_chat`, чтобы свежие
+    данные из persona.ory_identity подтянулись.
+    """
+    await callback.answer()
+    chat_id = callback.message.chat.id
+
+    # Сброс negative-cache: пользователь только что ожидал sync, кэш мог содержать stale None.
+    from helpers.dual_write import _ory_cache
+    _ory_cache.pop(chat_id, None)
+
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        await callback.message.answer(
+            "⏳ Идентификатор пока не появился. Попробуй ещё через минуту или напиши Tseren.",
+            reply_markup=_retry_keyboard(),
+        )
+        return
+
+    consent = await get_consent(account_id)
+    if consent and consent["opt_in"]:
+        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        await callback.message.answer(
+            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    await callback.message.answer(
+        "✅ <b>Идентификатор подтянулся.</b>\n\nТеперь можно дать согласие:",
+        parse_mode="HTML",
+    )
+    await callback.message.answer(
+        _privacy_text(),
+        parse_mode="HTML",
+        reply_markup=_accept_keyboard(),
+        disable_web_page_preview=True,
+    )
