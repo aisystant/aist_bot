@@ -58,7 +58,7 @@ def _format_status(consent, lang: str = "ru") -> str:
         )
     status_icon = "✅" if consent["opt_in"] else "🚫"
     status_text = "включён" if consent["opt_in"] else "отозван"
-    scope_lines = "\n".join(f"  {_scope_label(s, lang)}" for s in consent["scope"])
+    scope_lines = "\n".join(f"  {_scope_label(s, lang)}" for s in (consent["scope"] or []))
     opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"{status_icon} <b>Трекинг развития:</b> {status_text}\n\n"
@@ -143,6 +143,17 @@ async def cmd_consent(message: Message, command: CommandObject):
         return
 
     if action in ("opt-in", "opt_in", "in"):
+        # GDPR: повторный opt-in не должен затирать opted_at первого согласия (аудит-метка).
+        consent = await get_consent(account_id)
+        if consent and consent["opt_in"]:
+            opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+            await message.answer(
+                f"✅ <b>Согласие уже активно.</b>\n\n"
+                f"Зафиксировано: <i>{opted_at}</i>\n\n"
+                "Управление: <code>/consent</code> (status) / <code>/consent opt-out</code> (отозвать).",
+                parse_mode="HTML",
+            )
+            return
         await message.answer(_privacy_text(), parse_mode="HTML", reply_markup=_accept_keyboard(), disable_web_page_preview=True)
         return
 

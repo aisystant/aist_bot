@@ -69,6 +69,9 @@ async def set_consent(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
+            -- L2-PRIVACY: account_id — PRIMARY KEY, ON CONFLICT резолвится в ту же строку
+            -- по определению; cross-account запись физически невозможна (не требуется
+            -- explicit WHERE для UPDATE-branch). Соответствует контракту BYPASSRLS-роли.
             INSERT INTO learning.tracking_consent (account_id, opt_in, scope, opted_at)
             VALUES ($1::uuid, $2, $3, NOW())
             ON CONFLICT (account_id) DO UPDATE
