@@ -73,8 +73,8 @@ async def save_published_post(
     await pool.execute(
         """
         INSERT INTO published_post (chat_id, discourse_topic_id, discourse_post_id, title, category_id, source_file)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (discourse_topic_id) DO NOTHING
+        SELECT $1, $2, $3, $4, $5, $6
+        WHERE NOT EXISTS (SELECT 1 FROM published_post WHERE discourse_topic_id = $2)
         """,
         chat_id, discourse_topic_id, discourse_post_id, title, category_id, source_file,
     )
