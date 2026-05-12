@@ -61,8 +61,8 @@ async def set_consent(
 ) -> ConsentRow:
     """UPSERT consent для account_id.
 
-    Создаёт row или обновляет существующую. opted_at = now() при каждом изменении
-    (это аудит-метка момента согласия, не первичная запись).
+    GDPR-аудит: opted_at = метка ПЕРВОГО согласия, никогда не обновляется (COALESCE).
+    При повторном opt-in после opt-out первая дата сохраняется как аудит-след.
     """
     pool = await get_consent_pool()
     effective_scope = scope if scope is not None else DEFAULT_SCOPE
@@ -72,12 +72,17 @@ async def set_consent(
             -- L2-PRIVACY: account_id — PRIMARY KEY, ON CONFLICT резолвится в ту же строку
             -- по определению; cross-account запись физически невозможна (не требуется
             -- explicit WHERE для UPDATE-branch). Соответствует контракту BYPASSRLS-роли.
+            --
+            -- GDPR audit: opted_at — метка первого согласия. Сохраняется через COALESCE
+            -- при последующих изменениях (opt-out, повторный opt-in). Если потребуется
+            -- разделить «первый opt-in» и «последнее изменение» — отдельная колонка
+            -- revoked_at + миграция.
             INSERT INTO learning.tracking_consent (account_id, opt_in, scope, opted_at)
             VALUES ($1::uuid, $2, $3, NOW())
             ON CONFLICT (account_id) DO UPDATE
                 SET opt_in = EXCLUDED.opt_in,
                     scope = EXCLUDED.scope,
-                    opted_at = NOW()
+                    opted_at = COALESCE(tracking_consent.opted_at, EXCLUDED.opted_at)
             RETURNING account_id::text, opt_in, scope, opted_at
             """,
             account_id,

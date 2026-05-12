@@ -71,6 +71,17 @@ async def cmd_link(message: Message):
         await _refresh_tier_keyboard(message, chat_id, lang)
         # Показываем что делать дальше
         await _send_link_next_steps(message, chat_id, lang)
+        # WP-188 Ф17 follow-up: предложить consent для тех, кто пришёл к /link уже
+        # после онбординга (auto-link не сработал на /start) — иначе они не увидят
+        # inline-кнопки consent и не узнают про opt-in.
+        await message.answer(
+            "📊 <b>Хочешь, чтобы платформа считала твою ступень мастерства?</b>\n\n"
+            "Для этого нужно одно действие — согласие на трекинг развития.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📊 Согласие на трекинг", callback_data="consent_from_onboarding"),
+            ]]),
+        )
         return
 
     # Не найден → показываем ссылку для привязки

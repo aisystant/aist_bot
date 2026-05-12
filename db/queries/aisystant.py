@@ -63,16 +63,46 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
         )
         logger.info(f"[Aisystant] UPDATE result: {result} for chat_id={chat_id}")
 
+    # Сбрасываем negative-cache resolve_ory_id_from_chat ДО UPDATE — устраняет race-окно,
+    # когда параллельный запрос мог бы закэшировать None ПОСЛЕ UPDATE но ДО pop.
+    try:
+        from helpers.dual_write import _ory_cache
+        _ory_cache.pop(chat_id, None)
+    except Exception:
+        pass
+
     # WP-188 Ф17: завершаем мост tg ↔ ory — пишем telegram_id в persona.ory_identity,
     # чтобы resolve_ory_id_from_chat работал сразу после /link.
+    #
+    # LIMIT 1 через CTE — защита от теоретического дубликата aisystant_id в ETL.
+    # Без LIMIT множественный UPDATE приведёт к коллизии: один chat_id → 2 ory UUID,
+    # resolve_ory_id_from_chat вернёт недетерминированный, consent пойдёт не туда.
+    # Если matches > 1 — логируем для аудита (предпочитаем точное поле aisystant_suser_id).
     try:
         persona_pool = await get_persona_pool()
         async with persona_pool.acquire() as pconn:
+            collision_count = await pconn.fetchval(
+                """SELECT COUNT(*) FROM public.ory_identity
+                   WHERE (traits->>'aisystant_suser_id' = $1 OR traits->>'aisystant_id' = $1)""",
+                str(aisystant_id),
+            )
+            if collision_count and collision_count > 1:
+                logger.warning(
+                    f"[Aisystant] persona.ory_identity COLLISION: aisystant={aisystant_id} "
+                    f"matches {collision_count} rows; will update only 1 (preferring aisystant_suser_id)"
+                )
             persona_result = await pconn.execute(
-                """UPDATE public.ory_identity
+                """WITH target AS (
+                       SELECT account_id FROM public.ory_identity
+                       WHERE (traits->>'aisystant_suser_id' = $2 OR traits->>'aisystant_id' = $2)
+                         AND (telegram_id IS NULL OR telegram_id <> $1)
+                       ORDER BY (traits->>'aisystant_suser_id' = $2) DESC
+                       LIMIT 1
+                   )
+                   UPDATE public.ory_identity oi
                    SET telegram_id = $1
-                   WHERE (traits->>'aisystant_suser_id' = $2 OR traits->>'aisystant_id' = $2)
-                     AND (telegram_id IS NULL OR telegram_id <> $1)""",
+                   FROM target
+                   WHERE oi.account_id = target.account_id""",
                 chat_id, str(aisystant_id),
             )
             logger.info(f"[Aisystant] persona.ory_identity UPDATE: {persona_result} for chat_id={chat_id} aisystant={aisystant_id}")
@@ -82,8 +112,8 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
         # «синхронизация идёт» (graceful degrade в handlers/consent.py).
         logger.warning(f"[Aisystant] persona.ory_identity UPDATE failed: {exc}")
 
-    # Сбрасываем negative-cache resolve_ory_id_from_chat — иначе он вернёт
-    # stale None для этого chat_id, который кэширован из предыдущего вызова.
+    # Двойной pop: после UPDATE гарантируем, что race-запрос (между UPDATE и pop ДО),
+    # который успел закэшировать ещё-None, не оставит stale значение.
     try:
         from helpers.dual_write import _ory_cache
         _ory_cache.pop(chat_id, None)

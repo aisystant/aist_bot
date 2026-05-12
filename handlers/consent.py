@@ -108,15 +108,18 @@ def _revoke_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-async def _resolve_account(message: Message) -> tuple[dict | None, str | None]:
+async def _resolve_account(chat_id: int) -> tuple[dict | None, str | None]:
     """Returns (intern, account_id).
 
     Lookup account_id (Ory UUID) через persona.ory_identity — realtime,
     не из кэшированного intern. Это важно: после /link пользователь сразу
     должен мочь /consent, но intern dict обновляется позже (или вообще не
     содержит ory_id — только dt_user_id, который ставится при подключении ЦД).
+
+    chat_id — для команд это message.chat.id; для callback'ов передавать
+    callback.from_user.id (а не callback.message.chat.id) — future-proof
+    на случай, если бот появится в группах (DM-only-инвариант не вечен).
     """
-    chat_id = message.chat.id
     intern = await get_intern(chat_id)
     account_id = await resolve_ory_id_from_chat(chat_id)
     return intern, account_id
@@ -153,7 +156,7 @@ _LINKED_BUT_SYNCING_TEXT = (
 @consent_router.message(Command("consent"))
 async def cmd_consent(message: Message, command: CommandObject):
     """Управление consent. Подкоманды: status (default), opt-in, opt-out, revoke."""
-    intern, account_id = await _resolve_account(message)
+    intern, account_id = await _resolve_account(message.from_user.id if message.from_user else message.chat.id)
     lang = (intern.get("language") if intern else "ru") or "ru"
 
     if not await is_onboarded(intern):
@@ -242,7 +245,8 @@ async def cmd_consent(message: Message, command: CommandObject):
 
 @consent_router.callback_query(F.data == "consent_accept")
 async def on_consent_accept(callback: CallbackQuery):
-    intern, account_id = await _resolve_account(callback.message)
+    user_id = callback.from_user.id
+    intern, account_id = await _resolve_account(user_id)
     if not account_id:
         await callback.answer("Аккаунт не привязан", show_alert=True)
         return
@@ -260,7 +264,7 @@ async def on_consent_accept(callback: CallbackQuery):
         "Управление: /consent /consent opt-out",
         parse_mode="HTML",
     )
-    logger.info("[consent] accept chat_id=%s account_id=%s", callback.message.chat.id, account_id)
+    logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
 
 
 @consent_router.callback_query(F.data == "consent_decline")
@@ -274,7 +278,7 @@ async def on_consent_decline(callback: CallbackQuery):
 
 @consent_router.callback_query(F.data == "consent_revoke_confirm")
 async def on_consent_revoke_confirm(callback: CallbackQuery):
-    intern, account_id = await _resolve_account(callback.message)
+    intern, account_id = await _resolve_account(callback.from_user.id)
     if not account_id:
         await callback.answer("Аккаунт не привязан", show_alert=True)
         return
@@ -307,7 +311,7 @@ async def on_consent_link_now(callback: CallbackQuery):
     не заставлять юзера повторно искать команду.
     """
     await callback.answer()
-    chat_id = callback.message.chat.id
+    chat_id = callback.from_user.id
 
     from db.queries.aisystant import get_aisystant_id, save_aisystant_link
     from clients import aisystant
@@ -377,7 +381,7 @@ async def on_consent_from_onboarding(callback: CallbackQuery):
     privacy-текст и предлагаем opt-in без необходимости вводить /consent.
     """
     await callback.answer()
-    chat_id = callback.message.chat.id
+    chat_id = callback.from_user.id
 
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
@@ -413,7 +417,7 @@ async def on_consent_retry_status(callback: CallbackQuery):
     данные из persona.ory_identity подтянулись.
     """
     await callback.answer()
-    chat_id = callback.message.chat.id
+    chat_id = callback.from_user.id
 
     # Сброс negative-cache: пользователь только что ожидал sync, кэш мог содержать stale None.
     from helpers.dual_write import _ory_cache
