@@ -17,6 +17,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
+    # WP-307 Ф17: healthcheck работает только в webhook-режиме.
+    # Для polling mode закомментируйте healthcheck или установите WEBHOOK_URL в .env
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8080}/health')"]
       interval: 30s
