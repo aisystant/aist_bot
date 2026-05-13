@@ -1,0 +1,26 @@
+# WP-307 Ф17 — локальный dev-стек для aist_bot (B1/B2)
+# Usage:
+#   cp .env.example .env  # заполнить значения
+#   docker compose up --build
+#
+# F10 Dev/Prod Parity: Python 3.11-slim + libpq совпадает с Railway.
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8080}/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

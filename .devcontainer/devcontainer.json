@@ -1,0 +1,20 @@
+{
+  "name": "aist-bot-dev",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "bot",
+  "workspaceFolder": "/app",
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "pip install -r requirements.txt",
+  "remoteUser": "root"
+}
