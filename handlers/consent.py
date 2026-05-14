@@ -57,16 +57,16 @@ def _activity_summary(events: dict[str, int]) -> str:
         return (
             "📊 <b>Твоя активность за 30 дней:</b> пока пусто\n\n"
             "Чтобы платформа определила твою ступень, нужны действия, которые она умеет считать:\n"
-            "  • <b>Уроки и тренировки</b> — /learn, /train в боте\n"
+            '  • <b>Уроки и тренировки</b> — <a href="https://t.me/aist_me_bot">/learn</a>, <a href="https://t.me/aist_me_bot">/train</a> в боте\n'
             "  • <b>Day Open / Day Close</b> — в Claude Code (если работаешь в IWE Template)\n"
-            "  • <b>Заметки и фиксации</b> — через /me → Заметки\n\n"
+            '  • <b>Заметки и фиксации</b> — через <a href="https://t.me/aist_me_bot">/me</a> → Заметки\n\n'
             "Первый realистичный stage появится после 1–2 недель регулярных действий."
         )
     return (
         f"📊 <b>Твоя активность за 30 дней:</b>\n"
         f"  • Практика: {events['practice']} событий\n"
         f"  • Обучение: {events['learning']} событий\n\n"
-        "Следующий пересчёт ступени — 04:35 МСК. Проверь /me, чтобы увидеть текущий stage."
+        'Следующий пересчёт ступени — 04:35 МСК. Проверь <a href="https://t.me/aist_me_bot">/me</a>, чтобы увидеть текущий stage.'
     )
 
 
@@ -74,11 +74,11 @@ def _format_status_no_consent() -> str:
     return (
         "🔒 <b>Трекинг развития</b>\n\n"
         "Согласие на трекинг ещё не дано.\n\n"
-        "Запусти /consent opt-in — платформа начнёт рассчитывать твою ступень "
+        "Запусти <a href=\"https://t.me/aist_me_bot\">/consent opt-in</a> — платформа начнёт рассчитывать твою ступень "
         "мастерства по поведению (как часто практикуешь, что завершаешь, "
         "какие методы освоил).\n\n"
         "<i>⚠️ Важно: opt_in сам по себе не даёт stage. Нужны действия в боте "
-        "(/learn, /train) или фиксация практики через Day Open/Close в IWE Template.</i>"
+        '(<a href="https://t.me/aist_me_bot">/learn</a>, <a href="https://t.me/aist_me_bot">/train</a>) или фиксация практики через Day Open/Close в IWE Template.</i>'
     )
 
 
@@ -96,7 +96,7 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
     )
     if consent["opt_in"] and events is not None:
         text += _activity_summary(events) + "\n\n"
-    text += "Управление: /consent opt-in /consent opt-out /consent revoke"
+    text += 'Управление: <a href="https://t.me/aist_me_bot">/consent opt-in</a> <a href="https://t.me/aist_me_bot">/consent opt-out</a> <a href="https://t.me/aist_me_bot">/consent revoke</a>'
     return text
 
 
@@ -115,8 +115,8 @@ def _privacy_text() -> str:
         "  • Не используем для рекламы\n"
         "  • Не анализируем содержимое заметок и текстов\n\n"
         f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy</a>\n\n"
-        "Согласие можно отозвать в любой момент через /consent opt-out "
-        "или удалить запись полностью через /consent revoke."
+        'Согласие можно отозвать в любой момент через <a href="https://t.me/aist_me_bot">/consent opt-out</a> '
+        'или удалить запись полностью через <a href="https://t.me/aist_me_bot">/consent revoke</a>.'
     )
 
 
@@ -233,7 +233,7 @@ async def cmd_consent(message: Message, command: CommandObject):
             await message.answer(
                 f"✅ <b>Согласие уже активно.</b>\n\n"
                 f"Зафиксировано: <i>{opted_at}</i>\n\n"
-                "Управление: /consent /consent opt-out",
+                'Управление: <a href="https://t.me/aist_me_bot">/consent</a> <a href="https://t.me/aist_me_bot">/consent opt-out</a>',
                 parse_mode="HTML",
             )
             return
@@ -249,7 +249,7 @@ async def cmd_consent(message: Message, command: CommandObject):
         await message.answer(
             "🚫 <b>Согласие отозвано.</b>\n\n"
             "Платформа больше не будет учитывать твои действия для расчёта ступени. "
-            "История остаётся (для аудита). Полное удаление: /consent revoke",
+            'История остаётся (для аудита). Полное удаление: <a href="https://t.me/aist_me_bot">/consent revoke</a>',
             parse_mode="HTML",
         )
         return
@@ -262,7 +262,7 @@ async def cmd_consent(message: Message, command: CommandObject):
         await message.answer(
             "⚠️ <b>Полное удаление согласия</b>\n\n"
             "Запись будет удалена. Действие необратимо — для повторного включения "
-            "потребуется новый /consent opt-in\n\n"
+            'потребуется новый <a href="https://t.me/aist_me_bot">/consent opt-in</a>\n\n'
             "Продолжить?",
             parse_mode="HTML",
             reply_markup=_revoke_keyboard(),
@@ -271,10 +271,10 @@ async def cmd_consent(message: Message, command: CommandObject):
 
     await message.answer(
         "Неизвестная подкоманда. Доступные:\n"
-        "/consent — текущее состояние\n"
-        "/consent opt-in — дать согласие\n"
-        "/consent opt-out — отозвать (сохраняет историю)\n"
-        "/consent revoke — удалить запись",
+        '<a href="https://t.me/aist_me_bot">/consent</a> — текущее состояние\n'
+        '<a href="https://t.me/aist_me_bot">/consent opt-in</a> — дать согласие\n'
+        '<a href="https://t.me/aist_me_bot">/consent opt-out</a> — отозвать (сохраняет историю)\n'
+        '<a href="https://t.me/aist_me_bot">/consent revoke</a> — удалить запись',
         parse_mode="HTML",
     )
 
@@ -296,10 +296,10 @@ async def on_consent_accept(callback: CallbackQuery):
     await callback.message.edit_text(
         "✅ <b>Согласие зафиксировано.</b>\n\n"
         "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень мастерства.\n\n"
-        "<b>Что считается:</b> /learn, /train (уроки), Day Open/Close в IWE Template, "
+        "<b>Что считается:</b> <a href=\"https://t.me/aist_me_bot\">/learn</a>, <a href=\"https://t.me/aist_me_bot\">/train</a> (уроки), Day Open/Close в IWE Template, "
         "фиксации практики. Первый realистичный stage появится через 1–2 недели регулярной активности — "
-        "проверь /consent через неделю, чтобы увидеть собранную статистику.\n\n"
-        "Управление: /consent /consent opt-out",
+        'проверь <a href="https://t.me/aist_me_bot">/consent</a> через неделю, чтобы увидеть собранную статистику.\n\n'
+        'Управление: <a href="https://t.me/aist_me_bot">/consent</a> <a href="https://t.me/aist_me_bot">/consent opt-out</a>',
         parse_mode="HTML",
     )
     logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
@@ -309,7 +309,7 @@ async def on_consent_accept(callback: CallbackQuery):
 async def on_consent_decline(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(
-        "👌 Без проблем — можешь вернуться к этому позже через /consent opt-in",
+        '👌 Без проблем — можешь вернуться к этому позже через <a href="https://t.me/aist_me_bot">/consent opt-in</a>',
         parse_mode="HTML",
     )
 
