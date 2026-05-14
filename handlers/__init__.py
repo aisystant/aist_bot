@@ -62,6 +62,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .connect import connect_router
     from .status import status_router
     from .legal import legal_router
+    from .reflect import reflect_router
 
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
@@ -96,6 +97,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(connect_router)
     dp.include_router(status_router)
     dp.include_router(legal_router)
+    dp.include_router(reflect_router)
 
     # ReplyKeyboard text → command routing (AFTER all command routers, BEFORE fallback)
     from .reply_keyboard import reply_kb_router
