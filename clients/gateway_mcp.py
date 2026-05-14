@@ -230,8 +230,8 @@ class GatewayMCPClient:
             if not refresh_token:
                 return False
             try:
-                from clients.ory_oauth import ory_oauth
-                from db.queries.ory_tokens import save_ory_tokens
+                from clients.ory_oauth import ory_oauth, InvalidGrantError
+                from db.queries.ory_tokens import save_ory_tokens, delete_ory_tokens
 
                 new_tokens = await ory_oauth.refresh_access_token(refresh_token)
                 if new_tokens:
@@ -262,6 +262,15 @@ class GatewayMCPClient:
                     f"(ory_id={data.get('ory_id', '?')[:8]}..., "
                     f"token_age={(datetime.utcnow() - expires_at).seconds // 60 if isinstance(expires_at, datetime) else '?'}min expired)"
                 )
+                return False
+            except InvalidGrantError:
+                # Refresh token отозван — очищаем кеш и БД, пользователь должен заново авторизоваться
+                self._tokens.pop(telegram_user_id, None)
+                try:
+                    await delete_ory_tokens(telegram_user_id)
+                except Exception:
+                    pass
+                logger.warning(f"Gateway: invalid_grant for user {telegram_user_id} — token cleared, re-auth required")
                 return False
             except Exception as e:
                 logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}", exc_info=True)
