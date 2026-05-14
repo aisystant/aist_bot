@@ -100,6 +100,9 @@ PATTERNS: list[dict] = [
     {"category": "dt", "severity": "L1",
      "pattern": r"(?i)DT.*token.*refresh.*fail|DT.*proactive refresh failed",
      "action": "Auto: disconnect + notify user to /twin"},
+    {"category": "dt", "severity": "L1",
+     "pattern": r"(?i)OryOAuth.*invalid_grant|OryOAuth.*Token refresh.*invalid_grant",
+     "action": "Auto: disconnect + notify user to re-auth"},
     {"category": "dt", "severity": "L2",
      "pattern": r"(?i)DT.*token.*exchange.*fail|DT OAuth.*fail",
      "action": "Check DT MCP server status"},
@@ -252,7 +255,7 @@ Rules:
 - L3: infrastructure issue (restart, check service)
 - L4: critical, manual intervention needed"""
 
-_VALID_CATEGORIES = {"fsm", "claude_api", "telegram_api", "mcp", "scheduler", "db", "deployment"}
+_VALID_CATEGORIES = {"fsm", "claude_api", "telegram_api", "mcp", "scheduler", "db", "deployment", "dt"}
 _VALID_SEVERITIES = {"L1", "L2", "L3", "L4"}
 
 
