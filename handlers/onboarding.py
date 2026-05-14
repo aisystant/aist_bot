@@ -103,13 +103,20 @@ async def cmd_start(message: Message, state: FSMContext):
         except (ValueError, IndexError):
             pass
 
-    # Deep link: /start consent → consent opt-in (WP-188 Ф17, scenario-02-13 §5 п.3)
-    if len(args) > 1 and args[1] == "consent":
+    # Deep links: /start consent | consent_optout | consent_revoke
+    if len(args) > 1 and args[1] in ("consent", "consent_optout", "consent_revoke"):
         _uid = message.from_user.id if message.from_user else message.chat.id
         intern_check = await get_intern(_uid)
         if intern_check and intern_check.get('onboarding_completed'):
-            from handlers.consent import show_consent_optin
-            await show_consent_optin(message)
+            if args[1] == "consent":
+                from handlers.consent import show_consent_optin
+                await show_consent_optin(message)
+            elif args[1] == "consent_optout":
+                from handlers.consent import show_consent_optout
+                await show_consent_optout(message)
+            elif args[1] == "consent_revoke":
+                from handlers.consent import show_consent_revoke
+                await show_consent_revoke(message)
             return
         # New user: fall through to normal onboarding; consent button shown after auto-link
 
