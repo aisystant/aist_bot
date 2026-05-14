@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 consent_router = Router(name="consent")
 
 
-_PRIVACY_URL = "https://system-school.ru/iwe/privacy"  # B8.0 публикация (WP-212)
+_PRIVACY_URL = "https://docs.system-school.ru/iwe/privacy"  # B8.0 публикация (WP-212)
 
 
 def _scope_label(scope_name: str, lang: str = "ru") -> str:

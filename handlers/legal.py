@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 legal_router = Router(name="legal")
 
-TOS_URL = "https://system-school.ru/iwe/tos"
-PRIVACY_URL = "https://system-school.ru/iwe/privacy"
+TOS_URL = "https://docs.system-school.ru/iwe/tos"
+PRIVACY_URL = "https://docs.system-school.ru/iwe/privacy"
 
 
 def _lang(intern) -> str:
