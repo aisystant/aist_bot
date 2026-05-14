@@ -43,6 +43,10 @@ ORY_USERINFO_URL = f"{ORY_BASE_URL}/userinfo"
 ORY_SCOPES = ["openid", "offline_access"]
 
 
+class InvalidGrantError(Exception):
+    """Refresh token отозван или истёк — требуется повторная авторизация пользователя."""
+
+
 class OryOAuthClient:
     """OAuth клиент для Ory (Authorization Code Flow)."""
 
@@ -135,8 +139,15 @@ class OryOAuthClient:
 
             async with session.post(ORY_TOKEN_URL, data=data) as resp:
                 if resp.status != 200:
-                    err = await resp.text()
-                    logger.error(f"[OryOAuth] Token refresh failed: {resp.status} {err}")
+                    try:
+                        err_body = await resp.json()
+                        err_code = err_body.get("error", "unknown")
+                    except Exception:
+                        err_code = await resp.text()
+                    if err_code == "invalid_grant":
+                        logger.warning(f"[OryOAuth] Token refresh: invalid_grant (permanent, re-auth required)")
+                        raise InvalidGrantError()
+                    logger.error(f"[OryOAuth] Token refresh failed: {resp.status} {err_code}")
                     return None
 
                 tokens = await resp.json()
