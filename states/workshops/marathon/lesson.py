@@ -337,6 +337,9 @@ class MarathonLessonState(BaseState):
 
         logger.info(f"Content sent to user {chat_id}, length: {len(content)}")
 
+        # WP-253 Блок 2: lesson_completed event for stage_evaluator activity coverage
+        asyncio.create_task(_log_lesson_completed(chat_id, topic_index, topic_day))
+
         # Rule 10.19: Look-ahead — pre-gen next topic in background
         intern_dict = self._user_to_intern_dict(user)
         asyncio.create_task(
@@ -400,6 +403,18 @@ class MarathonLessonState(BaseState):
             "topic_index": self._get_current_topic_index(user),
             "marathon_day": self._get_marathon_day(user)
         }
+
+
+async def _log_lesson_completed(chat_id: int, topic_index: int, topic_day: int) -> None:
+    """Fire-and-forget: emit lesson_completed event for stage_evaluator coverage (WP-253 Блок 2)."""
+    try:
+        from db.queries.events import log_event
+        await log_event(chat_id, 'lesson_completed', {
+            'topic_index': topic_index,
+            'topic_day': topic_day,
+        })
+    except Exception as exc:
+        logger.warning("[lesson_completed] event emit failed for %s: %s", chat_id, exc)
 
 
 async def _pregen_next_topic_bg(chat_id: int, intern: dict, current_topic_index: int):

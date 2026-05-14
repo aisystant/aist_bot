@@ -90,8 +90,9 @@ def _has_learning_data(intern: dict) -> bool:
 
 @onboarding_router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    # Deep link: /start seminar_{code} → карточка семинара
     args = message.text.split(maxsplit=1)
+
+    # Deep link: /start seminar_{code} → карточка семинара
     if len(args) > 1 and args[1].startswith("seminar_"):
         try:
             seminar_code = args[1].split("_", 1)[1]
