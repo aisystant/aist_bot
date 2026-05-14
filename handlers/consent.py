@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 consent_router = Router(name="consent")
 
 
-_PRIVACY_URL = "https://system-school.ru/iwe/privacy"  # B8.0 публикация (WP-212)
+_PRIVACY_URL = "https://system-school.ru/iwe/privacy.html"  # B8.0 публикация (WP-212)
 
 
 def _scope_label(scope_name: str, lang: str = "ru") -> str:
@@ -114,8 +114,8 @@ def _privacy_text() -> str:
         "  • Не используем для рекламы\n"
         "  • Не анализируем содержимое заметок и текстов\n\n"
         f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy</a>\n\n"
-        'Согласие можно отозвать в любой момент через <a href="https://t.me/aist_me_bot?start=consent">/consent opt-out</a> '
-        'или удалить запись полностью через <a href="https://t.me/aist_me_bot?start=consent">/consent revoke</a>.'
+        "Согласие можно отозвать в любой момент через команду /consent opt-out "
+        "или удалить запись полностью через команду /consent revoke."
     )
 
 
@@ -174,6 +174,43 @@ async def _resolve_account(chat_id: int) -> tuple[dict | None, str | None]:
     intern = await get_intern(chat_id)
     account_id = await resolve_ory_id_from_chat(chat_id)
     return intern, account_id
+
+
+async def show_consent_optin(message: Message) -> None:
+    """Точка входа для deep-link ?start=consent (из onboarding.py)."""
+    chat_id = message.chat.id
+    intern, account_id = await _resolve_account(chat_id)
+    if not account_id:
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(chat_id)
+        if aisystant_id:
+            await message.answer(
+                _LINKED_BUT_SYNCING_TEXT,
+                parse_mode="HTML",
+                reply_markup=_retry_keyboard(),
+            )
+        else:
+            await message.answer(
+                _NOT_LINKED_TEXT,
+                parse_mode="HTML",
+                reply_markup=_link_keyboard(),
+            )
+        return
+    consent = await get_consent(account_id)
+    if consent and consent["opt_in"]:
+        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        await message.answer(
+            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
+            parse_mode="HTML",
+            reply_markup=_status_keyboard(consent),
+        )
+        return
+    await message.answer(
+        _privacy_text(),
+        parse_mode="HTML",
+        reply_markup=_accept_keyboard(),
+        disable_web_page_preview=True,
+    )
 
 
 def _link_keyboard() -> InlineKeyboardMarkup:
@@ -355,10 +392,14 @@ async def on_consent_accept(callback: CallbackQuery):
     await callback.answer("Спасибо — согласие зафиксировано.")
     await callback.message.edit_text(
         "✅ <b>Согласие зафиксировано.</b>\n\n"
-        "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень мастерства.\n\n"
-        "<b>Что считается:</b> /learn, /train (уроки), Day Open/Close в IWE Template, "
-        "фиксации практики. Первый realистичный stage появится через 1–2 недели регулярной активности — "
-        "проверь /consent через неделю, чтобы увидеть собранную статистику.",
+        "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень мастерства "
+        "по всем источникам активности:\n\n"
+        "  • <b>Бот</b> — уроки (/learn), тренировки (/train), фиксации практики\n"
+        "  • <b>Учебная платформа</b> — завершённые уроки и тренировки\n"
+        "  • <b>Клуб</b> — посты, комментарии, участие\n"
+        "  • <b>Рабочая среда IWE</b> — планирование, рефлексии, закрытые задачи и проекты\n\n"
+        "Первый реалистичный stage появится через 1–2 недели регулярной активности. "
+        "Проверь статус через неделю — команда /consent.",
         parse_mode="HTML",
         reply_markup=_status_keyboard(consent),
     )
