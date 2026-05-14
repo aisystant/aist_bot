@@ -57,16 +57,16 @@ def _activity_summary(events: dict[str, int]) -> str:
         return (
             "📊 <b>Твоя активность за 30 дней:</b> пока пусто\n\n"
             "Чтобы платформа определила твою ступень, нужны действия, которые она умеет считать:\n"
-            '  • <b>Уроки и тренировки</b> — <a href="https://t.me/aist_me_bot">/learn</a>, <a href="https://t.me/aist_me_bot">/train</a> в боте\n'
+            '  • <b>Уроки и тренировки</b> — /learn, /train в боте\n'
             "  • <b>Day Open / Day Close</b> — в Claude Code (если работаешь в IWE Template)\n"
-            '  • <b>Заметки и фиксации</b> — через <a href="https://t.me/aist_me_bot">/me</a> → Заметки\n\n'
+            '  • <b>Заметки и фиксации</b> — через /me → Заметки\n\n'
             "Первый realистичный stage появится после 1–2 недель регулярных действий."
         )
     return (
         f"📊 <b>Твоя активность за 30 дней:</b>\n"
         f"  • Практика: {events['practice']} событий\n"
         f"  • Обучение: {events['learning']} событий\n\n"
-        'Следующий пересчёт ступени — 04:35 МСК. Проверь <a href="https://t.me/aist_me_bot">/me</a>, чтобы увидеть текущий stage.'
+        'Следующий пересчёт ступени — 04:35 МСК. Проверь /me, чтобы увидеть текущий stage.'
     )
 
 
@@ -74,11 +74,11 @@ def _format_status_no_consent() -> str:
     return (
         "🔒 <b>Трекинг развития</b>\n\n"
         "Согласие на трекинг ещё не дано.\n\n"
-        "Запусти <a href=\"https://t.me/aist_me_bot\">/consent opt-in</a> — платформа начнёт рассчитывать твою ступень "
+        "Запусти /consent opt-in — платформа начнёт рассчитывать твою ступень "
         "мастерства по поведению (как часто практикуешь, что завершаешь, "
         "какие методы освоил).\n\n"
         "<i>⚠️ Важно: opt_in сам по себе не даёт stage. Нужны действия в боте "
-        '(<a href="https://t.me/aist_me_bot">/learn</a>, <a href="https://t.me/aist_me_bot">/train</a>) или фиксация практики через Day Open/Close в IWE Template.</i>'
+        '(/learn, /train) или фиксация практики через Day Open/Close в IWE Template.</i>'
     )
 
 
@@ -96,7 +96,6 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
     )
     if consent["opt_in"] and events is not None:
         text += _activity_summary(events) + "\n\n"
-    text += 'Управление: <a href="https://t.me/aist_me_bot">/consent opt-in</a> <a href="https://t.me/aist_me_bot">/consent opt-out</a> <a href="https://t.me/aist_me_bot">/consent revoke</a>'
     return text
 
 
@@ -115,8 +114,8 @@ def _privacy_text() -> str:
         "  • Не используем для рекламы\n"
         "  • Не анализируем содержимое заметок и текстов\n\n"
         f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy</a>\n\n"
-        'Согласие можно отозвать в любой момент через <a href="https://t.me/aist_me_bot">/consent opt-out</a> '
-        'или удалить запись полностью через <a href="https://t.me/aist_me_bot">/consent revoke</a>.'
+        'Согласие можно отозвать в любой момент через /consent opt-out '
+        'или удалить запись полностью через /consent revoke.'
     )
 
 
@@ -134,6 +133,28 @@ def _revoke_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🗑 Да, удалить полностью", callback_data="consent_revoke_confirm"),
             InlineKeyboardButton(text="↩️ Отмена", callback_data="consent_revoke_cancel"),
+        ],
+    ])
+
+
+def _status_keyboard(consent) -> InlineKeyboardMarkup:
+    """Клавиатура управления согласием в зависимости от состояния."""
+    if consent is None:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Включить трекинг", callback_data="consent_goto_optin")],
+        ])
+    if consent["opt_in"]:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🚫 Отозвать", callback_data="consent_goto_optout"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data="consent_goto_revoke"),
+            ],
+        ])
+    # Consent exists but opt_in=False
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Включить снова", callback_data="consent_goto_optin"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data="consent_goto_revoke"),
         ],
     ])
 
@@ -257,7 +278,11 @@ async def cmd_consent(message: Message, command: CommandObject):
                 events = await count_practice_events_30d(account_id)
             except Exception as exc:
                 logger.warning("[consent status] events count failed: %s", exc)
-        await message.answer(_format_status(consent, events=events, lang=lang), parse_mode="HTML")
+        await message.answer(
+            _format_status(consent, events=events, lang=lang),
+            parse_mode="HTML",
+            reply_markup=_status_keyboard(consent),
+        )
         return
 
     if action in ("opt-in", "opt_in", "in"):
@@ -267,9 +292,9 @@ async def cmd_consent(message: Message, command: CommandObject):
             opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
             await message.answer(
                 f"✅ <b>Согласие уже активно.</b>\n\n"
-                f"Зафиксировано: <i>{opted_at}</i>\n\n"
-                'Управление: <a href="https://t.me/aist_me_bot">/consent</a> <a href="https://t.me/aist_me_bot">/consent opt-out</a>',
+                f"Зафиксировано: <i>{opted_at}</i>",
                 parse_mode="HTML",
+                reply_markup=_status_keyboard(consent),
             )
             return
         await message.answer(_privacy_text(), parse_mode="HTML", reply_markup=_accept_keyboard(), disable_web_page_preview=True)
@@ -281,11 +306,13 @@ async def cmd_consent(message: Message, command: CommandObject):
             await message.answer("🚫 Согласие уже отозвано или не было дано.")
             return
         await set_consent(account_id, opt_in=False, scope=consent["scope"])
+        updated_consent = await get_consent(account_id)
         await message.answer(
             "🚫 <b>Согласие отозвано.</b>\n\n"
             "Платформа больше не будет учитывать твои действия для расчёта ступени. "
-            'История остаётся (для аудита). Полное удаление: <a href="https://t.me/aist_me_bot">/consent revoke</a>',
+            "История остаётся (для аудита).",
             parse_mode="HTML",
+            reply_markup=_status_keyboard(updated_consent),
         )
         return
 
@@ -297,20 +324,18 @@ async def cmd_consent(message: Message, command: CommandObject):
         await message.answer(
             "⚠️ <b>Полное удаление согласия</b>\n\n"
             "Запись будет удалена. Действие необратимо — для повторного включения "
-            'потребуется новый <a href="https://t.me/aist_me_bot">/consent opt-in</a>\n\n'
+            'потребуется новый /consent opt-in\n\n'
             "Продолжить?",
             parse_mode="HTML",
             reply_markup=_revoke_keyboard(),
         )
         return
 
+    consent = await get_consent(account_id)
     await message.answer(
-        "Неизвестная подкоманда. Доступные:\n"
-        '<a href="https://t.me/aist_me_bot">/consent</a> — текущее состояние\n'
-        '<a href="https://t.me/aist_me_bot">/consent opt-in</a> — дать согласие\n'
-        '<a href="https://t.me/aist_me_bot">/consent opt-out</a> — отозвать (сохраняет историю)\n'
-        '<a href="https://t.me/aist_me_bot">/consent revoke</a> — удалить запись',
+        _format_status(consent, lang=lang),
         parse_mode="HTML",
+        reply_markup=_status_keyboard(consent),
     )
 
 
@@ -331,11 +356,11 @@ async def on_consent_accept(callback: CallbackQuery):
     await callback.message.edit_text(
         "✅ <b>Согласие зафиксировано.</b>\n\n"
         "Платформа будет ежедневно (04:35 МСК) пересчитывать твою ступень мастерства.\n\n"
-        "<b>Что считается:</b> <a href=\"https://t.me/aist_me_bot\">/learn</a>, <a href=\"https://t.me/aist_me_bot\">/train</a> (уроки), Day Open/Close в IWE Template, "
+        "<b>Что считается:</b> /learn, /train (уроки), Day Open/Close в IWE Template, "
         "фиксации практики. Первый realистичный stage появится через 1–2 недели регулярной активности — "
-        'проверь <a href="https://t.me/aist_me_bot">/consent</a> через неделю, чтобы увидеть собранную статистику.\n\n'
-        'Управление: <a href="https://t.me/aist_me_bot">/consent</a> <a href="https://t.me/aist_me_bot">/consent opt-out</a>',
+        "проверь /consent через неделю, чтобы увидеть собранную статистику.",
         parse_mode="HTML",
+        reply_markup=_status_keyboard(consent),
     )
     logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
 
@@ -344,8 +369,9 @@ async def on_consent_accept(callback: CallbackQuery):
 async def on_consent_decline(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(
-        '👌 Без проблем — можешь вернуться к этому позже через <a href="https://t.me/aist_me_bot">/consent opt-in</a>',
+        "👌 Без проблем — можешь вернуться к этому позже.",
         parse_mode="HTML",
+        reply_markup=_status_keyboard(None),
     )
 
 
@@ -367,7 +393,7 @@ async def on_consent_revoke_confirm(callback: CallbackQuery):
         if deleted else
         "ℹ️ Записи не было — удалять нечего."
     )
-    await callback.message.edit_text(msg, parse_mode="HTML")
+    await callback.message.edit_text(msg, parse_mode="HTML", reply_markup=_status_keyboard(None))
 
 
 @consent_router.callback_query(F.data == "consent_revoke_cancel")
@@ -435,6 +461,7 @@ async def on_consent_link_now(callback: CallbackQuery):
         await callback.message.answer(
             f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
             parse_mode="HTML",
+            reply_markup=_status_keyboard(consent),
         )
         return
 
@@ -443,6 +470,88 @@ async def on_consent_link_now(callback: CallbackQuery):
         parse_mode="HTML",
         reply_markup=_accept_keyboard(),
         disable_web_page_preview=True,
+    )
+
+
+@consent_router.callback_query(F.data == "consent_goto_optin")
+async def on_consent_goto_optin(callback: CallbackQuery):
+    """Inline-кнопка: перейти к opt-in (privacy-текст)."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern, account_id = await _resolve_account(chat_id)
+    if not account_id:
+        await callback.message.answer(
+            _NOT_LINKED_TEXT,
+            parse_mode="HTML",
+            reply_markup=_link_keyboard(),
+        )
+        return
+    consent = await get_consent(account_id)
+    if consent and consent["opt_in"]:
+        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        await callback.message.edit_text(
+            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
+            parse_mode="HTML",
+            reply_markup=_status_keyboard(consent),
+        )
+        return
+    await callback.message.edit_text(
+        _privacy_text(),
+        parse_mode="HTML",
+        reply_markup=_accept_keyboard(),
+        disable_web_page_preview=True,
+    )
+
+
+@consent_router.callback_query(F.data == "consent_goto_optout")
+async def on_consent_goto_optout(callback: CallbackQuery):
+    """Inline-кнопка: отозвать согласие (opt-out)."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern, account_id = await _resolve_account(chat_id)
+    if not account_id:
+        await callback.answer("Аккаунт не привязан", show_alert=True)
+        return
+    consent = await get_consent(account_id)
+    if consent is None or not consent["opt_in"]:
+        await callback.message.edit_text(
+            "🚫 Согласие уже отозвано или не было дано.",
+            reply_markup=_status_keyboard(consent),
+        )
+        return
+    await set_consent(account_id, opt_in=False, scope=consent["scope"])
+    await callback.message.edit_text(
+        "🚫 <b>Согласие отозвано.</b>\n\n"
+        "Платформа больше не будет учитывать твои действия для расчёта ступени. "
+        "История остаётся (для аудита).",
+        parse_mode="HTML",
+        reply_markup=_status_keyboard(await get_consent(account_id)),
+    )
+
+
+@consent_router.callback_query(F.data == "consent_goto_revoke")
+async def on_consent_goto_revoke(callback: CallbackQuery):
+    """Inline-кнопка: запрос подтверждения удаления записи."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern, account_id = await _resolve_account(chat_id)
+    if not account_id:
+        await callback.answer("Аккаунт не привязан", show_alert=True)
+        return
+    consent = await get_consent(account_id)
+    if consent is None:
+        await callback.message.edit_text(
+            "🗑 Записи о согласии нет — удалять нечего.",
+            reply_markup=_status_keyboard(None),
+        )
+        return
+    await callback.message.edit_text(
+        "⚠️ <b>Полное удаление согласия</b>\n\n"
+        "Запись будет удалена. Действие необратимо — для повторного включения "
+        "потребуется новый /consent opt-in\n\n"
+        "Продолжить?",
+        parse_mode="HTML",
+        reply_markup=_revoke_keyboard(),
     )
 
 
@@ -510,6 +619,7 @@ async def on_consent_retry_status(callback: CallbackQuery):
         await callback.message.answer(
             f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
             parse_mode="HTML",
+            reply_markup=_status_keyboard(consent),
         )
         return
 
