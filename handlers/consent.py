@@ -114,8 +114,8 @@ def _privacy_text() -> str:
         "  • Не используем для рекламы\n"
         "  • Не анализируем содержимое заметок и текстов\n\n"
         f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy</a>\n\n"
-        "Согласие можно отозвать в любой момент через команду /consent opt-out "
-        "или удалить запись полностью через команду /consent revoke."
+        'Согласие можно отозвать в любой момент через <a href="https://t.me/aist_me_bot?start=consent_optout">/consent opt-out</a> '
+        'или удалить запись полностью через <a href="https://t.me/aist_me_bot?start=consent_revoke">/consent revoke</a>.'
     )
 
 
@@ -210,6 +210,81 @@ async def show_consent_optin(message: Message) -> None:
         parse_mode="HTML",
         reply_markup=_accept_keyboard(),
         disable_web_page_preview=True,
+    )
+
+
+async def show_consent_optout(message: Message) -> None:
+    """Точка входа для deep-link ?start=consent_optout (из onboarding.py)."""
+    chat_id = message.chat.id
+    intern, account_id = await _resolve_account(chat_id)
+    if not account_id:
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(chat_id)
+        if aisystant_id:
+            await message.answer(
+                _LINKED_BUT_SYNCING_TEXT,
+                parse_mode="HTML",
+                reply_markup=_retry_keyboard(),
+            )
+        else:
+            await message.answer(
+                _NOT_LINKED_TEXT,
+                parse_mode="HTML",
+                reply_markup=_link_keyboard(),
+            )
+        return
+    consent = await get_consent(account_id)
+    if consent is None or not consent["opt_in"]:
+        await message.answer(
+            "🚫 Согласие уже отозвано или не было дано.",
+            reply_markup=_status_keyboard(consent),
+        )
+        return
+    await set_consent(account_id, opt_in=False, scope=consent["scope"])
+    updated = await get_consent(account_id)
+    await message.answer(
+        "🚫 <b>Согласие отозвано.</b>\n\n"
+        "Платформа больше не будет учитывать твои действия для расчёта ступени. "
+        "История остаётся (для аудита).",
+        parse_mode="HTML",
+        reply_markup=_status_keyboard(updated),
+    )
+
+
+async def show_consent_revoke(message: Message) -> None:
+    """Точка входа для deep-link ?start=consent_revoke (из onboarding.py)."""
+    chat_id = message.chat.id
+    intern, account_id = await _resolve_account(chat_id)
+    if not account_id:
+        from db.queries.aisystant import get_aisystant_id
+        aisystant_id = await get_aisystant_id(chat_id)
+        if aisystant_id:
+            await message.answer(
+                _LINKED_BUT_SYNCING_TEXT,
+                parse_mode="HTML",
+                reply_markup=_retry_keyboard(),
+            )
+        else:
+            await message.answer(
+                _NOT_LINKED_TEXT,
+                parse_mode="HTML",
+                reply_markup=_link_keyboard(),
+            )
+        return
+    consent = await get_consent(account_id)
+    if consent is None:
+        await message.answer(
+            "🗑 Записи о согласии нет — удалять нечего.",
+            reply_markup=_status_keyboard(None),
+        )
+        return
+    await message.answer(
+        "⚠️ <b>Полное удаление согласия</b>\n\n"
+        "Запись будет удалена. Действие необратимо — для повторного включения "
+        "потребуется новый /consent opt-in\n\n"
+        "Продолжить?",
+        parse_mode="HTML",
+        reply_markup=_revoke_keyboard(),
     )
 
 
