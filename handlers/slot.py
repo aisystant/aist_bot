@@ -121,6 +121,9 @@ def _weeks_inline_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="более квартала", callback_data="ot_weeks:12"),
             InlineKeyboardButton(text="более полугода", callback_data="ot_weeks:24"),
         ],
+        [
+            InlineKeyboardButton(text="Свой (введи недели)", callback_data="ot_weeks:custom"),
+        ],
     ])
 
 
@@ -363,7 +366,7 @@ async def on_ot_hours_callback(callback: CallbackQuery, state: FSMContext) -> No
     await state.update_data(ot_hours=hours)
     await callback.message.answer(
         f"Понял: {hours} ч/нед инвестировано.\n\n"
-        "Сколько часов в неделю учтено всего?\n"
+        "Сколько в среднем часов в неделю ты осознанно работаешь и учишься?\n"
         "(рабочее время, проекты, обучение — всё вместе, включая инвестированное)",
         reply_markup=_total_hours_inline_keyboard(),
     )
@@ -381,7 +384,7 @@ async def on_ot_hours_text(message: Message, state: FSMContext) -> None:
     await state.update_data(ot_hours=hours)
     await message.answer(
         f"Понял: {hours} ч/нед инвестировано.\n\n"
-        "Сколько часов в неделю учтено всего?\n"
+        "Сколько в среднем часов в неделю ты осознанно работаешь и учишься?\n"
         "(рабочее время, проекты, обучение — всё вместе, включая инвестированное)",
         reply_markup=_total_hours_inline_keyboard(),
     )
@@ -440,9 +443,13 @@ async def on_ot_total_text(message: Message, state: FSMContext) -> None:
 
 @slot_router.callback_query(OnboardingTimeStates.waiting_weeks, F.data.startswith("ot_weeks:"))
 async def on_ot_weeks_callback(callback: CallbackQuery, state: FSMContext) -> None:
-    """Выбор периода через кнопку (шаг 2 wizard)."""
+    """Выбор периода через кнопку (шаг 3 wizard)."""
     await callback.answer()
     value = callback.data.split(":", 1)[1]
+
+    if value == "custom":
+        await callback.message.answer("Введи количество недель (например, 16):")
+        return
 
     try:
         weeks = int(value)
@@ -456,8 +463,26 @@ async def on_ot_weeks_callback(callback: CallbackQuery, state: FSMContext) -> No
     except Exception:
         pass
 
+    await _proceed_to_days(callback.message, state, weeks)
+
+
+@slot_router.message(OnboardingTimeStates.waiting_weeks)
+async def on_ot_weeks_text(message: Message, state: FSMContext) -> None:
+    """Ручной ввод недель (шаг 3 wizard)."""
+    text = (message.text or "").strip()
+    try:
+        weeks = int(text)
+        if not (1 <= weeks <= 520):
+            raise ValueError
+    except ValueError:
+        await message.answer("Введи целое число недель, например: 16")
+        return
+    await _proceed_to_days(message, state, weeks)
+
+
+async def _proceed_to_days(message: Message, state: FSMContext, weeks: int) -> None:
     await state.update_data(ot_weeks=weeks)
-    await callback.message.answer(
+    await message.answer(
         f"Сколько дней в неделю в среднем занимался за эти {weeks} нед?",
         reply_markup=_days_keyboard(),
     )
