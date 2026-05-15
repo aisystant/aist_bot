@@ -110,6 +110,21 @@ async def cmd_reflect(message: Message):
         )
         return
 
+    # WP-309 B3: consent gate — не писать рефлексии без opt-in.
+    from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries.consent import get_consent
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if account_id:
+        consent = await get_consent(account_id)
+        if not consent or not consent["opt_in"]:
+            await message.answer(
+                "⚠️ Для записи рефлексий в персональное руководство требуется согласие на обработку персональных данных.\n\n"
+                "Набери команду <b>/consent opt-in</b>, затем нажми «✅ Согласен, включить». "
+                "После этого повтори <b>/reflect</b>.",
+                parse_mode="HTML",
+            )
+            return
+
     repo = installation.get("app_repo_full_name")
     installation_id = installation.get("app_installation_id")
     github_user = installation.get("github_username") or "пилот"
