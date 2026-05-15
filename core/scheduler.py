@@ -137,6 +137,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
+    _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
@@ -1326,6 +1327,63 @@ async def _better_stack_heartbeat():
     except Exception as e:
         # Не валим scheduler из-за heartbeat. Если bot жив, но BS не отвечает — пропуск.
         logger.warning(f"[Heartbeat] BS ping failed: {e}")
+
+
+async def _send_slot_daily_prompt():
+    """Ф13c (WP-310): 22:00 МСК — напоминание пилотам без slot_logged за сегодня.
+
+    Целевые пользователи: все, кто хоть раз логировал слот (пилоты), но
+    НЕ залогировали сегодня (МСК). created_at + 3ч = перевод UTC → МСК.
+    """
+    try:
+        from db.connection import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT DISTINCT user_id
+                FROM development.user_events
+                WHERE event_type = 'slot_logged'
+                  AND user_id NOT IN (
+                    SELECT DISTINCT user_id
+                    FROM development.user_events
+                    WHERE event_type = 'slot_logged'
+                      AND DATE_TRUNC('day', created_at + INTERVAL '3 hours')
+                          = DATE_TRUNC('day', NOW() + INTERVAL '3 hours')
+                  )
+            """)
+
+        if not rows:
+            logger.info("[SlotPrompt] Все пилоты уже залогировали сегодня — prompt не нужен")
+            return
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="30 мин", callback_data="slot_daily:0.5"),
+            InlineKeyboardButton(text="1 ч", callback_data="slot_daily:1.0"),
+            InlineKeyboardButton(text="2 ч", callback_data="slot_daily:2.0"),
+        ], [
+            InlineKeyboardButton(text="Не учился сегодня", callback_data="slot_daily:skip"),
+        ]])
+
+        bot = Bot(token=_bot_token)
+        try:
+            sent = skipped = 0
+            for row in rows:
+                try:
+                    await bot.send_message(
+                        row["user_id"],
+                        "Учился сегодня? Запиши время — оно идёт в твою ступень.",
+                        reply_markup=kb,
+                    )
+                    sent += 1
+                except Exception as e:
+                    skipped += 1
+                    logger.debug(f"[SlotPrompt] user_id={row['user_id']}: {e}")
+            logger.info(f"[SlotPrompt] 22:00 МСК: sent={sent} skipped={skipped}")
+        finally:
+            await bot.session.close()
+    except Exception as e:
+        logger.exception(f"[SlotPrompt] Error in _send_slot_daily_prompt: {e}")
 
 
 # ═══════════════════════════════════════════════════════════

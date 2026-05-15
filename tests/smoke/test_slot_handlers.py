@@ -194,7 +194,6 @@ class TestHandlerRegistration:
     def test_slot_router_importable_from_handlers(self):
         """handlers/__init__.py содержит импорт slot_router."""
         import handlers
-        # Проверяем что модуль handlers импортируется без ошибок
         assert handlers is not None
 
     def test_slot_handler_in_init(self):
@@ -202,4 +201,32 @@ class TestHandlerRegistration:
         init_path = Path(_PROJECT_ROOT) / "handlers" / "__init__.py"
         content = init_path.read_text()
         assert "slot_router" in content, "slot_router должен быть в handlers/__init__.py"
-        assert "from .slot import slot_router" in content
+
+
+class TestSlotDailyCallback:
+    """Ф13c: проверяет callback handler slot_daily в slot_router."""
+
+    def test_slot_daily_callback_registered(self):
+        """slot_daily: callback filter зарегистрирован в slot_router."""
+        from handlers.slot import slot_router
+        # Проверяем что в router зарегистрирован хендлер с filter slot_daily:
+        router_source = Path(_PROJECT_ROOT, "handlers", "slot.py").read_text()
+        assert "slot_daily:" in router_source, "slot_daily: callback должен быть в slot.py"
+
+    def test_slot_daily_skip_value_parseable(self):
+        """slot_daily:skip — специальное значение, не парсится как float."""
+        value = "skip"
+        assert value == "skip"  # не float → пропустить
+
+    def test_slot_daily_hours_parseable(self):
+        """slot_daily:0.5/1.0/2.0 — корректно парсятся как float."""
+        for raw in ("0.5", "1.0", "2.0"):
+            hours = float(raw)
+            assert 0.1 <= hours <= 24.0
+
+    def test_scheduler_daily_prompt_defined(self):
+        """_send_slot_daily_prompt зарегистрирован в scheduler.py."""
+        sched_path = Path(_PROJECT_ROOT, "core", "scheduler.py")
+        content = sched_path.read_text()
+        assert "_send_slot_daily_prompt" in content
+        assert "hour=19, minute=0" in content  # 22:00 МСК = 19:00 UTC

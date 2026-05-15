@@ -678,3 +678,27 @@ async def on_et_new_value(message: Message, state: FSMContext) -> None:
     except Exception as e:
         logger.error(f"[slot] update event {edit_event_id} error: {e}")
         await message.answer(f"Ошибка обновления: {e}")
+
+
+# ── Ф13c: ежедневный prompt от scheduler (22:00 МСК) ─────────────────────
+
+@slot_router.callback_query(F.data.startswith("slot_daily:"))
+async def on_slot_daily_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Callback для ежедневного prompt — записать часы или пропустить (Ф13c, WP-310).
+
+    Payload: slot_daily:0.5 / slot_daily:1.0 / slot_daily:2.0 / slot_daily:skip
+    """
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    value = callback.data.split(":", 1)[1]
+    if value == "skip":
+        await callback.answer("OK, нет проблем — запишешь позже через /slot.")
+        return
+
+    hours = float(value)
+    user_id = callback.message.chat.id
+    await callback.answer()
+    await _do_log_slot(callback.message, user_id, hours)
