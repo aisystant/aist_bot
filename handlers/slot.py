@@ -555,8 +555,8 @@ async def on_ask_pre_history(callback: CallbackQuery, state: FSMContext) -> None
         return
 
     await callback.message.answer(
-        "Сколько часов всего накоплено за всю историю саморазвития?\n"
-        "(Включая до начала трекинга)",
+        "Сколько часов было накоплено ДО только что записанного периода?\n"
+        "(Занятия за предыдущие годы — не считая тех, что уже записаны выше)",
         reply_markup=_pre_total_hours_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_hours)
@@ -581,8 +581,8 @@ async def on_pre_total_hours_callback(callback: CallbackQuery, state: FSMContext
         pass
     await state.update_data(ot_pre_total_hours=total_hours)
     await callback.message.answer(
-        f"Понял: {total_hours:.0f} ч накоплено.\n\n"
-        "Сколько дней в неделю в среднем занимался?",
+        f"Понял: {total_hours:.0f} ч до этого периода.\n\n"
+        "Сколько дней в неделю в среднем занимался до этого?",
         reply_markup=_pre_regularity_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_days)
@@ -600,8 +600,8 @@ async def on_pre_total_hours_text(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(ot_pre_total_hours=total_hours)
     await message.answer(
-        f"Понял: {total_hours:.0f} ч накоплено.\n\n"
-        "Сколько дней в неделю в среднем занимался?",
+        f"Понял: {total_hours:.0f} ч до этого периода.\n\n"
+        "Сколько дней в неделю в среднем занимался до этого?",
         reply_markup=_pre_regularity_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_days)
