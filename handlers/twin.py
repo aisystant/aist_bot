@@ -79,9 +79,9 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     qualification = derived.get("3_4_qualification") or {}
     stage_num = qualification.get("stage")
     if stage_num is not None:
-        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/4)"
+        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num + 1}/5)"
         if qualification.get("path") == "builder":
-            stage += " · builder"
+            stage += " · Создатель"
     else:
         stage = profile.get("stage") or t('twin.not_set', lang)
 
@@ -569,9 +569,9 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     qualification = derived.get('3_4_qualification') or {}
     stage_num = qualification.get('stage')
     if stage_num is not None:
-        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/4)"
+        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num + 1}/5)"
         if qualification.get('path') == 'builder':
-            stage += " · builder"
+            stage += " · Создатель"
         lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
 
     # Agency index
