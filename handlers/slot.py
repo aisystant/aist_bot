@@ -555,8 +555,8 @@ async def on_ask_pre_history(callback: CallbackQuery, state: FSMContext) -> None
         return
 
     await callback.message.answer(
-        "Сколько часов было накоплено ДО только что записанного периода?\n"
-        "(Занятия за предыдущие годы — не считая тех, что уже записаны выше)",
+        "Учтённое время (всего) — сколько часов система учла за всё время?\n"
+        "(Включая только что записанный период)",
         reply_markup=_pre_total_hours_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_hours)
@@ -581,8 +581,8 @@ async def on_pre_total_hours_callback(callback: CallbackQuery, state: FSMContext
         pass
     await state.update_data(ot_pre_total_hours=total_hours)
     await callback.message.answer(
-        f"Понял: {total_hours:.0f} ч до этого периода.\n\n"
-        "Сколько дней в неделю в среднем занимался до этого?",
+        f"Понял: {total_hours:.0f} ч всего.\n\n"
+        "Сколько дней в неделю в среднем занимался?",
         reply_markup=_pre_regularity_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_days)
@@ -600,8 +600,8 @@ async def on_pre_total_hours_text(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(ot_pre_total_hours=total_hours)
     await message.answer(
-        f"Понял: {total_hours:.0f} ч до этого периода.\n\n"
-        "Сколько дней в неделю в среднем занимался до этого?",
+        f"Понял: {total_hours:.0f} ч всего.\n\n"
+        "Сколько дней в неделю в среднем занимался?",
         reply_markup=_pre_regularity_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_days)
@@ -618,14 +618,19 @@ async def on_pre_days_callback(callback: CallbackQuery, state: FSMContext) -> No
 
     data = await state.get_data()
     total_hours = data.get("ot_pre_total_hours", 0)
-    # Заполним пропуски в 168-дневном окне (169 - 24*7 = те самые промежутки)
+    base_hours = data.get("ot_pre_base_hours", 0)
+    base_weeks = data.get("ot_pre_base_weeks", 0)
+    step1_total = base_hours * base_weeks
+    additional = max(0.0, total_hours - step1_total)
+
     fill_days = 24 * 7  # полный период наблюдения
     fill_events = int(fill_days * days / 7)
 
     await state.update_data(ot_pre_days=days)
     await callback.message.answer(
         f"Подтверди:\n"
-        f"Накоплено всего: {total_hours:.0f} ч\n"
+        f"Учтённое время (всего): {total_hours:.0f} ч "
+        f"= {step1_total:.0f} ч (записано выше) + {additional:.0f} ч (доп. история)\n"
         f"Регулярность: {days} дн/нед → {fill_events} активных дней в окне наблюдения\n\n"
         "Записать?",
         reply_markup=_pre_confirm_keyboard(),
@@ -650,6 +655,10 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     total_hours = data.get("ot_pre_total_hours", 0)
     days_per_week = data.get("ot_pre_days", 5)
+    base_hours = data.get("ot_pre_base_hours", 0)
+    base_weeks = data.get("ot_pre_base_weeks", 0)
+    step1_total = base_hours * base_weeks
+    additional = max(0.0, total_hours - step1_total)
     user_id = callback.from_user.id
     await state.clear()
 
@@ -661,19 +670,23 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     batch_id = str(uuid.uuid4())
     now = datetime.utcnow()
 
-    # 1. Один slot_logged с суммарными накопленными часами (датируем 3 года назад)
-    slot_record = (
-        user_id, "slot_logged", "bot",
-        json.dumps({
-            "hours": total_hours,
-            "source": "self_report_backfill",
-            "confidence": "estimated",
-            "batch_id": batch_id,
-            "note": "all_time_accumulated",
-        }),
-        1.0, [], user_uuid,
-        now - timedelta(days=3 * 365),
-    )
+    # 1. Один slot_logged только с ДОПОЛНИТЕЛЬНЫМИ часами (total - step1, чтобы не задваивать)
+    # Если additional == 0 (total <= уже записанного) — пропускаем этот event
+    slot_record = None
+    if additional > 0:
+        slot_record = (
+            user_id, "slot_logged", "bot",
+            json.dumps({
+                "hours": additional,
+                "source": "self_report_backfill",
+                "confidence": "estimated",
+                "batch_id": batch_id,
+                "note": "pre_history_accumulated",
+                "grand_total_declared": total_hours,
+            }),
+            1.0, [], user_uuid,
+            now - timedelta(days=3 * 365),
+        )
 
     # 2. day_open события для заполнения пропусков в 168-дневном окне
     window_days = 24 * 7
@@ -687,7 +700,8 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             1.0, [], user_uuid, occurred_at,
         ))
 
-    total_events = 1 + len(day_records)
+    all_records = (([slot_record] if slot_record else []) + day_records)
+    total_events = len(all_records)
     await callback.message.answer(f"⏳ Записываю {total_events} событий...")
 
     failed = 0
@@ -701,7 +715,7 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                      skill_ids, user_uuid, created_at)
                 VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
                 ON CONFLICT DO NOTHING
-            ''', [slot_record] + day_records)
+            ''', all_records)
     except Exception as e:
         logger.error(f"[slot] pre-history write failed: {e}")
         failed = total_events
@@ -711,9 +725,14 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             "⚠️ Ошибка БД при записи. Попробуй /onboarding_time ещё раз."
         )
     else:
+        history_line = (
+            f"• {additional:.0f} ч доп. история (1 событие)\n"
+            if slot_record else
+            "• Доп. часы не нужны (учтённое время = записанному выше)\n"
+        )
         await callback.message.answer(
             f"✅ Записано:\n"
-            f"• {total_hours:.0f} ч накоплено (1 событие)\n"
+            f"{history_line}"
             f"• {len(day_records)} активных дней в окне наблюдения\n\n"
             "Пересчёт ступени происходит каждые 4 часа. Проверь через /twin."
         )
