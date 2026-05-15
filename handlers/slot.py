@@ -48,11 +48,10 @@ class OnboardingTimeStates(StatesGroup):
     waiting_hours = State()
     waiting_weeks = State()
     confirm_backfill = State()
-    # Блок истории до начала трекинга
+    # Блок уточнения: накопленные часы + регулярность
     ask_pre_history = State()
     waiting_pre_hours = State()
     waiting_pre_days = State()
-    waiting_pre_years = State()
     confirm_pre_history = State()
 
 
@@ -140,14 +139,30 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
 def _pre_history_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Да, добавить", callback_data="ot_pre:yes"),
+            InlineKeyboardButton(text="Да, уточнить", callback_data="ot_pre:yes"),
             InlineKeyboardButton(text="Нет, готово", callback_data="ot_pre:no"),
         ]
     ])
 
 
-def _pre_days_keyboard() -> InlineKeyboardMarkup:
-    """Регулярность до начала трекинга: дней в неделю."""
+def _pre_total_hours_keyboard() -> InlineKeyboardMarkup:
+    """Накопленные часы за всю историю — прямой ввод."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="100 ч", callback_data="ot_pre_total:100"),
+            InlineKeyboardButton(text="250 ч", callback_data="ot_pre_total:250"),
+            InlineKeyboardButton(text="500 ч", callback_data="ot_pre_total:500"),
+        ],
+        [
+            InlineKeyboardButton(text="1000 ч", callback_data="ot_pre_total:1000"),
+            InlineKeyboardButton(text="2000 ч", callback_data="ot_pre_total:2000"),
+            InlineKeyboardButton(text="Свой ввод", callback_data="ot_pre_total:custom"),
+        ],
+    ])
+
+
+def _pre_regularity_keyboard() -> InlineKeyboardMarkup:
+    """Регулярность: дней в неделю за период наблюдения."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="каждый день", callback_data="ot_pre_days:7"),
@@ -156,18 +171,6 @@ def _pre_days_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="3-4 дня", callback_data="ot_pre_days:3"),
             InlineKeyboardButton(text="1-2 дня", callback_data="ot_pre_days:1"),
-        ],
-    ])
-
-
-def _pre_years_keyboard() -> InlineKeyboardMarkup:
-    """Период до начала трекинга: лет."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="~1 год", callback_data="ot_pre_years:52"),
-            InlineKeyboardButton(text="~2 года", callback_data="ot_pre_years:104"),
-            InlineKeyboardButton(text="~3 года", callback_data="ot_pre_years:156"),
-            InlineKeyboardButton(text="~5 лет", callback_data="ot_pre_years:260"),
         ],
     ])
 
@@ -533,7 +536,7 @@ async def on_ot_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(OnboardingTimeStates.ask_pre_history)
 
 
-# ── /onboarding_time — блок истории до трекинга ───────────────────────────
+# ── /onboarding_time — блок уточнения: накопленные часы + регулярность ────
 
 @slot_router.callback_query(OnboardingTimeStates.ask_pre_history, F.data.startswith("ot_pre:"))
 async def on_ask_pre_history(callback: CallbackQuery, state: FSMContext) -> None:
@@ -552,21 +555,22 @@ async def on_ask_pre_history(callback: CallbackQuery, state: FSMContext) -> None
         return
 
     await callback.message.answer(
-        "Сколько в среднем часов в неделю ты инвестировал до этого периода?",
-        reply_markup=_hours_inline_keyboard(),
+        "Сколько часов всего накоплено за всю историю саморазвития?\n"
+        "(Включая до начала трекинга)",
+        reply_markup=_pre_total_hours_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_hours)
 
 
-@slot_router.callback_query(OnboardingTimeStates.waiting_pre_hours, F.data.startswith("ot_hours:"))
-async def on_pre_hours_callback(callback: CallbackQuery, state: FSMContext) -> None:
+@slot_router.callback_query(OnboardingTimeStates.waiting_pre_hours, F.data.startswith("ot_pre_total:"))
+async def on_pre_total_hours_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     value = callback.data.split(":", 1)[1]
     if value == "custom":
-        await callback.message.answer("Введи число часов (например, 5):")
+        await callback.message.answer("Введи общее количество часов (например, 350):")
         return
     try:
-        hours = float(value)
+        total_hours = float(value)
     except ValueError:
         await callback.message.answer("Ошибка. Попробуй /onboarding_time")
         await state.clear()
@@ -575,24 +579,30 @@ async def on_pre_hours_callback(callback: CallbackQuery, state: FSMContext) -> N
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await state.update_data(ot_pre_hours=hours)
+    await state.update_data(ot_pre_total_hours=total_hours)
     await callback.message.answer(
-        f"Понял: {hours} ч/нед до этого.\n\nКак часто занимался?",
-        reply_markup=_pre_days_keyboard(),
+        f"Понял: {total_hours:.0f} ч накоплено.\n\n"
+        "Сколько дней в неделю в среднем занимался?",
+        reply_markup=_pre_regularity_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_days)
 
 
 @slot_router.message(OnboardingTimeStates.waiting_pre_hours)
-async def on_pre_hours_text(message: Message, state: FSMContext) -> None:
-    hours = _parse_hours(message.text or "")
-    if hours is None:
-        await message.answer("Введи число часов, например: 5")
+async def on_pre_total_hours_text(message: Message, state: FSMContext) -> None:
+    text = (message.text or "").strip().replace(",", ".")
+    try:
+        total_hours = float(text)
+        if not (1 <= total_hours <= 100000):
+            raise ValueError
+    except ValueError:
+        await message.answer("Введи число часов, например: 350")
         return
-    await state.update_data(ot_pre_hours=hours)
+    await state.update_data(ot_pre_total_hours=total_hours)
     await message.answer(
-        f"Понял: {hours} ч/нед.\n\nКак часто занимался?",
-        reply_markup=_pre_days_keyboard(),
+        f"Понял: {total_hours:.0f} ч накоплено.\n\n"
+        "Сколько дней в неделю в среднем занимался?",
+        reply_markup=_pre_regularity_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_pre_days)
 
@@ -605,35 +615,19 @@ async def on_pre_days_callback(callback: CallbackQuery, state: FSMContext) -> No
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await state.update_data(ot_pre_days=days)
-    await callback.message.answer(
-        "На протяжении какого периода?",
-        reply_markup=_pre_years_keyboard(),
-    )
-    await state.set_state(OnboardingTimeStates.waiting_pre_years)
-
-
-@slot_router.callback_query(OnboardingTimeStates.waiting_pre_years, F.data.startswith("ot_pre_years:"))
-async def on_pre_years_callback(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer()
-    weeks = int(callback.data.split(":", 1)[1])
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     data = await state.get_data()
-    pre_hours = data.get("ot_pre_hours", 0)
-    pre_days = data.get("ot_pre_days", 5)
-    total_h = round(pre_hours * weeks, 1)
-    total_events = weeks * pre_days + weeks  # day_open × days + slot_logged × weeks
+    total_hours = data.get("ot_pre_total_hours", 0)
+    # Заполним пропуски в 168-дневном окне (169 - 24*7 = те самые промежутки)
+    fill_days = 24 * 7  # полный период наблюдения
+    fill_events = int(fill_days * days / 7)
 
-    await state.update_data(ot_pre_weeks=weeks)
+    await state.update_data(ot_pre_days=days)
     await callback.message.answer(
         f"Подтверди:\n"
-        f"{pre_hours} ч/нед × {weeks} нед = {total_h} ч накоплено\n"
-        f"{pre_days} дней/нед × {weeks} нед = {weeks * pre_days} дней активности\n\n"
-        f"Это {total_events} синтетических событий. Записать?",
+        f"Накоплено всего: {total_hours:.0f} ч\n"
+        f"Регулярность: {days} дн/нед → {fill_events} активных дней в окне наблюдения\n\n"
+        "Записать?",
         reply_markup=_pre_confirm_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.confirm_pre_history)
@@ -654,10 +648,8 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     data = await state.get_data()
-    pre_hours = data.get("ot_pre_hours", 0)
-    pre_days = data.get("ot_pre_days", 5)
-    pre_weeks = data.get("ot_pre_weeks", 52)
-    base_weeks = data.get("ot_pre_base_weeks", 24)
+    total_hours = data.get("ot_pre_total_hours", 0)
+    days_per_week = data.get("ot_pre_days", 5)
     user_id = callback.from_user.id
     await state.clear()
 
@@ -666,44 +658,37 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer("Аккаунт не привязан. Сначала пройди /start.")
         return
 
-    total_slot_events = pre_weeks
-    total_day_events = pre_weeks * pre_days
-    total_events = total_slot_events + total_day_events
-    await callback.message.answer(f"⏳ Записываю {total_events} событий...")
-
-    # Период начинается ДО основного backfill: сдвигаем ещё на pre_weeks назад
-    now = __import__('datetime').datetime.utcnow()
-    offset_days = (base_weeks + pre_weeks) * 7
     batch_id = str(uuid.uuid4())
-    hours_per_day = round(pre_hours / 7, 2)
+    now = datetime.utcnow()
 
-    # slot_logged — один раз в неделю
-    slot_records = []
-    for w in range(pre_weeks):
-        occurred_at = now - __import__('datetime').timedelta(days=offset_days - (w + 1) * 7)
-        slot_records.append((
-            user_id, "slot_logged", "bot",
-            json.dumps({
-                "hours": pre_hours,
-                "source": "self_report_backfill",
-                "confidence": "estimated",
-                "batch_id": batch_id,
-            }),
+    # 1. Один slot_logged с суммарными накопленными часами (датируем 3 года назад)
+    slot_record = (
+        user_id, "slot_logged", "bot",
+        json.dumps({
+            "hours": total_hours,
+            "source": "self_report_backfill",
+            "confidence": "estimated",
+            "batch_id": batch_id,
+            "note": "all_time_accumulated",
+        }),
+        1.0, [], user_uuid,
+        now - timedelta(days=3 * 365),
+    )
+
+    # 2. day_open события для заполнения пропусков в 168-дневном окне
+    window_days = 24 * 7
+    interval = max(1, 7 // days_per_week)
+    day_records = []
+    for i in range(0, window_days, interval):
+        occurred_at = now - timedelta(days=window_days - i)
+        day_records.append((
+            user_id, "day_open", "bot",
+            json.dumps({"source": "self_report_backfill", "batch_id": batch_id}),
             1.0, [], user_uuid, occurred_at,
         ))
 
-    # day_open — pre_days раз в неделю
-    day_records = []
-    for w in range(pre_weeks):
-        for d in range(pre_days):
-            occurred_at = now - __import__('datetime').timedelta(
-                days=offset_days - w * 7 - d
-            )
-            day_records.append((
-                user_id, "day_open", "bot",
-                json.dumps({"source": "self_report_backfill", "batch_id": batch_id}),
-                1.0, [], user_uuid, occurred_at,
-            ))
+    total_events = 1 + len(day_records)
+    await callback.message.answer(f"⏳ Записываю {total_events} событий...")
 
     failed = 0
     try:
@@ -716,18 +701,20 @@ async def on_pre_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                      skill_ids, user_uuid, created_at)
                 VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
                 ON CONFLICT DO NOTHING
-            ''', slot_records + day_records)
+            ''', [slot_record] + day_records)
     except Exception as e:
-        logger.error(f"[slot] pre-history backfill failed: {e}")
+        logger.error(f"[slot] pre-history write failed: {e}")
         failed = total_events
 
     if failed:
         await callback.message.answer(
-            "⚠️ Ошибка БД при записи истории. Попробуй /onboarding_time ещё раз."
+            "⚠️ Ошибка БД при записи. Попробуй /onboarding_time ещё раз."
         )
     else:
         await callback.message.answer(
-            f"✅ Записано {total_events} событий истории.\n\n"
+            f"✅ Записано:\n"
+            f"• {total_hours:.0f} ч накоплено (1 событие)\n"
+            f"• {len(day_records)} активных дней в окне наблюдения\n\n"
             "Пересчёт ступени происходит каждые 4 часа. Проверь через /twin."
         )
 
