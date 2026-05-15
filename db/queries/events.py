@@ -198,6 +198,113 @@ async def log_event(
         return None
 
 
+async def log_event_with_occurred_at(
+    user_id: int,
+    event_type: str,
+    payload: Optional[dict] = None,
+    occurred_at: Optional[datetime] = None,
+    confidence: float = 1.0,
+    skill_ids: Optional[list] = None,
+    source: str = 'bot',
+) -> Optional[int]:
+    """Записать событие с явным occurred_at (для backfill в прошлое).
+
+    Расширение log_event: если occurred_at задан — INSERT использует его как
+    created_at, иначе NOW(). Используется в /onboarding_time wizard (backfill).
+
+    Privacy: event_type='slot_logged', payload.source='self_report_backfill',
+    payload.confidence='estimated' сигнализируют о синтетической природе.
+    """
+    effective_at = occurred_at or datetime.utcnow()
+
+    try:
+        pool = await get_pool()
+        user_uuid = None
+        try:
+            from db.queries.identity import get_user_uuid
+            user_uuid = await get_user_uuid(user_id)
+        except Exception:
+            pass
+
+        external_id = _make_external_id(user_id, event_type)
+
+        async with pool.acquire() as conn:
+            # Попытка 1: с created_at + external_id + dedup
+            try:
+                row = await conn.fetchrow('''
+                    INSERT INTO development.user_events
+                        (user_id, event_type, source, payload, confidence,
+                         skill_ids, user_uuid, external_id, created_at)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
+                    ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL
+                    DO NOTHING
+                    RETURNING id
+                ''',
+                    user_id,
+                    event_type,
+                    source,
+                    json.dumps(payload) if payload else '{}',
+                    confidence,
+                    skill_ids or [],
+                    user_uuid,
+                    external_id,
+                    effective_at,
+                )
+            except Exception:
+                # Fallback: без external_id и явного created_at
+                row = await conn.fetchrow('''
+                    INSERT INTO development.user_events
+                        (user_id, event_type, source, payload, confidence,
+                         skill_ids, user_uuid, created_at)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
+                    RETURNING id
+                ''',
+                    user_id,
+                    event_type,
+                    source,
+                    json.dumps(payload) if payload else '{}',
+                    confidence,
+                    skill_ids or [],
+                    user_uuid,
+                    effective_at,
+                )
+
+            event_id = row['id'] if row else None
+            if event_id:
+                logger.info(
+                    f"[Events] {event_type} backfill logged for {user_id} "
+                    f"(id={event_id}, occurred_at={effective_at.date()})"
+                )
+                try:
+                    gw_payload: dict = {
+                        "user_id": str(user_id),
+                        "source": source,
+                        "confidence": confidence,
+                        "skill_count": len(skill_ids) if skill_ids else 0,
+                        "payload_keys": list(payload.keys()) if payload else [],
+                    }
+                    domain = _ACTIVITY_DOMAIN_MAP.get(event_type)
+                    if domain:
+                        gw_payload["activity_domain"] = domain
+                    asyncio.create_task(post_event(
+                        source="aist-bot",
+                        external_id=external_id,
+                        event_type=event_type,
+                        schema_version="v1",
+                        occurred_at=effective_at,
+                        account_id=str(user_uuid) if user_uuid else None,
+                        payload=gw_payload,
+                    ))
+                except Exception as exc:
+                    logger.warning(f"[Events] backfill dual-write task failed: {exc}")
+            else:
+                logger.debug(f"[Events] {event_type} backfill dedup skip for {user_id}")
+            return event_id
+    except Exception as e:
+        logger.warning(f"[Events] Failed to backfill {event_type} for {user_id}: {e}")
+        return None
+
+
 async def get_user_events(
     user_id: int,
     event_type: Optional[str] = None,
