@@ -108,16 +108,16 @@ def _hours_inline_keyboard() -> InlineKeyboardMarkup:
 
 
 def _weeks_inline_keyboard() -> InlineKeyboardMarkup:
-    """Кнопки периода в неделях для /onboarding_time шаг 2."""
+    """Кнопки периода для /onboarding_time шаг 2."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="1 нед", callback_data="ot_weeks:1"),
-            InlineKeyboardButton(text="4 нед", callback_data="ot_weeks:4"),
-            InlineKeyboardButton(text="8 нед", callback_data="ot_weeks:8"),
+            InlineKeyboardButton(text="более 1 нед", callback_data="ot_weeks:1"),
+            InlineKeyboardButton(text="более 1 мес", callback_data="ot_weeks:4"),
+            InlineKeyboardButton(text="более 2 мес", callback_data="ot_weeks:8"),
         ],
         [
-            InlineKeyboardButton(text="12 нед", callback_data="ot_weeks:12"),
-            InlineKeyboardButton(text="24 нед", callback_data="ot_weeks:24"),
+            InlineKeyboardButton(text="более квартала", callback_data="ot_weeks:12"),
+            InlineKeyboardButton(text="более полугода", callback_data="ot_weeks:24"),
         ],
     ])
 
@@ -299,7 +299,7 @@ async def cmd_onboarding_time(message: Message, state: FSMContext) -> None:
         return
 
     await message.answer(
-        "Сколько в среднем часов в неделю ты тратил на саморазвитие?",
+        "Сколько в среднем часов в неделю ты инвестируешь на саморазвитие?",
         reply_markup=_hours_inline_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_hours)
@@ -330,7 +330,7 @@ async def on_ot_hours_callback(callback: CallbackQuery, state: FSMContext) -> No
 
     await state.update_data(ot_hours=hours)
     await callback.message.answer(
-        f"Понял: {hours} ч/нед.\n\nЗа какой период?",
+        f"Понял: {hours} ч/нед.\n\nУкажи период в месяцах:",
         reply_markup=_weeks_inline_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_weeks)
@@ -346,7 +346,7 @@ async def on_ot_hours_text(message: Message, state: FSMContext) -> None:
 
     await state.update_data(ot_hours=hours)
     await message.answer(
-        f"Понял: {hours} ч/нед.\n\nЗа какой период?",
+        f"Понял: {hours} ч/нед.\n\nУкажи период в месяцах:",
         reply_markup=_weeks_inline_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_weeks)
@@ -424,38 +424,60 @@ async def on_ot_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     total_days = ot_weeks * 7
     hours_per_day = round(ot_hours * ot_weeks / total_days, 2) if total_days > 0 else 0.0
     batch_id = str(uuid.uuid4())
+    total = round(ot_hours * ot_weeks, 1)
 
-    from db.queries.events import log_event_with_occurred_at
+    await callback.message.answer(f"⏳ Записываю {total_days} событий...")
+
+    # Batch INSERT — один запрос вместо N последовательных
     now = datetime.utcnow()
-    failed = 0
+    records = []
     for i in range(total_days):
         occurred_at = now - timedelta(days=total_days - i - 1)
-        try:
-            await log_event_with_occurred_at(
-                user_id=user_id,
-                event_type="slot_logged",
-                payload={
-                    "hours": hours_per_day,
-                    "source": "self_report_backfill",
-                    "confidence": "estimated",
-                    "batch_id": batch_id,
-                },
-                occurred_at=occurred_at,
-            )
-        except Exception as e:
-            logger.warning(f"[slot] backfill day {i} failed: {e}")
-            failed += 1
+        records.append((
+            user_id,
+            "slot_logged",
+            "bot",
+            json.dumps({
+                "hours": hours_per_day,
+                "source": "self_report_backfill",
+                "confidence": "estimated",
+                "batch_id": batch_id,
+            }),
+            1.0,
+            [],
+            user_uuid,
+            occurred_at,
+        ))
 
-    total = round(ot_hours * ot_weeks, 1)
+    failed = 0
+    try:
+        from db.connection import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany('''
+                INSERT INTO development.user_events
+                    (user_id, event_type, source, payload, confidence,
+                     skill_ids, user_uuid, created_at)
+                VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
+                ON CONFLICT DO NOTHING
+            ''', records)
+    except Exception as e:
+        logger.error(f"[slot] batch backfill failed: {e}")
+        failed = total_days
+
     ok = total_days - failed
-    msg = (
-        f"✅ Записал {total} ч за {ot_weeks} нед "
-        f"({ok}/{total_days} событий).\n\n"
-        "Запусти /twin чтобы увидеть пересчитанную ступень "
-        "(пересчёт происходит каждые 4 часа)."
-    )
     if failed:
-        msg += f"\n\n⚠️ Не записалось: {failed} событий."
+        msg = (
+            f"⚠️ Не удалось записать события (ошибка БД).\n"
+            f"Записалось: {ok}/{total_days}. Попробуй /onboarding_time ещё раз."
+        )
+    else:
+        msg = (
+            f"✅ Записал {total} ч за {ot_weeks} нед "
+            f"({ok} событий).\n\n"
+            "Пересчёт ступени происходит каждые 4 часа. "
+            "Проверь результат через /twin."
+        )
     await callback.message.answer(msg)
 
 
