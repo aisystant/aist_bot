@@ -2736,6 +2736,12 @@ errors:
     ru: "Попробуйте ещё раз позже."
     en: "Please try again later."
 
+  onboarding_required:
+    ru: "Сначала выполните /start, чтобы начать."
+    en: "Please run /start first to get started."
+    es: "Por favor, ejecuta /start primero para comenzar."
+    fr: "Veuillez d'abord exécuter /start pour commencer."
+
   processing_error:
     ru: "Произошла ошибка при обработке сообщения."
     en: "An error occurred while processing your message."
