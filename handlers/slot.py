@@ -135,7 +135,7 @@ def _total_hours_inline_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="40", callback_data="ot_total:40"),
             InlineKeyboardButton(text="60", callback_data="ot_total:60"),
-            InlineKeyboardButton(text="Свой ввод", callback_data="ot_total:custom"),
+            InlineKeyboardButton(text="Свой", callback_data="ot_total:custom"),
         ],
     ])
 
@@ -458,7 +458,7 @@ async def on_ot_weeks_callback(callback: CallbackQuery, state: FSMContext) -> No
 
     await state.update_data(ot_weeks=weeks)
     await callback.message.answer(
-        "Сколько дней в неделю в среднем занимался?",
+        f"Сколько дней в неделю в среднем занимался за эти {weeks} нед?",
         reply_markup=_days_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_days)
