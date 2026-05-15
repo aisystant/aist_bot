@@ -57,7 +57,33 @@ Telegram-бот [@aist_me_bot](https://t.me/aist_track_bot) с персонал�
 
 ---
 
-## 4. С чего начать
+## 4. Локальная разработка (WP-307 Ф17)
+
+### Docker (рекомендуется — F10 dev/prod parity)
+
+```bash
+# 1. Скопировать конфигурацию
+cp .env.example .env
+# 2. Заполнить TELEGRAM_BOT_TOKEN, DATABASE_URL, ANTHROPIC_API_KEY и др.
+# 3. Запуск (webhook mode для healthcheck)
+docker compose up --build
+
+# Для polling mode закомментируйте healthcheck в docker-compose.yml
+# или установите WEBHOOK_URL в .env
+```
+
+### venv (альтернатива)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python bot.py
+```
+
+---
+
+## 5. С чего начать
 
 ### Быстрый старт
 
