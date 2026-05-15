@@ -114,6 +114,21 @@ async def cmd_connect_guide(message: Message):
         await message.answer("⚠️ WEBHOOK_URL не настроен. Напиши администратору.")
         return
 
+    # WP-309: consent gate — не разрешать подключение личного руководства без opt-in.
+    from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries.consent import get_consent
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if account_id:
+        consent = await get_consent(account_id)
+        if not consent or not consent["opt_in"]:
+            await message.answer(
+                "⚠️ Для подключения персонального руководства требуется согласие на обработку персональных данных.\n\n"
+                "Набери команду <b>/consent opt-in</b>, затем нажми «✅ Согласен, включить». "
+                "После этого повтори <b>/connect_guide</b>.",
+                parse_mode="HTML",
+            )
+            return
+
     setup_url = f"{base_url}/auth/github_app/setup?telegram_user_id={chat_id}"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📥 Установить GitHub App", url=setup_url)],
