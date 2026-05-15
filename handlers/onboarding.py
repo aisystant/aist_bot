@@ -16,19 +16,33 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 
-def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | None:
+async def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | None:
     """Inline-кнопка «📚 Подключи личное руководство» (WP-301 Ф7, R27 proactive trigger).
 
-    Показывается только если GitHub App зарегистрирован (`GITHUB_APP_SLUG` + `WEBHOOK_URL`
-    в env). По SC.020 — proactive предложение Навигатора после онбординга, когда пилот
-    готов получать персональные занятия через git-канал.
+    Показывается только если:
+    - GitHub App зарегистрирован (`GITHUB_APP_SLUG` + `WEBHOOK_URL` в env)
+    - Пользователь дал согласие на обработку персональных данных (WP-309).
 
-    Returns None если App ещё не настроен — кнопка не показывается.
+    Returns None если App ещё не настроен или нет consent — кнопка не показывается.
     """
     app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
     webhook_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
     if not app_slug or not webhook_url:
         return None
+
+    # WP-309: consent gate — не показывать кнопку подключения личного руководства
+    # без explicit opt-in на обработку персональных данных.
+    from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries.consent import get_consent
+    try:
+        account_id = await resolve_ory_id_from_chat(chat_id)
+        if account_id:
+            consent = await get_consent(account_id)
+            if not consent or not consent["opt_in"]:
+                return None
+    except Exception:
+        return None
+
     setup_url = f"{webhook_url}/auth/github_app/setup?telegram_user_id={chat_id}"
     return [InlineKeyboardButton(
         text="📚 Подключи личное руководство",
@@ -275,7 +289,7 @@ async def cmd_start(message: Message, state: FSMContext):
             callback_data="iwe_connect_start",
         )
     ]]
-    guide_btn = _personal_guide_button(message.chat.id)
+    guide_btn = await _personal_guide_button(message.chat.id)
     if guide_btn:
         nav_buttons.append(guide_btn)
     # WP-188 Ф17.8: предложение трекинга развития. Показываем только если Aisystant
@@ -522,7 +536,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
                 callback_data="start_navigator",
             )
         ]]
-        guide_btn = _personal_guide_button(chat_id)
+        guide_btn = await _personal_guide_button(chat_id)
         if guide_btn:
             nav_buttons_fsm.append(guide_btn)
         nav_kb = InlineKeyboardMarkup(inline_keyboard=nav_buttons_fsm)
