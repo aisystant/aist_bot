@@ -618,6 +618,39 @@ async def on_ot_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         )
         return
 
+    # Dual-write slot_logged → public.domain_event (читается stage_evaluator в Neon).
+    # Только slot_logged (bh.inv); day_open с source=self_report_backfill в domain_event
+    # намеренно не пишем — bh.sys не включает self_reported (FORM.089 §12.2).
+    # Fire-and-forget: failure не блокирует ответ пользователю.
+    if user_uuid:
+        domain_slot_records = []
+        for idx, record in enumerate(slot_records):
+            _, _, _, payload_json, _, _, _, occurred_at_r = record
+            ext_id = f"bot-slot-backfill-{str(user_uuid)[:8]}-{batch_id}-{idx}"
+            domain_slot_records.append((
+                "aist-bot",
+                ext_id,
+                "slot_logged",
+                "v1",
+                payload_json,
+                str(user_uuid),
+                occurred_at_r,
+                now,
+            ))
+        try:
+            from db.connection import get_learning_pool
+            lpool = await get_learning_pool()
+            async with lpool.acquire() as lconn:
+                await lconn.executemany('''
+                    INSERT INTO public.domain_event
+                        (source, external_id, event_type, schema_version,
+                         payload, account_id, occurred_at, ingested_at)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid, $7, $8)
+                    ON CONFLICT (source, external_id) DO NOTHING
+                ''', domain_slot_records)
+        except Exception as e:
+            logger.warning(f"[slot] domain_event dual-write failed (non-blocking): {e}")
+
     await callback.message.answer(
         f"✅ Записано:\n"
         f"• Инвестировано: {inv_total:.0f} ч ({total_period_days} событий slot_logged)\n"
