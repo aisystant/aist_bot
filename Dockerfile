@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --upgrade pip
 
 COPY requirements.txt .
+ENV GIT_TERMINAL_PROMPT=0
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем все файлы проекта
