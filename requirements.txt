@@ -128,5 +128,4 @@ yarl==1.23.0
     # via aiohttp
 zipp==3.23.1
     # via importlib-metadata
-activity-hub @ git+https://github.com/aisystant/activity-hub.git
     # via -r requirements.in (WP-319 Ф6 simulator engine)
