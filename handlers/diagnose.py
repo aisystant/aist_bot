@@ -289,16 +289,16 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
     chat_id = message.chat.id
 
     from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries import get_intern
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
-        await message.answer(
-            "Для диагностики нужно подключить ваш аккаунт. "
-            "Пожалуйста, зайдите через /start."
-        )
-        return
+        intern = await get_intern(chat_id)
+        if intern:
+            account_id = intern.get('dt_user_id')
+    # account_id may still be None — proceed without saving (_finish_diagnose handles this)
 
     # Проверить свежий cp-срез (≤30 дней)
-    existing = await get_latest_cp_assessment(account_id)
+    existing = await get_latest_cp_assessment(account_id) if account_id else None
     if existing:
         assessed_at = existing.get("assessed_at", "")
         try:
