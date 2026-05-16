@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 import os
 import sys
@@ -22,6 +23,8 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+
+from helpers.typing_indicator import keep_typing
 
 logger = logging.getLogger(__name__)
 simulator_router = Router(name="simulator")
@@ -47,7 +50,7 @@ class SimulatorStates(StatesGroup):
 # ── Engine import helpers ─────────────────────────────────────────────────────
 
 def _get_engine_path() -> str | None:
-    """Путь к activity-hub: из env или относительный."""
+    """Путь к activity-hub: из env или относительный (локальная разработка)."""
     env_path = os.environ.get("ACTIVITY_HUB_PATH")
     if env_path:
         return env_path
@@ -125,6 +128,12 @@ def _result_text(pilot_text: str, stage_hint: str = "") -> str:
     return "\n".join(lines)
 
 
+def _make_preset_profile_safe(stage: int):
+    """Создать preset профиль с защитой от ImportError подмодуля."""
+    from activity_hub.engines.simulator.data import make_preset_profile
+    return make_preset_profile(stage)
+
+
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 @simulator_router.message(Command("simulator"))
@@ -148,8 +157,10 @@ async def cmd_simulator(message: Message, state: FSMContext) -> None:
 
 
 @simulator_router.callback_query(F.data.startswith(f"{CB_PREFIX}_preset_"))
-async def on_sim_preset(callback: CallbackQuery) -> None:
+async def on_sim_preset(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
+    await state.clear()  # сброс waiting_whatif если был активен
+
     try:
         stage = int(callback.data.split("_")[-1])
     except (ValueError, IndexError):
@@ -162,10 +173,17 @@ async def on_sim_preset(callback: CallbackQuery) -> None:
         )
         return
 
-    from activity_hub.engines.simulator.data import make_preset_profile
-    profile = make_preset_profile(stage)
-    pilot_text = _run_s1(profile)
+    try:
+        profile = _make_preset_profile_safe(stage)
+    except ImportError as e:
+        logger.warning("[simulator] engine submodule import error: %s", e)
+        await callback.message.answer(
+            f'Симулятор временно недоступен. <a href="{WEB_URL}">Веб-версия</a>',
+            parse_mode="HTML",
+        )
+        return
 
+    pilot_text = _run_s1(profile)
     stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
     await callback.message.answer(
         _result_text(pilot_text, f"Типовой профиль — {stage_name}"),
@@ -175,8 +193,9 @@ async def on_sim_preset(callback: CallbackQuery) -> None:
 
 
 @simulator_router.callback_query(F.data == f"{CB_PREFIX}_profile")
-async def on_sim_profile(callback: CallbackQuery) -> None:
+async def on_sim_profile(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
+    await state.clear()  # сброс waiting_whatif если был активен
 
     if not _ensure_engine():
         await callback.message.answer(
@@ -185,7 +204,6 @@ async def on_sim_profile(callback: CallbackQuery) -> None:
         )
         return
 
-    # Получить account_id
     from helpers.dual_write import resolve_ory_id_from_chat
     from db.queries import get_intern
     chat_id = callback.message.chat.id
@@ -205,9 +223,15 @@ async def on_sim_profile(callback: CallbackQuery) -> None:
 
     profile = await _load_real_profile(account_id)
     if profile is None or profile.source == "no_data":
-        # Fallback: типовой ст.1
-        from activity_hub.engines.simulator.data import make_preset_profile
-        profile = make_preset_profile(1)
+        try:
+            profile = _make_preset_profile_safe(1)
+        except ImportError as e:
+            logger.warning("[simulator] engine submodule import error: %s", e)
+            await callback.message.answer(
+                f'Симулятор временно недоступен. <a href="{WEB_URL}">Веб-версия</a>',
+                parse_mode="HTML",
+            )
+            return
         hint = "Данных пока нет — показываю профиль ступени 1"
     else:
         hint = "Ваш профиль"
@@ -246,7 +270,6 @@ async def on_sim_whatif_text(message: Message, state: FSMContext) -> None:
     if len(text) > 1000:
         text = text[:1000]
 
-    # Получить account_id для реального профиля (fallback ст.1)
     from helpers.dual_write import resolve_ory_id_from_chat
     from db.queries import get_intern
     chat_id = message.chat.id
@@ -262,21 +285,30 @@ async def on_sim_whatif_text(message: Message, state: FSMContext) -> None:
         profile = None
 
     if profile is None or profile.source == "no_data":
-        from activity_hub.engines.simulator.data import make_preset_profile
-        profile = make_preset_profile(1)
+        try:
+            profile = _make_preset_profile_safe(1)
+        except ImportError as e:
+            logger.warning("[simulator] engine submodule import error: %s", e)
+            await message.answer(
+                f'Симулятор временно недоступен. <a href="{WEB_URL}">Веб-версия</a>',
+                parse_mode="HTML",
+            )
+            return
 
-    # LLM-парсинг сценария
-    try:
-        from activity_hub.engines.simulator.llm_parser import parse_scenario_text
-        parsed = await parse_scenario_text(text)
-    except Exception as e:
-        logger.warning("[simulator] llm_parser error: %s", e)
-        parsed = {"scenario_id": "s1", "bh_overrides": {}, "horizon_weeks": 12,
-                  "confidence": 0.0, "fallback_sliders": True, "explanation": ""}
+    # LLM-парсинг сценария (~2-4 сек — показываем typing)
+    async with keep_typing(message):
+        try:
+            from activity_hub.engines.simulator.llm_parser import parse_scenario_text
+            parsed = await parse_scenario_text(text)
+        except Exception as e:
+            logger.warning("[simulator] llm_parser error: %s", e)
+            parsed = {"scenario_id": "s1", "bh_overrides": {}, "horizon_weeks": 12,
+                      "confidence": 0.0, "fallback_sliders": True, "explanation": ""}
 
     overrides = parsed.get("bh_overrides") or {}
     horizon = int(parsed.get("horizon_weeks") or 12)
-    explanation = parsed.get("explanation") or ""
+    # W-3: экранируем LLM-текст перед вставкой в HTML-разметку
+    explanation = html.escape(parsed.get("explanation") or "")
 
     pilot_text = _run_s1(profile, overrides=overrides, horizon=horizon)
 
