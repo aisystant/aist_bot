@@ -626,7 +626,8 @@ async def on_ot_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         domain_slot_records = []
         for idx, record in enumerate(slot_records):
             _, _, _, payload_json, _, _, _, occurred_at_r = record
-            ext_id = f"bot-slot-backfill-{str(user_uuid)[:8]}-{batch_id}-{idx}"
+            # Stable per (user, date) — ON CONFLICT DO NOTHING deduplicates repeat runs
+            ext_id = f"bot-slot-backfill-{str(user_uuid)[:8]}-{occurred_at_r.strftime('%Y%m%d')}"
             domain_slot_records.append((
                 "aist-bot",
                 ext_id,
