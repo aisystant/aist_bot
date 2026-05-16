@@ -35,6 +35,7 @@ _scheduler: Optional[AsyncIOScheduler] = None
 _aiogram_dispatcher = None  # aiogram Dispatcher (for FSM storage access)
 _bot_dispatcher = None      # core.dispatcher.Dispatcher (for SM routing)
 _bot_token: str = None
+_bot_id: int = None          # Telegram bot ID — used to isolate reminders on shared DB
 
 
 _RETRY_DELAYS_MINUTES = [30, 60]  # exponential backoff: 30min, then 60min
@@ -122,10 +123,11 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
         logger.info("[Scheduler] DISABLE_SCHEDULER=true — планировщик отключён")
         return None
 
-    global _scheduler, _bot_dispatcher, _aiogram_dispatcher, _bot_token
+    global _scheduler, _bot_dispatcher, _aiogram_dispatcher, _bot_token, _bot_id
     _bot_dispatcher = bot_dispatcher
     _aiogram_dispatcher = aiogram_dispatcher
     _bot_token = bot_token
+    _bot_id = int(bot_token.split(':')[0])
 
     _scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
     _scheduler.add_job(scheduled_check, 'cron', minute='*', max_instances=2)
@@ -670,11 +672,7 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
 
 async def _ensure_reminder_text_column():
-    """WP-320: добавить text-столбец в reminder, если ещё нет.
-
-    Запускается один раз при старте планировщика, чтобы RETURNING ... text
-    не падал до первого вызова /remind.
-    """
+    """WP-320: добавить text + bot_id столбцы в reminder, если ещё нет."""
     try:
         from db.connection import get_learning_pool
         pool = await get_learning_pool()
@@ -682,7 +680,10 @@ async def _ensure_reminder_text_column():
             await conn.execute(
                 "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
             )
-        logger.info("[Scheduler] reminder.text column ensured")
+            await conn.execute(
+                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS bot_id BIGINT"
+            )
+        logger.info("[Scheduler] reminder.text + bot_id columns ensured")
     except Exception as e:
         logger.warning("[Scheduler] _ensure_reminder_text_column failed: %s", e)
 
@@ -859,12 +860,13 @@ async def check_reminders():
                            SELECT r.id FROM reminder r
                            WHERE r.sent = FALSE AND r.scheduled_for <= $1
                              AND NOT (r.chat_id = ANY($2::bigint[]))
+                             AND (r.bot_id = $3 OR r.bot_id IS NULL)
                            ORDER BY r.scheduled_for
                            LIMIT 1
                            FOR UPDATE OF r SKIP LOCKED
                        )
                        RETURNING id, chat_id, reminder_type, text''',
-                    now_naive, blocked_list
+                    now_naive, blocked_list, _bot_id
                 )
                 if not row:
                     break
