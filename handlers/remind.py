@@ -20,6 +20,9 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+# Moscow is UTC+3 (no DST). Used to interpret user-input HH:MM as Moscow time.
+_MOSCOW_UTC_OFFSET = timedelta(hours=3)
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -64,8 +67,14 @@ _RE_ISO = re.compile(r"(\d{4}-\d{2}-\d{2})[T\s](\d{1,2}:\d{2})")
 
 
 def _parse_time(text: str) -> tuple[datetime | None, str]:
-    """Return (scheduled_for_utc_naive, remaining_text_without_time_part)."""
-    now = datetime.utcnow()
+    """Return (scheduled_for_utc_naive, remaining_text_without_time_part).
+
+    Relative times ("через N"): UTC-based, no offset needed.
+    Absolute times ("в HH:MM", "завтра", dates, ISO): user inputs Moscow time;
+    we subtract _MOSCOW_UTC_OFFSET before storing so the DB always holds UTC.
+    """
+    now_utc = datetime.utcnow()
+    now_moscow = now_utc + _MOSCOW_UTC_OFFSET  # naive Moscow time for absolute comparisons
 
     m = _RE_THROUGH.search(text)
     if m:
@@ -77,14 +86,14 @@ def _parse_time(text: str) -> tuple[datetime | None, str]:
             delta = timedelta(hours=n)
         else:
             delta = timedelta(days=n)
-        return now + delta, text[: m.start()].strip() + " " + text[m.end() :].strip()
+        return now_utc + delta, text[: m.start()].strip() + " " + text[m.end() :].strip()
 
     m = _RE_TOMORROW.search(text)
     if m:
         h = int(m.group(1)) if m.group(1) else 9
         mn = int(m.group(2)) if m.group(2) else 0
-        dt = (now + timedelta(days=1)).replace(hour=h, minute=mn, second=0, microsecond=0)
-        return dt, text[: m.start()].strip() + " " + text[m.end() :].strip()
+        dt_moscow = (now_moscow + timedelta(days=1)).replace(hour=h, minute=mn, second=0, microsecond=0)
+        return dt_moscow - _MOSCOW_UTC_OFFSET, text[: m.start()].strip() + " " + text[m.end() :].strip()
 
     m = _RE_DATE_RU.search(text)
     if m:
@@ -92,28 +101,28 @@ def _parse_time(text: str) -> tuple[datetime | None, str]:
         month = _MONTHS_RU[m.group(2).lower()]
         h = int(m.group(3)) if m.group(3) else 9
         mn = int(m.group(4)) if m.group(4) else 0
-        year = now.year
-        dt = datetime(year, month, day, h, mn)
-        if dt < now:
-            dt = dt.replace(year=year + 1)
-        return dt, text[: m.start()].strip() + " " + text[m.end() :].strip()
+        year = now_utc.year
+        dt_moscow = datetime(year, month, day, h, mn)
+        if dt_moscow - _MOSCOW_UTC_OFFSET < now_utc:
+            dt_moscow = dt_moscow.replace(year=year + 1)
+        return dt_moscow - _MOSCOW_UTC_OFFSET, text[: m.start()].strip() + " " + text[m.end() :].strip()
 
     m = _RE_ISO.search(text)
     if m:
         dt_str = m.group(1) + " " + m.group(2)
         try:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
-            return dt, text[: m.start()].strip() + " " + text[m.end() :].strip()
+            dt_moscow = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+            return dt_moscow - _MOSCOW_UTC_OFFSET, text[: m.start()].strip() + " " + text[m.end() :].strip()
         except ValueError:
             pass
 
     m = _RE_AT_TIME.search(text)
     if m:
         h, mn = int(m.group(1)), int(m.group(2))
-        dt = now.replace(hour=h, minute=mn, second=0, microsecond=0)
-        if dt <= now:
-            dt += timedelta(days=1)
-        return dt, text[: m.start()].strip() + " " + text[m.end() :].strip()
+        dt_moscow = now_moscow.replace(hour=h, minute=mn, second=0, microsecond=0)
+        if dt_moscow <= now_moscow:
+            dt_moscow += timedelta(days=1)
+        return dt_moscow - _MOSCOW_UTC_OFFSET, text[: m.start()].strip() + " " + text[m.end() :].strip()
 
     return None, text
 

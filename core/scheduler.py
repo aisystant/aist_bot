@@ -833,8 +833,8 @@ async def check_reminders():
     """
     from db.connection import get_learning_pool
 
-    now = moscow_now()
-    now_naive = now.replace(tzinfo=None)
+    # scheduled_for is stored as UTC naive — compare with UTC, not Moscow time.
+    now_naive = datetime.utcnow()
 
     # Pre-fetch заблокированных пользователей из user_state pool (bot_data).
     try:
