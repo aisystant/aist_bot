@@ -13,6 +13,8 @@ RUN pip install --upgrade pip
 
 COPY requirements.txt .
 ENV GIT_TERMINAL_PROMPT=0
+ENV GIT_ASKPASS=/bin/echo
+RUN git config --global credential.helper ''
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем все файлы проекта
