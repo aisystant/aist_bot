@@ -474,26 +474,30 @@ connect:
 
   # --- claude.ai ---
   open_claude:
-    ru: "Открыть claude.ai"
-    en: "Open claude.ai"
+    ru: "Открыть настройки claude.ai"
+    en: "Open claude.ai settings"
 
   claude_instructions:
     ru: |
       *Claude (claude.ai)*
 
-      1. Открой claude.ai → имя профиля → Settings
-      2. Раздел Integrations → Add custom integration
+      1. Перейди по ссылке: claude.ai/customize/connectors
+      2. Нажми `+` → *Add custom connector*
       3. Name: `IWE`, URL: `{gateway_url}`
       4. Нажми Save → авторизуйся через аккаунт system-school.ru
+
+      После авторизации проверь: в новом чате должно быть более 30 Tools и кнопка *Custom*.
 
       Открой новый чат и напиши: «С чего мне начать?»
     en: |
       *Claude (claude.ai)*
 
-      1. Open claude.ai → profile name → Settings
-      2. Integrations → Add custom integration
+      1. Go to: claude.ai/customize/connectors
+      2. Click `+` → *Add custom connector*
       3. Name: `IWE`, URL: `{gateway_url}`
       4. Click Save → authorize via system-school.ru account
+
+      After auth check: new chat should show 30+ Tools and a *Custom* button.
 
       Open a new chat and type: "Where should I start?"
 

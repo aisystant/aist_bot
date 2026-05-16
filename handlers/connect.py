@@ -95,7 +95,7 @@ async def on_claude(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=t('connect.open_claude', lang),
-            url="https://claude.ai/settings/integrations",
+            url="https://claude.ai/customize/connectors",
         )],
         _back_button(lang),
     ])
