@@ -1671,10 +1671,10 @@ async def internal_remind_handler(request: web.Request) -> web.Response:
         )
 
     try:
-        from db.connection import get_pool, get_learning_pool
+        from db.connection import get_persona_pool, get_learning_pool
 
-        # Resolve chat_id from ory_user_id via bot_data.ory_identity
-        pool = await get_pool()
+        # Resolve chat_id from ory_user_id via persona.ory_identity (Neon, WP-269)
+        pool = await get_persona_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 'SELECT telegram_id FROM public.ory_identity WHERE id = $1::uuid LIMIT 1',
