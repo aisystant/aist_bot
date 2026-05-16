@@ -1626,6 +1626,114 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def internal_remind_handler(request: web.Request) -> web.Response:
+    """WP-320 Ф2: пользователь-инициированные напоминания через MCP-tool send_telegram_message.
+    see DP.SC.134, DP.ROLE.044
+
+    POST /internal/remind
+    Headers: X-Notify-Signature: sha256=<hmac> (same INTERNAL_NOTIFY_SECRET)
+    Body JSON: {ory_user_id: str, text: str, schedule_at?: str (ISO 8601)}
+    Response: {reminder_id: int, scheduled_at: str, status: "queued"|"sent"|"failed"}
+    """
+    import os
+    import hashlib
+    import hmac
+    import json
+    from datetime import datetime, timedelta
+
+    secret = os.getenv('INTERNAL_NOTIFY_SECRET', '')
+    if not secret:
+        logger.warning("[InternalRemind] INTERNAL_NOTIFY_SECRET not configured")
+        return web.Response(text="Service unavailable", status=503)
+
+    raw_body = await request.read()
+
+    provided_sig = request.headers.get('X-Notify-Signature', '')
+    expected_mac = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    expected_sig = f"sha256={expected_mac}"
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        logger.warning("[InternalRemind] Invalid HMAC signature")
+        return web.Response(text="Forbidden", status=403)
+
+    try:
+        body = json.loads(raw_body)
+    except Exception:
+        return web.Response(text="Bad request", status=400)
+
+    ory_user_id = body.get('ory_user_id')
+    text = body.get('text', '').strip()
+    schedule_at_str = body.get('schedule_at')
+
+    if not ory_user_id or not text:
+        return web.Response(
+            text=json.dumps({"ok": False, "reason": "missing ory_user_id or text"}),
+            content_type="application/json", status=400
+        )
+
+    try:
+        from db.connection import get_pool, get_learning_pool
+
+        # Resolve chat_id from ory_user_id via bot_data.ory_identity
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT telegram_id FROM public.ory_identity WHERE id = $1::uuid LIMIT 1',
+                ory_user_id
+            )
+        if not row or not row['telegram_id']:
+            logger.warning("[InternalRemind] No telegram_id for ory_user_id=%s", ory_user_id)
+            return web.Response(
+                text=json.dumps({"ok": False, "reason": "user_not_found"}),
+                content_type="application/json", status=404
+            )
+        chat_id = row['telegram_id']
+
+        # Parse schedule_at
+        now_naive = datetime.utcnow()
+        if schedule_at_str:
+            try:
+                # Accept ISO 8601, strip tzinfo for naive TIMESTAMP column (rule 10.6)
+                scheduled_for = datetime.fromisoformat(schedule_at_str.replace('Z', '+00:00'))
+                scheduled_for = scheduled_for.replace(tzinfo=None)
+            except ValueError:
+                return web.Response(
+                    text=json.dumps({"ok": False, "reason": "invalid schedule_at format, use ISO 8601"}),
+                    content_type="application/json", status=400
+                )
+        else:
+            # Immediate: schedule 5s in the future so scheduler picks it up on next tick
+            scheduled_for = now_naive + timedelta(seconds=5)
+
+        # Ensure text column exists in learning.reminder (idempotent migration)
+        learning_pool = await get_learning_pool()
+        async with learning_pool.acquire() as conn:
+            await conn.execute(
+                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
+            )
+            record = await conn.fetchrow(
+                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for, text)
+                   VALUES ($1, $2, $3, $4)
+                   RETURNING id, scheduled_for''',
+                chat_id, 'custom', scheduled_for, text
+            )
+
+        reminder_id = record['id']
+        scheduled_at_iso = record['scheduled_for'].isoformat()
+        logger.info("[InternalRemind] reminder_id=%s chat_id=%s scheduled_for=%s", reminder_id, chat_id, scheduled_for)
+
+        return web.Response(
+            text=json.dumps({"ok": True, "reminder_id": reminder_id, "scheduled_at": scheduled_at_iso, "status": "queued"}),
+            content_type="application/json"
+        )
+
+    except Exception as e:
+        logger.exception("[InternalRemind] Error: %s", e)
+        return web.Response(
+            text=json.dumps({"ok": False, "error": str(e)}),
+            content_type="application/json", status=500
+        )
+
+
 async def internal_notify_handler(request: web.Request) -> web.Response:
     """WP-5 Ф12: внутреннее уведомление от gateway-mcp о начале индексации форкнутого репо.
 
@@ -1923,6 +2031,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github_app/setup", github_app_setup_handler)  # WP-301 Ф7
     app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
+    app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:

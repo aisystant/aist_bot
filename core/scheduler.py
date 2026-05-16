@@ -711,6 +711,28 @@ async def schedule_reminders(chat_id: int, intern: dict):
             )
 
 
+async def send_user_reminder(chat_id: int, text: str, reminder_id: int, bot: Bot):
+    """WP-320 Ф2: доставка пользователь-инициированного напоминания (DP.SC.134).
+    see DP.SC.134, DP.ROLE.044
+    """
+    from db.queries.notifications import try_insert_notification
+    from db.queries.events import log_event
+
+    idempotency_key = f"user_remind:{chat_id}:{reminder_id}"
+    inserted = await try_insert_notification(chat_id, 'reminder', idempotency_key)
+    if not inserted:
+        logger.info("[Scheduler] user_reminder %s already sent to %s, skip", reminder_id, chat_id)
+        return
+
+    try:
+        await bot.send_message(chat_id, f"🔔 {text}")
+        await log_event(chat_id, 'reminder_delivered', {'reminder_type': 'custom', 'reminder_id': reminder_id})
+        logger.info("[Scheduler] user_reminder %s delivered to %s", reminder_id, chat_id)
+    except Exception:
+        logger.exception("[Scheduler] user_reminder %s failed for %s", reminder_id, chat_id)
+        raise
+
+
 async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     """Отправляет напоминание с кнопкой «Получить урок»."""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -809,14 +831,18 @@ async def check_reminders():
                            LIMIT 1
                            FOR UPDATE OF r SKIP LOCKED
                        )
-                       RETURNING id, chat_id, reminder_type''',
+                       RETURNING id, chat_id, reminder_type, text''',
                     now_naive, blocked_list
                 )
                 if not row:
                     break
 
                 try:
-                    await send_reminder(row['chat_id'], row['reminder_type'], bot)
+                    # WP-320 Ф2: custom text reminders (DP.SC.134)
+                    if row['reminder_type'] == 'custom' and row.get('text'):
+                        await send_user_reminder(row['chat_id'], row['text'], row['id'], bot)
+                    else:
+                        await send_reminder(row['chat_id'], row['reminder_type'], bot)
                     logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
                 except Exception as e:
                     if _is_user_unavailable(e):
