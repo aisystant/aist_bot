@@ -138,6 +138,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
+    _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
@@ -668,6 +669,24 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
 
 
+async def _ensure_reminder_text_column():
+    """WP-320: добавить text-столбец в reminder, если ещё нет.
+
+    Запускается один раз при старте планировщика, чтобы RETURNING ... text
+    не падал до первого вызова /remind.
+    """
+    try:
+        from db.connection import get_learning_pool
+        pool = await get_learning_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
+            )
+        logger.info("[Scheduler] reminder.text column ensured")
+    except Exception as e:
+        logger.warning("[Scheduler] _ensure_reminder_text_column failed: %s", e)
+
+
 async def _get_blocked_chat_ids() -> set[int]:
     """WP-253 lift-and-shift: получить список заблокированных пользователей.
 
@@ -709,6 +728,35 @@ async def schedule_reminders(chat_id: int, intern: dict):
                    VALUES ($1, $2, $3)''',
                 chat_id, f'+{hours}h', reminder_time_naive
             )
+
+
+async def send_user_reminder(chat_id: int, text: str, reminder_id: int, bot: Bot):
+    """WP-320 Ф2: доставка пользователь-инициированного напоминания (DP.SC.134).
+    see DP.SC.134, DP.ROLE.044
+    """
+    from db.queries.notifications import try_insert_notification
+    from db.queries.events import log_event
+
+    idempotency_key = f"user_remind:{chat_id}:{reminder_id}"
+    # Idempotency best-effort: domain_event недоступен → не блокирует отправку.
+    # reminder.sent=TRUE уже выставлен до этого вызова — защита от дублей.
+    try:
+        inserted = await try_insert_notification(chat_id, 'reminder', idempotency_key)
+        if not inserted:
+            logger.info("[Scheduler] user_reminder %s already sent to %s, skip", reminder_id, chat_id)
+            return
+    except Exception as e:
+        logger.warning("[Scheduler] idempotency check failed for reminder %s: %s — proceeding", reminder_id, e)
+
+    try:
+        await bot.send_message(chat_id, f"🔔 {text}")
+        logger.info("[Scheduler] user_reminder %s delivered to %s", reminder_id, chat_id)
+    except Exception:
+        logger.exception("[Scheduler] user_reminder %s failed for %s", reminder_id, chat_id)
+        raise
+
+    # Non-critical logging — не бросает исключение (log_event уже fault-tolerant)
+    await log_event(chat_id, 'reminder_delivered', {'reminder_type': 'custom', 'reminder_id': reminder_id})
 
 
 async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
@@ -789,11 +837,17 @@ async def check_reminders():
     now_naive = now.replace(tzinfo=None)
 
     # Pre-fetch заблокированных пользователей из user_state pool (bot_data).
-    blocked_ids = await _get_blocked_chat_ids()
+    try:
+        blocked_ids = await _get_blocked_chat_ids()
+    except Exception as e:
+        logger.warning("[Scheduler] _get_blocked_chat_ids failed: %s — skipping block filter", e)
+        blocked_ids = set()
     blocked_list = list(blocked_ids) if blocked_ids else [0]  # NULL-safe placeholder
 
     pool = await get_learning_pool()
     bot = Bot(token=_bot_token)
+
+    logger.debug("[Scheduler] check_reminders: now_naive=%s, blocked=%d", now_naive, len(blocked_list))
 
     try:
         async with pool.acquire() as conn:
@@ -809,14 +863,18 @@ async def check_reminders():
                            LIMIT 1
                            FOR UPDATE OF r SKIP LOCKED
                        )
-                       RETURNING id, chat_id, reminder_type''',
+                       RETURNING id, chat_id, reminder_type, text''',
                     now_naive, blocked_list
                 )
                 if not row:
                     break
 
                 try:
-                    await send_reminder(row['chat_id'], row['reminder_type'], bot)
+                    # WP-320 Ф2: custom text reminders (DP.SC.134)
+                    if row['reminder_type'] == 'custom' and row.get('text'):
+                        await send_user_reminder(row['chat_id'], row['text'], row['id'], bot)
+                    else:
+                        await send_reminder(row['chat_id'], row['reminder_type'], bot)
                     logger.info(f"Sent {row['reminder_type']} reminder to {row['chat_id']}")
                 except Exception as e:
                     if _is_user_unavailable(e):
