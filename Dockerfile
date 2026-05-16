@@ -12,10 +12,13 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --upgrade pip
 
 COPY requirements.txt .
+ARG GITHUB_BOT_PAT
 ENV GIT_TERMINAL_PROMPT=0
-ENV GIT_ASKPASS=/bin/echo
-RUN git config --global credential.helper ''
+RUN if [ -n "$GITHUB_BOT_PAT" ]; then \
+      git config --global url."https://${GITHUB_BOT_PAT}@github.com/".insteadOf "https://github.com/"; \
+    fi
 RUN pip install --no-cache-dir -r requirements.txt
+RUN git config --global --remove-section url."https://${GITHUB_BOT_PAT}@github.com/" 2>/dev/null || true
 
 # Копируем все файлы проекта
 COPY bot.py .
