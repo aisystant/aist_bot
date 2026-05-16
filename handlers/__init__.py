@@ -66,6 +66,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .slot import slot_router
     from .diagnose import diagnose_router
     from .simulator import simulator_router
+    from .remind import remind_router
 
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
@@ -104,6 +105,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(slot_router)
     dp.include_router(diagnose_router)
     dp.include_router(simulator_router)
+    dp.include_router(remind_router)
 
     # ReplyKeyboard text → command routing (AFTER all command routers, BEFORE fallback)
     from .reply_keyboard import reply_kb_router
