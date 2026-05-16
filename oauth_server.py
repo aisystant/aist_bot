@@ -1677,7 +1677,7 @@ async def internal_remind_handler(request: web.Request) -> web.Response:
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                'SELECT telegram_id FROM public.ory_identity WHERE id = $1::uuid LIMIT 1',
+                'SELECT telegram_id FROM public.ory_identity WHERE account_id = $1::uuid LIMIT 1',
                 ory_user_id
             )
         if not row or not row['telegram_id']:
