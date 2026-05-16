@@ -230,6 +230,7 @@ states:
       continue_feed: feed.digest
       settings: common.settings
       go_assessment: workshop.assessment.flow
+      go_diagnose: _previous              # Выход + подсказка /diagnose
       back: _previous                     # Выход из progress
       error: _previous
 

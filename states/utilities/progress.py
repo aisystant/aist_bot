@@ -207,6 +207,16 @@ class ProgressState(BaseState):
         except Exception:
             pass
 
+        # CP-профиль (WP-318 Ф10)
+        cp_profile = None
+        try:
+            account_id = intern.get('dt_user_id')
+            if account_id:
+                from db.queries.cp_assessment import get_latest_cp_assessment
+                cp_profile = await get_latest_cp_assessment(account_id)
+        except Exception:
+            pass
+
         assessment_date = intern.get('assessment_date')
         if assessment_date and hasattr(assessment_date, 'isoformat'):
             assessment_date = assessment_date.isoformat()
@@ -274,6 +284,8 @@ class ProgressState(BaseState):
             'assessment_state': intern.get('assessment_state', '') or '',
             'assessment_date': assessment_date,
             'last_assessment': last_assessment,
+            # CP-профиль (WP-318 Ф10)
+            'cp_profile': cp_profile,
             # GitHub
             'github': {
                 'connected': github is not None,
@@ -354,6 +366,7 @@ class ProgressState(BaseState):
                 InlineKeyboardButton(text=f"🧪 {t('progress.sec_assessment', lang)}", callback_data="progress_assessment"),
                 InlineKeyboardButton(text=f"🔗 {t('progress.sec_integrations', lang)}", callback_data="progress_integrations"),
             ],
+            [InlineKeyboardButton(text="🔬 Диагностический профиль", callback_data="progress_cp_profile")],
             [InlineKeyboardButton(text=t('buttons.back', lang), callback_data="progress_exit")],
         ])
         await self._show_section(user, text, keyboard, callback)
@@ -545,6 +558,58 @@ class ProgressState(BaseState):
         ])
         await self._show_section(user, text, keyboard, callback)
 
+    _CP_STAGE_LABELS = {
+        1: "Случайный",
+        2: "Практикующий",
+        3: "Систематический",
+        4: "Дисциплинированный",
+        5: "Проактивный",
+    }
+
+    _CP_SLOT_LABELS = {
+        "cp.rhy": "Ритм",
+        "cp.wld": "Мировоззрение",
+        "cp.skl": "Навыки",
+        "cp.iwe": "IWE",
+        "cp.int": "Интеграция",
+        "cp.agt": "Агентность",
+    }
+
+    async def _show_cp_profile(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
+        cp = cache.get('cp_profile')
+        text = "<b>🔬 Диагностический профиль</b>\n\n"
+
+        if cp:
+            stage = cp.get('stage', '—')
+            stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
+            bottleneck = cp.get('bottleneck_slot', '')
+            bottleneck_label = self._CP_SLOT_LABELS.get(bottleneck, bottleneck)
+            stream = cp.get('recommended_stream', '—')
+            valid_until = cp.get('valid_until', '')
+            valid_str = valid_until[:10] if valid_until else '—'
+
+            text += f"🎯 Ступень: <b>{stage} — {stage_label}</b>\n"
+            text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"
+            text += f"📚 Поток: <b>{stream}</b>\n"
+            text += f"📅 Действует до: {valid_str}\n"
+
+            scores = cp.get('cp_scores') or {}
+            if scores:
+                text += "\n<b>Профиль по слотам:</b>\n"
+                for slot, score in scores.items():
+                    label = self._CP_SLOT_LABELS.get(slot, slot)
+                    filled = int(score)
+                    bar = "●" * filled + "○" * (5 - filled)
+                    text += f"• {label}: {bar} {score}\n"
+        else:
+            text += "Диагностика ещё не пройдена.\n\nПройдите /diagnose — займёт около 3 минут."
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔬 Пройти диагностику", callback_data="progress_go_diagnose")],
+            [InlineKeyboardButton(text=f"« {t('progress.back_to_overview', lang)}", callback_data="progress_back")],
+        ])
+        await self._show_section(user, text, keyboard, callback)
+
     async def _show_integrations(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
         gh = cache.get('github', {})
 
@@ -589,6 +654,7 @@ class ProgressState(BaseState):
             "progress_qa": "_show_qa",
             "progress_assessment": "_show_assessment",
             "progress_integrations": "_show_integrations",
+            "progress_cp_profile": "_show_cp_profile",
             "progress_full": "_show_marathon",  # legacy
         }
 
@@ -599,6 +665,9 @@ class ProgressState(BaseState):
 
         if data == "progress_go_assessment":
             return "go_assessment"
+        if data == "progress_go_diagnose":
+            await callback.message.answer("Используйте /diagnose чтобы пройти диагностику (~3 мин)")
+            return "go_diagnose"
         if data == "progress_settings":
             return "settings"
         if data == "progress_exit":
