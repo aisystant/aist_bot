@@ -214,8 +214,8 @@ class ProgressState(BaseState):
             if account_id:
                 from db.queries.cp_assessment import get_latest_cp_assessment
                 cp_profile = await get_latest_cp_assessment(account_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"[Progress] cp_profile error: {e}")
 
         assessment_date = intern.get('assessment_date')
         if assessment_date and hasattr(assessment_date, 'isoformat'):
@@ -585,8 +585,8 @@ class ProgressState(BaseState):
             bottleneck = cp.get('bottleneck_slot', '')
             bottleneck_label = self._CP_SLOT_LABELS.get(bottleneck, bottleneck)
             stream = cp.get('recommended_stream', '—')
-            valid_until = cp.get('valid_until', '')
-            valid_str = valid_until[:10] if valid_until else '—'
+            valid_until = cp.get('valid_until') or ''
+            valid_str = valid_until[:10] if isinstance(valid_until, str) and valid_until else '—'
 
             text += f"🎯 Ступень: <b>{stage} — {stage_label}</b>\n"
             text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"
@@ -666,8 +666,8 @@ class ProgressState(BaseState):
         if data == "progress_go_assessment":
             return "go_assessment"
         if data == "progress_go_diagnose":
-            await callback.message.answer("Используйте /diagnose чтобы пройти диагностику (~3 мин)")
-            return "go_diagnose"
+            await callback.answer("Используйте /diagnose (~3 мин)", show_alert=True)
+            return None
         if data == "progress_settings":
             return "settings"
         if data == "progress_exit":
