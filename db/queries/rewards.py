@@ -15,7 +15,7 @@ import logging
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 
-from db.connection import get_rewards_pool
+from db.connection import get_rewards_pool, get_reference_pool
 
 logger = logging.getLogger(__name__)
 
@@ -79,4 +79,52 @@ async def get_recent_applied_events(
             return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"[rewards] get_recent_applied_events({account_id}): {e}")
+        return []
+
+
+async def get_today_total(account_id: Optional[str]) -> Decimal:
+    """Сумма effective за сегодня (UTC). Для /points «+N за сегодня»."""
+    if not account_id:
+        return Decimal(0)
+
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT COALESCE(SUM(effective), 0) AS today_total
+                FROM applied_events
+                WHERE account_id = $1
+                  AND DATE(applied_at) = CURRENT_DATE
+                """,
+                account_id,
+            )
+            return row['today_total'] if row else Decimal(0)
+    except Exception as e:
+        logger.error(f"[rewards] get_today_total({account_id}): {e}")
+        return Decimal(0)
+
+
+async def get_active_reward_rules() -> List[Dict[str, Any]]:
+    """Список активных правил для команды /rules (DP.SC.136).
+
+    Возвращает только правила с amount > 0 (условия с amount=0 — служебные,
+    не отображаются пилоту). Группировка по activity_domain — на стороне handler.
+    """
+    try:
+        pool = await get_reference_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT trigger_event, amount, streak_eligible, description
+                FROM reward_rules
+                WHERE reward_kind = 'points'
+                  AND amount > 0
+                  AND (valid_to IS NULL OR valid_to > NOW())
+                ORDER BY amount DESC, trigger_event
+                """,
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"[rewards] get_active_reward_rules: {e}")
         return []
