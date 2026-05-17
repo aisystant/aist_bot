@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Burn-эмиттер баллов (WP-327 Ф1, see DP.SC.141, DP.ROLE.051).
+Burn-эмиттер баллов (WP-327 Ф1+Ф2, see DP.SC.141, DP.ROLE.051).
 
 Двухфазный коммит для зачёта баллов в оплату:
   1. reserve_burn() — резерв при чекауте (ДО YooKassa.create_payment / TG send_invoice)
@@ -13,17 +13,17 @@ Burn-эмиттер баллов (WP-327 Ф1, see DP.SC.141, DP.ROLE.051).
 в learning.domain_event — соответствие DP.SC.020 OwnerIntegrity (single writer = DP.ROLE.032).
 
 Идемпотентность: PK на payment_id, INSERT ... ON CONFLICT DO NOTHING.
-
-Skeleton WP-327 Ф1 — заглушки + контракт. Полная реализация в Ф2.
+Late-webhook handling: confirm_burn после rollback'а → alert event 'points_redeem_late_webhook'.
 """
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from db.connection import get_pool
+from db.connection import get_rewards_pool
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,11 @@ POINTS_TO_RUB_RATE = Decimal("0.875")  # 1 балл = 1¢ × 87.5 ₽/$ (кур�
 
 # Timeout для автоматического rollback резерва (минут)
 RESERVATION_TIMEOUT_MIN = 30
+
+# Fallback квалификация для пилотов без записи в indicators.calculated_profile
+FALLBACK_QUALIFICATION = "ученик"
+FALLBACK_DAILY_CAP = Decimal("100")
+FALLBACK_MULTIPLIER = Decimal("1.0")
 
 
 async def available_discount(
@@ -47,26 +52,90 @@ async def available_discount(
 
     Returns:
         {
-            "copilka_pts": int,             # текущий баланс пилота
-            "ceiling_pts": int,             # daily_cap по квалификации
-            "available_pts": int,           # min(copilka, ceiling - reserved_today)
-            "discount_rub": int,            # available_pts × POINTS_TO_RUB_RATE, capped by requested
+            "copilka_pts": Decimal,         # текущий баланс пилота
+            "ceiling_pts": Decimal,         # daily_cap по квалификации
+            "available_pts": Decimal,       # min(copilka, ceiling - reserved_today, requested/rate)
+            "discount_rub": Decimal,        # available_pts × POINTS_TO_RUB_RATE
             "qualification": str,           # 'ученик' / 'работник' / ... / 'общественный_деятель'
-            "payable_rub": int,             # requested - discount (то, что пользователь платит)
+            "payable_rub": Decimal,         # requested - discount_rub
         }
-
-    Skeleton: TODO в Ф2 — реальная логика с FDW _foreign_indicators (qualification) +
-    _foreign_reference (multipliers + daily_cap) + compute_available_for_burn().
     """
-    logger.info(f"[Redeem] available_discount stub: account={account_id[:8]}, requested={requested_amount_rub}")
-    # TODO Ф2: реализация
+    pool = await get_rewards_pool()
+
+    requested_amount_rub = Decimal(str(requested_amount_rub))
+
+    async with pool.acquire() as conn:
+        # 1. Баланс пилота
+        balance_row = await conn.fetchrow(
+            "SELECT COALESCE(points, 0) AS balance FROM public.point_balances WHERE account_id = $1",
+            uuid.UUID(account_id),
+        )
+        copilka_pts = Decimal(str(balance_row["balance"])) if balance_row else Decimal("0")
+
+        # 2. Степень МИМ через FDW _foreign_indicators
+        # qualification_level: INTEGER 1-11. NULL → fallback 'ученик'.
+        qual_row = await conn.fetchrow(
+            "SELECT qualification_level FROM _foreign_indicators.calculated_profile WHERE account_id = $1",
+            uuid.UUID(account_id),
+        )
+        qual_level = qual_row["qualification_level"] if qual_row else None
+
+        # 3. Resolve level → qualification text + multiplier + daily_cap через FDW _foreign_reference
+        # Уровни 9-11 не имеют записей → fallback на ст. 8 (общественный_деятель ×5.0 cap=1000)
+        # Уровни 1-3 → ученик/работник/стратег (по sort_order)
+        if qual_level is None:
+            qualification = FALLBACK_QUALIFICATION
+            ceiling_pts = FALLBACK_DAILY_CAP
+        else:
+            # Сначала ищем точное соответствие через qualification_level (level INT → qualification TEXT)
+            qmap_row = await conn.fetchrow(
+                """
+                SELECT q.qualification, q.daily_cap
+                FROM _foreign_reference.qualification_level ql
+                JOIN _foreign_reference.qualification_multipliers q
+                  ON q.qualification = ql.qualification
+                WHERE ql.level = $1
+                """,
+                qual_level,
+            )
+            if qmap_row:
+                qualification = qmap_row["qualification"]
+                ceiling_pts = Decimal(str(qmap_row["daily_cap"]))
+            else:
+                # Уровни 9-11 → fallback на ст. 8 'общественный_деятель'
+                logger.warning(
+                    f"[Redeem] qualification_level={qual_level} not in qualification_multipliers → fallback to 'общественный_деятель'"
+                )
+                qualification = "общественный_деятель"
+                ceiling_pts = Decimal("1000")
+
+        # 4. Уже зарезервированное сегодня (через helper из миграции 226)
+        avail_row = await conn.fetchrow(
+            "SELECT public.compute_available_for_burn($1) AS available",
+            uuid.UUID(account_id),
+        )
+        balance_minus_reserved = Decimal(str(avail_row["available"]))
+
+        # 5. Effective available = min(balance_minus_reserved, ceiling, requested/rate)
+        max_by_request = requested_amount_rub / POINTS_TO_RUB_RATE
+        available_pts = min(balance_minus_reserved, ceiling_pts, max_by_request)
+        available_pts = available_pts.quantize(Decimal("0.01"))
+
+        discount_rub = (available_pts * POINTS_TO_RUB_RATE).quantize(Decimal("0.01"))
+        payable_rub = (requested_amount_rub - discount_rub).quantize(Decimal("0.01"))
+
+    logger.info(
+        f"[Redeem] available_discount: account={account_id[:8]}, requested={requested_amount_rub}, "
+        f"qual={qualification}, balance={copilka_pts}, ceiling={ceiling_pts}, available={available_pts}, discount={discount_rub}"
+    )
+
     return {
-        "copilka_pts": 0,
-        "ceiling_pts": 0,
-        "available_pts": 0,
-        "discount_rub": 0,
-        "qualification": "ученик",
-        "payable_rub": requested_amount_rub,
+        "copilka_pts": copilka_pts,
+        "ceiling_pts": ceiling_pts,
+        "available_pts": available_pts,
+        "discount_rub": discount_rub,
+        "qualification": qualification,
+        "payable_rub": payable_rub,
     }
 
 
@@ -81,34 +150,82 @@ async def reserve_burn(
 ) -> bool:
     """Резерв баллов перед оплатой (status='reserved').
 
+    Двухфазный коммит: SELECT FOR UPDATE на point_balances → проверка available → INSERT.
+
     Args:
         account_id: Ory UUID
-        payment_id: ЮКасса payment.id ИЛИ TG Stars charge_id (idempotency)
-        points_amount: сколько баллов резервируется (positive)
+        payment_id: ЮКасса payment.id ИЛИ TG провизорный UUID ИЛИ "zero_{uuid}" для 100% скидки
+        points_amount: сколько баллов резервируется (positive Decimal)
         payment_source: 'yookassa' / 'tg_stars' / 'stripe' / 'manual' / 'zero_payment'
         purpose: 'SEMINAR' / 'SUBSCRIPTION' / 'EVENT'
         qualification_snapshot: степень МИМ на момент резерва
-        daily_cap_snapshot: daily_cap на момент резерва
+        daily_cap_snapshot: daily_cap на момент резерва (для replay)
 
     Returns:
-        True — резерв создан, False — payment_id уже использован (idempotent).
-
-    SQL (TODO Ф2):
-        BEGIN;
-        -- Race protection: SELECT FOR UPDATE на point_balances
-        SELECT compute_available_for_burn(account_id) INTO available;
-        IF available < points_amount THEN
-            ROLLBACK; RETURN False;
-        END IF;
-        INSERT INTO rewards.redeemed_events (payment_id, account_id, points_amount, discount_rub,
-            qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status)
-        VALUES (..., 'reserved')
-        ON CONFLICT (payment_id) DO NOTHING
-        RETURNING payment_id;
-        COMMIT;
+        True — резерв создан, False — payment_id уже использован (idempotent) или недостаточно баллов.
     """
-    logger.info(f"[Redeem] reserve_burn stub: account={account_id[:8]}, payment_id={payment_id}, points={points_amount}")
-    # TODO Ф2: реализация
+    pool = await get_rewards_pool()
+    points_amount = Decimal(str(points_amount))
+    discount_rub = (points_amount * POINTS_TO_RUB_RATE).quantize(Decimal("0.01"))
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Race protection: SELECT FOR UPDATE на point_balances. Блокирует параллельные reserve_burn для того же account_id.
+            balance_row = await conn.fetchrow(
+                "SELECT COALESCE(points, 0) AS balance FROM public.point_balances WHERE account_id = $1 FOR UPDATE",
+                uuid.UUID(account_id),
+            )
+            current_balance = Decimal(str(balance_row["balance"])) if balance_row else Decimal("0")
+
+            # Уже зарезервированное сегодня (без 'confirmed' — оно уже отражено в balance через projection)
+            reserved_row = await conn.fetchrow(
+                """
+                SELECT COALESCE(SUM(points_amount), 0) AS reserved
+                FROM public.redeemed_events
+                WHERE account_id = $1
+                  AND reserved_at >= date_trunc('day', now())
+                  AND status = 'reserved'
+                """,
+                uuid.UUID(account_id),
+            )
+            reserved_today = Decimal(str(reserved_row["reserved"]))
+            available = current_balance - reserved_today
+
+            if available < points_amount:
+                logger.warning(
+                    f"[Redeem] reserve_burn rejected: account={account_id[:8]}, "
+                    f"requested={points_amount}, available={available} (balance={current_balance}, reserved={reserved_today})"
+                )
+                return False
+
+            # INSERT с ON CONFLICT для idempotency по payment_id
+            result = await conn.fetchrow(
+                """
+                INSERT INTO public.redeemed_events
+                    (payment_id, account_id, points_amount, discount_rub,
+                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'reserved')
+                ON CONFLICT (payment_id) DO NOTHING
+                RETURNING payment_id
+                """,
+                payment_id,
+                uuid.UUID(account_id),
+                points_amount,
+                discount_rub,
+                qualification_snapshot,
+                Decimal(str(daily_cap_snapshot)),
+                payment_source,
+                purpose,
+            )
+
+            if result is None:
+                logger.info(f"[Redeem] reserve_burn idempotent skip: payment_id={payment_id} already exists")
+                return False
+
+    logger.info(
+        f"[Redeem] reserve_burn: account={account_id[:8]}, payment_id={payment_id}, "
+        f"points={points_amount}, discount_rub={discount_rub}, qual={qualification_snapshot}"
+    )
     return True
 
 
@@ -119,48 +236,100 @@ async def confirm_burn(payment_id: str) -> bool:
         payment_id: ID платежа (из webhook payment.succeeded ИЛИ TG telegram_payment_charge_id)
 
     Returns:
-        True — подтверждено, False — payment_id не найден или уже не в status='reserved'.
-
-    Late-webhook handling: если найден `status='rolled_back'` (резерв уже истёк по timeout)
-    — функция возвращает False + логирует warning + публикует `points_redeem_late_webhook`
-    event для admin alert (см. DP.SC.141 Сценарий 5 dead-letter handler).
-
-    SQL (TODO Ф2):
-        BEGIN;
-        UPDATE rewards.redeemed_events
-        SET status='confirmed', confirmed_at=now()
-        WHERE payment_id = $1 AND status = 'reserved'
-        RETURNING account_id, points_amount;
-
-        -- Late-webhook detection: если 0 строк обновлено, проверяем дальше
-        IF NOT FOUND THEN
-            SELECT status, account_id, points_amount INTO existing_status, ...
-            FROM rewards.redeemed_events WHERE payment_id = $1;
-            IF existing_status = 'rolled_back' THEN
-                -- alert admin: оплата прошла после rollback'а
-                post_event(event_type='points_redeem_late_webhook', ...)
-            ELSIF existing_status = 'confirmed' THEN
-                -- idempotent: уже подтверждено, ничего не делаем
-                RETURN TRUE;
-            END IF;
-            RETURN FALSE;
-        END IF;
-        COMMIT;
-
-    После UPDATE — асинхронно эмитировать event через event-gateway:
-        asyncio.create_task(post_event(
-            source='aist-bot',
-            external_id=f'redeem_{payment_id}',
-            event_type='points_redeemed',
-            schema_version='v1',
-            occurred_at=datetime.now(timezone.utc),
-            account_id=account_id,
-            payload={'points_amount': str(points_amount), 'payment_id': payment_id},
-        ))
-        # projection-worker (DP.ROLE.034) видит event → UPDATE point_balances.points -= amount
+        True — подтверждено (или уже было подтверждено идемпотентно),
+        False — payment_id не найден ИЛИ был rolled_back (late-webhook).
     """
-    logger.info(f"[Redeem] confirm_burn stub: payment_id={payment_id}")
-    # TODO Ф2: реализация + event-gateway эмиссия через post_event()
+    pool = await get_rewards_pool()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Сначала пытаемся подтвердить
+            row = await conn.fetchrow(
+                """
+                UPDATE public.redeemed_events
+                SET status = 'confirmed', confirmed_at = now()
+                WHERE payment_id = $1 AND status = 'reserved'
+                RETURNING account_id, points_amount
+                """,
+                payment_id,
+            )
+
+            if row is not None:
+                # TODO (Phase 2 refactor): убрать inline UPDATE point_balances и перейти на
+                # projection-worker handler для event_type='points_redeemed'. Сейчас inline для
+                # закрытия loop'а WP-327 Ф2 — без projection-worker'а баланс не обновится после
+                # confirm. Атомарность с UPDATE redeemed_events гарантируется одной транзакцией.
+                # Архитектурно правильнее (по выбору 17 мая, OwnerIntegrity): redeemed_events
+                # как ledger + projection-worker писатель point_balances. См. DP.ROLE.051 §9.
+                # CHECK (points >= 0) защитит от over-burn если баланс изменился между reserve и confirm
+                await conn.execute(
+                    """
+                    UPDATE public.point_balances
+                    SET points = points - $1, last_updated = now()
+                    WHERE account_id = $2
+                    """,
+                    row["points_amount"],
+                    row["account_id"],
+                )
+
+            if row is None:
+                # Не нашли в status='reserved' — проверяем текущий статус
+                existing = await conn.fetchrow(
+                    "SELECT status, account_id, points_amount FROM public.redeemed_events WHERE payment_id = $1",
+                    payment_id,
+                )
+
+                if existing is None:
+                    logger.warning(f"[Redeem] confirm_burn: payment_id={payment_id} not found")
+                    return False
+
+                if existing["status"] == "confirmed":
+                    logger.info(f"[Redeem] confirm_burn idempotent: payment_id={payment_id} already confirmed")
+                    return True
+
+                if existing["status"] == "rolled_back":
+                    logger.error(
+                        f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
+                        f"Admin alert sent via event-gateway. Manual review required."
+                    )
+                    # Алерт для admin: оплата прошла после rollback'а резерва (deadletter handler)
+                    asyncio.create_task(
+                        post_event(
+                            source="aist-bot",
+                            external_id=f"redeem_late_webhook_{payment_id}",
+                            event_type="points_redeem_late_webhook",
+                            schema_version="v1",
+                            occurred_at=datetime.now(timezone.utc),
+                            account_id=str(existing["account_id"]),
+                            payload={
+                                "payment_id": payment_id,
+                                "points_amount": str(existing["points_amount"]),
+                                "issue": "payment_succeeded_after_rollback",
+                            },
+                        )
+                    )
+                    return False
+
+                logger.warning(f"[Redeem] confirm_burn unexpected status: {existing['status']}")
+                return False
+
+            # Успешный confirm — эмитируем event для projection-worker
+            asyncio.create_task(
+                post_event(
+                    source="aist-bot",
+                    external_id=f"redeem_{payment_id}",
+                    event_type="points_redeemed",
+                    schema_version="v1",
+                    occurred_at=datetime.now(timezone.utc),
+                    account_id=str(row["account_id"]),
+                    payload={
+                        "payment_id": payment_id,
+                        "points_amount": str(row["points_amount"]),
+                    },
+                )
+            )
+
+    logger.info(f"[Redeem] confirm_burn: payment_id={payment_id}, points={row['points_amount']}")
     return True
 
 
@@ -173,23 +342,43 @@ async def rollback_burn(payment_id: str, reason: str = "manual") -> bool:
 
     Returns:
         True — откачено, False — не найдено или не в status='reserved'.
-
-    SQL (TODO Ф2): аналогично confirm_burn, но status='rolled_back'. После UPDATE —
-    эмиссия reverse event через event-gateway (НЕ direct INSERT в learning.domain_event):
-        asyncio.create_task(post_event(
-            source='aist-bot',
-            external_id=f'redeem_rollback_{payment_id}',
-            event_type='points_burn_rolled_back',
-            schema_version='v1',
-            occurred_at=datetime.now(timezone.utc),
-            account_id=account_id,
-            payload={'points_amount': str(points_amount), 'payment_id': payment_id, 'reason': reason},
-        ))
-        # projection-worker НЕ обрабатывает этот event — баланс не уменьшался изначально.
-        # Audit-trail в redeemed_events_audit достаточен.
     """
-    logger.info(f"[Redeem] rollback_burn stub: payment_id={payment_id}, reason={reason}")
-    # TODO Ф2: реализация + event-gateway эмиссия через post_event()
+    pool = await get_rewards_pool()
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE public.redeemed_events
+            SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = $2
+            WHERE payment_id = $1 AND status = 'reserved'
+            RETURNING account_id, points_amount
+            """,
+            payment_id,
+            reason,
+        )
+
+    if row is None:
+        logger.info(f"[Redeem] rollback_burn no-op: payment_id={payment_id} not in 'reserved'")
+        return False
+
+    # Reverse event для audit (projection-worker НЕ обрабатывает — баланс не менялся)
+    asyncio.create_task(
+        post_event(
+            source="aist-bot",
+            external_id=f"redeem_rollback_{payment_id}",
+            event_type="points_burn_rolled_back",
+            schema_version="v1",
+            occurred_at=datetime.now(timezone.utc),
+            account_id=str(row["account_id"]),
+            payload={
+                "payment_id": payment_id,
+                "points_amount": str(row["points_amount"]),
+                "reason": reason,
+            },
+        )
+    )
+
+    logger.info(f"[Redeem] rollback_burn: payment_id={payment_id}, points={row['points_amount']}, reason={reason}")
     return True
 
 
@@ -198,26 +387,63 @@ async def rollback_expired_reservations() -> int:
 
     Returns:
         Количество откаченных резервов.
-
-    SQL (TODO Ф2):
-        UPDATE rewards.redeemed_events
-        SET status='rolled_back', rolled_back_at=now(), rollback_reason='timeout_30min'
-        WHERE status='reserved'
-          AND reserved_at < now() - interval '30 min'
-        RETURNING payment_id, account_id, points_amount;
-        -- Для каждой откаченной — emit reverse event в learning.domain_event.
     """
-    logger.info(f"[Redeem] rollback_expired_reservations stub (timeout {RESERVATION_TIMEOUT_MIN} min)")
-    # TODO Ф2: реализация + интеграция в core/scheduler.py
-    return 0
+    pool = await get_rewards_pool()
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            UPDATE public.redeemed_events
+            SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = 'timeout_{RESERVATION_TIMEOUT_MIN}min'
+            WHERE status = 'reserved'
+              AND reserved_at < now() - interval '{RESERVATION_TIMEOUT_MIN} minutes'
+            RETURNING payment_id, account_id, points_amount
+            """
+        )
+
+    for row in rows:
+        asyncio.create_task(
+            post_event(
+                source="aist-bot",
+                external_id=f"redeem_rollback_{row['payment_id']}",
+                event_type="points_burn_rolled_back",
+                schema_version="v1",
+                occurred_at=datetime.now(timezone.utc),
+                account_id=str(row["account_id"]),
+                payload={
+                    "payment_id": row["payment_id"],
+                    "points_amount": str(row["points_amount"]),
+                    "reason": f"timeout_{RESERVATION_TIMEOUT_MIN}min",
+                },
+            )
+        )
+
+    count = len(rows)
+    if count > 0:
+        logger.info(f"[Redeem] rollback_expired_reservations: rolled back {count} reservations (>{RESERVATION_TIMEOUT_MIN}min)")
+    return count
 
 
 async def get_redeem_history(account_id: str, limit: int = 10) -> list[dict]:
     """История списаний пилота для UI /points history.
 
     Returns: список dict'ов с полями payment_id, points_amount, discount_rub,
-    purpose, status, reserved_at, confirmed_at.
+    purpose, status, reserved_at, confirmed_at, rolled_back_at.
     """
-    logger.info(f"[Redeem] get_redeem_history stub: account={account_id[:8]}, limit={limit}")
-    # TODO Ф2: SELECT FROM redeemed_events WHERE account_id ORDER BY reserved_at DESC LIMIT
-    return []
+    pool = await get_rewards_pool()
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT payment_id, points_amount, discount_rub, purpose, payment_source,
+                   status, qualification_snapshot, reserved_at, confirmed_at, rolled_back_at, rollback_reason
+            FROM public.redeemed_events
+            WHERE account_id = $1
+            ORDER BY reserved_at DESC
+            LIMIT $2
+            """,
+            uuid.UUID(account_id),
+            limit,
+        )
+
+    return [dict(row) for row in rows]
