@@ -214,7 +214,7 @@ Slash-команды делятся на 4 вида. Вид определяет
 
 - **Streaming SSE** (`_api_call_streaming`) для `generate()`. Non-streaming (`_api_call`) — только для `generate_with_tools()`.
 - **Inactivity timeout** вместо total: `sock_read = max(15, max_tokens / 200)`. Total timeout (45s) не масштабируется с длиной вывода.
-- **Adaptive max_tokens** в `generate_content`: `min(words × 1.5, 4096)`. Не hardcode 4000.
+- **Adaptive max_tokens** в `generate_content`: `min(words × 4.5, 8192)`. Haiku вербознее Sonnet — нужен 50% буфер. Не hardcode. При `stop_reason=max_tokens` + `allow_partial=False` → `None` → Sonnet fallback.
 - **Force-text fallback** в `generate_with_tools()`: при исчерпании `max_tool_rounds` без текстового ответа — финальный запрос БЕЗ tools (контекст из tool_use уже в conversation). Гарантирует ответ вместо `None`. Не увеличивает latency на happy path.
 - **Scheduler retry**: при фейле пре-генерации → `_schedule_retry()` ставит one-off job на +30 мин (APScheduler `date` trigger, dedup по job_id).
 - **Content Budget Model (DP.D.027)** — 3 независимые оси генерации контента:
