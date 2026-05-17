@@ -792,6 +792,18 @@ class ClaudeClient:
             system_prompt, user_prompt, max_tokens=max_tokens, model=model,
             allow_partial=False,  # Lesson: partial = broken UX, better retry
         )
+
+        # Sonnet fallback: if Haiku truncated at max_tokens, Sonnet is more concise
+        if result is None and model != CLAUDE_MODEL_SONNET:
+            logger.warning(
+                f"[generate_content] {model} returned None (truncated?), "
+                f"retrying with Sonnet for chat_id={chat_id}"
+            )
+            result = await self.generate(
+                system_prompt, user_prompt, max_tokens=max_tokens,
+                model=CLAUDE_MODEL_SONNET, allow_partial=False,
+            )
+
         return result
 
     async def generate_practice_intro(self, topic: dict, intern: dict, model=None) -> dict:
@@ -858,6 +870,16 @@ class ClaudeClient:
             system_prompt, user_prompt, model=model,
             allow_partial=False,  # Practice: partial = broken UX, better retry
         )
+
+        # Sonnet fallback: if Haiku truncated, retry with Sonnet
+        if result is None and model and model != CLAUDE_MODEL_SONNET:
+            logger.warning(
+                f"[generate_practice_intro] {model} returned None, retrying with Sonnet"
+            )
+            result = await self.generate(
+                system_prompt, user_prompt, model=CLAUDE_MODEL_SONNET,
+                allow_partial=False,
+            )
 
         if not result:
             # Fallback: возвращаем оригинал на русском
