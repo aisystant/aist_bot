@@ -784,8 +784,9 @@ class ClaudeClient:
 
         # Adaptive max_tokens: scale with study_duration words
         # Russian text ≈ 2-3 tokens per word (Cyrillic BPE encoding)
-        # 300w → 900tok, 900w → 2700tok, 1530w → 4590tok (capped)
-        max_tokens = min(int(words * 3), 8192)
+        # Haiku (on-the-fly) more verbose than Sonnet (pregen) — needs 50% buffer
+        # 300w → 1350tok, 900w → 4050tok, 1530w → 6885tok (capped at 8192)
+        max_tokens = min(int(words * 4.5), 8192)
 
         result = await self.generate(
             system_prompt, user_prompt, max_tokens=max_tokens, model=model,
