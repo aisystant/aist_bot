@@ -26,6 +26,7 @@ from db.queries.rewards import (
     get_recent_applied_events,
     get_today_total,
     get_active_reward_rules,
+    get_domain_multipliers,
 )
 from i18n import t
 
@@ -35,35 +36,54 @@ points_router = Router(name="points")
 
 
 _EVENT_LABELS = {
-    "lesson_completed": "📖 Урок",
-    "training_passed": "✅ Тренировка",
-    "test_passed": "🧪 Тест",
-    "marathon_tasks": "🏃 Задание марафона",
+    # Учёба
+    "lesson_completed": "📖 Урок завершён",
+    "learning_completed": "🎓 Курс завершён",
+    "training_passed": "✅ Тренировка пройдена",
+    "training_attempt": "🔄 Тренировка (попытка)",
+    "test_passed": "🧪 Тест пройден",
+    "assessment_completed": "📋 Аттестация",
+    "task_submitted": "📝 Задание отправлено",
+    "text_submitted": "✍️ Текст отправлен",
+    "table_submitted": "📊 Таблица отправлена",
+    "feed_completed": "📰 Дайджест прочитан",
     "marathon_step": "🏃 Шаг марафона",
-    "qualification_granted": "🏆 Квалификация",
-    "payment_received": "💳 Оплата",
-    "strategy_session_completed": "🎯 Стратегсессия",
+    "marathon_task": "🏃 Задание марафона",
+    "marathon_tasks": "🏃 Задания марафона",
+    "workbook_push": "📓 Рабочая тетрадь",
+    "pomodoro_completed": "🍅 Помодоро",
+    "qualification_granted": "🏆 Квалификация присвоена",
+    "strategy_session_completed": "🎯 Стратегическая сессия",
     "knowledge_extracted": "💡 Извлечение знания",
-    "day_plan_opened": "🌅 Day Open",
-    "day_plan_closed": "🌆 Day Close",
-    "day_close": "🌆 Day Close",
-    "slot_logged": "⏱ Слот",
-    "week_plan_closed": "📅 Закрытие недели",
-    "month_plan_closed": "📆 Закрытие месяца",
-    "pack_updated": "📦 Pack",
-    "iwe_session": "💻 IWE сессия",
-    "wp_created": "📋 РП создан",
-    "wp_closed": "✅ РП закрыт",
-    "wp_completed": "✅ РП закрыт",
-    "git_commit": "⚙️ Коммит",
-    "commit_created": "⚙️ Коммит",
-    "note_to_capture": "📝 Заметка",
+    "distinction_added": "🔍 Различение",
+    "method_described": "📚 Метод описан",
     "topic_created": "💬 Тема в клубе",
     "comment_created": "💬 Комментарий",
-    "distinction_added": "🔍 Различение",
-    "method_described": "📚 Метод",
-    "pomodoro_completed": "🍅 Помодоро",
-    "fmt_commit_merged": "🏗 FMT merge",
+    # Практика и ритм
+    "day_open": "🌅 День открыт",
+    "day_close": "🌆 День закрыт",
+    "day_plan_opened": "🌅 День открыт",
+    "day_plan_closed": "🌆 День закрыт",
+    "week_plan_created": "📅 Неделя открыта",
+    "week_plan_closed": "📅 Неделя закрыта",
+    "month_plan_closed": "📆 Месяц закрыт",
+    "slot_logged": "⏱ Слот саморазвития",
+    "pack_updated": "📦 Pack обновлён",
+    "iwe_session": "💻 Сессия в IWE",
+    "ai_chat": "🤖 Чат с ИИ",
+    "ai_interaction": "🤖 Взаимодействие с ИИ",
+    "note_to_capture": "📝 Заметка",
+    # Работа
+    "wp_created": "📋 РП создан",
+    "wp_closed": "✅ РП закрыт",
+    "wp_completed": "✅ РП завершён",
+    "git_commit": "⚙️ Коммит в git",
+    "commit_created": "⚙️ Коммит (старое имя)",
+    "fmt_commit_merged": "🏗 FMT-merge",
+    "coding_time": "⏱ Время разработки",
+    "content_published": "📰 Контент опубликован",
+    # Прочее
+    "payment_received": "💳 Оплата получена",
 }
 
 
@@ -96,6 +116,8 @@ def _format_event(ev: dict) -> str:
     """Одна строка детализации.
 
     Формат: `+effective · label (HH мин назад)` + разложение base × dom × qual × streak.
+    Если cap_truncated — показываем raw (без cap) явно, чтобы пилот понимал,
+    что не «0 за ничто», а «потолок дня уже исчерпан».
     """
     try:
         label = _event_label(ev["event_type"])
@@ -107,10 +129,21 @@ def _format_event(ev: dict) -> str:
         capped = ev.get("cap_truncated", False)
         when = _relative_time(ev.get("applied_at"))
 
+        # raw = что бы начислили без cap; round к 1 знаку для UX
+        raw = round(base * dom * qual * streak, 1)
+
         when_str = f" <i>· {when}</i>" if when else ""
         breakdown = f"{base:g} × {dom:g} × {qual:g} × {streak:g}"
-        cap_mark = " <i>(лимит дня)</i>" if capped else ""
-        return f"<b>+{eff:g}</b> · {label}{when_str}\n   <i>{breakdown}</i>{cap_mark}"
+
+        if capped:
+            if eff > 0:
+                header = f"<b>+{eff:g}</b> <i>(могло быть +{raw:g} — потолок дня)</i>"
+            else:
+                header = f"<b>+0</b> <i>(могло быть +{raw:g} — потолок дня уже исчерпан другими действиями)</i>"
+        else:
+            header = f"<b>+{eff:g}</b>"
+
+        return f"{header} · {label}{when_str}\n   <i>{breakdown}</i>"
     except Exception as e:
         logger.warning(f"[/points] _format_event failed: {e} (ev={ev.get('event_id')})")
         return f"• {ev.get('event_type', '?')} (ошибка отображения)"
@@ -230,6 +263,7 @@ async def cmd_rules(message: Message):
 
     try:
         rules = await get_active_reward_rules()
+        multipliers = await get_domain_multipliers()
     except Exception as e:
         logger.error(f"[/rules] chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
@@ -242,6 +276,19 @@ async def cmd_rules(message: Message):
             parse_mode="HTML",
         )
         return
+
+    # Скрываем legacy alias если новое имя уже представлено:
+    # commit_created → скрываем при наличии git_commit
+    # day_open / day_close → скрываем при наличии day_plan_opened / day_plan_closed
+    trigger_set = {r["trigger_event"] for r in rules}
+    legacy_to_hide = set()
+    if "git_commit" in trigger_set:
+        legacy_to_hide.add("commit_created")
+    if "day_plan_opened" in trigger_set:
+        legacy_to_hide.add("day_open")
+    if "day_plan_closed" in trigger_set:
+        legacy_to_hide.add("day_close")
+    rules = [r for r in rules if r["trigger_event"] not in legacy_to_hide]
 
     # Группируем
     groups: dict[str, list] = {g: [] for g in _RULE_GROUPS}
@@ -268,12 +315,19 @@ async def cmd_rules(message: Message):
             text += f"   {label} — <b>{base}</b>{streak_mark}\n"
         text += "\n"
 
+    # Реальные множители из reference.activity_domain_multipliers
+    def _fmt_mult(domain_key: str) -> str:
+        m = multipliers.get(domain_key, {})
+        if not m:
+            return "×?"
+        return f"×{m['multiplier']:g} (потолок дня {m['daily_cap_default']:g})"
+
     text += (
         "<i>🔥 — действие наращивает серию (streak): закрытые подряд дни увеличивают множитель "
         "до 1.5× за неделю.</i>\n"
-        "<i>Множитель домена: учёба ×?, практика ×?, работа ×? (зависит от настроек платформы).</i>\n"
-        "<i>Множитель квалификации: от ×1.0 (Ученик) до ×5.0 (Общественный деятель).</i>\n"
-        "<i>Потолок дня — лимит баллов в сутки по квалификации (не теряются — просто не сверх него).</i>\n\n"
+        f"<i>Множитель домена: учёба {_fmt_mult('learning')}, практика {_fmt_mult('practice')}, работа {_fmt_mult('work')}.</i>\n"
+        "<i>Множитель квалификации: от ×1.0 (Случайный) до ×2.5 (Проактивный) у Ученика; ×1.3–×5.0 у выше.</i>\n"
+        "<i>Потолок дня — наименьший из домена и квалификации. Что не вошло — теряется до завтра.</i>\n\n"
         "Свой баланс и историю — /points"
     )
 

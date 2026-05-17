@@ -128,3 +128,26 @@ async def get_active_reward_rules() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"[rewards] get_active_reward_rules: {e}")
         return []
+
+
+async def get_domain_multipliers() -> Dict[str, Dict[str, Any]]:
+    """Множители по доменам активности (DP.SC.136 /rules объяснение).
+
+    Returns: {'learning': {multiplier, daily_cap_default}, 'practice': ..., 'work': ...}
+    """
+    try:
+        pool = await get_reference_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT domain, multiplier, daily_cap_default FROM activity_domain_multipliers ORDER BY domain"
+            )
+            return {
+                r['domain']: {
+                    'multiplier': float(r['multiplier']),
+                    'daily_cap_default': float(r['daily_cap_default']),
+                }
+                for r in rows
+            }
+    except Exception as e:
+        logger.error(f"[rewards] get_domain_multipliers: {e}")
+        return {}
