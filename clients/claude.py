@@ -14,6 +14,8 @@ import asyncio
 import json
 import time
 
+import os
+
 import aiohttp
 
 from config import (
@@ -59,7 +61,8 @@ class ClaudeClient:
 
     def __init__(self):
         self.api_key = ANTHROPIC_API_KEY
-        self.base_url = "https://api.anthropic.com/v1/messages"
+        self.base_url = os.getenv("IWE_LLM_PROXY_URL", "https://api.anthropic.com/v1/messages")
+        self._proxy_secret = os.getenv("PROXY_SHARED_SECRET", "")
 
     @classmethod
     async def get_session(cls) -> aiohttp.ClientSession:
@@ -85,6 +88,8 @@ class ClaudeClient:
         """Build request headers with trace_id for cross-service correlation (WP-45 Ф3)."""
         from core.tracing import get_current_trace
         headers = {"x-api-key": self.api_key}
+        if self._proxy_secret:
+            headers["x-iwe-internal-secret"] = self._proxy_secret
         trace = get_current_trace()
         if trace:
             headers["x-trace-id"] = trace.trace_id
@@ -157,6 +162,21 @@ class ClaudeClient:
                 where partial = broken UX. Use True (default) for real-time
                 responses where partial > nothing.
         """
+        # Proxy doesn't support SSE passthrough — fall back to non-streaming call
+        if self._proxy_secret:
+            resp = await self._api_call(payload, timeout=120)
+            if not resp:
+                return None
+            if resp.get("stop_reason") == "max_tokens" and not allow_partial:
+                text = "".join(b["text"] for b in resp.get("content", []) if b.get("type") == "text")
+                logger.warning(
+                    f"Claude API truncated (stop_reason=max_tokens, {len(text)} chars), "
+                    f"allow_partial=False — discarding."
+                )
+                return None
+            text_parts = [b["text"] for b in resp.get("content", []) if b.get("type") == "text"]
+            return "".join(text_parts) or None
+
         session = await self.get_session()
         headers = self._request_headers()
         payload = {**payload, "stream": True}
