@@ -435,41 +435,51 @@ async def main():
 
         # Register webhook with Telegram (secret already sanitized/generated in settings.py)
         webhook_ok = False
-        try:
-            await bot.set_webhook(
-                url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
-                secret_token=WEBHOOK_SECRET,
-                drop_pending_updates=False,
-                allowed_updates=[
-                    "message", "callback_query", "inline_query",
-                    "channel_post", "my_chat_member",
-                    "chat_member", "chat_join_request", "edited_message",
-                    "pre_checkout_query", "shipping_query",
-                ],
-            )
-            # Verify webhook is reachable (getWebhookInfo diagnostic)
-            info = await bot.get_webhook_info()
-            logger.info(
-                f"✅ Webhook registered: url={info.url}, "
-                f"pending={info.pending_update_count}, "
-                f"last_error={info.last_error_message or 'none'}, "
-                f"secret={'set' if WEBHOOK_SECRET else 'none'}"
-            )
-            if info.last_error_message:
-                logger.warning(f"⚠️ Telegram reports webhook error: {info.last_error_message}")
-            webhook_ok = True
-        except Exception as e:
-            logger.error(f"❌ Failed to set webhook: {e}")
-            # Log to error_logs for persistent diagnostics
+        from aiogram.exceptions import TelegramRetryAfter as _TRAfter
+        for _attempt in range(4):  # up to 3 retries for flood control
             try:
-                from core.error_logger import log_error
-                await log_error(
-                    error_type="webhook_registration",
-                    message=str(e),
-                    context={"url": WEBHOOK_URL, "has_secret": bool(WEBHOOK_SECRET)},
+                await bot.set_webhook(
+                    url=f"{WEBHOOK_URL}{WEBHOOK_PATH}",
+                    secret_token=WEBHOOK_SECRET,
+                    drop_pending_updates=False,
+                    allowed_updates=[
+                        "message", "callback_query", "inline_query",
+                        "channel_post", "my_chat_member",
+                        "chat_member", "chat_join_request", "edited_message",
+                        "pre_checkout_query", "shipping_query",
+                    ],
                 )
-            except Exception:
-                pass
+                # Verify webhook is reachable (getWebhookInfo diagnostic)
+                info = await bot.get_webhook_info()
+                logger.info(
+                    f"✅ Webhook registered: url={info.url}, "
+                    f"pending={info.pending_update_count}, "
+                    f"last_error={info.last_error_message or 'none'}, "
+                    f"secret={'set' if WEBHOOK_SECRET else 'none'}"
+                )
+                if info.last_error_message:
+                    logger.warning(f"⚠️ Telegram reports webhook error: {info.last_error_message}")
+                webhook_ok = True
+                break
+            except _TRAfter as e:
+                wait = e.retry_after + 1
+                if _attempt < 3:
+                    logger.warning(f"⚠️ SetWebhook flood control, retry in {wait}s (attempt {_attempt + 1}/3)")
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"❌ SetWebhook flood control: retries exhausted")
+            except Exception as e:
+                logger.error(f"❌ Failed to set webhook: {e}")
+                try:
+                    from core.error_logger import log_error
+                    await log_error(
+                        error_type="webhook_registration",
+                        message=str(e),
+                        context={"url": WEBHOOK_URL, "has_secret": bool(WEBHOOK_SECRET)},
+                    )
+                except Exception:
+                    pass
+                break
 
         if webhook_ok:
             logger.info("🚀 Бот запущен (webhook) с PostgreSQL!")
