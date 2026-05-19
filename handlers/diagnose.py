@@ -278,7 +278,7 @@ def _format_result(profile: dict, valid_until_iso: str | None) -> str:
         f"📊 <b>Результаты диагностики</b>\n\n"
         f"Ступень: <b>{stage_name} ({stage} из 5)</b>\n\n"
         f"Приоритет роста: {bottleneck_human}\n\n"
-        f"Рекомендую поток: <b>{stream}</b> — {stream_label}"
+        f"Рекомендованное руководство: <b>{stream}</b> — {stream_label}"
         f"{valid_str}"
     )
 
@@ -312,7 +312,7 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
                 await message.answer(
                     f"У вас уже есть свежая диагностика ({age_days} дн. назад).\n\n"
                     f"Ступень: <b>{stage_name} ({stage} из 5)</b>\n"
-                    f"Поток: <b>{stream}</b>\n\n"
+                    f"Рекомендованное руководство: <b>{stream}</b>\n\n"
                     f"Следующая диагностика доступна через {30 - age_days} дн.",
                     parse_mode="HTML",
                 )

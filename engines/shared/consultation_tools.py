@@ -109,6 +109,22 @@ TOOL_READ_DIGITAL_TWIN = {
     }
 }
 
+TOOL_GET_COGNITIVE_BRIEF = {
+    "name": "get_cognitive_brief",
+    "description": (
+        "Чтение cognitive brief пользователя — агрегированного среза его текущего состояния. "
+        "Возвращает 4 поля: orchestrator_brief (режим дня), tailor_recommendation (занятие), "
+        "stuck_analysis (поведенческие сигналы), cognitive_profile (cp.wld/cp.agt/bh.awr — только при consent). "
+        "Навигатор ДОЛЖЕН вызывать этот tool ПЕРЕД каждым ответом. "
+        "Если cognitive_profile = null — значит нет text_analysis consent, отвечай без него."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+}
+
 
 TOOL_GET_BOT_INFO = {
     "name": "get_bot_info",
@@ -158,7 +174,7 @@ TOOL_SEARCH_PERSONAL = {
 # Discovered tools с этими именами игнорируются (hybrid, DP.ROLE.038 §4).
 _HARDCODED_TOOL_NAMES = frozenset({
     "search_knowledge", "search_guides", "read_digital_twin",
-    "get_bot_info", "search_personal",
+    "get_cognitive_brief", "get_bot_info", "search_personal",
 })
 
 
@@ -174,6 +190,7 @@ def get_tools_for_tier(has_digital_twin: bool) -> List[Dict[str, Any]]:
     tools: List[Dict[str, Any]] = [TOOL_SEARCH_KNOWLEDGE, TOOL_SEARCH_GUIDES, TOOL_GET_BOT_INFO]
     if has_digital_twin:
         tools.append(TOOL_READ_DIGITAL_TWIN)
+        tools.append(TOOL_GET_COGNITIVE_BRIEF)
         tools.append(TOOL_SEARCH_PERSONAL)
 
     # Append discovered tools whose names are not already in the hardcoded set.
@@ -225,6 +242,8 @@ async def execute_tool(
         return await _exec_search_guides(tool_input, telegram_user_id)
     elif tool_name == "read_digital_twin":
         return await _exec_read_digital_twin(tool_input, telegram_user_id)
+    elif tool_name == "get_cognitive_brief":
+        return await _exec_get_cognitive_brief(tool_input, telegram_user_id)
     elif tool_name == "search_personal":
         return await _exec_search_personal(tool_input, telegram_user_id)
     elif tool_name == "get_bot_info":
@@ -393,6 +412,33 @@ async def _exec_read_digital_twin(
 
     except Exception as e:
         logger.error(f"read_digital_twin error: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+async def _exec_get_cognitive_brief(
+    input: Dict[str, Any],
+    telegram_user_id: Optional[int] = None,
+) -> str:
+    """Proxy к gateway_mcp.get_cognitive_brief() (DP.SC.147)."""
+    if not telegram_user_id:
+        return json.dumps({"error": "User not identified"}, ensure_ascii=False)
+
+    if not gateway_mcp.is_connected(telegram_user_id):
+        return json.dumps({"error": "User not authorized — requires Ory registration"}, ensure_ascii=False)
+
+    try:
+        # get_cognitive_brief — discovered tool из gateway-mcp
+        result = await gateway_mcp._call("get_cognitive_brief", {}, telegram_user_id)
+        if result is None:
+            return json.dumps({"error": "Cognitive brief unavailable"}, ensure_ascii=False)
+        data = gateway_mcp._parse_text_content(result)
+        if data is None:
+            return json.dumps({"result": None}, ensure_ascii=False)
+        if isinstance(data, (dict, list)):
+            return json.dumps(data, ensure_ascii=False)
+        return str(data)
+    except Exception as e:
+        logger.error(f"get_cognitive_brief error: {e}")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 

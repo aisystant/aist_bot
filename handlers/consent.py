@@ -30,6 +30,8 @@ from db.queries.consent import (
     set_consent,
     revoke_consent,
     count_practice_events_30d,
+    get_consent_grant,
+    set_consent_grant,
     DEFAULT_SCOPE,
 )
 from helpers.dual_write import resolve_ory_id_from_chat
@@ -47,6 +49,7 @@ def _scope_label(scope_name: str, lang: str = "ru") -> str:
     return {
         "stage_evaluation": "🎯 Оценка ступени мастерства",
         "club_activity": "🏛 Активность в клубе",
+        "text_analysis": "🧠 Анализ текстов (мировоззрение)",
     }.get(scope_name, f"• {scope_name}")
 
 
@@ -82,7 +85,7 @@ def _format_status_no_consent() -> str:
     )
 
 
-def _format_status(consent, events: dict[str, int] | None = None, lang: str = "ru") -> str:
+def _format_status(consent, events: dict[str, int] | None = None, lang: str = "ru", text_analysis: bool = False) -> str:
     if consent is None:
         return _format_status_no_consent()
     status_icon = "✅" if consent["opt_in"] else "🚫"
@@ -96,6 +99,16 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
     )
     if consent["opt_in"] and events is not None:
         text += _activity_summary(events) + "\n\n"
+
+    # WP-316 Ф9: text_analysis status
+    ta_icon = "✅" if text_analysis else "🚫"
+    ta_text = "включён" if text_analysis else "отключён"
+    text += (
+        f"{ta_icon} <b>Анализ текстов:</b> {ta_text}\n"
+        f"  {_scope_label('text_analysis', lang)}\n"
+        "<i>Используется для точной оценки мировоззрения (cp.wld). "
+        "Не влияет на ступень и баллы.</i>\n\n"
+    )
     return text
 
 
@@ -137,26 +150,29 @@ def _revoke_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _status_keyboard(consent) -> InlineKeyboardMarkup:
+def _status_keyboard(consent, text_analysis: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура управления согласием в зависимости от состояния."""
+    rows = []
     if consent is None:
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Включить трекинг", callback_data="consent_goto_optin")],
+        rows.append([InlineKeyboardButton(text="✅ Включить трекинг", callback_data="consent_goto_optin")])
+    elif consent["opt_in"]:
+        rows.append([
+            InlineKeyboardButton(text="🚫 Отозвать", callback_data="consent_goto_optout"),
+            InlineKeyboardButton(text="🗑 Удалить", callback_data="consent_goto_revoke"),
         ])
-    if consent["opt_in"]:
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🚫 Отозвать", callback_data="consent_goto_optout"),
-                InlineKeyboardButton(text="🗑 Удалить", callback_data="consent_goto_revoke"),
-            ],
-        ])
-    # Consent exists but opt_in=False
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
+    else:
+        rows.append([
             InlineKeyboardButton(text="✅ Включить снова", callback_data="consent_goto_optin"),
             InlineKeyboardButton(text="🗑 Удалить", callback_data="consent_goto_revoke"),
-        ],
-    ])
+        ])
+
+    # WP-316 Ф9: text_analysis toggle
+    if text_analysis:
+        rows.append([InlineKeyboardButton(text="🚫 Отключить анализ текстов", callback_data="consent_text_analysis_off")])
+    else:
+        rows.append([InlineKeyboardButton(text="🧠 Включить анализ текстов", callback_data="consent_text_analysis_on")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _resolve_account(chat_id: int) -> tuple[dict | None, str | None]:
@@ -384,6 +400,7 @@ async def cmd_consent(message: Message, command: CommandObject):
 
     if action == "status":
         consent = await get_consent(account_id)
+        text_analysis = await get_consent_grant(account_id, "text_analysis")
         events = None
         if consent and consent["opt_in"]:
             try:
@@ -391,9 +408,9 @@ async def cmd_consent(message: Message, command: CommandObject):
             except Exception as exc:
                 logger.warning("[consent status] events count failed: %s", exc)
         await message.answer(
-            _format_status(consent, events=events, lang=lang),
+            _format_status(consent, events=events, lang=lang, text_analysis=text_analysis),
             parse_mode="HTML",
-            reply_markup=_status_keyboard(consent),
+            reply_markup=_status_keyboard(consent, text_analysis=text_analysis),
         )
         return
 
@@ -730,12 +747,13 @@ async def on_consent_retry_status(callback: CallbackQuery):
         return
 
     consent = await get_consent(account_id)
+    text_analysis = await get_consent_grant(account_id, "text_analysis")
     if consent and consent["opt_in"]:
         opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
         await callback.message.answer(
             f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
             parse_mode="HTML",
-            reply_markup=_status_keyboard(consent),
+            reply_markup=_status_keyboard(consent, text_analysis=text_analysis),
         )
         return
 
@@ -748,4 +766,41 @@ async def on_consent_retry_status(callback: CallbackQuery):
         parse_mode="HTML",
         reply_markup=_accept_keyboard(),
         disable_web_page_preview=True,
+    )
+
+
+# WP-316 Ф9: text_analysis consent toggle
+@consent_router.callback_query(F.data == "consent_text_analysis_on")
+async def on_text_analysis_on(callback: CallbackQuery):
+    """Включить text_analysis consent (hard opt-in)."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        await callback.answer("Аккаунт не привязан", show_alert=True)
+        return
+    await set_consent_grant(account_id, "text_analysis", granted=True)
+    consent = await get_consent(account_id)
+    await callback.message.edit_text(
+        _format_status(consent, text_analysis=True),
+        parse_mode="HTML",
+        reply_markup=_status_keyboard(consent, text_analysis=True),
+    )
+
+
+@consent_router.callback_query(F.data == "consent_text_analysis_off")
+async def on_text_analysis_off(callback: CallbackQuery):
+    """Отключить text_analysis consent."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        await callback.answer("Аккаунт не привязан", show_alert=True)
+        return
+    await set_consent_grant(account_id, "text_analysis", granted=False)
+    consent = await get_consent(account_id)
+    await callback.message.edit_text(
+        _format_status(consent, text_analysis=False),
+        parse_mode="HTML",
+        reply_markup=_status_keyboard(consent, text_analysis=False),
     )

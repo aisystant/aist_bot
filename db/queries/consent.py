@@ -140,3 +140,75 @@ async def revoke_consent(account_id: str) -> bool:
     deleted = result.endswith(" 1")
     logger.info("[consent] revoke account_id=%s deleted=%s", account_id, deleted)
     return deleted
+
+
+# WP-316 Ф9: versioned consent_grant (learning.consent_grant)
+
+async def get_consent_grant(account_id: str, scope: str) -> bool:
+    """Проверить, есть ли активный consent для scope.
+
+    Returns:
+        True если granted=True и revoked_at IS NULL.
+    """
+    from db.connection import get_learning_pool
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT granted FROM learning.consent_grant
+            WHERE account_id = $1::uuid AND scope = $2
+              AND granted = true AND revoked_at IS NULL
+            ORDER BY granted_at DESC
+            LIMIT 1
+            """,
+            account_id,
+            scope,
+        )
+    return row is not None and row["granted"] is True
+
+
+async def set_consent_grant(
+    account_id: str,
+    scope: str,
+    granted: bool,
+    consent_version: str = "v1.0",
+    interface: str = "bot",
+) -> None:
+    """UPSERT consent_grant для scope.
+
+    При отзыве (granted=False) — обновляем revoked_at.
+    """
+    from db.connection import get_learning_pool
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        if granted:
+            await conn.execute(
+                """
+                INSERT INTO learning.consent_grant (
+                    account_id, scope, granted, consent_version, granted_at, interface
+                ) VALUES ($1::uuid, $2, true, $3, NOW(), $4)
+                ON CONFLICT (account_id, scope, consent_version) DO UPDATE
+                    SET granted = true,
+                        revoked_at = NULL,
+                        granted_at = NOW()
+                """,
+                account_id,
+                scope,
+                consent_version,
+                interface,
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE learning.consent_grant
+                SET granted = false, revoked_at = NOW()
+                WHERE account_id = $1::uuid AND scope = $2
+                  AND granted = true AND revoked_at IS NULL
+                """,
+                account_id,
+                scope,
+            )
+    logger.info(
+        "[consent_grant] set account_id=%s scope=%s granted=%s",
+        account_id, scope, granted,
+    )
