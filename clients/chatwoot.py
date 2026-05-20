@@ -24,7 +24,7 @@ def _base() -> str:
 
 
 async def get_or_create_contact(chat_id: int, name: str) -> dict | None:
-    """Create/find contact by identifier=tg_{chat_id}."""
+    """Create/find contact by identifier=tg_{chat_id}. Returns contact with source_id field."""
     url = f"{_base()}/contacts"
     payload = {"name": name or f"tg_{chat_id}", "identifier": f"tg_{chat_id}"}
     async with aiohttp.ClientSession() as session:
@@ -35,9 +35,9 @@ async def get_or_create_contact(chat_id: int, name: str) -> dict | None:
             return None
 
 
-async def create_conversation(contact_identifier: str) -> dict | None:
-    """Create a new conversation for the contact."""
-    url = f"{_base()}/contacts/{contact_identifier}/conversations"
+async def create_conversation(source_id: str) -> dict | None:
+    """Create a new conversation for the contact identified by source_id (UUID from contact response)."""
+    url = f"{_base()}/contacts/{source_id}/conversations"
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json={}) as resp:
             if resp.status in (200, 201):
@@ -46,9 +46,9 @@ async def create_conversation(contact_identifier: str) -> dict | None:
             return None
 
 
-async def send_message(contact_identifier: str, conversation_id: int, content: str) -> bool:
-    """Send message to conversation as the contact."""
-    url = f"{_base()}/contacts/{contact_identifier}/conversations/{conversation_id}/messages"
+async def send_message(source_id: str, conversation_id: int, content: str) -> bool:
+    """Send message to conversation as the contact (source_id = UUID from contact response)."""
+    url = f"{_base()}/contacts/{source_id}/conversations/{conversation_id}/messages"
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json={"content": content, "message_type": "outgoing"}) as resp:
             if resp.status in (200, 201):
