@@ -172,6 +172,9 @@ ALLOWED_TESTERS: set[int] = {int(x.strip()) for x in _allowed.split(",") if x.st
 # Telegram ID разработчика — освобождён от rate limiting
 DEVELOPER_CHAT_ID: int = int(os.getenv("DEVELOPER_CHAT_ID", "0"))
 
+# Telegram ID канала наставников марафона — алерты о пропусках и failed отправках
+MENTOR_CHANNEL_ID: int = int(os.getenv("MENTOR_CHANNEL_ID", "0"))
+
 # ============= EVENT GATEWAY (WP-268 Phase 2 dual-write) =============
 # Cloudflare Worker, принимающий доменные события от бота
 # Dual-write: legacy DB (источник истины) + event-gateway (fire-and-forget)

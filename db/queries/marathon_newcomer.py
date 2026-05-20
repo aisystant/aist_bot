@@ -193,6 +193,51 @@ async def get_checkin_for_day(user_id: int, day: int) -> dict | None:
     return dict(row) if row else None
 
 
+async def clear_marathon_queue(user_id: int):
+    """Удалить все pending-записи из очереди марафона для пользователя."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''DELETE FROM learning.marathon_queue
+               WHERE user_id = $1 AND status = 'pending' ''',
+            user_id,
+        )
+
+
+async def get_failed_queue_items(limit: int = 50):
+    """Получить failed-записи из очереди для алертов наставникам."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT user_id, day_number, content_type, error, attempts
+               FROM learning.marathon_queue
+               WHERE status = 'failed'
+               ORDER BY updated_at DESC
+               LIMIT $1''',
+            limit,
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_missed_checkin_users(min_days: int = 2):
+    """Получить активных участников, пропустивших чек-ин min_days+ дней подряд.
+
+    Логика: current_day - total_checkins >= min_days
+    (если current_day=3, total_checkins=0 → 3 дня без чек-ина)
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT user_id, current_day, total_checkins, started_at
+               FROM learning.marathon_progress
+               WHERE status = 'active'
+                 AND current_day - total_checkins >= $1
+                 AND current_day > 0''',
+            min_days,
+        )
+    return [dict(r) for r in rows]
+
+
 async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime, content_texts: dict | None = None):
     """Запланировать 3 отправки для одного дня марафона.
 

@@ -20,7 +20,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, mark_notification_sent, cleanup_expired_content, cleanup_error_questions
@@ -160,10 +160,60 @@ async def _process_marathon_queue():
 
                 if attempts >= 2:  # 3-я попытка (0,1,2)
                     await mark_queue_failed(queue_id, error_msg[:500])
-                    # TODO WP-330 Ф5: алерт в канал наставников (WP-341 integration)
+                    # WP-330 P1: алерт в канал наставников
+                    if MENTOR_CHANNEL_ID:
+                        try:
+                            await bot.send_message(
+                                MENTOR_CHANNEL_ID,
+                                f"🚨 *Алерт марафона*\n\n"
+                                f"Не удалось отправить сообщение участнику `{chat_id}`\n"
+                                f"День {day}, тип: {content_type}\n"
+                                f"Ошибка: `{error_msg[:200]}`",
+                                parse_mode="Markdown",
+                            )
+                        except Exception as alert_err:
+                            logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
                     logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
                 else:
                     await schedule_queue_retry(queue_id, attempts, delay_minutes=30)
+    finally:
+        await bot.session.close()
+
+
+async def _check_marathon_missed_checkins():
+    """WP-330 P1: проверить пропуски чек-инов и отправить алерты наставникам.
+
+    Запускается каждые 6 часов. Находит активных участников с current_day - total_checkins >= 2
+    (2+ дня без чек-ина) и отправляет алерт в MENTOR_CHANNEL_ID.
+    """
+    from db.queries.marathon_newcomer import get_missed_checkin_users
+
+    if not MENTOR_CHANNEL_ID:
+        return
+
+    users = await get_missed_checkin_users(min_days=2)
+    if not users:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        for user in users:
+            chat_id = user['user_id']
+            current_day = user['current_day']
+            total_checkins = user['total_checkins']
+            missed = current_day - total_checkins
+
+            try:
+                await bot.send_message(
+                    MENTOR_CHANNEL_ID,
+                    f"⚠️ *Марафон: пропуски*\n\n"
+                    f"Участник `{chat_id}` пропустил чек-ин {missed} дней подряд\n"
+                    f"Текущий день: {current_day}/14, чек-инов: {total_checkins}",
+                    parse_mode="Markdown",
+                )
+                logger.info(f"[MarathonMissed] Alert sent for user {chat_id} ({missed} days missed)")
+            except Exception as e:
+                logger.warning(f"[MarathonMissed] Failed to send alert for {chat_id}: {e}")
     finally:
         await bot.session.close()
 
@@ -243,6 +293,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
+    _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
