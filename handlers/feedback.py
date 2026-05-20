@@ -97,7 +97,13 @@ async def cmd_feedback(message: Message, state: FSMContext):
         cmd = message.text.lstrip('/').split()[0] if message.text else 'feedback'
         logger.info(f"[Feedback] /{cmd} from chat_id={message.chat.id}, current_state={intern.get('current_state')}")
         try:
-            await dispatcher.route_command(cmd, intern)
+            routed = await dispatcher.route_command(cmd, intern)
+            if not routed:
+                # Fallback: если команда не зарегистрирована в registry
+                # (например, процесс не перезагружен после деплоя),
+                # напрямую переходим в feedback state
+                logger.warning(f"[Feedback] /{cmd} not resolved in registry, direct go_to utility.feedback")
+                await dispatcher.go_to(intern, 'utility.feedback')
         except Exception as e:
             logger.error(f"[Feedback] Error routing /{cmd}: {e}")
             import traceback
