@@ -80,9 +80,8 @@ async def _render_reports(since_hours: int = None, period_label: str = "All time
 
 
 @feedback_router.message(Command("feedback"))
-@feedback_router.message(Command("support"))
 async def cmd_feedback(message: Message, state: FSMContext):
-    """/feedback и /support — открыть форму обратной связи через SM."""
+    """/feedback — открыть форму обратной связи через SM. /support — см. handlers/support.py."""
     from handlers import get_dispatcher
 
     dispatcher = get_dispatcher()
