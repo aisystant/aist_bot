@@ -185,10 +185,12 @@ async def _check_marathon_missed_checkins():
 
     Запускается каждые 6 часов. Находит активных участников с current_day - total_checkins >= 2
     (2+ дня без чек-ина) и отправляет алерт в MENTOR_CHANNEL_ID.
+    Деdup через notification_log: один алерт на участника в день (§10.10).
     """
     from db.queries.marathon_newcomer import get_missed_checkin_users
+    from db.queries.notifications import try_insert_notification
 
-    if not MENTOR_CHANNEL_ID:
+    if not MENTOR_CHANNEL_ID or not _bot_token:
         return
 
     users = await get_missed_checkin_users(min_days=2)
@@ -196,12 +198,19 @@ async def _check_marathon_missed_checkins():
         return
 
     bot = Bot(token=_bot_token)
+    now = moscow_now()
+    today_str = now.strftime('%Y-%m-%d')
     try:
         for user in users:
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
             missed = current_day - total_checkins
+
+            # Один алерт в день на участника (§10.10 dedup)
+            alert_key = f"marathon_mentor_alert:{chat_id}:{today_str}"
+            if not await try_insert_notification(chat_id, 'marathon_mentor_alert', alert_key):
+                continue
 
             try:
                 await bot.send_message(
@@ -279,8 +288,12 @@ async def _send_marathon_nudges():
 
 
 async def _send_marathon_weekly_digest():
-    """WP-330 P2: еженедельный digest для активных участников (воскресенье 18:00)."""
+    """WP-330 P2: еженедельный digest для активных участников (воскресенье 18:00).
+
+    Деdup через notification_log: один digest в неделю (§10.10).
+    """
     from db.queries.marathon_newcomer import get_active_marathon_users, get_checkins
+    from db.queries.notifications import try_insert_notification
 
     if not _bot_token:
         return
@@ -290,11 +303,18 @@ async def _send_marathon_weekly_digest():
         return
 
     bot = Bot(token=_bot_token)
+    now = moscow_now()
+    week_str = now.strftime('%Y-W%W')
     try:
         for user in users:
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
+
+            # Один digest в неделю на участника (§10.10 dedup)
+            digest_key = f"marathon_digest:{chat_id}:{week_str}"
+            if not await try_insert_notification(chat_id, 'marathon_digest', digest_key):
+                continue
 
             checkins = await get_checkins(chat_id)
             if checkins:
