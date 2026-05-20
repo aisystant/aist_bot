@@ -508,6 +508,12 @@ PLATFORM_URLS = {
 # ============= WAKATIME (WP-60) =============
 WAKATIME_API_KEY = os.getenv("WAKATIME_API_KEY")
 
+# ============= CHATWOOT (helpdesk, WP-341) =============
+
+CHATWOOT_URL = os.getenv("CHATWOOT_URL", "")
+CHATWOOT_INBOX_IDENTIFIER = os.getenv("CHATWOOT_INBOX_IDENTIFIER", "")
+CHATWOOT_WEBHOOK_SECRET = os.getenv("CHATWOOT_WEBHOOK_SECRET", "")
+
 # ============= DISCOURSE (systemsworld.club) =============
 
 DISCOURSE_API_URL = os.getenv("DISCOURSE_API_URL", "")

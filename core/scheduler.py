@@ -135,7 +135,18 @@ async def _process_marathon_queue():
                 continue
 
             try:
-                await bot.send_message(chat_id, text, parse_mode="Markdown")
+                if content_type == 'checkin':
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
+                            InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
+                            InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
+                        ]
+                    ])
+                    await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                else:
+                    await bot.send_message(chat_id, text, parse_mode="Markdown")
                 await mark_queue_sent(queue_id)
                 logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
             except Exception as e:
