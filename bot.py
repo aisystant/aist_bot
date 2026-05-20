@@ -180,9 +180,10 @@ async def main():
 
     # WP-341: helpdesk_tickets table
     try:
-        from db.migrations.015_helpdesk_tickets import migrate_if_needed
+        import importlib as _il
+        _m015 = _il.import_module("db.migrations.015_helpdesk_tickets")
         from db.connection import get_pool as _get_pool
-        _created = await migrate_if_needed(await _get_pool())
+        _created = await _m015.migrate_if_needed(await _get_pool())
         if _created:
             logger.info("✅ Migration 015: helpdesk_tickets created")
     except Exception as _e:
