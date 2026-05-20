@@ -62,6 +62,8 @@ async def cmd_marathon_start(message: Message):
     )
 
     # Заполняем очередь на 14 дней (начиная с завтра, 04:00 MSK)
+    from core.marathon_content import get_day_text
+
     base_time = datetime(now.year, now.month, now.day, 4, 0, 0, tzinfo=now.tzinfo)
     if now.hour >= 4:
         # Если уже после 04:00 — первый урок завтра
@@ -69,7 +71,12 @@ async def cmd_marathon_start(message: Message):
 
     for day in range(1, 15):
         scheduled = base_time + timedelta(days=day - 1)
-        await enqueue_day_items(chat_id, day, scheduled)
+        content_texts = {
+            'lesson': get_day_text(day, 'lesson'),
+            'practice': get_day_text(day, 'practice'),
+            'checkin': get_day_text(day, 'checkin'),
+        }
+        await enqueue_day_items(chat_id, day, scheduled, content_texts)
 
     logger.info(f"[Marathon] User {chat_id} started marathon. Queue filled 1-14 days.")
 

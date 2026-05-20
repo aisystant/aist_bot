@@ -159,11 +159,15 @@ async def _process_marathon_queue():
 
 def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None) -> str | None:
     """Собрать текст сообщения из кэша или ref."""
-    # TODO WP-330 Ф2.6: читать content_ref из файлов при старте бота
     if content_text:
         return content_text
     if content_ref:
         return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
+    # WP-330 Ф2.6: читаем из marathon-content.json
+    from core.marathon_content import get_day_text
+    text = get_day_text(day, content_type)
+    if text:
+        return text
     # Fallback — минимальный текст
     templates = {
         'lesson': f"📚 *День {day} — Теория*\n\nСегодняшний урок готов! Нажми кнопку ниже, чтобы начать.",

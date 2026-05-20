@@ -180,21 +180,25 @@ async def get_checkins(user_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime):
+async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime, content_texts: dict | None = None):
     """Запланировать 3 отправки для одного дня марафона.
 
     Args:
         scheduled_at: базовое время (утро 04:00 MSK). Практика = +8ч, checkin = +14ч.
+        content_texts: опционально {content_type: text} для предзаполнения content_text.
     """
     pool = await get_learning_pool()
+    lesson_text = (content_texts or {}).get('lesson')
+    practice_text = (content_texts or {}).get('practice')
+    checkin_text = (content_texts or {}).get('checkin')
     async with pool.acquire() as conn:
         await conn.execute(
             '''INSERT INTO learning.marathon_queue
-               (user_id, day_number, content_type, scheduled_at)
+               (user_id, day_number, content_type, scheduled_at, content_text)
                VALUES
-               ($1, $2, 'lesson',    $3),
-               ($1, $2, 'practice',  $3 + INTERVAL '8 hours'),
-               ($1, $2, 'checkin',   $3 + INTERVAL '14 hours')
+               ($1, $2, 'lesson',    $3, $4),
+               ($1, $2, 'practice',  $3 + INTERVAL '8 hours', $5),
+               ($1, $2, 'checkin',   $3 + INTERVAL '14 hours', $6)
                ON CONFLICT DO NOTHING''',
-            user_id, day_number, scheduled_at,
+            user_id, day_number, scheduled_at, lesson_text, practice_text, checkin_text,
         )
