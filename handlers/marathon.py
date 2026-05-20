@@ -8,14 +8,16 @@
 import logging
 from datetime import datetime, timedelta
 
-from aiogram import Router
-from aiogram.types import Message
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 from db.queries.marathon_newcomer import (
     get_or_create_progress,
     update_progress,
     enqueue_day_items,
+    save_checkin,
+    get_checkin_for_day,
 )
 from db.queries.users import moscow_now
 from config import get_logger
@@ -133,3 +135,73 @@ async def cmd_marathon_progress(message: Message):
         lines.append("\nПоздравляем с завершением! 🎉")
 
     await message.answer("\n".join(lines))
+
+
+# ════════════════════════════════════════════════════════════════════
+# Ф3.1 / Ф3.2 — Обработка чек-ина: кнопки 😵/🧱/🔁
+# ════════════════════════════════════════════════════════════════════
+
+@marathon_router.callback_query(F.data.startswith("marathon_checkin:"))
+async def callback_marathon_checkin(callback: CallbackQuery):
+    """Сохранить состояние чек-ина, продвинуть current_day, подтвердить выбор."""
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer("Ошибка формата данных", show_alert=True)
+        return
+
+    _, state, day_str = parts
+    try:
+        day = int(day_str)
+    except ValueError:
+        await callback.answer("Ошибка формата дня", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+
+    # Проверяем, не чекинился ли уже за этот день
+    existing = await get_checkin_for_day(user_id, day)
+
+    # Сохраняем (или обновляем) состояние
+    await save_checkin(user_id, day, state)
+
+    # Инкремент прогресса только при первом чек-ине за день
+    if not existing:
+        progress = await get_or_create_progress(user_id)
+        current_day = progress.get("current_day", 0)
+        total_checkins = progress.get("total_checkins", 0)
+
+        new_day = max(current_day, day)
+        new_total = total_checkins + 1
+        new_status = None
+        if day >= 14:
+            new_status = "completed"
+
+        await update_progress(
+            user_id=user_id,
+            current_day=new_day,
+            total_checkins=new_total,
+            status=new_status,
+        )
+
+        logger.info(
+            f"[MarathonCheckin] User {user_id} day {day} state={state} "
+            f"current_day {current_day}→{new_day} total_checkins {total_checkins}→{new_total}"
+        )
+    else:
+        logger.info(f"[MarathonCheckin] User {user_id} updated day {day} state={state} (already checked in)")
+
+    state_labels = {
+        "chaos": "😵 Хаос",
+        "stuck": "🧱 Тупик",
+        "turn": "🔁 Поворот",
+    }
+    label = state_labels.get(state, state)
+
+    await callback.answer(f"Записано: {label}", show_alert=False)
+
+    # Убираем кнопки и показываем выбор
+    original_text = callback.message.text or callback.message.caption or ""
+    await callback.message.edit_text(
+        f"{original_text}\n\n✅ Твой выбор: {label}",
+        reply_markup=None,
+    )

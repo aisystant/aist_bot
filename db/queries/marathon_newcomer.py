@@ -180,6 +180,19 @@ async def get_checkins(user_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_checkin_for_day(user_id: int, day: int) -> dict | None:
+    """Получить check-in за конкретный день. None если ещё не было."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT day, state, check_in_at, notes
+               FROM learning.marathon_state
+               WHERE user_id = $1 AND day = $2''',
+            user_id, day,
+        )
+    return dict(row) if row else None
+
+
 async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime, content_texts: dict | None = None):
     """Запланировать 3 отправки для одного дня марафона.
 
