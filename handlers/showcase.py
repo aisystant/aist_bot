@@ -41,6 +41,15 @@ from db.queries.showcase import (
     has_seminar_access,
     get_user_seminar_codes,
 )
+from db.queries.redeem import confirm_burn
+from helpers.redeem_helpers import (
+    prepare_burn_offer,
+    format_burn_offer_text,
+    build_burn_offer_keyboard,
+    reserve_for_yookassa,
+    reserve_for_tg_stars,
+    discount_stars,
+)
 from clients.yookassa import YooKassaClient
 from i18n import t
 
@@ -313,12 +322,11 @@ async def _show_seminar_card(message, seminar_code: str):
 
 @showcase_router.callback_query(F.data.startswith("showcase_pay_rub:"))
 async def callback_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями через ЮКасса."""
+    """Оплата семинара рублями. Если есть баллы — предложить скидку (WP-327)."""
     code = callback.data.split(":", 1)[1]
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
-
     await callback.answer()
 
     seminar = await get_seminar_by_code(code)
@@ -326,41 +334,108 @@ async def callback_pay_rub(callback: CallbackQuery):
         await callback.message.answer(t('showcase.not_found', lang))
         return
 
+    burn = await prepare_burn_offer(chat_id, seminar["price_rub"])
+    if burn is not None:
+        text = format_burn_offer_text(burn, item_title=f"«{seminar['title']}»")
+        kb = build_burn_offer_keyboard(
+            apply_data=f"showcase_pay_rub_burn:{code}",
+            skip_data=f"showcase_pay_rub_full:{code}",
+            full_amount_rub=seminar["price_rub"],
+            back_data="showcase_main",
+        )
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    await _pay_yookassa_seminar(callback, chat_id, lang, seminar, apply_burn=False)
+
+
+@showcase_router.callback_query(F.data.startswith("showcase_pay_rub_full:"))
+async def callback_pay_rub_full(callback: CallbackQuery):
+    """Оплата семинара рублями без применения баллов."""
+    code = callback.data.split(":", 1)[1]
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    seminar = await get_seminar_by_code(code)
+    if not seminar:
+        await callback.message.answer(t('showcase.not_found', lang))
+        return
+    await _pay_yookassa_seminar(callback, chat_id, lang, seminar, apply_burn=False)
+
+
+@showcase_router.callback_query(F.data.startswith("showcase_pay_rub_burn:"))
+async def callback_pay_rub_burn(callback: CallbackQuery):
+    """Оплата семинара рублями с применением скидки баллами (WP-327)."""
+    code = callback.data.split(":", 1)[1]
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    seminar = await get_seminar_by_code(code)
+    if not seminar:
+        await callback.message.answer(t('showcase.not_found', lang))
+        return
+    await _pay_yookassa_seminar(callback, chat_id, lang, seminar, apply_burn=True)
+
+
+async def _pay_yookassa_seminar(
+    callback: CallbackQuery, chat_id: int, lang: str, seminar: dict, apply_burn: bool
+):
+    """Унифицированный flow создания YK-платежа для семинара витрины."""
     yk = _get_yookassa()
     if not yk:
         logger.error(f"[Showcase] YooKassa not configured, tg={chat_id}")
         await callback.message.answer(t('showcase.pay_error', lang))
         return
 
+    code = seminar["code"]
+    full_amount = seminar["price_rub"]
+    burn = await prepare_burn_offer(chat_id, full_amount) if apply_burn else None
+    payable_rub = int(burn["payable_rub"]) if burn else full_amount
+
+    metadata = {"telegram_id": str(chat_id), "purpose": "SEMINAR", "product_code": code}
+    if burn:
+        metadata["points_amount"] = str(burn["available_pts"])
+        metadata["account_id"] = burn["account_id"]
+
     try:
         result = await yk.create_payment(
-            amount=seminar["price_rub"],
+            amount=payable_rub,
             description=seminar["title"],
             return_url="https://t.me/aist_me_bot",
-            metadata={
-                "telegram_id": str(chat_id),
-                "purpose": "SEMINAR",
-                "product_code": code,
-            },
+            metadata=metadata,
         )
+        payment_id = result["id"]
         confirmation_url = result["confirmation_url"]
-        logger.info(f"[Showcase] yookassa payment: tg={chat_id}, product={code}, payment_id={result['id']}")
+        logger.info(f"[Showcase] yookassa payment: tg={chat_id}, product={code}, payment_id={payment_id}, amount={payable_rub}, burn={'yes' if burn else 'no'}")
 
+        applied_discount_rub = 0
+        if burn:
+            ok, points_used = await reserve_for_yookassa(burn, payment_id, purpose="SEMINAR")
+            if ok:
+                applied_discount_rub = int(burn["discount_rub"])
+                logger.info(f"[Redeem] Showcase reserve OK: tg={chat_id}, payment_id={payment_id}, points={points_used}")
+            else:
+                logger.warning(f"[Redeem] Showcase reserve failed (race), recreating full price: tg={chat_id}")
+                result = await yk.create_payment(
+                    amount=full_amount,
+                    description=seminar["title"],
+                    return_url="https://t.me/aist_me_bot",
+                    metadata={"telegram_id": str(chat_id), "purpose": "SEMINAR", "product_code": code},
+                )
+                payment_id = result["id"]
+                confirmation_url = result["confirmation_url"]
+                payable_rub = full_amount
+
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('showcase.btn_pay_rub', lang, amount=seminar["price_rub"]),
-                url=confirmation_url,
-            )],
-            [InlineKeyboardButton(
-                text=t('showcase.btn_paid_check', lang),
-                callback_data=f"showcase_check:{code}",
-            )],
-            [InlineKeyboardButton(
-                text=t('showcase.btn_back_showcase', lang), callback_data="showcase_main",
-            )],
+            [InlineKeyboardButton(text=t('showcase.btn_pay_rub', lang, amount=payable_rub), url=confirmation_url)],
+            [InlineKeyboardButton(text=t('showcase.btn_paid_check', lang), callback_data=f"showcase_check:{code}")],
+            [InlineKeyboardButton(text=t('showcase.btn_back_showcase', lang), callback_data="showcase_main")],
         ])
         await callback.message.answer(
-            t('showcase.pay_redirect', lang),
+            t('showcase.pay_redirect', lang) + extra,
             reply_markup=keyboard,
         )
     except Exception as e:
@@ -373,12 +448,11 @@ async def callback_pay_rub(callback: CallbackQuery):
 
 @showcase_router.callback_query(F.data.startswith("showcase_pay_stars:"))
 async def callback_pay_stars(callback: CallbackQuery):
-    """Оплата семинара через Telegram Stars."""
+    """Оплата семинара через Telegram Stars. Если есть баллы — предложить скидку (WP-327)."""
     code = callback.data.split(":", 1)[1]
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
-
     await callback.answer()
 
     seminar = await get_seminar_by_code(code)
@@ -386,25 +460,87 @@ async def callback_pay_stars(callback: CallbackQuery):
         await callback.message.answer(t('showcase.not_found', lang))
         return
 
+    burn = await prepare_burn_offer(chat_id, seminar["price_rub"])
+    if burn is not None:
+        text = format_burn_offer_text(burn, item_title=f"«{seminar['title']}» (Stars)")
+        kb = build_burn_offer_keyboard(
+            apply_data=f"showcase_pay_stars_burn:{code}",
+            skip_data=f"showcase_pay_stars_full:{code}",
+            full_amount_rub=seminar["price_rub"],
+            back_data="showcase_main",
+        )
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    await _pay_stars_seminar(callback, chat_id, lang, seminar, apply_burn=False)
+
+
+@showcase_router.callback_query(F.data.startswith("showcase_pay_stars_full:"))
+async def callback_pay_stars_full(callback: CallbackQuery):
+    """Оплата Stars без применения баллов."""
+    code = callback.data.split(":", 1)[1]
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    seminar = await get_seminar_by_code(code)
+    if not seminar:
+        return
+    await _pay_stars_seminar(callback, chat_id, lang, seminar, apply_burn=False)
+
+
+@showcase_router.callback_query(F.data.startswith("showcase_pay_stars_burn:"))
+async def callback_pay_stars_burn(callback: CallbackQuery):
+    """Оплата Stars с применением скидки баллами (WP-327)."""
+    code = callback.data.split(":", 1)[1]
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    seminar = await get_seminar_by_code(code)
+    if not seminar:
+        return
+    await _pay_stars_seminar(callback, chat_id, lang, seminar, apply_burn=True)
+
+
+async def _pay_stars_seminar(
+    callback: CallbackQuery, chat_id: int, lang: str, seminar: dict, apply_burn: bool
+):
+    """Унифицированный flow Stars-оплаты семинара витрины."""
+    code = seminar["code"]
+    burn = await prepare_burn_offer(chat_id, seminar["price_rub"]) if apply_burn else None
+    provisional_id = None
+    payable_stars = seminar["price_stars"]
+    applied_discount_rub = 0
+
+    if burn:
+        provisional_id, _ = await reserve_for_tg_stars(burn, purpose="SEMINAR")
+        if provisional_id:
+            payable_stars = discount_stars(burn, seminar["price_stars"], seminar["price_rub"])
+            applied_discount_rub = int(burn["discount_rub"])
+            logger.info(f"[Redeem] Showcase Stars reserve OK: tg={chat_id}, provisional={provisional_id}, payable_stars={payable_stars}")
+        else:
+            logger.warning(f"[Redeem] Showcase Stars reserve failed (race): tg={chat_id}")
+
+    payload = f"seminar_{code}_{chat_id}"
+    if provisional_id:
+        payload = f"{payload}_p_{provisional_id}"
+
     try:
         link = await callback.bot.create_invoice_link(
             title=seminar["title"],
             description=seminar["description"] or seminar["title"],
-            payload=f"seminar_{code}_{chat_id}",
+            payload=payload,
             currency="XTR",
-            prices=[LabeledPrice(label=seminar["title"], amount=seminar["price_stars"])],
+            prices=[LabeledPrice(label=seminar["title"], amount=payable_stars)],
         )
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('showcase.btn_pay_stars', lang, stars=seminar["price_stars"]),
-                url=link,
-            )],
-            [InlineKeyboardButton(
-                text=t('showcase.btn_back_showcase', lang), callback_data="showcase_main",
-            )],
+            [InlineKeyboardButton(text=t('showcase.btn_pay_stars', lang, stars=payable_stars), url=link)],
+            [InlineKeyboardButton(text=t('showcase.btn_back_showcase', lang), callback_data="showcase_main")],
         ])
         await callback.message.answer(
-            t('showcase.pay_stars_intro', lang, title=seminar["title"], stars=seminar["price_stars"]),
+            t('showcase.pay_stars_intro', lang, title=seminar["title"], stars=payable_stars) + extra,
             reply_markup=keyboard,
         )
     except Exception as e:
@@ -450,21 +586,26 @@ async def on_seminar_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 @showcase_router.message(F.successful_payment)
 async def on_seminar_payment(message: Message):
-    """Успешная оплата семинара (Stars) → записать → выдать доступ."""
+    """Успешная оплата семинара (Stars) → записать → выдать доступ. WP-327: confirm_burn если был резерв."""
     payment = message.successful_payment
     payload = getattr(payment, 'invoice_payload', '') or ''
 
     if not payload.startswith("seminar_"):
         return
 
-    # payload: seminar_{code}_{chat_id}
-    # code может содержать _, поэтому split от конца
-    parts = payload.split("_")
+    # WP-327: provisional_id для burn (если был) — в суффиксе после _p_
+    provisional_id: str | None = None
+    if "_p_" in payload:
+        payload_main, provisional_id = payload.rsplit("_p_", 1)
+    else:
+        payload_main = payload
+
+    # payload_main: seminar_{code}_{chat_id}
+    parts = payload_main.split("_")
     if len(parts) < 3:
         logger.error(f"[Showcase] bad payload: {payload}")
         return
 
-    # Последний элемент — chat_id, всё между первым и последним — code
     chat_id = message.chat.id
     code = "_".join(parts[1:-1])
     intern = await get_intern(chat_id)
@@ -482,6 +623,14 @@ async def on_seminar_payment(message: Message):
     )
 
     logger.info(f"[Showcase] stars payment recorded: tg={chat_id}, product={code}")
+
+    # WP-327: confirm_burn по provisional_id
+    if provisional_id:
+        try:
+            ok = await confirm_burn(provisional_id)
+            logger.info(f"[Redeem] Showcase Stars confirm_burn(provisional={provisional_id}) result={ok}, tg={chat_id}")
+        except Exception as e:
+            logger.error(f"[Redeem] Showcase Stars confirm_burn exception: provisional={provisional_id}, tg={chat_id}, error={e}")
 
     seminar = await get_seminar_by_code(code)
     if seminar:
@@ -554,7 +703,19 @@ async def process_seminar_yookassa_webhook(data: dict, bot: Bot) -> dict:
     )
 
     if row_id == 0:
+        # Идемпотентность: на дубле тоже пытаемся confirm_burn (no-op если уже confirmed)
+        try:
+            await confirm_burn(payment_id)
+        except Exception as e:
+            logger.error(f"[Redeem] Showcase confirm_burn on duplicate: payment_id={payment_id}, error={e}")
         return {"ok": True, "duplicate": True}
+
+    # WP-327: подтвердить burn по реальному YK payment_id (no-op если резерва не было)
+    try:
+        ok = await confirm_burn(payment_id)
+        logger.info(f"[Redeem] Showcase confirm_burn(yk={payment_id}) result={ok}")
+    except Exception as e:
+        logger.error(f"[Redeem] Showcase confirm_burn exception: payment_id={payment_id}, error={e}")
 
     seminar = await get_seminar_by_code(product_code)
     if seminar:

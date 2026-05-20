@@ -228,6 +228,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
+    _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
     # Новая архитектура: projection-worker (WP-270) → indicators.calculated_profile (Neon).
@@ -1451,6 +1452,20 @@ async def _neon_keep_alive():
             await conn.fetchval('SELECT 1')
     except Exception as e:
         logger.warning(f"[Scheduler] Neon keep-alive failed: {e}")
+
+
+async def _rollback_expired_burn_reservations():
+    """WP-327: откат резервов баллов старше 30 минут (status='reserved' без confirm/cancel).
+
+    Защита от «зависших» резервов: пилот нажал «Применить», но не пошёл по ссылке оплаты —
+    через 30 мин баллы возвращаются. Запускается каждые 5 мин (см. start_scheduler)."""
+    try:
+        from db.queries.redeem import rollback_expired_reservations
+        count = await rollback_expired_reservations()
+        if count > 0:
+            logger.info(f"[Scheduler] WP-327: rolled back {count} expired burn reservations")
+    except Exception as e:
+        logger.warning(f"[Scheduler] rollback_expired_burn_reservations failed: {e}")
 
 
 async def _better_stack_heartbeat():

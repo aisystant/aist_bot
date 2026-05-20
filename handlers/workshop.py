@@ -38,6 +38,15 @@ from db.queries.workshop import (
     log_community_leave,
     get_community_stats,
 )
+from db.queries.redeem import confirm_burn
+from helpers.redeem_helpers import (
+    prepare_burn_offer,
+    format_burn_offer_text,
+    build_burn_offer_keyboard,
+    reserve_for_yookassa,
+    reserve_for_tg_stars,
+    discount_stars,
+)
 from clients.yookassa import YooKassaClient
 from i18n import t
 
@@ -145,49 +154,111 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay_rub")
 async def callback_seminar_pay_rub(callback: CallbackQuery):
-    """Оплата семинара рублями — ЮКасса нативный API (магазин 1317530)."""
+    """Оплата семинара рублями. Если есть баллы — предложить скидку (WP-327)."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
     logger.info(f"[Payment] pay_rub initiated: tg={chat_id}, amount={SEMINAR_AMOUNT} RUB, shop={'SET' if YOOKASSA_SHOP_ID else 'MISSING'}")
-
     await callback.answer()
 
+    # WP-327: предложить скидку баллами если копилка > 0
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT)
+    if burn is not None:
+        text = format_burn_offer_text(burn, item_title="семинара IWE")
+        kb = build_burn_offer_keyboard(
+            apply_data="seminar_iwe_pay_rub_burn",
+            skip_data="seminar_iwe_pay_rub_full",
+            full_amount_rub=SEMINAR_AMOUNT,
+            back_data="sched_back",
+        )
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    # Нет баллов или T0 — обычная оплата
+    await _pay_yookassa_workshop(callback, chat_id, lang, apply_burn=False)
+
+
+@workshop_router.callback_query(F.data == "seminar_iwe_pay_rub_full")
+async def callback_seminar_pay_rub_full(callback: CallbackQuery):
+    """Оплата без применения баллов (явный отказ от скидки)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    await _pay_yookassa_workshop(callback, chat_id, lang, apply_burn=False)
+
+
+@workshop_router.callback_query(F.data == "seminar_iwe_pay_rub_burn")
+async def callback_seminar_pay_rub_burn(callback: CallbackQuery):
+    """Оплата с применением скидки баллами (WP-327)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    await _pay_yookassa_workshop(callback, chat_id, lang, apply_burn=True)
+
+
+async def _pay_yookassa_workshop(callback: CallbackQuery, chat_id: int, lang: str, apply_burn: bool):
+    """Унифицированный flow создания YK-платежа для семинара (с/без скидки баллами).
+
+    apply_burn=True → пересчитываем available_discount (race-safe), резервируем баллы,
+    YK-платёж создаётся на payable_rub. При сбое резерва → fallback на full price.
+    """
     yk = _get_yookassa()
     if not yk:
-        logger.error(f"[Payment] pay_rub error: YOOKASSA_SHOP_ID or SECRET_KEY not set, tg={chat_id}")
+        logger.error(f"[Payment] pay_rub error: YOOKASSA credentials missing, tg={chat_id}")
         await callback.message.answer(t('workshop.pay_error', lang))
         return
 
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT) if apply_burn else None
+    payable_rub = int(burn["payable_rub"]) if burn else SEMINAR_AMOUNT
+    metadata = {"telegram_id": str(chat_id), "purpose": "WORKSHOP"}
+    if burn:
+        metadata["points_amount"] = str(burn["available_pts"])
+        metadata["account_id"] = burn["account_id"]
+
     try:
         result = await yk.create_payment(
-            amount=SEMINAR_AMOUNT,
+            amount=payable_rub,
             description=t('workshop.card_invoice_title', lang),
             return_url="https://t.me/aist_me_bot",
-            metadata={
-                "telegram_id": str(chat_id),
-                "purpose": "WORKSHOP",
-            },
+            metadata=metadata,
         )
+        payment_id = result["id"]
         confirmation_url = result["confirmation_url"]
-        logger.info(f"[Payment] yookassa payment created: tg={chat_id}, payment_id={result['id']}, url={confirmation_url[:50]}...")
+        logger.info(f"[Payment] yookassa payment created: tg={chat_id}, payment_id={payment_id}, amount={payable_rub}, burn={'yes' if burn else 'no'}")
 
+        # Резерв баллов после создания YK-платежа (window между create и reserve ~ms; race редок)
+        applied_discount_rub = 0
+        if burn:
+            ok, points_used = await reserve_for_yookassa(burn, payment_id, purpose="WORKSHOP")
+            if ok:
+                applied_discount_rub = int(burn["discount_rub"])
+                logger.info(f"[Redeem] reserve OK: tg={chat_id}, payment_id={payment_id}, points={points_used}")
+            else:
+                # Race lost: пилот другой сессией списал часть баллов; YK-платёж уже создан на payable_rub
+                # Best-effort: перевыпускаем YK-платёж на полную сумму и показываем его (старый pending протухнет)
+                logger.warning(f"[Redeem] reserve failed (race), recreating payment full price: tg={chat_id}")
+                result = await yk.create_payment(
+                    amount=SEMINAR_AMOUNT,
+                    description=t('workshop.card_invoice_title', lang),
+                    return_url="https://t.me/aist_me_bot",
+                    metadata={"telegram_id": str(chat_id), "purpose": "WORKSHOP"},
+                )
+                payment_id = result["id"]
+                confirmation_url = result["confirmation_url"]
+                payable_rub = SEMINAR_AMOUNT
+
+        # Сообщение пилоту
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('workshop.btn_pay_rub', lang),
-                url=confirmation_url,
-            )],
-            [InlineKeyboardButton(
-                text=t('workshop.btn_paid_check', lang),
-                callback_data="seminar_iwe_check",
-            )],
-            [InlineKeyboardButton(
-                text=t('schedule.btn_back', lang), callback_data="sched_back",
-            )],
+            [InlineKeyboardButton(text=t('workshop.btn_pay_rub', lang), url=confirmation_url)],
+            [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang), callback_data="seminar_iwe_check")],
+            [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
         ])
         await callback.message.answer(
-            t('workshop.pay_redirect', lang),
+            t('workshop.pay_redirect', lang) + extra,
             reply_markup=keyboard,
         )
     except Exception as e:
@@ -197,35 +268,87 @@ async def callback_seminar_pay_rub(callback: CallbackQuery):
 
 @workshop_router.callback_query(F.data == "seminar_iwe_pay")
 async def callback_seminar_pay(callback: CallbackQuery):
-    """Оплата семинара через Telegram Stars."""
+    """Оплата семинара через Telegram Stars. Если есть баллы — предложить скидку (WP-327)."""
     chat_id = callback.from_user.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)
 
     logger.info(f"[Payment] pay_stars initiated: tg={chat_id}, amount={SEMINAR_STARS} XTR")
-
     await callback.answer()
+
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT)
+    if burn is not None:
+        text = format_burn_offer_text(burn, item_title="оплаты Stars")
+        kb = build_burn_offer_keyboard(
+            apply_data="seminar_iwe_pay_stars_burn",
+            skip_data="seminar_iwe_pay_stars_full",
+            full_amount_rub=SEMINAR_AMOUNT,
+            back_data="sched_back",
+        )
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    await _pay_stars_workshop(callback, chat_id, lang, apply_burn=False)
+
+
+@workshop_router.callback_query(F.data == "seminar_iwe_pay_stars_full")
+async def callback_seminar_pay_stars_full(callback: CallbackQuery):
+    """Оплата Stars без применения баллов."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    await _pay_stars_workshop(callback, chat_id, lang, apply_burn=False)
+
+
+@workshop_router.callback_query(F.data == "seminar_iwe_pay_stars_burn")
+async def callback_seminar_pay_stars_burn(callback: CallbackQuery):
+    """Оплата Stars с применением скидки баллами (WP-327)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+    await _pay_stars_workshop(callback, chat_id, lang, apply_burn=True)
+
+
+async def _pay_stars_workshop(callback: CallbackQuery, chat_id: int, lang: str, apply_burn: bool):
+    """Унифицированный flow Stars-оплаты семинара. apply_burn → резерв через provisional_id."""
+    burn = await prepare_burn_offer(chat_id, SEMINAR_AMOUNT) if apply_burn else None
+    provisional_id = None
+    payable_stars = SEMINAR_STARS
+    applied_discount_rub = 0
+
+    if burn:
+        provisional_id, _ = await reserve_for_tg_stars(burn, purpose="WORKSHOP")
+        if provisional_id:
+            payable_stars = discount_stars(burn, SEMINAR_STARS, SEMINAR_AMOUNT)
+            applied_discount_rub = int(burn["discount_rub"])
+            logger.info(f"[Redeem] Stars reserve OK: tg={chat_id}, provisional={provisional_id}, payable_stars={payable_stars}")
+        else:
+            logger.warning(f"[Redeem] Stars reserve failed (race), full price: tg={chat_id}")
+
+    # Payload: provisional_id вкраплён, чтобы successful_payment мог вызвать confirm_burn
+    payload = f"workshop_seminar_{chat_id}"
+    if provisional_id:
+        payload = f"workshop_seminar_{chat_id}_p_{provisional_id}"
 
     try:
         link = await callback.bot.create_invoice_link(
             title=t('workshop.stars_invoice_title', lang),
             description=t('workshop.stars_invoice_description', lang),
-            payload=f"workshop_seminar_{chat_id}",
+            payload=payload,
             currency="XTR",
-            prices=[LabeledPrice(label="Семинар IWE", amount=SEMINAR_STARS)],
+            prices=[LabeledPrice(label="Семинар IWE", amount=payable_stars)],
         )
-        logger.info(f"[Payment] stars invoice_link created: tg={chat_id}")
+        logger.info(f"[Payment] stars invoice_link created: tg={chat_id}, payable={payable_stars}, burn={'yes' if provisional_id else 'no'}")
+
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=t('workshop.btn_pay_stars', lang, stars=SEMINAR_STARS),
-                url=link,
-            )],
-            [InlineKeyboardButton(
-                text=t('schedule.btn_back', lang), callback_data="sched_back",
-            )],
+            [InlineKeyboardButton(text=t('workshop.btn_pay_stars', lang, stars=payable_stars), url=link)],
+            [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
         ])
         await callback.message.answer(
-            t('workshop.pay_stars_intro', lang, stars=SEMINAR_STARS),
+            t('workshop.pay_stars_intro', lang, stars=payable_stars) + extra,
             reply_markup=keyboard,
         )
     except Exception as e:
@@ -293,6 +416,15 @@ async def on_workshop_payment(message: Message):
         source=source,
         payment_id=charge_id,
     )
+
+    # WP-327: подтвердить burn если в payload был provisional_id (Stars-оплата с применением баллов)
+    if "_p_" in payload:
+        provisional_id = payload.split("_p_", 1)[1]
+        try:
+            ok = await confirm_burn(provisional_id)
+            logger.info(f"[Redeem] confirm_burn(provisional={provisional_id}) result={ok}, tg={chat_id}")
+        except Exception as e:
+            logger.error(f"[Redeem] confirm_burn exception: provisional={provisional_id}, tg={chat_id}, error={e}")
 
     count = await get_workshop_payment_count(chat_id)
     logger.info(f"[Payment] payment recorded: tg={chat_id}, source={source}, count_after={count}")
@@ -573,7 +705,19 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
 
     if row_id == 0:
         logger.info(f"[YooKassa] duplicate payment, already processed: payment_id={payment_id}")
+        # Идемпотентность: даже при дубле — пытаемся confirm_burn (вернёт True если уже confirmed)
+        try:
+            await confirm_burn(payment_id)
+        except Exception as e:
+            logger.error(f"[Redeem] confirm_burn on duplicate: payment_id={payment_id}, error={e}")
         return {"ok": True, "duplicate": True}
+
+    # WP-327: подтвердить burn (no-op если резерва не было)
+    try:
+        ok = await confirm_burn(payment_id)
+        logger.info(f"[Redeem] confirm_burn(yk={payment_id}) result={ok}")
+    except Exception as e:
+        logger.error(f"[Redeem] confirm_burn exception: payment_id={payment_id}, error={e}")
 
     # Отправляем invite
     count = await get_workshop_payment_count(telegram_id)

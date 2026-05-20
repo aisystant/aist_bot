@@ -279,102 +279,98 @@ async def confirm_burn(payment_id: str) -> bool:
             payment_id,
         )
 
-        if row is not None:
-            # TODO (Phase 2 refactor): убрать inline UPDATE point_balances и перейти на
-            # projection-worker handler для event_type='points_redeemed'. Сейчас inline для
-            # закрытия loop'а WP-327 Ф2 — без projection-worker'а баланс не обновится после
-            # confirm. См. DP.ROLE.051 §9.
-            try:
-                await conn.execute(
-                    """
-                    UPDATE public.point_balances
-                    SET points = points - $1, last_updated = now()
-                    WHERE account_id = $2
-                    """,
-                    row["points_amount"],
-                    row["account_id"],
-                )
-            except asyncpg.CheckViolationError as e:
-                # CHECK (points >= 0) сработал — баланс изменился между reserve и confirm,
-                # списание превышает доступное. redeemed_events.status уже 'confirmed' (Tx1).
-                # Webhook вернёт 200, ЮКасса не будет ретраить. Admin alert для ручного refund.
+        if row is None:
+            # Не нашли в status='reserved' — проверяем текущий статус (идемпотентность / late-webhook)
+            existing = await conn.fetchrow(
+                "SELECT status, account_id, points_amount FROM public.redeemed_events WHERE payment_id = $1",
+                payment_id,
+            )
+
+            if existing is None:
+                logger.warning(f"[Redeem] confirm_burn: payment_id={payment_id} not found")
+                return False
+
+            if existing["status"] == "confirmed":
+                logger.info(f"[Redeem] confirm_burn idempotent: payment_id={payment_id} already confirmed")
+                return True
+
+            if existing["status"] == "rolled_back":
                 logger.error(
-                    f"[Redeem] confirm_burn negative_balance: payment_id={payment_id}, "
-                    f"points={row['points_amount']}, account={str(row['account_id'])[:8]}. "
-                    f"Status set to 'confirmed', balance NOT decremented. Admin review needed. Error: {e}"
+                    f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
+                    f"Admin alert sent via event-gateway. Manual review required."
                 )
                 asyncio.create_task(
                     post_event(
                         source="aist-bot",
-                        external_id=f"redeem_negative_{payment_id}",
-                        event_type="points_redeem_negative_balance",
+                        external_id=f"redeem_late_webhook_{payment_id}",
+                        event_type="points_redeem_late_webhook",
                         schema_version="v1",
                         occurred_at=datetime.now(timezone.utc),
-                        account_id=str(row["account_id"]),
+                        account_id=str(existing["account_id"]),
                         payload={
                             "payment_id": payment_id,
-                            "points_amount": str(row["points_amount"]),
-                            "issue": "check_violation_balance_below_zero",
+                            "points_amount": str(existing["points_amount"]),
+                            "issue": "payment_succeeded_after_rollback",
                         },
                     )
                 )
-
-        if row is None:
-                # Не нашли в status='reserved' — проверяем текущий статус
-                existing = await conn.fetchrow(
-                    "SELECT status, account_id, points_amount FROM public.redeemed_events WHERE payment_id = $1",
-                    payment_id,
-                )
-
-                if existing is None:
-                    logger.warning(f"[Redeem] confirm_burn: payment_id={payment_id} not found")
-                    return False
-
-                if existing["status"] == "confirmed":
-                    logger.info(f"[Redeem] confirm_burn idempotent: payment_id={payment_id} already confirmed")
-                    return True
-
-                if existing["status"] == "rolled_back":
-                    logger.error(
-                        f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
-                        f"Admin alert sent via event-gateway. Manual review required."
-                    )
-                    # Алерт для admin: оплата прошла после rollback'а резерва (deadletter handler)
-                    asyncio.create_task(
-                        post_event(
-                            source="aist-bot",
-                            external_id=f"redeem_late_webhook_{payment_id}",
-                            event_type="points_redeem_late_webhook",
-                            schema_version="v1",
-                            occurred_at=datetime.now(timezone.utc),
-                            account_id=str(existing["account_id"]),
-                            payload={
-                                "payment_id": payment_id,
-                                "points_amount": str(existing["points_amount"]),
-                                "issue": "payment_succeeded_after_rollback",
-                            },
-                        )
-                    )
-                    return False
-
-                logger.warning(f"[Redeem] confirm_burn unexpected status: {existing['status']}")
                 return False
 
-            # Успешный confirm — эмитируем event для projection-worker
+            logger.warning(f"[Redeem] confirm_burn unexpected status: {existing['status']}")
+            return False
+
+        # row is not None: статус успешно переведён в 'confirmed'. Tx2: inline UPDATE point_balances.
+        # TODO (Phase 2 refactor): убрать inline UPDATE и перейти на projection-worker handler для
+        # event_type='points_redeemed'. См. DP.ROLE.051 §9.
+        try:
+            await conn.execute(
+                """
+                UPDATE public.point_balances
+                SET points = points - $1, last_updated = now()
+                WHERE account_id = $2
+                """,
+                row["points_amount"],
+                row["account_id"],
+            )
+        except asyncpg.CheckViolationError as e:
+            # CHECK (points >= 0) — баланс изменился между reserve и confirm. status уже 'confirmed'
+            # (Tx1), webhook возвращает 200, ретрая ЮКассы нет. Admin alert для ручного refund.
+            logger.error(
+                f"[Redeem] confirm_burn negative_balance: payment_id={payment_id}, "
+                f"points={row['points_amount']}, account={str(row['account_id'])[:8]}. "
+                f"Status set to 'confirmed', balance NOT decremented. Admin review needed. Error: {e}"
+            )
             asyncio.create_task(
                 post_event(
                     source="aist-bot",
-                    external_id=f"redeem_{payment_id}",
-                    event_type="points_redeemed",
+                    external_id=f"redeem_negative_{payment_id}",
+                    event_type="points_redeem_negative_balance",
                     schema_version="v1",
                     occurred_at=datetime.now(timezone.utc),
                     account_id=str(row["account_id"]),
                     payload={
                         "payment_id": payment_id,
                         "points_amount": str(row["points_amount"]),
+                        "issue": "check_violation_balance_below_zero",
                     },
                 )
             )
+
+        # Успешный confirm — эмитируем event для projection-worker (read-replica на point_balances)
+        asyncio.create_task(
+            post_event(
+                source="aist-bot",
+                external_id=f"redeem_{payment_id}",
+                event_type="points_redeemed",
+                schema_version="v1",
+                occurred_at=datetime.now(timezone.utc),
+                account_id=str(row["account_id"]),
+                payload={
+                    "payment_id": payment_id,
+                    "points_amount": str(row["points_amount"]),
+                },
+            )
+        )
 
     logger.info(f"[Redeem] confirm_burn: payment_id={payment_id}, points={row['points_amount']}")
     return True
