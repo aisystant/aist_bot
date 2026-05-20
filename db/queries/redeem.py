@@ -89,34 +89,36 @@ async def available_discount(
         )
         qual_level = qual_row["qualification_level"] if qual_row else None
 
-        # 3. Resolve level → qualification text + multiplier + daily_cap через FDW _foreign_reference
-        # Уровни 9-11 не имеют записей → fallback на ст. 8 (общественный_деятель ×5.0 cap=1000)
-        # Уровни 1-3 → ученик/работник/стратег (по sort_order)
-        if qual_level is None:
+        # 3. Resolve level → qualification + daily_cap через FDW _foreign_reference.qualification_multipliers.
+        # Маппинг (МИМ → копилка): sort_order = level_number - 3.
+        #   МИМ 4 (Ученик)        → sort_order 1 (ученик ×1.0 cap=100)
+        #   МИМ 7 (Специалист)    → sort_order 4 (специалист ×2.0 cap=280)
+        #   МИМ 11 (Общ. деятель) → sort_order 8 (общественный_деятель ×5.0 cap=1000)
+        # МИМ-уровни 1-3 (Интересант/Определяющийся/Первокурсник) — предучебные, нет записи
+        # в qualification_multipliers → fallback на 'ученик' (×1.0 cap=100).
+        # Уровни 9-11 → точное соответствие в multipliers (через sort_order 6-8).
+        if qual_level is None or qual_level <= 3:
             qualification = FALLBACK_QUALIFICATION
             ceiling_pts = FALLBACK_DAILY_CAP
         else:
-            # Сначала ищем точное соответствие через qualification_level (level INT → qualification TEXT)
             qmap_row = await conn.fetchrow(
                 """
-                SELECT q.qualification, q.daily_cap
-                FROM _foreign_reference.qualification_level ql
-                JOIN _foreign_reference.qualification_multipliers q
-                  ON q.qualification = ql.qualification
-                WHERE ql.level = $1
+                SELECT qualification, daily_cap
+                FROM _foreign_reference.qualification_multipliers
+                WHERE sort_order = $1
                 """,
-                qual_level,
+                qual_level - 3,
             )
             if qmap_row:
                 qualification = qmap_row["qualification"]
                 ceiling_pts = Decimal(str(qmap_row["daily_cap"]))
             else:
-                # Уровни 9-11 → fallback на ст. 8 'общественный_деятель'
+                # Не должно происходить (sort_order 1-8 покрывает level 4-11), но защитный fallback.
                 logger.warning(
-                    f"[Redeem] qualification_level={qual_level} not in qualification_multipliers → fallback to 'общественный_деятель'"
+                    f"[Redeem] qualification_level={qual_level} → sort_order={qual_level - 3} not in multipliers → fallback"
                 )
-                qualification = "общественный_деятель"
-                ceiling_pts = Decimal("1000")
+                qualification = FALLBACK_QUALIFICATION
+                ceiling_pts = FALLBACK_DAILY_CAP
 
         # 4. Уже зарезервированное сегодня (через helper из миграции 226)
         avail_row = await conn.fetchrow(
