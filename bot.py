@@ -178,6 +178,16 @@ async def main():
     logger.info("✅ Langfuse и i18n инициализированы при старте")
 
 
+    # WP-341: helpdesk_tickets table
+    try:
+        from db.migrations.015_helpdesk_tickets import migrate_if_needed
+        from db.connection import get_pool as _get_pool
+        _created = await migrate_if_needed(await _get_pool())
+        if _created:
+            logger.info("✅ Migration 015: helpdesk_tickets created")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 015 skipped: {_e}")
+
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
     from db.migrations.migrate_products import migrate_products_if_needed
@@ -329,6 +339,7 @@ async def main():
         BotCommand(command="consent", description="Согласие на трекинг развития"),
         BotCommand(command="features", description="Возможности платформы"),
         BotCommand(command="settings", description="Настройки и профиль"),
+        BotCommand(command="support", description="Поддержка — открыть тикет"),
         BotCommand(command="status", description="Статус платформы"),
         BotCommand(command="help", description="Справка"),
     ])

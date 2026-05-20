@@ -1995,6 +1995,56 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
     )
 
 
+async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
+    """Получает события от Chatwoot и пересылает ответы агентов пользователям TG.
+
+    WP-341 Этап 2 (DP.SC.150).
+    """
+    body = await request.read()
+
+    from clients.chatwoot import verify_signature
+    sig = request.headers.get("X-Chatwoot-Signature", "")
+    if not verify_signature(body, sig):
+        logger.warning("[Chatwoot webhook] invalid signature")
+        return web.Response(status=401, text="invalid signature")
+
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return web.Response(status=400, text="bad json")
+
+    event = payload.get("event")
+    if event != "message_created":
+        return web.Response(text="ok")
+
+    # message_type 1 = outgoing (agent → customer)
+    if payload.get("message_type") != 1:
+        return web.Response(text="ok")
+
+    content = payload.get("content", "").strip()
+    if not content:
+        return web.Response(text="ok")
+
+    conv_id = (payload.get("conversation") or {}).get("id")
+    if not conv_id:
+        return web.Response(text="ok")
+
+    try:
+        from db.queries.helpdesk import get_chat_id_by_conversation
+        chat_id = await get_chat_id_by_conversation(conv_id)
+        if chat_id and _bot_instance:
+            await _bot_instance.send_message(
+                chat_id,
+                f"🛟 *Агент поддержки:*\n\n{content}",
+                parse_mode="Markdown",
+            )
+            logger.info("[Chatwoot webhook] forwarded conv=%s → chat_id=%s", conv_id, chat_id)
+    except Exception as e:
+        logger.error("[Chatwoot webhook] forward error: %s", e)
+
+    return web.Response(text="ok")
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -2032,6 +2082,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
+    app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)  # WP-341 Этап 2
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:
