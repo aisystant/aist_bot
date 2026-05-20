@@ -88,6 +88,91 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
         await bot.session.close()
 
 
+# ════════════════════════════════════════════════════════════════════
+# WP-330: Marathon for newcomers — queue worker (cron every 10 min)
+# ════════════════════════════════════════════════════════════════════
+
+async def _process_marathon_queue():
+    """Разбор очереди марафона новичков. Запускается каждые 10 минут.
+
+    1. Выбирает pending-записи из learning.marathon_queue (scheduled_at <= NOW)
+    2. Отправляет контент через Telegram Bot API
+    3. Обновляет status → sent / retry / failed
+    4. При 3+ failed — алерт в канал наставников (TODO: интеграция с WP-341)
+    """
+    from aiogram import Bot
+    from db.queries.marathon_newcomer import (
+        get_pending_queue_items,
+        mark_queue_sent,
+        schedule_queue_retry,
+        mark_queue_failed,
+    )
+
+    if not _bot_token:
+        logger.warning("[MarathonQueue] _bot_token not set, skip")
+        return
+
+    items = await get_pending_queue_items(limit=100)
+    if not items:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        for item in items:
+            queue_id = item['id']
+            chat_id = item['user_id']
+            day = item['day_number']
+            content_type = item['content_type']
+            content_ref = item.get('content_ref')
+            content_text = item.get('content_text')
+            attempts = item['attempts']
+
+            # Формируем текст сообщения
+            text = _build_marathon_message(content_type, day, content_ref, content_text)
+            if not text:
+                logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
+                await mark_queue_failed(queue_id, "empty_text")
+                continue
+
+            try:
+                await bot.send_message(chat_id, text, parse_mode="Markdown")
+                await mark_queue_sent(queue_id)
+                logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: {error_msg}")
+
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
+                    await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
+                    continue
+
+                if attempts >= 2:  # 3-я попытка (0,1,2)
+                    await mark_queue_failed(queue_id, error_msg[:500])
+                    # TODO WP-330 Ф5: алерт в канал наставников (WP-341 integration)
+                    logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
+                else:
+                    await schedule_queue_retry(queue_id, attempts, delay_minutes=30)
+    finally:
+        await bot.session.close()
+
+
+def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None) -> str | None:
+    """Собрать текст сообщения из кэша или ref."""
+    # TODO WP-330 Ф2.6: читать content_ref из файлов при старте бота
+    if content_text:
+        return content_text
+    if content_ref:
+        return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
+    # Fallback — минимальный текст
+    templates = {
+        'lesson': f"📚 *День {day} — Теория*\n\nСегодняшний урок готов! Нажми кнопку ниже, чтобы начать.",
+        'practice': f"🛠 *День {day} — Практика*\n\nПора применить теорию на практике.",
+        'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
+    }
+    return templates.get(content_type)
+
+
 # --- Blocked user detection ---
 
 _USER_UNAVAILABLE_PHRASES = (
@@ -142,6 +227,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
     _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
+    _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
     # Новая архитектура: projection-worker (WP-270) → indicators.calculated_profile (Neon).
