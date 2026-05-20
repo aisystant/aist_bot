@@ -238,6 +238,32 @@ async def get_missed_checkin_users(min_days: int = 2):
     return [dict(r) for r in rows]
 
 
+async def get_users_for_nudge() -> list[dict]:
+    """Получить активных участников с пропусками чек-инов для nudge."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT user_id, current_day, total_checkins
+               FROM learning.marathon_progress
+               WHERE status = 'active'
+                 AND current_day > total_checkins
+                 AND current_day > 0'''
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_active_marathon_users() -> list[dict]:
+    """Получить всех активных участников марафона."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT user_id, current_day, total_checkins, started_at
+               FROM learning.marathon_progress
+               WHERE status = 'active' '''
+        )
+    return [dict(r) for r in rows]
+
+
 async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime, content_texts: dict | None = None):
     """Запланировать 3 отправки для одного дня марафона.
 
