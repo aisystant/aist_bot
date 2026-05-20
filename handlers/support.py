@@ -131,22 +131,26 @@ async def cb_priority(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("⚠️ Не удалось создать контакт. Попробуйте позже.")
             return
 
-        contact_identifier = contact.get("identifier") or contact.get("id")
+        source_id = contact.get("source_id")
+        contact_identifier = contact.get("identifier") or str(contact.get("id", ""))
+        if not source_id:
+            await callback.message.edit_text("⚠️ Не удалось создать контакт. Попробуйте позже.")
+            return
 
-        conv = await create_conversation(str(contact_identifier))
+        conv = await create_conversation(source_id)
         if not conv:
             await callback.message.edit_text("⚠️ Не удалось открыть тикет. Попробуйте позже.")
             return
 
         conv_id = conv.get("id")
-        await update_ticket_conversation(ticket_id, conv_id, str(contact_identifier))
+        await update_ticket_conversation(ticket_id, conv_id, contact_identifier)
 
         initial_msg = (
             f"Тема: {topic_label}\n"
             f"Приоритет: {label}\n\n"
             f"{description}"
         )
-        await send_message(str(contact_identifier), conv_id, initial_msg)
+        await send_message(source_id, conv_id, initial_msg)
 
         await callback.message.edit_text(
             f"✅ *Тикет #{conv_id} создан*\n\n"
