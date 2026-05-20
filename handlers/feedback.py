@@ -80,8 +80,9 @@ async def _render_reports(since_hours: int = None, period_label: str = "All time
 
 
 @feedback_router.message(Command("feedback"))
+@feedback_router.message(Command("support"))
 async def cmd_feedback(message: Message, state: FSMContext):
-    """/feedback — открыть форму обратной связи через SM."""
+    """/feedback и /support — открыть форму обратной связи через SM."""
     from handlers import get_dispatcher
 
     dispatcher = get_dispatcher()
@@ -93,11 +94,12 @@ async def cmd_feedback(message: Message, state: FSMContext):
 
     if dispatcher and dispatcher.is_sm_active:
         await state.clear()
-        logger.info(f"[Feedback] /feedback from chat_id={message.chat.id}, current_state={intern.get('current_state')}")
+        cmd = message.text.lstrip('/').split()[0] if message.text else 'feedback'
+        logger.info(f"[Feedback] /{cmd} from chat_id={message.chat.id}, current_state={intern.get('current_state')}")
         try:
-            await dispatcher.route_command('feedback', intern)
+            await dispatcher.route_command(cmd, intern)
         except Exception as e:
-            logger.error(f"[Feedback] Error routing /feedback: {e}")
+            logger.error(f"[Feedback] Error routing /{cmd}: {e}")
             import traceback
             logger.error(traceback.format_exc())
             lang = intern.get('language', 'ru') or 'ru'

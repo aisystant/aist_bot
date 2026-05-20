@@ -113,6 +113,7 @@ def register_all_services() -> None:
         category="system",
         order=18,
         command="/feedback",
+        commands=["/support"],
     ))
 
     registry.register(ServiceDescriptor(
