@@ -1,0 +1,128 @@
+"""
+Хендлеры нового марафона для новичков (WP-330).
+
+Прямая работа с learning.marathon_queue / marathon_progress / marathon_state.
+Не использует legacy aiogram FSM — состояние хранится в БД.
+"""
+
+import logging
+from datetime import datetime, timedelta
+
+from aiogram import Router
+from aiogram.types import Message
+from aiogram.filters import Command
+
+from db.queries.marathon_newcomer import (
+    get_or_create_progress,
+    update_progress,
+    enqueue_day_items,
+)
+from db.queries.users import moscow_now
+from config import get_logger
+
+logger = get_logger(__name__)
+
+marathon_router = Router(name="marathon")
+
+# ════════════════════════════════════════════════════════════════════
+# Ф2.3 /marathon_start — регистрация + заполнение очереди на 14 дней
+# ════════════════════════════════════════════════════════════════════
+
+@marathon_router.message(Command("marathon_start"))
+async def cmd_marathon_start(message: Message):
+    """Старт марафона новичков: регистрация, заполнение очереди, приветствие."""
+    chat_id = message.chat.id
+
+    # Проверяем текущий прогресс
+    progress = await get_or_create_progress(chat_id)
+    current_status = progress.get("status", "registered")
+
+    if current_status == "active":
+        await message.answer(
+            "🎉 Ты уже в марафоне!\n\n"
+            f"📅 Текущий день: {progress.get('current_day', 0)}\n"
+            "Используй /marathon_progress, чтобы узнать статус."
+        )
+        return
+
+    if current_status == "completed":
+        await message.answer(
+            "✅ Ты уже завершил марафон!\n\n"
+            "Если хочешь пройти снова — напиши в поддержку /support."
+        )
+        return
+
+    # Активируем прогресс
+    now = moscow_now()
+    await update_progress(
+        user_id=chat_id,
+        status="active",
+        started_at=now,
+        current_day=0,
+    )
+
+    # Заполняем очередь на 14 дней (начиная с завтра, 04:00 MSK)
+    base_time = datetime(now.year, now.month, now.day, 4, 0, 0, tzinfo=now.tzinfo)
+    if now.hour >= 4:
+        # Если уже после 04:00 — первый урок завтра
+        base_time += timedelta(days=1)
+
+    for day in range(1, 15):
+        scheduled = base_time + timedelta(days=day - 1)
+        await enqueue_day_items(chat_id, day, scheduled)
+
+    logger.info(f"[Marathon] User {chat_id} started marathon. Queue filled 1-14 days.")
+
+    # Приветственное сообщение (inline, без i18n для MVP — доработать в Ф1.3)
+    await message.answer(
+        "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
+        "📅 Формат: 14 дней, 3 сообщения в день\n"
+        "   • 04:00 — теория (1 экран)\n"
+        "   • 12:00 — практика (конкретное действие)\n"
+        "   • 18:00 — вечерний чек-ин\n\n"
+        "🎯 Результат: 2–4 рабочих продукта, запущенные практики, план на месяц.\n\n"
+        "Первый урок придёт завтра утром. До встречи! 👋"
+    )
+
+
+# ════════════════════════════════════════════════════════════════════
+# Ф2.5 /marathon_progress — статус и текущий день
+# ════════════════════════════════════════════════════════════════════
+
+@marathon_router.message(Command("marathon_progress"))
+async def cmd_marathon_progress(message: Message):
+    """Показать текущий прогресс участника марафона."""
+    chat_id = message.chat.id
+    progress = await get_or_create_progress(chat_id)
+
+    status = progress.get("status", "registered")
+    current_day = progress.get("current_day", 0)
+    total_checkins = progress.get("total_checkins", 0)
+    missed_days = progress.get("missed_days", 0)
+    started_at = progress.get("started_at")
+
+    status_emoji = {
+        "registered": "📝",
+        "active": "🏃",
+        "paused": "⏸",
+        "completed": "✅",
+        "dropped": "🚫",
+    }.get(status, "❓")
+
+    lines = [
+        f"{status_emoji} Статус: {status}",
+    ]
+
+    if status == "active":
+        lines.append(f"📅 Текущий день: {current_day} / 14")
+        lines.append(f"🌙 Чек-инов: {total_checkins}")
+        lines.append(f"❌ Пропусков: {missed_days}")
+        if started_at:
+            started_str = started_at.strftime("%d.%m.%Y")
+            lines.append(f"🚀 Старт: {started_str}")
+    elif status == "registered":
+        lines.append("\nНачни марафон командой /marathon_start")
+    elif status == "completed":
+        lines.append("\nПоздравляем с завершением! 🎉")
+
+    await message.answer("\n".join(lines))
