@@ -81,42 +81,72 @@ async def available_discount(
         )
         copilka_pts = Decimal(str(balance_row["balance"])) if balance_row else Decimal("0")
 
-        # 2. Степень МИМ через FDW _foreign_indicators
-        # qualification_level: INTEGER 1-11. NULL → fallback 'ученик'.
+        # 2. Степень МИМ через FDW _foreign_indicators.
+        # Источник: profiler R28 (DS-ai-systems/profiler/scripts/dt_calc.py:805+).
+        # Шкала МИМ в profiler: Первокурсник (L1) → Ученик (L2) → Работник (L25) →
+        #   Стратег (L3) → Специалист (L4) → Практик (L5) → Мастер (L6) →
+        #   Реформатор (L7) → Деятель (L8).
+        # Колонка qualification_level хранит INT часть L-кода (L7 → 7).
+        # JSONB indicators.3_8_degree.code хранит полный код ('L7' или 'L25') когда profiler v3
+        # его заполнил — приоритетный источник, точнее (нет коллизии L2 vs L25 → оба INT=2).
         qual_row = await conn.fetchrow(
-            "SELECT qualification_level FROM _foreign_indicators.calculated_profile WHERE account_id = $1",
+            """
+            SELECT qualification_level,
+                   indicators->'3_derived'->'3_8_degree'->>'code' AS l_code
+            FROM _foreign_indicators.calculated_profile WHERE account_id = $1
+            """,
             account_uuid,
         )
         qual_level = qual_row["qualification_level"] if qual_row else None
+        l_code = qual_row["l_code"] if qual_row else None
 
-        # 3. Resolve level → qualification text + multiplier + daily_cap через FDW _foreign_reference
-        # Уровни 9-11 не имеют записей → fallback на ст. 8 (общественный_деятель ×5.0 cap=1000)
-        # Уровни 1-3 → ученик/работник/стратег (по sort_order)
-        if qual_level is None:
+        # 3. Resolve → sort_order в _foreign_reference.qualification_multipliers (1=ученик ... 8=общ.деятель).
+        # Маппинг profiler L → sort_order (см. qualification_multipliers по reference БД):
+        #   L2 (Ученик)     → 1  ученик       ×1.0 cap=100
+        #   L25 (Работник)  → 2  работник     ×1.3 cap=140
+        #   L3 (Стратег)    → 3  стратег      ×1.6 cap=200
+        #   L4 (Специалист) → 4  специалист   ×2.0 cap=280
+        #   L5 (Практик)    → 5  практик      ×2.5 cap=360
+        #   L6 (Мастер)     → 6  мастер       ×3.0 cap=500
+        #   L7 (Реформатор) → 7  реформатор   ×4.0 cap=700
+        #   L8 (Деятель)    → 8  общественный_деятель ×5.0 cap=1000
+        # L05/L08/L1 (предучебные: Интересант/Определяющийся/Первокурсник) → fallback ученик.
+
+        sort_order: int | None = None
+        if l_code and l_code.startswith("L"):
+            # Приоритет: JSONB code (без коллизии L2/L25)
+            l_map = {
+                "L2": 1, "L25": 2, "L3": 3, "L4": 4,
+                "L5": 5, "L6": 6, "L7": 7, "L8": 8,
+            }
+            sort_order = l_map.get(l_code)
+            if sort_order is None:
+                logger.warning(f"[Redeem] unknown L-code {l_code!r} from JSONB → fallback")
+        elif qual_level is not None:
+            # Fallback: колонка INT. L2 (Ученик) и L25 (Работник) оба дают INT=2 — берём ученика (частый случай).
+            # Уровни <=1 (Первокурсник, Интересант) — предучебные, fallback. 9-11 — legacy/ошибка, fallback.
+            if qual_level == 2:
+                sort_order = 1  # ученик (Работник редок, приближение разумное)
+            elif 3 <= qual_level <= 8:
+                sort_order = qual_level
+
+        if sort_order is None:
             qualification = FALLBACK_QUALIFICATION
             ceiling_pts = FALLBACK_DAILY_CAP
         else:
-            # Сначала ищем точное соответствие через qualification_level (level INT → qualification TEXT)
             qmap_row = await conn.fetchrow(
-                """
-                SELECT q.qualification, q.daily_cap
-                FROM _foreign_reference.qualification_level ql
-                JOIN _foreign_reference.qualification_multipliers q
-                  ON q.qualification = ql.qualification
-                WHERE ql.level = $1
-                """,
-                qual_level,
+                "SELECT qualification, daily_cap FROM _foreign_reference.qualification_multipliers WHERE sort_order = $1",
+                sort_order,
             )
             if qmap_row:
                 qualification = qmap_row["qualification"]
                 ceiling_pts = Decimal(str(qmap_row["daily_cap"]))
             else:
-                # Уровни 9-11 → fallback на ст. 8 'общественный_деятель'
                 logger.warning(
-                    f"[Redeem] qualification_level={qual_level} not in qualification_multipliers → fallback to 'общественный_деятель'"
+                    f"[Redeem] sort_order={sort_order} (from l_code={l_code!r}, level={qual_level}) not in multipliers → fallback"
                 )
-                qualification = "общественный_деятель"
-                ceiling_pts = Decimal("1000")
+                qualification = FALLBACK_QUALIFICATION
+                ceiling_pts = FALLBACK_DAILY_CAP
 
         # 4. Уже зарезервированное сегодня (через helper из миграции 226)
         avail_row = await conn.fetchrow(
@@ -279,102 +309,98 @@ async def confirm_burn(payment_id: str) -> bool:
             payment_id,
         )
 
-        if row is not None:
-            # TODO (Phase 2 refactor): убрать inline UPDATE point_balances и перейти на
-            # projection-worker handler для event_type='points_redeemed'. Сейчас inline для
-            # закрытия loop'а WP-327 Ф2 — без projection-worker'а баланс не обновится после
-            # confirm. См. DP.ROLE.051 §9.
-            try:
-                await conn.execute(
-                    """
-                    UPDATE public.point_balances
-                    SET points = points - $1, last_updated = now()
-                    WHERE account_id = $2
-                    """,
-                    row["points_amount"],
-                    row["account_id"],
-                )
-            except asyncpg.CheckViolationError as e:
-                # CHECK (points >= 0) сработал — баланс изменился между reserve и confirm,
-                # списание превышает доступное. redeemed_events.status уже 'confirmed' (Tx1).
-                # Webhook вернёт 200, ЮКасса не будет ретраить. Admin alert для ручного refund.
+        if row is None:
+            # Не нашли в status='reserved' — проверяем текущий статус (идемпотентность / late-webhook)
+            existing = await conn.fetchrow(
+                "SELECT status, account_id, points_amount FROM public.redeemed_events WHERE payment_id = $1",
+                payment_id,
+            )
+
+            if existing is None:
+                logger.warning(f"[Redeem] confirm_burn: payment_id={payment_id} not found")
+                return False
+
+            if existing["status"] == "confirmed":
+                logger.info(f"[Redeem] confirm_burn idempotent: payment_id={payment_id} already confirmed")
+                return True
+
+            if existing["status"] == "rolled_back":
                 logger.error(
-                    f"[Redeem] confirm_burn negative_balance: payment_id={payment_id}, "
-                    f"points={row['points_amount']}, account={str(row['account_id'])[:8]}. "
-                    f"Status set to 'confirmed', balance NOT decremented. Admin review needed. Error: {e}"
+                    f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
+                    f"Admin alert sent via event-gateway. Manual review required."
                 )
                 asyncio.create_task(
                     post_event(
                         source="aist-bot",
-                        external_id=f"redeem_negative_{payment_id}",
-                        event_type="points_redeem_negative_balance",
+                        external_id=f"redeem_late_webhook_{payment_id}",
+                        event_type="points_redeem_late_webhook",
                         schema_version="v1",
                         occurred_at=datetime.now(timezone.utc),
-                        account_id=str(row["account_id"]),
+                        account_id=str(existing["account_id"]),
                         payload={
                             "payment_id": payment_id,
-                            "points_amount": str(row["points_amount"]),
-                            "issue": "check_violation_balance_below_zero",
+                            "points_amount": str(existing["points_amount"]),
+                            "issue": "payment_succeeded_after_rollback",
                         },
                     )
                 )
-
-        if row is None:
-                # Не нашли в status='reserved' — проверяем текущий статус
-                existing = await conn.fetchrow(
-                    "SELECT status, account_id, points_amount FROM public.redeemed_events WHERE payment_id = $1",
-                    payment_id,
-                )
-
-                if existing is None:
-                    logger.warning(f"[Redeem] confirm_burn: payment_id={payment_id} not found")
-                    return False
-
-                if existing["status"] == "confirmed":
-                    logger.info(f"[Redeem] confirm_burn idempotent: payment_id={payment_id} already confirmed")
-                    return True
-
-                if existing["status"] == "rolled_back":
-                    logger.error(
-                        f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
-                        f"Admin alert sent via event-gateway. Manual review required."
-                    )
-                    # Алерт для admin: оплата прошла после rollback'а резерва (deadletter handler)
-                    asyncio.create_task(
-                        post_event(
-                            source="aist-bot",
-                            external_id=f"redeem_late_webhook_{payment_id}",
-                            event_type="points_redeem_late_webhook",
-                            schema_version="v1",
-                            occurred_at=datetime.now(timezone.utc),
-                            account_id=str(existing["account_id"]),
-                            payload={
-                                "payment_id": payment_id,
-                                "points_amount": str(existing["points_amount"]),
-                                "issue": "payment_succeeded_after_rollback",
-                            },
-                        )
-                    )
-                    return False
-
-                logger.warning(f"[Redeem] confirm_burn unexpected status: {existing['status']}")
                 return False
 
-            # Успешный confirm — эмитируем event для projection-worker
+            logger.warning(f"[Redeem] confirm_burn unexpected status: {existing['status']}")
+            return False
+
+        # row is not None: статус успешно переведён в 'confirmed'. Tx2: inline UPDATE point_balances.
+        # TODO (Phase 2 refactor): убрать inline UPDATE и перейти на projection-worker handler для
+        # event_type='points_redeemed'. См. DP.ROLE.051 §9.
+        try:
+            await conn.execute(
+                """
+                UPDATE public.point_balances
+                SET points = points - $1, last_updated = now()
+                WHERE account_id = $2
+                """,
+                row["points_amount"],
+                row["account_id"],
+            )
+        except asyncpg.CheckViolationError as e:
+            # CHECK (points >= 0) — баланс изменился между reserve и confirm. status уже 'confirmed'
+            # (Tx1), webhook возвращает 200, ретрая ЮКассы нет. Admin alert для ручного refund.
+            logger.error(
+                f"[Redeem] confirm_burn negative_balance: payment_id={payment_id}, "
+                f"points={row['points_amount']}, account={str(row['account_id'])[:8]}. "
+                f"Status set to 'confirmed', balance NOT decremented. Admin review needed. Error: {e}"
+            )
             asyncio.create_task(
                 post_event(
                     source="aist-bot",
-                    external_id=f"redeem_{payment_id}",
-                    event_type="points_redeemed",
+                    external_id=f"redeem_negative_{payment_id}",
+                    event_type="points_redeem_negative_balance",
                     schema_version="v1",
                     occurred_at=datetime.now(timezone.utc),
                     account_id=str(row["account_id"]),
                     payload={
                         "payment_id": payment_id,
                         "points_amount": str(row["points_amount"]),
+                        "issue": "check_violation_balance_below_zero",
                     },
                 )
             )
+
+        # Успешный confirm — эмитируем event для projection-worker (read-replica на point_balances)
+        asyncio.create_task(
+            post_event(
+                source="aist-bot",
+                external_id=f"redeem_{payment_id}",
+                event_type="points_redeemed",
+                schema_version="v1",
+                occurred_at=datetime.now(timezone.utc),
+                account_id=str(row["account_id"]),
+                payload={
+                    "payment_id": payment_id,
+                    "points_amount": str(row["points_amount"]),
+                },
+            )
+        )
 
     logger.info(f"[Redeem] confirm_burn: payment_id={payment_id}, points={row['points_amount']}")
     return True
