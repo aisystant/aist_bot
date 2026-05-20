@@ -27,10 +27,15 @@ prepare_burn_offer(chat_id, full_amount)
    ↓
 discount_rub > 0 ?
    ├─ нет → старый flow: YK create_payment с полной ценой
-   └─ да  → показать UI: «У вас N баллов = X₽ скидки. Доплата Y₽. Применить?»
+   └─ да  → показать UI: «У вас N бонусов = X₽ скидки. Доплата Y₽. Применить?»
               ├─ «Применить»  → callback *_burn  → reserve_burn + create_payment(payable_rub)
               └─ «Без скидки» → callback *_full  → create_payment(full_amount)
 ```
+
+> **Терминология (DP.ECON.001 §1.1, DP.D.050):**
+> - **Баллы** = earned_total — геймификация, никогда не убывают, видны в лидерборде
+> - **Бонусы** = `min(point_balances.points, Σ(active_days_at_qual_i × daily_cap_i))` — скидка при оплате, тратятся, ограничены историей активных дней × cap квалификации
+> - В UI пользователю показываем «бонусы», не «баллы» (баллы — это то, что накоплено всего)
 
 **TG Stars:** аналогично, но резерв с `provisional_id = "tg_{uuid4}"` ДО `create_invoice_link` (т.к. `telegram_payment_charge_id` известен только после оплаты). `provisional_id` встроен в `invoice_payload` (`..._p_{provisional_id}`).
 
