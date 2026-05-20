@@ -153,8 +153,9 @@ from .settings import (
     CHANNEL_CONTEXTS,
     get_channel_context,
 
-    # Разработчик (rate limit bypass)
+    # Разработчик (rate limit bypass) + канал наставников марафона
     DEVELOPER_CHAT_ID,
+    MENTOR_CHANNEL_ID,
 
     # Maintenance mode
     MAINTENANCE_MODE,

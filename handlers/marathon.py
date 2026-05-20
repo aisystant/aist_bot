@@ -18,6 +18,7 @@ from db.queries.marathon_newcomer import (
     enqueue_day_items,
     save_checkin,
     get_checkin_for_day,
+    clear_marathon_queue,
 )
 from db.queries.users import moscow_now
 from config import get_logger
@@ -204,4 +205,38 @@ async def callback_marathon_checkin(callback: CallbackQuery):
     await callback.message.edit_text(
         f"{original_text}\n\n✅ Твой выбор: {label}",
         reply_markup=None,
+    )
+
+
+# ════════════════════════════════════════════════════════════════════
+# Ф2.8 /marathon_stop — выход из марафона
+# ════════════════════════════════════════════════════════════════════
+
+@marathon_router.message(Command("marathon_stop"))
+async def cmd_marathon_stop(message: Message):
+    """Остановить марафон: очистить очередь, статус → cancelled."""
+    chat_id = message.chat.id
+    progress = await get_or_create_progress(chat_id)
+
+    if progress.get("status") != "active":
+        await message.answer(
+            "ℹ️ У тебя нет активного марафона.\n"
+            "Начни командой /marathon_start"
+        )
+        return
+
+    # Очищаем pending-записи из очереди
+    await clear_marathon_queue(chat_id)
+
+    # Обновляем статус
+    await update_progress(
+        user_id=chat_id,
+        status="cancelled",
+    )
+
+    logger.info(f"[Marathon] User {chat_id} stopped marathon.")
+    await message.answer(
+        "🛑 Марафон остановлен.\n\n"
+        "Если захочешь вернуться — напиши /marathon_start. "
+        "Ты начнёшь сначала (очередь будет пересоздана)."
     )

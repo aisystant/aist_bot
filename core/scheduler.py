@@ -20,7 +20,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, mark_notification_sent, cleanup_expired_content, cleanup_error_questions
@@ -160,10 +160,199 @@ async def _process_marathon_queue():
 
                 if attempts >= 2:  # 3-я попытка (0,1,2)
                     await mark_queue_failed(queue_id, error_msg[:500])
-                    # TODO WP-330 Ф5: алерт в канал наставников (WP-341 integration)
+                    # WP-330 P1: алерт в канал наставников
+                    if MENTOR_CHANNEL_ID:
+                        try:
+                            await bot.send_message(
+                                MENTOR_CHANNEL_ID,
+                                f"🚨 *Алерт марафона*\n\n"
+                                f"Не удалось отправить сообщение участнику `{chat_id}`\n"
+                                f"День {day}, тип: {content_type}\n"
+                                f"Ошибка: `{error_msg[:200]}`",
+                                parse_mode="Markdown",
+                            )
+                        except Exception as alert_err:
+                            logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
                     logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
                 else:
                     await schedule_queue_retry(queue_id, attempts, delay_minutes=30)
+    finally:
+        await bot.session.close()
+
+
+async def _check_marathon_missed_checkins():
+    """WP-330 P1: проверить пропуски чек-инов и отправить алерты наставникам.
+
+    Запускается каждые 6 часов. Находит активных участников с current_day - total_checkins >= 2
+    (2+ дня без чек-ина) и отправляет алерт в MENTOR_CHANNEL_ID.
+    Деdup через notification_log: один алерт на участника в день (§10.10).
+    """
+    from db.queries.marathon_newcomer import get_missed_checkin_users
+    from db.queries.notifications import try_insert_notification
+
+    if not MENTOR_CHANNEL_ID or not _bot_token:
+        return
+
+    users = await get_missed_checkin_users(min_days=2)
+    if not users:
+        return
+
+    bot = Bot(token=_bot_token)
+    now = moscow_now()
+    today_str = now.strftime('%Y-%m-%d')
+    try:
+        for user in users:
+            chat_id = user['user_id']
+            current_day = user['current_day']
+            total_checkins = user['total_checkins']
+            missed = current_day - total_checkins
+
+            # Один алерт в день на участника (§10.10 dedup)
+            alert_key = f"marathon_mentor_alert:{chat_id}:{today_str}"
+            if not await try_insert_notification(chat_id, 'marathon_mentor_alert', alert_key):
+                continue
+
+            try:
+                await bot.send_message(
+                    MENTOR_CHANNEL_ID,
+                    f"⚠️ *Марафон: пропуски*\n\n"
+                    f"Участник `{chat_id}` пропустил чек-ин {missed} дней подряд\n"
+                    f"Текущий день: {current_day}/14, чек-инов: {total_checkins}",
+                    parse_mode="Markdown",
+                )
+                logger.info(f"[MarathonMissed] Alert sent for user {chat_id} ({missed} days missed)")
+            except Exception as e:
+                logger.warning(f"[MarathonMissed] Failed to send alert for {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+
+async def _send_marathon_nudges():
+    """WP-330 P2: отправить поддерживающие nudge участникам с пропусками чек-инов.
+
+    Запускается ежедневно в 10:00 MSK. Защита от дублей через notification_log.
+    """
+    from db.queries.marathon_newcomer import get_users_for_nudge
+    from db.queries.notifications import try_insert_notification
+
+    if not _bot_token:
+        return
+
+    users = await get_users_for_nudge()
+    if not users:
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        now = moscow_now()
+        today_str = now.strftime('%Y-%m-%d')
+
+        for user in users:
+            chat_id = user['user_id']
+            current_day = user['current_day']
+            total_checkins = user['total_checkins']
+            missed = current_day - total_checkins
+
+            # Защита от дублей: один nudge в день
+            nudge_key = f"marathon_nudge:{chat_id}:{today_str}"
+            if not await try_insert_notification(chat_id, 'marathon_nudge', nudge_key):
+                continue
+
+            if missed == 1:
+                text = (
+                    "🌤 *Небольшая пауза*\n\n"
+                    "Вчера не получилось чекинуться — ничего страшного. "
+                    "Сегодня новый день и новый слот. Попробуем снова?\n\n"
+                    "Если что-то мешает — напиши /support."
+                )
+            elif missed >= 3:
+                text = (
+                    "🤝 *Проверка связи*\n\n"
+                    "Три дня без чек-ина. Возможно, марафон идёт в фоне, "
+                    "а возможно, нужна помощь.\n\n"
+                    "Напиши /support или просто ответь: что мешает?"
+                )
+            else:
+                continue  # missed == 2 — промежуточный, не отправляем
+
+            try:
+                await bot.send_message(chat_id, text, parse_mode="Markdown")
+                logger.info(f"[MarathonNudge] Sent to {chat_id} (missed {missed})")
+            except Exception as e:
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, "marathon nudge")
+                else:
+                    logger.warning(f"[MarathonNudge] Failed to send to {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+
+async def _send_marathon_weekly_digest():
+    """WP-330 P2: еженедельный digest для активных участников (воскресенье 18:00).
+
+    Деdup через notification_log: один digest в неделю (§10.10).
+    """
+    from db.queries.marathon_newcomer import get_active_marathon_users, get_checkins
+    from db.queries.notifications import try_insert_notification
+
+    if not _bot_token:
+        return
+
+    users = await get_active_marathon_users()
+    if not users:
+        return
+
+    bot = Bot(token=_bot_token)
+    now = moscow_now()
+    week_str = now.strftime('%Y-W%W')
+    try:
+        for user in users:
+            chat_id = user['user_id']
+            current_day = user['current_day']
+            total_checkins = user['total_checkins']
+
+            # Один digest в неделю на участника (§10.10 dedup)
+            digest_key = f"marathon_digest:{chat_id}:{week_str}"
+            if not await try_insert_notification(chat_id, 'marathon_digest', digest_key):
+                continue
+
+            checkins = await get_checkins(chat_id)
+            if checkins:
+                last_state = checkins[-1]['state']
+                state_labels = {
+                    'chaos': '😵 Хаос',
+                    'stuck': '🧱 Тупик',
+                    'turn': '🔁 Поворот',
+                }
+                last_state_label = state_labels.get(last_state, last_state)
+            else:
+                last_state_label = "ещё нет"
+
+            missed = current_day - total_checkins
+
+            text = (
+                f"📊 *Итоги недели марафона*\n\n"
+                f"📅 Пройдено дней: {current_day}/14\n"
+                f"🌙 Чек-инов: {total_checkins}\n"
+                f"❌ Пропусков: {missed}\n"
+                f"🎯 Последнее состояние: {last_state_label}\n\n"
+            )
+
+            if missed == 0:
+                text += "Отличная неделя! Ритм выдержан. 💪"
+            elif missed <= 2:
+                text += "Неплохо, но можно добавить стабильности. Продолжаем?"
+            else:
+                text += "Было сложно, но ты всё ещё в марафоне. Важно — не останавливаться."
+
+            try:
+                await bot.send_message(chat_id, text, parse_mode="Markdown")
+                logger.info(f"[MarathonDigest] Sent to {chat_id}")
+            except Exception as e:
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, "marathon digest")
+                else:
+                    logger.warning(f"[MarathonDigest] Failed to send to {chat_id}: {e}")
     finally:
         await bot.session.close()
 
@@ -243,6 +432,9 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
+    _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
+    _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
+    _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
