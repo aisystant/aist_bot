@@ -22,11 +22,10 @@ logger = logging.getLogger(__name__)
 support_router = Router(name="support")
 
 _TOPICS = {
-    "bug":    "🐛 Баг",
-    "quest":  "❓ Вопрос",
-    "wish":   "💡 Пожелание",
-    "points": "🏆 Баллы",
-    "guide":  "📖 Руководство",
+    "bug":   "🐛 Баг",
+    "quest": "❓ Вопрос",
+    "wish":  "💡 Пожелание",
+    "other": "📋 Прочее",
 }
 
 _PRIORITY = {
@@ -49,10 +48,7 @@ def _topic_kb() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="💡 Пожелание", callback_data="sup_topic:wish"),
-            InlineKeyboardButton(text="🏆 Баллы", callback_data="sup_topic:points"),
-        ],
-        [
-            InlineKeyboardButton(text="📖 Руководство", callback_data="sup_topic:guide"),
+            InlineKeyboardButton(text="📋 Прочее", callback_data="sup_topic:other"),
         ],
     ])
 

@@ -2,7 +2,7 @@
 
 > **Pack source-of-truth:** [DP.SC.141 «Зачёт баллов в оплату»](../../../../PACK-digital-platform/pack/digital-platform/08-service-clauses/DP.SC.141-points-redemption.md) + [DP.ROLE.051 «Points Redeemer»](../../../../PACK-digital-platform/pack/digital-platform/02-domain-entities/DP.ROLE.051-points-redeemer.md).
 >
-> Поток позволяет пилоту применить накопленные баллы как скидку при оплате семинара (workshop_seminar или showcase product). Двухфазный коммит: резерв при чекауте → подтверждение по webhook (YK) или successful_payment (TG Stars).
+> Поток позволяет пилоту применить накопленные бонусы как скидку при оплате семинара (workshop_seminar или showcase product). Двухфазный коммит: резерв при чекауте → подтверждение по webhook (YK) или successful_payment (TG Stars).
 
 ---
 
