@@ -2014,18 +2014,22 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
         return web.Response(status=400, text="bad json")
 
     event = payload.get("event")
+    message_type = payload.get("message_type")
+    conv_id = (payload.get("conversation") or {}).get("id") or payload.get("conversation_id")
+    logger.info("[Chatwoot webhook] event=%r message_type=%r conv_id=%r keys=%s",
+                event, message_type, conv_id, list(payload.keys()))
+
     if event != "message_created":
         return web.Response(text="ok")
 
-    # message_type 1 = outgoing (agent → customer)
-    if payload.get("message_type") != 1:
+    # message_type 1 = outgoing (agent → customer); also accept string "outgoing"
+    if message_type not in (1, "outgoing"):
         return web.Response(text="ok")
 
     content = payload.get("content", "").strip()
     if not content:
         return web.Response(text="ok")
 
-    conv_id = (payload.get("conversation") or {}).get("id")
     if not conv_id:
         return web.Response(text="ok")
 
