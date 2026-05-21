@@ -1069,10 +1069,12 @@ async def _scan_all_club_posts(chat_id: int) -> list[dict]:
         sem = asyncio.Semaphore(10)
 
         def _is_recent(filename: str) -> bool:
-            """Проверить дату в имени файла (YYYY-MM-DD-*). Файлы за последние 14 дней."""
+            """Проверить дату в имени файла (YYYY-MM-DD). Файлы за последние 14 дней."""
             try:
-                parts = filename.split("-", 3)
-                file_date = datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+                match = re.search(r'\b(\d{4})-(\d{2})-(\d{2})\b', filename)
+                if not match:
+                    return True  # Нет даты → читаем на всякий случай
+                file_date = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3))).date()
                 return file_date >= cutoff
             except (ValueError, IndexError):
                 return True  # Не удалось распарсить → читаем на всякий случай
