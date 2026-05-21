@@ -214,7 +214,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
 @marathon_router.message(Command("marathon_stop"))
 async def cmd_marathon_stop(message: Message):
-    """Остановить марафон: очистить очередь, статус → cancelled."""
+    """Остановить марафон: очистить очередь, статус → dropped."""
     chat_id = message.chat.id
     progress = await get_or_create_progress(chat_id)
 
@@ -231,7 +231,7 @@ async def cmd_marathon_stop(message: Message):
     # Обновляем статус
     await update_progress(
         user_id=chat_id,
-        status="cancelled",
+        status="dropped",
     )
 
     logger.info(f"[Marathon] User {chat_id} stopped marathon.")
