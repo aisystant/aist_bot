@@ -2413,8 +2413,10 @@ async def _smart_publisher_scan(*, notify: bool = True):
 
                 def _is_recent(filename: str) -> bool:
                     try:
-                        parts = filename.split("-", 3)
-                        file_date = datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+                        match = re.search(r'\b(\d{4})-(\d{2})-(\d{2})\b', filename)
+                        if not match:
+                            return True
+                        file_date = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3))).date()
                         return file_date >= cutoff
                     except (ValueError, IndexError):
                         return True
