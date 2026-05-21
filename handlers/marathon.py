@@ -44,7 +44,8 @@ async def cmd_marathon_start(message: Message):
         await message.answer(
             "🎉 Ты уже в марафоне!\n\n"
             f"📅 Текущий день: {progress.get('current_day', 0)}\n"
-            "Используй /marathon_progress, чтобы узнать статус."
+            "Используй /marathon_progress, чтобы узнать статус.\n\n"
+            "Если нужна помощь — напиши в поддержку /support."
         )
         return
 
