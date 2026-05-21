@@ -283,6 +283,12 @@ async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetim
                ($1, $2, 'lesson',    $3, $4),
                ($1, $2, 'practice',  $3 + INTERVAL '8 hours', $5),
                ($1, $2, 'checkin',   $3 + INTERVAL '14 hours', $6)
-               ON CONFLICT DO NOTHING''',
+               ON CONFLICT (user_id, day_number, content_type) DO UPDATE SET
+                   content_text = EXCLUDED.content_text,
+                   scheduled_at = EXCLUDED.scheduled_at,
+                   status = 'pending',
+                   sent_at = NULL,
+                   error = NULL,
+                   updated_at = NOW()''',
             user_id, day_number, scheduled_at, lesson_text, practice_text, checkin_text,
         )
