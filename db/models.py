@@ -603,6 +603,18 @@ async def create_tables(pool: asyncpg.Pool):
             ON feedback_triage(qa_id)
         ''')
 
+        # Migration 008 fallback: feedback_unified lifecycle fields
+        for col, typedef in [
+            ('source', "TEXT NOT NULL DEFAULT 'bot'"),
+            ('suggested_action', 'TEXT DEFAULT NULL'),
+            ('confidence', 'REAL DEFAULT NULL'),
+            ('resolved_at', 'TIMESTAMP DEFAULT NULL'),
+            ('resolution_note', 'TEXT DEFAULT NULL'),
+        ]:
+            await conn.execute(f'''
+                ALTER TABLE feedback_triage ADD COLUMN IF NOT EXISTS {col} {typedef}
+            ''')
+
         # ═══════════════════════════════════════════════════════════
         # ИСПОЛЬЗОВАНИЕ СЕРВИСОВ (аналитика)
         # ═══════════════════════════════════════════════════════════

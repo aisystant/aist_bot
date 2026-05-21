@@ -17,32 +17,50 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 async def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | None:
-    """Inline-кнопка «📚 Подключи личное руководство» (WP-301 Ф7, R27 proactive trigger).
+    """Inline-кнопка для доступа к личному руководству (WP-301 Ф7, WP-309 Ф9.2).
 
-    Показывается только если:
-    - GitHub App зарегистрирован (`GITHUB_APP_SLUG` + `WEBHOOK_URL` в env)
-    - Пользователь дал согласие на обработку персональных данных (WP-309).
+    T3a (managed): пилот без GitHub-аккаунта — кнопка «📖 Моё руководство» → web-ридер.
+    T3b (sovereign): пилот с GitHub App — кнопка «📚 Подключи личное руководство».
 
-    Returns None если App ещё не настроен или нет consent — кнопка не показывается.
+    T3a показывается при наличии consent + записи в pilot_repo_map.
+    T3b показывается при наличии consent + GITHUB_APP_SLUG env.
+    Returns None если ни один вариант недоступен.
     """
-    app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
-    webhook_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
-    if not app_slug or not webhook_url:
-        return None
-
-    # WP-309: consent gate — не показывать кнопку подключения личного руководства
-    # без explicit opt-in на обработку персональных данных.
     from helpers.dual_write import resolve_ory_id_from_chat
     from db.queries.consent import get_consent
     try:
         account_id = await resolve_ory_id_from_chat(chat_id)
-        if account_id:
-            consent = await get_consent(account_id)
-            if not consent or not consent["opt_in"]:
-                return None
+        if not account_id:
+            return None
+        consent = await get_consent(account_id)
+        if not consent or not consent["opt_in"]:
+            return None
     except Exception:
         return None
 
+    # T3a: managed-репо уже создано — показать прямую ссылку на web-ридер
+    guide_web_url = os.getenv("GUIDE_WEB_URL", "https://guide.system-school.ru").rstrip("/")
+    try:
+        from db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT 1 FROM learning.pilot_repo_map WHERE pilot_uuid = $1",
+                account_id,
+            )
+        if row is not None:
+            return [InlineKeyboardButton(
+                text="📖 Моё руководство",
+                url=f"{guide_web_url}/guide/{account_id}",
+            )]
+    except Exception:
+        pass  # fallback to T3b below
+
+    # T3b: sovereign — предложить подключить GitHub App
+    app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
+    webhook_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
+    if not app_slug or not webhook_url:
+        return None
     setup_url = f"{webhook_url}/auth/github_app/setup?telegram_user_id={chat_id}"
     return [InlineKeyboardButton(
         text="📚 Подключи личное руководство",

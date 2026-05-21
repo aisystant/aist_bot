@@ -78,6 +78,7 @@ class TrainingAssignmentState(BaseState):
         return None
 
     async def handle(self, user, message: Message) -> Optional[str]:
+        chat_id = self._get_chat_id_from_user(user)
         answer_text = (message.text or '').strip()
 
         if len(answer_text) < TRAINING_MIN_ANSWER_LENGTH:
