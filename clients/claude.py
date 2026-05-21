@@ -127,6 +127,12 @@ class ClaudeClient:
                             await asyncio.sleep(2 ** (attempt + 1))
                             continue
                         return None
+                    elif resp.status in (500, 502, 503):
+                        logger.warning(f"Claude API transient error ({resp.status}), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
                     else:
                         error = await resp.text()
                         logger.error(f"Claude API error {resp.status}: {error[:200]}")
@@ -253,6 +259,12 @@ class ClaudeClient:
                         return None
                     elif resp.status == 529:
                         logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
+                    elif resp.status in (500, 502, 503):
+                        logger.warning(f"Claude API transient error ({resp.status}), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
                             continue
@@ -411,6 +423,12 @@ class ClaudeClient:
                         return None
                     elif resp.status == 529:
                         logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
+                        if attempt == 0:
+                            await asyncio.sleep(2 ** (attempt + 1))
+                            continue
+                        return None
+                    elif resp.status in (500, 502, 503):
+                        logger.warning(f"Claude API transient error ({resp.status}), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
                             continue
