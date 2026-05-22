@@ -2010,6 +2010,28 @@ async def send_engagement_nudges():
     if not candidates:
         return
 
+    # WP-349: batch-check onboarding_controller cooldown to prevent dual nudges.
+    # onboarding_controller marks last_nudge_at in learning.onboarding_state;
+    # if it nudged this pilot today, the bot should not send an additional nudge.
+    onboarding_nudged_uuids: set[str] = set()
+    ory_uuids = [u['ory_uuid'] for u in candidates if u.get('ory_uuid')]
+    if ory_uuids:
+        try:
+            from db.connection import get_learning_pool
+            learning_pool = await get_learning_pool()
+            async with learning_pool.acquire() as lconn:
+                rows = await lconn.fetch(
+                    "SELECT account_id::text FROM learning.onboarding_state "
+                    "WHERE last_nudge_at > NOW() - INTERVAL '24 hours' "
+                    "AND account_id = ANY($1::uuid[])",
+                    ory_uuids,
+                )
+                onboarding_nudged_uuids = {r['account_id'] for r in rows}
+            if onboarding_nudged_uuids:
+                logger.info(f"[Nudge] Onboarding cooldown: skipping {len(onboarding_nudged_uuids)} pilots nudged today by controller")
+        except Exception as e:
+            logger.warning(f"[Nudge] Onboarding cooldown check failed (fail-open): {e}")
+
     bot = Bot(token=_bot_token)
     total_sent = 0
 
@@ -2017,6 +2039,12 @@ async def send_engagement_nudges():
         for user in candidates:
             chat_id = user['chat_id']
             lang = user.get('language', 'ru') or 'ru'
+
+            # Skip if onboarding_controller already nudged today (WP-349 dual-cooldown fix)
+            ory_uuid = user.get('ory_uuid')
+            if ory_uuid and ory_uuid in onboarding_nudged_uuids:
+                logger.debug(f"[Nudge] Skipping {chat_id}: onboarding nudge sent today")
+                continue
 
             # Parse engagement JSONB
             engagement = user.get('engagement')
