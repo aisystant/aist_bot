@@ -6,6 +6,8 @@
   nudge_post_diagnosis_sN      — B-high: ступень 2+, предложить S{N} поток
   nudge_subscription_cta       — C/E: активные дни или ступень ≥2, предложить подписку
   nudge_tier_suggest_t2        — D: ступень выросла, предложить T2
+  nudge_personal_guide_cta     — F: 14+ дней + подписка → тайный гит (T2→T3)
+  nudge_fullenv_cta            — G: 30+ дней + гид открыт → явный гит, VS Code (T3→T4)
 
 Callback «Позже» — ответить тостом + записать onboarding_snooze в domain_event.
 
@@ -301,3 +303,80 @@ async def on_tier_upgrade_start_stream(callback: CallbackQuery):
     else:
         lang = intern.get("language", "ru") or "ru"
         await callback.message.answer(t("errors.processing_error", lang))
+
+
+def _guide_web_url() -> str:
+    """URL web-ридера для T3a (managed guide)."""
+    return os.environ.get("GUIDE_WEB_URL", "https://guide.system-school.ru")
+
+
+async def nudge_personal_guide_cta(
+    bot,
+    chat_id: int,
+    activity_days: int,
+    lang: str = "ru",
+) -> bool:
+    """F: подписка + 14+ дней активности, гид ещё не открыт → тайный гит (T2→T3).
+
+    Returns True если сообщение отправлено, False при ошибке.
+    """
+    guide_url = _guide_web_url()
+    text = (
+        f"Вы занимаетесь уже {activity_days} дней — самое время создать личную базу знаний.\n\n"
+        "🤖 Платформа ведёт (проще — ничего не настраивать):\n"
+        f"{guide_url}/start\n\n"
+        "🔧 Вы ведёте сами (полный контроль): /personal-guide-start\n\n"
+        "Можно начать с платформы и перейти на ручное управление позже."
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Начать с платформой", url=f"{guide_url}/start"),
+        InlineKeyboardButton(text="Позже", callback_data="tier_upgrade_snooze:personal_guide"),
+    ]])
+    try:
+        await bot.send_message(chat_id, text, reply_markup=keyboard)
+        logger.info("[TierUpgrade] nudge_personal_guide_cta (days=%d) sent to %d", activity_days, chat_id)
+        return True
+    except Exception as e:
+        logger.warning("[TierUpgrade] nudge_personal_guide_cta failed for %d: %s", chat_id, e)
+        return False
+
+
+async def nudge_fullenv_cta(
+    bot,
+    chat_id: int,
+    activity_days: int,
+    lang: str = "ru",
+) -> bool:
+    """G: подписка + гид открыт + 30+ дней активности → явный гит (T3→T4, VS Code + полная среда).
+
+    Returns True если сообщение отправлено, False при ошибке.
+    """
+    text = (
+        f"Вы занимаетесь уже {activity_days} дней и ваша база знаний растёт. "
+        "Следующий уровень — полное окружение IWE.\n\n"
+        "Подключите VS Code для глубокой работы: выполните /connect и следуйте инструкции."
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Подключить VS Code", callback_data="tier_upgrade_fullenv_start"),
+        InlineKeyboardButton(text="Позже", callback_data="tier_upgrade_snooze:fullenv"),
+    ]])
+    try:
+        await bot.send_message(chat_id, text, reply_markup=keyboard)
+        logger.info("[TierUpgrade] nudge_fullenv_cta (days=%d) sent to %d", activity_days, chat_id)
+        return True
+    except Exception as e:
+        logger.warning("[TierUpgrade] nudge_fullenv_cta failed for %d: %s", chat_id, e)
+        return False
+
+
+@tier_upgrade_router.callback_query(F.data == "tier_upgrade_fullenv_start")
+async def on_tier_upgrade_fullenv_start(callback: CallbackQuery):
+    """«Подключить VS Code» → направляем к /connect."""
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(
+        "Выполните /connect в этом чате — бот проверит подключение и обновит ваш путь."
+    )
