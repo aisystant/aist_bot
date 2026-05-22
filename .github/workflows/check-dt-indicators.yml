@@ -1,0 +1,35 @@
+name: Check DTIndicators sync
+
+on:
+  push:
+    paths:
+      - 'handlers/dt_indicators.py'
+      - 'handlers/twin.py'
+  pull_request:
+    paths:
+      - 'handlers/dt_indicators.py'
+      - 'handlers/twin.py'
+
+jobs:
+  check-dt-indicators:
+    runs-on: ubuntu-latest
+    name: handlers/dt_indicators.py in sync with digital-twin-mcp
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch upstream generated/dt_indicators.py
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/aisystant/digital-twin-mcp/main/generated/dt_indicators.py" \
+            -o /tmp/dt_indicators_upstream.py
+      - name: Compare with local copy
+        run: |
+          # Strip the auto-generated timestamp line before comparing
+          sed '/^# Generated:/d' handlers/dt_indicators.py > /tmp/local_stripped.py
+          sed '/^# Generated:/d' /tmp/dt_indicators_upstream.py > /tmp/upstream_stripped.py
+          if ! diff -u /tmp/upstream_stripped.py /tmp/local_stripped.py; then
+            echo ""
+            echo "❌ handlers/dt_indicators.py is out of sync with digital-twin-mcp/generated/dt_indicators.py"
+            echo "   Run: curl -fsSL https://raw.githubusercontent.com/aisystant/digital-twin-mcp/main/generated/dt_indicators.py -o handlers/dt_indicators.py"
+            exit 1
+          fi
+          echo "✅ handlers/dt_indicators.py is in sync with upstream"

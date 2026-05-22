@@ -663,13 +663,16 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
         mult_7d_t = f"{round(multiplier_7d, 2)}x" if multiplier_7d is not None else "—"
         lines.append(f"📊 Мультипликатор: сегодня {mult_today_t}  |  усл. 7д {mult_7d_t}")
 
-    # IND.3.9, 3.12, 3.13, 3.14: IT level, delivery style, notification response, learning autonomy
+    # TODO: stale key — metamodel has DTGroup.AI_USAGE ("3_9_ai_usage"), not "3_9_it_level"
     it_group = derived.get('3_9_it_level') or {}
     it_level = it_group.get('it_level')
+    # TODO: stale key — group "3_12_delivery_style" not in metamodel (metamodel ends at 3_11_diagnostic)
     delivery_group = derived.get('3_12_delivery_style') or {}
     delivery_format = delivery_group.get('format')
+    # TODO: stale key — group "3_13_notification_resp" not in metamodel
     notif_group = derived.get('3_13_notification_resp') or {}
     notif_score = notif_group.get('score')
+    # TODO: stale key — group "3_14_learning_autonomy" not in metamodel
     autonomy_group = derived.get('3_14_learning_autonomy') or {}
     autonomy_score = autonomy_group.get('score')
     if any(v is not None for v in (it_level, delivery_format, notif_score, autonomy_score)):
