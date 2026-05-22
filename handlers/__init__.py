@@ -69,6 +69,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .remind import remind_router
     from .marathon import marathon_router
     from .support import support_router
+    from .setup import setup_router
     from .tier_upgrade import tier_upgrade_router
 
     dp.include_router(onboarding_router)
@@ -111,6 +112,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(remind_router)
     dp.include_router(marathon_router)
     dp.include_router(support_router)
+    dp.include_router(setup_router)
     dp.include_router(tier_upgrade_router)
 
     # ReplyKeyboard text → command routing (AFTER all command routers, BEFORE fallback)

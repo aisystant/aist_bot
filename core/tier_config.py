@@ -72,6 +72,8 @@ KB_LABELS = {
     'about':      {'ru': 'ℹ️ О нас',     'en': 'ℹ️ About',      'es': 'ℹ️ Acerca de',  'fr': 'ℹ️ À propos',    'zh': 'ℹ️ 关于我们'},
     # WP-156: Navigator explicit entry point
     'navigator':  {'ru': '🧭 Навигатор', 'en': '🧭 Navigator',  'es': '🧭 Navegador',  'fr': '🧭 Navigateur',  'zh': '🧭 导航'},
+    # WP-349: Setup journey T1→T4
+    'setup':      {'ru': '📍 Оснащение', 'en': '📍 Setup',      'es': '📍 Configurar', 'fr': '📍 Configuration', 'zh': '📍 设置'},
 }
 
 # Service key → slash command name (for routing)
@@ -99,6 +101,8 @@ SERVICE_TO_COMMAND = {
     'about': 'about',
     # WP-156
     'navigator': 'navigator',
+    # WP-349
+    'setup': 'setup',
 }
 
 
@@ -125,7 +129,7 @@ TIER_KEYBOARD = {
 
 TIER_MENU_COMMANDS = {
     UITier.T0:             ['link', 'schedule', 'me', 'about', 'features', 'test', 'navigator', 'contacts', 'help'],
-    UITier.T1:           ['schedule', 'buy', 'learn', 'me', 'features', 'about', 'feed_info', 'test', 'navigator', 'help'],
+    UITier.T1:           ['schedule', 'buy', 'learn', 'setup', 'me', 'features', 'about', 'feed_info', 'test', 'navigator', 'help'],
     UITier.T2_LEARNING:        ['schedule', 'buy', 'feed', 'me', 'points', 'train', 'features', 'test', 'navigator', 'connect', 'about', 'settings', 'help'],
     UITier.T3_PERSONALIZATION: ['schedule', 'buy', 'feed', 'me', 'points', 'train', 'features', 'guide', 'test', 'navigator', 'connect', 'settings', 'help'],
     UITier.T4_CREATION:        ['schedule', 'buy', 'plan', 'me', 'points', 'club', 'train', 'feed', 'features', 'navigator', 'connect', 'mode', 'settings', 'start', 'help'],
@@ -166,6 +170,8 @@ COMMAND_DESCRIPTIONS = {
     'features': {'ru': 'Возможности платформы',             'en': 'Platform features',          'es': 'Funciones de la plataforma', 'fr': 'Fonctionnalités',              'zh': '平台功能'},
     # WP-156
     'navigator': {'ru': 'Навигатор — помощь в выборе пути', 'en': 'Navigator — help choosing a path', 'es': 'Navegador — ayuda para elegir', 'fr': 'Navigateur — aide au choix', 'zh': '导航 — 帮助选择路径'},
+    # WP-349
+    'setup':     {'ru': 'Маршрут оснащения T1→T4',          'en': 'Setup journey T1→T4',    'es': 'Ruta de equipamiento', 'fr': 'Parcours configuration', 'zh': '装备路径 T1→T4'},
     # WP-209 Ф1
     'connect':   {'ru': 'Подключить AI-ассистент к IWE',   'en': 'Connect AI assistant to IWE',  'es': 'Conectar asistente IA a IWE','fr': 'Connecter assistant IA à IWE', 'zh': '连接AI助手到IWE'},
 }
