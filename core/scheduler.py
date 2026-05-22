@@ -365,13 +365,18 @@ def _build_marathon_message(content_type: str, day: int, content_ref: str | None
         return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
     # WP-330 Ф2.6: читаем из marathon-content.json
     from core.marathon_content import get_day_text
+    if content_type == 'lesson_practice':
+        lesson = get_day_text(day, 'lesson')
+        practice = get_day_text(day, 'practice')
+        if lesson and practice:
+            return f"{lesson}\n\n{practice}"
+        return lesson or practice or None
     text = get_day_text(day, content_type)
     if text:
         return text
     # Fallback — минимальный текст
     templates = {
-        'lesson': f"📚 *День {day} — Теория*\n\nСегодняшний урок готов! Нажми кнопку ниже, чтобы начать.",
-        'practice': f"🛠 *День {day} — Практика*\n\nПора применить теорию на практике.",
+        'lesson_practice': f"📚 *День {day}*\n\nСегодняшний урок и практика готовы!",
         'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
     }
     return templates.get(content_type)

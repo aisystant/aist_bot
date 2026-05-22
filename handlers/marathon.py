@@ -74,9 +74,11 @@ async def cmd_marathon_start(message: Message):
 
     for day in range(1, 15):
         scheduled = base_time + timedelta(days=day - 1)
+        lesson = get_day_text(day, 'lesson')
+        practice = get_day_text(day, 'practice')
+        lesson_practice = f"{lesson}\n\n{practice}" if lesson and practice else (lesson or practice or "")
         content_texts = {
-            'lesson': get_day_text(day, 'lesson'),
-            'practice': get_day_text(day, 'practice'),
+            'lesson_practice': lesson_practice,
             'checkin': get_day_text(day, 'checkin'),
         }
         await enqueue_day_items(chat_id, day, scheduled, content_texts)
@@ -86,9 +88,9 @@ async def cmd_marathon_start(message: Message):
     # Приветственное сообщение (inline, без i18n для MVP — доработать в Ф1.3)
     await message.answer(
         "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
-        "📅 Формат: 14 дней, 3 сообщения в день\n"
-        "Утром — теория (один короткий экран), днём — практика (одно конкретное действие), "
-        "вечером — чек-ин (пара вопросов про день).\n\n"
+        "📅 Формат: 14 дней, 2 сообщения в день\n"
+        "Утром — теория (один короткий экран) и практика (одно конкретное действие), "
+        "а вечером — чек-ин (пара вопросов про день).\n\n"
         "🎯 Через 14 дней ты почувствуешь первую собранность: появится ритм, "
         "привычка думать методично — и понимание, что интеллектуальная работа поддаётся освоению.\n\n"
         "📋 Команды марафона:\n"
