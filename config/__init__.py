@@ -176,6 +176,9 @@ from .settings import (
     COMMUNITY_URL,
     LEAD_URL,
     REFERENCE_URL,
+
+    # WP-349: URL платформы для /setup
+    PLATFORM_URLS,
 )
 
 __all__ = [
@@ -287,4 +290,5 @@ __all__ = [
     'COMMUNITY_URL',
     'LEAD_URL',
     'REFERENCE_URL',
+    'PLATFORM_URLS',
 ]
