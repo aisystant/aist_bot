@@ -369,6 +369,15 @@ async def nudge_fullenv_cta(
         return False
 
 
+# Маппинг upgrade-маркер → специализированная функция-отправитель с rich CTA.
+# Используется в send_engagement_nudges() (scheduler) вместо generic send_tg_nudge().
+# Контракт: sender(bot, chat_id, activity_days, lang="ru") -> bool
+UPGRADE_NUDGE_SENDERS: dict = {
+    "f": nudge_personal_guide_cta,
+    "g": nudge_fullenv_cta,
+}
+
+
 @tier_upgrade_router.callback_query(F.data == "tier_upgrade_fullenv_start")
 async def on_tier_upgrade_fullenv_start(callback: CallbackQuery):
     """«Подключить VS Code» → направляем к /connect."""
