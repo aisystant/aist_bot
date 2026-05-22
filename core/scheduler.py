@@ -1662,10 +1662,10 @@ async def _neon_keep_alive():
 
 
 async def _rollback_expired_burn_reservations():
-    """WP-327: откат резервов баллов старше 30 минут (status='reserved' без confirm/cancel).
+    """WP-327: откат резервов бонусов старше 30 минут (status='reserved' без confirm/cancel).
 
     Защита от «зависших» резервов: пилот нажал «Применить», но не пошёл по ссылке оплаты —
-    через 30 мин баллы возвращаются. Запускается каждые 5 мин (см. start_scheduler)."""
+    через 30 мин бонусы возвращаются. Запускается каждые 5 мин (см. start_scheduler)."""
     try:
         from db.queries.redeem import rollback_expired_reservations
         count = await rollback_expired_reservations()

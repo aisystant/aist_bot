@@ -107,7 +107,7 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
         f"{ta_icon} <b>Анализ текстов:</b> {ta_text}\n"
         f"  {_scope_label('text_analysis', lang)}\n"
         "<i>Используется для точной оценки мировоззрения (cp.wld). "
-        "Не влияет на ступень и баллы.</i>\n\n"
+        "Не влияет на ступень и бонусы.</i>\n\n"
     )
     return text
 

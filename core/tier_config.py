@@ -140,7 +140,7 @@ COMMAND_DESCRIPTIONS = {
     'train':     {'ru': 'Тренировка принципов',         'en': 'Principles training',       'es': 'Entrenamiento de principios','fr': 'Entraînement des principes',   'zh': '原则训练'},
     'test':      {'ru': 'Тест систематичности',         'en': 'Systematicity test',        'es': 'Test de sistematicidad',     'fr': 'Test de systématicité',        'zh': '系统性测试'},
     'progress':  {'ru': 'Мой прогресс',                 'en': 'My progress',               'es': 'Mi progreso',                'fr': 'Mon progrès',                  'zh': '我的进度'},
-    'points':    {'ru': 'Баллы — баланс и начисления',   'en': 'Points — balance & log',    'es': 'Puntos — saldo y registro',  'fr': 'Points — solde et journal',    'zh': '积分 — 余额与记录'},
+    'points':    {'ru': 'Бонусы — баланс и начисления',  'en': 'Bonuses — balance & log',   'es': 'Bonos — saldo y registro',   'fr': 'Bonus — solde et journal',     'zh': '奖励 — 余额与记录'},
     'profile':   {'ru': 'Мой профиль',                  'en': 'My profile',                'es': 'Mi perfil',                  'fr': 'Mon profil',                   'zh': '我的档案'},
     'twin':      {'ru': 'Цифровой двойник',             'en': 'Digital twin',              'es': 'Gemelo digital',             'fr': 'Jumeau numérique',             'zh': '数字孪生'},
     'club':      {'ru': 'Клуб — публикация',            'en': 'Club — publishing',         'es': 'Club — publicación',         'fr': 'Club — publication',           'zh': '俱乐部 — 发布'},
