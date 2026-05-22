@@ -65,3 +65,35 @@ async def write_last_nudge_at(account_id: str) -> bool:
     except Exception as e:
         logger.warning("[Setup] write_last_nudge_at failed: %s", e)
         return False
+
+
+_UPGRADE_MARKER_COLS: dict[str, str] = {
+    "f": "msg_f_sent_at",
+    "g": "msg_g_sent_at",
+}
+
+
+async def write_upgrade_sent_at(account_id: str, marker_key: str) -> bool:
+    """Записать msg_{f|g}_sent_at = NOW() и last_nudge_at = NOW() атомарно.
+
+    Используется scheduler'ом после успешной отправки rich-CTA (WP-349 Ф6/Ф7).
+    Возвращает True если строка обновлена.
+    """
+    col = _UPGRADE_MARKER_COLS.get(marker_key)
+    if col is None:
+        logger.error("[Setup] write_upgrade_sent_at: unknown marker_key=%s", marker_key)
+        return False
+    try:
+        pool = await get_learning_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                f"""UPDATE learning.onboarding_state
+                   SET {col} = NOW(), last_nudge_at = NOW()
+                   WHERE account_id = $1::uuid""",
+                account_id,
+            )
+        updated = result.split()[-1] if result else "0"
+        return updated == "1"
+    except Exception as e:
+        logger.warning("[Setup] write_upgrade_sent_at(%s) failed: %s", marker_key, e)
+        return False
