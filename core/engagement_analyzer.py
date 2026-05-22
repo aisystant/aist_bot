@@ -36,6 +36,27 @@ def rule(rule_id, cooldown_days=7):
     return decorator
 
 
+@rule("slot_missing_3d", cooldown_days=7)
+def check_slot_missing_3d(engagement, user_meta):
+    """Пользователь не записывал /slot 3+ дня. WP-117 Этап 1."""
+    last_slot = user_meta.get('last_slot_date')
+    if not last_slot:
+        return None  # никогда не логировал — не нудить
+
+    if hasattr(last_slot, 'date'):
+        last_slot = last_slot.date()
+    elif isinstance(last_slot, str):
+        try:
+            last_slot = datetime.fromisoformat(last_slot).date()
+        except ValueError:
+            return None
+
+    days_since = (datetime.now(timezone.utc).date() - last_slot).days
+    if days_since >= 3:
+        return "nudge_slot_missing_3d"
+    return None
+
+
 @rule("inactivity_3d", cooldown_days=7)
 def check_inactivity_3d(engagement, user_meta):
     """Пользователь не взаимодействовал с ботом 3+ дня."""

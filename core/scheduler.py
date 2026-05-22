@@ -2042,6 +2042,7 @@ async def send_engagement_nudges():
                 'active_days_streak': user.get('active_days_streak'),
                 'longest_streak': user.get('longest_streak'),
                 'marathon_status': user.get('marathon_status'),
+                'last_slot_date': user.get('last_slot_at'),  # WP-117 Этап 1: slot_missing_3d
             }
 
             # Run rules (basic + derived-aware)
