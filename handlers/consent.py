@@ -107,7 +107,7 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
         f"{ta_icon} <b>Анализ текстов:</b> {ta_text}\n"
         f"  {_scope_label('text_analysis', lang)}\n"
         "<i>Используется для точной оценки мировоззрения (cp.wld). "
-        "Не влияет на ступень и баллы.</i>\n\n"
+        "Не влияет на ступень и бонусы.</i>\n\n"
     )
     return text
 
@@ -496,6 +496,17 @@ async def on_consent_accept(callback: CallbackQuery):
         reply_markup=_status_keyboard(consent),
     )
     logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
+
+    # WP-343 v3: поведенческий триггер — направить к /diagnose сразу после согласия
+    try:
+        await callback.message.answer(
+            "👉 <b>Следующий шаг:</b> узнайте вашу ступень Ученика — займёт 2 минуты.\n\n"
+            "Наберите /diagnose — ответьте на несколько вопросов, получите ступень и приоритет роста.\n\n"
+            "<i>Можно пропустить — /diagnose всегда доступна позже.</i>",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("[consent] v3_nudge failed user_id=%s: %s", user_id, exc)
 
 
 @consent_router.callback_query(F.data == "consent_decline")

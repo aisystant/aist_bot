@@ -36,6 +36,27 @@ def rule(rule_id, cooldown_days=7):
     return decorator
 
 
+@rule("slot_missing_3d", cooldown_days=7)
+def check_slot_missing_3d(engagement, user_meta):
+    """Пользователь не записывал /slot 3+ дня. WP-117 Этап 1."""
+    last_slot = user_meta.get('last_slot_date')
+    if not last_slot:
+        return None  # никогда не логировал — не нудить
+
+    if hasattr(last_slot, 'date'):
+        last_slot = last_slot.date()
+    elif isinstance(last_slot, str):
+        try:
+            last_slot = datetime.fromisoformat(last_slot).date()
+        except ValueError:
+            return None
+
+    days_since = (datetime.now(timezone.utc).date() - last_slot).days
+    if days_since >= 3:
+        return "nudge_slot_missing_3d"
+    return None
+
+
 @rule("inactivity_3d", cooldown_days=7)
 def check_inactivity_3d(engagement, user_meta):
     """Пользователь не взаимодействовал с ботом 3+ дня."""
@@ -147,14 +168,34 @@ def derived_rule(rule_id, cooldown_days=7):
 
 @derived_rule("stage_upgrade", cooldown_days=30)
 def check_stage_upgrade(engagement, user_meta, derived):
-    """Пользователь достиг новой ступени (поздравление + рекомендации)."""
+    """Пользователь достиг новой ступени — поздравление + рекомендации потока и тира (WP-349 Ф3).
+
+    Payload расширен: recommend_stream (S{N}), suggest_tier_upgrade (если нет подписки).
+    Бот читает payload и рисует соответствующие inline-кнопки через handlers/tier_upgrade.py.
+    """
     qualification = derived.get('3_4_qualification') or {}
     stage = qualification.get('stage', 0)
 
-    # Trigger for each stage transition (1→2, 2→3, 3→4)
-    if stage >= 2:
-        return f"nudge_stage_reached_{stage}"
-    return None
+    if stage < 2:
+        return None
+
+    # has_subscription из account или из meta (может быть заполнен разными writers)
+    has_subscription = (
+        user_meta.get('has_subscription') or
+        (derived.get('3_1_account') or {}).get('has_subscription', False)
+    )
+
+    nudge_type = f"nudge_stage_reached_{stage}"
+    # suggest_tier_upgrade: True если пилот на T1 (нет подписки) — открываем T2
+    suggest_tier_upgrade = not has_subscription and stage >= 2
+    recommend_stream = f"S{stage}"
+
+    return {
+        "nudge_type": nudge_type,
+        "stage": stage,
+        "recommend_stream": recommend_stream,
+        "suggest_tier_upgrade": suggest_tier_upgrade,
+    }
 
 
 @derived_rule("agency_growing", cooldown_days=14)
@@ -238,6 +279,7 @@ def analyze(
                 results.append({
                     'rule_id': rule_id,
                     'nudge_key': nudge_key,
+                    'nudge_payload': {},
                     'cooldown_days': cooldown_days,
                 })
         except Exception as e:
@@ -247,15 +289,25 @@ def analyze(
     if derived:
         for rule_id, check_fn, cooldown_days in DERIVED_RULES:
             try:
-                nudge_key = check_fn(
+                result = check_fn(
                     engagement or {}, user_meta or {}, derived or {}
                 )
-                if nudge_key:
-                    results.append({
-                        'rule_id': rule_id,
-                        'nudge_key': nudge_key,
-                        'cooldown_days': cooldown_days,
-                    })
+                if not result:
+                    continue
+                # WP-349: правило может вернуть dict с nudge_type + payload.
+                # Нормализуем для обратной совместимости: nudge_key всегда строка.
+                if isinstance(result, dict):
+                    nudge_key = result.get("nudge_type") or rule_id
+                    nudge_payload = {k: v for k, v in result.items() if k != "nudge_type"}
+                else:
+                    nudge_key = result
+                    nudge_payload = {}
+                results.append({
+                    'rule_id': rule_id,
+                    'nudge_key': nudge_key,
+                    'nudge_payload': nudge_payload,
+                    'cooldown_days': cooldown_days,
+                })
             except Exception as e:
                 logger.warning(f"[Nudge] Derived rule {rule_id} failed: {e}")
 

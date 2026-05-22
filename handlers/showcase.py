@@ -428,7 +428,7 @@ async def _pay_yookassa_seminar(
                 confirmation_url = result["confirmation_url"]
                 payable_rub = full_amount
 
-        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из бонусов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t('showcase.btn_pay_rub', lang, amount=payable_rub), url=confirmation_url)],
             [InlineKeyboardButton(text=t('showcase.btn_paid_check', lang), callback_data=f"showcase_check:{code}")],
@@ -534,7 +534,7 @@ async def _pay_stars_seminar(
             currency="XTR",
             prices=[LabeledPrice(label=seminar["title"], amount=payable_stars)],
         )
-        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из бонусов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t('showcase.btn_pay_stars', lang, stars=payable_stars), url=link)],
             [InlineKeyboardButton(text=t('showcase.btn_back_showcase', lang), callback_data="showcase_main")],

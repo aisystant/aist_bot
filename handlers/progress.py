@@ -122,7 +122,7 @@ async def cmd_progress(message: Message, state: FSMContext = None):
     text = f"{t('progress.title', lang, name=intern['name'])}\n\n"
     text += f"📈 {t('progress.active_days_week', lang)}: {days_active_week}\n"
     if points_balance is not None:
-        text += f"🏆 Баллы: {int(points_balance)}\n"
+        text += f"🏆 Бонусы: {int(points_balance)}\n"
     text += "\n"
 
     text += f"🏃 *{t('progress.marathon_title', lang)}*\n"

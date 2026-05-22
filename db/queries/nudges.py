@@ -19,6 +19,7 @@ async def get_nudge_candidates() -> list[dict]:
 
     WP-117 Ф2+: расширено с T3+ до T1+ (все с привязанным аккаунтом).
     Добавлен 3_derived для stage-aware nudges.
+    WP-117 Этап 1: добавлен last_slot_at для правила slot_missing_3d.
 
     Returns:
         List of dicts with user_meta + engagement + derived data.
@@ -30,6 +31,7 @@ async def get_nudge_candidates() -> list[dict]:
                 s.chat_id,
                 u.language,
                 u.name,
+                u.id::text AS ory_uuid,
                 s.last_active_date,
                 s.active_days_total,
                 s.active_days_streak,
@@ -39,7 +41,13 @@ async def get_nudge_candidates() -> list[dict]:
                 s.notify_nudges,
                 u.tier,
                 dt.data->'2_collected' AS engagement,
-                dt.data->'3_derived' AS derived
+                dt.data->'3_derived' AS derived,
+                (
+                    SELECT MAX(created_at)
+                    FROM development.user_events
+                    WHERE user_id = s.chat_id
+                      AND event_type = 'slot_logged'
+                ) AS last_slot_at
             FROM development.user_state s
             JOIN public.users u ON u.telegram_id = s.chat_id
             LEFT JOIN digital_twins dt ON dt.user_id = u.id::text

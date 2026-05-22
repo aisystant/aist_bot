@@ -16,6 +16,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from db.queries import get_intern
+from handlers.dt_indicators import DTGroup
 from helpers.typing_indicator import keep_typing
 from i18n import t
 
@@ -67,7 +68,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     collected = profile.get("2_collected", {}) or {}
 
     # ── Degree ──
-    degree_d = derived.get("3_8_degree") or {}
+    degree_d = derived.get(DTGroup.DEGREE) or {}
     if degree_d.get("level"):
         degree = degree_d["level"]
     else:
@@ -76,7 +77,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
         degree = qual.get("level") or t('twin.lms_not_connected', lang)
 
     # ── Stage ──
-    qualification = derived.get("3_4_qualification") or {}
+    qualification = derived.get(DTGroup.QUALIFICATION) or {}
     stage_num = qualification.get("stage")
     if stage_num is not None:
         stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num + 1}/5)"
@@ -88,7 +89,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     # Писатель: profiler/scripts/dt_calc.py:calc_integral_agency_index (R28 Профилировщик, AISYS.018)
     # Триггер расчёта: dt_sync (cron 04:30 MSK) + /dt_sync on-demand. Event-driven — WP-218 Ф6 (blocked: WP-73).
     # WP-218 hotfix: /twin — stateless витрина, никаких локальных вычислений.
-    agency = derived.get("3_10_integral") or {}
+    agency = derived.get(DTGroup.INTEGRAL) or {}
     agency_index = agency.get("index")
     agency_text = f"{round(agency_index)}/100" if agency_index is not None else "—"
 
@@ -124,33 +125,37 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
 
     # ── 3_1_agency: слоты в неделю ──
     # IND.3.1.02 Доля дней со слотом (регулярность)
-    agency_group = derived.get("3_1_agency") or {}
+    agency_group = derived.get(DTGroup.AGENCY) or {}
     slot_regularity = agency_group.get("slot_regularity")
     slot_days = agency_group.get("slot_days_per_week")
 
     # ── 3_2_mastery: мультипликатор ──
     # IND.3.2.04 Мультипликатор IWE (budget_hours / coding_hours)
-    mastery_group = derived.get("3_2_mastery") or {}
+    mastery_group = derived.get(DTGroup.MASTERY) or {}
     multiplier_today = mastery_group.get("multiplier_today")
     multiplier_7d = mastery_group.get("multiplier_7d_avg")
 
     # ── 3_9_it_level: IT-уровень ──
     # IND.3.9 IT competency level
+    # TODO: stale key — metamodel has DTGroup.AI_USAGE ("3_9_ai_usage"), not "3_9_it_level"
     it_group = derived.get("3_9_it_level") or {}
     it_level = it_group.get("it_level")
 
     # ── 3_12_delivery_style: стиль доставки ──
     # IND.3.12 Preference model
+    # TODO: stale key — group "3_12_delivery_style" not in metamodel (metamodel ends at 3_11_diagnostic)
     delivery_group = derived.get("3_12_delivery_style") or {}
     delivery_format = delivery_group.get("format")
 
     # ── 3_13_notification_resp: отклик на уведомления ──
     # IND.3.13 Notification responsiveness
+    # TODO: stale key — group "3_13_notification_resp" not in metamodel
     notif_group = derived.get("3_13_notification_resp") or {}
     notif_score = notif_group.get("score")
 
     # ── 3_14_learning_autonomy: автономность в обучении ──
     # IND.3.14 Learning autonomy
+    # TODO: stale key — group "3_14_learning_autonomy" not in metamodel
     autonomy_group = derived.get("3_14_learning_autonomy") or {}
     autonomy_score = autonomy_group.get("score")
 
@@ -658,13 +663,16 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
         mult_7d_t = f"{round(multiplier_7d, 2)}x" if multiplier_7d is not None else "—"
         lines.append(f"📊 Мультипликатор: сегодня {mult_today_t}  |  усл. 7д {mult_7d_t}")
 
-    # IND.3.9, 3.12, 3.13, 3.14: IT level, delivery style, notification response, learning autonomy
+    # TODO: stale key — metamodel has DTGroup.AI_USAGE ("3_9_ai_usage"), not "3_9_it_level"
     it_group = derived.get('3_9_it_level') or {}
     it_level = it_group.get('it_level')
+    # TODO: stale key — group "3_12_delivery_style" not in metamodel (metamodel ends at 3_11_diagnostic)
     delivery_group = derived.get('3_12_delivery_style') or {}
     delivery_format = delivery_group.get('format')
+    # TODO: stale key — group "3_13_notification_resp" not in metamodel
     notif_group = derived.get('3_13_notification_resp') or {}
     notif_score = notif_group.get('score')
+    # TODO: stale key — group "3_14_learning_autonomy" not in metamodel
     autonomy_group = derived.get('3_14_learning_autonomy') or {}
     autonomy_score = autonomy_group.get('score')
     if any(v is not None for v in (it_level, delivery_format, notif_score, autonomy_score)):

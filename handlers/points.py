@@ -1,7 +1,10 @@
 """
-/points — баланс баллов + последние начисления с разложением.
+/points — баланс бонусов + последние начисления с разложением.
 
 WP-306 (WP-121 Ф3): read-only surface над `rewards.point_balances` + `applied_events`.
+WP-327 Ф5b: терминология «Бонусы» (burnable currency, DP.D.050) — то, что
+отображается здесь, может быть списано при оплате. Earned-total «Баллы» (gamification
+score, монотонный рост) — отдельная величина, появится в Phase 2 refactor.
 
 Источник истины: Neon БД `rewards` (writer — multi-domain-projection-worker,
 DP.ROLE.034, DP.SC.122). Бот не пересчитывает баллы — показывает то, что
@@ -151,7 +154,7 @@ def _format_event(ev: dict) -> str:
 
 @points_router.message(Command("points"))
 async def cmd_points(message: Message):
-    """Баланс баллов + последние 10 начислений с разложением."""
+    """Баланс бонусов + последние 10 начислений с разложением."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -163,9 +166,9 @@ async def cmd_points(message: Message):
     account_id = intern.get('dt_user_id')
     if not account_id:
         await message.answer(
-            "🏆 <b>Баллы</b>\n\n"
+            "🏆 <b>Бонусы</b>\n\n"
             "Аккаунт ещё не привязан к Aisystant.\n"
-            "Привяжите профиль в /settings, чтобы начать копить баллы.",
+            "Привяжите профиль в /settings, чтобы начать копить бонусы.",
             parse_mode="HTML",
         )
         return
@@ -181,17 +184,17 @@ async def cmd_points(message: Message):
 
     balance_text = f"{float(balance):g}" if balance is not None else "0"
     today_text = f" <i>(+{float(today_total):g} за сегодня)</i>" if today_total and float(today_total) > 0 else ""
-    text = f"🏆 <b>Баллы:</b> {balance_text}{today_text}\n\n"
+    text = f"🏆 <b>Бонусы:</b> {balance_text}{today_text}\n\n"
 
     if not events:
-        # WP-311 Ф7 (DP.SC.136 critère «Honesty»): объясняем причину 0 баллов
+        # WP-311 Ф7 (DP.SC.136 critère «Honesty»): объясняем причину 0 бонусов
         text += (
             "<i>Пока нет начислений.</i>\n\n"
             "Возможные причины:\n"
             "• Не оформлено согласие на учёт активности — пройди /consent\n"
             "• Нет действий за период — закрывай день (/day_close), "
             "делай уроки, фиксируй слоты саморазвития, коммить в свои репозитории\n\n"
-            "Полный список действий, дающих баллы: /rules"
+            "Полный список действий, дающих бонусы: /rules"
         )
     else:
         text += "<b>Последние начисления:</b>\n\n"
@@ -199,7 +202,7 @@ async def cmd_points(message: Message):
         text += (
             "\n\n<i>Разложение: база × домен × квалификация × серия.</i>\n"
             "<i>«Потолок дня» — суточный лимит, наименьший из лимита домена и лимита твоей "
-            "ступени/квалификации. Например, у Ученика на ступени 1 потолок = 50 баллов/день. "
+            "ступени/квалификации. Например, у Ученика на ступени 1 потолок = 50 бонусов/день. "
             "Что выше потолка — теряется до следующего дня.</i>\n"
             "<i>Подробнее о потолках и множителях — /rules</i>"
         )
@@ -254,7 +257,7 @@ def _group_for_rule(event_type: str) -> str:
 
 @points_router.message(Command("rules"))
 async def cmd_rules(message: Message):
-    """Правила игры: за что даются баллы (WP-311 Ф7, DP.SC.136 /rules)."""
+    """Правила игры: за что даются бонусы (WP-311 Ф7, DP.SC.136 /rules; WP-327 Ф5b)."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -273,7 +276,7 @@ async def cmd_rules(message: Message):
 
     if not rules:
         await message.answer(
-            "🎯 <b>Правила начисления баллов</b>\n\n"
+            "🎯 <b>Правила начисления бонусов</b>\n\n"
             "<i>Не удалось получить правила. Попробуй позже.</i>",
             parse_mode="HTML",
         )
@@ -298,9 +301,9 @@ async def cmd_rules(message: Message):
     for r in rules:
         groups[_group_for_rule(r["trigger_event"])].append(r)
 
-    text = "🎯 <b>Правила начисления баллов</b>\n\n"
+    text = "🎯 <b>Правила начисления бонусов</b>\n\n"
     text += (
-        "Каждое действие даёт <b>базу</b> баллов. Финальный балл = "
+        "Каждое действие даёт <b>базу</b> бонусов. Финальный бонус = "
         "<b>база × домен × квалификация × серия</b>, с потолком дня по квалификации.\n\n"
     )
 
@@ -331,7 +334,7 @@ async def cmd_rules(message: Message):
         f"   📚 Учёба: {_fmt_mult('learning')}\n"
         f"   🛠 Практика: {_fmt_mult('practice')}\n"
         f"   💼 Работа: {_fmt_mult('work')}\n\n"
-        "<b>Множители ступени (Ученик)</b> — определяют твой персональный потолок дня\n"
+        "<b>Множители ступени (Ученик)</b> — определяют твой персональный суточный потолок бонусов\n"
         "   1 Случайный — ×1.0, потолок 50/день\n"
         "   2 Практикующий — ×1.2, потолок 80/день\n"
         "   3 Систематический — ×1.5, потолок 120/день\n"
@@ -342,7 +345,7 @@ async def cmd_rules(message: Message):
         "Берётся <b>наименьший</b> из двух: потолок домена (учёба/практика/работа) и потолок твоей ступени/квалификации. "
         "Например: ты Ученик-Систематический (потолок 120) делаешь коммит в work-репо (потолок 50) → потолок этого начисления = 50.\n"
         "Что не вошло — теряется до следующего дня.\n\n"
-        "Свой баланс и историю — /points"
+        "Свой бонусный баланс и историю — /points"
     )
 
     try:

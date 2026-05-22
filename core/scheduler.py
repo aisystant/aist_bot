@@ -11,6 +11,7 @@ import html
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -365,13 +366,18 @@ def _build_marathon_message(content_type: str, day: int, content_ref: str | None
         return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
     # WP-330 Ф2.6: читаем из marathon-content.json
     from core.marathon_content import get_day_text
+    if content_type == 'lesson_practice':
+        lesson = get_day_text(day, 'lesson')
+        practice = get_day_text(day, 'practice')
+        if lesson and practice:
+            return f"{lesson}\n\n{practice}"
+        return lesson or practice or None
     text = get_day_text(day, content_type)
     if text:
         return text
     # Fallback — минимальный текст
     templates = {
-        'lesson': f"📚 *День {day} — Теория*\n\nСегодняшний урок готов! Нажми кнопку ниже, чтобы начать.",
-        'practice': f"🛠 *День {day} — Практика*\n\nПора применить теорию на практике.",
+        'lesson_practice': f"📚 *День {day}*\n\nСегодняшний урок и практика готовы!",
         'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
     }
     return templates.get(content_type)
@@ -1662,10 +1668,10 @@ async def _neon_keep_alive():
 
 
 async def _rollback_expired_burn_reservations():
-    """WP-327: откат резервов баллов старше 30 минут (status='reserved' без confirm/cancel).
+    """WP-327: откат резервов бонусов старше 30 минут (status='reserved' без confirm/cancel).
 
     Защита от «зависших» резервов: пилот нажал «Применить», но не пошёл по ссылке оплаты —
-    через 30 мин баллы возвращаются. Запускается каждые 5 мин (см. start_scheduler)."""
+    через 30 мин бонусы возвращаются. Запускается каждые 5 мин (см. start_scheduler)."""
     try:
         from db.queries.redeem import rollback_expired_reservations
         count = await rollback_expired_reservations()
@@ -1990,6 +1996,66 @@ async def send_milestone_notifications():
 # ENGAGEMENT NUDGES (WP-85 Phase 5C)
 # ═══════════════════════════════════════════════════════════
 
+async def _try_send_upgrade_nudge(
+    bot,
+    chat_id: int,
+    ory_uuid: str,
+    state: dict,
+    lang: str,
+) -> bool:
+    """Evaluate F/G upgrade markers and send rich CTA if triggered.
+
+    F: T2+14d active, guide not opened → тайный гит (T2→T3).
+    G: T3+30d active, guide opened (or ≥21d proxy) → явный гит (T3→T4).
+    Returns True if a nudge was sent. Writes msg_{f|g}_sent_at atomically on success.
+    See WP-349 Ф6/Ф7, peer report sessions/conversations/2026-05-22-04-wp349-markers-fg.
+    """
+    from handlers.tier_upgrade import UPGRADE_NUDGE_SENDERS
+    from db.queries.onboarding_journey import write_upgrade_sent_at
+
+    days = state.get("activity_days_count") or 0
+
+    # dict в insertion order — первый сработавший маркер отправляется (F приоритетнее G)
+    markers: list[tuple[str, bool]] = [
+        (
+            "f",
+            bool(
+                state.get("has_subscription") and
+                days >= 14 and
+                not state.get("first_use_guide_render") and
+                not state.get("first_use_connect_full") and
+                state.get("msg_f_sent_at") is None
+            ),
+        ),
+        (
+            "g",
+            bool(
+                state.get("has_subscription") and
+                (state.get("first_use_guide_render") or days >= 21) and
+                # FIXME-T2-leak: days>=21 не отличает T3b от стойкого T2.
+                # При миграции 238 заменить на has_github_connected.
+                days >= 30 and
+                not state.get("first_use_connect_full") and
+                state.get("msg_g_sent_at") is None
+            ),
+        ),
+    ]
+
+    for key, fires in markers:
+        if not fires:
+            continue
+        sender = UPGRADE_NUDGE_SENDERS.get(key)
+        if sender is None:
+            logger.warning("[Nudge] No sender for upgrade marker %s", key)
+            continue
+        sent = await sender(bot, chat_id, days, lang)
+        if sent:
+            await write_upgrade_sent_at(ory_uuid, key)
+        return sent  # first fired marker: return True/False, don't try next
+
+    return False
+
+
 async def send_engagement_nudges():
     """Проанализировать engagement-данные T3+ и отправить nudge-уведомления."""
     import json
@@ -2004,6 +2070,39 @@ async def send_engagement_nudges():
     if not candidates:
         return
 
+    # WP-349: batch-check onboarding_controller cooldown to prevent dual nudges.
+    # onboarding_controller marks last_nudge_at in learning.onboarding_state;
+    # if it nudged this pilot today, the bot should not send an additional nudge.
+    onboarding_nudged_uuids: set[str] = set()
+    upgrade_state_map: dict[str, dict] = {}  # ory_uuid → onboarding_state fields for F/G
+    ory_uuids = [u['ory_uuid'] for u in candidates if u.get('ory_uuid')]
+    if ory_uuids:
+        try:
+            from db.connection import get_learning_pool
+            learning_pool = await get_learning_pool()
+            async with learning_pool.acquire() as lconn:
+                cooldown_rows = await lconn.fetch(
+                    "SELECT account_id::text FROM learning.onboarding_state "
+                    "WHERE last_nudge_at > NOW() - INTERVAL '24 hours' "
+                    "AND account_id = ANY($1::uuid[])",
+                    ory_uuids,
+                )
+                onboarding_nudged_uuids = {r['account_id'] for r in cooldown_rows}
+                # WP-349 Ф6/Ф7: batch-fetch state for F/G marker evaluation
+                upgrade_rows = await lconn.fetch(
+                    "SELECT account_id::text, activity_days_count, has_subscription, "
+                    "first_use_guide_render, first_use_connect_full, "
+                    "msg_f_sent_at, msg_g_sent_at "
+                    "FROM learning.onboarding_state "
+                    "WHERE account_id = ANY($1::uuid[])",
+                    ory_uuids,
+                )
+                upgrade_state_map = {r['account_id']: dict(r) for r in upgrade_rows}
+            if onboarding_nudged_uuids:
+                logger.info(f"[Nudge] Onboarding cooldown: skipping {len(onboarding_nudged_uuids)} pilots nudged today by controller")
+        except Exception as e:
+            logger.warning(f"[Nudge] Onboarding cooldown check failed (fail-open): {e}")
+
     bot = Bot(token=_bot_token)
     total_sent = 0
 
@@ -2011,6 +2110,27 @@ async def send_engagement_nudges():
         for user in candidates:
             chat_id = user['chat_id']
             lang = user.get('language', 'ru') or 'ru'
+
+            # Skip if onboarding_controller already nudged today (WP-349 dual-cooldown fix)
+            ory_uuid = user.get('ory_uuid')
+            if ory_uuid and ory_uuid in onboarding_nudged_uuids:
+                logger.debug(f"[Nudge] Skipping {chat_id}: onboarding nudge sent today")
+                continue
+
+            # WP-349 Ф6/Ф7: upgrade nudge (F/G rich CTA) takes priority over engagement nudge
+            if ory_uuid:
+                ustate = upgrade_state_map.get(ory_uuid)
+                if ustate:
+                    try:
+                        upgrade_sent = await _try_send_upgrade_nudge(bot, chat_id, ory_uuid, ustate, lang)
+                        if upgrade_sent:
+                            total_sent += 1
+                            continue  # one nudge per user per day
+                    except Exception as e:
+                        if _is_user_unavailable(e):
+                            await _handle_unavailable_user(chat_id, "upgrade_nudge")
+                            continue
+                        logger.error(f"[Nudge] Upgrade nudge error for {chat_id}: {e}")
 
             # Parse engagement JSONB
             engagement = user.get('engagement')
@@ -2037,6 +2157,7 @@ async def send_engagement_nudges():
                 'active_days_streak': user.get('active_days_streak'),
                 'longest_streak': user.get('longest_streak'),
                 'marathon_status': user.get('marathon_status'),
+                'last_slot_date': user.get('last_slot_at'),  # WP-117 Этап 1: slot_missing_3d
             }
 
             # Run rules (basic + derived-aware)

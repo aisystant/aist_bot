@@ -5013,6 +5013,10 @@ milestones:
 # Engagement Nudges (WP-85 Phase 5C)
 # -----------------------------------------------------------------------------
 nudges:
+  nudge_slot_missing_3d:
+    ru: "📝 Вы не записывали время занятий уже несколько дней. Один /slot сегодня поможет удержать ритм и ступень."
+    en: "📝 You haven't logged study time for a few days. One /slot today helps maintain your rhythm and stage."
+
   nudge_inactivity:
     ru: "👋 Привет! Мы заметили, что вас не было несколько дней. Как дела? Возвращайтесь — ваш прогресс ждёт вас."
     en: "👋 Hi there! We noticed you haven't been around for a few days. How are things? Come back — your progress is waiting."

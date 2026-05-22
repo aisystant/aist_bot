@@ -251,7 +251,7 @@ async def _pay_yookassa_workshop(callback: CallbackQuery, chat_id: int, lang: st
                 payable_rub = SEMINAR_AMOUNT
 
         # Сообщение пилоту
-        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из бонусов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t('workshop.btn_pay_rub', lang), url=confirmation_url)],
             [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang), callback_data="seminar_iwe_check")],
@@ -342,7 +342,7 @@ async def _pay_stars_workshop(callback: CallbackQuery, chat_id: int, lang: str, 
         )
         logger.info(f"[Payment] stars invoice_link created: tg={chat_id}, payable={payable_stars}, burn={'yes' if provisional_id else 'no'}")
 
-        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из баллов." if applied_discount_rub > 0 else ""
+        extra = f"\n\nПрименена скидка {applied_discount_rub} ₽ из бонусов." if applied_discount_rub > 0 else ""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=t('workshop.btn_pay_stars', lang, stars=payable_stars), url=link)],
             [InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="sched_back")],
