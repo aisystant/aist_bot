@@ -503,6 +503,42 @@ async def cb_go_mydata(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("/mydata — используйте для просмотра данных")
 
 
+async def _is_in_sm_mydata_state(callback: CallbackQuery) -> bool | dict:
+    """Фильтр: пользователь в utility.mydata стейте SM."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    if not (dispatcher and dispatcher.is_sm_active):
+        return False
+    intern = await get_intern(callback.message.chat.id)
+    if not intern:
+        return False
+    if intern.get('current_state') != "utility.mydata":
+        return False
+    return {"intern": intern}
+
+
+@callbacks_router.callback_query(
+    F.data.startswith("mydata_"),
+    _is_in_sm_mydata_state
+)
+async def cb_mydata_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
+    """MyData callback-ы через SM (секции хаба, drill-down, manage)."""
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+
+    logger.info(f"[CB] MyData callback '{callback.data}' for chat_id={callback.message.chat.id}")
+    try:
+        await dispatcher.route_callback(intern, callback)
+    except Exception as e:
+        logger.error(f"[CB] Error handling mydata callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await callback.answer()
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.try_again', lang))
+
+
 @callbacks_router.callback_query(F.data == "go_progress")
 async def cb_go_progress(callback: CallbackQuery, state: FSMContext):
     """Переход к прогрессу."""
