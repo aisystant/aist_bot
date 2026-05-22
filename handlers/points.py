@@ -154,7 +154,7 @@ def _format_event(ev: dict) -> str:
 
 @points_router.message(Command("points"))
 async def cmd_points(message: Message):
-    """Баланс баллов + последние 10 начислений с разложением."""
+    """Баланс бонусов + последние 10 начислений с разложением."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
