@@ -505,6 +505,16 @@ async def on_consent_accept(callback: CallbackQuery):
     )
     logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
 
+    # Ф20 (WP-349): записать referral_source если пришёл по реф-ссылке
+    try:
+        ref_uuid = (intern.get('current_context') or {}).get('referral_uuid') if intern else None
+        if ref_uuid:
+            from db.queries.onboarding_journey import write_referral_source
+            await write_referral_source(account_id, ref_uuid)
+            logger.info("[Ф20] referral_source written user_id=%s ref=%s", user_id, ref_uuid[:8])
+    except Exception as exc:
+        logger.warning("[Ф20] referral_source write failed: %s", exc)
+
     # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б)
     try:
         await _send_intent_screen(callback.message)
