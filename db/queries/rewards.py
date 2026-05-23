@@ -82,8 +82,33 @@ async def get_recent_applied_events(
         return []
 
 
+async def get_today_raw_total(account_id: Optional[str]) -> Decimal:
+    """Сумма raw (base×dom×qual×streak, без daily_cap) за сегодня — баллы без ограничений."""
+    if not account_id:
+        return Decimal(0)
+
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT COALESCE(
+                    SUM(base_amount * dom_mult * qual_mult * streak_mult), 0
+                ) AS today_raw
+                FROM applied_events
+                WHERE account_id = $1
+                  AND DATE(applied_at) = CURRENT_DATE
+                """,
+                account_id,
+            )
+            return row['today_raw'] if row else Decimal(0)
+    except Exception as e:
+        logger.error(f"[rewards] get_today_raw_total({account_id}): {e}")
+        return Decimal(0)
+
+
 async def get_today_total(account_id: Optional[str]) -> Decimal:
-    """Сумма effective за сегодня (UTC). Для /points «+N за сегодня»."""
+    """Сумма effective (бонусы) за сегодня (UTC). Для /points прогресс-бара бонусов."""
     if not account_id:
         return Decimal(0)
 
