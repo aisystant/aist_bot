@@ -20,7 +20,7 @@ from db.queries.marathon_newcomer import (
     get_checkin_for_day,
     clear_marathon_queue,
 )
-from db.queries.users import moscow_now
+from db.queries.users import moscow_now, update_intern
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -62,6 +62,7 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
         started_at=now,
         current_day=0,
     )
+    await update_intern(user_id, marathon_status="active", onboarding_completed=True)
 
     from core.marathon_content import get_day_text
 
