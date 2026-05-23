@@ -152,6 +152,28 @@ async def cmd_start(message: Message, state: FSMContext):
             return
         # New user: fall through to normal onboarding; consent button shown after auto-link
 
+    # Deep link: /start ref_<ory_uuid> → реферальный онбординг (Ф20, WP-349)
+    if len(args) > 1 and args[1].startswith("ref_"):
+        ref_uuid = args[1][4:]  # убираем "ref_" prefix
+        if ref_uuid:
+            _uid = message.from_user.id if message.from_user else message.chat.id
+            intern_check = await get_intern(_uid)
+            if intern_check and intern_check.get('onboarding_completed'):
+                pass  # онбордированный: fall through к обычному /start
+            else:
+                # Новый пользователь: показать generic welcome + сохранить ref
+                await message.answer(
+                    "👋 <b>Привет!</b>\n\n"
+                    "Тебя пригласил друг из сообщества Aisystant.\n"
+                    "Сейчас пройдём короткую регистрацию — займёт пару минут.",
+                    parse_mode="HTML",
+                )
+                # Сохранить referral_uuid в current_context для consent_accept
+                ctx = (intern_check or {}).get('current_context', {}) or {}
+                ctx['referral_uuid'] = ref_uuid
+                await update_intern(_uid, current_context=ctx)
+                # Fall through: продолжаем обычный онбординг
+
     # Deep link: /start marathon → запуск марафона напрямую (Ф18, WP-349)
     if len(args) > 1 and args[1] == "marathon":
         _uid = message.from_user.id if message.from_user else message.chat.id

@@ -181,6 +181,8 @@ from .settings import (
     PLATFORM_URLS,
 )
 
+from .onboarding_intents import ONBOARDING_INTENT_MAP  # WP-349 Ф22
+
 __all__ = [
     'BOT_TOKEN',
     'ANTHROPIC_API_KEY',
@@ -291,4 +293,5 @@ __all__ = [
     'LEAD_URL',
     'REFERENCE_URL',
     'PLATFORM_URLS',
+    'ONBOARDING_INTENT_MAP',
 ]

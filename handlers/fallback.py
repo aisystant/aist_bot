@@ -85,10 +85,22 @@ async def on_unknown_message(message: Message, state: FSMContext):
     text = message.text or ''
 
     if dispatcher and dispatcher.is_sm_active:
+        intern = await get_intern(chat_id)
+
+        # Ф22 (WP-349): текстовый роутинг онбординг-интентов.
+        # Условие: пользователь онбордирован, нет активного SM-стейта, текст не команда.
+        if (text and not text.startswith('/') and
+                intern and intern.get('onboarding_completed')):
+            current_state = await state.get_state()
+            if current_state is None:
+                from handlers.onboarding_intent import route_onboarding_intent
+                handled = await route_onboarding_intent(text, chat_id, message, state)
+                if handled:
+                    return
+
         logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, len={len(text)}")
         try:
             await state.clear()
-            intern = await get_intern(chat_id)
             if intern:
                 await dispatcher.route_message(intern, message)
                 return
@@ -99,7 +111,6 @@ async def on_unknown_message(message: Message, state: FSMContext):
             logger.error(f"[SM] Error in SM: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            intern = await get_intern(chat_id)
             lang = intern.get('language', 'ru') if intern else 'ru'
             await message.answer(
                 f"⚠️ {t('errors.processing_error', lang)}\n\n"

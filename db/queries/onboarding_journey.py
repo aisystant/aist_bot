@@ -67,6 +67,29 @@ async def write_last_nudge_at(account_id: str) -> bool:
         return False
 
 
+async def write_referral_source(account_id: str, referral_uuid: str) -> bool:
+    """Записать referral_source = <ory_uuid рефери> при consent_accept (WP-349 Ф20).
+
+    Upsert-safe: срабатывает только если строка уже существует.
+    Возвращает True если строка обновлена.
+    """
+    try:
+        pool = await get_learning_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """UPDATE learning.onboarding_state
+                   SET referral_source = $2
+                   WHERE account_id = $1::uuid AND referral_source IS NULL""",
+                account_id,
+                referral_uuid,
+            )
+        updated = result.split()[-1] if result else "0"
+        return updated == "1"
+    except Exception as e:
+        logger.warning("[Ф20] write_referral_source failed: %s", e)
+        return False
+
+
 _UPGRADE_MARKER_COLS: dict[str, str] = {
     "f": "msg_f_sent_at",
     "g": "msg_g_sent_at",
