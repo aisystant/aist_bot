@@ -187,16 +187,7 @@ def _format_event_compact(ev: dict) -> str:
 
         raw = round(base * dom * qual * stk, 1)
 
-        # Баллы всегда показываем как raw (не 0)
-        pts_str = f"<b>+{raw:g}</b>"
-        if capped and eff == 0:
-            cap_note = " <i>(дневной потолок бонусов исчерпан)</i>"
-        elif capped and eff < raw:
-            cap_note = f" <i>(в бонусы +{eff:g} из {raw:g} — дневной потолок)</i>"
-        else:
-            cap_note = ""
-
-        return f"• {label}: {pts_str}{cap_note}{when_str}"
+        return f"• {label}: <b>+{raw:g}</b>{when_str}"
     except Exception as e:
         logger.warning(f"[/points] _format_event_compact failed: {e}")
         return f"• {ev.get('event_type', '?')}"
@@ -340,7 +331,7 @@ def _group_for_rule(event_type: str) -> str:
 
 @points_router.message(Command("rules"))
 async def cmd_rules(message: Message):
-    """Правила игры: за что даются бонусы. WP-311 Ф7, DP.SC.136; WP-327 Ф5b."""
+    """Правила начисления баллов и бонусов. WP-327 Phase 2."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -350,120 +341,53 @@ async def cmd_rules(message: Message):
         return
 
     try:
-        rules = await get_active_reward_rules()
-        domain_mults = await get_domain_multipliers()
-        stage_rows = await get_student_stage_multipliers()
         qual_rows = await get_qualification_multipliers_list()
     except Exception as e:
         logger.error(f"[/rules] chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
         return
 
-    if not rules:
-        await message.answer(
-            "🎯 <b>Правила начисления бонусов</b>\n\n"
-            "<i>Не удалось получить правила. Попробуй позже.</i>",
-            parse_mode="HTML",
-        )
-        return
-
-    # Скрываем legacy aliases при наличии канонического имени
-    trigger_set = {r["trigger_event"] for r in rules}
-    legacy_to_hide = set()
-    if "git_commit" in trigger_set:
-        legacy_to_hide.add("commit_created")
-    if "day_plan_opened" in trigger_set:
-        legacy_to_hide.add("day_open")
-    if "day_plan_closed" in trigger_set:
-        legacy_to_hide.add("day_close")
-    rules = [r for r in rules if r["trigger_event"] not in legacy_to_hide]
-
-    # Группировка по доменам
-    groups: dict[str, list] = {g: [] for g in _RULE_GROUPS}
-    groups["📦 Другое"] = []
-    for r in rules:
-        groups[_group_for_rule(r["trigger_event"])].append(r)
-
-    text = "🎯 <b>Правила начисления баллов и бонусов</b>\n\n"
-    text += (
+    text = (
+        "🎯 <b>Правила начисления баллов и бонусов</b>\n\n"
         "<b>Баллы</b> — монотонный счётчик твоего развития. Никогда не убывают. "
-        "Показывают, сколько ты вложил в себя за всё время.\n"
-        "<b>Бонусы</b> — доступная скидка при оплате. Тратятся, когда применяешь их к заказу. "
-        "Растут вместе с квалификацией и ритмом работы.\n"
-        "1 бонус ≈ 0.875 ₽.\n\n"
-        "Каждое действие даёт <b>базу</b>. Финальный балл = "
-        "<b>база × домен × квалификация × серия</b>, не выше суточного потолка.\n\n"
+        "Показывают, сколько ты вложил в себя за всё время и как помог развитию сообщества.\n\n"
+        "<b>Бонусы</b> — доступная скидка при оплате. Ограничены дневной нормой, "
+        "которая зависит от квалификации МИМ. Тратятся, когда применяешь их к заказу.\n\n"
+        "Каждое активное действие на платформе даёт основу для начисления баллов и бонусов. "
+        "Финальный балл = <b>база × домен × квалификация × серия</b>. "
+        "Бонус зависит от финального балла, но имеет потолок.\n\n"
+        "Баллы начисляются за действия в LMS, в IWE, в клубе, в боте и тп. "
+        "Если работаете и развиваетесь непрерывно, то за удержание систематичности (streak) "
+        "применяется множитель до ×1.5 за неделю.\n\n"
     )
 
-    for group, group_rules in groups.items():
-        if not group_rules:
-            continue
-        text += f"<b>{group}</b>\n"
-        for r in group_rules:
-            label = _EVENT_LABELS.get(r["trigger_event"], f"• {r['trigger_event']}")
-            base = f"{float(r['amount']):g}"
-            streak_mark = " 🔥" if r["streak_eligible"] else ""
-            text += f"   {label} — <b>{base}</b>{streak_mark}\n"
-        text += "\n"
-
-    # Домены из БД
-    def _fmt_domain(key: str) -> str:
-        m = domain_mults.get(key, {})
-        if not m:
-            return "×?"
-        return f"×{m['multiplier']:g} (потолок {int(m['daily_cap_default'])}/день)"
-
-    text += (
-        "<b>🔥 — наращивает серию (streak)</b>\n"
-        "Закрытые подряд дни увеличивают множитель до ×1.5 за неделю.\n\n"
-        "<b>Множители домена</b>\n"
-        f"   📚 Учёба: {_fmt_domain('learning')}\n"
-        f"   🛠 Практика: {_fmt_domain('practice')}\n"
-        f"   💼 Работа: {_fmt_domain('work')}\n\n"
-    )
-
-    # Ступени Ученика из БД
-    if stage_rows:
-        text += "<b>Ступени Ученика</b> — суточный потолок определяет твоя ступень\n"
-        for s in stage_rows:
-            stage_num = s['stage']
-            name = s.get('name', f'Ступень {stage_num}')
-            mult = float(s.get('multiplier', 1))
-            cap = int(s.get('daily_cap', 0))
-            text += f"   {stage_num} {name} — ×{mult:g}, потолок {cap}/день\n"
-        text += "\n"
-    else:
-        text += (
-            "<b>Ступени Ученика</b>\n"
-            "   1 Случайный — ×1.0, потолок 50/день\n"
-            "   2 Практикующий — ×1.2, потолок 80/день\n"
-            "   3 Систематический — ×1.5, потолок 120/день\n"
-            "   4 Дисциплинированный — ×2.0, потолок 200/день\n"
-            "   5 Проактивный — ×2.5, потолок 300/день\n\n"
-        )
-
-    # Квалификации МИМ из БД
     if qual_rows:
-        text += "<b>Квалификации МИМ</b> (после Ученика)\n"
+        text += "<b>Множители за квалификацию МИМ</b>\n"
         for q in qual_rows:
             raw_name = str(q.get('qualification', ''))
-            # WP-268 schema: qualification = lowercase Russian, e.g. 'общественный_деятель'
             name = raw_name.replace('_', ' ').title()
             mult = float(q.get('multiplier', 1))
             cap = int(q.get('daily_cap', 0))
-            text += f"   {name} — ×{mult:g}, потолок {cap}/день\n"
+            text += f"   {name} — ×{mult:g}, потолок бонусов {cap}/день\n"
         text += "\n"
     else:
         text += (
-            "<b>Квалификации МИМ</b> (Работник и выше) — от ×1.3 до ×5.0, потолок 140–1000/день.\n\n"
+            "<b>Множители за квалификацию МИМ</b>\n"
+            "   Ученик — ×1, потолок бонусов 100/день\n"
+            "   Работник — ×1.3, потолок бонусов 140/день\n"
+            "   Стратег — ×1.6, потолок бонусов 200/день\n"
+            "   Специалист — ×2, потолок бонусов 280/день\n"
+            "   Практик — ×2.5, потолок бонусов 360/день\n"
+            "   Мастер — ×3, потолок бонусов 500/день\n"
+            "   Реформатор — ×4, потолок бонусов 700/день\n"
+            "   Общественный Деятель — ×5, потолок бонусов 1000/день\n\n"
         )
 
     text += (
-        "<b>Как считается суточный потолок</b>\n"
-        "Берётся <b>наименьший</b> из двух: потолок домена и потолок ступени/квалификации. "
-        "Например: Ученик-Систематический (потолок 120) делает коммит в work-репо "
-        "(потолок 50) → засчитывается не более 50 баллов за это начисление.\n"
-        "Что не вошло — теряется до следующего дня.\n\n"
+        "<b>Как считается суточный потолок бонусов</b>\n"
+        "Берётся наименьший из двух: баллы и потолок квалификации. "
+        "Например: Ученик (потолок 100) получает 150 баллов → засчитывается не более 100 бонусов. "
+        "Что не вошло в бонусы — остаётся в баллах.\n\n"
         "Свой баланс и историю — /points"
     )
 
