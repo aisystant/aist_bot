@@ -119,42 +119,6 @@ def _relative_time(applied_at) -> str:
         return ""
 
 
-def _format_event(ev: dict) -> str:
-    """Одна строка детализации.
-
-    Формат: `+effective · label (HH мин назад)` + разложение base × dom × qual × streak.
-    Если cap_truncated — показываем raw (без cap) явно, чтобы пилот понимал,
-    что не «0 за ничто», а «потолок дня уже исчерпан».
-    """
-    try:
-        label = _event_label(ev["event_type"])
-        base = float(ev["base_amount"] or 0)
-        dom = float(ev["dom_mult"] or 1)
-        qual = float(ev["qual_mult"] or 1)
-        streak = float(ev["streak_mult"] or 1)
-        eff = float(ev["effective"] or 0)
-        capped = ev.get("cap_truncated", False)
-        when = _relative_time(ev.get("applied_at"))
-
-        # raw = что бы начислили без cap; round к 1 знаку для UX
-        raw = round(base * dom * qual * streak, 1)
-
-        when_str = f" <i>· {when}</i>" if when else ""
-        breakdown = f"{base:g} × {dom:g} × {qual:g} × {streak:g}"
-
-        if capped:
-            if eff > 0:
-                header = f"<b>+{eff:g}</b> <i>(могло быть +{raw:g} — потолок дня)</i>"
-            else:
-                header = f"<b>+0</b> <i>(могло быть +{raw:g} — потолок дня уже исчерпан другими действиями)</i>"
-        else:
-            header = f"<b>+{eff:g}</b>"
-
-        return f"{header} · {label}{when_str}\n   <i>{breakdown}</i>"
-    except Exception as e:
-        logger.warning(f"[/points] _format_event failed: {e} (ev={ev.get('event_id')})")
-        return f"• {ev.get('event_type', '?')} (ошибка отображения)"
-
 
 def _progress_bar(current: float, cap: float, width: int = 10) -> str:
     if cap <= 0:
@@ -169,24 +133,16 @@ def _fmt_pts(n: float) -> str:
 
 
 def _format_event_compact(ev: dict) -> str:
-    """Компактная строка начисления баллов.
-
-    Баллы = raw (base × dom × qual × streak), никогда не 0 для учтённого события.
-    При дневном потолке бонусов — пометка «в бонусы не пошло» или «в бонусы: +N из M».
-    """
+    """Компактная строка начисления баллов. Баллы = raw, всегда > 0."""
     try:
         label = _event_label(ev["event_type"])
         base = float(ev.get("base_amount") or 0)
         dom  = float(ev.get("dom_mult")    or 1)
         qual = float(ev.get("qual_mult")   or 1)
         stk  = float(ev.get("streak_mult") or 1)
-        eff  = float(ev.get("effective")   or 0)
-        capped = ev.get("cap_truncated", False)
         when = _relative_time(ev.get("applied_at"))
         when_str = f" · <i>{when}</i>" if when else ""
-
         raw = round(base * dom * qual * stk, 1)
-
         return f"• {label}: <b>+{raw:g}</b>{when_str}"
     except Exception as e:
         logger.warning(f"[/points] _format_event_compact failed: {e}")
