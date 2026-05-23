@@ -27,21 +27,17 @@ logger = get_logger(__name__)
 
 marathon_router = Router(name="marathon")
 
-# ════════════════════════════════════════════════════════════════════
-# Ф2.3 /marathon_start — регистрация + заполнение очереди на 14 дней
-# ════════════════════════════════════════════════════════════════════
+# Если старт до этого часа (МСК) — первый урок отправляется немедленно. DP.SC.157.
+MARATHON_SAME_DAY_CUTOFF_HOUR = 18
 
-@marathon_router.message(Command("marathon_start"))
-async def cmd_marathon_start(message: Message):
-    """Старт марафона новичков: регистрация, заполнение очереди, приветствие."""
-    chat_id = message.chat.id
 
-    # Проверяем текущий прогресс
-    progress = await get_or_create_progress(chat_id)
+async def start_marathon_flow(user_id: int, reply_msg) -> None:
+    """Запуск марафона: регистрация, заполнение очереди, первый урок. DP.SC.157."""
+    progress = await get_or_create_progress(user_id)
     current_status = progress.get("status", "registered")
 
     if current_status == "active":
-        await message.answer(
+        await reply_msg.answer(
             "🎉 Ты уже в марафоне!\n\n"
             f"📅 Текущий день: {progress.get('current_day', 0)}\n"
             "Используй /marathon_progress, чтобы узнать статус."
@@ -49,31 +45,35 @@ async def cmd_marathon_start(message: Message):
         return
 
     if current_status == "completed":
-        await message.answer(
+        await reply_msg.answer(
             "✅ Ты уже завершил марафон!\n\n"
             "Если хочешь пройти снова — напиши в поддержку /support."
         )
         return
 
-    # Активируем прогресс
     now = moscow_now()
     await update_progress(
-        user_id=chat_id,
+        user_id=user_id,
         status="active",
         started_at=now,
         current_day=0,
     )
 
-    # Заполняем очередь на 14 дней (начиная с завтра, 04:00 MSK)
     from core.marathon_content import get_day_text
 
-    base_time = datetime(now.year, now.month, now.day, 4, 0, 0, tzinfo=now.tzinfo)
-    if now.hour >= 4:
-        # Если уже после 04:00 — первый урок завтра
-        base_time += timedelta(days=1)
+    # DP.SC.157: <18:00 МСК → день 1 немедленно; ≥18:00 → завтра 04:00 МСК
+    tomorrow_0400 = datetime(now.year, now.month, now.day, 4, 0, 0, tzinfo=now.tzinfo) + timedelta(days=1)
+    if now.hour < MARATHON_SAME_DAY_CUTOFF_HOUR:
+        day1_time = now + timedelta(minutes=1)
+        next_day_base = tomorrow_0400
+        first_lesson_today = True
+    else:
+        day1_time = tomorrow_0400
+        next_day_base = tomorrow_0400 + timedelta(days=1)
+        first_lesson_today = False
 
     for day in range(1, 15):
-        scheduled = base_time + timedelta(days=day - 1)
+        scheduled = day1_time if day == 1 else next_day_base + timedelta(days=day - 2)
         lesson = get_day_text(day, 'lesson')
         practice = get_day_text(day, 'practice')
         lesson_practice = f"{lesson}\n\n{practice}" if lesson and practice else (lesson or practice or "")
@@ -81,24 +81,34 @@ async def cmd_marathon_start(message: Message):
             'lesson_practice': lesson_practice,
             'checkin': get_day_text(day, 'checkin'),
         }
-        await enqueue_day_items(chat_id, day, scheduled, content_texts)
+        await enqueue_day_items(user_id, day, scheduled, content_texts)
 
-    logger.info(f"[Marathon] User {chat_id} started marathon. Queue filled 1-14 days.")
+    logger.info("[Marathon] user_id=%s started. Queue 1-14 filled. immediate=%s", user_id, first_lesson_today)
 
-    # Приветственное сообщение (inline, без i18n для MVP — доработать в Ф1.3)
-    await message.answer(
-        "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
-        "📅 Формат: 14 дней, 2 сообщения в день\n"
-        "Утром — теория (один короткий экран) и практика (одно конкретное действие), "
-        "а вечером — чек-ин (пара вопросов про день).\n\n"
-        "🎯 Через 14 дней ты почувствуешь первую собранность: появится ритм, "
-        "привычка думать методично — и понимание, что интеллектуальная работа поддаётся освоению.\n\n"
-        "📋 Команды марафона:\n"
-        "• /marathon_progress — мой прогресс\n"
-        "• /marathon_stop — остановить марафон\n"
-        "• /support — написать в поддержку\n\n"
-        "Первый урок придёт завтра утром. До встречи! 👋"
+    first_lesson_note = (
+        "Первый урок придёт через минуту — приготовься!" if first_lesson_today
+        else "Первый урок придёт завтра в 04:00 МСК."
     )
+    await reply_msg.answer(
+        "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
+        "14 дней × 20 мин/день, можно ставить паузу.\n\n"
+        "Утром — теория и практика (один конкретный шаг), вечером — чек-ин.\n\n"
+        f"📅 {first_lesson_note}\n\n"
+        "📋 Команды:\n"
+        "• /marathon_progress — прогресс\n"
+        "• /marathon_stop — поставить на паузу\n"
+        "• /support — поддержка"
+    )
+
+
+# ════════════════════════════════════════════════════════════════════
+# Ф2.3 /marathon_start — регистрация + заполнение очереди на 14 дней
+# ════════════════════════════════════════════════════════════════════
+
+@marathon_router.message(Command("marathon_start"))
+async def cmd_marathon_start(message: Message):
+    """Старт марафона новичков: регистрация, заполнение очереди, приветствие."""
+    await start_marathon_flow(message.chat.id, message)
 
 
 # ════════════════════════════════════════════════════════════════════

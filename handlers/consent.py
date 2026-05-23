@@ -24,7 +24,6 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command, CommandObject
 
 from db.queries import get_intern
-from db.queries.users import is_onboarded
 from db.queries.consent import (
     get_consent,
     set_consent,
@@ -342,7 +341,7 @@ async def show_consent_optin(message: Message) -> None:
     intern, account_id = await _resolve_account(chat_id)
     lang = (intern.get("language") if intern else "ru") or "ru"
 
-    if not await is_onboarded(intern):
+    if not intern:
         await message.answer(t("profile.first_start", lang))
         return
 
@@ -373,7 +372,7 @@ async def cmd_consent(message: Message, command: CommandObject):
     intern, account_id = await _resolve_account(message.from_user.id if message.from_user else message.chat.id)
     lang = (intern.get("language") if intern else "ru") or "ru"
 
-    if not await is_onboarded(intern):
+    if not intern:
         await message.answer(t("profile.first_start", lang))
         return
 
@@ -497,15 +496,12 @@ async def on_consent_accept(callback: CallbackQuery):
     )
     logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
 
-    # Направить к /setup — следующий шаг в пути оснащения T1→T4
+    # Post-consent: показать tier-экран напрямую (DP.SC.157 — путь ≤4 действий)
     try:
-        await callback.message.answer(
-            "👉 <b>Следующий шаг:</b> откройте экран оснащения.\n\n"
-            "Введите /setup — бот покажет доступные инструменты и путь к следующему уровню.",
-            parse_mode="HTML",
-        )
+        from handlers.setup import send_setup_screen
+        await send_setup_screen(user_id, callback.message)
     except Exception as exc:
-        logger.warning("[consent] setup_nudge failed user_id=%s: %s", user_id, exc)
+        logger.warning("[consent] setup_screen failed user_id=%s: %s", user_id, exc)
 
 
 @consent_router.callback_query(F.data == "consent_decline")

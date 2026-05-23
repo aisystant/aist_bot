@@ -75,99 +75,132 @@ def _render_tier_screen(j: dict, is_returning: bool) -> str:
 
     if tier >= UITier.T4_CREATION:
         return prefix + (
-            "📍 <b>T4 — Созидание.</b> Вы полностью оснащены.\n\n"
-            "Что доступно:\n"
-            "• 💻 Полное рабочее окружение (VS Code): настройка /connect\n"
+            "🚀 <b>Твой уровень на платформе — Т4 «Созидание»</b>, тебе доступны все инструменты платформы.\n\n"
+            "• 💻 Рабочее окружение (VS Code): /connect\n"
             "• 🐙 Личная база знаний в GitHub\n"
-            "• 📋 Рабочий план /plan — задачи и цели на неделю\n"
+            "• 📋 Рабочий план /plan\n"
             "• 🏛 Клуб /club — автопубликации из вашего GitHub\n"
-            "• 📊 Баллы /points и личная статистика /me"
+            "• 📊 Баллы /points и статистика /me"
         )
     elif tier >= UITier.T3_PERSONALIZATION:
         return prefix + (
-            "📍 <b>T3 — Персонализация</b>\n\n"
-            "Что доступно:\n"
-            "• 🤖 Браузерный ассистент: настройка /connect\n"
-            "• 🧭 Личный гид /guide — материалы под вашу ступень и домен\n"
-            "• 📊 Баллы /points и личная статистика /me\n\n"
-            "Следующий уровень — T4 Созидание:\n"
-            "откроются личная база знаний в GitHub и полное рабочее окружение."
+            "📚 <b>Твой уровень на платформе — Т3 «Персонализация»</b>, тебе доступна полная персональная настройка, включая статистику и гида.\n\n"
+            "• 🤖 Браузерный ассистент: /connect\n"
+            "• 🧭 Личный гид /guide — под твою ступень и домен\n"
+            "• 📊 Баллы /points и статистика /me"
         )
     elif tier >= UITier.T2_LEARNING:
         return prefix + (
-            "📍 <b>T2 — Изучение</b>\n\n"
-            "Что доступно:\n"
-            "• 📖 Лента /feed — ежедневные темы в вашем ритме\n"
-            "• 🧭 Навигатор /navigator — поможет выбрать поток\n"
-            "• 🔍 Диагностика /diagnose — уточнит ступень с учётом истории\n"
-            "• 📊 Баллы /points и личная статистика /me\n\n"
-            "Следующий уровень — T3 Персонализация:\n"
-            "откроются браузерный ассистент, личный гид и персональный профиль."
+            "🌱 <b>Твой уровень на платформе — Т2 «Изучение»</b>, тебе доступны все руководства и знания платформы.\n\n"
+            "• 📖 Лента /feed — ежедневные темы\n"
+            "• 🧭 Навигатор /navigator — выбор потока\n"
+            "• 🔍 Диагностика /diagnose\n"
+            "• 📊 Баллы /points и статистика /me"
         )
     else:
         return prefix + (
-            "📍 <b>T1 — Старт</b>\n\n"
-            "Что доступно:\n"
-            "• 📚 Марафон /marathon_start — 14 уроков про системное мышление\n\n"
-            "Рекомендуем также перед стартом пройти диагностику ступени /diagnose, "
-            "чтобы определить с чего начать.\n\n"
-            "Следующий уровень — T2 Изучение:\n"
-            "откроются Лента, персональный поток и личный гид."
+            "🎯 <b>Твой уровень на платформе — Т1 «Старт»</b>, тебе доступны 14-дневный марафон и личная диагностика.\n\n"
+            "14 дней × 20 мин/день, можно ставить паузу\n\n"
+            "• 📚 Марафон — 14 уроков про системное мышление\n"
+            "• 🔍 Диагностика ступени /diagnose"
         )
+
+
+_WHAT_ELSE_BTN = InlineKeyboardButton(text="💡 Что ещё?", callback_data="setup:what_else")
+_BACK_BTN = InlineKeyboardButton(text="← Назад", callback_data="setup:tier_back")
+
+_WHAT_ELSE_COMMANDS = {
+    UITier.T1: [
+        "/support — поддержка",
+        "/points — баллы",
+        "/remind — ежедневное напоминание",
+    ],
+    UITier.T2_LEARNING: [
+        "/knowledge — поиск по знаниям",
+        "/progress — история уроков",
+        "/rp — рабочие продукты",
+    ],
+    UITier.T3_PERSONALIZATION: [
+        "/twin — цифровой двойник",
+        "/me — статистика недели",
+        "/navigator — Навигатор",
+    ],
+    UITier.T4_CREATION: [
+        "/plan — план дня",
+        "/knowledge_post — публикация постов",
+        "/week_close — закрытие недели",
+    ],
+}
+
+
+def _what_else_text(tier: int) -> str:
+    key = (
+        UITier.T4_CREATION if tier >= UITier.T4_CREATION else
+        UITier.T3_PERSONALIZATION if tier >= UITier.T3_PERSONALIZATION else
+        UITier.T2_LEARNING if tier >= UITier.T2_LEARNING else
+        UITier.T1
+    )
+    cmds = _WHAT_ELSE_COMMANDS.get(key, [])
+    lines = "\n".join(f"• {c}" for c in cmds)
+    return f"💡 <b>Что ещё доступно на твоём уровне:</b>\n\n{lines}"
 
 
 def _tier_keyboard(j: dict) -> InlineKeyboardMarkup:
     tier = j["tier"]
 
     if tier >= UITier.T4_CREATION:
-        return InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="🚀 Открыть план /plan",
-                callback_data="setup_action:plan",
-            ),
-            InlineKeyboardButton(
-                text="📊 Пройти аттестацию",
-                callback_data="setup_action:assessment",
-            ),
-        ]])
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🚀 Открыть план /plan", callback_data="setup_action:plan"),
+                InlineKeyboardButton(text="📊 Пройти аттестацию", callback_data="setup_action:assessment"),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
     elif tier >= UITier.T3_PERSONALIZATION:
-        return InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="🧭 Открыть личный гид /guide",
-                callback_data="setup_action:guide",
-            ),
-            InlineKeyboardButton(
-                text="🐙 Подключить GitHub → T4",
-                callback_data="setup_step:github",
-            ),
-        ]])
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🧭 Открыть личный гид /guide", callback_data="setup_action:guide"),
+                InlineKeyboardButton(text="🐙 Подключить GitHub → T4", callback_data="setup_step:github"),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
     elif tier >= UITier.T2_LEARNING:
-        return InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="📖 Открыть Ленту /feed",
-                callback_data="setup_action:feed",
-            ),
-            InlineKeyboardButton(
-                text="🔌 Установить расширение → T3",
-                callback_data="setup_step:browser",
-            ),
-        ]])
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📖 Открыть Ленту /feed", callback_data="setup_action:feed"),
+                InlineKeyboardButton(text="🔌 Установить расширение → T3", callback_data="setup_step:browser"),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
     else:
-        return InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="📚 Начать Марафон",
-                callback_data="setup_action:marathon",
-            ),
-            InlineKeyboardButton(
-                text="💳 Подписка → T2",
-                url=_SUBSCRIPTION_URL,
-            ),
-        ]])
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📚 Начать Марафон", callback_data="setup_action:marathon"),
+                InlineKeyboardButton(text="💳 Подписка → T2", url=_SUBSCRIPTION_URL),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
 
 
 # ─────────────────────────────────────────────
 # Handlers
 # ─────────────────────────────────────────────
+
+async def send_setup_screen(chat_id: int, message) -> None:
+    """Show tier screen programmatically (post-consent, no /setup needed). DP.SC.157."""
+    ory_uuid = await resolve_ory_id_from_chat(chat_id)
+    if not ory_uuid:
+        return
+    tier, cp_row, onb = await asyncio.gather(
+        detect_ui_tier(chat_id),
+        get_latest_cp_assessment(ory_uuid),
+        get_onboarding_state(ory_uuid),
+    )
+    j = _compute_journey(tier, cp_row, onb)
+    text = _render_tier_screen(j, is_returning=False)
+    kb = _tier_keyboard(j)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
 
 @setup_router.message(Command("setup"))
 async def cmd_setup(message: Message) -> None:
@@ -219,10 +252,8 @@ async def on_setup_action(callback: CallbackQuery) -> None:
     action = callback.data.split(":", 1)[1]
 
     if action == "marathon":
-        await callback.message.answer(
-            "Введите /marathon_start — бот запустит первый урок.\n\n"
-            "Рекомендуем сначала пройти /diagnose, чтобы определить ступень."
-        )
+        from handlers.marathon import start_marathon_flow
+        await start_marathon_flow(callback.from_user.id, callback.message)
     elif action == "feed":
         await callback.message.answer(
             "Введите /feed — первый дайджест придёт сегодня в выбранное время."
@@ -303,3 +334,41 @@ async def on_setup_tool_done(callback: CallbackQuery) -> None:
         await callback.message.answer(
             "Выполните /github в этом чате — бот проверит репозиторий и обновит ваш уровень."
         )
+
+
+@setup_router.callback_query(F.data == "setup:what_else")
+async def on_what_else(callback: CallbackQuery) -> None:
+    """«💡 Что ещё?» — показать tier-aware список команд. DP.SC.156."""
+    await callback.answer()
+    user_id = callback.from_user.id
+    tier = await detect_ui_tier(user_id)
+    text = _what_else_text(tier)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[_BACK_BTN]])
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+    # domain_event: what_else_opened с тиром (fail-open: не блокирует UX)
+    try:
+        from db.queries.notifications import insert_domain_event_direct
+        from db.queries.users import moscow_now
+        from helpers.dual_write import resolve_ory_id_from_chat
+        import uuid
+        ory_uuid = await resolve_ory_id_from_chat(user_id)
+        await insert_domain_event_direct(
+            source="bot",
+            external_id=str(uuid.uuid4()),
+            event_type="what_else_opened",
+            schema_version="1",
+            occurred_at=moscow_now(),
+            account_id=str(ory_uuid) if ory_uuid else None,
+            payload={"tier": tier, "chat_id": user_id},
+        )
+    except Exception as exc:
+        logger.warning("[Setup] what_else event log failed user_id=%s: %s", user_id, exc)
+
+
+@setup_router.callback_query(F.data == "setup:tier_back")
+async def on_tier_back(callback: CallbackQuery) -> None:
+    """«← Назад» из «Что ещё?» — вернуться на tier-экран. DP.SC.156."""
+    await callback.answer()
+    await callback.message.delete()
+    await send_setup_screen(callback.from_user.id, callback.message)
