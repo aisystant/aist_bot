@@ -1125,3 +1125,7 @@ twin:
   already_disconnected: "Digital Twin已断开连接"
   disconnected_alert: "Digital Twin已断开连接"
   disconnected_desc: "*Digital Twin已断开连接*\n\n使用 /twin 重新连接。"
+
+scheduler:
+  retry_exhausted_marathon: "今天的课程无法准备好——明天再来，或按 /learn。"
+  retry_exhausted_feed: "今天的摘要无法生成——请稍后使用 /feed。"

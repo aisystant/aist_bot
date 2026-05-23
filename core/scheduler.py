@@ -28,6 +28,7 @@ from db.queries.marathon import save_marathon_content, get_marathon_content, mar
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
+from clients.claude import is_api_degraded
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,14 @@ def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
         return
     if attempt >= len(_RETRY_DELAYS_MINUTES):
         logger.warning(f"[Scheduler] Max retries ({len(_RETRY_DELAYS_MINUTES)}) exhausted for {chat_id} ({content_type})")
+        _scheduler.add_job(
+            _notify_retry_exhausted,
+            'date',
+            run_date=moscow_now(),
+            id=f"notify_exhausted_{chat_id}_{content_type}",
+            replace_existing=True,
+            args=[chat_id, content_type],
+        )
         return
     job_id = f"retry_{content_type}_{chat_id}"
     if _scheduler.get_job(job_id):
@@ -87,6 +96,59 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
         _schedule_retry(chat_id, content_type, attempt + 1)
     finally:
         await bot.session.close()
+
+
+async def _notify_retry_exhausted(chat_id: int, content_type: str):
+    """Уведомить пользователя, когда все попытки retry исчерпаны.
+
+    §10.10 log-before-send: записываем факт ДО отправки (защита от дублей).
+    Bot-blocked guard через is_suppressed() из error_classifier.
+    """
+    from aiogram import Bot
+    from core.error_classifier import is_suppressed
+
+    if not _bot_token:
+        return
+
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+    lang = intern.get('language', 'ru') or 'ru'
+
+    if content_type == 'marathon':
+        key = 'scheduler.retry_exhausted_marathon'
+    else:
+        key = 'scheduler.retry_exhausted_feed'
+
+    text = t(key, lang)
+    logger.info(f"[Scheduler] Notifying {chat_id} retry exhausted ({content_type}): {text!r}")
+
+    bot = Bot(token=_bot_token)
+    try:
+        await bot.send_message(chat_id, text)
+    except Exception as e:
+        if not is_suppressed(str(e)):
+            logger.error(f"[Scheduler] Failed to notify {chat_id} retry exhausted: {e}")
+    finally:
+        await bot.session.close()
+
+
+async def _claude_health_probe():
+    """Синтетический probe Claude API (каждые 5 мин).
+
+    Не вызывает record_api_degradation() напрямую — _api_call() внутри
+    health_check() уже регистрирует деградацию при ClientError/5xx/TimeoutError.
+    Probe = чистый наблюдатель.
+    """
+    if is_api_degraded():
+        logger.debug("[HealthProbe] API already degraded, skip probe")
+        return
+
+    from clients.claude import ClaudeClient
+    client = ClaudeClient()
+    ok = await client.health_check()
+    if not ok:
+        logger.warning("[HealthProbe] Claude API probe failed")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -442,6 +504,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
+    _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
     # Новая архитектура: projection-worker (WP-270) → indicators.calculated_profile (Neon).
@@ -578,6 +641,10 @@ async def pregen_next_for_user(chat_id: int, intern: dict, current_topic_index: 
     Если следующая тема уже пре-генерирована — пропускаем.
     Rule 10.19: Look-ahead pre-gen при доставке контента.
     """
+    if is_api_degraded():
+        logger.info(f"[LookAhead] Claude API degraded, skip look-ahead for {chat_id}")
+        return
+
     from core.topics import get_available_topics
 
     try:
@@ -627,6 +694,9 @@ async def pre_generate_upcoming():
 
     async def _pregen_one(chat_id: int):
         async with sem:
+            if is_api_degraded():
+                logger.info(f"[PreGen] Claude API degraded, skip pre-gen for {chat_id}")
+                return
             try:
                 intern = await get_intern(chat_id)
                 if not intern or intern.get('marathon_status') != 'active':
@@ -803,6 +873,11 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from core.topics import get_marathon_day, get_next_topic_index, get_topic, get_total_topics, get_lessons_tasks_progress
     from core.knowledge import get_topic_title
+
+    if is_api_degraded():
+        logger.warning(f"[Scheduler] Claude API degraded, deferring scheduled topic for {chat_id}")
+        _schedule_retry(chat_id, 'marathon', attempt=0)
+        return
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'

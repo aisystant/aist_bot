@@ -6353,3 +6353,17 @@ showcase:
   invite_error:
     ru: "Не удалось создать ссылку-приглашение. Напишите @ssm_tg — вас добавят вручную."
     en: "Failed to create invite link. Contact @ssm_tg — you will be added manually."
+
+# -----------------------------------------------------------------------------
+# Планировщик — системные уведомления
+# -----------------------------------------------------------------------------
+scheduler:
+  retry_exhausted_marathon:
+    ru: "Сегодня не получилось подготовить урок — вернитесь завтра или нажмите /learn."
+    en: "Could not prepare today's lesson — come back tomorrow or press /learn."
+    description: "Уведомление пользователю когда все попытки retry пре-генерации марафона исчерпаны"
+
+  retry_exhausted_feed:
+    ru: "Дайджест сегодня не сформировался — попробуйте /feed позже."
+    en: "Today's digest could not be prepared — try /feed later."
+    description: "Уведомление пользователю когда все попытки retry пре-генерации дайджеста исчерпаны"

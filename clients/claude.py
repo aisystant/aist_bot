@@ -9,14 +9,48 @@ ClaudeClient - асинхронный клиент для генерации к�
 - Интеграцию с MCP для получения контекста
 """
 
+from collections import deque
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 import asyncio
 import json
+import time as _time
 import time
 
 import os
 
 import aiohttp
+
+# ─── API degradation tracking (canary rule, Rule 1) ───
+_api_error_timestamps: deque = deque(maxlen=20)
+_scheduler_paused_until: float = 0.0
+
+_CANARY_THRESHOLD = 3
+_CANARY_WINDOW_SEC = 900   # 15 min
+_PAUSE_DURATION_SEC = 900  # 15 min
+
+
+def record_api_degradation() -> None:
+    """Record transient/server API error. Pauses scheduler pre-gen if ≥3 in 15min.
+
+    In-memory only — intentional. A fresh deploy resets the 15-min window,
+    which is acceptable: pre-gen retries once, then re-triggers canary if API still down.
+    """
+    global _scheduler_paused_until
+    now = _time.monotonic()
+    _api_error_timestamps.append(now)
+    recent = sum(1 for t in _api_error_timestamps if now - t <= _CANARY_WINDOW_SEC)
+    if recent >= _CANARY_THRESHOLD and _scheduler_paused_until < now:
+        _scheduler_paused_until = now + _PAUSE_DURATION_SEC
+        import logging
+        logging.getLogger(__name__).error(
+            f"[Canary] API degradation: {recent} server errors in 15min "
+            f"→ pausing scheduler pre-gen for {_PAUSE_DURATION_SEC // 60}min"
+        )
+
+
+def is_api_degraded() -> bool:
+    """True if scheduler should skip generation due to API degradation."""
+    return _time.monotonic() < _scheduler_paused_until
 
 from config import (
     get_logger,
@@ -128,6 +162,7 @@ class ClaudeClient:
                             continue
                         return None
                     elif resp.status in (500, 502, 503):
+                        record_api_degradation()
                         logger.warning(f"Claude API transient error ({resp.status}), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
@@ -135,15 +170,34 @@ class ClaudeClient:
                         return None
                     else:
                         error = await resp.text()
-                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        system = payload.get("system") or ""
+                        system_len = len(system) if isinstance(system, str) else sum(
+                            len(b.get("text", "")) for b in system if isinstance(b, dict)
+                        )
+                        payload_meta = {
+                            "model": payload.get("model"),
+                            "max_tokens": payload.get("max_tokens"),
+                            "messages_count": len(payload.get("messages", [])),
+                            "system_len": system_len,
+                        }
+                        from core.tracing import get_current_trace
+                        trace = get_current_trace()
+                        if trace:
+                            payload_meta["trace_id"] = trace.trace_id
+                        logger.error(
+                            f"Claude API error {resp.status}: {error[:500]} "
+                            f"| payload_meta={payload_meta}"
+                        )
                         return None
             except asyncio.TimeoutError:
+                record_api_degradation()
                 logger.warning(f"Claude API timeout ({timeout}s), attempt {attempt + 1}")
                 if attempt == 0:
                     await asyncio.sleep(1)
                     continue
                 return None
             except aiohttp.ClientError as e:
+                record_api_degradation()
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
@@ -258,12 +312,14 @@ class ClaudeClient:
                             continue
                         return None
                     elif resp.status == 529:
+                        record_api_degradation()
                         logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
                             continue
                         return None
                     elif resp.status in (500, 502, 503):
+                        record_api_degradation()
                         logger.warning(f"Claude API transient error ({resp.status}), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
@@ -271,9 +327,27 @@ class ClaudeClient:
                         return None
                     else:
                         error = await resp.text()
-                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        system = payload.get("system") or ""
+                        system_len = len(system) if isinstance(system, str) else sum(
+                            len(b.get("text", "")) for b in system if isinstance(b, dict)
+                        )
+                        payload_meta = {
+                            "model": payload.get("model"),
+                            "max_tokens": payload.get("max_tokens"),
+                            "messages_count": len(payload.get("messages", [])),
+                            "system_len": system_len,
+                        }
+                        from core.tracing import get_current_trace
+                        trace = get_current_trace()
+                        if trace:
+                            payload_meta["trace_id"] = trace.trace_id
+                        logger.error(
+                            f"Claude API error {resp.status}: {error[:500]} "
+                            f"| payload_meta={payload_meta}"
+                        )
                         return None
             except asyncio.TimeoutError:
+                record_api_degradation()
                 partial_len = len(collected_text)
                 logger.warning(
                     f"Claude API inactivity timeout ({inactivity_timeout}s), "
@@ -294,6 +368,7 @@ class ClaudeClient:
                     return partial if allow_partial else None
                 return None
             except aiohttp.ClientError as e:
+                record_api_degradation()
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
@@ -463,6 +538,7 @@ class ClaudeClient:
                     }
                 return None
             except aiohttp.ClientError as e:
+                record_api_degradation()
                 logger.error(f"Claude API connection error: {type(e).__name__}: {e}")
                 if attempt == 0:
                     await asyncio.sleep(1)
@@ -474,6 +550,23 @@ class ClaudeClient:
                     }
                 return None
         return None
+
+    async def health_check(self) -> bool:
+        """Synthetic probe: minimal API call to detect Claude API degradation early.
+
+        Used by scheduler canary probe every 5 min. Does NOT close session — singleton lives on.
+        Degradation recording happens inside _api_call on 5xx/timeout/ClientError.
+        """
+        payload = {
+            "model": CLAUDE_MODEL_HAIKU,
+            "max_tokens": 5,
+            "messages": [{"role": "user", "content": "ok?"}],
+        }
+        try:
+            result = await asyncio.wait_for(self._api_call(payload, timeout=10.0), timeout=12.0)
+            return result is not None
+        except Exception:
+            return False
 
     async def generate(
         self,
