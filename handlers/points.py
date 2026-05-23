@@ -27,6 +27,7 @@ from db.queries.rewards import (
     get_points_balance,
     get_recent_applied_events,
     get_today_total,
+    get_today_raw_total,
     get_active_reward_rules,
     get_domain_multipliers,
     get_earned_total,
@@ -168,10 +169,10 @@ def _fmt_pts(n: float) -> str:
 
 
 def _format_event_compact(ev: dict) -> str:
-    """Компактная строка начисления.
+    """Компактная строка начисления баллов.
 
-    При потолке (cap_truncated=True, effective=0) показывает сколько «сгорело»:
-    «• Коммит в git: 0 из 35 (потолок) · 5 мин назад».
+    Баллы = raw (base × dom × qual × streak), никогда не 0 для учтённого события.
+    При дневном потолке бонусов — пометка «в бонусы не пошло» или «в бонусы: +N из M».
     """
     try:
         label = _event_label(ev["event_type"])
@@ -186,14 +187,16 @@ def _format_event_compact(ev: dict) -> str:
 
         raw = round(base * dom * qual * stk, 1)
 
+        # Баллы всегда показываем как raw (не 0)
+        pts_str = f"<b>+{raw:g}</b>"
         if capped and eff == 0:
-            pts_str = f"0 из {raw:g} <i>(потолок)</i>"
-        elif capped and eff > 0:
-            pts_str = f"<b>+{eff:g}</b> <i>(из {raw:g}, потолок)</i>"
+            cap_note = " <i>(дневной потолок бонусов исчерпан)</i>"
+        elif capped and eff < raw:
+            cap_note = f" <i>(в бонусы +{eff:g} из {raw:g} — дневной потолок)</i>"
         else:
-            pts_str = f"<b>+{eff:g}</b>"
+            cap_note = ""
 
-        return f"• {label}: {pts_str}{when_str}"
+        return f"• {label}: {pts_str}{cap_note}{when_str}"
     except Exception as e:
         logger.warning(f"[/points] _format_event_compact failed: {e}")
         return f"• {ev.get('event_type', '?')}"
@@ -230,7 +233,8 @@ async def cmd_points(message: Message):
         balance = await get_points_balance(account_id)
         earned_total = await get_earned_total(account_id)
         events = await get_recent_applied_events(account_id, limit=5)
-        today_total = await get_today_total(account_id)
+        today_raw = await get_today_raw_total(account_id)   # баллы (raw, без cap)
+        today_bonus = await get_today_total(account_id)     # бонусы (effective, capped)
         daily_cap = await get_user_daily_cap(account_id)
     except Exception as e:
         logger.error(f"[/points] chat_id={chat_id}: {e}")
@@ -239,22 +243,27 @@ async def cmd_points(message: Message):
 
     balance_num = float(balance or 0)
     earned_num = float(earned_total) if earned_total is not None else balance_num
-    today_num = float(today_total or 0)
+    today_raw_num = float(today_raw or 0)
+    today_bonus_num = float(today_bonus or 0)
 
-    today_str = f"+{_fmt_pts(today_num)}" if today_num > 0 else "—"
-    if today_num > 0 and daily_cap and daily_cap > 0:
-        bar = _progress_bar(today_num, float(daily_cap))
-        pct = int(min(today_num / daily_cap, 1.0) * 100)
-        today_pts_line = f"{today_str} {bar} {int(today_num)}/{daily_cap} ({pct}%)"
+    # Баллы сегодня — raw, без потолка
+    today_pts_str = f"+{_fmt_pts(int(today_raw_num))}" if today_raw_num > 0 else "—"
+
+    # Бонусы сегодня — effective с прогресс-баром vs дневной потолок
+    today_bonus_str = f"+{_fmt_pts(int(today_bonus_num))}" if today_bonus_num > 0 else "—"
+    if today_bonus_num > 0 and daily_cap and daily_cap > 0:
+        bar = _progress_bar(today_bonus_num, float(daily_cap))
+        pct = int(min(today_bonus_num / daily_cap, 1.0) * 100)
+        today_bonus_line = f"{today_bonus_str} {bar} {int(today_bonus_num)}/{daily_cap} ({pct}%)"
     else:
-        today_pts_line = today_str
+        today_bonus_line = today_bonus_str
 
     text = "🏆 <b>Ваши начисления</b>\n\n"
-    text += f"Всего баллов: <b>{_fmt_pts(earned_num)}</b>\n"
-    text += f"Начислено за сегодня: {today_pts_line}\n"
+    text += f"Всего баллов: <b>{_fmt_pts(int(earned_num))}</b>\n"
+    text += f"Начислено за сегодня: {today_pts_str}\n"
     text += "\n"
-    text += f"Всего бонусов: <b>{_fmt_pts(balance_num)}</b>\n"
-    text += f"Начислено за сегодня: {today_str}\n"
+    text += f"Всего бонусов: <b>{_fmt_pts(int(balance_num))}</b>\n"
+    text += f"Начислено за сегодня: {today_bonus_line}\n"
     text += "\n"
     text += (
         "Бонусы можно использовать при оплате. "
@@ -267,7 +276,7 @@ async def cmd_points(message: Message):
             "Закрывай день /day_close, делай уроки, фиксируй слоты саморазвития.</i>"
         )
     else:
-        text += "\n<b>Последние начисления:</b>\n"
+        text += "\n<b>Последние начисления баллов:</b>\n"
         for ev in events:
             text += _format_event_compact(ev) + "\n"
 
