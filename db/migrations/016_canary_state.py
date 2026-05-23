@@ -36,7 +36,7 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
     async with pool.acquire() as conn:
         exists = await conn.fetchval("""
             SELECT COUNT(*) FROM information_schema.tables
-            WHERE table_name = 'canary_state'
+            WHERE table_name = 'canary_state' AND table_schema = 'public'
         """)
         if exists:
             return False
