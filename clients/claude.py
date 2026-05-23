@@ -156,6 +156,7 @@ class ClaudeClient:
                             continue
                         return None
                     elif resp.status == 529:
+                        record_api_degradation()
                         logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
@@ -497,12 +498,14 @@ class ClaudeClient:
                             continue
                         return None
                     elif resp.status == 529:
+                        record_api_degradation()
                         logger.warning(f"Claude API overloaded (529), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
                             continue
                         return None
                     elif resp.status in (500, 502, 503):
+                        record_api_degradation()
                         logger.warning(f"Claude API transient error ({resp.status}), attempt {attempt + 1}")
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
