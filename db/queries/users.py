@@ -309,6 +309,16 @@ async def is_onboarded(intern: dict) -> bool:
         await update_intern(chat_id, onboarding_completed=True)
         logger.info(f"[auto-heal] onboarding_completed set for chat_id={chat_id}")
         return True
+    # Auto-heal: user has active marathon_progress (WP-330 newcomer marathon) → onboarded
+    try:
+        from db.queries.marathon_newcomer import get_or_create_progress
+        progress = await get_or_create_progress(chat_id)
+        if progress.get('status') not in (None, 'registered'):
+            logger.info(f"[is_onboarded] auto-heal {chat_id}: marathon_progress status={progress.get('status')}")
+            await update_intern(chat_id, marathon_status=progress.get('status', 'active'), onboarding_completed=True)
+            return True
+    except Exception as e:
+        logger.debug(f"[is_onboarded] marathon_progress check failed: {e}")
     logger.debug(f"[is_onboarded] {chat_id} NOT onboarded (flag=False, both statuses=not_started)")
     return False
 
