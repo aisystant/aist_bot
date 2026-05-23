@@ -4,18 +4,21 @@ Setup Journey — маршрут оснащения T1→T4 (WP-349 Ф8-Ф10).
 # see DP.SC.155, DP.SC.151
 
 Команда /setup:
-  Ф8: дашборд прогресса (tier_detector + cp_assessments + onboarding_state через gather)
-  Ф9: guided flow — per-step сообщение «зачем» + CTA (double-tap protection)
-  Ф10: re-entry — пользователь открыл /setup не сегодня → «Продолжим с [шаг]?»
+  Экран текущего тира с 2 кнопками: функциональная (развитие) + подключение (→ следующий тир).
+  Re-entry: при повторном визите показывает тот же экран без изменений.
+
+  T1 — Старт:     [Начать Марафон]  [Подписка → T2]
+  T2 — Изучение:  [Открыть Ленту]   [Расширение → T3]
+  T3 — Персонал.: [Личный гид]      [GitHub → T4]
+  T4 — Созидание: [Открыть план]    [Пройти аттестацию]
 
 double-tap protection: callback.answer() + edit_reply_markup(None) перед бизнес-логикой.
-Каждый CTA-клик пишет last_nudge_at (cooldown-sync с onboarding_controller).
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -42,146 +45,175 @@ _SUBSCRIPTION_URL = PLATFORM_URLS.get("subscription", "https://system-school.ru/
 _BROWSER_GUIDE_URL = "https://docs.system-school.ru/ru/iwe/browser-extension"
 _GITHUB_GUIDE_URL = "https://docs.system-school.ru/ru/iwe/github-setup"
 
-# Русские имена шагов для re-entry
-_STEP_NAMES = {
-    "diagnose": "диагностики ступени",
-    "subscribe": "оформления подписки",
-    "browser": "подключения расширения",
-    "github": "подключения GitHub",
-}
-
 
 # ─────────────────────────────────────────────
-# Journey logic (Ф8)
+# Journey state (внутренние данные)
 # ─────────────────────────────────────────────
 
 def _compute_journey(tier: int, cp_row: dict | None, onb: dict | None) -> dict:
-    """Вычислить состояние пути оснащения из свежих данных."""
+    """Вычислить состояние пути оснащения.
+
+    tier_detector — единственный источник тира (DP.SC.155).
+    """
     stage = cp_row.get("stage") if cp_row else None
-    has_diagnosis = stage is not None
-
-    has_subscription = tier >= UITier.T2_LEARNING
-    has_browser = tier >= UITier.T3_PERSONALIZATION
-    has_github = tier >= UITier.T4_CREATION
-
-    if not has_diagnosis:
-        next_step = "diagnose"
-    elif not has_subscription:
-        next_step = "subscribe"
-    elif not has_browser:
-        next_step = "browser"
-    elif not has_github:
-        next_step = "github"
-    else:
-        next_step = "complete"
-
     return {
         "tier": tier,
         "stage": stage,
-        "has_diagnosis": has_diagnosis,
-        "has_subscription": has_subscription,
-        "has_browser": has_browser,
-        "has_github": has_github,
-        "next_step": next_step,
+        "has_subscription": tier >= UITier.T2_LEARNING,
+        "has_browser": tier >= UITier.T3_PERSONALIZATION,
+        "has_github": tier >= UITier.T4_CREATION,
     }
 
 
-def _render_dashboard(j: dict) -> str:
-    tick = "✅"
-    cross = "⬜"
-    stage_line = f"{tick} Ступень: {j['stage']}" if j["stage"] else f"{cross} Диагностика ступени"
-    sub_line = f"{tick} Подписка БР" if j["has_subscription"] else f"{cross} Подписка БР"
-    browser_line = f"{tick} Браузер-расширение" if j["has_browser"] else f"{cross} Браузер-расширение (T3)"
-    github_line = f"{tick} Репозиторий GitHub" if j["has_github"] else f"{cross} Репозиторий GitHub (T4)"
-    lines = [
-        "📍 <b>Ваш путь оснащения: T1 → T4</b>",
-        "",
-        f"{tick} Аккаунт привязан",
-        stage_line,
-        sub_line,
-        browser_line,
-        github_line,
-    ]
-    if j["next_step"] == "complete":
-        lines += ["", "🎉 Вы полностью оснащены!"]
-    return "\n".join(lines)
-
-
-def _next_step_keyboard(j: dict) -> InlineKeyboardMarkup | None:
-    step = j["next_step"]
-    if step == "complete":
-        return None
-    if step == "diagnose":
-        btn = InlineKeyboardButton(text="🧪 Пройти диагностику", callback_data="setup_step:diagnose")
-    elif step == "subscribe":
-        btn = InlineKeyboardButton(text="💳 Оформить подписку", url=_SUBSCRIPTION_URL)
-    elif step == "browser":
-        btn = InlineKeyboardButton(text="🔌 Установить расширение", callback_data="setup_step:browser")
-    else:
-        btn = InlineKeyboardButton(text="🐙 Подключить GitHub", callback_data="setup_step:github")
-    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
-
-
 # ─────────────────────────────────────────────
-# Guided flow messages (Ф9)
+# Tier screens
 # ─────────────────────────────────────────────
 
-def _step_text_diagnose() -> str:
-    return (
-        "🧪 <b>Шаг 1: Диагностика ступени</b>\n\n"
-        "Покажет, с какого потока начать — не придётся гадать.\n\n"
-        "Запустите /diagnose прямо здесь — займёт 2–3 минуты."
-    )
+def _render_tier_screen(j: dict, is_returning: bool) -> str:
+    tier = j["tier"]
+    prefix = "С возвращением!\n\n" if is_returning else ""
 
-
-def _step_text_subscribe(stage: int | None) -> str:
-    if stage and stage >= 2:
-        stream_hint = f"Ваша ступень {stage} — поток S{min(stage, 4)} начнётся с нужного уровня."
+    if tier >= UITier.T4_CREATION:
+        return prefix + (
+            "🚀 <b>Твой уровень на платформе — Т4 «Созидание»</b>, тебе доступны все инструменты платформы.\n\n"
+            "• Рабочее окружение (VS Code): /connect\n"
+            "• Личная база знаний в GitHub\n"
+            "• Рабочий план /plan\n"
+            "• Клуб /club — автопубликации из вашего GitHub\n"
+            "• Баллы /points и статистика /me"
+        )
+    elif tier >= UITier.T3_PERSONALIZATION:
+        return prefix + (
+            "📚 <b>Твой уровень на платформе — Т3 «Персонализация»</b>, тебе доступна полная персональная настройка, включая статистику и гида.\n\n"
+            "• Браузерный ассистент: /connect\n"
+            "• Личный гид /guide — под твою ступень и домен\n"
+            "• Баллы /points и статистика /me"
+        )
+    elif tier >= UITier.T2_LEARNING:
+        return prefix + (
+            "🌱 <b>Твой уровень на платформе — Т2 «Изучение»</b>, тебе доступны все руководства и знания платформы.\n\n"
+            "• Лента /feed — ежедневные темы\n"
+            "• Навигатор /navigator — выбор потока\n"
+            "• Диагностика /diagnose\n"
+            "• Баллы /points и статистика /me"
+        )
     else:
-        stream_hint = "14 дней по 20 минут — базовый темп для начала."
-    return (
-        "💳 <b>Шаг 2: Подписка «Бесконечное развитие»</b>\n\n"
-        f"{stream_hint}\n\n"
-        "Подписка открывает личную базу знаний, браузерную среду и персональный поток."
+        return prefix + (
+            "🎯 <b>Твой уровень на платформе — Т1 «Старт»</b>, тебе доступны 14-дневный марафон и личная диагностика.\n\n"
+            "14 дней × 20 мин/день, можно ставить паузу\n\n"
+            "• Марафон — 14 уроков про системное мышление /learn\n"
+            "• Диагностика ступени /diagnose"
+        )
+
+
+_WHAT_ELSE_BTN = InlineKeyboardButton(text="💡 Что ещё?", callback_data="setup:what_else")
+_BACK_BTN = InlineKeyboardButton(text="← Назад", callback_data="setup:tier_back")
+
+_WHAT_ELSE_COMMANDS = {
+    UITier.T1: [
+        "/support — поддержка",
+        "/points — баллы",
+        "/remind — ежедневное напоминание",
+    ],
+    UITier.T2_LEARNING: [
+        "/knowledge — поиск по знаниям",
+        "/progress — история уроков",
+        "/rp — рабочие продукты",
+    ],
+    UITier.T3_PERSONALIZATION: [
+        "/twin — цифровой двойник",
+        "/me — статистика недели",
+        "/navigator — Навигатор",
+    ],
+    UITier.T4_CREATION: [
+        "/plan — план дня",
+        "/knowledge_post — публикация постов",
+        "/week_close — закрытие недели",
+    ],
+}
+
+
+def _what_else_text(tier: int) -> str:
+    key = (
+        UITier.T4_CREATION if tier >= UITier.T4_CREATION else
+        UITier.T3_PERSONALIZATION if tier >= UITier.T3_PERSONALIZATION else
+        UITier.T2_LEARNING if tier >= UITier.T2_LEARNING else
+        UITier.T1
     )
+    cmds = _WHAT_ELSE_COMMANDS.get(key, [])
+    lines = "\n".join(f"• {c}" for c in cmds)
+    return f"💡 <b>Что ещё доступно на твоём уровне:</b>\n\n{lines}"
 
 
-def _step_text_browser() -> str:
-    return (
-        "🔌 <b>Шаг 3: Браузерная среда</b>\n\n"
-        "Работайте с IWE без установки приложения — прямо в браузере.\n\n"
-        f"1. Откройте <a href='{_BROWSER_GUIDE_URL}'>инструкцию по установке</a>\n"
-        "2. После установки выполните /connect в боте"
-    )
+def _tier_keyboard(j: dict) -> InlineKeyboardMarkup:
+    tier = j["tier"]
 
-
-def _step_text_github() -> str:
-    return (
-        "🐙 <b>Шаг 4: Репозиторий GitHub</b>\n\n"
-        "Ваши знания останутся с вами — не в системе. "
-        "GitHub-репозиторий — ваша личная база, независимая от платформы.\n\n"
-        f"1. Откройте <a href='{_GITHUB_GUIDE_URL}'>инструкцию по настройке</a>\n"
-        "2. После настройки выполните /github в боте"
-    )
+    if tier >= UITier.T4_CREATION:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🚀 Открыть план /plan", callback_data="setup_action:plan"),
+                InlineKeyboardButton(text="📊 Пройти аттестацию", callback_data="setup_action:assessment"),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
+    elif tier >= UITier.T3_PERSONALIZATION:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🧭 Открыть личный гид /guide", callback_data="setup_action:guide"),
+                InlineKeyboardButton(text="🐙 Подключить GitHub → T4", callback_data="setup_step:github"),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
+    elif tier >= UITier.T2_LEARNING:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📖 Открыть Ленту /feed", callback_data="setup_action:feed"),
+                InlineKeyboardButton(text="🔌 Установить расширение → T3", callback_data="setup_step:browser"),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
+    else:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📚 Начать Марафон", callback_data="setup_action:marathon"),
+                InlineKeyboardButton(text="💳 Подписка → T2", url=_SUBSCRIPTION_URL),
+            ],
+            [_WHAT_ELSE_BTN],
+        ])
 
 
 # ─────────────────────────────────────────────
 # Handlers
 # ─────────────────────────────────────────────
 
+async def send_setup_screen(chat_id: int, message) -> None:
+    """Show tier screen programmatically (post-consent, no /setup needed). DP.SC.157."""
+    ory_uuid = await resolve_ory_id_from_chat(chat_id)
+    if not ory_uuid:
+        return
+    tier, cp_row, onb = await asyncio.gather(
+        detect_ui_tier(chat_id),
+        get_latest_cp_assessment(ory_uuid),
+        get_onboarding_state(ory_uuid),
+    )
+    j = _compute_journey(tier, cp_row, onb)
+    text = _render_tier_screen(j, is_returning=False)
+    kb = _tier_keyboard(j)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
 @setup_router.message(Command("setup"))
 async def cmd_setup(message: Message) -> None:
-    """Показать дашборд прогресса T1→T4 (с re-entry для повторных визитов)."""
+    """Показать экран текущего тира T1–T4."""
     chat_id = message.chat.id
 
     ory_uuid = await resolve_ory_id_from_chat(chat_id)
     if not ory_uuid:
         await message.answer(
-            "Для использования /setup привяжите аккаунт Aisystant через /link."
+            "Для /setup привяжите аккаунт Aisystant через /link."
         )
         return
 
-    # Параллельно: тир (Railway) + диагноз (Neon) + onb_state (Neon) + intern (Railway)
     tier, cp_row, onb, intern = await asyncio.gather(
         detect_ui_tier(chat_id),
         get_latest_cp_assessment(ory_uuid),
@@ -191,7 +223,7 @@ async def cmd_setup(message: Message) -> None:
 
     j = _compute_journey(tier, cp_row, onb)
 
-    # Ф10: re-entry — пользователь открыл /setup не сегодня
+    # Re-entry: пользователь уже был — показываем тот же экран с пометкой
     last_active = (intern or {}).get("last_active_date")
     today = date.today()
     is_returning = False
@@ -203,28 +235,48 @@ async def cmd_setup(message: Message) -> None:
                 last_active = date.fromisoformat(last_active)
             except ValueError:
                 last_active = None
-        if last_active and last_active < today and j["next_step"] != "complete":
+        if last_active and last_active < today:
             is_returning = True
 
-    if is_returning:
-        step_name = _STEP_NAMES.get(j["next_step"], j["next_step"])
-        kb = _next_step_keyboard(j)
-        await message.answer(
-            f"С возвращением! Продолжим с <b>{step_name}</b>?",
-            parse_mode="HTML",
-            reply_markup=kb,
-        )
-        return
-
-    text = _render_dashboard(j)
-    kb = _next_step_keyboard(j)
+    text = _render_tier_screen(j, is_returning)
+    kb = _tier_keyboard(j)
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@setup_router.callback_query(F.data.startswith("setup_action:"))
+async def on_setup_action(callback: CallbackQuery) -> None:
+    """Функциональные кнопки тира: направить к нужной команде."""
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    action = callback.data.split(":", 1)[1]
+
+    if action == "marathon":
+        from handlers.marathon import start_marathon_flow
+        await start_marathon_flow(callback.from_user.id, callback.message)
+    elif action == "feed":
+        await callback.message.answer(
+            "Введите /feed — первый дайджест придёт сегодня в выбранное время."
+        )
+    elif action == "guide":
+        await callback.message.answer(
+            "Введите /guide — бот откроет ваш личный гид."
+        )
+    elif action == "plan":
+        await callback.message.answer(
+            "Введите /plan — ваш рабочий план на текущую неделю."
+        )
+    elif action == "assessment":
+        await callback.message.answer(
+            "Введите /assessment — оценит уровень освоения и предложит следующий поток."
+        )
+    else:
+        logger.warning("[Setup] unknown action: %s chat_id=%s", action, callback.from_user.id)
 
 
 @setup_router.callback_query(F.data.startswith("setup_step:"))
 async def on_setup_step(callback: CallbackQuery) -> None:
-    """Guided flow: показать описание шага с «зачем» и CTA (Ф9)."""
-    # double-tap protection
+    """Шаги подключения (browser, github) — инструкция с кнопкой подтверждения."""
     await callback.answer()
     await callback.message.edit_reply_markup(reply_markup=None)
 
@@ -232,37 +284,37 @@ async def on_setup_step(callback: CallbackQuery) -> None:
     step = callback.data.split(":", 1)[1]
 
     ory_uuid = await resolve_ory_id_from_chat(chat_id)
-    stage: int | None = None
-
     if ory_uuid:
-        # Cooldown-sync + получаем stage для персонализации текста подписки
-        cp_row, _ = await asyncio.gather(
-            get_latest_cp_assessment(ory_uuid),
-            write_last_nudge_at(ory_uuid),
-        )
-        stage = cp_row.get("stage") if cp_row else None
+        try:
+            await write_last_nudge_at(ory_uuid)
+        except Exception as e:
+            logger.warning("[Setup] write_last_nudge_at failed: %s", e)
 
-    if step == "diagnose":
-        text = _step_text_diagnose()
-        kb = None  # CTA = /diagnose command, не кнопка
-    elif step == "subscribe":
-        text = _step_text_subscribe(stage)
+    if step == "browser":
+        text = (
+            "🔌 <b>Браузерный ассистент</b>\n\n"
+            f"1. Откройте <a href='{_BROWSER_GUIDE_URL}'>инструкцию по установке</a>\n"
+            "2. После установки выполните /connect в боте — "
+            "бот проверит подключение и обновит ваш уровень."
+        )
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="💳 Оформить подписку", url=_SUBSCRIPTION_URL)
-        ]])
-    elif step == "browser":
-        text = _step_text_browser()
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="✅ Готово, выполняю /connect", callback_data="setup_browser_done")
+            InlineKeyboardButton(text="✅ Установил, выполняю /connect", callback_data="setup_browser_done"),
         ]])
     elif step == "github":
-        text = _step_text_github()
+        text = (
+            "🐙 <b>Репозиторий GitHub</b>\n\n"
+            "Ваши знания останутся с вами — не в системе. "
+            "GitHub-репозиторий — личная база, независимая от платформы.\n\n"
+            f"1. Откройте <a href='{_GITHUB_GUIDE_URL}'>инструкцию по настройке</a>\n"
+            "2. После настройки выполните /github в боте — "
+            "бот проверит репозиторий и обновит ваш уровень."
+        )
         kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="✅ Готово, выполняю /github", callback_data="setup_github_done")
+            InlineKeyboardButton(text="✅ Настроил, выполняю /github", callback_data="setup_github_done"),
         ]])
     else:
         logger.warning("[Setup] unknown step: %s chat_id=%s", step, chat_id)
-        await callback.message.answer("Неизвестный шаг. Попробуйте /setup снова.")
+        await callback.message.answer("Неизвестный шаг. Введите /setup снова.")
         return
 
     await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -276,9 +328,47 @@ async def on_setup_tool_done(callback: CallbackQuery) -> None:
 
     if callback.data == "setup_browser_done":
         await callback.message.answer(
-            "Выполните /connect в этом чате — бот проверит подключение и обновит ваш путь."
+            "Выполните /connect в этом чате — бот проверит подключение и обновит ваш уровень."
         )
     else:
         await callback.message.answer(
-            "Выполните /github в этом чате — бот проверит репозиторий и обновит ваш путь."
+            "Выполните /github в этом чате — бот проверит репозиторий и обновит ваш уровень."
         )
+
+
+@setup_router.callback_query(F.data == "setup:what_else")
+async def on_what_else(callback: CallbackQuery) -> None:
+    """«💡 Что ещё?» — показать tier-aware список команд. DP.SC.156."""
+    await callback.answer()
+    user_id = callback.from_user.id
+    tier = await detect_ui_tier(user_id)
+    text = _what_else_text(tier)
+    kb = InlineKeyboardMarkup(inline_keyboard=[[_BACK_BTN]])
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+    # domain_event: what_else_opened с тиром (fail-open: не блокирует UX)
+    try:
+        from db.queries.notifications import insert_domain_event_direct
+        from db.queries.users import moscow_now
+        from helpers.dual_write import resolve_ory_id_from_chat
+        import uuid
+        ory_uuid = await resolve_ory_id_from_chat(user_id)
+        await insert_domain_event_direct(
+            source="bot",
+            external_id=str(uuid.uuid4()),
+            event_type="what_else_opened",
+            schema_version="1",
+            occurred_at=moscow_now(),
+            account_id=str(ory_uuid) if ory_uuid else None,
+            payload={"tier": tier, "chat_id": user_id},
+        )
+    except Exception as exc:
+        logger.warning("[Setup] what_else event log failed user_id=%s: %s", user_id, exc)
+
+
+@setup_router.callback_query(F.data == "setup:tier_back")
+async def on_tier_back(callback: CallbackQuery) -> None:
+    """«← Назад» из «Что ещё?» — вернуться на tier-экран. DP.SC.156."""
+    await callback.answer()
+    await callback.message.delete()
+    await send_setup_screen(callback.from_user.id, callback.message)

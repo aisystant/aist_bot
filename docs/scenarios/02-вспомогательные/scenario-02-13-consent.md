@@ -136,6 +136,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-05-23 | WP-349: После `consent_accept` нудж теперь ведёт на `/setup` (не `/diagnose`). |
 | 2026-05-12 | WP-188 Ф17 — реализация `/consent`, writer-pool, GDPR fixes, activity-summary, /link follow-up |
 | 2026-05-12 | WP-253 Блок 2 — пароли ролей (stage_evaluator, consent_writer, w_reflection_writer) rotated; `CONSENT_URL` Railway обновлён; smoke-test PASS |
 | 2026-05-12 | Создание этого документа (end-to-end процесс) |

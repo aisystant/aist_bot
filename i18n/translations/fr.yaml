@@ -1125,3 +1125,7 @@ twin:
   already_disconnected: "Digital Twin déjà déconnecté"
   disconnected_alert: "Digital Twin déconnecté"
   disconnected_desc: "*Digital Twin déconnecté*\n\nUtilisez /twin pour vous reconnecter."
+
+scheduler:
+  retry_exhausted_marathon: "La leçon du jour n'a pas pu être préparée — revenez demain ou appuyez sur /learn."
+  retry_exhausted_feed: "Le résumé du jour n'a pas pu être préparé — essayez /feed plus tard."

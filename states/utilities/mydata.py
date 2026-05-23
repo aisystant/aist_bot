@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 # ─── Tier detection helpers ────────────────────────────────────────────────
 
 TIER_NAMES = {
-    'ru': {0: 'T0 — Новый', 1: 'T1 — Старт', 2: 'T2 — Изучение', 3: 'T3 — Персонализация', 4: 'T4 — Созидание', 5: 'T5 — Админ'},
-    'en': {0: 'T0 — New', 1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation', 5: 'T5 — Admin'},
+    'ru': {0: 'T0', 1: '🎯 Т1 «Старт»', 2: '🌱 Т2 «Изучение»', 3: '📚 Т3 «Персонализация»', 4: '🚀 Т4 «Созидание»', 5: 'T5 — Админ'},
+    'en': {0: 'T0', 1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation', 5: 'T5 — Admin'},
 }
 
 TIER_EMOJI = {0: '⚪', 1: '🟢', 2: '📘', 3: '🧬', 4: '🚀', 5: '⚡'}
