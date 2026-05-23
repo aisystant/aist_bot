@@ -46,10 +46,10 @@ _PRIVACY_URL = "https://docs.system-school.ru/iwe/privacy"  # B8.0 публик�
 
 def _scope_label(scope_name: str, lang: str = "ru") -> str:
     return {
-        "stage_evaluation": "🎯 Оценка ступени мастерства",
-        "club_activity": "🏛 Активность в клубе",
-        "text_analysis": "🧠 Анализ текстов (мировоззрение)",
-    }.get(scope_name, f"• {scope_name}")
+        "stage_evaluation": "Оценка ступени мастерства",
+        "club_activity": "Активность в клубе",
+        "text_analysis": "Анализ текстов (мировоззрение)",
+    }.get(scope_name, scope_name)
 
 
 def _activity_summary(events: dict[str, int]) -> str:
@@ -87,27 +87,22 @@ def _format_status_no_consent() -> str:
 def _format_status(consent, events: dict[str, int] | None = None, lang: str = "ru", text_analysis: bool = False) -> str:
     if consent is None:
         return _format_status_no_consent()
-    status_icon = "✅" if consent["opt_in"] else "🚫"
     status_text = "включён" if consent["opt_in"] else "отозван"
-    scope_lines = "\n".join(f"  {_scope_label(s, lang)}" for s in (consent["scope"] or []))
-    opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
-    text = (
-        f"{status_icon} <b>Трекинг развития:</b> {status_text}\n\n"
-        f"<b>Что трекаем:</b>\n{scope_lines}\n\n"
-        f"<i>Зафиксировано: {opted_at}</i>\n\n"
-    )
-    if consent["opt_in"] and events is not None:
-        text += _activity_summary(events) + "\n\n"
+    opted_at_short = consent["opted_at"].strftime("%d.%m.%Y")
+    scope_lines = "\n".join(f"  • {_scope_label(s, lang)}" for s in (consent["scope"] or []))
+    ta_text = "подключён" if text_analysis else "не подключён"
 
-    # WP-316 Ф9: text_analysis status
-    ta_icon = "✅" if text_analysis else "🚫"
-    ta_text = "включён" if text_analysis else "отключён"
-    text += (
-        f"{ta_icon} <b>Анализ текстов:</b> {ta_text}\n"
-        f"  {_scope_label('text_analysis', lang)}\n"
-        "<i>Используется для точной оценки мировоззрения (cp.wld). "
-        "Не влияет на ступень и бонусы.</i>\n\n"
+    text = (
+        "<b>Ваши согласия</b>\n\n"
+        f"  • Трекинг активности — {status_text} (с {opted_at_short})\n"
+        f"{scope_lines}\n"
+        f"  • Анализ текстов — {ta_text}\n"
+        "    <i>Точная оценка мировоззрения. Не влияет на ступень.</i>\n"
     )
+
+    if consent["opt_in"] and events is not None:
+        text += "\n" + _activity_summary(events)
+
     return text
 
 
@@ -189,43 +184,6 @@ async def _resolve_account(chat_id: int) -> tuple[dict | None, str | None]:
     intern = await get_intern(chat_id)
     account_id = await resolve_ory_id_from_chat(chat_id)
     return intern, account_id
-
-
-async def show_consent_optin(message: Message) -> None:
-    """Точка входа для deep-link ?start=consent (из onboarding.py)."""
-    chat_id = message.chat.id
-    intern, account_id = await _resolve_account(chat_id)
-    if not account_id:
-        from db.queries.aisystant import get_aisystant_id
-        aisystant_id = await get_aisystant_id(chat_id)
-        if aisystant_id:
-            await message.answer(
-                _LINKED_BUT_SYNCING_TEXT,
-                parse_mode="HTML",
-                reply_markup=_retry_keyboard(),
-            )
-        else:
-            await message.answer(
-                _NOT_LINKED_TEXT,
-                parse_mode="HTML",
-                reply_markup=_link_keyboard(),
-            )
-        return
-    consent = await get_consent(account_id)
-    if consent and consent["opt_in"]:
-        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
-        await message.answer(
-            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>",
-            parse_mode="HTML",
-            reply_markup=_status_keyboard(consent),
-        )
-        return
-    await message.answer(
-        _privacy_text(),
-        parse_mode="HTML",
-        reply_markup=_accept_keyboard(),
-        disable_web_page_preview=True,
-    )
 
 
 async def show_consent_optout(message: Message) -> None:
@@ -356,10 +314,11 @@ async def show_consent_optin(message: Message) -> None:
 
     consent = await get_consent(account_id)
     if consent and consent["opt_in"]:
-        opted_at = consent["opted_at"].strftime("%Y-%m-%d %H:%M UTC")
+        text_analysis = await get_consent_grant(account_id, "text_analysis")
         await message.answer(
-            f"✅ <b>Согласие уже активно.</b>\n\nЗафиксировано: <i>{opted_at}</i>\n\nУправление: /consent /consent opt-out",
+            _format_status(consent, text_analysis=text_analysis),
             parse_mode="HTML",
+            reply_markup=_status_keyboard(consent, text_analysis=text_analysis),
         )
         return
 
@@ -467,6 +426,58 @@ async def cmd_consent(message: Message, command: CommandObject):
     )
 
 
+def _intent_keyboard() -> InlineKeyboardMarkup:
+    """Экран выбора намерения после первого consent (Вариант Б, WP-349 Ф16б)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Начать марафон", callback_data="intent:marathon"),
+            InlineKeyboardButton(text="Узнать ступень", callback_data="intent:diagnose"),
+        ],
+        [
+            InlineKeyboardButton(text="Обзор платформы", callback_data="intent:setup"),
+        ],
+    ])
+
+
+async def _send_intent_screen(message) -> None:
+    """Отправить экран выбора намерения после первого consent."""
+    await message.answer(
+        "С чего начнём?",
+        reply_markup=_intent_keyboard(),
+    )
+
+
+@consent_router.callback_query(F.data == "intent:marathon")
+async def on_intent_marathon(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_reply_markup(None)
+    await callback.message.answer(
+        "14 дней × 20 минут.\n\nНажми /learn — запустим первый урок.",
+    )
+
+
+@consent_router.callback_query(F.data == "intent:diagnose")
+async def on_intent_diagnose(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_reply_markup(None)
+    await callback.message.answer(
+        "5 вопросов — и узнаешь свою ступень. Это подскажет, с какого потока начать.\n\n"
+        "Нажми /diagnose чтобы начать.",
+    )
+
+
+@consent_router.callback_query(F.data == "intent:setup")
+async def on_intent_setup(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_reply_markup(None)
+    chat_id = callback.from_user.id
+    try:
+        from handlers.setup import send_setup_screen
+        await send_setup_screen(chat_id, callback.message)
+    except Exception as exc:
+        logger.warning("[intent:setup] setup_screen failed chat_id=%s: %s", chat_id, exc)
+
+
 @consent_router.callback_query(F.data == "consent_accept")
 async def on_consent_accept(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -496,12 +507,11 @@ async def on_consent_accept(callback: CallbackQuery):
     )
     logger.info("[consent] accept user_id=%s account_id=%s", user_id, account_id)
 
-    # Post-consent: показать tier-экран напрямую (DP.SC.157 — путь ≤4 действий)
+    # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б)
     try:
-        from handlers.setup import send_setup_screen
-        await send_setup_screen(user_id, callback.message)
+        await _send_intent_screen(callback.message)
     except Exception as exc:
-        logger.warning("[consent] setup_screen failed user_id=%s: %s", user_id, exc)
+        logger.warning("[consent] intent_screen failed user_id=%s: %s", user_id, exc)
 
 
 @consent_router.callback_query(F.data == "consent_decline")
@@ -783,15 +793,29 @@ async def on_text_analysis_on(callback: CallbackQuery):
     chat_id = callback.from_user.id
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
-        await callback.answer("Аккаунт не привязан", show_alert=True)
+        await callback.message.answer("Аккаунт не привязан — попробуй /link.")
         return
-    await set_consent_grant(account_id, "text_analysis", granted=True)
+    try:
+        await set_consent_grant(account_id, "text_analysis", granted=True)
+    except Exception as exc:
+        logger.error("[consent_text_analysis_on] set_grant failed account_id=%s: %s", account_id, exc)
+        await callback.message.answer("Ошибка записи. Попробуй /consent ещё раз.")
+        return
     consent = await get_consent(account_id)
-    await callback.message.edit_text(
-        _format_status(consent, text_analysis=True),
-        parse_mode="HTML",
-        reply_markup=_status_keyboard(consent, text_analysis=True),
-    )
+    events = None
+    if consent and consent["opt_in"]:
+        try:
+            events = await count_practice_events_30d(account_id)
+        except Exception:
+            pass
+    try:
+        await callback.message.edit_text(
+            _format_status(consent, events=events, text_analysis=True),
+            parse_mode="HTML",
+            reply_markup=_status_keyboard(consent, text_analysis=True),
+        )
+    except Exception as exc:
+        logger.warning("[consent_text_analysis_on] edit_text failed: %s", exc)
 
 
 @consent_router.callback_query(F.data == "consent_text_analysis_off")
@@ -801,12 +825,26 @@ async def on_text_analysis_off(callback: CallbackQuery):
     chat_id = callback.from_user.id
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
-        await callback.answer("Аккаунт не привязан", show_alert=True)
+        await callback.message.answer("Аккаунт не привязан — попробуй /link.")
         return
-    await set_consent_grant(account_id, "text_analysis", granted=False)
+    try:
+        await set_consent_grant(account_id, "text_analysis", granted=False)
+    except Exception as exc:
+        logger.error("[consent_text_analysis_off] set_grant failed account_id=%s: %s", account_id, exc)
+        await callback.message.answer("Ошибка записи. Попробуй /consent ещё раз.")
+        return
     consent = await get_consent(account_id)
-    await callback.message.edit_text(
-        _format_status(consent, text_analysis=False),
-        parse_mode="HTML",
-        reply_markup=_status_keyboard(consent, text_analysis=False),
-    )
+    events = None
+    if consent and consent["opt_in"]:
+        try:
+            events = await count_practice_events_30d(account_id)
+        except Exception:
+            pass
+    try:
+        await callback.message.edit_text(
+            _format_status(consent, events=events, text_analysis=False),
+            parse_mode="HTML",
+            reply_markup=_status_keyboard(consent, text_analysis=False),
+        )
+    except Exception as exc:
+        logger.warning("[consent_text_analysis_off] edit_text failed: %s", exc)
