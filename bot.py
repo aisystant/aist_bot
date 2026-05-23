@@ -189,6 +189,20 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 015 skipped: {_e}")
 
+    # Canary state table (Learning/Neon) + restore pause across redeploys
+    try:
+        import importlib as _il
+        _m016 = _il.import_module("db.migrations.016_canary_state")
+        _lpool = await get_learning_pool()
+        _created = await _m016.migrate_if_needed(_lpool)
+        if _created:
+            logger.info("✅ Migration 016: canary_state created in learning DB")
+        from clients.claude import set_canary_pool, restore_canary_from_db
+        set_canary_pool(_lpool)
+        await restore_canary_from_db(_lpool)
+    except Exception as _e:
+        logger.warning(f"⚠️ Canary state init skipped: {_e}")
+
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
     from db.migrations.migrate_products import migrate_products_if_needed

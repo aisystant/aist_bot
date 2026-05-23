@@ -10,6 +10,7 @@ ClaudeClient - асинхронный клиент для генерации к�
 """
 
 from collections import deque
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 import asyncio
 import json
@@ -28,13 +29,57 @@ _CANARY_THRESHOLD = 3
 _CANARY_WINDOW_SEC = 900   # 15 min
 _PAUSE_DURATION_SEC = 900  # 15 min
 
+# Pool reference set at bot startup for canary state persistence across deploys.
+_canary_pool = None
+
+
+def set_canary_pool(pool) -> None:
+    """Register the learning DB pool so canary pause state survives redeploys."""
+    global _canary_pool
+    _canary_pool = pool
+
+
+async def _save_canary_state(pool, paused_until_monotonic: float) -> None:
+    """Persist canary pause wall-clock time to Neon (fire-and-forget)."""
+    import logging
+    remaining = paused_until_monotonic - _time.monotonic()
+    if remaining <= 0:
+        return
+    wall_time = datetime.utcnow() + timedelta(seconds=remaining)
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO canary_state (id, paused_until, updated_at)
+                VALUES (1, $1, NOW())
+                ON CONFLICT (id) DO UPDATE SET paused_until = $1, updated_at = NOW()
+            """, wall_time)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[Canary] Failed to persist pause: {e}")
+
+
+async def restore_canary_from_db(pool) -> None:
+    """At startup: restore canary pause from Neon if still within the window."""
+    global _scheduler_paused_until
+    import logging
+    _log = logging.getLogger(__name__)
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT paused_until FROM canary_state WHERE id = 1"
+            )
+        if row and row['paused_until']:
+            remaining = (row['paused_until'] - datetime.utcnow()).total_seconds()
+            if remaining > 0:
+                _scheduler_paused_until = _time.monotonic() + remaining
+                _log.warning(
+                    f"[Canary] Restored pause from DB: {remaining:.0f}s remaining"
+                )
+    except Exception as e:
+        _log.warning(f"[Canary] Could not restore pause state: {e}")
+
 
 def record_api_degradation() -> None:
-    """Record transient/server API error. Pauses scheduler pre-gen if ≥3 in 15min.
-
-    In-memory only — intentional. A fresh deploy resets the 15-min window,
-    which is acceptable: pre-gen retries once, then re-triggers canary if API still down.
-    """
+    """Record transient/server API error. Pauses scheduler pre-gen if ≥3 in 15min."""
     global _scheduler_paused_until
     now = _time.monotonic()
     _api_error_timestamps.append(now)
@@ -46,6 +91,13 @@ def record_api_degradation() -> None:
             f"[Canary] API degradation: {recent} server errors in 15min "
             f"→ pausing scheduler pre-gen for {_PAUSE_DURATION_SEC // 60}min"
         )
+        if _canary_pool is not None:
+            try:
+                asyncio.get_running_loop().create_task(
+                    _save_canary_state(_canary_pool, _scheduler_paused_until)
+                )
+            except RuntimeError:
+                pass
 
 
 def is_api_degraded() -> bool:
