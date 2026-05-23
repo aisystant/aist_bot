@@ -152,6 +152,16 @@ async def cmd_start(message: Message, state: FSMContext):
             return
         # New user: fall through to normal onboarding; consent button shown after auto-link
 
+    # Deep link: /start marathon → запуск марафона напрямую (Ф18, WP-349)
+    if len(args) > 1 and args[1] == "marathon":
+        _uid = message.from_user.id if message.from_user else message.chat.id
+        intern_check = await get_intern(_uid)
+        if intern_check and intern_check.get('onboarding_completed'):
+            from handlers.marathon import start_marathon_flow
+            await start_marathon_flow(_uid, message)
+            return
+        # New user: fall through to onboarding, marathon starts after
+
     intern = await get_intern(message.chat.id)
 
     if intern['onboarding_completed']:

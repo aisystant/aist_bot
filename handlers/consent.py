@@ -22,6 +22,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
+from aiogram.fsm.context import FSMContext
 
 from db.queries import get_intern
 from db.queries.consent import (
@@ -451,19 +452,16 @@ async def _send_intent_screen(message) -> None:
 async def on_intent_marathon(callback: CallbackQuery):
     await callback.answer()
     await callback.message.edit_reply_markup(None)
-    await callback.message.answer(
-        "14 дней × 20 минут.\n\nНажми /learn — запустим первый урок.",
-    )
+    from handlers.marathon import start_marathon_flow
+    await start_marathon_flow(callback.from_user.id, callback.message)
 
 
 @consent_router.callback_query(F.data == "intent:diagnose")
-async def on_intent_diagnose(callback: CallbackQuery):
+async def on_intent_diagnose(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_reply_markup(None)
-    await callback.message.answer(
-        "5 вопросов — и узнаешь свою ступень. Это подскажет, с какого потока начать.\n\n"
-        "Нажми /diagnose чтобы начать.",
-    )
+    from handlers.diagnose import cmd_diagnose
+    await cmd_diagnose(callback.message, state)
 
 
 @consent_router.callback_query(F.data == "intent:setup")
