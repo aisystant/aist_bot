@@ -102,6 +102,7 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
         "📋 Команды:\n"
         "• /marathon_progress — прогресс\n"
         "• /marathon_stop — поставить на паузу\n"
+        "• /profile — изменить время и уровень сложности\n"
         "• /support — поддержка"
     )
 
