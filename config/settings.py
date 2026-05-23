@@ -164,6 +164,7 @@ USE_STATE_MACHINE = os.getenv("USE_STATE_MACHINE", "true").lower() == "true"
 # Используется для тестовых ботов, чтобы пользователи не пользовались ими как основными
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "false").lower() == "true"
 MAINTENANCE_REDIRECT_BOT = os.getenv("MAINTENANCE_REDIRECT_BOT", "@aist_me_bot")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "aist_me_bot")
 
 # Список разрешённых chat_id через запятую: "123456,789012"
 _allowed = os.getenv("ALLOWED_TESTERS", "")
