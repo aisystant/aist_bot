@@ -30,6 +30,10 @@ from db.queries.rewards import (
     get_today_total,
     get_active_reward_rules,
     get_domain_multipliers,
+    get_earned_total,
+    get_user_daily_cap,
+    get_student_stage_multipliers,
+    get_qualification_multipliers_list,
 )
 from i18n import t
 
@@ -152,9 +156,39 @@ def _format_event(ev: dict) -> str:
         return f"• {ev.get('event_type', '?')} (ошибка отображения)"
 
 
+def _progress_bar(current: float, cap: float, width: int = 10) -> str:
+    if cap <= 0:
+        return "░" * width
+    filled = round(min(current / cap, 1.0) * width)
+    return "▓" * filled + "░" * (width - filled)
+
+
+def _fmt_pts(n: float) -> str:
+    """Форматирование числа баллов: пробел как разделитель тысяч."""
+    return f"{int(n):,}".replace(",", " ")
+
+
+def _format_event_compact(ev: dict) -> str:
+    """Компактная строка начисления: «• Коммит в git +35 · 5 мин назад»."""
+    try:
+        label = _event_label(ev["event_type"])
+        eff = float(ev["effective"] or 0)
+        capped = ev.get("cap_truncated", False)
+        when = _relative_time(ev.get("applied_at"))
+
+        eff_str = f"+{eff:g}" if eff > 0 else "0"
+        when_str = f" · <i>{when}</i>" if when else ""
+        cap_hint = " <i>(потолок)</i>" if capped and eff == 0 else ""
+
+        return f"• {label} <b>{eff_str}</b>{cap_hint}{when_str}"
+    except Exception as e:
+        logger.warning(f"[/points] _format_event_compact failed: {e}")
+        return f"• {ev.get('event_type', '?')}"
+
+
 @points_router.message(Command("points"))
 async def cmd_points(message: Message):
-    """Баланс бонусов + последние 10 начислений с разложением."""
+    """Баланс баллов/бонусов + последние 5 начислений. WP-327 Phase 2 UX refactor."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -166,54 +200,68 @@ async def cmd_points(message: Message):
     account_id = intern.get('dt_user_id')
     if not account_id:
         await message.answer(
-            "🏆 <b>Бонусы</b>\n\n"
+            "🏆 <b>Ваши баллы</b>\n\n"
             "Аккаунт ещё не привязан к Aisystant.\n"
-            "Привяжите профиль в /settings, чтобы начать копить бонусы.",
+            "Привяжи профиль в /settings, чтобы начать копить баллы.",
             parse_mode="HTML",
         )
         return
 
     try:
         balance = await get_points_balance(account_id)
-        events = await get_recent_applied_events(account_id, limit=10)
+        earned_total = await get_earned_total(account_id)
+        events = await get_recent_applied_events(account_id, limit=5)
         today_total = await get_today_total(account_id)
+        daily_cap = await get_user_daily_cap(account_id)
     except Exception as e:
         logger.error(f"[/points] chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
         return
 
-    balance_text = f"{float(balance):g}" if balance is not None else "0"
-    today_text = f" <i>(+{float(today_total):g} за сегодня)</i>" if today_total and float(today_total) > 0 else ""
-    text = f"🏆 <b>Бонусы:</b> {balance_text}{today_text}\n\n"
+    balance_num = float(balance or 0)
+    # earned_total может не вернуться если нет записи в point_balances — fallback на balance
+    earned_num = float(earned_total) if earned_total is not None else balance_num
+    today_num = float(today_total or 0)
+
+    text = "🏆 <b>Ваши баллы</b>\n\n"
+    text += f"🪙 <b>Заработано всего:</b> {_fmt_pts(earned_num)}\n"
+    text += f"💎 <b>Доступно бонусов:</b> {_fmt_pts(balance_num)}\n"
+
+    if today_num > 0:
+        if daily_cap and daily_cap > 0:
+            bar = _progress_bar(today_num, float(daily_cap))
+            pct = int(min(today_num / daily_cap, 1.0) * 100)
+            text += (
+                f"\n📅 <b>Сегодня:</b> +{_fmt_pts(today_num)} "
+                f"{bar} {int(today_num)}/{daily_cap} ({pct}%)\n"
+            )
+        else:
+            text += f"\n📅 <b>Сегодня:</b> +{_fmt_pts(today_num)}\n"
+
+    text += "\n"
 
     if not events:
-        # WP-311 Ф7 (DP.SC.136 critère «Honesty»): объясняем причину 0 бонусов
         text += (
             "<i>Пока нет начислений.</i>\n\n"
-            "Возможные причины:\n"
-            "• Не оформлено согласие на учёт активности — пройди /consent\n"
-            "• Нет действий за период — закрывай день (/day_close), "
-            "делай уроки, фиксируй слоты саморазвития, коммить в свои репозитории\n\n"
-            "Полный список действий, дающих бонусы: /rules"
+            "Закрывай день /day_close, делай уроки, фиксируй слоты саморазвития "
+            "или коммить в свои репозитории.\n\n"
         )
     else:
-        text += "<b>Последние начисления:</b>\n\n"
-        text += "\n\n".join(_format_event(ev) for ev in events)
-        text += (
-            "\n\n<i>Разложение: база × домен × квалификация × серия.</i>\n"
-            "<i>«Потолок дня» — суточный лимит, наименьший из лимита домена и лимита твоей "
-            "ступени/квалификации. Например, у Ученика на ступени 1 потолок = 50 бонусов/день. "
-            "Что выше потолка — теряется до следующего дня.</i>\n"
-            "<i>Подробнее о потолках и множителях — /rules</i>"
-        )
+        text += "<b>Последние начисления:</b>\n"
+        for ev in events:
+            text += _format_event_compact(ev) + "\n"
+        text += "\n"
+
+    text += "<i>1 бонус ≈ 0.875 ₽ при оплате · /rules — как копить быстрее</i>"
 
     try:
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"[/points] HTML render failed for chat_id={chat_id}: {e}")
-        # Fallback без форматирования (см. CLAUDE.md §10.2)
-        await message.answer(text.replace("<b>", "").replace("</b>", "")
-                             .replace("<i>", "").replace("</i>", ""))
+        await message.answer(
+            text.replace("<b>", "").replace("</b>", "")
+                .replace("<i>", "").replace("</i>", "")
+        )
 
 
 # WP-311 Ф7 (DP.SC.136): команда /rules — правила игры
@@ -257,7 +305,7 @@ def _group_for_rule(event_type: str) -> str:
 
 @points_router.message(Command("rules"))
 async def cmd_rules(message: Message):
-    """Правила игры: за что даются бонусы (WP-311 Ф7, DP.SC.136 /rules; WP-327 Ф5b)."""
+    """Правила игры: за что даются бонусы. WP-311 Ф7, DP.SC.136; WP-327 Ф5b."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -268,7 +316,9 @@ async def cmd_rules(message: Message):
 
     try:
         rules = await get_active_reward_rules()
-        multipliers = await get_domain_multipliers()
+        domain_mults = await get_domain_multipliers()
+        stage_rows = await get_student_stage_multipliers()
+        qual_rows = await get_qualification_multipliers_list()
     except Exception as e:
         logger.error(f"[/rules] chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
@@ -282,9 +332,7 @@ async def cmd_rules(message: Message):
         )
         return
 
-    # Скрываем legacy alias если новое имя уже представлено:
-    # commit_created → скрываем при наличии git_commit
-    # day_open / day_close → скрываем при наличии day_plan_opened / day_plan_closed
+    # Скрываем legacy aliases при наличии канонического имени
     trigger_set = {r["trigger_event"] for r in rules}
     legacy_to_hide = set()
     if "git_commit" in trigger_set:
@@ -295,62 +343,95 @@ async def cmd_rules(message: Message):
         legacy_to_hide.add("day_close")
     rules = [r for r in rules if r["trigger_event"] not in legacy_to_hide]
 
-    # Группируем
+    # Группировка по доменам
     groups: dict[str, list] = {g: [] for g in _RULE_GROUPS}
     groups["📦 Другое"] = []
     for r in rules:
         groups[_group_for_rule(r["trigger_event"])].append(r)
 
-    text = "🎯 <b>Правила начисления бонусов</b>\n\n"
+    text = "🎯 <b>Правила начисления баллов</b>\n\n"
     text += (
-        "Каждое действие даёт <b>базу</b> бонусов. Финальный бонус = "
-        "<b>база × домен × квалификация × серия</b>, с потолком дня по квалификации.\n\n"
+        "Каждое действие даёт <b>базу</b>. Финальный балл = "
+        "<b>база × домен × квалификация × серия</b>, не выше суточного потолка.\n\n"
     )
-
-    label_map = _EVENT_LABELS
 
     for group, group_rules in groups.items():
         if not group_rules:
             continue
         text += f"<b>{group}</b>\n"
         for r in group_rules:
-            label = label_map.get(r["trigger_event"], f"• {r['trigger_event']}")
+            label = _EVENT_LABELS.get(r["trigger_event"], f"• {r['trigger_event']}")
             base = f"{float(r['amount']):g}"
             streak_mark = " 🔥" if r["streak_eligible"] else ""
             text += f"   {label} — <b>{base}</b>{streak_mark}\n"
         text += "\n"
 
-    # Реальные множители из reference.activity_domain_multipliers
-    def _fmt_mult(domain_key: str) -> str:
-        m = multipliers.get(domain_key, {})
+    # Домены из БД
+    def _fmt_domain(key: str) -> str:
+        m = domain_mults.get(key, {})
         if not m:
             return "×?"
-        return f"×{m['multiplier']:g} (потолок дня {m['daily_cap_default']:g})"
+        return f"×{m['multiplier']:g} (потолок {int(m['daily_cap_default'])}/день)"
 
     text += (
-        "<b>🔥 — действие наращивает серию (streak)</b>\n"
-        "Закрытые подряд дни увеличивают множитель до 1.5× за неделю.\n\n"
+        "<b>🔥 — наращивает серию (streak)</b>\n"
+        "Закрытые подряд дни увеличивают множитель до ×1.5 за неделю.\n\n"
         "<b>Множители домена</b>\n"
-        f"   📚 Учёба: {_fmt_mult('learning')}\n"
-        f"   🛠 Практика: {_fmt_mult('practice')}\n"
-        f"   💼 Работа: {_fmt_mult('work')}\n\n"
-        "<b>Множители ступени (Ученик)</b> — определяют твой персональный суточный потолок бонусов\n"
-        "   1 Случайный — ×1.0, потолок 50/день\n"
-        "   2 Практикующий — ×1.2, потолок 80/день\n"
-        "   3 Систематический — ×1.5, потолок 120/день\n"
-        "   4 Дисциплинированный — ×2.0, потолок 200/день\n"
-        "   5 Проактивный — ×2.5, потолок 300/день\n\n"
-        "<b>Множители квалификаций МИМ</b> (Работник и выше) — от ×1.3 до ×5.0, потолок 140–1000/день.\n\n"
-        "<b>Как считается «потолок дня»</b>\n"
-        "Берётся <b>наименьший</b> из двух: потолок домена (учёба/практика/работа) и потолок твоей ступени/квалификации. "
-        "Например: ты Ученик-Систематический (потолок 120) делаешь коммит в work-репо (потолок 50) → потолок этого начисления = 50.\n"
+        f"   📚 Учёба: {_fmt_domain('learning')}\n"
+        f"   🛠 Практика: {_fmt_domain('practice')}\n"
+        f"   💼 Работа: {_fmt_domain('work')}\n\n"
+    )
+
+    # Ступени Ученика из БД
+    if stage_rows:
+        text += "<b>Ступени Ученика</b> — суточный потолок определяет твоя ступень\n"
+        for s in stage_rows:
+            stage_num = s['stage']
+            name = s.get('name', f'Ступень {stage_num}')
+            mult = float(s.get('multiplier', 1))
+            cap = int(s.get('daily_cap', 0))
+            text += f"   {stage_num} {name} — ×{mult:g}, потолок {cap}/день\n"
+        text += "\n"
+    else:
+        text += (
+            "<b>Ступени Ученика</b>\n"
+            "   1 Случайный — ×1.0, потолок 50/день\n"
+            "   2 Практикующий — ×1.2, потолок 80/день\n"
+            "   3 Систематический — ×1.5, потолок 120/день\n"
+            "   4 Дисциплинированный — ×2.0, потолок 200/день\n"
+            "   5 Проактивный — ×2.5, потолок 300/день\n\n"
+        )
+
+    # Квалификации МИМ из БД
+    if qual_rows:
+        text += "<b>Квалификации МИМ</b> (после Ученика)\n"
+        for q in qual_rows:
+            raw_name = q.get('qualification', '')
+            # Нормализуем: 'работник' → 'Работник', 'общественный_деятель' → 'Общественный деятель'
+            name = raw_name.replace('_', ' ').capitalize()
+            mult = float(q.get('multiplier', 1))
+            cap = int(q.get('daily_cap', 0))
+            text += f"   {name} — ×{mult:g}, потолок {cap}/день\n"
+        text += "\n"
+    else:
+        text += (
+            "<b>Квалификации МИМ</b> (Работник и выше) — от ×1.3 до ×5.0, потолок 140–1000/день.\n\n"
+        )
+
+    text += (
+        "<b>Как считается суточный потолок</b>\n"
+        "Берётся <b>наименьший</b> из двух: потолок домена и потолок ступени/квалификации. "
+        "Например: Ученик-Систематический (потолок 120) делает коммит в work-репо "
+        "(потолок 50) → засчитывается не более 50 баллов за это начисление.\n"
         "Что не вошло — теряется до следующего дня.\n\n"
-        "Свой бонусный баланс и историю — /points"
+        "Свой баланс и историю — /points"
     )
 
     try:
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"[/rules] HTML render failed for chat_id={chat_id}: {e}")
-        await message.answer(text.replace("<b>", "").replace("</b>", "")
-                             .replace("<i>", "").replace("</i>", ""))
+        await message.answer(
+            text.replace("<b>", "").replace("</b>", "")
+                .replace("<i>", "").replace("</i>", "")
+        )

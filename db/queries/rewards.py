@@ -151,3 +151,94 @@ async def get_domain_multipliers() -> Dict[str, Dict[str, Any]]:
     except Exception as e:
         logger.error(f"[rewards] get_domain_multipliers: {e}")
         return {}
+
+
+async def get_earned_total(account_id: Optional[str]) -> Optional[Decimal]:
+    """Earned-total = накопленные + потраченные confirmed бонусы (монотонный счётчик).
+
+    Вычисляется как point_balances.points + SUM(redeemed_events.points_amount WHERE confirmed).
+    Никогда не убывает — показывается как «Заработано всего» (DP.D.050).
+    """
+    if not account_id:
+        return None
+
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    COALESCE(
+                        (SELECT points FROM point_balances WHERE account_id = $1),
+                        0
+                    ) + COALESCE(
+                        (SELECT SUM(points_amount) FROM redeemed_events
+                         WHERE account_id = $1 AND status = 'confirmed'),
+                        0
+                    ) AS earned_total
+                """,
+                account_id,
+            )
+            return row['earned_total'] if row else None
+    except Exception as e:
+        logger.error(f"[rewards] get_earned_total({account_id}): {e}")
+        return None
+
+
+async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
+    """Суточный потолок пользователя из последнего события в applied_events (approx)."""
+    if not account_id:
+        return None
+
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT daily_cap FROM applied_events
+                WHERE account_id = $1
+                ORDER BY applied_at DESC
+                LIMIT 1
+                """,
+                account_id,
+            )
+            return int(row['daily_cap']) if row and row['daily_cap'] else None
+    except Exception as e:
+        logger.error(f"[rewards] get_user_daily_cap({account_id}): {e}")
+        return None
+
+
+async def get_student_stage_multipliers() -> List[Dict[str, Any]]:
+    """Ступени Ученика (1-5) с именами, множителями и потолками из reference БД."""
+    try:
+        pool = await get_reference_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT stage, name, multiplier, daily_cap
+                FROM student_stage_multipliers
+                ORDER BY stage
+                """
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"[rewards] get_student_stage_multipliers: {e}")
+        return []
+
+
+async def get_qualification_multipliers_list() -> List[Dict[str, Any]]:
+    """Квалификации МИМ (8 уровней: Ученик → Общественный деятель) из reference БД."""
+    try:
+        pool = await get_reference_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT sort_order, qualification, multiplier, daily_cap
+                FROM qualification_multipliers
+                ORDER BY sort_order
+                """
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"[rewards] get_qualification_multipliers_list: {e}")
+        return []
