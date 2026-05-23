@@ -88,9 +88,10 @@ async def on_unknown_message(message: Message, state: FSMContext):
         intern = await get_intern(chat_id)
 
         # Ф22 (WP-349): текстовый роутинг онбординг-интентов.
-        # Условие: пользователь онбордирован, нет активного SM-стейта, текст не команда.
+        # Условие: пользователь онбордирован, нет ни FSM-стейта ни SM custom state, текст не команда.
         if (text and not text.startswith('/') and
-                intern and intern.get('onboarding_completed')):
+                intern and intern.get('onboarding_completed') and
+                not intern.get('current_state')):
             current_state = await state.get_state()
             if current_state is None:
                 from handlers.onboarding_intent import route_onboarding_intent

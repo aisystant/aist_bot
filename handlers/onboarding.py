@@ -7,6 +7,7 @@
 
 import logging
 import os
+import re
 from datetime import timedelta
 
 from aiogram import Router, F
@@ -152,10 +153,12 @@ async def cmd_start(message: Message, state: FSMContext):
             return
         # New user: fall through to normal onboarding; consent button shown after auto-link
 
+    _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
     # Deep link: /start ref_<ory_uuid> → реферальный онбординг (Ф20, WP-349)
     if len(args) > 1 and args[1].startswith("ref_"):
         ref_uuid = args[1][4:]  # убираем "ref_" prefix
-        if ref_uuid:
+        if ref_uuid and _UUID_RE.match(ref_uuid.lower()):
             _uid = message.from_user.id if message.from_user else message.chat.id
             intern_check = await get_intern(_uid)
             if intern_check and intern_check.get('onboarding_completed'):

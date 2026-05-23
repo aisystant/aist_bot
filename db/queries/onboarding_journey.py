@@ -70,21 +70,24 @@ async def write_last_nudge_at(account_id: str) -> bool:
 async def write_referral_source(account_id: str, referral_uuid: str) -> bool:
     """Записать referral_source = <ory_uuid рефери> при consent_accept (WP-349 Ф20).
 
-    Upsert-safe: срабатывает только если строка уже существует.
-    Возвращает True если строка обновлена.
+    UPSERT: создаёт строку если onboarding_controller ещё не успел (race-safe).
+    Не перезаписывает уже установленный referral_source.
+    Возвращает True если строка создана или обновлена.
     """
     try:
         pool = await get_learning_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(
-                """UPDATE learning.onboarding_state
-                   SET referral_source = $2
-                   WHERE account_id = $1::uuid AND referral_source IS NULL""",
+                """INSERT INTO learning.onboarding_state (account_id, referral_source)
+                   VALUES ($1::uuid, $2)
+                   ON CONFLICT (account_id) DO UPDATE
+                   SET referral_source = EXCLUDED.referral_source
+                   WHERE learning.onboarding_state.referral_source IS NULL""",
                 account_id,
                 referral_uuid,
             )
-        updated = result.split()[-1] if result else "0"
-        return updated == "1"
+        tag = result or ""
+        return tag.startswith("INSERT") or (tag.startswith("UPDATE") and tag.split()[-1] == "1")
     except Exception as e:
         logger.warning("[Ф20] write_referral_source failed: %s", e)
         return False

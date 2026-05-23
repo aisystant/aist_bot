@@ -510,8 +510,11 @@ async def on_consent_accept(callback: CallbackQuery):
         ref_uuid = (intern.get('current_context') or {}).get('referral_uuid') if intern else None
         if ref_uuid:
             from db.queries.onboarding_journey import write_referral_source
-            await write_referral_source(account_id, ref_uuid)
-            logger.info("[Ф20] referral_source written user_id=%s ref=%s", user_id, ref_uuid[:8])
+            written = await write_referral_source(account_id, ref_uuid)
+            if written:
+                logger.info("[Ф20] referral_source written user_id=%s ref=%s", user_id, ref_uuid[:8])
+            else:
+                logger.warning("[Ф20] referral_source not written (already set?) user_id=%s", user_id)
     except Exception as exc:
         logger.warning("[Ф20] referral_source write failed: %s", exc)
 
