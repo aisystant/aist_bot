@@ -77,8 +77,13 @@ class MarathonLessonState(BaseState):
     def _get_current_topic_index(self, user) -> int:
         """Получить индекс текущей темы."""
         if isinstance(user, dict):
-            return user.get('current_topic_index', 0)
-        return getattr(user, 'current_topic_index', 0)
+            val = user.get('current_topic_index', 0)
+        else:
+            val = getattr(user, 'current_topic_index', 0)
+        try:
+            return int(val) if val is not None and val != '' else 0
+        except (ValueError, TypeError):
+            return 0
 
     def _get_completed_topics(self, user) -> list:
         """Получить список завершённых тем."""

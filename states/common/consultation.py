@@ -644,10 +644,19 @@ class ConsultationState(BaseState):
 
                 # Refinement: inject previous answer
                 if is_refinement and previous_answer:
-                    refinement_instruction = {
-                        'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
-                        'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
-                    }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
+                    # Short previous_answer (< 400 chars) means it was a FAQ hit —
+                    # it may not be related to the question. Use direct instruction
+                    # instead of "expand aspects" which is meaningless in that case.
+                    if len(previous_answer) < 400:
+                        refinement_instruction = {
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ БОТА:\n{previous_answer[:800]}\n\nПользователь хочет узнать подробнее. Дай конкретный практический ответ на его вопрос, используя найденную информацию. Если предыдущий ответ не отвечал на вопрос напрямую — сосредоточься на точном ответе.",
+                            'en': f"\n\nPREVIOUS BOT ANSWER:\n{previous_answer[:800]}\n\nThe user wants more detail. Give a concrete practical answer to their question using found information. If the previous answer did not directly address the question — focus on answering it precisely.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive a precise practical answer to the user's question.")
+                    else:
+                        refinement_instruction = {
+                            'ru': f"\n\nПРЕДЫДУЩИЙ ОТВЕТ (пользователь хочет подробнее):\n{previous_answer[:800]}\n\nДай более детальный, глубокий ответ. Раскрой аспекты, которые не были затронуты выше.",
+                            'en': f"\n\nPREVIOUS ANSWER (user wants more detail):\n{previous_answer[:800]}\n\nGive a more detailed answer. Cover aspects not addressed above.",
+                        }.get(lang, f"\n\nPREVIOUS ANSWER:\n{previous_answer[:800]}\n\nGive more detail.")
                     bot_context += refinement_instruction
                 elif deep_search:
                     depth_instruction = {
