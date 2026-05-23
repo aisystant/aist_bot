@@ -279,52 +279,42 @@ async def cmd_start(message: Message, state: FSMContext):
     tier = await detect_ui_tier(message.chat.id)
     keyboard = build_reply_keyboard(tier, lang)
 
-    greeting = (
-        t('welcome.greeting', lang) + "\n" +
-        t('welcome.intro', lang) + "\n\n" +
-        t('welcome.intro_start', lang)
-    )
     if not linked:
-        greeting += "\n\n" + t('welcome.link_reminder', lang)
-
-    await message.answer(
-        greeting,
-        parse_mode="Markdown",
-        reply_markup=keyboard,
-    )
-
-    # WP-156: Inline-кнопка «Помоги выбрать» → Навигатор (SS.1: ЦД пуст, задаёт вопросы)
-    # WP-209 Ф1: + кнопка «Подключить IWE» → /connect wizard
-    # WP-301 Ф7: + кнопка «Подключи личное руководство» → GitHub App install (proactive)
-    nav_buttons = [[
-        InlineKeyboardButton(
-            text="🧭 " + t('onboarding.navigator_hint', lang),
-            callback_data="start_navigator",
+        # Экран A — аккаунт не привязан
+        await message.answer(
+            f"Привет, <b>{name}</b>! 👋\n\n"
+            "Добро пожаловать в Мастерскую инженеров-менеджеров. "
+            "Этот бот — один из интерфейсов платформы. "
+            "Здесь можно учиться, отслеживать прогресс и разворачивать "
+            "полное рабочее окружение — шаг за шагом.\n\n"
+            "Для начала свяжите аккаунт Aisystant — это позволит "
+            "платформе отслеживать прогресс и персонализировать обучение.",
+            parse_mode="HTML",
+            reply_markup=keyboard,
         )
-    ], [
-        InlineKeyboardButton(
-            text="🌐 " + t('connect.onboarding_button', lang),
-            callback_data="iwe_connect_start",
+        await message.answer(
+            "Нажмите кнопку ниже — откроется вход в Aisystant.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="🔗 Связать аккаунт Aisystant",
+                    callback_data="onboarding_link_start",
+                ),
+            ]]),
         )
-    ]]
-    guide_btn = await _personal_guide_button(message.chat.id)
-    if guide_btn:
-        nav_buttons.append(guide_btn)
-    # WP-188 Ф17.8: предложение трекинга развития. Показываем только если Aisystant
-    # привязан (account_id будет резолвиться). Если не привязан — кнопка не появляется,
-    # пользователь увидит её позже после /link.
-    if linked:
-        nav_buttons.append([
-            InlineKeyboardButton(
-                text="📊 Согласие на трекинг развития",
-                callback_data="consent_from_onboarding",
-            )
-        ])
-    nav_kb = InlineKeyboardMarkup(inline_keyboard=nav_buttons)
-    await message.answer(
-        t('onboarding.navigator_offer', lang) + "\n\n" + t('connect.onboarding_prompt', lang),
-        reply_markup=nav_kb,
-    )
+    else:
+        # Экран B — аккаунт привязан: приветствие + Экран Consent
+        await message.answer(
+            f"Привет, <b>{name}</b>! 👋\n\n"
+            "Добро пожаловать в Мастерскую инженеров-менеджеров. "
+            "Этот бот — один из интерфейсов платформы. "
+            "Здесь можно учиться, отслеживать прогресс и разворачивать "
+            "полное рабочее окружение — шаг за шагом.\n\n"
+            "✅ <b>Аккаунт привязан!</b> Следующий шаг — согласие на трекинг развития.",
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+        from handlers.consent import show_consent_optin
+        await show_consent_optin(message)
 
     await sync_menu_commands(message.bot, message.chat.id, tier, lang)
 
@@ -337,6 +327,65 @@ async def cmd_start(message: Message, state: FSMContext):
     })
 
     await state.clear()
+
+
+@onboarding_router.callback_query(F.data == "onboarding_link_start")
+async def on_onboarding_link_start(callback: CallbackQuery) -> None:
+    """Кнопка 'Связать аккаунт Aisystant' из Экрана A — запускает flow привязки."""
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    chat_id = callback.from_user.id
+
+    from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+    from clients.aisystant import aisystant as _aisystant
+
+    # Уже привязан (пользователь нажал повторно)?
+    existing = await get_aisystant_id(chat_id)
+    if existing:
+        await callback.message.answer(
+            "✅ <b>Аккаунт уже привязан!</b> Следующий шаг — согласие на трекинг развития.",
+            parse_mode="HTML",
+        )
+        from handlers.consent import show_consent_optin
+        await show_consent_optin(callback.message)
+        return
+
+    # Пробуем найти автоматически
+    try:
+        aisystant_id = await _aisystant.find_user_by_tg(chat_id)
+    except Exception as e:
+        logger.warning("[Onboarding] link_start find_user_by_tg %s: %s", chat_id, e)
+        aisystant_id = None
+
+    if aisystant_id:
+        await save_aisystant_link(chat_id, aisystant_id)
+        await callback.message.answer(
+            "✅ <b>Аккаунт привязан!</b> Следующий шаг — согласие на трекинг развития.",
+            parse_mode="HTML",
+        )
+        from handlers.consent import show_consent_optin
+        await show_consent_optin(callback.message)
+        return
+
+    # Не найден — показываем ссылку для привязки через сайт
+    tg_username = callback.from_user.username
+    try:
+        link_url = await _aisystant.get_link_url(chat_id, tg_username)
+    except Exception as e:
+        logger.error("[Onboarding] link_start get_link_url %s: %s", chat_id, e)
+        await callback.message.answer("Ошибка получения ссылки. Попробуйте /link.")
+        return
+
+    await callback.message.answer(
+        "Для привязки:\n\n"
+        "1. Нажмите «Войти в Aisystant» — авторизуйтесь или создайте аккаунт\n"
+        "2. Вернитесь сюда и нажмите «Проверить»",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔗 Войти в Aisystant", url=link_url)],
+            [InlineKeyboardButton(text="✅ Проверить", callback_data="link_check")],
+        ]),
+    )
 
 
 @onboarding_router.callback_query(OnboardingStates.choosing_language, F.data.startswith("lang_"))
