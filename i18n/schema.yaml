@@ -86,26 +86,26 @@ welcome:
     en: "📋 *Main menu*\nT{tier_num} {tier_label}\n\n{tip}"
 
   pause_navigator:
-    ru: "С возвращением! Тебя не было {days} дней. Навигатор поможет вернуться в ритм."
-    en: "Welcome back! You've been away for {days} days. The Navigator can help you get back on track."
+    ru: "С возвращением! Тебя не было {days} дней. С чего продолжим?"
+    en: "Welcome back! You've been away for {days} days. Where would you like to start?"
 
   # Tier labels for greeting (П1 — прогресс-бар)
   tier_label:
     t0:
-      ru: "🟢 Старт — привяжи Aisystant чтобы открыть все функции"
-      en: "🟢 Start — link Aisystant to unlock all features"
+      ru: "🎯 Уровень: Т1 «Старт» — привяжи аккаунт чтобы открыть функции"
+      en: "🎯 Level: T1 «Start» — link your account to unlock features"
     t1:
-      ru: "🟢 Старт — попробуй все функции бесплатно 30 дней"
-      en: "🟢 Start — try all features free for 30 days"
+      ru: "🎯 Уровень: Т1 «Старт» — 30 дней бесплатного доступа"
+      en: "🎯 Level: T1 «Start» — 30 days free access"
     t2:
-      ru: "📘 Изучение — подписка активна"
-      en: "📘 Learning — subscription active"
+      ru: "📘 Уровень: Т2 «Изучение» (подписка активна)"
+      en: "📘 Level: T2 «Learning» (subscription active)"
     t3:
-      ru: "🧬 Персонализация — ЦД подключён"
-      en: "🧬 Personalization — DT connected"
+      ru: "🧬 Уровень: Т3 «Персонализация» (ЦД подключён)"
+      en: "🧬 Level: T3 «Personalization» (Digital Twin connected)"
     t4:
-      ru: "🚀 Созидание — все возможности открыты"
-      en: "🚀 Creation — all features unlocked"
+      ru: "🚀 Уровень: Т4 «Созидание» — все инструменты открыты"
+      en: "🚀 Level: T4 «Creation» — all tools unlocked"
 
   # Tier tips — ротация подсказок (П4). Numbered keys (loader не поддерживает lists).
   tips:

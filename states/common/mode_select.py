@@ -154,7 +154,7 @@ class ModeSelectState(BaseState):
             await self.send(user, t('delivery.ask_format', lang),
                             reply_markup=kb_delivery_format(lang))
 
-        # WP-156: предложить Навигатора при возврате после паузы >7 дней
+        # Re-entry: intent screen при возврате после паузы >7 дней (WP-349 Ф21)
         last_active = user_dict.get('last_active_date')
         if last_active:
             from db.queries.users import moscow_today
@@ -162,21 +162,21 @@ class ModeSelectState(BaseState):
             days_inactive = (moscow_today() - last_active).days if isinstance(last_active, date) else 0
 
             if days_inactive >= 7 and not ctx.get('navigator_pause_offered'):
-                nav_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
-                        text="🧭 " + t('onboarding.navigator_hint', lang),
-                        callback_data="start_navigator",
-                    )
-                ]])
+                reentry_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="Начать марафон", callback_data="intent:marathon"),
+                        InlineKeyboardButton(text="Узнать ступень", callback_data="intent:diagnose"),
+                    ],
+                    [InlineKeyboardButton(text="Обзор платформы", callback_data="intent:setup")],
+                ])
                 await self.send(
                     user,
                     t('welcome.pause_navigator', lang, days=days_inactive),
-                    reply_markup=nav_kb,
+                    reply_markup=reentry_kb,
                 )
                 ctx['navigator_pause_offered'] = True
                 await update_intern(chat_id, current_context=ctx)
             elif days_inactive < 7 and ctx.get('navigator_pause_offered'):
-                # Пользователь вернулся — сбросить флаг для следующей паузы
                 del ctx['navigator_pause_offered']
                 await update_intern(chat_id, current_context=ctx)
 
