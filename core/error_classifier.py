@@ -183,6 +183,7 @@ LOGGER_HINTS: dict[str, str] = {
     "clients.mcp": "mcp",
     "core.scheduler": "scheduler",
     "engines.feed": "scheduler",
+    "states.": "scheduler",
     "core.tracing": "fsm",
 }
 
