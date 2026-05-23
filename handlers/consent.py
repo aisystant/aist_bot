@@ -548,7 +548,15 @@ async def on_consent_revoke_confirm(callback: CallbackQuery):
 @consent_router.callback_query(F.data == "consent_revoke_cancel")
 async def on_consent_revoke_cancel(callback: CallbackQuery):
     await callback.answer()
-    await callback.message.edit_text("↩️ Удаление отменено. Текущее состояние не изменилось.")
+    chat_id = callback.from_user.id
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    consent = await get_consent(account_id) if account_id else None
+    text_analysis = await get_consent_grant(account_id, "text_analysis") if account_id else False
+    await callback.message.edit_text(
+        _format_status(consent, text_analysis=text_analysis),
+        parse_mode="HTML",
+        reply_markup=_status_keyboard(consent, text_analysis=text_analysis),
+    )
 
 
 @consent_router.callback_query(F.data == "consent_link_now")
@@ -659,12 +667,12 @@ async def on_consent_goto_optout(callback: CallbackQuery):
     chat_id = callback.from_user.id
     intern, account_id = await _resolve_account(chat_id)
     if not account_id:
-        await callback.answer("Аккаунт не привязан", show_alert=True)
+        await callback.message.answer("Аккаунт не привязан — попробуй /link.")
         return
     consent = await get_consent(account_id)
     if consent is None or not consent["opt_in"]:
         await callback.message.edit_text(
-            "🚫 Согласие уже отозвано или не было дано.",
+            "Согласие уже отозвано или не было дано.",
             reply_markup=_status_keyboard(consent),
         )
         return
