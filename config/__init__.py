@@ -160,6 +160,7 @@ from .settings import (
     # Maintenance mode
     MAINTENANCE_MODE,
     MAINTENANCE_REDIRECT_BOT,
+    BOT_USERNAME,
     ALLOWED_TESTERS,
 
     # Event Gateway (WP-268 Phase 2 dual-write)
@@ -278,6 +279,7 @@ __all__ = [
     'DEVELOPER_CHAT_ID',
     'MAINTENANCE_MODE',
     'MAINTENANCE_REDIRECT_BOT',
+    'BOT_USERNAME',
     'ALLOWED_TESTERS',
     'ORY_BASE_URL',
     'ORY_CLIENT_ID',
