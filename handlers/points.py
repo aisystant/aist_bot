@@ -1,25 +1,24 @@
 """
-/points — баланс бонусов + последние начисления с разложением.
+/points — баланс баллов + бонусов + последние начисления.
 
-WP-306 (WP-121 Ф3): read-only surface над `rewards.point_balances` + `applied_events`.
-WP-327 Ф5b: терминология «Бонусы» (burnable currency, DP.D.050) — то, что
-отображается здесь, может быть списано при оплате. Earned-total «Баллы» (gamification
-score, монотонный рост) — отдельная величина, появится в Phase 2 refactor.
+Баллы (earned_total) — монотонный счёт саморазвития, никогда не убывают.
+Бонусы (point_balances.points) — доступная скидка при оплате (убывают после burn).
+WP-327 Phase 2: разделение двух счётчиков, прогресс-бар, inline-кнопки.
 
-Источник истины: Neon БД `rewards` (writer — multi-domain-projection-worker,
-DP.ROLE.034, DP.SC.122). Бот не пересчитывает баллы — показывает то, что
-projection-worker уже свернул из `learning.domain_event`.
-
-Разложение в applied_events:
-  effective = min(base × dom_mult × qual_mult × streak_mult, daily_cap)
-  cap_truncated = True если effective упёрся в daily_cap
+Источник истины: Neon БД `rewards` (writer — DP.ROLE.034, DP.SC.122).
+Бот не пересчитывает — показывает то, что свернул projection-worker.
 """
 
 import logging
 from datetime import datetime, timezone
 
-from aiogram import Router
-from aiogram.types import Message
+from aiogram import Router, F
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from aiogram.filters import Command
 
 from db.queries import get_intern
@@ -169,26 +168,46 @@ def _fmt_pts(n: float) -> str:
 
 
 def _format_event_compact(ev: dict) -> str:
-    """Компактная строка начисления: «• Коммит в git +35 · 5 мин назад»."""
+    """Компактная строка начисления.
+
+    При потолке (cap_truncated=True, effective=0) показывает сколько «сгорело»:
+    «• Коммит в git: 0 из 35 (потолок) · 5 мин назад».
+    """
     try:
         label = _event_label(ev["event_type"])
-        eff = float(ev["effective"] or 0)
+        base = float(ev.get("base_amount") or 0)
+        dom  = float(ev.get("dom_mult")    or 1)
+        qual = float(ev.get("qual_mult")   or 1)
+        stk  = float(ev.get("streak_mult") or 1)
+        eff  = float(ev.get("effective")   or 0)
         capped = ev.get("cap_truncated", False)
         when = _relative_time(ev.get("applied_at"))
-
-        eff_str = f"+{eff:g}" if eff > 0 else "0"
         when_str = f" · <i>{when}</i>" if when else ""
-        cap_hint = " <i>(потолок)</i>" if capped and eff == 0 else ""
 
-        return f"• {label} <b>{eff_str}</b>{cap_hint}{when_str}"
+        raw = round(base * dom * qual * stk, 1)
+
+        if capped and eff == 0:
+            pts_str = f"0 из {raw:g} <i>(потолок)</i>"
+        elif capped and eff > 0:
+            pts_str = f"<b>+{eff:g}</b> <i>(из {raw:g}, потолок)</i>"
+        else:
+            pts_str = f"<b>+{eff:g}</b>"
+
+        return f"• {label}: {pts_str}{when_str}"
     except Exception as e:
         logger.warning(f"[/points] _format_event_compact failed: {e}")
         return f"• {ev.get('event_type', '?')}"
 
 
+def _build_points_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Правила начисления", callback_data="points_show_rules")],
+    ])
+
+
 @points_router.message(Command("points"))
 async def cmd_points(message: Message):
-    """Баланс баллов/бонусов + последние 5 начислений. WP-327 Phase 2 UX refactor."""
+    """Баланс баллов/бонусов + последние 5 начислений. WP-327 Phase 2."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') if intern else 'ru'
@@ -200,7 +219,7 @@ async def cmd_points(message: Message):
     account_id = intern.get('dt_user_id')
     if not account_id:
         await message.answer(
-            "🏆 <b>Ваши баллы</b>\n\n"
+            "🏆 <b>Ваши начисления</b>\n\n"
             "Аккаунт ещё не привязан к Aisystant.\n"
             "Привяжи профиль в /settings, чтобы начать копить баллы.",
             parse_mode="HTML",
@@ -219,49 +238,56 @@ async def cmd_points(message: Message):
         return
 
     balance_num = float(balance or 0)
-    # earned_total может не вернуться если нет записи в point_balances — fallback на balance
     earned_num = float(earned_total) if earned_total is not None else balance_num
     today_num = float(today_total or 0)
 
-    text = "🏆 <b>Ваши баллы</b>\n\n"
-    text += f"🪙 <b>Заработано всего:</b> {_fmt_pts(earned_num)}\n"
-    text += f"💎 <b>Доступно бонусов:</b> {_fmt_pts(balance_num)}\n"
+    today_str = f"+{_fmt_pts(today_num)}" if today_num > 0 else "—"
+    if today_num > 0 and daily_cap and daily_cap > 0:
+        bar = _progress_bar(today_num, float(daily_cap))
+        pct = int(min(today_num / daily_cap, 1.0) * 100)
+        today_pts_line = f"{today_str} {bar} {int(today_num)}/{daily_cap} ({pct}%)"
+    else:
+        today_pts_line = today_str
 
-    if today_num > 0:
-        if daily_cap and daily_cap > 0:
-            bar = _progress_bar(today_num, float(daily_cap))
-            pct = int(min(today_num / daily_cap, 1.0) * 100)
-            text += (
-                f"\n📅 <b>Сегодня:</b> +{_fmt_pts(today_num)} "
-                f"{bar} {int(today_num)}/{daily_cap} ({pct}%)\n"
-            )
-        else:
-            text += f"\n📅 <b>Сегодня:</b> +{_fmt_pts(today_num)}\n"
-
+    text = "🏆 <b>Ваши начисления</b>\n\n"
+    text += f"Всего баллов: <b>{_fmt_pts(earned_num)}</b>\n"
+    text += f"Начислено за сегодня: {today_pts_line}\n"
     text += "\n"
+    text += f"Всего бонусов: <b>{_fmt_pts(balance_num)}</b>\n"
+    text += f"Начислено за сегодня: {today_str}\n"
+    text += "\n"
+    text += (
+        "Бонусы можно использовать при оплате. "
+        "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
+    )
 
     if not events:
         text += (
-            "<i>Пока нет начислений.</i>\n\n"
-            "Закрывай день /day_close, делай уроки, фиксируй слоты саморазвития "
-            "или коммить в свои репозитории.\n\n"
+            "\n<i>Пока нет начислений. "
+            "Закрывай день /day_close, делай уроки, фиксируй слоты саморазвития.</i>"
         )
     else:
-        text += "<b>Последние начисления:</b>\n"
+        text += "\n<b>Последние начисления:</b>\n"
         for ev in events:
             text += _format_event_compact(ev) + "\n"
-        text += "\n"
 
-    text += "<i>1 бонус ≈ 0.875 ₽ при оплате · /rules — как копить быстрее</i>"
-
+    kb = _build_points_keyboard()
     try:
-        await message.answer(text, parse_mode="HTML")
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
     except Exception as e:
         logger.error(f"[/points] HTML render failed for chat_id={chat_id}: {e}")
         await message.answer(
             text.replace("<b>", "").replace("</b>", "")
-                .replace("<i>", "").replace("</i>", "")
+                .replace("<i>", "").replace("</i>", ""),
+            reply_markup=kb,
         )
+
+
+@points_router.callback_query(F.data == "points_show_rules")
+async def cb_points_show_rules(callback: CallbackQuery):
+    """Inline-кнопка «Правила начисления» → отправляет /rules ответом."""
+    await callback.answer()
+    await cmd_rules(callback.message)
 
 
 # WP-311 Ф7 (DP.SC.136): команда /rules — правила игры
@@ -349,8 +375,13 @@ async def cmd_rules(message: Message):
     for r in rules:
         groups[_group_for_rule(r["trigger_event"])].append(r)
 
-    text = "🎯 <b>Правила начисления баллов</b>\n\n"
+    text = "🎯 <b>Правила начисления баллов и бонусов</b>\n\n"
     text += (
+        "<b>Баллы</b> — монотонный счётчик твоего развития. Никогда не убывают. "
+        "Показывают, сколько ты вложил в себя за всё время.\n"
+        "<b>Бонусы</b> — доступная скидка при оплате. Тратятся, когда применяешь их к заказу. "
+        "Растут вместе с квалификацией и ритмом работы.\n"
+        "1 бонус ≈ 0.875 ₽.\n\n"
         "Каждое действие даёт <b>базу</b>. Финальный балл = "
         "<b>база × домен × квалификация × серия</b>, не выше суточного потолка.\n\n"
     )
