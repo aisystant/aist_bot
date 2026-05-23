@@ -406,9 +406,9 @@ async def cmd_rules(message: Message):
     if qual_rows:
         text += "<b>Квалификации МИМ</b> (после Ученика)\n"
         for q in qual_rows:
-            raw_name = q.get('qualification', '')
-            # Нормализуем: 'работник' → 'Работник', 'общественный_деятель' → 'Общественный деятель'
-            name = raw_name.replace('_', ' ').capitalize()
+            raw_name = str(q.get('qualification', ''))
+            # WP-268 schema: qualification = lowercase Russian, e.g. 'общественный_деятель'
+            name = raw_name.replace('_', ' ').title()
             mult = float(q.get('multiplier', 1))
             cap = int(q.get('daily_cap', 0))
             text += f"   {name} — ×{mult:g}, потолок {cap}/день\n"
