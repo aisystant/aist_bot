@@ -181,7 +181,7 @@ from .settings import (
     PLATFORM_URLS,
 )
 
-from .onboarding_intents import ONBOARDING_INTENT_MAP  # WP-349 Ф22
+from .onboarding_intents import ONBOARDING_INTENT_MAP, NEGATIVE_PATTERNS  # WP-349 Ф22
 
 __all__ = [
     'BOT_TOKEN',
@@ -294,4 +294,5 @@ __all__ = [
     'REFERENCE_URL',
     'PLATFORM_URLS',
     'ONBOARDING_INTENT_MAP',
+    'NEGATIVE_PATTERNS',
 ]
