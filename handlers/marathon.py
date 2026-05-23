@@ -39,9 +39,12 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
     if current_status == "active":
         await reply_msg.answer(
             "🎉 Ты уже в марафоне!\n\n"
-            f"📅 Текущий день: {progress.get('current_day', 0)}\n"
-            "Используй /marathon_progress, чтобы узнать статус.\n\n"
-            "Если нужна помощь — напиши в поддержку /support."
+            f"📅 Текущий день: {progress.get('current_day', 0)}\n\n"
+            "📋 Команды:\n"
+            "• /marathon_progress — статус и прогресс\n"
+            "• /marathon_stop — остановить марафон\n"
+            "• /profile — изменить время и уровень сложности\n"
+            "• /support — поддержка"
         )
         return
 

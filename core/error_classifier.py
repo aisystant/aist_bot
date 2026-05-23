@@ -75,6 +75,9 @@ PATTERNS: list[dict] = [
     {"category": "claude_api", "severity": "L1",
      "pattern": r"(?i)APITimeoutError|anthropic.*timeout|claude.*timeout",
      "action": "Retry 1x, затем fallback"},
+    {"category": "claude_api", "severity": "L1",
+     "pattern": r"(?i)Content generation returned None|generate_content.*returned None",
+     "action": "Haiku on-the-fly вернул None (max_tokens/timeout) → Sonnet fallback"},
     {"category": "claude_api", "severity": "L2",
      "pattern": r"(?i)invalid.*response.*claude|json.*decode.*anthropic",
      "action": "PR: fix response parsing"},
@@ -134,6 +137,9 @@ PATTERNS: list[dict] = [
     {"category": "scheduler", "severity": "L2",
      "pattern": r"(?i)offset-naive and offset-aware|can't subtract.*datetime",
      "action": "PR: привести datetime к naive (CLAUDE.md § 10.5)"},
+    {"category": "scheduler", "severity": "L1",
+     "pattern": r"(?i)MarathonQueue.*[Ff]ailed to send|[Ff]ailed to send checkin",
+     "action": "Проверить: пользователь заблокировал бота / TelegramRetryAfter"},
     {"category": "scheduler", "severity": "L4",
      "pattern": r"(?i)scheduler.*stuck|scheduler.*not.*start|asyncio.*deadlock",
      "action": "Escalate: проверить Railway logs"},
@@ -177,6 +183,7 @@ LOGGER_HINTS: dict[str, str] = {
     "clients.mcp": "mcp",
     "core.scheduler": "scheduler",
     "engines.feed": "scheduler",
+    "states.": "scheduler",
     "core.tracing": "fsm",
 }
 
