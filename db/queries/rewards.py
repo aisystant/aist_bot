@@ -227,15 +227,19 @@ async def get_student_stage_multipliers() -> List[Dict[str, Any]]:
 
 
 async def get_qualification_multipliers_list() -> List[Dict[str, Any]]:
-    """Квалификации МИМ (8 уровней: Ученик → Общественный деятель) из reference БД."""
+    """Квалификации МИМ (8 уровней: Ученик → Общественный деятель) из reference БД.
+
+    Таблица WP-268 Phase 2: PK = qualification (TEXT lowercase Russian),
+    нет колонки sort_order — сортируем по multiplier (прокси порядка уровней).
+    """
     try:
         pool = await get_reference_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT sort_order, qualification, multiplier, daily_cap
+                SELECT qualification, multiplier, daily_cap
                 FROM qualification_multipliers
-                ORDER BY sort_order
+                ORDER BY multiplier
                 """
             )
             return [dict(r) for r in rows]
