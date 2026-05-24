@@ -128,6 +128,19 @@ async def _notify_retry_exhausted(chat_id: int, content_type: str):
     text = t(key, lang)
     logger.info(f"[Scheduler] Notifying {chat_id} retry exhausted ({content_type}): {text!r}")
 
+    # Персистентный маркер: предотвращает новый retry-цикл после exhaustion (F2)
+    try:
+        from db.connection import get_pool as _get_main_pool
+        _pool = await _get_main_pool()
+        async with _pool.acquire() as _conn:
+            await _conn.execute(
+                "UPDATE development.user_state SET retry_exhausted_date = CURRENT_DATE WHERE chat_id = $1",
+                chat_id
+            )
+        logger.info(f"[Scheduler] retry_exhausted_date set for {chat_id} ({content_type})")
+    except Exception as e:
+        logger.warning(f"[Scheduler] Failed to set retry_exhausted_date for {chat_id}: {e}")
+
     bot = Bot(token=_bot_token)
     try:
         await bot.send_message(chat_id, text)
@@ -510,7 +523,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
-    _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='retry_storm_detector', max_instances=1)  # BE5: retry storm detector
+    _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='check_retry_storm', max_instances=1)  # BE5: retry storm detector (id без retry_-префикса — иначе детектор считает себя в storm:1)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
     # Новая архитектура: projection-worker (WP-270) → indicators.calculated_profile (Neon).
@@ -1337,7 +1350,12 @@ async def scheduled_check():
             try:
                 if send_type in ('marathon', 'both'):
                     if await send_scheduled_topic(chat_id, bot):
-                        _schedule_retry(chat_id, 'marathon', attempt=0)
+                        intern_chk = await get_intern(chat_id)
+                        exhausted = intern_chk.get('retry_exhausted_date') if intern_chk else None
+                        if exhausted and exhausted >= moscow_now().date():
+                            logger.info(f"[Scheduler] {chat_id}: retry exhausted today, skip new chain")
+                        else:
+                            _schedule_retry(chat_id, 'marathon', attempt=0)
                 if send_type in ('feed', 'both'):
                     await pre_generate_feed_digest(chat_id, bot)
                 logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
@@ -1672,7 +1690,12 @@ async def _catch_up_missed_deliveries():
         async with sem:
             try:
                 if await send_scheduled_topic(chat_id, bot):
-                    _schedule_retry(chat_id, 'marathon', attempt=0)
+                    intern_chk = await get_intern(chat_id)
+                    exhausted = intern_chk.get('retry_exhausted_date') if intern_chk else None
+                    if exhausted and exhausted >= moscow_now().date():
+                        logger.info(f"[Scheduler] {chat_id}: retry exhausted today, skip catch-up chain")
+                    else:
+                        _schedule_retry(chat_id, 'marathon', attempt=0)
                 else:
                     logger.info(f"[Scheduler] Catch-up delivered to {chat_id}")
             except Exception as e:
@@ -1705,6 +1728,14 @@ async def _check_schedule_integrity(now) -> Optional[str]:
     issues = []
 
     async with pool.acquire() as conn:
+        # 0. Сброс вчерашних exhaustion-маркеров (F2)
+        cleared = await conn.fetchval(
+            "WITH d AS (UPDATE development.user_state SET retry_exhausted_date = NULL "
+            "WHERE retry_exhausted_date < CURRENT_DATE RETURNING 1) SELECT COUNT(*) FROM d"
+        )
+        if cleared:
+            logger.info(f"[Integrity] Cleared retry_exhausted_date for {cleared} users")
+
         # 1. Non-zero-padded times
         bad_times = await conn.fetch('''
             SELECT s.chat_id, u.tg_username, s.schedule_time, s.feed_schedule_time
