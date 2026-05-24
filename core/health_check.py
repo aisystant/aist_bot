@@ -10,6 +10,7 @@ Pipeline (WP-45 Phase 4):
 Safety: feature flag, cooldown, TG уведомление, graceful без токена.
 """
 
+import json
 import time
 from typing import Optional
 
@@ -88,15 +89,19 @@ async def _get_latest_deployment_id(
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.error(f"[L3] Railway deployments query failed: {resp.status}")
+                body = await resp.text()
+                logger.error(f"[L3] Railway deployments query failed: {resp.status} body={body[:300]}")
                 return None
             data = await resp.json()
 
+    logger.debug(f"[L3] deployments response: {json.dumps(data)[:500]}")
     edges = (data.get("data") or {}).get("deployments", {}).get("edges", [])
     if not edges:
-        logger.error("[L3] No deployments found")
+        logger.error(f"[L3] No deployments found. Full response: {json.dumps(data)[:300]}")
         return None
-    return edges[0]["node"]["id"]
+    node = edges[0]["node"]
+    logger.debug(f"[L3] Latest deployment: id={node['id']} status={node.get('status')}")
+    return node["id"]
 
 
 async def _restart_deployment(token: str, deployment_id: str) -> bool:
@@ -118,10 +123,12 @@ async def _restart_deployment(token: str, deployment_id: str) -> bool:
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.error(f"[L3] Railway restart failed: {resp.status}")
+                body = await resp.text()
+                logger.error(f"[L3] Railway restart failed: {resp.status} body={body[:300]}")
                 return False
             data = await resp.json()
 
+    logger.debug(f"[L3] restart response: {json.dumps(data)[:300]}")
     if data.get("errors"):
         logger.error(f"[L3] Railway restart errors: {data['errors']}")
         return False
@@ -186,7 +193,9 @@ async def run_l3_health_check(bot: Bot, dev_chat_id: str) -> bool:
         try:
             await bot.send_message(
                 int(dev_chat_id),
-                "\u274c <b>L3</b>: не удалось получить deployment ID",
+                "\u274c <b>L3</b>: не удалось получить deployment ID\n"
+                "Перезапустить вручную:\n"
+                "<code>railway redeploy --service aist_bot_newarchitecture</code>",
                 parse_mode="HTML",
             )
         except Exception:
@@ -207,7 +216,9 @@ async def run_l3_health_check(bot: Bot, dev_chat_id: str) -> bool:
         else:
             await bot.send_message(
                 int(dev_chat_id),
-                "\u274c <b>L3</b>: Railway restart failed (check logs)",
+                "\u274c <b>L3</b>: Railway restart failed (check logs)\n"
+                "Перезапустить вручную:\n"
+                "<code>railway redeploy --service aist_bot_newarchitecture</code>",
                 parse_mode="HTML",
             )
     except Exception:
