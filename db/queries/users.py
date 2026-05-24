@@ -143,7 +143,9 @@ def _row_to_dict(row) -> dict:
     def safe_json(key, default=None):
         if default is None:
             default = []
-        val = safe_get(key, '[]')
+        val = safe_get(key, None)
+        if val is None:
+            return default
         try:
             return json.loads(val) if isinstance(val, str) else val
         except Exception:
