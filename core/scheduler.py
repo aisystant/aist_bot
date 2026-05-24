@@ -411,6 +411,10 @@ async def _send_marathon_weekly_digest():
 
             missed = current_day - total_checkins
 
+            if current_day == 0:
+                logger.info(f"[MarathonDigest] Skipping {chat_id}: not started yet (current_day=0)")
+                continue
+
             text = (
                 f"📊 *Итоги недели марафона*\n\n"
                 f"📅 Пройдено дней: {current_day}/14\n"
@@ -419,7 +423,7 @@ async def _send_marathon_weekly_digest():
                 f"🎯 Последнее состояние: {last_state_label}\n\n"
             )
 
-            if missed == 0:
+            if missed == 0 and current_day > 0:
                 text += "Отличная неделя! Ритм выдержан. 💪"
             elif missed <= 2:
                 text += "Неплохо, но можно добавить стабильности. Продолжаем?"

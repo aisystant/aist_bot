@@ -19,7 +19,7 @@ from db.queries.users import moscow_today, get_topics_today
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day as canonical_get_marathon_day
 from clients import claude
-from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY, CLAUDE_MODEL_HAIKU
+from config import get_logger, MARATHON_DAYS, MAX_TOPICS_PER_DAY, CLAUDE_MODEL_HAIKU, CLAUDE_MODEL_SONNET
 
 logger = get_logger(__name__)
 
@@ -249,6 +249,16 @@ class MarathonLessonState(BaseState):
                         ),
                         timeout=CONTENT_GENERATION_TIMEOUT
                     )
+                    if not content:
+                        logger.warning(f"Haiku returned None for user {chat_id}, topic {topic_index} — trying Sonnet fallback")
+                        content = await asyncio.wait_for(
+                            claude.generate_content(
+                                topic=topic,
+                                intern=intern,
+                                model=CLAUDE_MODEL_SONNET,
+                            ),
+                            timeout=CONTENT_GENERATION_TIMEOUT
+                        )
                     if not content:
                         logger.error(f"Content generation returned None for user {chat_id}, topic {topic_index}")
                         retry_keyboard = InlineKeyboardMarkup(inline_keyboard=[
