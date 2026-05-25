@@ -187,6 +187,8 @@ async def _process_marathon_queue():
         mark_queue_sent,
         schedule_queue_retry,
         mark_queue_failed,
+        get_or_create_progress,
+        update_progress,
     )
 
     if not _bot_token:
@@ -230,6 +232,13 @@ async def _process_marathon_queue():
                     else:
                         await bot.send_message(chat_id, text, parse_mode="Markdown")
                     await mark_queue_sent(queue_id)
+                    if content_type == 'lesson_practice':
+                        progress = await get_or_create_progress(chat_id)
+                        current_day = progress.get('current_day', 0)
+                        new_day = max(current_day, day)
+                        if new_day != current_day:
+                            await update_progress(chat_id, current_day=new_day)
+                            logger.info(f"[MarathonQueue] Updated current_day {current_day}→{new_day} for {chat_id}")
                     logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
                 except Exception as e:
                     error_msg = str(e)

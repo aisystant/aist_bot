@@ -60,7 +60,9 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
         user_id=user_id,
         status="active",
         started_at=now,
-        current_day=0,
+        current_day=1,
+        total_checkins=0,
+        missed_days=0,
     )
     await update_intern(user_id, marathon_status="active", onboarding_completed=True)
 
@@ -146,7 +148,8 @@ async def cmd_marathon_progress(message: Message):
     ]
 
     if status == "active":
-        lines.append(f"📅 Текущий день: {current_day} / 14")
+        display_day = current_day if current_day > 0 else 1
+        lines.append(f"📅 Текущий день: {display_day} / 14")
         lines.append(f"🌙 Чек-инов: {total_checkins}")
         lines.append(f"❌ Пропусков: {missed_days}")
         if started_at:
