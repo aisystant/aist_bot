@@ -200,63 +200,67 @@ async def _process_marathon_queue():
     bot = Bot(token=_bot_token)
     try:
         for item in items:
-            queue_id = item['id']
-            chat_id = item['user_id']
-            day = item['day_number']
-            content_type = item['content_type']
-            content_ref = item.get('content_ref')
-            content_text = item.get('content_text')
-            attempts = item['attempts']
-
-            # Формируем текст сообщения
-            text = _build_marathon_message(content_type, day, content_ref, content_text)
-            if not text:
-                logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
-                await mark_queue_failed(queue_id, "empty_text")
-                continue
-
             try:
-                if content_type == 'checkin':
-                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                            InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
-                            InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
-                            InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
-                        ]
-                    ])
-                    await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
-                else:
-                    await bot.send_message(chat_id, text, parse_mode="Markdown")
-                await mark_queue_sent(queue_id)
-                logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: {error_msg}")
+                queue_id = item['id']
+                chat_id = item['user_id']
+                day = item['day_number']
+                content_type = item['content_type']
+                content_ref = item.get('content_ref')
+                content_text = item.get('content_text')
+                attempts = item['attempts']
 
-                if _is_user_unavailable(e):
-                    await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
-                    await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
+                # Формируем текст сообщения
+                text = _build_marathon_message(content_type, day, content_ref, content_text)
+                if not text:
+                    logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
+                    await mark_queue_failed(queue_id, "empty_text")
                     continue
 
-                if attempts >= 2:  # 3-я попытка (0,1,2)
-                    await mark_queue_failed(queue_id, error_msg[:500])
-                    # WP-330 P1: алерт в канал наставников
-                    if MENTOR_CHANNEL_ID:
-                        try:
-                            await bot.send_message(
-                                MENTOR_CHANNEL_ID,
-                                f"🚨 *Алерт марафона*\n\n"
-                                f"Не удалось отправить сообщение участнику `{chat_id}`\n"
-                                f"День {day}, тип: {content_type}\n"
-                                f"Ошибка: `{error_msg[:200]}`",
-                                parse_mode="Markdown",
-                            )
-                        except Exception as alert_err:
-                            logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
-                    logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
-                else:
-                    await schedule_queue_retry(queue_id, attempts, delay_minutes=30)
+                try:
+                    if content_type == 'checkin':
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [
+                                InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
+                                InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
+                                InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
+                            ]
+                        ])
+                        await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                    else:
+                        await bot.send_message(chat_id, text, parse_mode="Markdown")
+                    await mark_queue_sent(queue_id)
+                    logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.error(f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: {error_msg}")
+
+                    if _is_user_unavailable(e):
+                        await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
+                        await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
+                        continue
+
+                    if attempts >= 2:  # 3-я попытка (0,1,2)
+                        await mark_queue_failed(queue_id, error_msg[:500])
+                        # WP-330 P1: алерт в канал наставников
+                        if MENTOR_CHANNEL_ID:
+                            try:
+                                await bot.send_message(
+                                    MENTOR_CHANNEL_ID,
+                                    f"🚨 *Алерт марафона*\n\n"
+                                    f"Не удалось отправить сообщение участнику `{chat_id}`\n"
+                                    f"День {day}, тип: {content_type}\n"
+                                    f"Ошибка: `{error_msg[:200]}`",
+                                    parse_mode="Markdown",
+                                )
+                            except Exception as alert_err:
+                                logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
+                        logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
+                    else:
+                        await schedule_queue_retry(queue_id, attempts, delay_minutes=30)
+            except Exception as e:
+                logger.exception(f"[MarathonQueue] Unhandled error for item {item.get('id')}: {e}")
+                continue
     finally:
         await bot.session.close()
 
