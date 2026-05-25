@@ -271,6 +271,8 @@ async def cmd_points(message: Message):
         for rev in redeemed:
             text += _format_redeemed_compact(rev) + "\n"
 
+    text += "\n📋 <b>/rules</b> — подробные правила начисления"
+
     kb = _build_points_keyboard()
     try:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
