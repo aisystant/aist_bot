@@ -206,7 +206,6 @@ async def cmd_points(message: Message):
         balance = await get_points_balance(account_id)
         earned_total = await get_earned_total(account_id)
         events = await get_recent_applied_events(account_id, limit=5)
-        redeemed = await get_recent_redeemed_events(account_id, limit=3)  # WP-188 Ф17 #4
         today_raw = await get_today_raw_total(account_id)   # баллы (raw, без cap)
         today_bonus = await get_today_total(account_id)     # бонусы (effective, capped)
         daily_cap = await get_user_daily_cap(account_id)
@@ -214,6 +213,16 @@ async def cmd_points(message: Message):
         logger.error(f"[/points] chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
         return
+
+    redeemed = []
+    try:
+        redeemed = await get_recent_redeemed_events(account_id, limit=3)
+    except Exception as e:
+        _e = str(e).lower()
+        if "does not exist" in _e or "undefined" in _e:
+            logger.warning(f"[/points] redeemed_events schema missing chat_id={chat_id}: {e}")
+        else:
+            logger.error(f"[/points] redeemed_events query failed chat_id={chat_id}: {e}", exc_info=True)
 
     balance_num = float(balance or 0)
     earned_num = float(earned_total) if earned_total is not None else balance_num
