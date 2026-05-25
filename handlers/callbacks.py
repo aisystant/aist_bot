@@ -223,7 +223,7 @@ async def _get_cached_tailor_lesson(chat_id: int) -> dict:
 # === Marathon ===
 
 @callbacks_router.callback_query(
-    F.data.startswith("marathon_") & ~F.data.startswith("marathon_checkin:")
+    F.data.startswith("marathon_get_") | F.data.startswith("marathon_catchup_")
 )
 async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка Marathon callback-ов (Получить урок/вопрос/практику)."""
