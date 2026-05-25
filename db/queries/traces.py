@@ -32,6 +32,7 @@ _HEAVY_COMMANDS = {'/feed', '/learn', '/test', '/assessment'}
 _HEAVY_CALLBACKS = {
     'cb:marathon_next_question', 'cb:marathon_get_practice',
     'cb:marathon_next_bonus',
+    'cb:marathon_get_lesson',
     'cb:feed_confirm', 'cb:feed_get_digest', 'cb:go_profile',
 }
 
