@@ -67,6 +67,7 @@ GITHUB_TOKEN_ENCRYPTION_KEY = os.getenv("GITHUB_TOKEN_ENCRYPTION_KEY", "")
 KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisystant.workers.dev/mcp")
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://twin.aisystant.com/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
+GATEWAY_MCP_TIMEOUT: int = int(os.getenv("GATEWAY_MCP_TIMEOUT", "3"))
 
 # ============= LANGFUSE (L5 Observability, WP-179) =============
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")

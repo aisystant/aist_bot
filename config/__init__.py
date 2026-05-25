@@ -26,6 +26,7 @@ from .settings import (
     KNOWLEDGE_MCP_URL,
     DIGITAL_TWIN_MCP_URL,
     GATEWAY_MCP_URL,
+    GATEWAY_MCP_TIMEOUT,
     validate_env,
 
     # Linear OAuth (тестовая интеграция)
@@ -204,6 +205,7 @@ __all__ = [
     'KNOWLEDGE_MCP_URL',
     'DIGITAL_TWIN_MCP_URL',
     'GATEWAY_MCP_URL',
+    'GATEWAY_MCP_TIMEOUT',
     'validate_env',
     'LINEAR_CLIENT_ID',
     'LINEAR_CLIENT_SECRET',
