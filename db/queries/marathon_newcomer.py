@@ -10,7 +10,7 @@ from __future__ import annotations
   - прогресс learning.marathon_progress
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from db.connection import get_learning_pool
@@ -50,16 +50,17 @@ async def mark_queue_sent(queue_id: int):
 
 async def schedule_queue_retry(queue_id: int, attempts: int, delay_minutes: int = 30):
     """Перенести отправку на delay_minutes вперёд."""
+    scheduled_at = datetime.now(timezone.utc) + timedelta(minutes=delay_minutes)
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             '''UPDATE learning.marathon_queue
                SET status = 'pending',
                    attempts = $2,
-                   scheduled_at = NOW() + INTERVAL '$3 minutes',
+                   scheduled_at = $3,
                    updated_at = NOW()
                WHERE id = $1''',
-            queue_id, attempts + 1, delay_minutes,
+            queue_id, attempts + 1, scheduled_at,
         )
 
 
