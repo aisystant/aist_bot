@@ -11,6 +11,7 @@ WP-327 Phase 2: разделение двух счётчиков, прогрес
 
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -35,6 +36,7 @@ from db.queries.rewards import (
     get_user_daily_cap,
     get_student_stage_multipliers,
     get_qualification_multipliers_list,
+    get_loyalty_rate,
 )
 from i18n import t
 
@@ -209,6 +211,7 @@ async def cmd_points(message: Message):
         today_raw = await get_today_raw_total(account_id)   # баллы (raw, без cap)
         today_bonus = await get_today_total(account_id)     # бонусы (effective, capped)
         daily_cap = await get_user_daily_cap(account_id)
+        rate = await get_loyalty_rate()
     except Exception as e:
         logger.error(f"[/points] chat_id={chat_id}: {e}")
         await message.answer(t('errors.processing_error', lang))
@@ -247,7 +250,7 @@ async def cmd_points(message: Message):
     text += "\n"
     text += f"Всего бонусов: <b>{_fmt_pts(int(balance_num))}</b>\n"
     text += f"Начислено за сегодня: {today_bonus_line}\n"
-    text += "\n"
+    text += f"\nКурс: <b>{rate} ₽/бонус</b>. "
     text += (
         "Бонусы можно использовать при оплате. "
         "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
@@ -344,48 +347,77 @@ async def cmd_rules(message: Message):
         await message.answer(t('errors.processing_error', lang))
         return
 
+    try:
+        rules = await get_active_reward_rules()
+        rate = await get_loyalty_rate()
+    except Exception as e:
+        logger.error(f"[/rules] chat_id={chat_id}: {e}")
+        rules = []
+        rate = Decimal("0.05")
+
     text = (
         "🎯 <b>Правила начисления баллов и бонусов</b>\n\n"
-        "<b>Баллы</b> — монотонный счётчик твоего развития. Никогда не убывают. "
-        "Показывают, сколько ты вложил в себя за всё время и как помог развитию сообщества.\n\n"
-        "<b>Бонусы</b> — доступная скидка при оплате. Ограничены дневной нормой, "
-        "которая зависит от квалификации МИМ. Тратятся, когда применяешь их к заказу.\n\n"
-        "Каждое активное действие на платформе даёт основу для начисления баллов и бонусов. "
-        "Финальный балл = <b>база × домен × квалификация × серия</b>. "
-        "Бонус зависит от финального балла, но имеет потолок.\n\n"
-        "Баллы начисляются за действия в LMS, в IWE, в клубе, в боте и тп. "
-        "Если работаете и развиваетесь непрерывно, то за удержание систематичности (streak) "
-        "применяется множитель до ×1.5 за неделю.\n\n"
+        "<b>Баллы</b> — монотонный счётчик твоего развития. Никогда не убывают.\n"
+        "<b>Бонусы</b> — доступная скидка при оплате. Курс: <b>"
+        f"{rate} ₽/бонус</b>.\n\n"
+        "Финальный балл = <b>база × квалификация × серия</b>.\n"
+        "База = время^0.6 × группа × редкость (для содержательных) "
+        "или 1 × группа × редкость (для маркерных).\n\n"
+        "Группы: G1 Личное (×1), G2 Продукт (×2), G3 Знание (×3), G4 Сообщество (×4).\n\n"
     )
 
-    if qual_rows:
-        text += "<b>Множители за квалификацию МИМ</b>\n"
-        for q in qual_rows:
-            raw_name = str(q.get('qualification', ''))
-            name = raw_name.replace('_', ' ').title()
-            mult = float(q.get('multiplier', 1))
-            cap = int(q.get('daily_cap', 0))
-            text += f"   {name} — ×{mult:g}, потолок бонусов {cap}/день\n"
-        text += "\n"
-    else:
-        text += (
-            "<b>Множители за квалификацию МИМ</b>\n"
-            "   Ученик — ×1, потолок бонусов 100/день\n"
-            "   Работник — ×1.3, потолок бонусов 140/день\n"
-            "   Стратег — ×1.6, потолок бонусов 200/день\n"
-            "   Специалист — ×2, потолок бонусов 280/день\n"
-            "   Практик — ×2.5, потолок бонусов 360/день\n"
-            "   Мастер — ×3, потолок бонусов 500/день\n"
-            "   Реформатор — ×4, потолок бонусов 700/день\n"
-            "   Общественный Деятель — ×5, потолок бонусов 1000/день\n\n"
-        )
+    _GROUP_NAMES = {
+        1: "🧘 Личное (G1)",
+        2: "🛠 Продукт (G2)",
+        3: "📚 Знание (G3)",
+        4: "🤝 Сообщество (G4)",
+    }
+
+    # Group rules by group_mult
+    grouped = {}
+    for r in rules:
+        gm = int(r.get('group_mult', 1))
+        grouped.setdefault(gm, []).append(r)
+
+    text += "<b>Действия и баллы</b> (пример для Ученика, страйк ×1.2):\n"
+    for gm in sorted(grouped.keys()):
+        text += f"\n{_GROUP_NAMES.get(gm, 'Другое')}:\n"
+        for r in grouped[gm]:
+            et = r.get('trigger_event', '')
+            label = _event_label(et)
+            effort = r.get('effort_minutes')
+            is_m = r.get('is_marker')
+            mpd = int(r.get('max_per_day', 1))
+            amt = float(r.get('amount', 0))
+            # approximate effective for Ученик (qual=1, streak=1.2)
+            if effort and effort > 0:
+                import math
+                base = (effort ** 0.6) * gm * 1.0
+                eff = round(base * 1.0 * 1.2, 1)
+                desc = f"{effort}мин"
+            elif is_m:
+                eff = round(1.0 * gm * 1.0 * 1.2, 1)
+                desc = "маркер"
+            else:
+                eff = round(amt * gm * 1.0 * 1.2, 1)
+                desc = "legacy"
+            text += f"  • {label}: +{eff:g} ({desc}, max {mpd}/день)\n"
 
     text += (
-        "<b>Как считается суточный потолок бонусов</b>\n"
-        "Берётся наименьший из двух: баллы и потолок квалификации. "
-        "Например: Ученик (потолок 100) получает 150 баллов → засчитывается не более 100 бонусов. "
-        "Что не вошло в бонусы — остаётся в баллах.\n\n"
-        "Свой баланс и историю — /points"
+        "\n<b>Множители квалификации</b>\n"
+        "   Случайный — ×0.2, cap 40/день\n"
+        "   Практикующий — ×0.4, cap 80/день\n"
+        "   Систематический — ×0.6, cap 120/день\n"
+        "   Дисциплинированный — ×0.8, cap 160/день\n"
+        "   Проактивный (Ученик) — ×1.0, cap 200/день\n"
+        "   Работник — ×1.3, cap 260/день\n"
+        "   Стратег — ×1.6, cap 320/день\n"
+        "   Специалист — ×2.0, cap 400/день\n"
+        "   Практик — ×2.5, cap 500/день\n"
+        "   Мастер — ×3.0, cap 600/день\n"
+        "   Реформатор — ×4.0, cap 800/день\n"
+        "   Общественный деятель — ×5.0, cap 1000/день\n\n"
+        "Свой баланс — /points"
     )
 
     try:

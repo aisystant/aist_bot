@@ -141,12 +141,13 @@ async def get_active_reward_rules() -> List[Dict[str, Any]]:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT trigger_event, amount, streak_eligible, description
+                SELECT trigger_event, amount, streak_eligible, description,
+                       effort_minutes, is_marker, max_per_day, group_mult, rarity_mult
                 FROM reward_rules
                 WHERE reward_kind = 'points'
                   AND amount > 0
                   AND (valid_to IS NULL OR valid_to > NOW())
-                ORDER BY amount DESC, trigger_event
+                ORDER BY group_mult DESC, amount DESC, trigger_event
                 """,
             )
             return [dict(r) for r in rows]
@@ -261,6 +262,56 @@ async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
     except Exception as e:
         logger.error(f"[rewards] get_user_daily_cap({account_id}): {e}")
         return None
+
+
+async def get_loyalty_rate() -> Decimal:
+    """Текущий курс бонусов из loyalty_pool_config (WP-327 v4.1).
+
+    Returns: rate в ₽/бонус. Default 0.05 если конфиг не найден.
+    """
+    try:
+        pool = await get_reference_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT rate FROM loyalty_pool_config
+                WHERE valid_to IS NULL OR valid_to > NOW()
+                ORDER BY valid_from DESC
+                LIMIT 1
+                """
+            )
+            return Decimal(str(row['rate'])) if row and row['rate'] else Decimal("0.05")
+    except Exception as e:
+        logger.error(f"[rewards] get_loyalty_rate: {e}")
+        return Decimal("0.05")
+
+
+async def get_user_action_cap(account_id: Optional[str]) -> Optional[int]:
+    """Action cap пользователя по unified 12-level справочнику (WP-327 v4.1)."""
+    if not account_id:
+        return None
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT ql.action_cap
+                FROM _foreign_reference.qualification_levels_v4 ql
+                JOIN _foreign_indicators.calculated_profile cp ON cp.account_id = $1
+                WHERE ql.level_number = COALESCE(
+                    CASE
+                        WHEN cp.qualification_level BETWEEN 1 AND 3 THEN cp.qualification_level
+                        WHEN cp.qualification_level = 4 THEN (cp.rcs_current ->> 'stage')::INT
+                        WHEN cp.qualification_level BETWEEN 5 AND 11 THEN cp.qualification_level + 1
+                        ELSE 5
+                    END, 5)
+                """,
+                account_id,
+            )
+            return int(row['action_cap']) if row and row['action_cap'] else 200
+    except Exception as e:
+        logger.error(f"[rewards] get_user_action_cap({account_id}): {e}")
+        return 200
 
 
 async def get_student_stage_multipliers() -> List[Dict[str, Any]]:
