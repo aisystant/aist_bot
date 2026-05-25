@@ -208,8 +208,7 @@ async def cmd_points(message: Message):
         balance = await get_points_balance(account_id)
         earned_total = await get_earned_total(account_id)
         events = await get_recent_applied_events(account_id, limit=5)
-        today_raw = await get_today_raw_total(account_id)   # баллы (raw, без cap)
-        today_bonus = await get_today_total(account_id)     # бонусы (effective, capped)
+        today_bonus = await get_today_total(account_id)     # effective, capped
         daily_cap = await get_user_daily_cap(account_id)
         rate = await get_loyalty_rate()
     except Exception as e:
@@ -229,11 +228,10 @@ async def cmd_points(message: Message):
 
     balance_num = float(balance or 0)
     earned_num = float(earned_total) if earned_total is not None else balance_num
-    today_raw_num = float(today_raw or 0)
     today_bonus_num = float(today_bonus or 0)
 
-    # Баллы сегодня — raw, без потолка
-    today_pts_str = f"+{_fmt_pts(int(today_raw_num))}" if today_raw_num > 0 else "—"
+    # Баллы сегодня — effective (как и бонусы, без raw-накрутки)
+    today_pts_str = f"+{_fmt_pts(int(today_bonus_num))}" if today_bonus_num > 0 else "—"
 
     # Бонусы сегодня — effective с прогресс-баром vs дневной потолок
     today_bonus_str = f"+{_fmt_pts(int(today_bonus_num))}" if today_bonus_num > 0 else "—"
@@ -369,8 +367,8 @@ async def cmd_rules(message: Message):
         "Группа: G1 Личное ×1, G2 Продукт ×2, G3 Знание ×3, G4 Сообщество ×4\n\n"
         "<b>Как баллы переходят в бонусы</b>\n"
         "Каждый день: бонусы = min(баллы за день, суточный потолок)\n"
-        "Суточный потолок = 200 × квалификация\n\n"
-        "<b>Макс бонусов в день по квалификации</b>\n"
+        "Суточный потолок = макс за событие × 10\n\n"
+        "<b>Макс за одно событие (по квалификации)</b>\n"
         "   Случайный — 40\n"
         "   Практикующий — 80\n"
         "   Систематический — 120\n"

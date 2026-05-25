@@ -242,23 +242,44 @@ async def get_recent_redeemed_events(account_id: Optional[str], limit: int = 3) 
 
 
 async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
-    """Суточный потолок пользователя из последнего события в applied_events (approx)."""
+    """Суточный потолок (daily_total_cap = action_cap × K, K=10) пользователя."""
     if not account_id:
         return None
 
     try:
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
+            # Prefer from latest applied_event (has mapped level)
             row = await conn.fetchrow(
                 """
-                SELECT daily_cap FROM applied_events
-                WHERE account_id = $1
+                SELECT daily_cap * 10 AS daily_total_cap
+                FROM applied_events
+                WHERE account_id = $1 AND daily_cap > 0
                 ORDER BY applied_at DESC
                 LIMIT 1
                 """,
                 account_id,
             )
-            return int(row['daily_cap']) if row and row['daily_cap'] else None
+            if row and row['daily_total_cap']:
+                return int(row['daily_total_cap'])
+            # Fallback: lookup from qualification_levels_v4 via calculated_profile
+            row = await conn.fetchrow(
+                """
+                SELECT COALESCE(ql.action_cap, 200) * 10 AS daily_total_cap
+                FROM _foreign_indicators.calculated_profile cp
+                LEFT JOIN _foreign_reference.qualification_levels_v4 ql
+                    ON ql.level_number = COALESCE(
+                        CASE
+                            WHEN cp.qualification_level BETWEEN 1 AND 3 THEN cp.qualification_level
+                            WHEN cp.qualification_level = 4 THEN (cp.rcs_current ->> 'stage')::INT
+                            WHEN cp.qualification_level BETWEEN 5 AND 11 THEN cp.qualification_level + 1
+                            ELSE 5
+                        END, 5)
+                WHERE cp.account_id = $1
+                """,
+                account_id,
+            )
+            return int(row['daily_total_cap']) if row and row['daily_total_cap'] else 2000
     except Exception as e:
         logger.error(f"[rewards] get_user_daily_cap({account_id}): {e}")
         return None
