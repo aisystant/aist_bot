@@ -7,6 +7,7 @@
 """
 
 import logging
+import time
 from typing import Optional
 
 from aiogram import Bot
@@ -14,6 +15,8 @@ from aiogram import Bot
 from core.registry import registry
 
 logger = logging.getLogger(__name__)
+
+_sm_first_enter: set = set()  # chat_ids that completed first SM transition (process-scoped)
 
 
 # Legacy COMMAND_MAP — fallback для команд, не зарегистрированных в реестре
@@ -149,4 +152,13 @@ class Dispatcher:
     async def go_to(self, user: dict, state_name: str, context: dict = None) -> None:
         """Прямой переход в указанный стейт SM."""
         if self.sm:
+            chat_id = user.get('chat_id') if isinstance(user, dict) else None
+            is_first = chat_id is not None and chat_id not in _sm_first_enter
+            t0 = time.monotonic()
             await self.sm.go_to(user, state_name, context)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            if is_first:
+                _sm_first_enter.add(chat_id)
+                logger.info(f"[SM] cold-start go_to({state_name}) for {chat_id}: {elapsed_ms:.0f}ms (nav)")
+            elif elapsed_ms > 2000:
+                logger.warning(f"[SM] slow go_to({state_name}) for {chat_id}: {elapsed_ms:.0f}ms")

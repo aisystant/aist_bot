@@ -45,6 +45,7 @@ STATE_FIELDS = frozenset({
     'onboarding_completed', 'bot_blocked', 'bot_blocked_at', 'trial_started_at',
     'assessment_state', 'assessment_date', 'stats_reset_date',
     'notify_template_updates', 'notify_nudges',
+    'retry_exhausted_date',
 })
 
 # All known fields (union)
@@ -82,7 +83,7 @@ _SELECT_JOINED = '''
         s.last_active_date, s.bot_blocked, s.bot_blocked_at,
         s.trial_started_at, s.assessment_state, s.assessment_date,
         s.stats_reset_date, s.notify_template_updates,
-        s.onboarding_completed,
+        s.onboarding_completed, s.retry_exhausted_date,
         COALESCE(s.updated_at, u.updated_at) AS updated_at
     FROM public.users u
     LEFT JOIN development.user_state s ON s.user_id = u.id
@@ -142,7 +143,9 @@ def _row_to_dict(row) -> dict:
     def safe_json(key, default=None):
         if default is None:
             default = []
-        val = safe_get(key, '[]')
+        val = safe_get(key, None)
+        if val is None:
+            return default
         try:
             return json.loads(val) if isinstance(val, str) else val
         except Exception:
@@ -224,6 +227,9 @@ def _row_to_dict(row) -> dict:
 
         # IWE template update notifications (WP-90)
         'notify_template_updates': safe_get('notify_template_updates', False),
+
+        # Scheduler exhaustion guard (BE5-fix)
+        'retry_exhausted_date': safe_get('retry_exhausted_date', None),
     }
 
 
@@ -260,6 +266,7 @@ def _get_default_state() -> dict:
         'trial_started_at': None,
         'onboarding_completed': False,
         'notify_template_updates': False,
+        'retry_exhausted_date': None,
     }
 
 

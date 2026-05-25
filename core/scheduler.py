@@ -11,7 +11,9 @@ import html
 import json
 import logging
 import os
+import random
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -62,7 +64,7 @@ def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
     if _scheduler.get_job(job_id):
         logger.info(f"[Scheduler] Retry already pending for {chat_id} ({content_type}), skip")
         return
-    delay = _RETRY_DELAYS_MINUTES[attempt]
+    delay = _RETRY_DELAYS_MINUTES[attempt] * random.uniform(0.75, 1.25)
     run_at = moscow_now() + timedelta(minutes=delay)
     _scheduler.add_job(
         _execute_retry,
@@ -72,7 +74,7 @@ def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
         args=[chat_id, content_type, attempt],
         replace_existing=True,
     )
-    logger.info(f"[Scheduler] Retry #{attempt+1} scheduled for {chat_id} ({content_type}) at +{delay}min")
+    logger.info(f"[Scheduler] Retry #{attempt+1} scheduled for {chat_id} ({content_type}) at +{delay:.1f}min")
 
 
 async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
@@ -84,7 +86,10 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
     bot = Bot(token=_bot_token)
     try:
         if content_type == 'marathon':
-            await send_scheduled_topic(chat_id, bot)
+            deferred = await send_scheduled_topic(chat_id, bot) or False
+            if deferred:
+                _schedule_retry(chat_id, content_type, attempt + 1)
+                return
         elif content_type == 'feed':
             await pre_generate_feed_digest(chat_id, bot)
         elif content_type == 'tailor':
@@ -122,6 +127,19 @@ async def _notify_retry_exhausted(chat_id: int, content_type: str):
 
     text = t(key, lang)
     logger.info(f"[Scheduler] Notifying {chat_id} retry exhausted ({content_type}): {text!r}")
+
+    # Персистентный маркер: предотвращает новый retry-цикл после exhaustion (F2)
+    try:
+        from db.connection import get_pool as _get_main_pool
+        _pool = await _get_main_pool()
+        async with _pool.acquire() as _conn:
+            await _conn.execute(
+                "UPDATE development.user_state SET retry_exhausted_date = CURRENT_DATE WHERE chat_id = $1",
+                chat_id
+            )
+        logger.info(f"[Scheduler] retry_exhausted_date set for {chat_id} ({content_type})")
+    except Exception as e:
+        logger.warning(f"[Scheduler] Failed to set retry_exhausted_date for {chat_id}: {e}")
 
     bot = Bot(token=_bot_token)
     try:
@@ -393,6 +411,10 @@ async def _send_marathon_weekly_digest():
 
             missed = current_day - total_checkins
 
+            if current_day == 0:
+                logger.info(f"[MarathonDigest] Skipping {chat_id}: not started yet (current_day=0)")
+                continue
+
             text = (
                 f"📊 *Итоги недели марафона*\n\n"
                 f"📅 Пройдено дней: {current_day}/14\n"
@@ -401,7 +423,7 @@ async def _send_marathon_weekly_digest():
                 f"🎯 Последнее состояние: {last_state_label}\n\n"
             )
 
-            if missed == 0:
+            if missed == 0 and current_day > 0:
                 text += "Отличная неделя! Ритм выдержан. 💪"
             elif missed <= 2:
                 text += "Неплохо, но можно добавить стабильности. Продолжаем?"
@@ -505,6 +527,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
+    _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='check_retry_storm', max_instances=1)  # BE5: retry storm detector (id без retry_-префикса — иначе детектор считает себя в storm:1)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
     # (development.engagement, development.user_events), которых нет в Railway Postgres bot_data.
     # Новая архитектура: projection-worker (WP-270) → indicators.calculated_profile (Neon).
@@ -876,8 +899,7 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
     if is_api_degraded():
         logger.warning(f"[Scheduler] Claude API degraded, deferring scheduled topic for {chat_id}")
-        _schedule_retry(chat_id, 'marathon', attempt=0)
-        return
+        return True
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
@@ -983,21 +1005,21 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
         logger.info(f"[Scheduler] Pre-generated content found for {chat_id}, topic {topic_index} — skip generation")
     else:
         # Fallback: генерируем сейчас (контент не был пре-генерирован)
+        if is_api_degraded():
+            logger.warning(f"[Scheduler] API degraded, skip on-demand gen for {chat_id}, topic {topic_index}")
+            return True
         try:
             success = await _generate_and_save_content(chat_id, intern, topic_index)
             if not success:
                 logger.error(f"[Scheduler] Lesson generation failed for {chat_id}, topic {topic_index}")
-                _schedule_retry(chat_id, 'marathon')
-                return
+                return True
             logger.info(f"[Scheduler] On-demand generation for {chat_id}, topic {topic_index}")
         except asyncio.TimeoutError:
             logger.error(f"[Scheduler] Pre-generation timeout (120s) for {chat_id}, topic {topic_index}")
-            _schedule_retry(chat_id, 'marathon')
-            return
+            return True
         except Exception as e:
             logger.error(f"[Scheduler] Pre-generation error for {chat_id}: {e}")
-            _schedule_retry(chat_id, 'marathon')
-            return
+            return True
 
     # ─── Idempotency guard: уведомление уже отправлено сегодня? (WP-152: notification_log) ───
     if await was_notification_sent(marathon_key):
@@ -1044,6 +1066,33 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
             parse_mode="Markdown"
         )
         logger.info(f"[Scheduler] Sent marathon notification to {chat_id}, topic: {topic_title}")
+
+
+async def _check_retry_storm():
+    """BE5: детектор retry-шторма — >10 retry jobs в очереди → TG-алерт."""
+    if not _scheduler:
+        return
+    retry_jobs = [j for j in _scheduler.get_jobs() if j.id.startswith('retry_')]
+    if len(retry_jobs) <= 10:
+        return
+    by_type = Counter(j.id.split('_')[1] for j in retry_jobs if '_' in j.id)
+    lines = [f"  {k}: {v}" for k, v in by_type.items()]
+    alert = (
+        f"⚠️ <b>[Scheduler] Retry storm:</b> {len(retry_jobs)} jobs в очереди\n"
+        + "\n".join(lines)
+    )
+    import os
+    dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
+    if not dev_chat_id or not _bot_token:
+        logger.warning(f"[Scheduler] Retry storm detected ({len(retry_jobs)} jobs) but no dev_chat_id/token")
+        return
+    try:
+        bot = Bot(token=_bot_token)
+        await bot.send_message(int(dev_chat_id), alert, parse_mode="HTML")
+        await bot.session.close()
+    except Exception as e:
+        logger.error(f"[Scheduler] Retry storm alert failed: {e}")
+    logger.warning(f"[Scheduler] Retry storm: {len(retry_jobs)} retry jobs — {dict(by_type)}")
 
 
 async def _ensure_reminder_text_column():
@@ -1304,7 +1353,13 @@ async def scheduled_check():
             """
             try:
                 if send_type in ('marathon', 'both'):
-                    await send_scheduled_topic(chat_id, bot)
+                    if await send_scheduled_topic(chat_id, bot):
+                        intern_chk = await get_intern(chat_id)
+                        exhausted = intern_chk.get('retry_exhausted_date') if intern_chk else None
+                        if exhausted and exhausted >= moscow_now().date():
+                            logger.info(f"[Scheduler] {chat_id}: retry exhausted today, skip new chain")
+                        else:
+                            _schedule_retry(chat_id, 'marathon', attempt=0)
                 if send_type in ('feed', 'both'):
                     await pre_generate_feed_digest(chat_id, bot)
                 logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
@@ -1638,8 +1693,15 @@ async def _catch_up_missed_deliveries():
     async def _deliver_one(chat_id: int):
         async with sem:
             try:
-                await send_scheduled_topic(chat_id, bot)
-                logger.info(f"[Scheduler] Catch-up delivered to {chat_id}")
+                if await send_scheduled_topic(chat_id, bot):
+                    intern_chk = await get_intern(chat_id)
+                    exhausted = intern_chk.get('retry_exhausted_date') if intern_chk else None
+                    if exhausted and exhausted >= moscow_now().date():
+                        logger.info(f"[Scheduler] {chat_id}: retry exhausted today, skip catch-up chain")
+                    else:
+                        _schedule_retry(chat_id, 'marathon', attempt=0)
+                else:
+                    logger.info(f"[Scheduler] Catch-up delivered to {chat_id}")
             except Exception as e:
                 if _is_user_unavailable(e):
                     await _handle_unavailable_user(chat_id, "catch-up")
@@ -1670,6 +1732,14 @@ async def _check_schedule_integrity(now) -> Optional[str]:
     issues = []
 
     async with pool.acquire() as conn:
+        # 0. Сброс вчерашних exhaustion-маркеров (F2)
+        cleared = await conn.fetchval(
+            "WITH d AS (UPDATE development.user_state SET retry_exhausted_date = NULL "
+            "WHERE retry_exhausted_date < CURRENT_DATE RETURNING 1) SELECT COUNT(*) FROM d"
+        )
+        if cleared:
+            logger.info(f"[Integrity] Cleared retry_exhausted_date for {cleared} users")
+
         # 1. Non-zero-padded times
         bad_times = await conn.fetch('''
             SELECT s.chat_id, u.tg_username, s.schedule_time, s.feed_schedule_time

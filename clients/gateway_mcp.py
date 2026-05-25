@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
-from config import GATEWAY_MCP_URL, get_logger
+from config import GATEWAY_MCP_URL, GATEWAY_MCP_TIMEOUT, get_logger
 
 logger = get_logger(__name__)
 
@@ -52,8 +52,8 @@ class GatewayMCPClient:
     - Circuit breaker для graceful degradation
     """
 
-    DEFAULT_TIMEOUT = 10
-    RETRY_TIMEOUT = 5
+    DEFAULT_TIMEOUT = GATEWAY_MCP_TIMEOUT
+    RETRY_TIMEOUT = GATEWAY_MCP_TIMEOUT
     MAX_RETRIES = 1
 
     FAILURE_THRESHOLD = 2

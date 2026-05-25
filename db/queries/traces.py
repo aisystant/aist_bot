@@ -29,9 +29,10 @@ THRESHOLDS = {
 
 _NAV_COMMANDS = {'/mode', '/help', '/profile', '/settings', '/language', '/mydata', '/feedback'}
 _HEAVY_COMMANDS = {'/feed', '/learn', '/test', '/assessment'}
+# Pattern-based: cb:marathon_next_* and cb:marathon_get_* are content-generating (heavy).
+# Other cb:marathon_* (back_menu, settings_back, reset_confirm, etc.) remain nav.
+_HEAVY_MARATHON_PATTERNS = ('cb:marathon_next_', 'cb:marathon_get_')
 _HEAVY_CALLBACKS = {
-    'cb:marathon_next_question', 'cb:marathon_get_practice',
-    'cb:marathon_next_bonus',
     'cb:feed_confirm', 'cb:feed_get_digest', 'cb:go_profile',
 }
 
@@ -41,12 +42,14 @@ def classify_command(command: str) -> str:
 
     Categories (SLA):
     - nav: instant commands, <1s (e.g. /mode, /help, cb:inline_*)
-    - heavy: content generation, <3s (e.g. /feed, cb:marathon_*)
+    - heavy: content generation, <3s (e.g. /feed, cb:marathon_next_*, cb:marathon_get_*)
     - consultation: AI dialogue, <8s (e.g. msg:*)
     """
     if not command:
         return 'nav'
     cmd = command.split()[0] if command else ''
+    if any(cmd.startswith(p) for p in _HEAVY_MARATHON_PATTERNS):
+        return 'heavy'
     if cmd in _HEAVY_CALLBACKS:
         return 'heavy'
     if cmd.startswith('cb:'):

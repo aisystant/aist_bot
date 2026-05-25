@@ -222,6 +222,9 @@ class ClaudeClient:
                         return None
                     else:
                         error = await resp.text()
+                        # 400 with usage limit = persistent degradation, suppress scheduler retries
+                        if resp.status == 400 and "usage limits" in error:
+                            record_api_degradation()
                         system = payload.get("system") or ""
                         system_len = len(system) if isinstance(system, str) else sum(
                             len(b.get("text", "")) for b in system if isinstance(b, dict)

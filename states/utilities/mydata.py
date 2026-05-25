@@ -1032,6 +1032,7 @@ class MyDataState(BaseState):
             mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
             topics_today=0,
             topics_at_current_bloom=0,
+            retry_exhausted_date=None,
         )
 
         await self.send(

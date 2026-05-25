@@ -189,6 +189,16 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 015 skipped: {_e}")
 
+    # retry_exhausted_date column (F2: остановка бесконечного retry-цикла после exhaustion)
+    try:
+        import importlib as _il
+        _m017 = _il.import_module("db.migrations.017_retry_exhausted_date")
+        _created = await _m017.migrate_if_needed(await _get_pool())
+        if _created:
+            logger.info("✅ Migration 017: retry_exhausted_date added to user_state")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 017 skipped: {_e}")
+
     # Canary state table (Learning/Neon) + restore pause across redeploys
     try:
         import importlib as _il

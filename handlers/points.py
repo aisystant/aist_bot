@@ -26,6 +26,7 @@ from db.queries.users import is_onboarded
 from db.queries.rewards import (
     get_points_balance,
     get_recent_applied_events,
+    get_recent_redeemed_events,
     get_today_total,
     get_today_raw_total,
     get_active_reward_rules,
@@ -132,6 +133,31 @@ def _fmt_pts(n: float) -> str:
     return f"{int(n):,}".replace(",", " ")
 
 
+_PURPOSE_LABELS = {
+    "SEMINAR": "Семинар",
+    "SUBSCRIPTION": "Подписка",
+    "EVENT": "Мероприятие",
+}
+
+
+def _purpose_label(purpose: str) -> str:
+    return _PURPOSE_LABELS.get(purpose, purpose or "Оплата")
+
+
+def _format_redeemed_compact(rev: dict) -> str:
+    """Компактная строка списания. WP-188 Ф17 #4."""
+    try:
+        label = _purpose_label(rev.get("purpose"))
+        pts = int(float(rev.get("points_amount") or 0))
+        rub = int(float(rev.get("discount_rub") or 0))
+        when = _relative_time(rev.get("confirmed_at") or rev.get("reserved_at"))
+        when_str = f" · <i>{when}</i>" if when else ""
+        return f"• {label}: <b>−{pts}</b> ({rub}₽){when_str}"
+    except Exception as e:
+        logger.warning(f"[/points] _format_redeemed_compact failed: {e}")
+        return "• списание"
+
+
 def _format_event_compact(ev: dict) -> str:
     """Компактная строка начисления баллов. Баллы = raw, всегда > 0."""
     try:
@@ -180,6 +206,7 @@ async def cmd_points(message: Message):
         balance = await get_points_balance(account_id)
         earned_total = await get_earned_total(account_id)
         events = await get_recent_applied_events(account_id, limit=5)
+        redeemed = await get_recent_redeemed_events(account_id, limit=3)  # WP-188 Ф17 #4
         today_raw = await get_today_raw_total(account_id)   # баллы (raw, без cap)
         today_bonus = await get_today_total(account_id)     # бонусы (effective, capped)
         daily_cap = await get_user_daily_cap(account_id)
@@ -226,6 +253,11 @@ async def cmd_points(message: Message):
         text += "\n<b>Последние начисления баллов:</b>\n"
         for ev in events:
             text += _format_event_compact(ev) + "\n"
+
+    if redeemed:
+        text += "\n<b>Последние списания бонусов:</b>\n"
+        for rev in redeemed:
+            text += _format_redeemed_compact(rev) + "\n"
 
     kb = _build_points_keyboard()
     try:

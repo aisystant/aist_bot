@@ -210,6 +210,36 @@ async def get_earned_total(account_id: Optional[str]) -> Optional[Decimal]:
         return None
 
 
+async def get_recent_redeemed_events(account_id: Optional[str], limit: int = 3) -> list:
+    """Последние confirmed списания (burn-операции) пилота.
+
+    WP-188 Ф17 #4: история списаний в /points UI. Источник: rewards.redeemed_events
+    (WP-327 Ф1, two-phase commit). Только status='confirmed' — резервы и откаты не показываем.
+    """
+    if not account_id:
+        return []
+
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT payment_id, points_amount, discount_rub, purpose, payment_source,
+                       confirmed_at, reserved_at
+                FROM public.redeemed_events
+                WHERE account_id = $1 AND status = 'confirmed'
+                ORDER BY confirmed_at DESC NULLS LAST
+                LIMIT $2
+                """,
+                account_id,
+                limit,
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"[rewards] get_recent_redeemed_events({account_id}): {e}")
+        return []
+
+
 async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
     """Суточный потолок пользователя из последнего события в applied_events (approx)."""
     if not account_id:
