@@ -304,9 +304,9 @@ async def _process_marathon_queue():
                 except Exception as e:
                     logger.exception(f"[MarathonQueue] Unhandled error for item {item.get('id')}: {e}")
                     continue
-                finally:
-                    # WP-7 Ф-Bot-RateLimit: ≤20 msg/sec глобально для MarathonQueue
-                    await asyncio.sleep(0.05)
+            # WP-7 Ф-Bot-RateLimit: ≤20 msg/sec глобально для MarathonQueue
+            # Sleep за пределами семафора — не блокируем слоты (peer-review fix)
+            await asyncio.sleep(0.05)
     finally:
         await bot.session.close()
 
