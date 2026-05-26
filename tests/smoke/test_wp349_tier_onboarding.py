@@ -118,6 +118,7 @@ async def test_marathon_day1_immediate():
     with patch("handlers.marathon.get_or_create_progress", new_callable=AsyncMock,
                return_value={"status": "registered"}), \
          patch("handlers.marathon.update_progress", new_callable=AsyncMock), \
+         patch("handlers.marathon.update_intern", new_callable=AsyncMock), \
          patch("handlers.marathon.enqueue_day_items", side_effect=fake_enqueue), \
          patch("handlers.marathon.moscow_now", return_value=now_msk), \
          patch("core.marathon_content.get_day_text", return_value="content"):
@@ -145,6 +146,7 @@ async def test_marathon_day1_tomorrow():
     with patch("handlers.marathon.get_or_create_progress", new_callable=AsyncMock,
                return_value={"status": "registered"}), \
          patch("handlers.marathon.update_progress", new_callable=AsyncMock), \
+         patch("handlers.marathon.update_intern", new_callable=AsyncMock), \
          patch("handlers.marathon.enqueue_day_items", side_effect=fake_enqueue), \
          patch("handlers.marathon.moscow_now", return_value=now_msk), \
          patch("core.marathon_content.get_day_text", return_value="content"):
