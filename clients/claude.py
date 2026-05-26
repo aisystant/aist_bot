@@ -984,9 +984,8 @@ class ClaudeClient:
         # Sonnet fallback: if Haiku truncated (stop_reason=max_tokens → None), retry
         # with Sonnet which is more concise. Guard: model must be explicit non-Sonnet
         # (model=None → generate() uses Sonnet already; retry would be double-Sonnet).
-        # Known limitation: also fires on 429/timeout None, but those retries fail fast
-        # and are low-frequency relative to truncation failures.
-        if result is None and model is not None and model != CLAUDE_MODEL_SONNET:
+        # BE9 fix: skip fallback if API is degraded (timeout/429 → Sonnet retry is useless)
+        if result is None and model is not None and model != CLAUDE_MODEL_SONNET and not is_api_degraded():
             logger.warning(
                 f"[generate_content] {model} returned None (truncated?), "
                 f"retrying with Sonnet for chat_id={chat_id}"
@@ -1065,7 +1064,8 @@ class ClaudeClient:
 
         # Sonnet fallback: if Haiku truncated, retry with Sonnet.
         # model=None → generate() used Sonnet already → skip (None and ... = falsy).
-        if result is None and model and model != CLAUDE_MODEL_SONNET:
+        # BE9 fix: skip fallback if API is degraded (timeout/429 → Sonnet retry is useless)
+        if result is None and model and model != CLAUDE_MODEL_SONNET and not is_api_degraded():
             logger.warning(
                 f"[generate_practice_intro] {model} returned None, retrying with Sonnet"
             )
