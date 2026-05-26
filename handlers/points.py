@@ -29,13 +29,12 @@ from db.queries.rewards import (
     get_recent_applied_events,
     get_recent_redeemed_events,
     get_today_total,
-    get_today_raw_total,
-    get_active_reward_rules,
     get_domain_multipliers,
     get_earned_total,
     get_user_daily_cap,
     get_student_stage_multipliers,
     get_qualification_multipliers_list,
+    get_qualification_levels_v4_list,
     get_loyalty_rate,
 )
 from i18n import t
@@ -357,19 +356,23 @@ async def cmd_rules(message: Message):
         return
 
     try:
-        rules = await get_active_reward_rules()
+        qual_rows = await get_qualification_levels_v4_list()
         rate = await get_loyalty_rate()
     except Exception as e:
         logger.error(f"[/rules] chat_id={chat_id}: {e}")
-        rules = []
+        qual_rows = []
         rate = Decimal("0.05")
+
+    cap_lines = []
+    for q in qual_rows:
+        cap_lines.append(f"   {q['name']} — {int(q['daily_cap_bonuses'])}\n")
 
     text = (
         "🎯 <b>Правила начисления баллов и бонусов</b>\n\n"
         "<b>Баллы</b> — монотонный счётчик развития. "
         "Складываются за всё время, никогда не обнуляются.\n"
         "<b>Бонусы</b> — скидка при оплате. "
-        "Курс: <b>0.5 ₽/бонус</b>.\n\n"
+        f"Курс: <b>{float(rate):.2f} ₽/бонус</b>.\n\n"
         "<b>Как начисляются баллы</b>\n"
         "-- Баллы = база × квалификация × серия\n"
         "-- Содержательные действия (уроки, задания, публикации): "
@@ -383,19 +386,8 @@ async def cmd_rules(message: Message):
         "<b>Как баллы переходят в бонусы</b>\n"
         "-- Бонусы каждого дня = min(баллы за день, суточный потолок)\n"
         "-- Суточный потолок бонусов зависит от квалификации:\n"
-        "   Случайный — 4\n"
-        "   Практикующий — 8\n"
-        "   Систематический — 12\n"
-        "   Дисциплинированный — 16\n"
-        "   Проактивный (Ученик) — 20\n"
-        "   Работник — 26\n"
-        "   Стратег — 32\n"
-        "   Специалист — 40\n"
-        "   Практик — 50\n"
-        "   Мастер — 60\n"
-        "   Реформатор — 80\n"
-        "   Общественный деятель — 100\n\n"
-        "Свой баланс — /points"
+        + "".join(cap_lines)
+        + "\nСвой баланс — /points"
     )
 
     try:
