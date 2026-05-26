@@ -30,8 +30,22 @@ REWARDS_DSN = os.environ.get(
     "REWARDS_URL",
     "postgresql://neondb_owner:npg_ZlRWtDg1zf3J@ep-dark-hall-ag8bo8lf.c-2.eu-central-1.aws.neon.tech/rewards?sslmode=require",
 )
-K = 1
 BATCH_SIZE = 5000
+
+
+def load_K(cur):
+    """Читаем K из loyalty_pool_config (через FDW). Fallback = 10."""
+    cur.execute(
+        """
+        SELECT COALESCE(K, 10)
+        FROM _foreign_reference.loyalty_pool_config
+        WHERE valid_to IS NULL
+        ORDER BY valid_from DESC
+        LIMIT 1
+        """
+    )
+    row = cur.fetchone()
+    return row[0] if row else 10
 
 
 def load_rules(cur):
@@ -110,7 +124,7 @@ def resolve_level(payload, profile):
         return 5
 
 
-def recalculate_account(cur, rules, levels, profile, account_id):
+def recalculate_account(cur, rules, levels, profile, account_id, K):
     """Пересчитать applied_events для одного account_id. Возвращает список updates."""
     cur.execute(
         """
@@ -313,7 +327,8 @@ def main():
         total_accounts = len(all_accounts)
         for idx, account_id in enumerate(all_accounts, 1):
             profile = profiles.get(account_id)
-            updates = recalculate_account(cur, rules, levels, profile, account_id)
+            K = load_K(cur)
+            updates = recalculate_account(cur, rules, levels, profile, account_id, K)
             if updates:
                 apply_updates(cur, updates)
                 total_updated += len(updates)
