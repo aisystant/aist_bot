@@ -242,30 +242,46 @@ async def get_recent_redeemed_events(account_id: Optional[str], limit: int = 3) 
 
 
 async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
-    """Суточный потолок (daily_total_cap = action_cap × K, K=10) пользователя."""
+    """Суточный потолок (daily_total_cap = action_cap × K) пользователя.
+
+    K читается из loyalty_pool_config (reference). Default K=1.
+    """
     if not account_id:
         return None
 
     try:
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
+            # Get current K from loyalty_pool_config
+            k_row = await conn.fetchrow(
+                """
+                SELECT COALESCE(k, 1) AS k
+                FROM _foreign_reference.loyalty_pool_config
+                WHERE valid_to IS NULL OR valid_to > NOW()
+                ORDER BY valid_from DESC
+                LIMIT 1
+                """
+            )
+            k = Decimal(str(k_row['k'])) if k_row and k_row['k'] else Decimal("1")
+
             # Prefer from latest applied_event (has mapped level)
             row = await conn.fetchrow(
                 """
-                SELECT daily_cap * 10 AS daily_total_cap
+                SELECT daily_cap * $2 AS daily_total_cap
                 FROM applied_events
                 WHERE account_id = $1 AND daily_cap > 0
                 ORDER BY applied_at DESC
                 LIMIT 1
                 """,
                 account_id,
+                k,
             )
             if row and row['daily_total_cap']:
                 return int(row['daily_total_cap'])
             # Fallback: lookup from qualification_levels_v4 via calculated_profile
             row = await conn.fetchrow(
                 """
-                SELECT COALESCE(ql.action_cap, 200) * 10 AS daily_total_cap
+                SELECT COALESCE(ql.action_cap, 200) * $2 AS daily_total_cap
                 FROM _foreign_indicators.calculated_profile cp
                 LEFT JOIN _foreign_reference.qualification_levels_v4 ql
                     ON ql.level_number = COALESCE(
@@ -278,8 +294,9 @@ async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
                 WHERE cp.account_id = $1
                 """,
                 account_id,
+                k,
             )
-            return int(row['daily_total_cap']) if row and row['daily_total_cap'] else 2000
+            return int(row['daily_total_cap']) if row and row['daily_total_cap'] else int(200 * k)
     except Exception as e:
         logger.error(f"[rewards] get_user_daily_cap({account_id}): {e}")
         return None
