@@ -277,6 +277,13 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
                 }
                 await dispatcher.go_to(intern, state_map[data])
 
+        elif data.startswith("marathon_checkin:"):
+            # WP-330 P0-1: route checkin callbacks to marathon handler
+            # callbacks_router catches ALL marathon_* before marathon_router,
+            # so we forward checkin explicitly.
+            from handlers.marathon import callback_marathon_checkin
+            await callback_marathon_checkin(callback)
+
         elif data == "marathon_catchup_no":
             # User declines catch-up
             await callback.answer()

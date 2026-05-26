@@ -239,7 +239,7 @@ async def get_missed_checkin_users(min_days: int = 2):
     return [dict(r) for r in rows]
 
 
-async def get_users_for_nudge() -> list[dict]:
+async def get_users_for_nudge(limit: int = 100) -> list[dict]:
     """Получить активных участников с пропусками чек-инов для nudge."""
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
@@ -248,7 +248,9 @@ async def get_users_for_nudge() -> list[dict]:
                FROM learning.marathon_progress
                WHERE status = 'active'
                  AND current_day > total_checkins
-                 AND current_day > 0'''
+                 AND current_day > 0
+               LIMIT $1''',
+            limit,
         )
     return [dict(r) for r in rows]
 
