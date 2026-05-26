@@ -219,9 +219,6 @@ async def _process_marathon_queue():
                     await mark_queue_failed(queue_id, "empty_text")
                     continue
 
-                # Rate-limit guard: Telegram ограничивает ~30 msg/sec, но мы не спешим
-                await asyncio.sleep(0.5)
-
                 try:
                     if content_type == 'checkin':
                         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -270,6 +267,9 @@ async def _process_marathon_queue():
                             f"reschedule in {delay_minutes}min"
                         )
                         await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
+                        # Реактивный guard: подождать retry_after перед следующей отправкой
+                        # (чтобы не спровоцировать следующий flood для других сообщений)
+                        await asyncio.sleep(min(retry_after, 10))
                         continue
 
                     if _is_user_unavailable(e):
