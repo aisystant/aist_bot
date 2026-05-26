@@ -10,6 +10,7 @@ import asyncio
 import html
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -260,7 +261,7 @@ async def _process_marathon_queue():
 
                     if isinstance(e, TelegramRetryAfter):
                         retry_after = getattr(e, 'retry_after', 30)
-                        delay_minutes = max(retry_after // 60, 1)
+                        delay_minutes = math.ceil(retry_after / 60)
                         logger.warning(
                             f"[MarathonQueue] Rate limit for {chat_id}, retry_after={retry_after}s, "
                             f"reschedule in {delay_minutes}min"
