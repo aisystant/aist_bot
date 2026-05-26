@@ -30,7 +30,7 @@ REWARDS_DSN = os.environ.get(
     "REWARDS_URL",
     "postgresql://neondb_owner:npg_ZlRWtDg1zf3J@ep-dark-hall-ag8bo8lf.c-2.eu-central-1.aws.neon.tech/rewards?sslmode=require",
 )
-K = 10
+K = 1
 BATCH_SIZE = 5000
 
 
