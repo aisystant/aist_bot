@@ -17,12 +17,14 @@ from config.onboarding_intents import ONBOARDING_INTENT_MAP, NEGATIVE_PATTERNS
 logger = logging.getLogger(__name__)
 
 
-def detect_onboarding_intent(text: str) -> str | None:
+def detect_onboarding_intent(text: str | None) -> str | None:
     """Определяет онбординг-интент из свободного текста.
 
     Сначала проверяет negative-patterns («не хочу марафон» → None).
     Затем ищет keyword по word-boundary (re.UNICODE) для снижения false-positives.
     """
+    if text is None:
+        return None
     text_lower = text.lower().strip()
 
     for neg_pattern in NEGATIVE_PATTERNS:
