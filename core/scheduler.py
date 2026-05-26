@@ -242,7 +242,10 @@ async def _process_marathon_queue():
                     logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
                 except Exception as e:
                     error_msg = str(e)
-                    logger.error(f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: {error_msg}")
+                    logger.error(
+                        f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: "
+                        f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
+                    )
 
                     if _is_user_unavailable(e):
                         await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
