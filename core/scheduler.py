@@ -255,6 +255,9 @@ async def _process_marathon_queue():
                     from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
 
                     if isinstance(e, TelegramForbiddenError):
+                        # TODO: нет механизма реактивации. Пользователь может разблокировать
+                        # бота позже — тогда нужен фоновый periodic re-check или manual
+                        # /unblock команда. Сейчас помечаем unavailable навсегда.
                         await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
                         await mark_queue_failed(queue_id, f"forbidden: {error_msg[:200]}")
                         continue
