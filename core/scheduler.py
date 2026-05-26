@@ -42,6 +42,9 @@ _bot_dispatcher = None      # core.dispatcher.Dispatcher (for SM routing)
 _bot_token: str = None
 _bot_id: int = None          # Telegram bot ID — used to isolate reminders on shared DB
 
+# WP-7 Ф-Bot-RateLimit: глобальный semaphore для MarathonQueue (≤20 msg/sec)
+_marathon_semaphore = asyncio.Semaphore(5)
+
 
 _RETRY_DELAYS_MINUTES = [30, 60]  # exponential backoff: 30min, then 60min
 
@@ -203,103 +206,107 @@ async def _process_marathon_queue():
     bot = Bot(token=_bot_token)
     try:
         for item in items:
-            try:
-                queue_id = item['id']
-                chat_id = item['user_id']
-                day = item['day_number']
-                content_type = item['content_type']
-                content_ref = item.get('content_ref')
-                content_text = item.get('content_text')
-                attempts = item['attempts']
-
-                # Формируем текст сообщения
-                text = _build_marathon_message(content_type, day, content_ref, content_text)
-                if not text:
-                    logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
-                    await mark_queue_failed(queue_id, "empty_text")
-                    continue
-
+            async with _marathon_semaphore:
                 try:
-                    if content_type == 'checkin':
-                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                            [
-                                InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
-                                InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
-                                InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
-                            ]
-                        ])
-                        await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
-                    else:
-                        await bot.send_message(chat_id, text, parse_mode="Markdown")
-                    await mark_queue_sent(queue_id)
-                    if content_type == 'lesson_practice':
-                        progress = await get_or_create_progress(chat_id)
-                        current_day = progress.get('current_day', 0)
-                        new_day = max(current_day, day)
-                        if new_day != current_day:
-                            await update_progress(chat_id, current_day=new_day)
-                            logger.info(f"[MarathonQueue] Updated current_day {current_day}→{new_day} for {chat_id}")
-                    logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(
-                        f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: "
-                        f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
-                    )
+                    queue_id = item['id']
+                    chat_id = item['user_id']
+                    day = item['day_number']
+                    content_type = item['content_type']
+                    content_ref = item.get('content_ref')
+                    content_text = item.get('content_text')
+                    attempts = item['attempts']
 
-                    # --- Specific Telegram error handling ---
-                    from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
-
-                    if isinstance(e, TelegramForbiddenError):
-                        # TODO: нет механизма реактивации. Пользователь может разблокировать
-                        # бота позже — тогда нужен фоновый periodic re-check или manual
-                        # /unblock команда. Сейчас помечаем unavailable навсегда.
-                        await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
-                        await mark_queue_failed(queue_id, f"forbidden: {error_msg[:200]}")
+                    # Формируем текст сообщения
+                    text = _build_marathon_message(content_type, day, content_ref, content_text)
+                    if not text:
+                        logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
+                        await mark_queue_failed(queue_id, "empty_text")
                         continue
 
-                    if isinstance(e, TelegramRetryAfter):
-                        retry_after = getattr(e, 'retry_after', 30)
-                        delay_minutes = math.ceil(retry_after / 60)
-                        logger.warning(
-                            f"[MarathonQueue] Rate limit for {chat_id}, retry_after={retry_after}s, "
-                            f"reschedule in {delay_minutes}min"
+                    try:
+                        if content_type == 'checkin':
+                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                                [
+                                    InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
+                                    InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
+                                    InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
+                                ]
+                            ])
+                            await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                        else:
+                            await bot.send_message(chat_id, text, parse_mode="Markdown")
+                        await mark_queue_sent(queue_id)
+                        if content_type == 'lesson_practice':
+                            progress = await get_or_create_progress(chat_id)
+                            current_day = progress.get('current_day', 0)
+                            new_day = max(current_day, day)
+                            if new_day != current_day:
+                                await update_progress(chat_id, current_day=new_day)
+                                logger.info(f"[MarathonQueue] Updated current_day {current_day}→{new_day} for {chat_id}")
+                        logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        logger.error(
+                            f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: "
+                            f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
                         )
-                        await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
-                        # Реактивный guard: подождать retry_after перед следующей отправкой
-                        # (чтобы не спровоцировать следующий flood для других сообщений)
-                        await asyncio.sleep(min(retry_after, 10))
-                        continue
 
-                    if _is_user_unavailable(e):
-                        await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
-                        await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
-                        continue
+                        # --- Specific Telegram error handling ---
+                        from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
 
-                    if attempts >= 2:  # 3-я попытка (0,1,2)
-                        await mark_queue_failed(queue_id, error_msg[:500])
-                        # WP-330 P1: алерт в канал наставников
-                        if MENTOR_CHANNEL_ID:
-                            try:
-                                await bot.send_message(
-                                    MENTOR_CHANNEL_ID,
-                                    f"🚨 *Алерт марафона*\n\n"
-                                    f"Не удалось отправить сообщение участнику `{chat_id}`\n"
-                                    f"День {day}, тип: {content_type}\n"
-                                    f"Ошибка: `{error_msg[:200]}`",
-                                    parse_mode="Markdown",
-                                )
-                            except Exception as alert_err:
-                                logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
-                        logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
-                    else:
-                        # Exponential backoff: 30min, 60min, 120min max
-                        delay_minutes = min(30 * (2 ** attempts), 120)
-                        await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
-            except Exception as e:
-                logger.exception(f"[MarathonQueue] Unhandled error for item {item.get('id')}: {e}")
-                continue
+                        if isinstance(e, TelegramForbiddenError):
+                            # TODO: нет механизма реактивации. Пользователь может разблокировать
+                            # бота позже — тогда нужен фоновый periodic re-check или manual
+                            # /unblock команда. Сейчас помечаем unavailable навсегда.
+                            await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
+                            await mark_queue_failed(queue_id, f"forbidden: {error_msg[:200]}")
+                            continue
+
+                        if isinstance(e, TelegramRetryAfter):
+                            retry_after = getattr(e, 'retry_after', 30)
+                            delay_minutes = math.ceil(retry_after / 60)
+                            logger.warning(
+                                f"[MarathonQueue] Rate limit for {chat_id}, retry_after={retry_after}s, "
+                                f"reschedule in {delay_minutes}min"
+                            )
+                            await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
+                            # Реактивный guard: подождать retry_after перед следующей отправкой
+                            # (чтобы не спровоцировать следующий flood для других сообщений)
+                            await asyncio.sleep(min(retry_after, 10))
+                            continue
+
+                        if _is_user_unavailable(e):
+                            await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
+                            await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
+                            continue
+
+                        if attempts >= 2:  # 3-я попытка (0,1,2)
+                            await mark_queue_failed(queue_id, error_msg[:500])
+                            # WP-330 P1: алерт в канал наставников
+                            if MENTOR_CHANNEL_ID:
+                                try:
+                                    await bot.send_message(
+                                        MENTOR_CHANNEL_ID,
+                                        f"🚨 *Алерт марафона*\n\n"
+                                        f"Не удалось отправить сообщение участнику `{chat_id}`\n"
+                                        f"День {day}, тип: {content_type}\n"
+                                        f"Ошибка: `{error_msg[:200]}`",
+                                        parse_mode="Markdown",
+                                    )
+                                except Exception as alert_err:
+                                    logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
+                            logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
+                        else:
+                            # Exponential backoff: 30min, 60min, 120min max
+                            delay_minutes = min(30 * (2 ** attempts), 120)
+                            await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
+                except Exception as e:
+                    logger.exception(f"[MarathonQueue] Unhandled error for item {item.get('id')}: {e}")
+                    continue
+                finally:
+                    # WP-7 Ф-Bot-RateLimit: ≤20 msg/sec глобально для MarathonQueue
+                    await asyncio.sleep(0.05)
     finally:
         await bot.session.close()
 
