@@ -221,6 +221,12 @@ async def _get_cached_tailor_lesson(chat_id: int) -> dict:
 
 
 # === Marathon ===
+# ВАЖНО: cb_marathon_actions — единая точка входа для ВСЕХ marathon callbacks.
+# Если добавляешь новый callback_data="marathon_*" — убедись, что он либо
+# обрабатывается mode_router (engines/mode_selector.py), либо попадает сюда.
+# НЕ сужай фильтр обратно до marathon_get_ / marathon_catchup_ — это ломает
+# in-state callbacks (next_question, next_bonus, retry, back и др.).
+# Regression test: tests/smoke/test_marathon_callback_coverage.py
 
 @callbacks_router.callback_query(F.data.startswith("marathon_"))
 async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
