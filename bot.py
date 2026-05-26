@@ -199,6 +199,16 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 017 skipped: {_e}")
 
+    # bot_recheck_at column (scheduler: отложенная recheck заблокированных пользователей)
+    try:
+        import importlib as _il
+        _m018 = _il.import_module("db.migrations.018_bot_recheck_at")
+        _created = await _m018.migrate_if_needed(await _get_pool())
+        if _created:
+            logger.info("✅ Migration 018: bot_recheck_at added to user_state")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 018 skipped: {_e}")
+
     # Canary state table (Learning/Neon) + restore pause across redeploys
     try:
         import importlib as _il
