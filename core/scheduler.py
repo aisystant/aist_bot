@@ -218,6 +218,9 @@ async def _process_marathon_queue():
                     await mark_queue_failed(queue_id, "empty_text")
                     continue
 
+                # Rate-limit guard: Telegram ограничивает ~30 msg/sec, но мы не спешим
+                await asyncio.sleep(0.5)
+
                 try:
                     if content_type == 'checkin':
                         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -247,6 +250,24 @@ async def _process_marathon_queue():
                         f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
                     )
 
+                    # --- Specific Telegram error handling ---
+                    from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
+
+                    if isinstance(e, TelegramForbiddenError):
+                        await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
+                        await mark_queue_failed(queue_id, f"forbidden: {error_msg[:200]}")
+                        continue
+
+                    if isinstance(e, TelegramRetryAfter):
+                        retry_after = getattr(e, 'retry_after', 30)
+                        delay_minutes = max(retry_after // 60, 1)
+                        logger.warning(
+                            f"[MarathonQueue] Rate limit for {chat_id}, retry_after={retry_after}s, "
+                            f"reschedule in {delay_minutes}min"
+                        )
+                        await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
+                        continue
+
                     if _is_user_unavailable(e):
                         await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
                         await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
@@ -269,7 +290,9 @@ async def _process_marathon_queue():
                                 logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
                         logger.warning(f"[MarathonQueue] Max attempts reached for {chat_id} day {day} {content_type}")
                     else:
-                        await schedule_queue_retry(queue_id, attempts, delay_minutes=30)
+                        # Exponential backoff: 30min, 60min, 120min max
+                        delay_minutes = min(30 * (2 ** attempts), 120)
+                        await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
             except Exception as e:
                 logger.exception(f"[MarathonQueue] Unhandled error for item {item.get('id')}: {e}")
                 continue
