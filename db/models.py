@@ -147,6 +147,7 @@ async def create_tables(pool: asyncpg.Pool):
                 onboarding_completed BOOLEAN DEFAULT FALSE,
                 bot_blocked BOOLEAN DEFAULT FALSE,
                 bot_blocked_at TIMESTAMP DEFAULT NULL,
+                bot_recheck_at TIMESTAMP DEFAULT NULL,
                 trial_started_at TIMESTAMP DEFAULT NULL,
 
                 -- Оценка
@@ -1288,7 +1289,7 @@ async def create_tables(pool: asyncpg.Pool):
                         complexity_level, topics_at_current_complexity,
                         feed_status, feed_started_at,
                         active_days_total, active_days_streak, longest_streak, last_active_date,
-                        onboarding_completed, bot_blocked, bot_blocked_at, trial_started_at,
+                        onboarding_completed, bot_blocked, bot_blocked_at, bot_recheck_at, trial_started_at,
                         assessment_state, assessment_date, stats_reset_date,
                         notify_template_updates, created_at
                     )
@@ -1300,7 +1301,7 @@ async def create_tables(pool: asyncpg.Pool):
                         i.complexity_level, i.topics_at_current_complexity,
                         i.feed_status, i.feed_started_at,
                         i.active_days_total, i.active_days_streak, i.longest_streak, i.last_active_date,
-                        i.onboarding_completed, i.bot_blocked, i.bot_blocked_at, i.trial_started_at,
+                        i.onboarding_completed, i.bot_blocked, i.bot_blocked_at, i.bot_recheck_at, i.trial_started_at,
                         i.assessment_state, i.assessment_date, i.stats_reset_date,
                         i.notify_template_updates, i.created_at
                     FROM interns i

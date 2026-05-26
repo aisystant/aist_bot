@@ -532,6 +532,49 @@ async def _handle_unavailable_user(chat_id: int, context: str = ""):
     logger.warning(f"[Scheduler] User {chat_id} unavailable ({context}), marked as blocked")
 
 
+async def _recheck_blocked_users():
+    """Проверить заблокированных пользователей с истёкшим next_retry.
+    
+    BFS2: Без probe-сообщений — только проверяем, не написал ли пользователь
+    сам (last_active_date изменился). Если написал — разблокируем.
+    """
+    from db.queries.users import get_users_to_recheck
+    from db.queries.users import get_intern
+    from db.queries.users import clear_bot_blocked
+
+    chat_ids = await get_users_to_recheck()
+    if not chat_ids:
+        return
+
+    logger.info(f"[BlockedUser] Rechecking {len(chat_ids)} blocked users")
+    cleared = 0
+    for chat_id in chat_ids:
+        try:
+            intern = await get_intern(chat_id)
+            # Если last_active_date обновился после bot_blocked_at — пользователь снова активен
+            blocked_at = intern.get("bot_blocked_at")
+            last_active = intern.get("last_active_date")
+            if blocked_at and last_active and last_active > blocked_at.date():
+                await clear_bot_blocked(chat_id)
+                logger.info(f"[BlockedUser] Auto-cleared block for {chat_id} (new activity {last_active})")
+                cleared += 1
+            else:
+                # Продлеваем recheck на +1 день
+                from db.pool import get_pool
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """UPDATE development.user_state
+                           SET bot_recheck_at = (NOW() AT TIME ZONE 'utc') + interval '1 day'
+                           WHERE chat_id = $1""",
+                        chat_id,
+                    )
+        except Exception as e:
+            logger.error(f"[BlockedUser] Recheck failed for {chat_id}: {e}")
+
+    logger.info(f"[BlockedUser] Recheck complete: {cleared}/{len(chat_ids)} cleared")
+
+
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
     """Инициализировать и вернуть планировщик.
 
@@ -568,6 +611,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
+    _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
     _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='check_retry_storm', max_instances=1)  # BE5: retry storm detector (id без retry_-префикса — иначе детектор считает себя в storm:1)

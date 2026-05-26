@@ -42,7 +42,7 @@ STATE_FIELDS = frozenset({
     'complexity_level', 'topics_at_current_complexity',
     'feed_status', 'feed_started_at',
     'active_days_total', 'active_days_streak', 'longest_streak', 'last_active_date',
-    'onboarding_completed', 'bot_blocked', 'bot_blocked_at', 'trial_started_at',
+    'onboarding_completed', 'bot_blocked', 'bot_blocked_at', 'bot_recheck_at', 'trial_started_at',
     'assessment_state', 'assessment_date', 'stats_reset_date',
     'notify_template_updates', 'notify_nudges',
     'retry_exhausted_date',
@@ -80,7 +80,7 @@ _SELECT_JOINED = '''
         s.last_topic_date, s.complexity_level, s.topics_at_current_complexity,
         s.feed_status, s.feed_started_at,
         s.active_days_total, s.active_days_streak, s.longest_streak,
-        s.last_active_date, s.bot_blocked, s.bot_blocked_at,
+        s.last_active_date, s.bot_blocked, s.bot_blocked_at, s.bot_recheck_at,
         s.trial_started_at, s.assessment_state, s.assessment_date,
         s.stats_reset_date, s.notify_template_updates,
         s.onboarding_completed, s.retry_exhausted_date,
@@ -473,7 +473,9 @@ async def mark_bot_blocked(chat_id: int) -> None:
     async with pool.acquire() as conn:
         await conn.execute(
             """UPDATE development.user_state
-               SET bot_blocked = TRUE, bot_blocked_at = (NOW() AT TIME ZONE 'utc')
+               SET bot_blocked = TRUE,
+                   bot_blocked_at = (NOW() AT TIME ZONE 'utc'),
+                   bot_recheck_at = (NOW() AT TIME ZONE 'utc') + interval '1 day'
                WHERE chat_id = $1 AND bot_blocked IS NOT TRUE""",
             chat_id,
         )
@@ -486,12 +488,25 @@ async def clear_bot_blocked(chat_id: int) -> None:
     async with pool.acquire() as conn:
         result = await conn.execute(
             """UPDATE development.user_state
-               SET bot_blocked = FALSE, bot_blocked_at = NULL
+               SET bot_blocked = FALSE, bot_blocked_at = NULL, bot_recheck_at = NULL
                WHERE chat_id = $1 AND bot_blocked = TRUE""",
             chat_id,
         )
     if result and result != "UPDATE 0":
         logger.info(f"[BlockedUser] Cleared bot_blocked for {chat_id}")
+
+
+async def get_users_to_recheck() -> list[int]:
+    """Вернуть список chat_id пользователей, у которых подошло время recheck."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT chat_id FROM development.user_state
+               WHERE bot_blocked = TRUE
+                 AND bot_recheck_at IS NOT NULL
+                 AND bot_recheck_at <= (NOW() AT TIME ZONE 'utc')"""
+        )
+    return [r["chat_id"] for r in rows]
 
 
 async def update_user_state(chat_id: int, state_name: str) -> None:

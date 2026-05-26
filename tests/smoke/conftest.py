@@ -243,6 +243,7 @@ def make_intern(
         "last_active_date": None,
         "bot_blocked": False,
         "bot_blocked_at": None,
+        "bot_recheck_at": None,
         "trial_started_at": None,
         "assessment_state": None,
         "assessment_date": None,

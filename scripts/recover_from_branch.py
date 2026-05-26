@@ -54,7 +54,7 @@ async def main():
                 complexity_level, topics_at_current_complexity,
                 feed_status, feed_started_at,
                 active_days_total, active_days_streak, longest_streak, last_active_date,
-                onboarding_completed, bot_blocked, bot_blocked_at, trial_started_at,
+                onboarding_completed, bot_blocked, bot_blocked_at, bot_recheck_at, trial_started_at,
                 assessment_state, assessment_date, stats_reset_date,
                 notify_template_updates, created_at
             FROM interns
@@ -152,7 +152,7 @@ async def main():
                     complexity_level, topics_at_current_complexity,
                     feed_status, feed_started_at,
                     active_days_total, active_days_streak, longest_streak, last_active_date,
-                    onboarding_completed, bot_blocked, bot_blocked_at, trial_started_at,
+                    onboarding_completed, bot_blocked, bot_blocked_at, bot_recheck_at, trial_started_at,
                     assessment_state, assessment_date, stats_reset_date,
                     notify_template_updates, created_at
                 ) VALUES (
@@ -194,6 +194,7 @@ async def main():
                 row['onboarding_completed'] if row['onboarding_completed'] is not None else False,
                 row['bot_blocked'] if row['bot_blocked'] is not None else False,
                 row['bot_blocked_at'],
+                row['bot_recheck_at'],
                 row['trial_started_at'],
                 row['assessment_state'],
                 row['assessment_date'],
