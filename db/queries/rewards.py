@@ -242,61 +242,48 @@ async def get_recent_redeemed_events(account_id: Optional[str], limit: int = 3) 
 
 
 async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
-    """Суточный потолок (daily_total_cap = action_cap × K) пользователя.
-
-    K читается из loyalty_pool_config (reference). Default K=1.
-    """
+    """Суточный потолок бонусов (daily_cap_bonuses из qualification_levels_v4)."""
     if not account_id:
         return None
 
     try:
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
-            # Get current K from loyalty_pool_config
-            k_row = await conn.fetchrow(
-                """
-                SELECT COALESCE(k, 1) AS k
-                FROM _foreign_reference.loyalty_pool_config
-                WHERE valid_to IS NULL OR valid_to > NOW()
-                ORDER BY valid_from DESC
-                LIMIT 1
-                """
-            )
-            k = Decimal(str(k_row['k'])) if k_row and k_row['k'] else Decimal("1")
-
-            # Prefer from latest applied_event (has mapped level)
+            # Primary: daily_cap_bonuses из qualification_levels_v4 через calculated_profile
             row = await conn.fetchrow(
                 """
-                SELECT daily_cap * $2 AS daily_total_cap
-                FROM applied_events
-                WHERE account_id = $1 AND daily_cap > 0
-                ORDER BY applied_at DESC
-                LIMIT 1
-                """,
-                account_id,
-                k,
-            )
-            if row and row['daily_total_cap']:
-                return int(row['daily_total_cap'])
-            # Fallback: lookup from qualification_levels_v4 via calculated_profile
-            row = await conn.fetchrow(
-                """
-                SELECT COALESCE(ql.action_cap, 200) * $2 AS daily_total_cap
+                SELECT COALESCE(ql.daily_cap_bonuses, 200) AS daily_total_cap
                 FROM _foreign_indicators.calculated_profile cp
                 LEFT JOIN _foreign_reference.qualification_levels_v4 ql
                     ON ql.level_number = COALESCE(
                         CASE
                             WHEN cp.qualification_level BETWEEN 1 AND 3 THEN cp.qualification_level
-                            WHEN cp.qualification_level = 4 THEN (cp.rcs_current ->> 'stage')::INT
+                            WHEN cp.qualification_level = 4 THEN COALESCE((cp.rcs_current ->> 'stage')::INT, 5)
                             WHEN cp.qualification_level BETWEEN 5 AND 11 THEN cp.qualification_level + 1
                             ELSE 5
                         END, 5)
                 WHERE cp.account_id = $1
                 """,
                 account_id,
-                k,
             )
-            return int(row['daily_total_cap']) if row and row['daily_total_cap'] else int(200 * k)
+            if row and row['daily_total_cap']:
+                return int(row['daily_total_cap'])
+
+            # Fallback: последнее событие с разумным daily_cap (для пользователей без calculated_profile)
+            row = await conn.fetchrow(
+                """
+                SELECT daily_cap AS daily_total_cap
+                FROM applied_events
+                WHERE account_id = $1 AND daily_cap >= 20
+                ORDER BY applied_at DESC
+                LIMIT 1
+                """,
+                account_id,
+            )
+            if row and row['daily_total_cap']:
+                return int(row['daily_total_cap'])
+
+            return 200
     except Exception as e:
         logger.error(f"[rewards] get_user_daily_cap({account_id}): {e}")
         return None
@@ -389,4 +376,26 @@ async def get_qualification_multipliers_list() -> List[Dict[str, Any]]:
             return [dict(r) for r in rows]
     except Exception as e:
         logger.error(f"[rewards] get_qualification_multipliers_list: {e}")
+        return []
+
+
+async def get_qualification_levels_v4_list() -> List[Dict[str, Any]]:
+    """12 уровней квалификации из qualification_levels_v4 (WP-327 v4.1).
+
+    Returns: список словарей с полями level_number, code, name, qual_mult,
+             action_cap, daily_cap_bonuses.
+    """
+    try:
+        pool = await get_reference_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT level_number, code, name, qual_mult, action_cap, daily_cap_bonuses
+                FROM qualification_levels_v4
+                ORDER BY level_number
+                """
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"[rewards] get_qualification_levels_v4_list: {e}")
         return []
