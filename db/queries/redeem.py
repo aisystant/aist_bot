@@ -26,12 +26,18 @@ from typing import Optional
 import asyncpg
 
 from db.connection import get_rewards_pool
+from db.queries.rewards import get_loyalty_rate
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
 
-# Курс конвертации (TODO: вынести в config / актуализировать через DP.ECON.001 §6 update)
-POINTS_TO_RUB_RATE = Decimal("0.875")  # 1 балл = 1¢ × 87.5 ₽/$ (курс на 17 мая 2026)
+# Курс конвертации читается из loyalty_pool_config (WP-327 v4.1)
+# Fallback 0.05 ₽/бонус при недоступности БД
+
+
+async def _get_rate() -> Decimal:
+    """Внутренний helper: rate из БД или fallback."""
+    return await get_loyalty_rate()
 
 # Timeout для автоматического rollback резерва (минут)
 RESERVATION_TIMEOUT_MIN = 30
@@ -156,11 +162,12 @@ async def available_discount(
         balance_minus_reserved = Decimal(str(avail_row["available"]))
 
         # 5. Effective available = min(balance_minus_reserved, ceiling, requested/rate)
-        max_by_request = requested_amount_rub / POINTS_TO_RUB_RATE
+        rate = await _get_rate()
+        max_by_request = requested_amount_rub / rate
         available_pts = min(balance_minus_reserved, ceiling_pts, max_by_request)
         available_pts = available_pts.quantize(Decimal("0.01"))
 
-        discount_rub = (available_pts * POINTS_TO_RUB_RATE).quantize(Decimal("0.01"))
+        discount_rub = (available_pts * rate).quantize(Decimal("0.01"))
         payable_rub = (requested_amount_rub - discount_rub).quantize(Decimal("0.01"))
 
     logger.info(
@@ -205,7 +212,8 @@ async def reserve_burn(
     """
     pool = await get_rewards_pool()
     points_amount = Decimal(str(points_amount))
-    discount_rub = (points_amount * POINTS_TO_RUB_RATE).quantize(Decimal("0.01"))
+    rate = await _get_rate()
+    discount_rub = (points_amount * rate).quantize(Decimal("0.01"))
 
     async with pool.acquire() as conn:
         async with conn.transaction():
