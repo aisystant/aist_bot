@@ -45,6 +45,19 @@ _bot_id: int = None          # Telegram bot ID — used to isolate reminders on 
 # WP-7 Ф-Bot-RateLimit: глобальный semaphore для MarathonQueue (≤20 msg/sec)
 _marathon_semaphore = asyncio.Semaphore(5)
 
+# WP-330 P1-2: warn once if MENTOR_CHANNEL_ID is not configured
+_MENTOR_CHANNEL_WARNED = False
+
+
+def _warn_if_no_mentor_channel():
+    global _MENTOR_CHANNEL_WARNED
+    if not MENTOR_CHANNEL_ID and not _MENTOR_CHANNEL_WARNED:
+        logger.warning(
+            "[MarathonQueue] MENTOR_CHANNEL_ID not set, mentor alerts disabled. "
+            "Set env var to enable alerts for failed deliveries and missed checkins."
+        )
+        _MENTOR_CHANNEL_WARNED = True
+
 
 _RETRY_DELAYS_MINUTES = [30, 60]  # exponential backoff: 30min, then 60min
 
@@ -199,6 +212,8 @@ async def _process_marathon_queue():
         logger.warning("[MarathonQueue] _bot_token not set, skip")
         return
 
+    _warn_if_no_mentor_channel()
+
     items = await get_pending_queue_items(limit=100)
     if not items:
         return
@@ -322,6 +337,7 @@ async def _check_marathon_missed_checkins():
     from db.queries.notifications import try_insert_notification
 
     if not MENTOR_CHANNEL_ID or not _bot_token:
+        _warn_if_no_mentor_channel()
         return
 
     users = await get_missed_checkin_users(min_days=2)
