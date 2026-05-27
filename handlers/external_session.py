@@ -59,14 +59,15 @@ _turn_counts: dict[tuple[int, str], int] = {}  # (chat_id, session_id) → last 
 # ── GitHub credentials helpers ────────────────────────────────────────────────
 
 def _normalize_repo(repo: str) -> str:
-    """Normalize 'https://github.com/owner/repo.git' → 'owner/repo'."""
+    """Normalize 'https://github.com/owner/repo.git/' → 'owner/repo'."""
     repo = repo.strip()
     for prefix in ("https://github.com/", "http://github.com/"):
         if repo.startswith(prefix):
             repo = repo[len(prefix):]
+    repo = repo.rstrip("/")
     if repo.endswith(".git"):
         repo = repo[:-4]
-    return repo
+    return repo.rstrip("/")
 
 
 async def _get_github_creds(chat_id: int) -> Optional[tuple[str, str, str]]:
@@ -290,9 +291,16 @@ async def _append_pilot_turn(
     if cur_meta is not None:
         new_meta = re.sub(r"last_turn_at:.*", f"last_turn_at: {now}", cur_meta)
         new_meta = re.sub(r"turn_count:.*", f"turn_count: {turn_n}", new_meta)
-        # Ф9: сбрасываем статус в pending если не processing — диспетчер подберёт новый ход
-        if not re.search(r'status:\s*"processing"', cur_meta):
-            new_meta = re.sub(r'status:.*', 'status: "pending"', new_meta)
+        # Ф9: сбрасываем статус в pending если не processing — диспетчер подберёт новый ход.
+        # Regex tolerant к обоим форматам: `status: processing` (Mac, _yaml_repr)
+        # и `status: "processing"` (цех-1, update_frontmatter). Якоря ^...$ + MULTILINE
+        # исключают ложный матч на `status: processing-extra`; `\s*$` устойчив к
+        # trailing whitespace. re.sub с якорями защищает от substring-matches
+        # на будущих полях типа `last_status:`.
+        # TODO(WP-358 backlog): унифицировать формат status между диспетчерами
+        # (см. archive/wp-contexts/WP-358-external-session-ingress.md → Открытые задачи Ф7).
+        if not re.search(r'^status:\s*"?processing"?\s*$', cur_meta, re.MULTILINE):
+            new_meta = re.sub(r'^status:.*$', 'status: pending', new_meta, flags=re.MULTILINE)
         ok_meta = await _gh_put_file(
             meta_path, new_meta,
             f"session: meta turn {turn_n} {session_id}",
