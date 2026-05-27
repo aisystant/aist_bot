@@ -71,6 +71,17 @@ async def _show_update_screen(message, intern, state):
     motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or '—'
     goals_short = (intern.get('goals') or '')[:80] + '...' if len(intern.get('goals') or '') > 80 else intern.get('goals') or '—'
 
+    # Check typing tracking state (WP-327 Phase 3а)
+    typing_tracking_enabled = True
+    try:
+        from helpers.dual_write import resolve_ory_id_from_chat
+        from db.queries.consent import is_typing_tracking_disabled
+        account_id = await resolve_ory_id_from_chat(message.chat.id)
+        if account_id:
+            typing_tracking_enabled = not await is_typing_tracking_disabled(account_id)
+    except Exception:
+        pass
+
     await message.answer(
         f"👤 *{intern.get('name', '—')}*\n"
         f"💼 {intern.get('occupation', '') or '—'}\n"
@@ -84,7 +95,7 @@ async def _show_update_screen(message, intern, state):
         f"🌐 {get_language_name(lang)}\n\n"
         f"*{t('settings.what_to_change', lang)}*",
         parse_mode="Markdown",
-        reply_markup=kb_update_profile(lang)
+        reply_markup=kb_update_profile(lang, typing_tracking=typing_tracking_enabled)
     )
     await state.set_state(UpdateStates.choosing_field)
 
@@ -479,6 +490,40 @@ async def on_upd_club(callback: CallbackQuery, state: FSMContext):
             "`/club connect https://systemsworld.club/c/blogs/username/37`",
             parse_mode="Markdown",
         )
+
+@settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_typing")
+async def on_upd_typing(callback: CallbackQuery, state: FSMContext):
+    """Переключить учёт набора текста (WP-327 Phase 3а)."""
+    await callback.answer()
+    from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries.consent import is_typing_tracking_disabled, set_consent_grant
+
+    account_id = await resolve_ory_id_from_chat(callback.message.chat.id)
+    if not account_id:
+        await callback.message.edit_text(
+            "⚠️ Учёт активен только после привязки аккаунта Aisystant (/link).",
+        )
+        await state.clear()
+        return
+
+    was_disabled = await is_typing_tracking_disabled(account_id)
+    # toggle: was_disabled=True → grant=True (re-enable); was_disabled=False → grant=False (disable)
+    new_granted = was_disabled
+
+    await set_consent_grant(
+        account_id=account_id,
+        scope="typing_tracking",
+        granted=new_granted,
+    )
+
+    if new_granted:
+        status_text = "✅ Учёт набора текста *включён*.\n\nБаллы будут начисляться за набранные символы."
+    else:
+        status_text = "❌ Учёт набора текста *отключён*.\n\nБаллы за набор текста начисляться не будут."
+
+    await callback.message.edit_text(status_text, parse_mode="Markdown")
+    await state.clear()
+
 
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_mode")
 async def on_upd_mode(callback: CallbackQuery, state: FSMContext):

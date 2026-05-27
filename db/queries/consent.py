@@ -212,3 +212,22 @@ async def set_consent_grant(
         "[consent_grant] set account_id=%s scope=%s granted=%s",
         account_id, scope, granted,
     )
+
+
+async def is_typing_tracking_disabled(account_id: str) -> bool:
+    """Пользователь явно отказался от учёта набора текста.
+
+    Default = enabled (нет строки). True только если последняя запись = revoked (granted=false).
+    granted=false всегда сопровождается revoked_at IS NOT NULL (см. set_consent_grant UPDATE path).
+    """
+    from db.connection import get_learning_pool
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM learning.consent_grant "
+            "WHERE account_id = $1::uuid AND scope = 'typing_tracking' "
+            "  AND granted = false AND revoked_at IS NOT NULL "
+            "ORDER BY granted_at DESC LIMIT 1",
+            account_id,
+        )
+    return row is not None
