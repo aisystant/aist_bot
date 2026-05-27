@@ -65,12 +65,19 @@ async def record_active_day(chat_id: int, activity_type: str,
             logger.warning(f"Не удалось записать активность: {e}")
 
     # 2. Обновить счётчики пользователя
+    # DP.SC.154 + WP-7 fix: проверяем activity_log (любой тип) вместо last_active_date.
+    # Это разделяет: last_active_date = любое взаимодействие (DAU, из touch_last_active_date),
+    # activity_log = значимые действия (streak/total, из record_active_day).
+    existing = await conn.fetchrow('''
+        SELECT 1 FROM activity_log
+        WHERE chat_id = $1 AND activity_date = $2
+        LIMIT 1
+    ''', chat_id, today)
+    if existing:
+        return
+
     user = await get_intern(chat_id)
     last_active = user.get('last_active_date')
-
-    # Уже был активен сегодня — ничего не делаем
-    if last_active == today:
-        return
 
     # Считаем streak
     if last_active == today - timedelta(days=1):

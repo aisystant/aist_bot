@@ -238,5 +238,11 @@ class TracingMiddleware(BaseMiddleware):
                     asyncio.create_task(get_or_create_session(user_id, command))
                 except Exception:
                     pass
-                # DAU: last_active_date обновляется ТОЛЬКО из record_active_day()
-                # (touch_last_active_date конфликтовал — ставил дату без инкремента счётчиков)
+                # DAU fix (WP-7): touch_last_active_date обновляет last_active_date
+                # для ЛЮБОГО взаимодействия. record_active_day теперь проверяет
+                # activity_log (не last_active_date) — конфликт устранён.
+                try:
+                    from db.queries.activity import touch_last_active_date
+                    asyncio.create_task(touch_last_active_date(user_id))
+                except Exception:
+                    pass
