@@ -180,10 +180,12 @@ async def get_domain_multipliers() -> Dict[str, Dict[str, Any]]:
 
 
 async def get_earned_total(account_id: Optional[str]) -> Optional[Decimal]:
-    """Earned-total = накопленные + потраченные confirmed бонусы (монотонный счётчик).
+    """Earned-total = монотонный счётчик начислений (DP.D.050 «Баллы»).
 
-    Вычисляется как point_balances.points + SUM(redeemed_events.points_amount WHERE confirmed).
-    Никогда не убывает — показывается как «Заработано всего» (DP.D.050).
+    Источник: `point_balances.earned_total` (миграция 242, WP-327 peer-сессия 2026-05-27-24).
+    Поддерживается BEFORE-trigger `trg_point_balances_earned_track`: при росте `points`
+    (grant от projection-worker или typing trigger) earned_total += delta; при падении
+    (burn от confirm_burn) earned_total не меняется. CHECK constraint earned_total >= points.
     """
     if not account_id:
         return None
@@ -192,17 +194,7 @@ async def get_earned_total(account_id: Optional[str]) -> Optional[Decimal]:
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                """
-                SELECT
-                    COALESCE(
-                        (SELECT points FROM point_balances WHERE account_id = $1),
-                        0
-                    ) + COALESCE(
-                        (SELECT SUM(points_amount) FROM redeemed_events
-                         WHERE account_id = $1 AND status = 'confirmed'),
-                        0
-                    ) AS earned_total
-                """,
+                "SELECT earned_total FROM point_balances WHERE account_id = $1",
                 account_id,
             )
             return row['earned_total'] if row else None
