@@ -168,6 +168,38 @@ async def _gh_put_file(
         logger.error("[session] PUT %s → %d", path, status)
     return False
 
+# ── Session folder bootstrap ──────────────────────────────────────────────────
+
+_SESSIONS_SPEC = """\
+# inbox/agent/sessions
+
+Папка для сессий внешнего канала IWE (/claude из Telegram).
+
+Структура файлов сессии:
+- SESSION-<id>.md          — метаданные (status, turn_count, tg_chat_id)
+- SESSION-<id>-thread.md   — тред сообщений (ходы пилота и Claude)
+
+See: DP.SC.162, DP.ROLE.061 (WP-358)
+"""
+
+
+async def _ensure_sessions_folder(token: str, repo: str, branch: str) -> None:
+    """Create inbox/agent/sessions/SPEC.md if folder doesn't exist yet."""
+    spec_path = f"{_SESSIONS_PATH}/SPEC.md"
+    content, _ = await _gh_get_file(spec_path, token, repo, branch)
+    if content is not None:
+        return  # already exists
+    ok = await _gh_put_file(
+        spec_path, _SESSIONS_SPEC,
+        "chore: init inbox/agent/sessions (WP-358)",
+        token, repo, branch,
+    )
+    if ok:
+        logger.info("[session] created %s in %s", spec_path, repo)
+    else:
+        logger.warning("[session] could not create sessions folder in %s", repo)
+
+
 # ── Session file helpers ──────────────────────────────────────────────────────
 
 def _new_session_id() -> str:
@@ -203,6 +235,8 @@ async def _create_session(
     token: str, repo: str, branch: str,
 ) -> Optional[str]:
     """Create SESSION-<id>.md + SESSION-<id>-thread.md. Returns session_id or None."""
+    await _ensure_sessions_folder(token, repo, branch)
+
     session_id = _new_session_id()
     now = _now_iso()
     meta_path = f"{_SESSIONS_PATH}/{session_id}.md"
