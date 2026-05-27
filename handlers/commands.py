@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 commands_router = Router(name="commands")
 
 
+_HEAVY_SOFT_TIMEOUT = 3.0
+_HEAVY_HARD_TIMEOUT = 30.0
+
+
 async def _safe_route(message: Message, state: FSMContext, intern: dict, route_coro):
     """Обёртка: clear FSM → route через SM → catch ошибки."""
     lang = intern.get('language', 'ru') or 'ru'
@@ -40,6 +44,32 @@ async def _safe_route(message: Message, state: FSMContext, intern: dict, route_c
             'error_key': str(e)[:200],
             'handler': '_safe_route',
         })
+
+
+async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, route_coro, command: str):
+    """Circuit breaker для тяжёлых команд (/feed). Защита от Neon pool contention + retry storms."""
+    lang = intern.get('language', 'ru') or 'ru'
+    task = asyncio.create_task(route_coro)
+    try:
+        await state.clear()
+        await asyncio.wait_for(asyncio.shield(task), timeout=_HEAVY_SOFT_TIMEOUT)
+    except asyncio.TimeoutError:
+        await message.answer(t('feed.updating', lang))
+        try:
+            await asyncio.wait_for(task, timeout=_HEAVY_HARD_TIMEOUT - _HEAVY_SOFT_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(f"[CMD] HARD TIMEOUT for /{command} chat_id={message.chat.id}")
+            from db.queries.events import log_event
+            await log_event(message.chat.id, 'error_shown', {
+                'error_key': f'heavy_timeout:{command}',
+                'handler': '_safe_route_heavy',
+            })
+    except Exception as e:
+        logger.error(f"[CMD] SM routing error: {e}")
+        await message.answer(t('errors.processing_error', lang))
+    finally:
+        if task and not task.done():
+            task.cancel()
 
 
 @commands_router.message(Command("mode"))
@@ -95,7 +125,7 @@ async def cmd_feed(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await _safe_route(message, state, intern, dispatcher.route_command('feed', intern))
+        await _safe_route_heavy(message, state, intern, dispatcher.route_command('feed', intern), 'feed')
         return
 
     lang = intern.get('language', 'ru') or 'ru'
