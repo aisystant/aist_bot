@@ -3204,6 +3204,10 @@ marathon:
 # Лента (Feed)
 # -----------------------------------------------------------------------------
 feed:
+  updating:
+    ru: "⏳ Обновляю данные..."
+    en: "⏳ Updating data..."
+
   suggested_topics:
     ru: "Предлагаемые темы"
     en: "Suggested Topics"
