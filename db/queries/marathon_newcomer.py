@@ -205,6 +205,22 @@ async def clear_marathon_queue(user_id: int):
         )
 
 
+async def clear_marathon_state(user_id: int):
+    """Удалить все чек-ин записи участника. WP-330 Ф8.2.
+
+    Вызывается из /marathon_stop и при перезапуске марафона в start_marathon_flow,
+    чтобы новый марафон не наследовал записи прошлых тестов.
+    Без этого первый реальный чек-ин не инкрементирует current_day/total_checkins
+    (handler видит existing запись от прошлого старта и пропускает increment).
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''DELETE FROM learning.marathon_state WHERE user_id = $1''',
+            user_id,
+        )
+
+
 async def get_failed_queue_items(limit: int = 50):
     """Получить failed-записи из очереди для алертов наставникам."""
     pool = await get_learning_pool()
