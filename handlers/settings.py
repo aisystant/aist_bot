@@ -506,16 +506,17 @@ async def on_upd_typing(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    currently_disabled = await is_typing_tracking_disabled(account_id)
-    new_state = currently_disabled  # toggle: if disabled → enable (True), if enabled → disable (False)
+    was_disabled = await is_typing_tracking_disabled(account_id)
+    # toggle: was_disabled=True → grant=True (re-enable); was_disabled=False → grant=False (disable)
+    new_granted = was_disabled
 
     await set_consent_grant(
         account_id=account_id,
         scope="typing_tracking",
-        granted=new_state,
+        granted=new_granted,
     )
 
-    if new_state:
+    if new_granted:
         status_text = "✅ Учёт набора текста *включён*.\n\nБаллы будут начисляться за набранные символы."
     else:
         status_text = "❌ Учёт набора текста *отключён*.\n\nБаллы за набор текста начисляться не будут."
