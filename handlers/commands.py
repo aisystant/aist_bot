@@ -49,27 +49,36 @@ _HEAVY_HARD_TIMEOUT = 30.0
 
 
 async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, route_coro, command: str):
-    """Обёртка для heavy команд с circuit breaker."""
+    """Обёртка для heavy команд с circuit breaker.
+
+    P0 fix: asyncio.shield(task) предотвращает отмену корутины при soft timeout.
+    Без shield: wait_for отменяет route_coro, create_task выбросит RuntimeError.
+    """
     lang = intern.get('language', 'ru') or 'ru'
-    background_task = None
+    task = asyncio.create_task(route_coro)
     try:
         await state.clear()
-        # Soft timeout: immediate feedback
-        try:
-            await asyncio.wait_for(route_coro, timeout=_HEAVY_SOFT_TIMEOUT)
-            return
-        except asyncio.TimeoutError:
-            await message.answer(t('feed.updating', lang))
-            # Continue in background with hard timeout
-            background_task = asyncio.create_task(route_coro)
-            await asyncio.wait_for(background_task, timeout=_HEAVY_HARD_TIMEOUT - _HEAVY_SOFT_TIMEOUT)
+        await asyncio.wait_for(asyncio.shield(task), timeout=_HEAVY_SOFT_TIMEOUT)
     except asyncio.TimeoutError:
-        logger.error(f"[CMD] HARD TIMEOUT for /{command} chat_id={message.chat.id}")
-        from db.queries.events import log_event
-        await log_event(message.chat.id, 'error_shown', {
-            'error_key': f'heavy_timeout:{command}',
-            'handler': '_safe_route_heavy',
-        })
+        await message.answer(t('feed.updating', lang))
+        try:
+            await asyncio.wait_for(task, timeout=_HEAVY_HARD_TIMEOUT - _HEAVY_SOFT_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.error(f"[CMD] HARD TIMEOUT for /{command} chat_id={message.chat.id}")
+            from db.queries.events import log_event
+            await log_event(message.chat.id, 'error_shown', {
+                'error_key': f'heavy_timeout:{command}',
+                'handler': '_safe_route_heavy',
+            })
+        except Exception as e:
+            logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
+            logger.error(traceback.format_exc())
+            await message.answer(t('errors.processing_error', lang))
+            from db.queries.events import log_event
+            await log_event(message.chat.id, 'error_shown', {
+                'error_key': str(e)[:200],
+                'handler': '_safe_route_heavy',
+            })
     except Exception as e:
         logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
         logger.error(traceback.format_exc())
@@ -80,8 +89,8 @@ async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, r
             'handler': '_safe_route_heavy',
         })
     finally:
-        if background_task and not background_task.done():
-            background_task.cancel()
+        if not task.done():
+            task.cancel()
 
 
 @commands_router.message(Command("mode"))
