@@ -417,3 +417,31 @@ async def get_qualification_levels_v4_list() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"[rewards] get_qualification_levels_v4_list: {e}")
         return []
+
+
+async def get_today_typing_stats(account_id: Optional[str]) -> Optional[dict]:
+    """Typing stats for today from public.typing_daily (WP-327 Phase 3).
+
+    Returns dict with total_chars, total_weighted, points_earned
+    or None if no data / account not linked.
+    """
+    if not account_id:
+        return None
+    try:
+        pool = await get_rewards_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    COALESCE(SUM(char_count), 0)::bigint     AS total_chars,
+                    COALESCE(SUM(weighted_chars), 0.0)::numeric AS total_weighted,
+                    COALESCE(SUM(points_earned), 0.0)::numeric  AS points_earned
+                FROM public.typing_daily
+                WHERE account_id = $1::uuid AND date = CURRENT_DATE
+                """,
+                account_id,
+            )
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"[rewards] get_today_typing_stats({account_id}): {e}")
+        return None

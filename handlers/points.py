@@ -36,6 +36,7 @@ from db.queries.rewards import (
     get_qualification_multipliers_list,
     get_qualification_levels_v4_list,
     get_loyalty_rate,
+    get_today_typing_stats,
 )
 from i18n import t
 
@@ -91,6 +92,8 @@ _EVENT_LABELS = {
     "fmt_commit_merged": "FMT-merge",
     "coding_time": "Время разработки",
     "content_published": "Контент опубликован",
+    # Набор текста
+    "user_typing_tracked": "Набор текста",
     # Прочее
     "payment_received": "Оплата получена",
 }
@@ -214,6 +217,12 @@ async def cmd_points(message: Message):
         await message.answer(t('errors.processing_error', lang))
         return
 
+    typing_stats = None
+    try:
+        typing_stats = await get_today_typing_stats(account_id)
+    except Exception as e:
+        logger.warning(f"[/points] typing_stats failed chat_id={chat_id}: {e}")
+
     earned_total = None
     try:
         earned_total = await get_earned_total(account_id)
@@ -261,6 +270,18 @@ async def cmd_points(message: Message):
         "Бонусы можно использовать при оплате. "
         "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
     )
+
+    # Typing stats section (WP-327 Phase 3)
+    if typing_stats and int(typing_stats.get("total_chars") or 0) > 0:
+        t_chars = int(typing_stats["total_chars"])
+        t_pts = float(typing_stats.get("points_earned") or 0)
+        TYPING_DAILY_CAP = 50
+        t_bar = _progress_bar(t_pts, TYPING_DAILY_CAP)
+        text += (
+            f"\n🖊 <b>Набрано сегодня:</b> {_fmt_pts(t_chars)} симв. "
+            f"→ <b>+{int(t_pts)}</b> балл. "
+            f"{t_bar} {int(t_pts)}/{TYPING_DAILY_CAP}\n"
+        )
 
     if not events:
         text += (
@@ -318,7 +339,7 @@ _RULE_GROUPS = {
         "day_open", "day_close", "day_plan_opened", "day_plan_closed",
         "week_plan_created", "week_plan_closed", "month_plan_closed",
         "slot_logged", "pack_updated", "iwe_session", "ai_chat",
-        "ai_interaction", "note_to_capture",
+        "ai_interaction", "note_to_capture", "user_typing_tracked",
     },
     "💼 Работа (по repo)": {
         "wp_created", "wp_closed", "wp_completed", "commit_created",
