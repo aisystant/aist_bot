@@ -42,6 +42,48 @@ async def _safe_route(message: Message, state: FSMContext, intern: dict, route_c
         })
 
 
+# DP.SC.154 fix: circuit breaker for heavy handlers (feed, train)
+# Soft timeout = 3s (answer "Обновляю данные..."), hard = 30s (abort + log)
+_HEAVY_SOFT_TIMEOUT = 3.0
+_HEAVY_HARD_TIMEOUT = 30.0
+
+
+async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, route_coro, command: str):
+    """Обёртка для heavy команд с circuit breaker."""
+    lang = intern.get('language', 'ru') or 'ru'
+    background_task = None
+    try:
+        await state.clear()
+        # Soft timeout: immediate feedback
+        try:
+            await asyncio.wait_for(route_coro, timeout=_HEAVY_SOFT_TIMEOUT)
+            return
+        except asyncio.TimeoutError:
+            await message.answer(t('feed.updating', lang))
+            # Continue in background with hard timeout
+            background_task = asyncio.create_task(route_coro)
+            await asyncio.wait_for(background_task, timeout=_HEAVY_HARD_TIMEOUT - _HEAVY_SOFT_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.error(f"[CMD] HARD TIMEOUT for /{command} chat_id={message.chat.id}")
+        from db.queries.events import log_event
+        await log_event(message.chat.id, 'error_shown', {
+            'error_key': f'heavy_timeout:{command}',
+            'handler': '_safe_route_heavy',
+        })
+    except Exception as e:
+        logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
+        logger.error(traceback.format_exc())
+        await message.answer(t('errors.processing_error', lang))
+        from db.queries.events import log_event
+        await log_event(message.chat.id, 'error_shown', {
+            'error_key': str(e)[:200],
+            'handler': '_safe_route_heavy',
+        })
+    finally:
+        if background_task and not background_task.done():
+            background_task.cancel()
+
+
 @commands_router.message(Command("mode"))
 async def cmd_mode(message: Message, state: FSMContext):
     """Главное меню через Dispatcher → common.mode_select."""
@@ -95,7 +137,7 @@ async def cmd_feed(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await _safe_route(message, state, intern, dispatcher.route_command('feed', intern))
+        await _safe_route_heavy(message, state, intern, dispatcher.route_command('feed', intern), 'feed')
         return
 
     lang = intern.get('language', 'ru') or 'ru'
