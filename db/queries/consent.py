@@ -212,3 +212,20 @@ async def set_consent_grant(
         "[consent_grant] set account_id=%s scope=%s granted=%s",
         account_id, scope, granted,
     )
+
+
+async def is_typing_tracking_disabled(account_id: str) -> bool:
+    """Check if user has explicitly opted out of typing tracking.
+
+    Default = enabled (no row). Returns True only if user explicitly revoked.
+    """
+    from db.connection import get_learning_pool
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id FROM learning.consent_grant "
+            "WHERE account_id = $1::uuid AND scope = 'typing_tracking' AND granted = false "
+            "ORDER BY granted_at DESC LIMIT 1",
+            account_id,
+        )
+    return row is not None

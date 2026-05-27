@@ -178,8 +178,9 @@ def kb_submit_work_product(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 # ============= КЛАВИАТУРЫ ПРОФИЛЯ =============
 
-def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
+def kb_update_profile(lang: str = 'ru', typing_tracking: bool = True) -> InlineKeyboardMarkup:
     """Клавиатура редактирования профиля"""
+    typing_icon = "🖊 ✅" if typing_tracking else "🖊 ❌"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👤 " + t('buttons.name', lang), callback_data="upd_name"),
          InlineKeyboardButton(text="🏢 " + t('buttons.occupation', lang), callback_data="upd_occupation")],
@@ -192,6 +193,7 @@ def kb_update_profile(lang: str = 'ru') -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode"),
          InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language")],
         [InlineKeyboardButton(text="🏛 Клуб", callback_data="upd_club")],
+        [InlineKeyboardButton(text=f"{typing_icon} Учёт набора текста", callback_data="upd_typing")],
     ])
 
 

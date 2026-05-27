@@ -19,6 +19,14 @@ async def track_typing(chat_id: int, text: str, message_id: int) -> None:
     if not account_id:
         return
 
+    # Respect opt-out (WP-327 Phase 3а)
+    try:
+        from db.queries.consent import is_typing_tracking_disabled
+        if await is_typing_tracking_disabled(account_id):
+            return
+    except Exception:
+        pass  # fail-open: tracking proceeds if consent check fails
+
     await post_event(
         source="aist-bot",
         external_id=f"typing-tg-{chat_id}-{message_id}",
