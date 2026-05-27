@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 commands_router = Router(name="commands")
 
 
+_HEAVY_SOFT_TIMEOUT = 3.0
+_HEAVY_HARD_TIMEOUT = 30.0
+
+
 async def _safe_route(message: Message, state: FSMContext, intern: dict, route_coro):
     """Обёртка: clear FSM → route через SM → catch ошибки."""
     lang = intern.get('language', 'ru') or 'ru'
@@ -42,18 +46,8 @@ async def _safe_route(message: Message, state: FSMContext, intern: dict, route_c
         })
 
 
-# DP.SC.154 fix: circuit breaker for heavy handlers (feed, train)
-# Soft timeout = 3s (answer "Обновляю данные..."), hard = 30s (abort + log)
-_HEAVY_SOFT_TIMEOUT = 3.0
-_HEAVY_HARD_TIMEOUT = 30.0
-
-
 async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, route_coro, command: str):
-    """Обёртка для heavy команд с circuit breaker.
-
-    P0 fix: asyncio.shield(task) предотвращает отмену корутины при soft timeout.
-    Без shield: wait_for отменяет route_coro, create_task выбросит RuntimeError.
-    """
+    """Circuit breaker для тяжёлых команд (/feed). Защита от Neon pool contention + retry storms."""
     lang = intern.get('language', 'ru') or 'ru'
     task = asyncio.create_task(route_coro)
     try:
@@ -70,26 +64,11 @@ async def _safe_route_heavy(message: Message, state: FSMContext, intern: dict, r
                 'error_key': f'heavy_timeout:{command}',
                 'handler': '_safe_route_heavy',
             })
-        except Exception as e:
-            logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
-            logger.error(traceback.format_exc())
-            await message.answer(t('errors.processing_error', lang))
-            from db.queries.events import log_event
-            await log_event(message.chat.id, 'error_shown', {
-                'error_key': str(e)[:200],
-                'handler': '_safe_route_heavy',
-            })
     except Exception as e:
-        logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"[CMD] SM routing error: {e}")
         await message.answer(t('errors.processing_error', lang))
-        from db.queries.events import log_event
-        await log_event(message.chat.id, 'error_shown', {
-            'error_key': str(e)[:200],
-            'handler': '_safe_route_heavy',
-        })
     finally:
-        if not task.done():
+        if task and not task.done():
             task.cancel()
 
 
