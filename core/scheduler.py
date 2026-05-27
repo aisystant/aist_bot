@@ -636,7 +636,10 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
-    _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)  # WP-327 Phase 3б: Discourse typing collection daily 03:30 UTC
+
+    _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)   # WP-327 Phase 3б: Discourse typing collection 03:30 UTC
+    _scheduler.add_job(_discourse_typing_collect, 'cron', hour=17, minute=0)  # WP-327 Phase 3б: второй запуск 20:00 МСК
+
     _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
     _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='check_retry_storm', max_instances=1)  # BE5: retry storm detector (id без retry_-префикса — иначе детектор считает себя в storm:1)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
