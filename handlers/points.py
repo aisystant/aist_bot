@@ -39,6 +39,9 @@ from db.queries.rewards import (
     get_today_typing_stats,
 )
 from i18n import t
+from core.tier_detector import detect_ui_tier
+from core.tier_config import UITier
+from config import PLATFORM_URLS
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +209,13 @@ async def cmd_points(message: Message):
         )
         return
 
+    has_subscription = False
+    try:
+        tier = await detect_ui_tier(chat_id)
+        has_subscription = tier >= UITier.T2_LEARNING
+    except Exception:
+        pass  # fail-open: показываем вид без подписки при ошибке
+
     try:
         balance = await get_points_balance(account_id)
         events = await get_recent_applied_events(account_id, limit=5)
@@ -263,13 +273,18 @@ async def cmd_points(message: Message):
     text += f"Всего баллов: <b>{_fmt_pts(int(earned_num))}</b>\n"
     text += f"Начислено за сегодня: {today_pts_str}\n"
     text += "\n"
-    text += f"Всего бонусов: <b>{_fmt_pts(int(balance_num))}</b>\n"
-    text += f"Начислено за сегодня: {today_bonus_line}\n"
-    text += f"\nКурс: <b>{float(rate):.2f} ₽/бонус</b>. "
-    text += (
-        "Бонусы можно использовать при оплате. "
-        "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
-    )
+    if has_subscription:
+        text += f"Всего бонусов: <b>{_fmt_pts(int(balance_num))}</b>\n"
+        text += f"Начислено за сегодня: {today_bonus_line}\n"
+        text += f"\nКурс: <b>{float(rate):.2f} ₽/бонус</b>. "
+        text += (
+            "Бонусы можно использовать при оплате. "
+            "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
+        )
+    else:
+        sub_url = PLATFORM_URLS.get("subscription", "https://system-school.ru/open-endedness")
+        text += "💎 <b>Бонусы:</b> доступны по подписке «Бесконечное развитие»\n"
+        text += f'➡️ <a href="{sub_url}">Оформить подписку</a>\n'
 
     # Typing stats section (WP-327 Phase 3)
     if typing_stats and int(typing_stats.get("total_chars") or 0) > 0:
