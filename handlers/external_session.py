@@ -59,14 +59,15 @@ _turn_counts: dict[tuple[int, str], int] = {}  # (chat_id, session_id) → last 
 # ── GitHub credentials helpers ────────────────────────────────────────────────
 
 def _normalize_repo(repo: str) -> str:
-    """Normalize 'https://github.com/owner/repo.git' → 'owner/repo'."""
+    """Normalize 'https://github.com/owner/repo.git/' → 'owner/repo'."""
     repo = repo.strip()
     for prefix in ("https://github.com/", "http://github.com/"):
         if repo.startswith(prefix):
             repo = repo[len(prefix):]
+    repo = repo.rstrip("/")
     if repo.endswith(".git"):
         repo = repo[:-4]
-    return repo
+    return repo.rstrip("/")
 
 
 async def _get_github_creds(chat_id: int) -> Optional[tuple[str, str, str]]:
