@@ -121,6 +121,14 @@ class LoggingMiddleware(BaseMiddleware):
                     pass
             asyncio.create_task(_send_typing())
 
+            # Fire-and-forget typing tracking (WP-327 Phase 3)
+            if event.text and len(event.text) >= 20:
+                try:
+                    from helpers.typing_tracker import track_typing
+                    asyncio.create_task(track_typing(event.chat.id, event.text, event.message_id))
+                except Exception:
+                    pass
+
             # Fire-and-forget: сохранить/обновить tg_username + снять bot_blocked
             if event.from_user:
                 try:
