@@ -545,6 +545,20 @@ WP_VALIDATION_ENABLED = os.getenv("WP_VALIDATION_ENABLED", "true").lower() == "t
 # Включить запись фиксаций в fleeting-notes (для GitHub-пользователей)
 FIXATION_ENABLED = os.getenv("FIXATION_ENABLED", "true").lower() == "true"
 
+# ============= EXTERNAL SESSION /claude (WP-358) =============
+
+# Marathon/Assessment стейты, в которых SM ждёт ответа пилота. Если пилот
+# в одном из этих стейтов И last user_state.updated_at свежее лимита (в минутах) —
+# свободный текст уходит в fallback → SM, не в активную /claude сессию.
+# Mutex между marathon SM (development.user_state.current_state) и aiogram FSM
+# (ExternalSession.active) — явный, не «бесплатный»: разные state machines.
+SM_EXPECTING_REPLY_STATES: dict[str, int] = {
+    "workshop.marathon.question": 60,    # ждём ответ на вопрос ≤60 мин
+    "workshop.marathon.task": 1440,      # задание может выполняться до 24ч
+    "workshop.marathon.bonus": 60,
+    "workshop.assessment.flow": 60,
+}
+
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 
 WORK_PRODUCT_CATEGORIES = {

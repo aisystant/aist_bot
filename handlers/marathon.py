@@ -19,6 +19,7 @@ from db.queries.marathon_newcomer import (
     save_checkin,
     get_checkin_for_day,
     clear_marathon_queue,
+    clear_marathon_state,
 )
 from db.queries.users import moscow_now, update_intern
 from config import get_logger
@@ -56,6 +57,10 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
         return
 
     now = moscow_now()
+    # WP-330 Ф8.2: чистим marathon_state перед стартом — иначе унаследуем
+    # checkin-записи прошлых тестов, и первый реальный чек-ин не инкрементирует
+    # current_day/total_checkins (existing != None в callback_marathon_checkin).
+    await clear_marathon_state(user_id)
     await update_progress(
         user_id=user_id,
         status="active",
@@ -252,6 +257,9 @@ async def cmd_marathon_stop(message: Message):
 
     # Очищаем pending-записи из очереди
     await clear_marathon_queue(chat_id)
+    # WP-330 Ф8.2: чистим marathon_state — иначе при перезапуске новые чек-ины
+    # не инкрементируют counters (existing != None блокирует update_progress).
+    await clear_marathon_state(chat_id)
 
     # Обновляем статус
     await update_progress(

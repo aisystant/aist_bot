@@ -65,45 +65,32 @@ async def record_active_day(chat_id: int, activity_type: str,
         except Exception as e:
             logger.warning(f"Не удалось записать активность: {e}")
 
-    # 2. Обновить счётчики пользователя (development БД, атомарно)
-    # P1 fix (WP-7): UPDATE ... RETURNING устраняет race с touch_last_active_date.
-    # touch_last_active_date обновляет last_active_date для DAU;
-    # record_active_day обновляет счётчики через атомарный SQL блок.
+    # 2. Атомарно обновить счётчики (только если дата изменилась).
+    #    dev_pool (development БД) — правильный пул для development.user_state.
+    #    COALESCE для longest_streak защищает от NULL при первом активном дне.
     async with dev_pool.acquire() as conn:
         row = await conn.fetchrow('''
             UPDATE development.user_state
             SET
-                active_days_total = CASE
-                    WHEN last_active_date IS NULL OR last_active_date < $2
-                    THEN active_days_total + 1
-                    ELSE active_days_total
-                END,
+                active_days_total = active_days_total + 1,
                 active_days_streak = CASE
-                    WHEN last_active_date = $2 THEN active_days_streak
-                    WHEN last_active_date = $2 - INTERVAL '1 day'
-                    THEN active_days_streak + 1
+                    WHEN last_active_date = $2::date - INTERVAL '1 day' THEN active_days_streak + 1
                     ELSE 1
                 END,
-                longest_streak = GREATEST(
-                    longest_streak,
-                    CASE
-                        WHEN last_active_date = $2 THEN active_days_streak
-                        WHEN last_active_date = $2 - INTERVAL '1 day'
-                        THEN active_days_streak + 1
-                        ELSE 1
-                    END
-                ),
+                longest_streak = GREATEST(COALESCE(longest_streak, 0), CASE
+                    WHEN last_active_date = $2::date - INTERVAL '1 day' THEN active_days_streak + 1
+                    ELSE 1
+                END),
                 last_active_date = $2
             WHERE chat_id = $1
               AND (last_active_date IS NULL OR last_active_date < $2)
-            RETURNING
-                active_days_total as new_total,
-                active_days_streak as new_streak,
-                longest_streak as new_longest
+            RETURNING active_days_total, active_days_streak, longest_streak
         ''', chat_id, today)
 
         if row:
-            logger.info(f"📅 Активный день для {chat_id}: streak={row['new_streak']}, total={row['new_total']}")
+            logger.info(f"📅 Активный день для {chat_id}: streak={row['active_days_streak']}, total={row['active_days_total']}")
+        else:
+            logger.debug(f"📅 Active day counters already updated for {chat_id} (last_active_date = today)")
 
 
 async def get_activity_stats(chat_id: int) -> dict:

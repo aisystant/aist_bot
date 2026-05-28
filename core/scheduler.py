@@ -66,6 +66,24 @@ def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
     """Schedule a one-off retry for failed pre-generation with exponential backoff."""
     if not _scheduler:
         return
+    if is_api_degraded():
+        # Reschedule after pause ends + 5 min buffer instead of dropping.
+        from clients.claude import get_api_pause_remaining
+        delay_sec = get_api_pause_remaining() + 300  # 5 min buffer
+        if delay_sec > 3600:
+            delay_sec = 3600  # cap at 1h
+        run_at = moscow_now() + timedelta(seconds=delay_sec)
+        job_id = f"retry_{content_type}_{chat_id}"
+        _scheduler.add_job(
+            _execute_retry,
+            'date',
+            run_date=run_at,
+            id=job_id,
+            args=[chat_id, content_type, attempt],
+            replace_existing=True,
+        )
+        logger.info(f"[Scheduler] API degraded, retry for {chat_id} ({content_type}) rescheduled to +{delay_sec:.0f}s")
+        return
     if attempt >= len(_RETRY_DELAYS_MINUTES):
         logger.warning(f"[Scheduler] Max retries ({len(_RETRY_DELAYS_MINUTES)}) exhausted for {chat_id} ({content_type})")
         _scheduler.add_job(
@@ -100,6 +118,10 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
     'tailor' content_type удалён 11 мая 2026 (WP-301): персональное руководство
     больше не доставляется через бот, перешло на git-канал.
     """
+    if is_api_degraded():
+        logger.info(f"[Scheduler] API degraded, reschedule retry execution for {chat_id} ({content_type})")
+        _schedule_retry(chat_id, content_type, attempt)
+        return
     bot = Bot(token=_bot_token)
     try:
         if content_type == 'marathon':
@@ -935,7 +957,7 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
             timeout=120,
         )
 
-        if not content or not content.get('topics_detail'):
+        if not content or not content.get('main_content'):
             logger.error(f"[Scheduler] Feed: digest generation returned empty for {chat_id}")
             _schedule_retry(chat_id, 'feed')
             return

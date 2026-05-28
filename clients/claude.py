@@ -115,6 +115,12 @@ def is_api_degraded() -> bool:
     """True if scheduler should skip generation due to API degradation."""
     return _time.monotonic() < _scheduler_paused_until
 
+
+def get_api_pause_remaining() -> float:
+    """Seconds remaining until API pause ends. 0 if not paused."""
+    remaining = _scheduler_paused_until - _time.monotonic()
+    return max(0.0, remaining)
+
 from config import (
     get_logger,
     ANTHROPIC_API_KEY,

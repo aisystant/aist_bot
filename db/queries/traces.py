@@ -108,8 +108,8 @@ async def get_latency_report(hours: int = 24) -> dict:
     async with learning_pool.acquire() as lc:
         summary = await lc.fetchrow("""
             SELECT COUNT(*) AS total,
-                   COALESCE(AVG((payload->>'total_ms')::numeric)::int, 0) AS avg_ms,
-                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::int, 0) AS p95_ms
+                   AVG((payload->>'total_ms')::numeric)::int AS avg_ms,
+                   percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::int AS p95_ms
             FROM domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - INTERVAL '1 hour' * $1
@@ -169,8 +169,12 @@ async def get_latency_report(hours: int = 24) -> dict:
             if len(red_traces) < 5:
                 red_traces.append(dict(t))
 
+    summary_dict = dict(summary) if summary else {'total': 0, 'avg_ms': None, 'p95_ms': None}
+    if summary_dict['total'] == 0:
+        summary_dict['avg_ms'] = None
+        summary_dict['p95_ms'] = None
     return {
-        'summary': dict(summary) if summary else {'total': 0, 'avg_ms': 0, 'p95_ms': 0},
+        'summary': summary_dict,
         'red_count': red_count,
         'by_command': [dict(r) for r in by_command],
         'red_traces': red_traces,

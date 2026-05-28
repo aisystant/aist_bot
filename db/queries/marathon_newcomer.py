@@ -205,6 +205,22 @@ async def clear_marathon_queue(user_id: int):
         )
 
 
+async def clear_marathon_state(user_id: int):
+    """Удалить все чек-ин записи участника. WP-330 Ф8.2.
+
+    Вызывается из /marathon_stop и при перезапуске марафона в start_marathon_flow,
+    чтобы новый марафон не наследовал записи прошлых тестов.
+    Без этого первый реальный чек-ин не инкрементирует current_day/total_checkins
+    (handler видит existing запись от прошлого старта и пропускает increment).
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''DELETE FROM learning.marathon_state WHERE user_id = $1''',
+            user_id,
+        )
+
+
 async def get_failed_queue_items(limit: int = 50):
     """Получить failed-записи из очереди для алертов наставникам."""
     pool = await get_learning_pool()
@@ -265,6 +281,26 @@ async def get_active_marathon_users() -> list[dict]:
                WHERE status = 'active' '''
         )
     return [dict(r) for r in rows]
+
+
+async def has_recent_lesson_practice_sent(user_id: int, within_minutes: int = 60) -> bool:
+    """Return True if a lesson_practice was recently sent to this user.
+
+    Used by SM-mutex guard in external_session.py to detect marathon context
+    when the scheduler delivered content without SM transition.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT 1 FROM learning.marathon_queue
+               WHERE user_id = $1
+                 AND content_type = 'lesson_practice'
+                 AND status = 'sent'
+                 AND sent_at >= NOW() - ($2 * INTERVAL '1 minute')
+               LIMIT 1''',
+            user_id, within_minutes,
+        )
+    return row is not None
 
 
 async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime, content_texts: dict | None = None):

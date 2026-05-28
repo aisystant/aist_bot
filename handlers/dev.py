@@ -262,8 +262,9 @@ async def cmd_latency(message: Message):
     cmd_lines = ""
     for r in report['by_command']:
         cat = classify_command(r['command'])
-        color = get_color(r['avg_ms'], cat)
-        cmd_lines += f"  {color} {r['command']}: {r['avg_ms']}мс сред. | p95={r['p95_ms']}мс | n={r['count']}\n"
+        avg_ms = r.get('avg_ms')
+        color = get_color(avg_ms, cat) if avg_ms is not None else '⚪'
+        cmd_lines += f"  {color} {r['command']}: {avg_ms if avg_ms is not None else 'N/A'}мс сред. | p95={r['p95_ms'] if r.get('p95_ms') is not None else 'N/A'}мс | n={r['count']}\n"
 
     # Самые медленные операции
     span_lines = ""
@@ -282,7 +283,7 @@ async def cmd_latency(message: Message):
     text = (
         f"<b>Отчёт по латентности</b> (24ч, {_msk_now()})\n{sep}\n\n"
         f"<b>Сводка</b>\n"
-        f"  Запросов: {s['total']} | Среднее: {s['avg_ms']}мс | P95: {s['p95_ms']}мс\n"
+        f"  Запросов: {s['total']} | Среднее: {s['avg_ms'] if s.get('avg_ms') is not None else 'N/A'}мс | P95: {s['p95_ms'] if s.get('p95_ms') is not None else 'N/A'}мс\n"
         f"  \U0001f534 Красная зона: {report['red_count']}\n\n"
         f"<b>Пороги</b>\n{legend}\n"
         f"<b>По командам</b>\n{cmd_lines}\n"
@@ -395,7 +396,8 @@ def _format_analytics(report: dict) -> str:
     avg_sec = s['avg_duration_sec'] % 60
 
     # Latency color
-    lat_emoji = "\U0001f7e2" if q['avg_ms'] < 3000 else ("\U0001f7e1" if q['avg_ms'] < 8000 else "\U0001f534")
+    avg_ms_val = q.get('avg_ms')
+    lat_emoji = "\U0001f7e2" if (avg_ms_val is not None and avg_ms_val < 3000) else ("\U0001f7e1" if (avg_ms_val is not None and avg_ms_val < 8000) else "\U0001f534")
 
     # Error rate color
     err_emoji = "\U0001f7e2" if e['error_rate_pct'] < 5 else ("\U0001f7e1" if e['error_rate_pct'] < 15 else "\U0001f534")
@@ -409,13 +411,16 @@ def _format_analytics(report: dict) -> str:
     # Top commands
     top_cmd_str = ""
     for c in cmd.get('top', [])[:5]:
-        top_cmd_str += f"  {c['command']}: {c['count']} req, ~{c['avg_ms']}ms\n"
+        avg = c.get('avg_ms')
+        top_cmd_str += f"  {c['command']}: {c['count']} req, ~{avg if avg is not None else 'N/A'}ms\n"
     top_cmd_str = top_cmd_str or "  \u2014\n"
 
     # Slowest commands
     slow_str = ""
     for c in cmd.get('slowest', [])[:3]:
-        slow_str += f"  {c['command']}: avg {c['avg_ms']}ms, p95 {c['p95_ms']}ms ({c['count']} req)\n"
+        avg = c.get('avg_ms')
+        p95 = c.get('p95_ms')
+        slow_str += f"  {c['command']}: avg {avg if avg is not None else 'N/A'}ms, p95 {p95 if p95 is not None else 'N/A'}ms ({c['count']} req)\n"
     slow_str = slow_str or "  \u2014\n"
 
     text = (
@@ -428,8 +433,8 @@ def _format_analytics(report: dict) -> str:
         f"  Средний запросов/сессия: {s['avg_requests']}\n"
         f"  Entry points: {entry_str}\n\n"
         f"<b>\u26a1 Latency (24ч)</b>\n"
-        f"  {lat_emoji} p50: {q['p50_ms']}ms | p95: {q['p95_ms']}ms | p99: {q['p99_ms']}ms\n"
-        f"  Avg: {q['avg_ms']}ms | Red-zone (>8s): {q['red_zone']}\n"
+        f"  {lat_emoji} p50: {q['p50_ms'] if q['p50_ms'] is not None else 'N/A'}ms | p95: {q['p95_ms'] if q['p95_ms'] is not None else 'N/A'}ms | p99: {q['p99_ms'] if q['p99_ms'] is not None else 'N/A'}ms\n"
+        f"  Avg: {q['avg_ms'] if q['avg_ms'] is not None else 'N/A'}ms | Red-zone (>8s): {q['red_zone']}\n"
         f"  Запросов: {q['total_requests']} | QA helpful: {q['qa_helpful_rate']}% ({q['qa_total']})\n\n"
         f"<b>\U0001f6a8 Ошибки (24ч)</b>\n"
         f"  {err_emoji} Error rate: {e['error_rate_pct']}% | Всего: {e['total']}\n"
