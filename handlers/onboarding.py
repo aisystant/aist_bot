@@ -136,11 +136,13 @@ async def cmd_start(message: Message, state: FSMContext):
         except (ValueError, IndexError):
             pass
 
+    # Single DB load — reused across all deep-link branches (latency fix, WP- peer-session)
+    _uid = message.from_user.id if message.from_user else message.chat.id
+    intern = await get_intern(_uid)
+
     # Deep links: /start consent | consent_optout | consent_revoke
     if len(args) > 1 and args[1] in ("consent", "consent_optout", "consent_revoke"):
-        _uid = message.from_user.id if message.from_user else message.chat.id
-        intern_check = await get_intern(_uid)
-        if intern_check and intern_check.get('onboarding_completed'):
+        if intern and intern.get('onboarding_completed'):
             if args[1] == "consent":
                 from handlers.consent import show_consent_optin
                 await show_consent_optin(message)
@@ -159,9 +161,7 @@ async def cmd_start(message: Message, state: FSMContext):
     if len(args) > 1 and args[1].startswith("ref_"):
         ref_uuid = args[1][4:]  # убираем "ref_" prefix
         if ref_uuid and _UUID_RE.match(ref_uuid.lower()):
-            _uid = message.from_user.id if message.from_user else message.chat.id
-            intern_check = await get_intern(_uid)
-            if intern_check and intern_check.get('onboarding_completed'):
+            if intern and intern.get('onboarding_completed'):
                 pass  # онбордированный: fall through к обычному /start
             else:
                 # Новый пользователь: показать generic welcome + сохранить ref
@@ -172,22 +172,18 @@ async def cmd_start(message: Message, state: FSMContext):
                     parse_mode="HTML",
                 )
                 # Сохранить referral_uuid в current_context для consent_accept
-                ctx = (intern_check or {}).get('current_context', {}) or {}
+                ctx = (intern or {}).get('current_context', {}) or {}
                 ctx['referral_uuid'] = ref_uuid
                 await update_intern(_uid, current_context=ctx)
                 # Fall through: продолжаем обычный онбординг
 
     # Deep link: /start marathon → запуск марафона напрямую (Ф18, WP-349)
     if len(args) > 1 and args[1] == "marathon":
-        _uid = message.from_user.id if message.from_user else message.chat.id
-        intern_check = await get_intern(_uid)
-        if intern_check and intern_check.get('onboarding_completed'):
+        if intern and intern.get('onboarding_completed'):
             from handlers.marathon import start_marathon_flow
             await start_marathon_flow(_uid, message)
             return
         # New user: fall through to onboarding, marathon starts after
-
-    intern = await get_intern(message.chat.id)
 
     if intern['onboarding_completed']:
         # Очищаем legacy FSM state
