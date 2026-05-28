@@ -17,7 +17,6 @@ from db.queries.marathon_newcomer import (
     update_progress,
     enqueue_day_items,
     save_checkin,
-    get_checkin_for_day,
     clear_marathon_queue,
     clear_marathon_state,
 )
@@ -189,14 +188,12 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
     user_id = callback.from_user.id
 
-    # Проверяем, не чекинился ли уже за этот день
-    existing = await get_checkin_for_day(user_id, day)
-
-    # Сохраняем (или обновляем) состояние
-    await save_checkin(user_id, day, state)
+    # Атомарный UPSERT — возвращает True если это первый чек-ин за день.
+    # Исключает TOCTOU при двойном тапе: решение о counting принимается на уровне DB.
+    is_first_checkin = await save_checkin(user_id, day, state)
 
     # Инкремент прогресса только при первом чек-ине за день
-    if not existing:
+    if is_first_checkin:
         progress = await get_or_create_progress(user_id)
         current_day = progress.get("current_day", 0)
         total_checkins = progress.get("total_checkins", 0)
