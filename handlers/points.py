@@ -364,20 +364,11 @@ _RULE_GROUPS = {
         "marathon_task", "marathon_tasks", "workbook_push",
         "strategy_session_completed", "knowledge_extracted",
         "distinction_added", "method_described", "comment_created",
-<<<<<<< Updated upstream
         "topic_created", "qualification_granted",
-        # Клуб (Discourse) — WP-327 v4.4
-=======
-        "topic_created",
->>>>>>> Stashed changes
         "club_post_created", "club_topic_created", "club_like_created",
         "club_like_received", "club_comment_received", "club_trust_promoted",
         "club_badge_granted", "club_user_created", "club_email_confirmed",
         "club_solution_accepted",
-<<<<<<< Updated upstream
-=======
-        "qualification_granted",
->>>>>>> Stashed changes
     },
     "🛠 Практика и ритм": {
         "day_open", "day_close", "day_plan_opened", "day_plan_closed",
