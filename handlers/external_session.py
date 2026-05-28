@@ -51,6 +51,17 @@ _ALLOWED_CHAT_IDS: set[int] = {
     if x.strip().isdigit()
 }
 
+# Fix 2 (peer-session 2026-05-28-05): SM-mutex with timeout.
+# Когда пилот в одном из этих состояний и last user_state update свежее лимита —
+# свободный текст уходит в SM (fallback), а не в /claude session.
+# fail-open при отсутствии updated_at.
+_SM_EXPECTING_REPLY_STATES: dict[str, int] = {
+    "workshop.marathon.question": 60,    # ждём ответ на вопрос ≤60 мин
+    "workshop.marathon.task": 1440,      # задание может выполняться до 24ч
+    "workshop.marathon.bonus": 60,
+    "workshop.assessment.flow": 60,
+}
+
 # ── In-memory state (MVP, single-pilot, resets on restart) ───────────────────
 
 _active_sessions: dict[int, str] = {}        # chat_id → session_id
@@ -331,6 +342,38 @@ async def _set_session_status(
 def _has_active_session(message: Message) -> bool:
     return message.chat.id in _active_sessions
 
+
+async def _sm_is_expecting_reply(chat_id: int) -> bool:
+    """Fix 2 (peer-session 2026-05-28-05): return True if SM ждёт ответа.
+
+    Используется в handle_session_text как guard — если SM в одном из
+    _SM_EXPECTING_REPLY_STATES и `user_state.updated_at` свежее per-state
+    лимита, свободный текст должен идти в SM (fallback), не в /claude.
+
+    fail-open: при отсутствии intern/updated_at/state — возвращаем False.
+    """
+    try:
+        from db.queries import get_intern
+        intern = await get_intern(chat_id)
+        if not intern:
+            return False
+        current_state = intern.get("current_state") or ""
+        if current_state not in _SM_EXPECTING_REPLY_STATES:
+            return False
+        updated_at = intern.get("updated_at")
+        if updated_at is None:
+            return False  # fail-open — лучше пропустить в /claude чем заблокировать навсегда
+        timeout_min = _SM_EXPECTING_REPLY_STATES[current_state]
+        now = datetime.now(timezone.utc)
+        # updated_at может быть naive (UTC) из БД — нормализуем
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        age_sec = (now - updated_at).total_seconds()
+        return age_sec < timeout_min * 60
+    except Exception as exc:
+        logger.warning("[session] _sm_is_expecting_reply failed for %s: %s", chat_id, exc)
+        return False  # fail-open
+
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 @external_session_router.message(Command("claude"))
@@ -388,6 +431,15 @@ async def handle_session_text(message: Message) -> None:
     text = message.text or ""
     if text.startswith("/"):
         return
+
+    # Fix 2 (peer-session 2026-05-28-05): SM-mutex — если marathon/assessment
+    # ждёт ответа на свой последний вопрос (recent timestamp), пропускаем
+    # сообщение в fallback → SM. Без этого guard'а свободный текст всегда
+    # попадает в активную /claude сессию (router order), а marathon SM никогда
+    # не получает ответ пилота → 28 мая marathon-ответ улетел в зависшую сессию.
+    if await _sm_is_expecting_reply(chat_id):
+        logger.info("[session] SM expecting reply for chat %s — yielding to fallback", chat_id)
+        return  # fallback_router → SM handles it
 
     creds = await _get_github_creds(chat_id)
     if not creds:
