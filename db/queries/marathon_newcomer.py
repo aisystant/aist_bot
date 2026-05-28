@@ -283,6 +283,26 @@ async def get_active_marathon_users() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def has_recent_lesson_practice_sent(user_id: int, within_minutes: int = 60) -> bool:
+    """Return True if a lesson_practice was recently sent to this user.
+
+    Used by SM-mutex guard in external_session.py to detect marathon context
+    when the scheduler delivered content without SM transition.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT 1 FROM learning.marathon_queue
+               WHERE user_id = $1
+                 AND content_type = 'lesson_practice'
+                 AND status = 'sent'
+                 AND sent_at >= NOW() - ($2 * INTERVAL '1 minute')
+               LIMIT 1''',
+            user_id, within_minutes,
+        )
+    return row is not None
+
+
 async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetime, content_texts: dict | None = None):
     """Запланировать 2 отправки для одного дня марафона.
 

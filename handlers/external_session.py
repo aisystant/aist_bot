@@ -365,35 +365,47 @@ def _now_iso_for_state() -> str:
 
 
 async def _sm_is_expecting_reply(chat_id: int) -> bool:
-    """Fix 2 (peer-session 2026-05-28-05): return True if SM ждёт ответа.
+    """Return True if SM or marathon scheduler is expecting a free-text reply.
 
-    Используется в handle_session_text как guard — если SM в одном из
-    _SM_EXPECTING_REPLY_STATES и `user_state.updated_at` свежее per-state
-    лимита, свободный текст должен идти в SM (fallback), не в /claude.
+    Two checks:
+    1. SM-mutex (Fix 2, peer-session 2026-05-28-05): development.user_state.current_state
+       is in _SM_EXPECTING_REPLY_STATES and updated_at is within timeout.
+    2. Marathon-queue guard (Fix 4, peer-session 2026-05-28-12): lesson_practice was
+       recently sent by MarathonQueue (which bypasses SM transitions). If a lesson_practice
+       was delivered within the last 60 min, the user's reply belongs to the marathon, not /claude.
 
-    fail-open: при отсутствии intern/updated_at/state — возвращаем False.
+    fail-open: при ошибках → False (пропустить в /claude, не блокировать).
     """
+    # Check 1: SM state (old marathon via State Machine, and any SM-based flows)
     try:
         from db.queries import get_intern
         intern = await get_intern(chat_id)
-        if not intern:
-            return False
-        current_state = intern.get("current_state") or ""
-        if current_state not in _SM_EXPECTING_REPLY_STATES:
-            return False
-        updated_at = intern.get("updated_at")
-        if updated_at is None:
-            return False  # fail-open — лучше пропустить в /claude чем заблокировать навсегда
-        timeout_min = _SM_EXPECTING_REPLY_STATES[current_state]
-        now = datetime.now(timezone.utc)
-        # updated_at может быть naive (UTC) из БД — нормализуем
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=timezone.utc)
-        age_sec = (now - updated_at).total_seconds()
-        return age_sec < timeout_min * 60
+        if intern:
+            current_state = intern.get("current_state") or ""
+            if current_state in _SM_EXPECTING_REPLY_STATES:
+                updated_at = intern.get("updated_at")
+                if updated_at is not None:
+                    timeout_min = _SM_EXPECTING_REPLY_STATES[current_state]
+                    now = datetime.now(timezone.utc)
+                    if updated_at.tzinfo is None:
+                        updated_at = updated_at.replace(tzinfo=timezone.utc)
+                    age_sec = (now - updated_at).total_seconds()
+                    if age_sec < timeout_min * 60:
+                        return True
     except Exception as exc:
-        logger.warning("[session] _sm_is_expecting_reply failed for %s: %s", chat_id, exc)
-        return False  # fail-open
+        logger.warning("[session] _sm_is_expecting_reply SM-check failed for %s: %s", chat_id, exc)
+
+    # Check 2: WP-330 marathon scheduler — delivers lesson_practice bypassing SM.
+    # If lesson_practice was sent recently, the user's reply belongs to marathon.
+    try:
+        from db.queries.marathon_newcomer import has_recent_lesson_practice_sent
+        if await has_recent_lesson_practice_sent(chat_id, within_minutes=60):
+            logger.info("[session] Marathon lesson_practice sent recently for chat %s — skipping to fallback", chat_id)
+            return True
+    except Exception as exc:
+        logger.warning("[session] _sm_is_expecting_reply marathon-check failed for %s: %s", chat_id, exc)
+
+    return False
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
