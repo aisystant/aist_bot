@@ -49,7 +49,9 @@ FALLBACK_DAILY_CAP = Decimal("100")
 FALLBACK_MULTIPLIER = Decimal("1.0")
 
 # WP-327 Этап 20.3: использовать historic_bonus_ceiling вместо текущего daily_cap
-ENABLE_HISTORIC_CAP = os.getenv("ENABLE_HISTORIC_CAP", "false").lower() == "true"
+# Баллы (earned_total) ≠ бонусы (burnable). historic_bonus_ceiling определяет,
+# сколько из earned_total можно конвертировать в бонусы для скидки.
+ENABLE_HISTORIC_CAP = os.getenv("ENABLE_HISTORIC_CAP", "true").lower() == "true"
 
 
 async def available_discount(
