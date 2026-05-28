@@ -30,6 +30,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+from config.settings import WEBHOOK_URL
 from db.queries import get_intern
 from db.queries.discourse import (
     get_discourse_account,
@@ -1520,3 +1521,41 @@ async def _rebuild_schedule_after_manual(chat_id: int) -> str:
         lines.append(f"  ... и ещё {len(schedule) - 5}")
 
     return "\n".join(lines)
+
+
+# ── /iwe — токен для браузерного расширения (WP-327 Этап 27) ──────────────
+
+@discourse_router.message(Command("iwe"))
+async def cmd_iwe(message: Message) -> None:
+    """Выдать токен для браузерного расширения IWE.
+
+    Вызывает generate_extension_token (UPSERT — повторные вызовы безопасны).
+    """
+    from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries.iwe_extension import get_extension_token, generate_extension_token
+
+    chat_id = message.from_user.id
+
+    ory_id = await resolve_ory_id_from_chat(chat_id)
+    if not ory_id:
+        await message.answer(
+            "Сначала привяжи аккаунт Aisystant — команда /link"
+        )
+        return
+
+    token = await get_extension_token(ory_id) or await generate_extension_token(ory_id)
+    if not token:
+        await message.answer("Не удалось создать токен — обратитесь в поддержку: /support")
+        return
+    base_url = (WEBHOOK_URL or "").rstrip("/")
+    endpoint = f"{base_url}/api/typing_delta" if base_url else "/api/typing_delta"
+
+    await message.answer(
+        f"🔑 Токен для браузерного расширения IWE:\n\n"
+        f"<code>{token}</code>\n\n"
+        f"Настройки расширения:\n"
+        f"• Endpoint: <code>{endpoint}</code>\n"
+        f"• API Key: <code>{token}</code>\n\n"
+        f"⚠️ Не пересылайте это сообщение — токен даёт доступ к вашему аккаунту IWE.",
+        parse_mode="HTML",
+    )

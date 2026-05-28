@@ -37,10 +37,32 @@ async def validate_extension_token(token: str) -> str | None:
         raise
 
 
-async def generate_extension_token(account_id: str) -> str:
+async def get_extension_token(account_id: str) -> str | None:
+    """Вернуть существующий токен для account_id или None если нет."""
+    try:
+        pool = await get_persona_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT access_token
+                FROM user_integrations
+                WHERE service = 'iwe_extension'
+                  AND account_id = $1::uuid
+                  AND active = TRUE
+                """,
+                account_id,
+            )
+            return row["access_token"] if row else None
+    except Exception as exc:
+        if "does not exist" in str(exc):
+            return None
+        raise
+
+
+async def generate_extension_token(account_id: str) -> str | None:
     """Создать (или обновить) IWE Extension токен для account_id.
 
-    Возвращает новый токен (32-byte hex).
+    Возвращает новый токен (32-byte hex) или None если таблица недоступна.
     """
     token = secrets.token_hex(32)
     try:
@@ -65,6 +87,6 @@ async def generate_extension_token(account_id: str) -> str:
     except Exception as exc:
         if "does not exist" in str(exc):
             logger.warning("[iwe_extension] user_integrations not available: %s", exc)
-        else:
-            raise
+            return None  # не возвращать несохранённый токен
+        raise
     return token
