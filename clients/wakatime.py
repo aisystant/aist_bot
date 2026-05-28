@@ -88,6 +88,7 @@ class WakaTimeClient:
 
         result: dict[str, Any] = {"date": ds}
         result["total"] = data.get("cumulative_total", {}).get("text", "н/д")
+        result["total_seconds"] = data.get("cumulative_total", {}).get("seconds", 0)
 
         day_data = (data.get("data") or [{}])[0]
         result["projects"] = _aggregate_entries(day_data.get("projects", []))

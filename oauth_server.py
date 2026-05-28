@@ -2049,6 +2049,217 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+# ── Discourse events → IWE event pipeline ──────────────────────────────────
+
+_DISCOURSE_EVENT_MAP = {
+    "post_created": "club_post_created",
+    "topic_created": "club_topic_created",
+    "user_created": "club_user_created",
+    "like_created": "club_like_created",
+    "badge_granted": "club_badge_granted",
+    "trust_level_changed": "club_trust_promoted",
+}
+
+
+async def discourse_webhook_handler(request: web.Request) -> web.Response:
+    """POST /webhook/discourse — события Discourse → IWE event pipeline.
+
+    WP-327 Этап 23 (DP.SC.154 peer-session 2026-05-28-26).
+    HMAC-SHA256 через X-Discourse-Event-Signature: sha256=<hmac> + DISCOURSE_WEBHOOK_SECRET.
+    Если секрет не задан — пропускаем проверку (development mode).
+    """
+    import hashlib
+    import hmac
+
+    body = await request.read()
+
+    secret = os.getenv("DISCOURSE_WEBHOOK_SECRET", "")
+    if secret:
+        sig_header = request.headers.get("X-Discourse-Event-Signature", "")
+        expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig_header, expected):
+            logger.warning("[DiscourseWebhook] invalid HMAC signature")
+            return web.Response(status=403, text="unauthorized")
+
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return web.Response(status=400, text="bad json")
+
+    discourse_event = request.headers.get("X-Discourse-Event", "")
+    iwe_event_type = _DISCOURSE_EVENT_MAP.get(discourse_event)
+
+    if iwe_event_type is None:
+        return web.Response(text="ok")  # неизвестное событие — тихо игнорируем
+
+    # trust_level_changed: пропускаем downgrade
+    if discourse_event == "trust_level_changed":
+        changes = payload.get("previous_changes", {}).get("trust_level", [])
+        if len(changes) != 2 or changes[0] >= changes[1]:
+            return web.Response(text="ok")
+
+    # Определяем username и event_id для идентификации
+    user = payload.get("user") or payload.get("post", {}).get("user") or {}
+    username = (
+        payload.get("username")
+        or user.get("username")
+        or (payload.get("post") or {}).get("username")
+        or (payload.get("topic") or {}).get("last_poster_username")
+    )
+    if not username:
+        logger.info("[DiscourseWebhook] event=%s: no username in payload", discourse_event)
+        return web.Response(text="ok")
+
+    # event_id для идемпотентности
+    post_id = (payload.get("post") or {}).get("id")
+    topic_id = (payload.get("topic") or {}).get("id")
+    user_id = (user or {}).get("id") or payload.get("user_id")
+    badge_id = (payload.get("user_badge") or {}).get("badge_id")
+
+    if discourse_event == "post_created" and post_id:
+        external_id = f"discourse-post-created-{post_id}"
+    elif discourse_event == "topic_created" and topic_id:
+        external_id = f"discourse-topic-created-{topic_id}"
+    elif discourse_event == "user_created" and user_id:
+        external_id = f"discourse-user-created-{user_id}"
+    elif discourse_event == "like_created" and post_id:
+        external_id = f"discourse-like-created-{post_id}-{user_id}"
+    elif discourse_event == "badge_granted" and badge_id and user_id:
+        external_id = f"discourse-badge-granted-{user_id}-{badge_id}"
+    elif discourse_event == "trust_level_changed" and user_id:
+        changes = payload.get("previous_changes", {}).get("trust_level", [0, 0])
+        external_id = f"discourse-trust-promoted-{user_id}-{changes[0]}-{changes[1]}"
+    else:
+        external_id = f"discourse-{discourse_event}-{username}"
+
+    try:
+        from db.queries.discourse import get_chat_id_by_discourse_username
+        chat_id = await get_chat_id_by_discourse_username(username)
+        if chat_id is None:
+            logger.info("[DiscourseWebhook] event=%s username=%r: no account mapping", discourse_event, username)
+            return web.Response(text="ok")
+
+        from helpers.dual_write import resolve_ory_id_from_chat, post_event
+        from datetime import datetime, timezone
+        ory_id = await resolve_ory_id_from_chat(chat_id)
+        if not ory_id:
+            logger.info("[DiscourseWebhook] event=%s username=%r chat_id=%s: no ory_id", discourse_event, username, chat_id)
+            return web.Response(text="ok")
+
+        # Фильтрация PII: передаём только структурные идентификаторы (B7.3)
+        safe_payload: dict = {}
+        if discourse_event == "post_created":
+            post = payload.get("post") or {}
+            safe_payload = {"post_id": post.get("id"), "topic_id": post.get("topic_id"), "post_number": post.get("post_number")}
+        elif discourse_event == "topic_created":
+            topic = payload.get("topic") or {}
+            safe_payload = {"topic_id": topic.get("id"), "category_id": topic.get("category_id")}
+        elif discourse_event == "user_created":
+            safe_payload = {"user_id": user_id, "username": username, "trust_level": (payload.get("user") or {}).get("trust_level")}
+        elif discourse_event == "like_created":
+            safe_payload = {"post_id": post_id, "user_id": user_id}
+        elif discourse_event == "badge_granted":
+            safe_payload = {"badge_id": badge_id, "user_id": user_id}
+        elif discourse_event == "trust_level_changed":
+            changes = payload.get("previous_changes", {}).get("trust_level", [0, 0])
+            safe_payload = {"user_id": user_id, "from_level": changes[0], "to_level": changes[1]}
+
+        await post_event(
+            source="discourse",
+            external_id=external_id,
+            event_type=iwe_event_type,
+            schema_version="v1",
+            occurred_at=datetime.now(timezone.utc),
+            account_id=ory_id,
+            payload=safe_payload,
+        )
+        logger.info("[DiscourseWebhook] event=%s → %s external_id=%s ory_id=%s", discourse_event, iwe_event_type, external_id, ory_id)
+    except Exception as e:
+        logger.error("[DiscourseWebhook] event=%s error: %s", discourse_event, e)
+
+    return web.Response(text="ok")
+
+
+_typing_rate_limit: dict[str, float] = {}  # token → last_request_ts (WP-327 Phase 4)
+
+
+async def typing_delta_handler(request: web.Request) -> web.Response:
+    """POST /api/typing_delta — Browser Extension heartbeat endpoint.
+
+    Auth: X-IWE-Api-Key header (32-byte hex token из user_integrations).
+    Rate limit: 1 req/30s per token.
+    WP-327 Phase 4 (DP.SC.NNN).
+    """
+    import time
+    from helpers.dual_write import post_event
+    from db.queries.iwe_extension import validate_extension_token
+    from datetime import timezone, datetime
+
+    token = request.headers.get("X-IWE-Api-Key", "").strip()
+    if not token:
+        return web.Response(status=401, text="missing X-IWE-Api-Key")
+
+    # Validate token first — don't write invalid tokens to rate-limit dict.
+    account_id = await validate_extension_token(token)
+    if not account_id:
+        return web.Response(status=401, text="invalid token")
+
+    # Rate limit: 1 req/30s per token (in-memory, resets on restart).
+    # TTL cleanup: evict entries older than 1h to bound dict growth.
+    now = time.monotonic()
+    last = _typing_rate_limit.get(token, 0.0)
+    if now - last < 30.0:
+        return web.Response(status=429, text="rate limit: 1 req/30s")
+    _typing_rate_limit[token] = now
+    cutoff = now - 3600
+    for k in [k for k, v in _typing_rate_limit.items() if v < cutoff]:
+        _typing_rate_limit.pop(k, None)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(status=400, text="bad json")
+
+    try:
+        net_typed: int = int(body.get("net_typed", 0))
+        paste_events: int = int(body.get("paste_events", 0))
+        interface: str = str(body.get("interface", "claude_ai"))
+        duration_ms: int = int(body.get("duration_ms", 30000))
+    except (ValueError, TypeError):
+        return web.Response(status=400, text="invalid field types")
+
+    if net_typed <= 0:
+        return web.Response(text="ok")
+
+    channel_weight = 0.5  # keydown без paste = medium accuracy
+    weighted = round(net_typed * channel_weight, 2)
+    ts = datetime.now(timezone.utc)
+    date_str = ts.date().isoformat()
+    # external_id в миллисекундах — уникален для каждого heartbeat (rate limit 30s >> 1ms коллизия)
+    external_id = f"extension-{account_id}-{int(ts.timestamp() * 1000)}"
+
+    await post_event(
+        source="aist-bot",
+        external_id=external_id,
+        event_type="user_typing_tracked",
+        schema_version="v1",
+        occurred_at=ts.replace(tzinfo=None),
+        account_id=account_id,
+        payload={
+            "interface": interface,
+            "date": date_str,
+            "net_typed": net_typed,
+            "paste_events": paste_events,
+            "weighted_chars": weighted,
+            "channel_weight": channel_weight,
+            "duration_ms": duration_ms,
+        },
+    )
+    logger.info("[typing_delta] account=%s net_typed=%d weighted=%.1f",
+                account_id, net_typed, weighted)
+    return web.Response(text="ok")
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -2086,7 +2297,9 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
-    app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)  # WP-341 Этап 2
+    app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)   # WP-341 Этап 2
+    app.router.add_post("/webhook/discourse", discourse_webhook_handler) # WP-327 Этап 23
+    app.router.add_post("/api/typing_delta", typing_delta_handler)       # WP-327 Phase 4: Browser Extension heartbeat
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:

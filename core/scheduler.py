@@ -661,6 +661,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
 
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)   # WP-327 Phase 3б: Discourse typing collection 03:30 UTC
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=17, minute=0)  # WP-327 Phase 3б: второй запуск 20:00 МСК
+    _scheduler.add_job(_wakatime_typing_collect, 'cron', hour=22, minute=0)   # WP-327 Phase 4: WakaTime typing 22:00 UTC
     _scheduler.add_job(_refresh_subscribers_snapshot, 'cron', hour=1, minute=0)  # WP-327 Этап 13: subscribers snapshot 01:00 UTC (04:00 МСК)
     _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
     _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='check_retry_storm', max_instances=1)  # BE5: retry storm detector (id без retry_-префикса — иначе детектор считает себя в storm:1)
@@ -3089,6 +3090,15 @@ async def _discourse_typing_collect():
         await collect_discourse_typing()
     except Exception as exc:
         logger.error("[discourse_typing_collect] unexpected error: %s", exc, exc_info=True)
+
+
+async def _wakatime_typing_collect():
+    """WP-327 Phase 4: собрать typing events из WakaTime (ежедневно 22:00 UTC)."""
+    try:
+        from helpers.wakatime_typing_collector import collect_wakatime_typing
+        await collect_wakatime_typing()
+    except Exception as exc:
+        logger.error("[wakatime_typing_collect] unexpected error: %s", exc, exc_info=True)
 
 
 async def _refresh_subscribers_snapshot():

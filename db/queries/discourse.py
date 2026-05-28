@@ -58,6 +58,15 @@ async def unlink_discourse_account(chat_id: int) -> bool:
     return result != "DELETE 0"
 
 
+async def get_chat_id_by_discourse_username(username: str) -> int | None:
+    """Найти chat_id по discourse_username (для входящих webhook-событий)."""
+    pool = await get_community_pool()
+    row = await pool.fetchrow(
+        "SELECT chat_id FROM club_account WHERE discourse_username = $1", username
+    )
+    return row["chat_id"] if row else None
+
+
 # ── Публикации ─────────────────────────────────────────────
 
 async def save_published_post(
