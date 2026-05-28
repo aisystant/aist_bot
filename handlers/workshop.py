@@ -726,5 +726,27 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
 
     await _send_invite_by_count(bot, telegram_id, count, lang)
 
+    # WP-327 Этап 22: welcome bonus 100 баллов при первой оплате подписки
+    if count == 1:
+        try:
+            from helpers.dual_write import post_event, resolve_ory_id_from_chat
+            from datetime import datetime
+            ory_id = await resolve_ory_id_from_chat(telegram_id)
+            if ory_id:
+                await post_event(
+                    source="aist-bot",
+                    external_id=f"sub-first-{payment_id}",
+                    event_type="subscription_first_purchased",
+                    schema_version="v1",
+                    occurred_at=datetime.utcnow(),
+                    account_id=ory_id,
+                    payload={"payment_id": payment_id, "amount": amount},
+                )
+                logger.info(f"[WelcomeBonus] emitted subscription_first_purchased for tg={telegram_id} ory={ory_id}")
+            else:
+                logger.warning(f"[WelcomeBonus] no ory_id for tg={telegram_id}, welcome bonus skipped")
+        except Exception as e:
+            logger.error(f"[WelcomeBonus] failed to emit event for tg={telegram_id}: {e}")
+
     logger.info(f"[YooKassa] payment processed: tg={telegram_id}, amount={amount}, count={count}, row={row_id}")
     return {"ok": True, "count": count, "payment_row_id": row_id}

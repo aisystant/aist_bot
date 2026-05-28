@@ -152,19 +152,25 @@ async def update_progress(
         await conn.execute(sql, *values)
 
 
-async def save_checkin(user_id: int, day: int, state: str, notes: Optional[str] = None):
-    """Сохранить ежедневный check-in состояния."""
+async def save_checkin(user_id: int, day: int, state: str, notes: Optional[str] = None) -> bool:
+    """Сохранить ежедневный check-in состояния.
+
+    Возвращает True если это первый чек-ин за день (INSERT), False если обновление (UPDATE).
+    Атомарен — использует xmax=0 trick, исключает TOCTOU при двойном тапе.
+    """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
+        row = await conn.fetchrow(
             '''INSERT INTO learning.marathon_state (user_id, day, state, notes)
                VALUES ($1, $2, $3, $4)
                ON CONFLICT (user_id, day) DO UPDATE SET
                    state = EXCLUDED.state,
                    check_in_at = NOW(),
-                   notes = COALESCE(EXCLUDED.notes, learning.marathon_state.notes)''',
+                   notes = COALESCE(EXCLUDED.notes, learning.marathon_state.notes)
+               RETURNING (xmax = 0) AS is_new_insert''',
             user_id, day, state, notes,
         )
+    return bool(row["is_new_insert"]) if row else True
 
 
 async def get_checkins(user_id: int) -> list[dict]:
