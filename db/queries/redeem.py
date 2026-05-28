@@ -18,6 +18,7 @@ Late-webhook handling: confirm_burn после rollback'а → alert event 'poin
 
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -46,6 +47,9 @@ RESERVATION_TIMEOUT_MIN = 30
 FALLBACK_QUALIFICATION = "ученик"
 FALLBACK_DAILY_CAP = Decimal("100")
 FALLBACK_MULTIPLIER = Decimal("1.0")
+
+# WP-327 Этап 20.3: использовать historic_bonus_ceiling вместо текущего daily_cap
+ENABLE_HISTORIC_CAP = os.getenv("ENABLE_HISTORIC_CAP", "false").lower() == "true"
 
 
 async def available_discount(
@@ -80,12 +84,13 @@ async def available_discount(
         raise ValueError(f"Invalid account_id (not a UUID): {account_id!r}") from e
 
     async with pool.acquire() as conn:
-        # 1. Баланс пилота
+        # 1. Баланс пилота + historic ceiling
         balance_row = await conn.fetchrow(
-            "SELECT COALESCE(points, 0) AS balance FROM public.point_balances WHERE account_id = $1",
+            "SELECT COALESCE(points, 0) AS balance, COALESCE(historic_bonus_ceiling, 0) AS historic_ceiling FROM public.point_balances WHERE account_id = $1",
             account_uuid,
         )
         copilka_pts = Decimal(str(balance_row["balance"])) if balance_row else Decimal("0")
+        historic_ceiling = Decimal(str(balance_row["historic_ceiling"])) if balance_row else Decimal("0")
 
         # 2. Степень МИМ через FDW _foreign_indicators.
         # Источник: profiler R28 (DS-ai-systems/profiler/scripts/dt_calc.py:805+).
@@ -146,13 +151,16 @@ async def available_discount(
             )
             if qmap_row:
                 qualification = qmap_row["qualification"]
-                ceiling_pts = Decimal(str(qmap_row["daily_cap"]))
+                if ENABLE_HISTORIC_CAP:
+                    ceiling_pts = historic_ceiling
+                else:
+                    ceiling_pts = Decimal(str(qmap_row["daily_cap"]))
             else:
                 logger.warning(
                     f"[Redeem] sort_order={sort_order} (from l_code={l_code!r}, level={qual_level}) not in multipliers → fallback"
                 )
                 qualification = FALLBACK_QUALIFICATION
-                ceiling_pts = FALLBACK_DAILY_CAP
+                ceiling_pts = FALLBACK_DAILY_CAP if not ENABLE_HISTORIC_CAP else historic_ceiling
 
         # 4. Уже зарезервированное сегодня (через helper из миграции 226)
         avail_row = await conn.fetchrow(
