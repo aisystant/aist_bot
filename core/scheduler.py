@@ -660,6 +660,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)   # WP-327 Phase 3б: Discourse typing collection 03:30 UTC
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=17, minute=0)  # WP-327 Phase 3б: второй запуск 20:00 МСК
+    _scheduler.add_job(_refresh_subscribers_snapshot, 'cron', hour=1, minute=0)  # WP-327 Этап 13: subscribers snapshot 01:00 UTC (04:00 МСК)
     _scheduler.add_job(_claude_health_probe, 'interval', minutes=5, id='claude_health_probe', max_instances=1)  # WP-7: canary probe
     _scheduler.add_job(_check_retry_storm, 'interval', minutes=5, id='check_retry_storm', max_instances=1)  # BE5: retry storm detector (id без retry_-префикса — иначе детектор считает себя в storm:1)
     # WP-268 Phase 4+: _dt_sync_engagement отключён — читает development.* views из старого aist_bot Neon
@@ -673,6 +674,9 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
 
     # WP-253 Gap C: one-time notification to users needing GitHub relink (10 min after start)
     _scheduler.add_job(_notify_github_relink, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=10), id='github_relink_notification')
+
+    # WP-327 Этап 13: startup fallback — заполнить snapshot для сегодня если бот стартовал после полуночи до 01:00 UTC
+    _scheduler.add_job(_refresh_subscribers_snapshot, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=60), id='subscribers_snapshot_startup')
 
     logger.info("[Scheduler] Планировщик инициализирован (+ Neon keep-alive + pre-gen + Discourse + publisher startup scan)")
     return _scheduler
@@ -3084,3 +3088,76 @@ async def _discourse_typing_collect():
         await collect_discourse_typing()
     except Exception as exc:
         logger.error("[discourse_typing_collect] unexpected error: %s", exc, exc_info=True)
+
+
+async def _refresh_subscribers_snapshot():
+    """WP-327 Этап 13: обновить daily snapshot подписчиков (tier >= T2) в rewards DB.
+
+    Запускается в 01:00 UTC (04:00 МСК) ежедневно + при старте (+60s) как fallback.
+    ON CONFLICT DO NOTHING → idempotent, повторный запуск безопасен.
+    Fail-open не применяется здесь: это batch-job, не критический path.
+    """
+    try:
+        from db.connection import get_pool, get_rewards_pool
+
+        # Шаг 1: выбрать account_id (ory_id) подписчиков T2+ из основной БД бота
+        main_pool = await get_pool()
+        async with main_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT ory_id FROM public.users"
+                " WHERE tier IN ('T2', 'T3', 'T4', 'T5') AND ory_id IS NOT NULL"
+            )
+
+        if not rows:
+            logger.info("[SubscribersSnapshot] No T2+ users with ory_id found — snapshot skipped")
+            return
+
+        account_ids = [str(r["ory_id"]) for r in rows]
+
+        # Шаг 2: upsert в rewards.subscribers_snapshot для CURRENT_DATE
+        rewards_pool = await get_rewards_pool()
+        async with rewards_pool.acquire() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO public.subscribers_snapshot (account_id, snapshot_date)
+                VALUES ($1::uuid, CURRENT_DATE)
+                ON CONFLICT (account_id, snapshot_date) DO NOTHING
+                """,
+                [(aid,) for aid in account_ids],
+            )
+
+            # Шаг 3: staleness check
+            health = await conn.fetchrow(
+                "SELECT status, today_count FROM public.v_subscribers_snapshot_health"
+            )
+
+            # Шаг 4: cleanup старых записей (> 3 дней)
+            deleted_rows = await conn.fetch(
+                "DELETE FROM public.subscribers_snapshot"
+                " WHERE snapshot_date < CURRENT_DATE - 3 RETURNING account_id"
+            )
+            deleted = len(deleted_rows)
+
+        status = health["status"] if health else "stale_critical"
+        today_count = health["today_count"] if health else 0
+        logger.info(
+            "[SubscribersSnapshot] Refreshed: %d account_ids upserted, health=%s today_count=%d, cleanup=%s rows",
+            len(account_ids), status, today_count, deleted,
+        )
+
+        if status != "ok":
+            dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
+            if dev_chat_id and _bot_token:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(
+                        int(dev_chat_id),
+                        f"⚠️ <b>[WP-327] subscribers_snapshot stale</b>\n"
+                        f"status={status}, today_count={today_count}",
+                        parse_mode="HTML",
+                    )
+                finally:
+                    await bot.session.close()
+
+    except Exception as exc:
+        logger.error("[SubscribersSnapshot] refresh failed: %s", exc, exc_info=True)
