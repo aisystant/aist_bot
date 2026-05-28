@@ -48,7 +48,7 @@ async def record_active_day(chat_id: int, activity_type: str,
         mode: режим (marathon/feed)
         reference_id: ID связанной записи (answers.id или feed_sessions.id)
     """
-    from .users import get_intern, update_intern, moscow_today
+    from .users import moscow_today
 
     pool = await get_learning_pool()
     today = moscow_today()
@@ -64,33 +64,31 @@ async def record_active_day(chat_id: int, activity_type: str,
         except Exception as e:
             logger.warning(f"Не удалось записать активность: {e}")
 
-    # 2. Обновить счётчики пользователя
-    user = await get_intern(chat_id)
-    last_active = user.get('last_active_date')
+    # 2. Атомарно обновить счётчики (только если дата изменилась).
+    #    Устраняет race condition с touch_last_active_date из middleware.
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            UPDATE development.user_state
+            SET
+                active_days_total = active_days_total + 1,
+                active_days_streak = CASE
+                    WHEN last_active_date = $2::date - INTERVAL '1 day' THEN active_days_streak + 1
+                    ELSE 1
+                END,
+                longest_streak = GREATEST(COALESCE(longest_streak, 0), CASE
+                    WHEN last_active_date = $2::date - INTERVAL '1 day' THEN active_days_streak + 1
+                    ELSE 1
+                END),
+                last_active_date = $2
+            WHERE chat_id = $1
+              AND (last_active_date IS NULL OR last_active_date < $2)
+            RETURNING active_days_total, active_days_streak, longest_streak
+        ''', chat_id, today)
 
-    # Уже был активен сегодня — ничего не делаем
-    if last_active == today:
-        return
-
-    # Считаем streak
-    if last_active == today - timedelta(days=1):
-        # Продолжаем серию
-        new_streak = user['active_days_streak'] + 1
-    else:
-        # Серия прервалась
-        new_streak = 1
-
-    # Обновляем рекорд
-    longest = max(user.get('longest_streak', 0), new_streak)
-
-    await update_intern(chat_id,
-        active_days_total=user['active_days_total'] + 1,
-        active_days_streak=new_streak,
-        longest_streak=longest,
-        last_active_date=today
-    )
-
-    logger.info(f"📅 Активный день для {chat_id}: streak={new_streak}, total={user['active_days_total'] + 1}")
+        if row:
+            logger.info(f"📅 Активный день для {chat_id}: streak={row['active_days_streak']}, total={row['active_days_total']}")
+        else:
+            logger.debug(f"📅 Active day counters already updated for {chat_id} (last_active_date = today)")
 
 
 async def get_activity_stats(chat_id: int) -> dict:

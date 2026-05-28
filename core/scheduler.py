@@ -67,7 +67,22 @@ def _schedule_retry(chat_id: int, content_type: str, attempt: int = 0):
     if not _scheduler:
         return
     if is_api_degraded():
-        logger.info(f"[Scheduler] API degraded, skip scheduling retry for {chat_id} ({content_type})")
+        # Reschedule after pause ends + 5 min buffer instead of dropping.
+        from clients.claude import get_api_pause_remaining
+        delay_sec = get_api_pause_remaining() + 300  # 5 min buffer
+        if delay_sec > 3600:
+            delay_sec = 3600  # cap at 1h
+        run_at = moscow_now() + timedelta(seconds=delay_sec)
+        job_id = f"retry_{content_type}_{chat_id}"
+        _scheduler.add_job(
+            _execute_retry,
+            'date',
+            run_date=run_at,
+            id=job_id,
+            args=[chat_id, content_type, attempt],
+            replace_existing=True,
+        )
+        logger.info(f"[Scheduler] API degraded, retry for {chat_id} ({content_type}) rescheduled to +{delay_sec:.0f}s")
         return
     if attempt >= len(_RETRY_DELAYS_MINUTES):
         logger.warning(f"[Scheduler] Max retries ({len(_RETRY_DELAYS_MINUTES)}) exhausted for {chat_id} ({content_type})")
@@ -104,7 +119,8 @@ async def _execute_retry(chat_id: int, content_type: str, attempt: int = 0):
     больше не доставляется через бот, перешло на git-канал.
     """
     if is_api_degraded():
-        logger.info(f"[Scheduler] API degraded, skip retry execution for {chat_id} ({content_type})")
+        logger.info(f"[Scheduler] API degraded, reschedule retry execution for {chat_id} ({content_type})")
+        _schedule_retry(chat_id, content_type, attempt)
         return
     bot = Bot(token=_bot_token)
     try:

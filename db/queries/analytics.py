@@ -319,7 +319,7 @@ async def _get_command_metrics(conn, hours: int) -> dict:
     async with pool.acquire() as lc:
         top = await lc.fetch('''
             SELECT payload->>'command' AS command, COUNT(*) AS count,
-                   COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms
+                   AVG((payload->>'total_ms')::numeric)::INTEGER AS avg_ms
             FROM domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
@@ -329,8 +329,8 @@ async def _get_command_metrics(conn, hours: int) -> dict:
 
         slowest = await lc.fetch('''
             SELECT payload->>'command' AS command, COUNT(*) AS count,
-                   COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms,
-                   COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p95_ms
+                   AVG((payload->>'total_ms')::numeric)::INTEGER AS avg_ms,
+                   percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p95_ms
             FROM domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL

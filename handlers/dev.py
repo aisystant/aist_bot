@@ -411,13 +411,16 @@ def _format_analytics(report: dict) -> str:
     # Top commands
     top_cmd_str = ""
     for c in cmd.get('top', [])[:5]:
-        top_cmd_str += f"  {c['command']}: {c['count']} req, ~{c['avg_ms']}ms\n"
+        avg = c.get('avg_ms')
+        top_cmd_str += f"  {c['command']}: {c['count']} req, ~{avg if avg is not None else 'N/A'}ms\n"
     top_cmd_str = top_cmd_str or "  \u2014\n"
 
     # Slowest commands
     slow_str = ""
     for c in cmd.get('slowest', [])[:3]:
-        slow_str += f"  {c['command']}: avg {c['avg_ms']}ms, p95 {c['p95_ms']}ms ({c['count']} req)\n"
+        avg = c.get('avg_ms')
+        p95 = c.get('p95_ms')
+        slow_str += f"  {c['command']}: avg {avg if avg is not None else 'N/A'}ms, p95 {p95 if p95 is not None else 'N/A'}ms ({c['count']} req)\n"
     slow_str = slow_str or "  \u2014\n"
 
     text = (
