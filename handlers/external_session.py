@@ -27,17 +27,36 @@ import logging
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import aiohttp
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 logger = logging.getLogger(__name__)
 
 external_session_router = Router(name="external_session")
+
+
+# WP-358 Ф10 (peer-session 2026-05-28-08): aiogram FSM-стейт для /claude сессии.
+# Заменяет in-memory dict `_active_sessions` + `_turn_counts`. Persistence через
+# PostgresStorage (bot.py:304). State data schema:
+#   session_id: str         — SESSION-YYYYMMDD-HHMMSS-XXXXXX
+#   turn_count: int         — последний пилот-ход
+#   last_turn_at: str       — ISO-8601 timestamp последнего хода (для auto-close)
+class ExternalSession(StatesGroup):
+    active = State()
+
+
+# Auto-close timeout для зависших /claude сессий (WP-358 Ф10 B-β).
+# При входе в handle_session_text — если last_turn_at старше этого порога,
+# state.clear() + сообщение пилоту, обработка как новой сессии.
+_SESSION_IDLE_TIMEOUT = timedelta(minutes=30)
 
 # ── Env vars (pilot fallback only) ───────────────────────────────────────────
 
@@ -52,20 +71,21 @@ _ALLOWED_CHAT_IDS: set[int] = {
 }
 
 # Fix 2 (peer-session 2026-05-28-05): SM-mutex with timeout.
-# Когда пилот в одном из этих состояний и last user_state update свежее лимита —
-# свободный текст уходит в SM (fallback), а не в /claude session.
-# fail-open при отсутствии updated_at.
-_SM_EXPECTING_REPLY_STATES: dict[str, int] = {
-    "workshop.marathon.question": 60,    # ждём ответ на вопрос ≤60 мин
-    "workshop.marathon.task": 1440,      # задание может выполняться до 24ч
-    "workshop.marathon.bonus": 60,
-    "workshop.assessment.flow": 60,
-}
-
-# ── In-memory state (MVP, single-pilot, resets on restart) ───────────────────
-
-_active_sessions: dict[int, str] = {}        # chat_id → session_id
-_turn_counts: dict[tuple[int, str], int] = {}  # (chat_id, session_id) → last turn_n
+# Marathon SM использует ОТДЕЛЬНУЮ state machine (development.user_state.current_state),
+# не aiogram FSM — поэтому unification через aiogram FSM не даёт free mutex с marathon.
+# Этот guard остаётся как явная проверка: если marathon ждёт ответ на свой
+# последний вопрос (recent timestamp), свободный текст уходит в fallback → SM.
+# Импортируется из config — см. WP-358 Ф10 Op-5.
+try:
+    from config.settings import SM_EXPECTING_REPLY_STATES as _SM_EXPECTING_REPLY_STATES
+except ImportError:
+    # Fallback для совместимости при первом deploy (до config.settings.py изменений)
+    _SM_EXPECTING_REPLY_STATES: dict[str, int] = {
+        "workshop.marathon.question": 60,    # ждём ответ на вопрос ≤60 мин
+        "workshop.marathon.task": 1440,      # задание может выполняться до 24ч
+        "workshop.marathon.bonus": 60,
+        "workshop.assessment.flow": 60,
+    }
 
 # ── GitHub credentials helpers ────────────────────────────────────────────────
 
@@ -337,10 +357,11 @@ async def _set_session_status(
         token, repo, branch, meta_sha,
     )
 
-# ── Filters ───────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _has_active_session(message: Message) -> bool:
-    return message.chat.id in _active_sessions
+def _now_iso_for_state() -> str:
+    """ISO timestamp for FSM data — без микросекунд для парс-консистентности."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 async def _sm_is_expecting_reply(chat_id: int) -> bool:
@@ -376,8 +397,51 @@ async def _sm_is_expecting_reply(chat_id: int) -> bool:
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
+async def _get_session_data(state: FSMContext) -> Optional[dict]:
+    """Safe FSM data read — None при StorageError."""
+    try:
+        return await state.get_data()
+    except Exception as exc:
+        logger.error("[session] FSM get_data error: %s", type(exc).__name__)
+        return None
+
+
+async def _open_new_session(
+    message: Message, state: FSMContext, user_text: str,
+    token: str, repo: str, branch: str,
+) -> None:
+    """Создать новую /claude сессию + установить FSM state."""
+    await message.answer("⏳ Открываю сессию...")
+    chat_id = message.chat.id
+    session_id = await _create_session(chat_id, message.message_id, user_text, token, repo, branch)
+    if not session_id:
+        await message.answer(
+            "Не удалось создать сессию. Проверь подключение GitHub в /settings.\n"
+            "Если токен истёк — переподключите GitHub."
+        )
+        return
+    try:
+        await state.set_state(ExternalSession.active)
+        await state.update_data(
+            session_id=session_id,
+            turn_count=1,
+            last_turn_at=_now_iso_for_state(),
+        )
+    except Exception as exc:
+        logger.error("[session] FSM set_state failed for %s: %s", chat_id, type(exc).__name__)
+        await message.answer(
+            f"Сессия создана ({session_id}), но не удалось сохранить state. "
+            "Возможно проблемы с БД — попробуйте через минуту."
+        )
+        return
+    await message.answer(
+        f"Сессия открыта: {session_id}\n"
+        "Claude обработает запрос и ответит здесь."
+    )
+
+
 @external_session_router.message(Command("claude"))
-async def cmd_claude(message: Message) -> None:
+async def cmd_claude(message: Message, state: FSMContext) -> None:
     """/claude <text> — open or continue a session."""
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
@@ -397,49 +461,137 @@ async def cmd_claude(message: Message) -> None:
 
     token, repo, branch = creds
 
-    if chat_id in _active_sessions:
-        session_id = _active_sessions[chat_id]
-        turn_n = _turn_counts.get((chat_id, session_id), 1) + 1
-        _turn_counts[(chat_id, session_id)] = turn_n
-        ok = await _append_pilot_turn(session_id, message.message_id, user_text, turn_n, token, repo, branch)
-        if ok:
-            await message.answer("⏳ Работаю...")
-        else:
-            await message.answer("Ошибка при записи хода. Попробуй ещё раз.")
+    # Проверка существующей сессии через FSM
+    try:
+        current_state = await state.get_state()
+    except Exception as exc:
+        logger.error("[session] FSM get_state failed for %s: %s", chat_id, type(exc).__name__)
+        await message.answer("Не удалось прочитать состояние сессии. Попробуйте через минуту.")
         return
 
-    await message.answer("⏳ Открываю сессию...")
-    session_id = await _create_session(chat_id, message.message_id, user_text, token, repo, branch)
-    if session_id:
-        _active_sessions[chat_id] = session_id
-        _turn_counts[(chat_id, session_id)] = 1
-        await message.answer(
-            f"Сессия открыта: {session_id}\n"
-            "Claude обработает запрос и ответит здесь."
-        )
-    else:
-        await message.answer(
-            "Не удалось создать сессию. Проверь подключение GitHub в /settings.\n"
-            "Если токен истёк — переподключите GitHub."
-        )
+    if current_state == ExternalSession.active.state:
+        data = await _get_session_data(state)
+        if data and data.get("session_id"):
+            session_id = data["session_id"]
+            # B-β auto-close симметрия: /claude после >30min idle тоже триггерит closure
+            last_turn_at_str = data.get("last_turn_at")
+            if last_turn_at_str:
+                try:
+                    last_dt = datetime.fromisoformat(last_turn_at_str.replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc) - last_dt > _SESSION_IDLE_TIMEOUT:
+                        logger.info("[session] /claude after timeout for chat %s — closing %s + new", chat_id, session_id)
+                        if not await _set_session_status(session_id, "completed", token, repo, branch):
+                            logger.warning("[session] Orphan possible: %s could not be marked completed", session_id)
+                        try:
+                            await state.clear()
+                        except Exception:
+                            pass
+                        await message.answer(f"Прошлая сессия ({session_id}) закрыта по таймауту. Открываю новую.")
+                        await _open_new_session(message, state, user_text, token, repo, branch)
+                        return
+                except (ValueError, TypeError):
+                    pass  # fail-open
+            turn_n = int(data.get("turn_count", 0)) + 1
+            try:
+                await state.update_data(turn_count=turn_n, last_turn_at=_now_iso_for_state())
+            except Exception as exc:
+                logger.error("[session] FSM update_data failed: %s", type(exc).__name__)
+                await message.answer("Не удалось обновить состояние. Попробуйте ещё раз.")
+                return
+            ok = await _append_pilot_turn(session_id, message.message_id, user_text, turn_n, token, repo, branch)
+            if ok:
+                await message.answer("⏳ Работаю...")
+            else:
+                await message.answer("Ошибка при записи хода. Попробуй ещё раз.")
+            return
+        # Corrupted state: state=active без session_id → clear и создать новую
+        logger.warning("[session] Corrupted state for chat %s — clearing", chat_id)
+        try:
+            await state.clear()
+        except Exception:
+            pass
+
+    await _open_new_session(message, state, user_text, token, repo, branch)
 
 
-@external_session_router.message(_has_active_session, F.text)
-async def handle_session_text(message: Message) -> None:
-    """Text messages in active sessions → append turn."""
+@external_session_router.message(
+    StateFilter(ExternalSession.active),
+    F.text,
+    ~F.text.startswith("/"),
+)
+async def handle_session_text(message: Message, state: FSMContext) -> None:
+    """Text messages in active /claude sessions → append turn.
+
+    Activates only при FSM state == ExternalSession.active AND текст не команда
+    (StateFilter + ~startswith / в фильтре, чтобы slash-команды НЕ попадали сюда
+    и могли быть обработаны своими роутерами — иначе `return` в aiogram 3
+    считается «handled» и блокирует пропагацию).
+
+    Edge cases:
+      - corrupted state (active без session_id) → clear + сообщение
+      - SM marathon ждёт ответ → SkipHandler → fallback → marathon SM
+      - last_turn_at >30 мин → auto-close + новая сессия из текущего сообщения
+    """
     chat_id = message.chat.id
     text = message.text or ""
-    if text.startswith("/"):
+
+    # SM-mutex (Fix 2 из 05-сессии): marathon SM использует отдельную state machine
+    # (development.user_state.current_state, не aiogram FSM) — guard остаётся явный.
+    # SkipHandler позволяет aiogram продолжить propagation к fallback_router.
+    if await _sm_is_expecting_reply(chat_id):
+        logger.info("[session] SM expecting reply for chat %s — skipping to fallback", chat_id)
+        raise SkipHandler
+
+    data = await _get_session_data(state)
+    if data is None:
+        await message.answer("Сервис временно недоступен (storage). Попробуйте через минуту.")
         return
 
-    # Fix 2 (peer-session 2026-05-28-05): SM-mutex — если marathon/assessment
-    # ждёт ответа на свой последний вопрос (recent timestamp), пропускаем
-    # сообщение в fallback → SM. Без этого guard'а свободный текст всегда
-    # попадает в активную /claude сессию (router order), а marathon SM никогда
-    # не получает ответ пилота → 28 мая marathon-ответ улетел в зависшую сессию.
-    if await _sm_is_expecting_reply(chat_id):
-        logger.info("[session] SM expecting reply for chat %s — yielding to fallback", chat_id)
-        return  # fallback_router → SM handles it
+    session_id = data.get("session_id")
+    if not session_id:
+        # Corrupted state — active без session_id
+        logger.error("[session] Corrupted state for chat %s — clearing", chat_id)
+        try:
+            await state.clear()
+        except Exception:
+            pass
+        await message.answer("Сессия повреждена. Начните заново: /claude <запрос>")
+        return
+
+    # B-β auto-close: если last_turn_at старше _SESSION_IDLE_TIMEOUT — закрыть и начать новую.
+    # Порядок важен: сначала проверяем creds, потом анонсируем закрытие, иначе пилот
+    # получит «прошлая сессия закрыта» + сразу следом «GitHub не подключён».
+    last_turn_at_str = data.get("last_turn_at")
+    auto_closed = False
+    if last_turn_at_str:
+        try:
+            last_dt = datetime.fromisoformat(last_turn_at_str.replace("Z", "+00:00"))
+            auto_closed = datetime.now(timezone.utc) - last_dt > _SESSION_IDLE_TIMEOUT
+        except (ValueError, TypeError) as exc:
+            logger.warning("[session] Failed to parse last_turn_at=%r: %s", last_turn_at_str, exc)
+            # fail-open: считаем что не таймаут
+
+    if auto_closed:
+        creds = await _get_github_creds(chat_id)
+        if not creds:
+            # Не можем ни закрыть на GitHub, ни открыть новую — пропустить чистку
+            await message.answer("GitHub не подключён. Открой /settings → GitHub.")
+            return
+        logger.info("[session] Session %s timed out for chat %s — auto-close + new", session_id, chat_id)
+        try:
+            await state.clear()
+        except Exception:
+            pass
+        # Закрыть старую на GitHub (может вернуть False — orphan, лог-warning)
+        if not await _set_session_status(session_id, "completed", *creds):
+            logger.warning("[session] Failed to mark old session %s completed (orphan possible)", session_id)
+        await message.answer(
+            f"Прошлая сессия ({session_id}) закрыта по таймауту (30 мин без активности).\n"
+            "Начинаю новую с вашего сообщения."
+        )
+        token, repo, branch = creds
+        await _open_new_session(message, state, text, token, repo, branch)
+        return
 
     creds = await _get_github_creds(chat_id)
     if not creds:
@@ -447,9 +599,13 @@ async def handle_session_text(message: Message) -> None:
         return
 
     token, repo, branch = creds
-    session_id = _active_sessions[chat_id]
-    turn_n = _turn_counts.get((chat_id, session_id), 1) + 1
-    _turn_counts[(chat_id, session_id)] = turn_n
+    turn_n = int(data.get("turn_count", 0)) + 1
+    try:
+        await state.update_data(turn_count=turn_n, last_turn_at=_now_iso_for_state())
+    except Exception as exc:
+        logger.error("[session] FSM update_data failed: %s", type(exc).__name__)
+        await message.answer("Не удалось обновить состояние. Попробуйте ещё раз.")
+        return
 
     ok = await _append_pilot_turn(session_id, message.message_id, text, turn_n, token, repo, branch)
     if ok:
@@ -459,15 +615,28 @@ async def handle_session_text(message: Message) -> None:
 
 
 @external_session_router.message(Command("close"))
-async def cmd_close(message: Message) -> None:
+async def cmd_close(message: Message, state: FSMContext) -> None:
     """/close — complete active session."""
     chat_id = message.chat.id
-    session_id = _active_sessions.pop(chat_id, None)
-    if not session_id:
+    try:
+        current_state = await state.get_state()
+    except Exception:
+        current_state = None
+    if current_state != ExternalSession.active.state:
         await message.answer("Нет активной сессии.")
         return
 
-    _turn_counts.pop((chat_id, session_id), None)
+    data = await _get_session_data(state)
+    session_id = (data or {}).get("session_id")
+    try:
+        await state.clear()
+    except Exception as exc:
+        logger.warning("[session] state.clear() failed in cmd_close: %s", type(exc).__name__)
+
+    if not session_id:
+        await message.answer("Сессия закрыта локально (state без session_id).")
+        return
+
     creds = await _get_github_creds(chat_id)
     if creds:
         ok = await _set_session_status(session_id, "completed", *creds)
@@ -478,15 +647,28 @@ async def cmd_close(message: Message) -> None:
 
 
 @external_session_router.message(Command("cancel"))
-async def cmd_cancel(message: Message) -> None:
+async def cmd_cancel(message: Message, state: FSMContext) -> None:
     """/cancel — cancel active session."""
     chat_id = message.chat.id
-    session_id = _active_sessions.pop(chat_id, None)
-    if not session_id:
+    try:
+        current_state = await state.get_state()
+    except Exception:
+        current_state = None
+    if current_state != ExternalSession.active.state:
         await message.answer("Нет активной сессии.")
         return
 
-    _turn_counts.pop((chat_id, session_id), None)
+    data = await _get_session_data(state)
+    session_id = (data or {}).get("session_id")
+    try:
+        await state.clear()
+    except Exception as exc:
+        logger.warning("[session] state.clear() failed in cmd_cancel: %s", type(exc).__name__)
+
+    if not session_id:
+        await message.answer("Сессия отменена локально (state без session_id).")
+        return
+
     creds = await _get_github_creds(chat_id)
     if creds:
         ok = await _set_session_status(session_id, "cancelled", *creds)
