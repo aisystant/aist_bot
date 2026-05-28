@@ -97,8 +97,20 @@ _EVENT_LABELS = {
     "content_published": "Контент опубликован",
     # Набор текста
     "user_typing_tracked": "Набор текста",
+    # Клуб (Discourse)
+    "club_post_created": "Пост в клубе",
+    "club_topic_created": "Тема создана в клубе",
+    "club_like_created": "Лайк поставлен в клубе",
+    "club_like_received": "Лайк получен в клубе",
+    "club_comment_received": "Ответ получен в клубе",
+    "club_trust_promoted": "Уровень доверия повышен",
+    "club_badge_granted": "Значок получен",
+    "club_user_created": "Аккаунт создан в клубе",
+    "club_email_confirmed": "Email подтверждён в клубе",
+    "club_solution_accepted": "Решение принято в клубе",
     # Прочее
     "payment_received": "Оплата получена",
+    "subscription_first_purchased": "Первая подписка",
 }
 
 
@@ -351,8 +363,12 @@ _RULE_GROUPS = {
         "marathon_task", "marathon_tasks", "workbook_push",
         "strategy_session_completed", "knowledge_extracted",
         "distinction_added", "method_described", "comment_created",
-        "topic_created", "club_post_created", "club_topic_created",
-        "qualification_granted",
+        "topic_created", "qualification_granted",
+        # Клуб (Discourse) — WP-327 v4.4
+        "club_post_created", "club_topic_created", "club_like_created",
+        "club_like_received", "club_comment_received", "club_trust_promoted",
+        "club_badge_granted", "club_user_created", "club_email_confirmed",
+        "club_solution_accepted",
     },
     "🛠 Практика и ритм": {
         "day_open", "day_close", "day_plan_opened", "day_plan_closed",
@@ -366,6 +382,7 @@ _RULE_GROUPS = {
     },
     "💳 Прочее": {
         "payment_received",
+        "subscription_first_purchased",
     },
 }
 
