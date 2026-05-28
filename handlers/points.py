@@ -97,7 +97,7 @@ _EVENT_LABELS = {
     "content_published": "Контент опубликован",
     # Набор текста
     "user_typing_tracked": "Набор текста",
-    # Клуб (Discourse)
+    # Клуб (Discourse, WP-327)
     "club_post_created": "Пост в клубе",
     "club_topic_created": "Тема создана в клубе",
     "club_like_created": "Лайк поставлен в клубе",
@@ -108,9 +108,10 @@ _EVENT_LABELS = {
     "club_user_created": "Аккаунт создан в клубе",
     "club_email_confirmed": "Email подтверждён в клубе",
     "club_solution_accepted": "Решение принято в клубе",
+    # Подписка
+    "subscription_first_purchased": "Первая подписка",
     # Прочее
     "payment_received": "Оплата получена",
-    "subscription_first_purchased": "Первая подписка",
 }
 
 
@@ -363,12 +364,20 @@ _RULE_GROUPS = {
         "marathon_task", "marathon_tasks", "workbook_push",
         "strategy_session_completed", "knowledge_extracted",
         "distinction_added", "method_described", "comment_created",
+<<<<<<< Updated upstream
         "topic_created", "qualification_granted",
         # Клуб (Discourse) — WP-327 v4.4
+=======
+        "topic_created",
+>>>>>>> Stashed changes
         "club_post_created", "club_topic_created", "club_like_created",
         "club_like_received", "club_comment_received", "club_trust_promoted",
         "club_badge_granted", "club_user_created", "club_email_confirmed",
         "club_solution_accepted",
+<<<<<<< Updated upstream
+=======
+        "qualification_granted",
+>>>>>>> Stashed changes
     },
     "🛠 Практика и ритм": {
         "day_open", "day_close", "day_plan_opened", "day_plan_closed",
