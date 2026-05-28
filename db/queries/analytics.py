@@ -37,7 +37,7 @@ async def get_analytics_report(hours: int = 24) -> dict:
     return {
         'users': users or {'dau': 0, 'wau': 0, 'mau': 0, 'total': 0, 'new_today': 0, 'new_week': 0},
         'sessions': sessions or {'count': 0, 'avg_duration_sec': 0, 'avg_requests': 0, 'entry_points': []},
-        'quality': quality or {'total_requests': 0, 'avg_ms': 0, 'p95_ms': 0, 'p50_ms': 0, 'p99_ms': 0, 'red_zone': 0, 'qa_total': 0, 'qa_helpful_rate': 0},
+        'quality': quality or {'total_requests': 0, 'avg_ms': None, 'p95_ms': None, 'p50_ms': None, 'p99_ms': None, 'red_zone': 0, 'qa_total': 0, 'qa_helpful_rate': 0},
         'errors': errors or {'total': 0, 'error_rate_pct': 0, 'by_category': [], 'by_severity': [], 'l3_plus': 0, 'unknown': 0},
         'commands': commands or {'top': [], 'slowest': []},
         'retention': retention or {'d1': 0, 'd7': 0, 'd30': 0},
@@ -118,10 +118,10 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
         latency = await lc.fetchrow('''
             SELECT
                 COUNT(*) AS total_requests,
-                COALESCE(AVG((payload->>'total_ms')::numeric), 0)::INTEGER AS avg_ms,
-                COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p50_ms,
-                COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p95_ms,
-                COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric), 0)::INTEGER AS p99_ms,
+                AVG((payload->>'total_ms')::numeric)::INTEGER AS avg_ms,
+                percentile_cont(0.50) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p50_ms,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p95_ms,
+                percentile_cont(0.99) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p99_ms,
                 COUNT(*) FILTER (WHERE (payload->>'total_ms')::numeric > 8000) AS red_zone
             FROM domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
@@ -152,12 +152,13 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
     qa_helpful = qa['helpful'] if qa else 0
     helpful_rate = round(qa_helpful / qa_total * 100) if qa_total > 0 else 0
 
+    total_requests = latency['total_requests'] if latency else 0
     return {
-        'total_requests': latency['total_requests'] if latency else 0,
-        'avg_ms': latency['avg_ms'] if latency else 0,
-        'p50_ms': latency['p50_ms'] if latency else 0,
-        'p95_ms': latency['p95_ms'] if latency else 0,
-        'p99_ms': latency['p99_ms'] if latency else 0,
+        'total_requests': total_requests,
+        'avg_ms': latency['avg_ms'] if latency and total_requests > 0 else None,
+        'p50_ms': latency['p50_ms'] if latency and total_requests > 0 else None,
+        'p95_ms': latency['p95_ms'] if latency and total_requests > 0 else None,
+        'p99_ms': latency['p99_ms'] if latency and total_requests > 0 else None,
         'red_zone': latency['red_zone'] if latency else 0,
         'qa_total': qa_total,
         'qa_helpful_rate': helpful_rate,
