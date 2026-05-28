@@ -49,6 +49,34 @@ async def get_wakatime_connection(chat_id: int) -> Optional[Dict[str, Any]]:
         raise
 
 
+async def get_all_wakatime_accounts() -> list[dict]:
+    """Все активные WakaTime аккаунты для batch-сбора typing events.
+
+    Возвращает список dict: {account_id, chat_id, api_key}.
+    Используется в WP-327 Phase 4 wakatime_typing_collector.
+    """
+    try:
+        pool = await get_persona_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT
+                    ui.account_id,
+                    oi.telegram_id AS chat_id,
+                    ui.access_token AS api_key
+                FROM user_integrations ui
+                JOIN ory_identity oi ON oi.account_id = ui.account_id
+                WHERE ui.service = 'wakatime'
+                    AND ui.active = TRUE
+                    AND oi.telegram_id IS NOT NULL
+            ''')
+            return [dict(r) for r in rows]
+    except Exception as e:
+        if 'does not exist' in str(e):
+            logger.warning(f"persona.user_integrations not available: {e}")
+            return []
+        raise
+
+
 async def save_wakatime_connection(
     chat_id: int,
     api_key: str,

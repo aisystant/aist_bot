@@ -2049,6 +2049,86 @@ async def chatwoot_webhook_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+_typing_rate_limit: dict[str, float] = {}  # token → last_request_ts (WP-327 Phase 4)
+
+
+async def typing_delta_handler(request: web.Request) -> web.Response:
+    """POST /api/typing_delta — Browser Extension heartbeat endpoint.
+
+    Auth: X-IWE-Api-Key header (32-byte hex token из user_integrations).
+    Rate limit: 1 req/30s per token.
+    WP-327 Phase 4 (DP.SC.NNN).
+    """
+    import time
+    from helpers.dual_write import post_event
+    from db.queries.iwe_extension import validate_extension_token
+    from datetime import timezone, datetime
+
+    token = request.headers.get("X-IWE-Api-Key", "").strip()
+    if not token:
+        return web.Response(status=401, text="missing X-IWE-Api-Key")
+
+    # Validate token first — don't write invalid tokens to rate-limit dict.
+    account_id = await validate_extension_token(token)
+    if not account_id:
+        return web.Response(status=401, text="invalid token")
+
+    # Rate limit: 1 req/30s per token (in-memory, resets on restart).
+    # TTL cleanup: evict entries older than 1h to bound dict growth.
+    now = time.monotonic()
+    last = _typing_rate_limit.get(token, 0.0)
+    if now - last < 30.0:
+        return web.Response(status=429, text="rate limit: 1 req/30s")
+    _typing_rate_limit[token] = now
+    cutoff = now - 3600
+    for k in [k for k, v in _typing_rate_limit.items() if v < cutoff]:
+        _typing_rate_limit.pop(k, None)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(status=400, text="bad json")
+
+    try:
+        net_typed: int = int(body.get("net_typed", 0))
+        paste_events: int = int(body.get("paste_events", 0))
+        interface: str = str(body.get("interface", "claude_ai"))
+        duration_ms: int = int(body.get("duration_ms", 30000))
+    except (ValueError, TypeError):
+        return web.Response(status=400, text="invalid field types")
+
+    if net_typed <= 0:
+        return web.Response(text="ok")
+
+    channel_weight = 0.5  # keydown без paste = medium accuracy
+    weighted = round(net_typed * channel_weight, 2)
+    ts = datetime.now(timezone.utc)
+    date_str = ts.date().isoformat()
+    # external_id в миллисекундах — уникален для каждого heartbeat (rate limit 30s >> 1ms коллизия)
+    external_id = f"extension-{account_id}-{int(ts.timestamp() * 1000)}"
+
+    await post_event(
+        source="aist-bot",
+        external_id=external_id,
+        event_type="user_typing_tracked",
+        schema_version="v1",
+        occurred_at=ts.replace(tzinfo=None),
+        account_id=account_id,
+        payload={
+            "interface": interface,
+            "date": date_str,
+            "net_typed": net_typed,
+            "paste_events": paste_events,
+            "weighted_chars": weighted,
+            "channel_weight": channel_weight,
+            "duration_ms": duration_ms,
+        },
+    )
+    logger.info("[typing_delta] account=%s net_typed=%d weighted=%.1f",
+                account_id, net_typed, weighted)
+    return web.Response(text="ok")
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -2087,6 +2167,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
     app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)  # WP-341 Этап 2
+    app.router.add_post("/api/typing_delta", typing_delta_handler)      # WP-327 Phase 4: Browser Extension heartbeat
 
     # Webhook route (WP-44: polling → webhooks)
     if dp is not None and bot is not None:
