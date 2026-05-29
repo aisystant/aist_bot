@@ -36,7 +36,7 @@ from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 logger = logging.getLogger(__name__)
 
@@ -765,12 +765,30 @@ async def _finalize_session_impl(
     return True, report_url
 
 
-async def _safe_send(bot, chat_id: int, text: str) -> None:
+async def _safe_send(bot, chat_id: int, text: str, reply_markup=None) -> None:
     """TG send_message с защитой от лост-таска (Critical-2)."""
     try:
-        await bot.send_message(chat_id, text)
+        await bot.send_message(chat_id, text, reply_markup=reply_markup)
     except Exception:
         logger.exception("[session] TG send failed for chat %s", chat_id)
+
+
+def _outcome_keyboard(session_id: str) -> InlineKeyboardMarkup:
+    """WP-358 Ф10.6: inline-keyboard для оценки outcome финализированной сессии.
+
+    Кнопки кодируют outcome в callback_data: outcome:<consensus|partial|abandoned|utility>:<sid>.
+    Пилот может проигнорировать — outcome остаётся null (default по DP.SC.NNN §close).
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Решено", callback_data=f"outcome:consensus:{session_id}"),
+            InlineKeyboardButton(text="🚧 Частично", callback_data=f"outcome:partial:{session_id}"),
+        ],
+        [
+            InlineKeyboardButton(text="❌ Отменено", callback_data=f"outcome:abandoned:{session_id}"),
+            InlineKeyboardButton(text="🤷 Утилитарная", callback_data=f"outcome:utility:{session_id}"),
+        ],
+    ])
 
 
 def _finalize_done_callback(
@@ -791,9 +809,11 @@ def _finalize_done_callback(
         ))
         return
     if success and payload:
+        # WP-358 Ф10.6: inline-keyboard для outcome (опционально, пилот может проигнорировать)
         _spawn(_safe_send(
             bot, chat_id,
-            f"✅ Финализация {session_id} готова.\nОтчёт: {payload}"
+            f"✅ Финализация {session_id} готова.\nОтчёт: {payload}\n\nКак прошла сессия?",
+            reply_markup=_outcome_keyboard(session_id),
         ))
     elif success:
         # уже была финализирована (no-op idempotent)
@@ -1376,3 +1396,65 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
             await message.answer(f"Сессия {session_id} отменена.")
             return
     await message.answer("Сессия отменена локально (GitHub недоступен).")
+
+
+# ── WP-358 Ф10.6: outcome callback handler ────────────────────────────────────
+
+@external_session_router.callback_query(F.data.startswith("outcome:"))
+async def on_outcome_callback(cb: CallbackQuery) -> None:
+    """Записать outcome в report.md финализированной сессии (Ф10.6).
+
+    callback_data формат: outcome:<consensus|partial|abandoned|utility>:<session_id>.
+    Ownership check: только владелец сессии (tg_chat_id в meta пред-финализации).
+    Поскольку meta уже удалён, проверяем через chat_id callback'а ↔ chat_id меню
+    (kept in original send_message — TG гарантирует доставку только в исходный чат).
+    """
+    parts = (cb.data or "").split(":", 2)
+    if len(parts) != 3 or parts[0] != "outcome":
+        await cb.answer("Неверный формат", show_alert=False)
+        return
+    outcome, session_id = parts[1], parts[2]
+    if outcome not in ("consensus", "partial", "abandoned", "utility"):
+        await cb.answer("Неверный outcome", show_alert=False)
+        return
+    if not re.match(r"^SESSION-[0-9]{8}-[0-9]{6}-[A-Za-z0-9]+$", session_id):
+        await cb.answer("Неверный session_id", show_alert=False)
+        return
+
+    chat_id = cb.message.chat.id if cb.message else None
+    if chat_id is None:
+        await cb.answer("Нет chat_id", show_alert=False)
+        return
+
+    creds = await _get_github_creds(chat_id)
+    if not creds:
+        await cb.answer("GitHub не подключён", show_alert=False)
+        return
+    token, repo, branch = creds
+
+    report_path = _expected_report_path(session_id)
+    cur, sha = await _gh_get_file(report_path, token, repo, branch)
+    if cur is None:
+        await cb.answer("Отчёт не найден", show_alert=True)
+        return
+
+    # Обновить outcome в frontmatter (anchored regex)
+    new_text = re.sub(r"^outcome:.*$", f"outcome: {outcome}", cur, flags=re.MULTILINE)
+    if new_text == cur:
+        # outcome строки нет — добавить перед закрывающим ---
+        new_text = re.sub(r"^---\s*$", f"outcome: {outcome}\n---", cur, count=1, flags=re.MULTILINE)
+    ok = await _gh_put_file(
+        report_path, new_text,
+        f"session({session_id}): outcome={outcome}",
+        token, repo, branch, sha,
+    )
+    if ok:
+        # Убрать клавиатуру + ack
+        try:
+            if cb.message:
+                await cb.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await cb.answer(f"Записано: {outcome}", show_alert=False)
+    else:
+        await cb.answer("Не удалось записать (GitHub error)", show_alert=True)
