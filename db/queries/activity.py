@@ -37,7 +37,7 @@ async def record_active_day(chat_id: int, activity_type: str,
     """
     Записать активный день.
 
-    Вызывается при любом текстовом ответе:
+    Вызывается при значимых действиях:
     - theory_answer, work_product, bonus_answer (марафон)
     - feed_fixation (лента)
     - question_asked (вопросы)
@@ -50,11 +50,12 @@ async def record_active_day(chat_id: int, activity_type: str,
     """
     from .users import moscow_today
 
-    pool = await get_learning_pool()
+    learning_pool = await get_learning_pool()
+    dev_pool = await get_pool()
     today = moscow_today()
 
-    # 1. Записать в лог активности
-    async with pool.acquire() as conn:
+    # 1. Записать в лог активности (learning БД)
+    async with learning_pool.acquire() as conn:
         try:
             await conn.execute('''
                 INSERT INTO activity_log (chat_id, activity_date, activity_type, mode, reference_id)
@@ -65,8 +66,9 @@ async def record_active_day(chat_id: int, activity_type: str,
             logger.warning(f"Не удалось записать активность: {e}")
 
     # 2. Атомарно обновить счётчики (только если дата изменилась).
-    #    Устраняет race condition с touch_last_active_date из middleware.
-    async with pool.acquire() as conn:
+    #    dev_pool (development БД) — правильный пул для development.user_state.
+    #    COALESCE для longest_streak защищает от NULL при первом активном дне.
+    async with dev_pool.acquire() as conn:
         row = await conn.fetchrow('''
             UPDATE development.user_state
             SET

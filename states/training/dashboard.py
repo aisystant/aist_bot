@@ -7,6 +7,7 @@ from __future__ import annotations
 Показывает прогресс по принципам. Кнопки: Продолжить, Сменить режим, Настройки.
 """
 
+import asyncio
 from typing import Optional
 
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -215,7 +216,24 @@ class TrainingDashboardState(BaseState):
 
         if data == 'train_continue':
             engine = TrainingEngine(chat_id)
-            next_pid = await engine.get_next_principle()
+            # DP.SC.154 fix: circuit breaker for heavy DB callback (continuation via shield)
+            task = asyncio.create_task(engine.get_next_principle())
+            try:
+                next_pid = await asyncio.wait_for(asyncio.shield(task), timeout=3.0)
+            except asyncio.TimeoutError:
+                await callback.answer("Генерирую задание... (подождите)")
+                try:
+                    next_pid = await asyncio.wait_for(task, timeout=27.0)
+                except asyncio.TimeoutError:
+                    logger.error(f"[TrainingDashboard] HARD TIMEOUT train_continue chat_id={chat_id}")
+                    await callback.answer("Не удалось загрузить задание. Попробуйте позже.", show_alert=True)
+                    return None
+                finally:
+                    if not task.done():
+                        task.cancel()
+            finally:
+                if not task.done():
+                    task.cancel()
             if next_pid:
                 await self.save_state(user, {'principle_id': next_pid})
                 await callback.answer("Генерирую задание...")

@@ -21,7 +21,9 @@ import os
 import aiohttp
 
 # ─── API degradation tracking (canary rule, Rule 1) ───
-_api_error_timestamps: deque = deque(maxlen=20)
+# Split counters: server errors (5xx/529/timeout) vs rate limits (429/400-usage-limits)
+_server_error_timestamps: deque = deque(maxlen=20)
+_rate_limit_timestamps: deque = deque(maxlen=20)
 _scheduler_paused_until: float = 0.0
 
 _CANARY_THRESHOLD = 3
@@ -77,12 +79,22 @@ async def restore_canary_from_db(pool) -> None:
         _log.warning(f"[Canary] Could not restore pause state: {e}")
 
 
-def record_api_degradation() -> None:
-    """Record transient/server API error. Pauses scheduler pre-gen if ≥3 in 15min."""
+def record_api_degradation(is_rate_limit: bool = False) -> None:
+    """Record API error. Server errors pause scheduler pre-gen if ≥3 in 15min.
+    Rate limits are tracked separately for backoff but do NOT pause pre-gen.
+    """
     global _scheduler_paused_until
     now = _time.monotonic()
-    _api_error_timestamps.append(now)
-    recent = sum(1 for t in _api_error_timestamps if now - t <= _CANARY_WINDOW_SEC)
+    if is_rate_limit:
+        _rate_limit_timestamps.append(now)
+        import logging
+        logging.getLogger(__name__).warning(
+            f"[Canary] Rate limit recorded (total in window: "
+            f"{sum(1 for t in _rate_limit_timestamps if now - t <= _CANARY_WINDOW_SEC)})"
+        )
+        return
+    _server_error_timestamps.append(now)
+    recent = sum(1 for t in _server_error_timestamps if now - t <= _CANARY_WINDOW_SEC)
     if recent >= _CANARY_THRESHOLD and _scheduler_paused_until < now:
         _scheduler_paused_until = now + _PAUSE_DURATION_SEC
         import logging
@@ -207,6 +219,7 @@ class ClaudeClient:
                         return await resp.json()
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        record_api_degradation(is_rate_limit=True)
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
                         if attempt == 0:
                             await asyncio.sleep(retry_after)
@@ -228,9 +241,13 @@ class ClaudeClient:
                         return None
                     else:
                         error = await resp.text()
-                        # 400 with usage limit = persistent degradation, suppress scheduler retries
                         if resp.status == 400 and "usage limits" in error:
-                            record_api_degradation()
+                            record_api_degradation(is_rate_limit=True)
+                            logger.warning(f"Claude API usage limit (400), attempt {attempt + 1}")
+                            if attempt == 0:
+                                await asyncio.sleep(30)
+                                continue
+                            return None
                         system = payload.get("system") or ""
                         system_len = len(system) if isinstance(system, str) else sum(
                             len(b.get("text", "")) for b in system if isinstance(b, dict)
@@ -367,6 +384,7 @@ class ClaudeClient:
                         return ''.join(collected_text)
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        record_api_degradation(is_rate_limit=True)
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
                         if attempt == 0:
                             await asyncio.sleep(retry_after)
@@ -552,6 +570,7 @@ class ClaudeClient:
 
                     elif resp.status == 429:
                         retry_after = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                        record_api_degradation(is_rate_limit=True)
                         logger.warning(f"Claude API rate limit (429), retry after {retry_after}s")
                         if attempt == 0:
                             await asyncio.sleep(retry_after)

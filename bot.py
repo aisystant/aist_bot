@@ -209,6 +209,16 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 018 skipped: {_e}")
 
+    # Projection DLQ table (Learning/Neon) — dead-letter queue for stalled events
+    try:
+        import importlib as _il
+        _m019 = _il.import_module("db.migrations.019_projection_dlq")
+        _created = await _m019.migrate_if_needed(await _get_pool())
+        if _created:
+            logger.info("✅ Migration 019: projection_dlq created in learning DB")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 019 skipped: {_e}")
+
     # Canary state table (Learning/Neon) + restore pause across redeploys
     try:
         import importlib as _il

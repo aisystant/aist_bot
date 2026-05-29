@@ -658,6 +658,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
+
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)   # WP-327 Phase 3б: Discourse typing collection 03:30 UTC
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=17, minute=0)  # WP-327 Phase 3б: второй запуск 20:00 МСК
     _scheduler.add_job(_wakatime_typing_collect, 'cron', hour=22, minute=0)   # WP-327 Phase 4: WakaTime typing 22:00 UTC
