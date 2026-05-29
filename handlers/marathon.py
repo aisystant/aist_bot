@@ -39,7 +39,7 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
     if current_status == "active":
         await reply_msg.answer(
             "🎉 Ты уже в марафоне!\n\n"
-            f"📅 Пройдено дней: {progress.get('current_day', 0)}\n\n"
+            f"📅 День марафона: {progress.get('current_day', 0)} / 14\n\n"
             "📋 Команды:\n"
             "• /marathon_progress — статус и прогресс\n"
             "• /marathon_stop — остановить марафон\n"
@@ -141,7 +141,6 @@ async def cmd_marathon_progress(message: Message):
     status = progress.get("status", "registered")
     current_day = progress.get("current_day", 0)
     total_checkins = progress.get("total_checkins", 0)
-    missed_days = progress.get("missed_days", 0)
     started_at = progress.get("started_at")
 
     status_emoji = {
@@ -158,9 +157,10 @@ async def cmd_marathon_progress(message: Message):
 
     if status == "active":
         display_day = current_day if current_day > 0 else 1
-        lines.append(f"📅 Пройдено дней: {display_day} / 14")
+        missed_checkins = max(0, current_day - total_checkins)
+        lines.append(f"📅 День марафона: {display_day} / 14")
         lines.append(f"🌙 Чек-инов: {total_checkins}")
-        lines.append(f"❌ Пропусков: {missed_days}")
+        lines.append(f"❌ Пропущено чек-инов: {missed_checkins}")
         if started_at:
             started_str = started_at.strftime("%d.%m.%Y")
             lines.append(f"🚀 Старт: {started_str}")

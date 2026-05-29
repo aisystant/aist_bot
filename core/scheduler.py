@@ -374,7 +374,7 @@ async def _check_marathon_missed_checkins():
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
-            missed = current_day - total_checkins
+            missed = max(0, current_day - total_checkins)
 
             # Один алерт в день на участника (§10.10 dedup)
             alert_key = f"marathon_mentor_alert:{chat_id}:{today_str}"
@@ -420,7 +420,7 @@ async def _send_marathon_nudges():
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
-            missed = current_day - total_checkins
+            missed = max(0, current_day - total_checkins)
 
             # Защита от дублей: один nudge в день
             nudge_key = f"marathon_nudge:{chat_id}:{today_str}"
@@ -497,7 +497,7 @@ async def _send_marathon_weekly_digest():
             else:
                 last_state_label = "ещё нет"
 
-            missed = current_day - total_checkins
+            missed = max(0, current_day - total_checkins)
 
             if current_day == 0:
                 logger.info(f"[MarathonDigest] Skipping {chat_id}: not started yet (current_day=0)")
@@ -505,9 +505,9 @@ async def _send_marathon_weekly_digest():
 
             text = (
                 f"📊 *Итоги недели марафона*\n\n"
-                f"📅 Пройдено дней: {current_day}/14\n"
+                f"📅 День марафона: {current_day} / 14\n"
                 f"🌙 Чек-инов: {total_checkins}\n"
-                f"❌ Пропусков: {missed}\n"
+                f"❌ Пропущено чек-инов: {missed}\n"
                 f"🎯 Последнее состояние: {last_state_label}\n\n"
             )
 
