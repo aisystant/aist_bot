@@ -1174,19 +1174,56 @@ async def cmd_close(message: Message, state: FSMContext) -> None:
     await message.answer("Сессия закрыта локально (GitHub недоступен).")
 
 
+def _expected_report_path(session_id: str) -> str:
+    """Ожидаемый путь к report.md для уже финализированной SESSION-<id>."""
+    m = re.match(r"^SESSION-([0-9]{4})([0-9]{2})", session_id)
+    month_dir = f"{m.group(1)}-{m.group(2)}" if m else datetime.now(timezone.utc).strftime("%Y-%m")
+    return f"{_SESSIONS_EXTERNAL_BASE}/{month_dir}/{session_id}/report.md"
+
+
+async def _check_already_finalized(
+    session_id: str, token: str, repo: str, branch: str,
+) -> Optional[str]:
+    """Если sessions/external/.../report.md уже существует → вернуть GitHub URL."""
+    report_path = _expected_report_path(session_id)
+    existing, _ = await _gh_get_file(report_path, token, repo, branch)
+    if existing is not None:
+        return f"https://github.com/{repo}/blob/{branch}/{report_path}"
+    return None
+
+
 async def _close_and_finalize(
     session_id: str, chat_id: int, token: str, repo: str, branch: str, bot,
 ) -> None:
     """H-1 fix: set_status(completed) + retry + finalize, всё в отдельном task.
 
     Не блокирует cmd_close handler — пилот получает ack мгновенно.
+    Hotfix 29 мая: при set_status fail — проверить, не финализирована ли уже сессия
+    (например, periodic recovery её схватил). Если да — ack ссылкой, а не false-alarm.
     """
     ok = await _set_session_status(session_id, "completed", token, repo, branch)
     if not ok:
+        # Возможно уже финализирована (source файл удалён). Проверить sessions/external/.
+        report_url = await _check_already_finalized(session_id, token, repo, branch)
+        if report_url:
+            await _safe_send(
+                bot, chat_id,
+                f"ℹ️ Сессия {session_id} уже была закрыта ранее.\nОтчёт: {report_url}"
+            )
+            return
         logger.warning("[session] _close_and_finalize: set_status fail for %s, retry", session_id)
         await asyncio.sleep(5)
         ok = await _set_session_status(session_id, "completed", token, repo, branch)
     if not ok:
+        # Второй retry тоже fail. Повторная проверка финализации
+        # (между первой проверкой и retry могла пройти).
+        report_url = await _check_already_finalized(session_id, token, repo, branch)
+        if report_url:
+            await _safe_send(
+                bot, chat_id,
+                f"ℹ️ Сессия {session_id} уже была закрыта ранее.\nОтчёт: {report_url}"
+            )
+            return
         await _safe_send(
             bot, chat_id,
             f"⚠️ Не удалось пометить {session_id} как completed (GitHub error).\n"
