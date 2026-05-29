@@ -33,7 +33,7 @@ from typing import Optional
 import aiohttp
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
@@ -63,6 +63,44 @@ _SESSION_IDLE_TIMEOUT = timedelta(minutes=30)
 _PILOT_PAT = os.getenv("GITHUB_SESSION_PAT", "")
 _PILOT_REPO = os.getenv("GITHUB_SESSION_REPO", "")
 _SESSIONS_PATH = "inbox/agent/sessions"
+
+# WP-358 Ф10.5: финализация sessions → sessions/external/YYYY-MM/SESSION-<id>/
+_SESSIONS_EXTERNAL_BASE = "sessions/external"
+_SESSIONS_EXTERNAL_INDEX = "sessions/external/00-index.md"
+_RECOVERY_INTER_TASK_DELAY_SEC = 1.0  # rate-limit guard между orphan'ами при startup recovery
+_MAX_RECOVERY_PER_RUN = 10            # cap orphan'ов на один scan (защита от cascade-инцидента)
+_RECOVERY_PERIODIC_INTERVAL_SEC = 3600 # periodic re-scan каждый час (защита от backlog при стабильном боте)
+
+# Module-level set для fire-and-forget tasks — защита от GC.
+# Python <3.10 может собрать "orphaned" task до завершения. Strong-ref здесь
+# держит task пока тот не закончится; done_callback discard выгребает обратно.
+_BG_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    """asyncio.create_task с защитой от GC (Medium-1)."""
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+    return task
+
+
+# WP-358 Ф10.5 iter 4: per-session lock (C-1/C-2 fix).
+# Защита от concurrent _finalize_session(sid) от двух источников
+# (periodic recovery + cmd_finalize, periodic + auto-close timeout, etc.) →
+# race в step 7 (index append) silently теряла бы строку в 00-index.md.
+_FINALIZE_LOCKS: dict[str, asyncio.Lock] = {}
+_FINALIZE_LOCKS_MUTEX = asyncio.Lock()
+
+
+async def _get_finalize_lock(sid: str) -> asyncio.Lock:
+    """Возвращает (создавая если нужно) lock для конкретного session_id."""
+    async with _FINALIZE_LOCKS_MUTEX:
+        lock = _FINALIZE_LOCKS.get(sid)
+        if lock is None:
+            lock = asyncio.Lock()
+            _FINALIZE_LOCKS[sid] = lock
+        return lock
 
 _ALLOWED_CHAT_IDS: set[int] = {
     int(x.strip())
@@ -140,21 +178,36 @@ def _gh_headers(token: str) -> dict:
 async def _gh_get_file(
     path: str, token: str, repo: str, branch: str
 ) -> tuple[Optional[str], Optional[str]]:
-    """Returns (decoded_content, sha) or (None, None) on miss/error."""
+    """Returns (decoded_content, sha) or (None, None) on miss/error.
+
+    WP-358 Ф10.5: при 403/429 (rate limit) один retry с retry-after.
+    """
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    async with aiohttp.ClientSession() as sess:
-        async with sess.get(url, headers=_gh_headers(token), params={"ref": branch}) as resp:
-            if resp.status == 404:
-                return None, None
-            if resp.status == 401:
-                logger.warning("[session] GitHub 401 for path=%s — token expired?", path)
-                return None, None
-            if resp.status != 200:
-                logger.error("[session] GET %s → %d", path, resp.status)
-                return None, None
-            data = await resp.json()
-            content = base64.b64decode(data["content"]).decode("utf-8")
-            return content, data["sha"]
+
+    async def _attempt() -> tuple[int, Optional[dict], Optional[int]]:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(url, headers=_gh_headers(token), params={"ref": branch}) as resp:
+                retry_after = int(resp.headers.get("retry-after", "0") or "0") or None
+                if resp.status == 200:
+                    return resp.status, await resp.json(), None
+                return resp.status, None, retry_after
+
+    status, data, retry_after = await _attempt()
+    if status in (403, 429):
+        wait = retry_after or 30
+        logger.warning("[session] GET %s → %d, retry after %ds", path, status, wait)
+        await asyncio.sleep(wait)
+        status, data, _ = await _attempt()
+    if status == 200 and data is not None:
+        content = base64.b64decode(data["content"]).decode("utf-8")
+        return content, data["sha"]
+    if status == 404:
+        return None, None
+    if status == 401:
+        logger.warning("[session] GitHub 401 for path=%s — token expired?", path)
+        return None, None
+    logger.error("[session] GET %s → %d", path, status)
+    return None, None
 
 
 async def _gh_put_file(
@@ -164,7 +217,7 @@ async def _gh_put_file(
     """Create (sha=None) or update (sha=existing) file. Retries once on 422 (sha conflict)."""
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
 
-    async def _attempt(current_sha: Optional[str]) -> int:
+    async def _attempt(current_sha: Optional[str]) -> tuple[int, Optional[int]]:
         body: dict = {
             "message": msg,
             "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
@@ -174,11 +227,21 @@ async def _gh_put_file(
             body["sha"] = current_sha
         async with aiohttp.ClientSession() as sess:
             async with sess.put(url, headers=_gh_headers(token), json=body) as resp:
-                return resp.status
+                retry_after = int(resp.headers.get("retry-after", "0") or "0") or None
+                return resp.status, retry_after
 
-    status = await _attempt(sha)
+    status, retry_after = await _attempt(sha)
     if status in (200, 201):
         return True
+
+    # WP-358 Ф10.5: 403/429 rate-limit → один retry с retry-after из header
+    if status in (403, 429):
+        wait = retry_after or 30
+        logger.warning("[session] PUT %s → %d rate-limit, retry after %ds", path, status, wait)
+        await asyncio.sleep(wait)
+        status, _ = await _attempt(sha)
+        if status in (200, 201):
+            return True
 
     # Retry on 422 (SHA conflict): re-fetch current sha and retry once
     if status == 422:
@@ -188,9 +251,17 @@ async def _gh_put_file(
             # File doesn't exist yet — 422 on create is unexpected, don't retry
             logger.error("[session] PUT %s → 422 but file not found, cannot retry", path)
         else:
-            status = await _attempt(fresh_sha)
+            status, retry_after_2 = await _attempt(fresh_sha)
             if status in (200, 201):
                 return True
+            # Если после 422-retry попали в rate-limit — ещё одна попытка с retry-after
+            if status in (403, 429):
+                wait = retry_after_2 or 30
+                logger.warning("[session] PUT %s → %d after 422-retry, sleep %ds", path, status, wait)
+                await asyncio.sleep(wait)
+                status, _ = await _attempt(fresh_sha)
+                if status in (200, 201):
+                    return True
 
     if status == 401:
         logger.warning("[session] PUT %s → 401 token expired", path)
@@ -199,6 +270,119 @@ async def _gh_put_file(
     else:
         logger.error("[session] PUT %s → %d", path, status)
     return False
+
+# ── WP-358 Ф10.5: helpers для финализации ─────────────────────────────────────
+
+async def _gh_list_dir(
+    path: str, token: str, repo: str, branch: str
+) -> list[dict]:
+    """Returns list of dir entries or [] on miss/error. Each entry: {name, type, sha, path}."""
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    async with aiohttp.ClientSession() as sess:
+        async with sess.get(url, headers=_gh_headers(token), params={"ref": branch}) as resp:
+            if resp.status == 404:
+                return []
+            if resp.status != 200:
+                logger.warning("[session] LIST %s → %d", path, resp.status)
+                return []
+            data = await resp.json()
+            return data if isinstance(data, list) else []
+
+
+async def _gh_delete_file(
+    path: str, sha: str, msg: str, token: str, repo: str, branch: str
+) -> bool:
+    """DELETE file. Returns True if 200/404 (idempotent), False on other error.
+
+    Retry on:
+    - 403/429 rate-limit (с retry-after header)
+    - 422 sha conflict (re-fetch sha + повторить)
+    """
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+
+    async def _attempt(current_sha: str) -> tuple[int, Optional[int]]:
+        body = {"message": msg, "sha": current_sha, "branch": branch}
+        async with aiohttp.ClientSession() as sess:
+            async with sess.delete(url, headers=_gh_headers(token), json=body) as resp:
+                retry_after = int(resp.headers.get("retry-after", "0") or "0") or None
+                return resp.status, retry_after
+
+    status, retry_after = await _attempt(sha)
+    if status in (200, 404):
+        return True
+
+    # Rate-limit retry с retry-after
+    if status in (403, 429):
+        wait = retry_after or 30
+        logger.warning("[session] DELETE %s → %d rate-limit, retry after %ds", path, status, wait)
+        await asyncio.sleep(wait)
+        status, _ = await _attempt(sha)
+        if status in (200, 404):
+            return True
+
+    # 422 sha conflict — re-fetch и повторить (симметрично _gh_put_file)
+    if status == 422:
+        logger.warning("[session] DELETE %s → 422 SHA conflict, retrying", path)
+        _, fresh_sha = await _gh_get_file(path, token, repo, branch)
+        if fresh_sha is None:
+            # Файл уже удалён конкурентным процессом — idempotent success
+            return True
+        status, _ = await _attempt(fresh_sha)
+        if status in (200, 404):
+            return True
+
+    logger.error("[session] DELETE %s → %d", path, status)
+    return False
+
+
+# Базовая транслитерация cyrillic → latin (минимум без внешних зависимостей).
+# Через dict (поддерживает пустые значения для ъ/ь, не зависит от длин).
+_TRANSLIT_MAP = {ord(k): v for k, v in {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+    "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "h", "ц": "c", "ч": "c", "ш": "s", "щ": "s",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "u", "я": "y",
+    "А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D", "Е": "E", "Ё": "E",
+    "Ж": "J", "З": "Z", "И": "I", "Й": "Y", "К": "K", "Л": "L", "М": "M",
+    "Н": "N", "О": "O", "П": "P", "Р": "R", "С": "S", "Т": "T", "У": "U",
+    "Ф": "F", "Х": "H", "Ц": "C", "Ч": "C", "Ш": "S", "Щ": "S",
+    "Ъ": "", "Ы": "Y", "Ь": "", "Э": "E", "Ю": "U", "Я": "Y",
+}.items()}
+
+
+def _slugify_topic(thread_text: str) -> Optional[str]:
+    """Выделить тему из thread (первая значимая строка после turn:1 pilot).
+
+    Returns slug ≤60 символов (lowercase, kebab-case) или None если ничего нет.
+    Не используется в URL/path (см. WP-358 Ф10.5 ArchGate), только в metadata.
+    """
+    if not thread_text:
+        return None
+    lines = thread_text.split("\n")
+    capture = False
+    candidate = ""
+    for line in lines:
+        if line.startswith("[turn:1, role:pilot"):
+            capture = True
+            continue
+        if capture:
+            if line.startswith("[turn:"):
+                break
+            s = line.strip()
+            if s:
+                candidate = s
+                break
+    if not candidate:
+        return None
+    # Транслитерация cyrillic→latin
+    s = candidate.translate(_TRANSLIT_MAP).lower()
+    # Заменить всё non-alphanumeric на "-", сжать дубли, обрезать
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    if not s:
+        return None
+    return s[:60].rstrip("-") or None
+
 
 # ── Session folder bootstrap ──────────────────────────────────────────────────
 
@@ -356,6 +540,318 @@ async def _set_session_status(
         f"session: {status} {session_id}",
         token, repo, branch, meta_sha,
     )
+
+# ── WP-358 Ф10.5: финализация SESSION-* → sessions/external/YYYY-MM/SESSION-<id>/ ──
+
+def _build_report_md(
+    session_id: str,
+    meta_text: str,
+    thread_text: str,
+    topic_slug: Optional[str],
+) -> str:
+    """Сгенерировать report.md для финализированной сессии. outcome=null (Ф10.5)."""
+    # Парсинг turn_count и created_at из meta
+    turns_m = re.search(r"^turn_count:\s*\"?([0-9]+)\"?", meta_text, re.M)
+    created_m = re.search(r"^created_at:\s*\"?([^\"\n]+)\"?", meta_text, re.M)
+    turns = turns_m.group(1) if turns_m else "?"
+    created = created_m.group(1) if created_m else ""
+    finalized = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    date = created[:10] if created else finalized[:10]
+
+    fm_topic = f'topic: "{topic_slug}"' if topic_slug else "topic: null"
+    return (
+        "---\n"
+        f"session_id: {session_id}\n"
+        f"date: {date}\n"
+        f"{fm_topic}\n"
+        f"outcome: null\n"
+        f"turns: {turns}\n"
+        f"finalized_at: {finalized}\n"
+        "---\n\n"
+        f"# Финализированная сессия {session_id}\n\n"
+        f"**Тема:** {topic_slug or '(не определена)'}\n\n"
+        f"**Ходов:** {turns} · **Открыта:** {created} · **Закрыта:** {finalized}\n\n"
+        "## Диалог\n\n"
+        f"См. [thread.md](thread.md) — полная стенограмма.\n\n"
+        "## Итог\n\n"
+        "_(заполнить вручную: главное решение / consensus / открытые вопросы)_\n"
+    )
+
+
+async def _finalize_session(
+    session_id: str,
+    chat_id: int,
+    token: str,
+    repo: str,
+    branch: str,
+) -> tuple[bool, Optional[str]]:
+    """Перенести SESSION-* из inbox/agent/sessions/ в sessions/external/YYYY-MM/SESSION-<id>/.
+
+    Идемпотентно: проверяет файловое состояние перед каждым шагом, skip если уже сделано.
+    Per-sid lock (C-1/C-2): два concurrent вызова для одного sid сериализуются →
+    второй увидит уже сделанную работу (idempotent skip) → нет race в index append.
+    Returns (success, report_url_or_error_message).
+    """
+    lock = await _get_finalize_lock(session_id)
+    async with lock:
+        return await _finalize_session_impl(session_id, chat_id, token, repo, branch)
+
+
+async def _finalize_session_impl(
+    session_id: str,
+    chat_id: int,
+    token: str,
+    repo: str,
+    branch: str,
+) -> tuple[bool, Optional[str]]:
+    """Тело финализации (защищено per-sid lock'ом, не вызывать напрямую)."""
+    src_meta_path = f"{_SESSIONS_PATH}/{session_id}.md"
+    src_thread_path = f"{_SESSIONS_PATH}/{session_id}-thread.md"
+
+    # 1) GET meta + thread параллельно (1 round-trip эффективно)
+    results = await asyncio.gather(
+        _gh_get_file(src_meta_path, token, repo, branch),
+        _gh_get_file(src_thread_path, token, repo, branch),
+        return_exceptions=True,
+    )
+    for r in results:
+        if isinstance(r, Exception):
+            return False, f"GET failed: {type(r).__name__}"
+    (meta_text, meta_sha), (thread_text, thread_sha) = results
+
+    if meta_text is None and thread_text is None:
+        # Уже всё удалено — финализация прошла ранее. Проверяем что папка существует.
+        return True, None
+    if meta_text is None:
+        # Partial state: meta удалён, thread остался. Не можем восстановить полный
+        # frontmatter (turns/created_at). Reject — пилот разберётся вручную.
+        logger.error("[session] finalize %s: meta missing, thread present (corrupt state)", session_id)
+        return False, "meta missing — manual cleanup required"
+
+    # 2) Определить month по created_at в meta (если есть)
+    created_m = re.search(r"^created_at:\s*\"?([0-9]{4}-[0-9]{2})", meta_text or "", re.M)
+    if created_m:
+        month_dir = created_m.group(1)
+    else:
+        # fallback: из session_id YYYYMMDD
+        m = re.search(r"SESSION-([0-9]{4})([0-9]{2})", session_id)
+        month_dir = f"{m.group(1)}-{m.group(2)}" if m else datetime.now(timezone.utc).strftime("%Y-%m")
+
+    dst_dir = f"{_SESSIONS_EXTERNAL_BASE}/{month_dir}/{session_id}"
+    dst_report = f"{dst_dir}/report.md"
+    dst_thread = f"{dst_dir}/thread.md"
+
+    topic_slug = _slugify_topic(thread_text or "")
+
+    # 3) PUT report.md (idempotent — skip если есть)
+    existing_report, _ = await _gh_get_file(dst_report, token, repo, branch)
+    if existing_report is None:
+        report_content = _build_report_md(session_id, meta_text or "", thread_text or "", topic_slug)
+        ok = await _gh_put_file(
+            dst_report, report_content,
+            f"finalize {session_id}: report.md",
+            token, repo, branch,
+        )
+        if not ok:
+            return False, "PUT report.md failed"
+
+    # 4) PUT thread.md (копия)
+    existing_thread, _ = await _gh_get_file(dst_thread, token, repo, branch)
+    if existing_thread is None and thread_text is not None:
+        ok = await _gh_put_file(
+            dst_thread, thread_text,
+            f"finalize {session_id}: thread.md",
+            token, repo, branch,
+        )
+        if not ok:
+            return False, "PUT thread.md failed"
+
+    # 5) DELETE source meta (idempotent + re-fetch sha против race с _set_session_status)
+    if meta_sha is not None:
+        _, fresh_meta_sha = await _gh_get_file(src_meta_path, token, repo, branch)
+        if fresh_meta_sha is not None:
+            ok = await _gh_delete_file(
+                src_meta_path, fresh_meta_sha,
+                f"finalize {session_id}: remove source meta",
+                token, repo, branch,
+            )
+            if not ok:
+                return False, "DELETE source meta failed"
+
+    # 6) DELETE source thread (idempotent + re-fetch sha)
+    if thread_sha is not None:
+        _, fresh_thread_sha = await _gh_get_file(src_thread_path, token, repo, branch)
+        if fresh_thread_sha is not None:
+            ok = await _gh_delete_file(
+                src_thread_path, fresh_thread_sha,
+                f"finalize {session_id}: remove source thread",
+                token, repo, branch,
+            )
+            if not ok:
+                return False, "DELETE source thread failed"
+
+    # 7) Append in sessions/external/00-index.md (idempotent через grep)
+    idx_text, idx_sha = await _gh_get_file(_SESSIONS_EXTERNAL_INDEX, token, repo, branch)
+    finalized = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_row = f"| {finalized[:10]} | {session_id} | {topic_slug or '(no topic)'} | {dst_report} |\n"
+    if idx_text is None:
+        idx_content = (
+            "# External Sessions Index\n\n"
+            "Финализированные сессии Telegram-канала /claude (WP-358 Ф10.5).\n\n"
+            "| Дата | Session ID | Тема | Report |\n"
+            "|------|-----------|------|--------|\n"
+            + new_row
+        )
+        await _gh_put_file(
+            _SESSIONS_EXTERNAL_INDEX, idx_content,
+            f"finalize {session_id}: init index",
+            token, repo, branch,
+        )
+    elif session_id not in idx_text:
+        idx_content = idx_text.rstrip() + "\n" + new_row
+        await _gh_put_file(
+            _SESSIONS_EXTERNAL_INDEX, idx_content,
+            f"finalize {session_id}: append index",
+            token, repo, branch, idx_sha,
+        )
+
+    report_url = f"https://github.com/{repo}/blob/{branch}/{dst_report}"
+    return True, report_url
+
+
+async def _safe_send(bot, chat_id: int, text: str) -> None:
+    """TG send_message с защитой от лост-таска (Critical-2)."""
+    try:
+        await bot.send_message(chat_id, text)
+    except Exception:
+        logger.exception("[session] TG send failed for chat %s", chat_id)
+
+
+def _finalize_done_callback(
+    task: asyncio.Task,
+    chat_id: int,
+    session_id: str,
+    bot,
+) -> None:
+    """Done callback для fire-and-forget _finalize_session. Шлёт TG-уведомление по исходу."""
+    try:
+        success, payload = task.result()
+    except Exception as exc:
+        logger.exception("[session] Finalization task raised for %s", session_id)
+        _spawn(_safe_send(
+            bot, chat_id,
+            f"⚠️ Финализация {session_id} не удалась: {type(exc).__name__}\n"
+            f"Повторить вручную: /finalize {session_id}"
+        ))
+        return
+    if success and payload:
+        _spawn(_safe_send(
+            bot, chat_id,
+            f"✅ Финализация {session_id} готова.\nОтчёт: {payload}"
+        ))
+    elif success:
+        # уже была финализирована (no-op idempotent)
+        logger.info("[session] Finalization no-op for %s (already done)", session_id)
+    else:
+        _spawn(_safe_send(
+            bot, chat_id,
+            f"⚠️ Финализация {session_id} не удалась: {payload}\n"
+            f"Повторить вручную: /finalize {session_id}"
+        ))
+
+
+async def recover_orphan_finalizations(bot) -> None:
+    """Startup recovery: найти SESSION-* со status: completed в inbox без папки в sessions/external/.
+
+    Использует pilot-credentials (_PILOT_PAT, _PILOT_REPO) и chat_id из meta для каждого orphan'а.
+    Sequential обработка с задержкой между orphan'ами (rate-limit safe).
+    """
+    if not _PILOT_PAT or not _PILOT_REPO:
+        logger.info("[session] recovery: no pilot creds, skip")
+        return
+    repo = _normalize_repo(_PILOT_REPO)
+    token = _PILOT_PAT
+    branch = "main"
+
+    inbox_entries = await _gh_list_dir(_SESSIONS_PATH, token, repo, branch)
+    # Сборка completed-сессий из inbox (без -thread.md)
+    completed_sessions: list[str] = []
+    for entry in inbox_entries:
+        name = entry.get("name", "")
+        if entry.get("type") != "file" or not name.startswith("SESSION-") or name.endswith("-thread.md"):
+            continue
+        sid = name[:-3]  # strip .md
+        # Прочитать meta — проверить status: completed
+        path = entry.get("path") or f"{_SESSIONS_PATH}/{name}"
+        meta_text, _ = await _gh_get_file(path, token, repo, branch)
+        if meta_text and re.search(r'^status:\s*"?completed"?', meta_text, re.M):
+            completed_sessions.append(sid)
+
+    if not completed_sessions:
+        logger.info("[session] recovery: no completed orphans in inbox")
+        return
+
+    if len(completed_sessions) > _MAX_RECOVERY_PER_RUN:
+        logger.warning(
+            "[session] recovery: %d orphans, capping to %d (defer rest to next restart)",
+            len(completed_sessions), _MAX_RECOVERY_PER_RUN
+        )
+        completed_sessions = completed_sessions[:_MAX_RECOVERY_PER_RUN]
+    else:
+        logger.info("[session] recovery: %d completed orphan candidates", len(completed_sessions))
+
+    for sid in completed_sessions:
+        # Извлечь month и chat_id из meta — нужны для финализации
+        meta_path = f"{_SESSIONS_PATH}/{sid}.md"
+        meta_text, _ = await _gh_get_file(meta_path, token, repo, branch)
+        if not meta_text:
+            continue
+        chat_m = re.search(r"^tg_chat_id:\s*([0-9]+)", meta_text, re.M)
+        if not chat_m:
+            logger.warning("[session] recovery: SESSION %s meta lacks tg_chat_id, skip", sid)
+            continue
+        chat_id = int(chat_m.group(1))
+        # Если papка уже есть — пропустить (предотвратить retry storm)
+        created_m = re.search(r"^created_at:\s*\"?([0-9]{4}-[0-9]{2})", meta_text, re.M)
+        month_dir = created_m.group(1) if created_m else None
+        if month_dir:
+            dst_report_path = f"{_SESSIONS_EXTERNAL_BASE}/{month_dir}/{sid}/report.md"
+            existing, _ = await _gh_get_file(dst_report_path, token, repo, branch)
+            if existing is not None:
+                # Папка есть, но source ещё в inbox — нужно доделать DELETE
+                logger.info("[session] recovery: %s has report, completing finalize", sid)
+        # Запустить финализацию (fire-and-forget с callback)
+        task = _spawn(_finalize_session(sid, chat_id, token, repo, branch))
+        task.add_done_callback(
+            lambda t, sid_=sid, cid=chat_id, b=bot: _finalize_done_callback(t, cid, sid_, b)
+        )
+        await asyncio.sleep(_RECOVERY_INTER_TASK_DELAY_SEC)
+
+
+async def _periodic_recovery_loop(bot, interval_sec: int) -> None:
+    """High-3: периодический re-scan каждые N секунд (защита от backlog при стабильном боте).
+
+    Запускается отдельной long-running task на старте. Защищает от случая:
+    >10 orphan'ов накапливаются за раз → cap режет до 10 → стабильный бот → backlog растёт.
+    Exponential backoff при N consecutive failures (защита от log spam при GitHub outage).
+    """
+    failure_count = 0
+    while True:
+        try:
+            # Exponential backoff: interval × 2^min(failures, 4), max 16× = 16 часов
+            multiplier = 2 ** min(failure_count, 4)
+            await asyncio.sleep(interval_sec * multiplier)
+            await recover_orphan_finalizations(bot)
+            failure_count = 0  # reset на успехе
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            failure_count += 1
+            logger.exception(
+                "[session] periodic recovery iteration failed (consecutive: %d, next sleep ×%d)",
+                failure_count, 2 ** min(failure_count, 4),
+            )
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -597,14 +1093,16 @@ async def handle_session_text(message: Message, state: FSMContext) -> None:
         # Закрыть старую на GitHub (может вернуть False — orphan, лог-warning)
         if not await _set_session_status(session_id, "completed", *creds):
             logger.warning("[session] Failed to mark old session %s completed (orphan possible)", session_id)
-        _t, _repo, _br = creds
-        thread_url = f"https://github.com/{_repo}/blob/{_br}/{_SESSIONS_PATH}/{session_id}-thread.md"
+        token, repo, branch = creds
+        # WP-358 Ф10.5: fire-and-forget финализация старой сессии
         await message.answer(
             f"Прошлая сессия ({session_id}) закрыта по таймауту (30 мин без активности).\n"
-            f"Thread: {thread_url}\n"
-            "Начинаю новую с вашего сообщения."
+            f"Финализация запущена. Начинаю новую с вашего сообщения."
         )
-        token, repo, branch = creds
+        task = _spawn(_finalize_session(session_id, chat_id, token, repo, branch))
+        task.add_done_callback(
+            lambda t, sid=session_id, cid=chat_id, b=message.bot: _finalize_done_callback(t, cid, sid, b)
+        )
         await _open_new_session(message, state, text, token, repo, branch)
         return
 
@@ -655,16 +1153,93 @@ async def cmd_close(message: Message, state: FSMContext) -> None:
     creds = await _get_github_creds(chat_id)
     if creds:
         token, repo, branch = creds
-        ok = await _set_session_status(session_id, "completed", token, repo, branch)
-        if ok:
-            thread_url = f"https://github.com/{repo}/blob/{branch}/{_SESSIONS_PATH}/{session_id}-thread.md"
-            await message.answer(
-                f"Сессия {session_id} завершена.\n"
-                f"Thread: {thread_url}\n"
-                "Финализация в sessions/external/ — Day Open покажет завтра."
-            )
-            return
+        # H-1 fix: не blocking-retry внутри handler — сразу ack + fire-and-forget весь
+        # set_status + retry + finalize в отдельном task (_close_and_finalize).
+        await message.answer(f"Сессия {session_id} закрывается. Отчёт придёт когда готов.")
+        _spawn(_close_and_finalize(session_id, chat_id, token, repo, branch, message.bot))
+        return
     await message.answer("Сессия закрыта локально (GitHub недоступен).")
+
+
+async def _close_and_finalize(
+    session_id: str, chat_id: int, token: str, repo: str, branch: str, bot,
+) -> None:
+    """H-1 fix: set_status(completed) + retry + finalize, всё в отдельном task.
+
+    Не блокирует cmd_close handler — пилот получает ack мгновенно.
+    """
+    ok = await _set_session_status(session_id, "completed", token, repo, branch)
+    if not ok:
+        logger.warning("[session] _close_and_finalize: set_status fail for %s, retry", session_id)
+        await asyncio.sleep(5)
+        ok = await _set_session_status(session_id, "completed", token, repo, branch)
+    if not ok:
+        await _safe_send(
+            bot, chat_id,
+            f"⚠️ Не удалось пометить {session_id} как completed (GitHub error).\n"
+            f"Сессия закрыта локально. Повторить позже: /finalize {session_id}"
+        )
+        return
+    # Финализация — сразу в этом же task (lock внутри _finalize_session защищает от race)
+    try:
+        success, payload = await _finalize_session(session_id, chat_id, token, repo, branch)
+    except Exception as exc:
+        logger.exception("[session] _close_and_finalize: finalize raised for %s", session_id)
+        await _safe_send(
+            bot, chat_id,
+            f"⚠️ Финализация {session_id} не удалась: {type(exc).__name__}\n"
+            f"Повторить вручную: /finalize {session_id}"
+        )
+        return
+    if success and payload:
+        await _safe_send(bot, chat_id, f"✅ Финализация {session_id} готова.\nОтчёт: {payload}")
+    elif not success:
+        await _safe_send(
+            bot, chat_id,
+            f"⚠️ Финализация {session_id} не удалась: {payload}\n"
+            f"Повторить вручную: /finalize {session_id}"
+        )
+
+
+@external_session_router.message(Command("finalize"))
+async def cmd_finalize(message: Message, command: CommandObject) -> None:
+    """WP-358 Ф10.5: /finalize <SESSION-id> — повторная финализация после fail."""
+    if not command.args:
+        await message.answer("Использование: /finalize SESSION-YYYYMMDD-HHMMSS-XXXXXX")
+        return
+    session_id = command.args.strip()
+    if not re.match(r"^SESSION-[0-9]{8}-[0-9]{6}-[A-Za-z0-9]+$", session_id):
+        await message.answer("Неверный формат session_id. Ожидается SESSION-YYYYMMDD-HHMMSS-XXXXXX.")
+        return
+
+    chat_id = message.chat.id
+    creds = await _get_github_creds(chat_id)
+    if not creds:
+        await message.answer("GitHub не подключён. Открой /settings → GitHub.")
+        return
+    token, repo, branch = creds
+
+    # Ownership check: tg_chat_id из meta == sender chat_id (hard guard, Critical-3)
+    meta_path = f"{_SESSIONS_PATH}/{session_id}.md"
+    meta_text, _ = await _gh_get_file(meta_path, token, repo, branch)
+    if meta_text is None:
+        # meta удалён — может быть финализация прошла. Не даём доступ к чужой папке.
+        await message.answer("Не нашёл meta сессии — финализация невозможна.")
+        return
+    chat_m = re.search(r"^tg_chat_id:\s*([0-9]+)", meta_text, re.M)
+    if chat_m and int(chat_m.group(1)) != chat_id:
+        await message.answer("Это не ваша сессия.")
+        return
+    if not chat_m:
+        # corrupted meta без tg_chat_id — не доверяем
+        await message.answer("В meta сессии нет tg_chat_id — финализация заблокирована.")
+        return
+
+    await message.answer(f"Повторная финализация {session_id}...")
+    task = _spawn(_finalize_session(session_id, chat_id, token, repo, branch))
+    task.add_done_callback(
+        lambda t, sid=session_id, cid=chat_id, b=message.bot: _finalize_done_callback(t, cid, sid, b)
+    )
 
 
 @external_session_router.message(Command("cancel"))

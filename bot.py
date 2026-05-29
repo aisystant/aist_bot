@@ -569,6 +569,22 @@ async def main():
 
             asyncio.create_task(_reregister_webhook())
 
+            # WP-358 Ф10.5: recovery scan + periodic loop для orphan'ов финализации
+            try:
+                from handlers.external_session import (
+                    recover_orphan_finalizations,
+                    _periodic_recovery_loop,
+                    _RECOVERY_PERIODIC_INTERVAL_SEC,
+                )
+                asyncio.create_task(recover_orphan_finalizations(bot))
+                asyncio.create_task(_periodic_recovery_loop(bot, _RECOVERY_PERIODIC_INTERVAL_SEC))
+                logger.info(
+                    "[session] recovery scan scheduled + periodic re-scan every %ds (WP-358 Ф10.5)",
+                    _RECOVERY_PERIODIC_INTERVAL_SEC,
+                )
+            except Exception as e:
+                logger.warning(f"[session] recovery scan skip: {type(e).__name__}: {e}")
+
             # Keep running until shutdown signal
             stop_event = asyncio.Event()
             loop = asyncio.get_running_loop()
