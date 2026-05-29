@@ -597,8 +597,11 @@ async def handle_session_text(message: Message, state: FSMContext) -> None:
         # Закрыть старую на GitHub (может вернуть False — orphan, лог-warning)
         if not await _set_session_status(session_id, "completed", *creds):
             logger.warning("[session] Failed to mark old session %s completed (orphan possible)", session_id)
+        _t, _repo, _br = creds
+        thread_url = f"https://github.com/{_repo}/blob/{_br}/{_SESSIONS_PATH}/{session_id}-thread.md"
         await message.answer(
             f"Прошлая сессия ({session_id}) закрыта по таймауту (30 мин без активности).\n"
+            f"Thread: {thread_url}\n"
             "Начинаю новую с вашего сообщения."
         )
         token, repo, branch = creds
@@ -651,9 +654,15 @@ async def cmd_close(message: Message, state: FSMContext) -> None:
 
     creds = await _get_github_creds(chat_id)
     if creds:
-        ok = await _set_session_status(session_id, "completed", *creds)
+        token, repo, branch = creds
+        ok = await _set_session_status(session_id, "completed", token, repo, branch)
         if ok:
-            await message.answer(f"Сессия {session_id} завершена.")
+            thread_url = f"https://github.com/{repo}/blob/{branch}/{_SESSIONS_PATH}/{session_id}-thread.md"
+            await message.answer(
+                f"Сессия {session_id} завершена.\n"
+                f"Thread: {thread_url}\n"
+                "Финализация в sessions/external/ — Day Open покажет завтра."
+            )
             return
     await message.answer("Сессия закрыта локально (GitHub недоступен).")
 
