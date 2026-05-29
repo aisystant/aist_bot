@@ -97,8 +97,9 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
     logger.info("[Marathon] user_id=%s started. Queue 1-14 filled. immediate=%s", user_id, first_lesson_today)
 
     first_lesson_note = (
-        "Первый урок придёт через минуту — приготовься!" if first_lesson_today
-        else "Первый урок придёт завтра в 04:00 МСК."
+        "Первый урок придёт через минуту — приготовься!\nСо дня 2 уроки приходят ежедневно в 04:00 МСК."
+        if first_lesson_today
+        else "Первый урок и все последующие приходят ежедневно в 04:00 МСК."
     )
     await reply_msg.answer(
         "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
@@ -191,6 +192,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
     # Атомарный UPSERT — возвращает True если это первый чек-ин за день.
     # Исключает TOCTOU при двойном тапе: решение о counting принимается на уровне DB.
     is_first_checkin = await save_checkin(user_id, day, state)
+    is_completed = False
 
     # Инкремент прогресса только при первом чек-ине за день
     if is_first_checkin:
@@ -213,6 +215,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
         if new_status == "completed":
             await update_intern(user_id, marathon_status="completed")
+            is_completed = True
 
         logger.info(
             f"[MarathonCheckin] User {user_id} day {day} state={state} "
@@ -232,10 +235,20 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
     # Убираем кнопки и показываем выбор
     original_text = callback.message.text or callback.message.caption or ""
+    footer = "" if is_completed else "\n\n📋 /marathon_progress — прогресс | /marathon_stop — пауза"
     await callback.message.edit_text(
-        f"{original_text}\n\n✅ Твой выбор: {label}",
+        f"{original_text}\n\n✅ Твой выбор: {label}{footer}",
         reply_markup=None,
     )
+
+    if is_completed:
+        await callback.message.answer(
+            "🎉 Поздравляем с завершением марафона «Первые шаги в IWE»!\n\n"
+            "14 дней пройдено — ты молодец! Ты освоил базовые инструменты "
+            "системного развития.\n\n"
+            "📋 /marathon_progress — посмотреть статистику\n"
+            "• /support — вопросы и поддержка"
+        )
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -271,6 +284,6 @@ async def cmd_marathon_stop(message: Message):
     logger.info(f"[Marathon] User {chat_id} stopped marathon.")
     await message.answer(
         "🛑 Марафон остановлен.\n\n"
-        "Если захочешь вернуться — напиши /marathon_start. "
-        "Ты начнёшь сначала (очередь будет пересоздана)."
+        "Если захочешь вернуться — /marathon_start (начнёшь сначала).\n\n"
+        "📋 /profile — настройки | /support — поддержка"
     )
