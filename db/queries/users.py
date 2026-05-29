@@ -540,7 +540,11 @@ async def get_marathon_users_at_time(hour: int, minute: int) -> list:
             '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
-                 AND onboarding_completed = TRUE''',
+                 AND onboarding_completed = TRUE
+                 AND NOT EXISTS (
+                     SELECT 1 FROM learning.marathon_progress
+                     WHERE user_id = development.user_state.chat_id
+                 )''',
             time_str
         )
     return [row['chat_id'] for row in rows]
@@ -551,13 +555,17 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
     pool = await get_pool()
     time_str = f"{hour:02d}:{minute:02d}"
     async with pool.acquire() as conn:
-        # Марафон: schedule_time совпадает, марафон активен
+        # Марафон: schedule_time совпадает, марафон активен (legacy only — WP-330 excluded)
         marathon_rows = await conn.fetch(
             '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
                  AND onboarding_completed = TRUE
-                 AND bot_blocked IS NOT TRUE''',
+                 AND bot_blocked IS NOT TRUE
+                 AND NOT EXISTS (
+                     SELECT 1 FROM learning.marathon_progress
+                     WHERE user_id = development.user_state.chat_id
+                 )''',
             time_str
         )
         marathon_ids = {row['chat_id'] for row in marathon_rows}

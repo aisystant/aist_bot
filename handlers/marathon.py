@@ -39,7 +39,7 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
     if current_status == "active":
         await reply_msg.answer(
             "🎉 Ты уже в марафоне!\n\n"
-            f"📅 Текущий день: {progress.get('current_day', 0)}\n\n"
+            f"📅 Пройдено дней: {progress.get('current_day', 0)}\n\n"
             "📋 Команды:\n"
             "• /marathon_progress — статус и прогресс\n"
             "• /marathon_stop — остановить марафон\n"
@@ -153,7 +153,7 @@ async def cmd_marathon_progress(message: Message):
 
     if status == "active":
         display_day = current_day if current_day > 0 else 1
-        lines.append(f"📅 Текущий день: {display_day} / 14")
+        lines.append(f"📅 Пройдено дней: {display_day} / 14")
         lines.append(f"🌙 Чек-инов: {total_checkins}")
         lines.append(f"❌ Пропусков: {missed_days}")
         if started_at:
@@ -211,6 +211,9 @@ async def callback_marathon_checkin(callback: CallbackQuery):
             status=new_status,
         )
 
+        if new_status == "completed":
+            await update_intern(user_id, marathon_status="completed")
+
         logger.info(
             f"[MarathonCheckin] User {user_id} day {day} state={state} "
             f"current_day {current_day}→{new_day} total_checkins {total_checkins}→{new_total}"
@@ -263,6 +266,7 @@ async def cmd_marathon_stop(message: Message):
         user_id=chat_id,
         status="dropped",
     )
+    await update_intern(chat_id, marathon_status="not_started")
 
     logger.info(f"[Marathon] User {chat_id} stopped marathon.")
     await message.answer(

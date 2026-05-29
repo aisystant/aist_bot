@@ -6363,8 +6363,8 @@ showcase:
 # -----------------------------------------------------------------------------
 scheduler:
   retry_exhausted_marathon:
-    ru: "Сегодня не получилось подготовить урок — вернитесь завтра или нажмите /learn."
-    en: "Could not prepare today's lesson — come back tomorrow or press /learn."
+    ru: "Сегодня не получилось подготовить урок — вернитесь завтра или нажмите /marathon_progress."
+    en: "Could not prepare today's lesson — come back tomorrow or check /marathon_progress."
     description: "Уведомление пользователю когда все попытки retry пре-генерации марафона исчерпаны"
 
   retry_exhausted_feed:
