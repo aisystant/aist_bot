@@ -64,6 +64,12 @@ _PILOT_PAT = os.getenv("GITHUB_SESSION_PAT", "")
 _PILOT_REPO = os.getenv("GITHUB_SESSION_REPO", "")
 _SESSIONS_PATH = "inbox/agent/sessions"
 
+# WP-358 Ф10.7: per-bot routing. BOT_FLAVOR в env (Railway):
+# - pilot → @aist_pilot_bot — dispatcher шлёт через TG_BOT_TOKEN_PILOT
+# - prod  → @aist_me_bot    — dispatcher шлёт через TG_BOT_TOKEN_PROD (= TG_BOT_TOKEN для bwd compat)
+# Default "prod" если не задан (backwards compat: до Ф10.7 dispatcher всегда шёл в prod).
+_BOT_FLAVOR = os.getenv("BOT_FLAVOR", "prod").strip().lower()
+
 # WP-358 Ф10.5: финализация sessions → sessions/external/YYYY-MM/SESSION-<id>/
 _SESSIONS_EXTERNAL_BASE = "sessions/external"
 _SESSIONS_EXTERNAL_INDEX = "sessions/external/00-index.md"
@@ -87,6 +93,27 @@ def _spawn(coro) -> asyncio.Task:
     _BG_TASKS.add(task)
     task.add_done_callback(_BG_TASKS.discard)
     return task
+
+
+async def cancel_bg_tasks(timeout: float = 5.0) -> int:
+    """Graceful shutdown: cancel + await все висящие fire-and-forget tasks.
+
+    Вызывается из bot.py при SIGTERM перед exit. Возвращает количество cancelled tasks.
+    """
+    if not _BG_TASKS:
+        return 0
+    pending = list(_BG_TASKS)
+    for t in pending:
+        if not t.done():
+            t.cancel()
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*pending, return_exceptions=True),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[session] cancel_bg_tasks: %d tasks did not drain in %ds", len(pending), timeout)
+    return len(pending)
 
 
 # WP-358 Ф10.5 iter 4: per-session lock (C-1/C-2 fix).
@@ -331,9 +358,17 @@ async def _gh_delete_file(
         if fresh_sha is None:
             # Файл уже удалён конкурентным процессом — idempotent success
             return True
-        status, _ = await _attempt(fresh_sha)
+        status, retry_after_2 = await _attempt(fresh_sha)
         if status in (200, 404):
             return True
+        # Symmetric с _gh_put_file: если 422-retry попал в rate-limit — ещё попытка
+        if status in (403, 429):
+            wait = retry_after_2 or 30
+            logger.warning("[session] DELETE %s → %d after 422-retry, sleep %ds", path, status, wait)
+            await asyncio.sleep(wait)
+            status, _ = await _attempt(fresh_sha)
+            if status in (200, 404):
+                return True
 
     logger.error("[session] DELETE %s → %d", path, status)
     return False
@@ -433,10 +468,15 @@ def _now_iso() -> str:
 
 
 def _meta_content(session_id: str, tg_chat_id: int, now: str, turn_count: int = 1) -> str:
+    """Сгенерировать meta SESSION-файла.
+
+    WP-358 Ф10.7: target_bot указывает dispatcher'у через какой токен слать ответ.
+    """
     return (
         f"---\n"
         f"session_id: {session_id}\n"
         f"tg_chat_id: {tg_chat_id}\n"
+        f"target_bot: {_BOT_FLAVOR}\n"
         f"created_at: {now}\n"
         f"last_turn_at: {now}\n"
         f"status: active\n"
@@ -538,7 +578,9 @@ async def _set_session_status(
     cur_meta, meta_sha = await _gh_get_file(meta_path, token, repo, branch)
     if cur_meta is None:
         return False
-    new_meta = re.sub(r"status:.*", f"status: {status}", cur_meta)
+    # P3 fix: anchor regex via ^...$ + MULTILINE — защита от случайных захватов
+    # чужих ключей при росте meta-схемы (last_status:, status_history: и др.).
+    new_meta = re.sub(r"^status:.*$", f"status: {status}", cur_meta, flags=re.MULTILINE)
     return await _gh_put_file(
         meta_path, new_meta,
         f"session: {status} {session_id}",
@@ -1251,6 +1293,11 @@ async def _close_and_finalize(
         )
 
 
+# WP-358 Ф10.5 Medium fix: cmd_finalize spam-guard — отслеживание in-flight finalize
+# на уровне session_id (защита от спама /finalize SESSION-id подряд).
+_FINALIZE_INFLIGHT: set[str] = set()
+
+
 @external_session_router.message(Command("finalize"))
 async def cmd_finalize(message: Message, command: CommandObject) -> None:
     """WP-358 Ф10.5: /finalize <SESSION-id> — повторная финализация после fail."""
@@ -1260,6 +1307,11 @@ async def cmd_finalize(message: Message, command: CommandObject) -> None:
     session_id = command.args.strip()
     if not re.match(r"^SESSION-[0-9]{8}-[0-9]{6}-[A-Za-z0-9]+$", session_id):
         await message.answer("Неверный формат session_id. Ожидается SESSION-YYYYMMDD-HHMMSS-XXXXXX.")
+        return
+
+    # Medium fix: spam-guard — если /finalize той же сессии уже в работе, отказать
+    if session_id in _FINALIZE_INFLIGHT:
+        await message.answer(f"Финализация {session_id} уже в работе. Подожди.")
         return
 
     chat_id = message.chat.id
@@ -1286,7 +1338,9 @@ async def cmd_finalize(message: Message, command: CommandObject) -> None:
         return
 
     await message.answer(f"Повторная финализация {session_id}...")
+    _FINALIZE_INFLIGHT.add(session_id)
     task = _spawn(_finalize_session(session_id, chat_id, token, repo, branch))
+    task.add_done_callback(lambda t, sid=session_id: _FINALIZE_INFLIGHT.discard(sid))
     task.add_done_callback(
         lambda t, sid=session_id, cid=chat_id, b=message.bot: _finalize_done_callback(t, cid, sid, b)
     )
