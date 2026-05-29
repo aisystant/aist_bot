@@ -104,7 +104,6 @@ async def update_progress(
     status: Optional[str] = None,
     started_at: Optional[datetime] = None,
     total_checkins: Optional[int] = None,
-    missed_days: Optional[int] = None,
     badge_list: Optional[list] = None,
     nudge_variant: Optional[str] = None,
 ):
@@ -129,10 +128,6 @@ async def update_progress(
     if total_checkins is not None:
         fields.append(f"total_checkins = ${idx}")
         values.append(total_checkins)
-        idx += 1
-    if missed_days is not None:
-        fields.append(f"missed_days = ${idx}")
-        values.append(missed_days)
         idx += 1
     if badge_list is not None:
         fields.append(f"badge_list = ${idx}")
