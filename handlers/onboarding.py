@@ -92,6 +92,8 @@ class OnboardingStates(StatesGroup):
     waiting_for_schedule = State()       # 3. Время напоминания
     waiting_for_start_date = State()     # 4. Дата старта марафона
     confirming_profile = State()
+    choosing_path = State()              # 5. Выбор пути: Марафон / Аккаунт (WP-330)
+    marathon_awaiting_time = State()     # 6. Ввод времени доставки уроков (WP-330)
 
 
 # ============= ВСПОМОГАТЕЛЬНЫЕ =============
@@ -311,26 +313,19 @@ async def cmd_start(message: Message, state: FSMContext):
     keyboard = build_reply_keyboard(tier, lang)
 
     if not linked:
-        # Экран A — аккаунт не привязан
+        # Экран A — аккаунт не привязан → выбор пути (WP-330)
         await message.answer(
             f"Привет, <b>{name}</b>! 👋\n\n"
-            "Добро пожаловать в Мастерскую инженеров-менеджеров. "
-            "Этот бот — один из интерфейсов платформы. "
-            "Здесь можно учиться, отслеживать прогресс и разворачивать "
-            "полное рабочее окружение — шаг за шагом.\n\n"
-            "Для начала свяжите аккаунт Aisystant — это позволит "
-            "платформе отслеживать прогресс и персонализировать обучение.",
+            "Добро пожаловать в IWE — среду для работы и развития.",
             parse_mode="HTML",
             reply_markup=keyboard,
         )
         await message.answer(
-            "Нажмите кнопку ниже — откроется вход в Aisystant.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text="🔗 Связать аккаунт Aisystant",
-                    callback_data="onboarding_link_start",
-                ),
-            ]]),
+            "С чего начнём?",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🚀 Марафон систематичности", callback_data="path_marathon")],
+                [InlineKeyboardButton(text="🔗 У меня есть аккаунт", callback_data="onboarding_link_start")],
+            ]),
         )
     else:
         # Экран B — аккаунт привязан: приветствие + Экран Consent
@@ -357,7 +352,10 @@ async def cmd_start(message: Message, state: FSMContext):
         'linked_aisystant': linked,
     })
 
-    await state.clear()
+    if linked:
+        await state.clear()
+    else:
+        await state.set_state(OnboardingStates.choosing_path)
 
 
 @onboarding_router.callback_query(F.data == "onboarding_link_start")
@@ -745,6 +743,69 @@ async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
     else:
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.processing_error', lang))
+
+
+# ============= WP-330: ПУТЬ К МАРАФОНУ =============
+
+@onboarding_router.callback_query(F.data == "path_marathon")
+async def on_path_marathon(callback: CallbackQuery, state: FSMContext):
+    """Пользователь выбрал марафон — показываем экран выбора времени."""
+    await callback.answer()
+    await callback.message.edit_text(
+        "📚 <b>Марафон систематичности</b>\n\n"
+        "Ставим стиль саморазвития: 14 дней × ~15 мин/день.\n"
+        "Теория + практика + вечерний чек-ин каждый день.\n\n"
+        "Сообщение с уроком запланировано на 04:00 МСК.\n"
+        "Хочешь другое время — введи под сообщением время в формате ЧЧ:ММ",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Начать в 04:00", callback_data="marathon_start_default")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="path_back")],
+        ]),
+    )
+    await state.set_state(OnboardingStates.marathon_awaiting_time)
+
+
+@onboarding_router.callback_query(F.data == "path_back")
+async def on_path_back(callback: CallbackQuery, state: FSMContext):
+    """Возврат к выбору пути."""
+    await callback.answer()
+    await callback.message.edit_text(
+        "С чего начнём?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Марафон систематичности", callback_data="path_marathon")],
+            [InlineKeyboardButton(text="🔗 У меня есть аккаунт", callback_data="onboarding_link_start")],
+        ]),
+    )
+    await state.set_state(OnboardingStates.choosing_path)
+
+
+@onboarding_router.callback_query(F.data == "marathon_start_default")
+async def on_marathon_start_default(callback: CallbackQuery, state: FSMContext):
+    """Старт марафона с временем по умолчанию (04:00 МСК)."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    await update_intern(chat_id, schedule_time="04:00")
+    await state.clear()
+    from handlers.marathon import start_marathon_flow
+    await start_marathon_flow(chat_id, callback.message, schedule_time="04:00")
+
+
+@onboarding_router.message(OnboardingStates.marathon_awaiting_time)
+async def on_marathon_time_input(message: Message, state: FSMContext):
+    """Пользователь ввёл своё время доставки уроков."""
+    try:
+        h, m = map(int, message.text.strip().split(":"))
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError
+    except Exception:
+        await message.answer("Введи время в формате ЧЧ:ММ, например «09:00»")
+        return
+    schedule_time = f"{h:02d}:{m:02d}"
+    await update_intern(message.chat.id, schedule_time=schedule_time)
+    await state.clear()
+    from handlers.marathon import start_marathon_flow
+    await start_marathon_flow(message.chat.id, message, schedule_time=schedule_time)
 
 
 # ============= WP-79: AUTO-LINK AISYSTANT =============

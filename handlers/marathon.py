@@ -31,7 +31,7 @@ marathon_router = Router(name="marathon")
 MARATHON_SAME_DAY_CUTOFF_HOUR = 18
 
 
-async def start_marathon_flow(user_id: int, reply_msg) -> None:
+async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:00") -> None:
     """Запуск марафона: регистрация, заполнение очереди, первый урок. DP.SC.157."""
     progress = await get_or_create_progress(user_id)
     current_status = progress.get("status", "registered")
@@ -73,14 +73,15 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
     from core.marathon_content import get_day_text
 
     # DP.SC.157: <18:00 МСК → день 1 немедленно; ≥18:00 → завтра 04:00 МСК
-    tomorrow_0400 = datetime(now.year, now.month, now.day, 4, 0, 0, tzinfo=now.tzinfo) + timedelta(days=1)
+    sched_h, sched_m = map(int, schedule_time.split(":"))
+    tomorrow_sched = datetime(now.year, now.month, now.day, sched_h, sched_m, 0, tzinfo=now.tzinfo) + timedelta(days=1)
     if now.hour < MARATHON_SAME_DAY_CUTOFF_HOUR:
         day1_time = now + timedelta(minutes=1)
-        next_day_base = tomorrow_0400
+        next_day_base = tomorrow_sched
         first_lesson_today = True
     else:
-        day1_time = tomorrow_0400
-        next_day_base = tomorrow_0400 + timedelta(days=1)
+        day1_time = tomorrow_sched
+        next_day_base = tomorrow_sched + timedelta(days=1)
         first_lesson_today = False
 
     for day in range(1, 15):
@@ -97,9 +98,9 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
     logger.info("[Marathon] user_id=%s started. Queue 1-14 filled. immediate=%s", user_id, first_lesson_today)
 
     first_lesson_note = (
-        "Первый урок придёт через минуту — приготовься!\nСо дня 2 уроки приходят ежедневно в 04:00 МСК."
+        f"Первый урок придёт через минуту — приготовься!\nСо дня 2 уроки приходят ежедневно в {schedule_time} МСК."
         if first_lesson_today
-        else "Первый урок и все последующие приходят ежедневно в 04:00 МСК."
+        else f"Первый урок и все последующие приходят ежедневно в {schedule_time} МСК."
     )
     await reply_msg.answer(
         "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
@@ -121,7 +122,10 @@ async def start_marathon_flow(user_id: int, reply_msg) -> None:
 @marathon_router.message(Command("marathon_start"))
 async def cmd_marathon_start(message: Message):
     """Старт марафона новичков: регистрация, заполнение очереди, приветствие."""
-    await start_marathon_flow(message.chat.id, message)
+    from db.queries import get_intern
+    intern = await get_intern(message.chat.id)
+    sched = (intern or {}).get("schedule_time") or "04:00"
+    await start_marathon_flow(message.chat.id, message, schedule_time=sched)
 
 
 # ════════════════════════════════════════════════════════════════════
