@@ -66,7 +66,6 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
         started_at=now,
         current_day=1,
         total_checkins=0,
-        missed_days=0,
     )
     await update_intern(user_id, marathon_status="active", onboarding_completed=True)
 
