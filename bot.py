@@ -597,6 +597,13 @@ async def main():
             # webhook URL. Calling delete_webhook here would remove it, leaving
             # Telegram with no webhook → "stuck buttons" until next redeploy.
             logger.info("🛑 Shutting down (webhook preserved for rolling deploy)")
+            # WP-358 Ф10.5 Medium: drain in-flight finalize tasks ДО runner.cleanup
+            try:
+                from handlers.external_session import cancel_bg_tasks
+                drained = await cancel_bg_tasks(timeout=5.0)
+                logger.info(f"[session] drained {drained} bg tasks before shutdown")
+            except Exception as e:
+                logger.warning(f"[session] cancel_bg_tasks failed: {type(e).__name__}: {e}")
             await runner.cleanup()
         else:
             # Fallback to polling if webhook registration failed
