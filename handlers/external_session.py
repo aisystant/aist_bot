@@ -70,6 +70,10 @@ _SESSIONS_EXTERNAL_INDEX = "sessions/external/00-index.md"
 _RECOVERY_INTER_TASK_DELAY_SEC = 1.0  # rate-limit guard между orphan'ами при startup recovery
 _MAX_RECOVERY_PER_RUN = 10            # cap orphan'ов на один scan (защита от cascade-инцидента)
 _RECOVERY_PERIODIC_INTERVAL_SEC = 3600 # periodic re-scan каждый час (защита от backlog при стабильном боте)
+# Hotfix 2026-05-29: cutover-date — recovery игнорирует SESSION-* старше этой даты
+# (pilot решил «backfill не нужен», но recovery scan на pre-cutover orphan'ы спамил).
+# Формат SESSION-id: SESSION-YYYYMMDD-HHMMSS-XXXXXX → извлекаем YYYYMMDD.
+_RECOVERY_CUTOVER_DATE = "20260529"  # YYYYMMDD, без дефисов для прямого сравнения с SESSION-id
 
 # Module-level set для fire-and-forget tasks — защита от GC.
 # Python <3.10 может собрать "orphaned" task до завершения. Strong-ref здесь
@@ -774,18 +778,27 @@ async def recover_orphan_finalizations(bot) -> None:
     branch = "main"
 
     inbox_entries = await _gh_list_dir(_SESSIONS_PATH, token, repo, branch)
-    # Сборка completed-сессий из inbox (без -thread.md)
+    # Сборка completed-сессий из inbox (без -thread.md, без pre-cutover)
     completed_sessions: list[str] = []
+    skipped_pre_cutover = 0
     for entry in inbox_entries:
         name = entry.get("name", "")
         if entry.get("type") != "file" or not name.startswith("SESSION-") or name.endswith("-thread.md"):
             continue
         sid = name[:-3]  # strip .md
+        # Cutover-фильтр: SESSION-YYYYMMDD-... — игнорируем pre-cutover
+        m = re.match(r"^SESSION-([0-9]{8})-", sid)
+        if not m or m.group(1) < _RECOVERY_CUTOVER_DATE:
+            skipped_pre_cutover += 1
+            continue
         # Прочитать meta — проверить status: completed
         path = entry.get("path") or f"{_SESSIONS_PATH}/{name}"
         meta_text, _ = await _gh_get_file(path, token, repo, branch)
         if meta_text and re.search(r'^status:\s*"?completed"?', meta_text, re.M):
             completed_sessions.append(sid)
+    if skipped_pre_cutover > 0:
+        logger.info("[session] recovery: skipped %d pre-cutover orphans (date < %s)",
+                    skipped_pre_cutover, _RECOVERY_CUTOVER_DATE)
 
     if not completed_sessions:
         logger.info("[session] recovery: no completed orphans in inbox")
