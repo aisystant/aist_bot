@@ -429,7 +429,8 @@ class MarathonTaskState(BaseState):
         await self.send(
             user,
             f"✅ {t('marathon.day_complete', lang)}\n\n"
-            f"_{t('marathon.come_back_tomorrow', lang)}_",
+            f"_{t('marathon.come_back_tomorrow', lang)}_\n\n"
+            f"📊 /progress",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardRemove()
         )
