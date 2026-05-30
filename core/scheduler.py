@@ -15,7 +15,10 @@ import os
 import random
 import re
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+
+# WP-330 С5 watchdog active window (МСК). После 31 мая функция auto-noop.
+_WP330_C5_WATCHDOG_DATE = date(2026, 5, 31)
 from typing import Optional
 
 from aiogram import Bot
@@ -615,6 +618,75 @@ async def _send_marathon_weekly_digest():
         await bot.session.close()
 
 
+async def _check_marathon_split_delivery():
+    """WP-330 С5 watchdog: убедиться что split-формат уроков уехал утром 31 мая.
+
+    Запускается каждые 30 мин в окне 04:00–06:30 МСК 31 мая 2026.
+    Если за последние 60 мин 0 lesson_practice-доставок с content_text IS NULL
+    (=split-путь) — алерт в MENTOR_CHANNEL_ID.
+
+    Read-only для user state (§10.10b). Dedup per-window через notification_log
+    (§10.10). Auto-noop после окна — функция остаётся в коде до W22-close, потом
+    удаляется отдельным коммитом.
+    """
+    from db.queries.notifications import try_insert_notification
+    from db.connection import get_learning_pool
+
+    if not MENTOR_CHANNEL_ID or not _bot_token:
+        _warn_if_no_mentor_channel()
+        return
+
+    now = moscow_now()
+    if now.date() != _WP330_C5_WATCHDOG_DATE:
+        return
+    if not (4 <= now.hour <= 6):
+        return
+
+    # Кумулятивный счёт с 04:00 МСК сегодня — иначе sliding 60-мин окно
+    # даёт false-positive в поздних слотах (06:05/06:35), если все доставки
+    # прошли в 04:00–05:00. См. peer-review 2026-05-30-34, High #1.
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                count(*) FILTER (WHERE content_text IS NULL)     AS split,
+                count(*) FILTER (WHERE content_text IS NOT NULL) AS legacy
+              FROM learning.marathon_queue
+             WHERE status = 'sent'
+               AND content_type = 'lesson_practice'
+               AND sent_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'Europe/Moscow')
+                            + INTERVAL '4 hours'
+        """)
+    split = int(row['split'] or 0)
+    legacy = int(row['legacy'] or 0)
+
+    window_key = f"marathon_split_watchdog:{now.strftime('%Y-%m-%d-%H%M')}"
+    logger.info(f"[MarathonSplitWatchdog] window={window_key} split={split} legacy={legacy}")
+
+    if split > 0:
+        return
+
+    if not await try_insert_notification(MENTOR_CHANNEL_ID, 'marathon_split_watchdog', window_key):
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        await bot.send_message(
+            MENTOR_CHANNEL_ID,
+            f"🚨 *WP-330 С5 watchdog*\n\n"
+            f"Окно `{now.strftime('%H:%M')}` МСК 31 мая: с 04:00 МСК сегодня 0 split-доставок "
+            f"(legacy={legacy}). Migration не сработала или cron спит. Проверь:\n"
+            f"• `git log -1 --oneline new-architecture` — С2 (c5820ea) на проде?\n"
+            f"• `SELECT count(*) FROM learning.marathon_queue WHERE status='pending' "
+            f"AND content_text IS NULL AND content_type='lesson_practice'` ≥ 1?\n"
+            f"• Railway logs `[MarathonQueue]` за последний час",
+            parse_mode="Markdown",
+        )
+        logger.warning(f"[MarathonSplitWatchdog] Alert sent: 0 split deliveries in last 60 min (legacy={legacy})")
+    finally:
+        await bot.session.close()
+
+
 def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None) -> str | None:
     """Собрать текст сообщения из кэша или ref."""
     if content_text:
@@ -746,6 +818,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
+    _scheduler.add_job(_check_marathon_split_delivery, 'cron', hour='4,5,6', minute='5,35', id='marathon_split_watchdog', max_instances=1)  # WP-330 С5: split rollout watchdog (auto-noop вне 31.05 04:00-06:30 МСК)
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
 
