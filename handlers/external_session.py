@@ -1023,7 +1023,7 @@ async def _open_new_session(
     )
 
 
-@external_session_router.message(Command("claude"))
+@external_session_router.message(Command("claude", ignore_case=True))
 async def cmd_claude(message: Message, state: FSMContext) -> None:
     """/claude <text> — open or continue a session."""
     parts = (message.text or "").split(maxsplit=1)
