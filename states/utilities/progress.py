@@ -582,14 +582,17 @@ class ProgressState(BaseState):
         if cp:
             stage = cp.get('stage', '—')
             stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
-            bottleneck = cp.get('bottleneck_slot', '')
-            bottleneck_label = self._CP_SLOT_LABELS.get(bottleneck, bottleneck)
+            bottleneck = cp.get('bottleneck_slot') or ''  # WP-370: None при stage≥4
             stream = cp.get('recommended_stream', '—')
             valid_until = cp.get('valid_until') or ''
             valid_str = valid_until[:10] if isinstance(valid_until, str) and valid_until else '—'
 
             text += f"🎯 Ступень: <b>{stage} — {stage_label}</b>\n"
-            text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"
+            if bottleneck:
+                bottleneck_label = self._CP_SLOT_LABELS.get(bottleneck, bottleneck)
+                text += f"⚡ Узкое место: <b>{bottleneck_label}</b>\n"
+            else:
+                text += "⚡ Узких мест нет\n"
             text += f"📚 Поток: <b>{stream}</b>\n"
             text += f"📅 Действует до: {valid_str}\n"
 
