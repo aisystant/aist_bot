@@ -79,7 +79,22 @@ class TestComputeCpStage:
         scores_low = {s: 1 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         scores_high = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         assert compute_cp_stage(scores_low)["recommended_stream"] == "S1"
-        assert compute_cp_stage(scores_high)["recommended_stream"] == "S4"
+        # WP-371: stage=5 (Проактивный) → программа РР, не S4
+        assert compute_cp_stage(scores_high)["recommended_stream"] == "РР"
+
+    def test_stage_4_recommends_s4(self):
+        """ст. 4 Дисциплинированный — последняя ступень с руководством S4."""
+        from db.queries.cp_assessment import compute_cp_stage
+        scores = {s: 4 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
+        assert compute_cp_stage(scores)["recommended_stream"] == "S4"
+
+    def test_stage_5_recommends_rr(self):
+        """WP-371: ст. 5 Проактивный → программа Рабочего развития (РР) + след. роли Интеллектуал/Профессионал."""
+        from db.queries.cp_assessment import compute_cp_stage
+        scores = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
+        result = compute_cp_stage(scores)
+        assert result["stage"] == 5
+        assert result["recommended_stream"] == "РР"
 
     def test_skip_to_stage_equals_stage(self):
         from db.queries.cp_assessment import compute_cp_stage
@@ -98,13 +113,13 @@ class TestComputeCpStage:
 
     # WP-370 acceptance tests
     def test_all_max_gives_proactive_no_bottleneck(self):
-        """5/5/5/5/5 → ступень 5 (Проактивный), bottleneck=None (нет узких мест)."""
+        """5/5/5/5/5 → ступень 5 (Проактивный), bottleneck=None (нет узких мест), recommended РР (WP-371)."""
         from db.queries.cp_assessment import compute_cp_stage
         scores = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         result = compute_cp_stage(scores)
         assert result["stage"] == 5
         assert result["bottleneck_slot"] is None  # WP-370: stage ≥4 → нет узких мест
-        assert result["recommended_stream"] == "S4"
+        assert result["recommended_stream"] == "РР"  # WP-371: ст. 5 → РР, не S4
 
     def test_stage_4_no_bottleneck(self):
         """Все 4+ → bottleneck=None (порог «нет узких мест»)."""

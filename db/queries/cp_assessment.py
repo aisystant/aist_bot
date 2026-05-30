@@ -25,14 +25,20 @@ def compute_cp_stage(cp_scores: dict) -> dict:
     """cp_confirmed_stage = min(mandatory). FORM.089 §6.1.
 
     WP-370: bottleneck_slot = None если все mandatory ≥ 4 (нет узких мест на верхних ступенях).
+    WP-371: recommended_stream = "РР" для stage=5 (Проактивный → программа «Рабочее развитие»,
+            переход к ролям Интеллектуала → Профессионала). Для ст. 1-4 — S1..S4 как раньше.
     """
     vals = {s: int(cp_scores.get(s, 1)) for s in MANDATORY_SLOTS}
     stage = min(vals.values())
     bottleneck = None if stage >= 4 else min(vals, key=vals.get)
+    if stage >= 5:
+        recommended_stream = "РР"
+    else:
+        recommended_stream = f"S{max(1, min(4, stage))}"
     return {
         "stage": stage,
         "bottleneck_slot": bottleneck,
-        "recommended_stream": f"S{max(1, min(4, stage))}",
+        "recommended_stream": recommended_stream,
         "skip_to_stage": stage,
     }
 
