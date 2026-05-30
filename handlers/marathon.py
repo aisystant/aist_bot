@@ -255,6 +255,62 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
 
 # ════════════════════════════════════════════════════════════════════
+# WP-330 Ф10.C — Callback «✏️ Перейти к практике»
+# ════════════════════════════════════════════════════════════════════
+
+@marathon_router.callback_query(F.data.startswith("marathon_practice:"))
+async def callback_marathon_practice(callback: CallbackQuery):
+    """Доставить practice_full по нажатию кнопки. Idempotent через domain_event."""
+    parts = callback.data.split(":")
+    if len(parts) != 2:
+        await callback.answer("Ошибка формата данных", show_alert=True)
+        return
+    try:
+        day = int(parts[1])
+    except ValueError:
+        await callback.answer("Ошибка формата дня", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+
+    from db.queries.notifications import was_notification_sent, try_insert_notification
+    idempotency_key = f"marathon_practice:{user_id}:{day}"
+    # Сначала проверка без записи (избегаем dedup-lock при сбое доставки → retry возможен)
+    if await was_notification_sent(idempotency_key):
+        await callback.answer("Практика дня уже доставлена ✅", show_alert=False)
+        return
+
+    from core.marathon_content import get_day_text
+    practice = get_day_text(day, 'practice_full') or get_day_text(day, 'practice')
+    if not practice:
+        await callback.answer("Практика для этого дня недоступна", show_alert=True)
+        logger.warning(f"[MarathonPractice] No practice content for day {day} (user {user_id})")
+        return
+
+    practice_text = practice
+    if len(practice_text) > 4000:
+        practice_text = practice_text[:3990] + "\n\n…"
+
+    try:
+        await callback.message.answer(practice_text, parse_mode="Markdown")
+        # Запись dedup только после успешной доставки (sent-before-log)
+        await try_insert_notification(user_id, "marathon_practice", idempotency_key)
+        # Убираем кнопку у lesson-сообщения, чтобы избежать визуального дребезга
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass  # некритично если не получилось снять inline-кнопку
+        await callback.answer()
+        logger.info(f"[MarathonPractice] Sent practice_full day {day} to {user_id}")
+    except Exception as e:
+        logger.error(
+            f"[MarathonPractice] Failed to send practice day {day} to {user_id}: "
+            f"{type(e).__name__}: {e}"
+        )
+        await callback.answer("Не удалось отправить практику. Попробуй ещё раз позже.", show_alert=True)
+
+
+# ════════════════════════════════════════════════════════════════════
 # Ф2.8 /marathon_stop — выход из марафона
 # ════════════════════════════════════════════════════════════════════
 

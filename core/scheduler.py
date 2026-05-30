@@ -253,6 +253,57 @@ async def _process_marathon_queue():
                     content_text = item.get('content_text')
                     attempts = item['attempts']
 
+                    # WP-330 Ф10.C: split lesson_practice на 2 сообщения для новых записей
+                    # (content_text=NULL). Legacy (content_text!=NULL) идут старым путём ниже.
+                    if content_type == 'lesson_practice' and not content_text:
+                        from core.marathon_content import get_day_text
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        lesson = get_day_text(day, 'lesson_full') or get_day_text(day, 'lesson')
+                        faq = get_day_text(day, 'faq_hint')
+                        if lesson:
+                            lesson_text = lesson + (f"\n\n{faq}" if faq else "")
+                            # Length guard для future long_complex (Шаг E)
+                            if len(lesson_text) > 4000:
+                                lesson_text = lesson_text[:3990] + "\n\n…"
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                                InlineKeyboardButton(
+                                    text="✏️ Перейти к практике",
+                                    callback_data=f"marathon_practice:{day}"
+                                )
+                            ]])
+                            try:
+                                await bot.send_message(chat_id, lesson_text, parse_mode="Markdown", reply_markup=keyboard)
+                                await mark_queue_sent(queue_id)
+                                progress = await get_or_create_progress(chat_id)
+                                current_day = progress.get('current_day', 0)
+                                new_day = max(current_day, day)
+                                if new_day != current_day:
+                                    await update_progress(chat_id, current_day=new_day)
+                                    logger.info(f"[MarathonQueue] Updated current_day {current_day}→{new_day} for {chat_id}")
+                                logger.info(f"[MarathonQueue] Sent lesson_practice (split) day {day} to {chat_id}")
+                            except Exception as e:
+                                error_msg = str(e)
+                                logger.error(
+                                    f"[MarathonQueue] Failed to send split lesson day {day} to {chat_id}: "
+                                    f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
+                                )
+                                from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
+                                if isinstance(e, TelegramRetryAfter):
+                                    retry_after = getattr(e, 'retry_after', 30)
+                                    delay_minutes = math.ceil(retry_after / 60)
+                                    logger.warning(
+                                        f"[MarathonQueue] Rate limit (split) for {chat_id}, "
+                                        f"retry_after={retry_after}s, reschedule in {delay_minutes}min"
+                                    )
+                                    await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
+                                    await asyncio.sleep(min(retry_after, 10))
+                                    continue
+                                if isinstance(e, TelegramForbiddenError) or _is_user_unavailable(e):
+                                    await _handle_unavailable_user(chat_id, "marathon split lesson")
+                                await mark_queue_failed(queue_id, error_msg[:200])
+                            continue  # пропускаем старый путь
+                        # Иначе fallthrough на старый путь (safety net)
+
                     # Формируем текст сообщения
                     text = _build_marathon_message(content_type, day, content_ref, content_text)
                     if not text:
@@ -452,6 +503,40 @@ async def _send_marathon_nudges():
                     await _handle_unavailable_user(chat_id, "marathon nudge")
                 else:
                     logger.warning(f"[MarathonNudge] Failed to send to {chat_id}: {e}")
+
+        # WP-330 Ф10.D: напоминание о непрочитанной практике
+        # (lesson_practice доставлен вчера, кнопка «✏️ Перейти к практике» не нажата)
+        from db.queries.marathon_newcomer import get_users_for_practice_nudge
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+        practice_users = await get_users_for_practice_nudge()
+        for pu in practice_users:
+            chat_id = pu['user_id']
+            day = pu['day_number']
+            # Dedup nudge: один раз в день на пару (user, day)
+            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{today_str}"
+            if not await try_insert_notification(chat_id, 'marathon_practice_nudge', nudge_key):
+                continue
+            try:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="✏️ Перейти к практике",
+                        callback_data=f"marathon_practice:{day}"
+                    )
+                ]])
+                await bot.send_message(
+                    chat_id,
+                    f"📚 Вчера пришёл урок Дня {day}, но практику ещё не открыли.\n\n"
+                    "Нажмите кнопку ниже, чтобы продолжить:",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+                logger.info(f"[MarathonPracticeNudge] Sent to {chat_id} for day {day}")
+            except Exception as e:
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, "marathon practice nudge")
+                else:
+                    logger.warning(f"[MarathonPracticeNudge] Failed to send to {chat_id}: {e}")
     finally:
         await bot.session.close()
 

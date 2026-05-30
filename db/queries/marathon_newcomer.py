@@ -272,6 +272,34 @@ async def get_users_for_nudge(limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
+    """WP-330 Ф10.D: получить пользователей, которые получили урок вчера,
+    но не нажали кнопку «✏️ Перейти к практике» (нет события notification_sent
+    с external_id 'notification-marathon_practice:<user_id>:<day>')."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT mq.user_id, mq.day_number
+               FROM learning.marathon_queue mq
+               JOIN learning.marathon_progress mp ON mp.user_id = mq.user_id
+               WHERE mq.content_type = 'lesson_practice'
+                 AND mq.status = 'sent'
+                 AND mq.sent_at::date = (CURRENT_DATE - INTERVAL '1 day')::date
+                 AND mp.status = 'active'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM domain_event de
+                   WHERE de.source = 'aist-bot'
+                     AND de.event_type = 'notification_sent'
+                     AND de.external_id =
+                       'notification-marathon_practice:' || mq.user_id::text
+                       || ':' || mq.day_number::text
+                 )
+               LIMIT $1''',
+            limit,
+        )
+    return [dict(r) for r in rows]
+
+
 async def get_active_marathon_users() -> list[dict]:
     """Получить всех активных участников марафона."""
     pool = await get_learning_pool()
