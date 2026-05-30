@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 diagnose_router = Router(name="diagnose")
 
 CB_PREFIX = "diag"
+CB_FORCE_RESTART = "diag-force:restart"
+
+# Cooldown между диагностиками. WP-318 Ф6 ставил 30 дней без явного rationale.
+# 2026-05-30 (post WP-353 closure): снижено до 7 дней — Аттестатор обновляет
+# степень мастерства часто, рестарт ≤30 дней блокировал валидацию пилота.
+# Принудительный рестарт доступен через кнопку «🔄 Повторить сейчас» в cooldown-сообщении.
+DIAGNOSE_COOLDOWN_DAYS = 7
 
 
 # ── FSM States ────────────────────────────────────────────────────────────────
@@ -298,32 +305,42 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
             account_id = intern.get('dt_user_id')
     # account_id may still be None — proceed without saving (_finish_diagnose handles this)
 
-    # Проверить свежий cp-срез (≤30 дней)
+    # Проверить свежий cp-срез (≤DIAGNOSE_COOLDOWN_DAYS)
     existing = await get_latest_cp_assessment(account_id) if account_id else None
     if existing:
         assessed_at = existing.get("assessed_at", "")
         try:
             dt = datetime.fromisoformat(assessed_at)
             age_days = (datetime.now(timezone.utc) - dt).days
-            if age_days < 30:
+            if age_days < DIAGNOSE_COOLDOWN_DAYS:
                 stage = existing["stage"]
                 stream = existing["recommended_stream"]
                 stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
+                force_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🔄 Повторить сейчас", callback_data=CB_FORCE_RESTART)
+                ]])
                 await message.answer(
                     f"У вас уже есть свежая диагностика ({age_days} дн. назад).\n\n"
                     f"Ступень: <b>{stage_name} ({stage} из 5)</b>\n"
                     f"Рекомендованное руководство: <b>{stream}</b>\n\n"
-                    f"Следующая диагностика доступна через {30 - age_days} дн.",
+                    f"Следующая диагностика доступна через {DIAGNOSE_COOLDOWN_DAYS - age_days} дн.\n"
+                    f"Если изменилось что-то существенное — запустите досрочно:",
                     parse_mode="HTML",
+                    reply_markup=force_kb,
                 )
                 return
         except Exception:
             pass
 
+    await _start_phase1(message, state, account_id)
+
+
+async def _start_phase1(target, state: FSMContext, account_id: str | None) -> None:
+    """Старт фазы 1: подготовка state + первый вопрос. target = Message (для cmd) или callback.message (для force-restart)."""
     await state.update_data(scores={}, account_id=account_id, q_count=0)
     q = PHASE1_QUESTIONS[0]
     await state.set_state(DiagnoseStates.q1)
-    await message.answer(
+    await target.answer(
         "🔬 <b>Диагностика ступени мастерства</b>\n\n"
         "До 5 вопросов с вариантами ответа. Занимает ~3 минуты.\n"
         "Выбирайте то, что ближе всего к вашей текущей практике.\n\n"
@@ -331,6 +348,23 @@ async def cmd_diagnose(message: Message, state: FSMContext) -> None:
         parse_mode="HTML",
         reply_markup=_make_scale_keyboard(q["slot"], 0, q["labels"]),
     )
+
+
+@diagnose_router.callback_query(F.data == CB_FORCE_RESTART)
+async def cb_force_restart(callback: CallbackQuery, state: FSMContext) -> None:
+    """Принудительный рестарт диагностики через кнопку в cooldown-сообщении."""
+    await callback.answer("Запускаю диагностику заново…")
+
+    chat_id = callback.from_user.id
+    from helpers.dual_write import resolve_ory_id_from_chat
+    from db.queries import get_intern
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        intern = await get_intern(chat_id)
+        if intern:
+            account_id = intern.get('dt_user_id')
+
+    await _start_phase1(callback.message, state, account_id)
 
 
 # ── Callback handlers ─────────────────────────────────────────────────────────
