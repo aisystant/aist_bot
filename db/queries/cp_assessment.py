@@ -1,7 +1,7 @@
 """
 CP-assessment queries — WP-318 Ф6.
 
-# see DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1 v4.2
+# see DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1 v5.0 (WP-370: MANDATORY_SLOTS=5, cp.iwe→informational, bottleneck=None при stage≥4)
 
 Читает/пишет learning.cp_assessments через learning-pool.
 Privacy: только UUID + числа + коды слотов, без raw-текста.
@@ -17,15 +17,18 @@ from db.connection import get_learning_pool
 
 logger = logging.getLogger(__name__)
 
-MANDATORY_SLOTS = ["cp.rhy", "cp.wld", "cp.skl", "cp.iwe", "cp.int", "cp.agt"]
+MANDATORY_SLOTS = ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]  # WP-370: align with PD.FORM.089 v5.0 (17 мая 2026) — cp.iwe → informational
 CP_TTL_DAYS = 180
 
 
 def compute_cp_stage(cp_scores: dict) -> dict:
-    """cp_confirmed_stage = min(mandatory). FORM.089 §6.1."""
+    """cp_confirmed_stage = min(mandatory). FORM.089 §6.1.
+
+    WP-370: bottleneck_slot = None если все mandatory ≥ 4 (нет узких мест на верхних ступенях).
+    """
     vals = {s: int(cp_scores.get(s, 1)) for s in MANDATORY_SLOTS}
     stage = min(vals.values())
-    bottleneck = min(vals, key=vals.get)
+    bottleneck = None if stage >= 4 else min(vals, key=vals.get)
     return {
         "stage": stage,
         "bottleneck_slot": bottleneck,
@@ -68,7 +71,7 @@ async def save_cp_assessment(
     source: str,
     interface: str,
     questions_count: Optional[int] = None,
-    rcs_version: str = "v4.2",
+    rcs_version: str = "v5.0",  # WP-370: align with PD.FORM.089 v5.0 (cp.iwe → informational, derive cp.skl)
 ) -> int:
     """Вычислить профиль и вставить в learning.cp_assessments. Возвращает id."""
     profile = compute_cp_stage(cp_scores)

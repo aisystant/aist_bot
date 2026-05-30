@@ -42,7 +42,10 @@ class TestDiagnoseImports:
             MANDATORY_SLOTS,
             CP_TTL_DAYS,
         )
-        assert len(MANDATORY_SLOTS) == 6
+        # WP-370: align with PD.FORM.089 v5.0 — cp.iwe → informational, mandatory = 5.
+        assert len(MANDATORY_SLOTS) == 5
+        assert set(MANDATORY_SLOTS) == {"cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"}
+        assert "cp.iwe" not in MANDATORY_SLOTS  # informational по v5.0
         assert CP_TTL_DAYS == 180
 
     def test_import_progress_labels(self):
@@ -58,14 +61,14 @@ class TestDiagnoseImports:
 class TestComputeCpStage:
     def test_min_bottleneck(self):
         from db.queries.cp_assessment import compute_cp_stage
-        scores = {"cp.rhy": 3, "cp.wld": 3, "cp.skl": 2, "cp.iwe": 3, "cp.int": 3, "cp.agt": 3}
+        scores = {"cp.rhy": 3, "cp.wld": 3, "cp.skl": 2, "cp.int": 3, "cp.agt": 3}
         result = compute_cp_stage(scores)
         assert result["stage"] == 2
         assert result["bottleneck_slot"] == "cp.skl"
 
     def test_all_same(self):
         from db.queries.cp_assessment import compute_cp_stage
-        scores = {s: 3 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.iwe", "cp.int", "cp.agt"]}
+        scores = {s: 3 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         result = compute_cp_stage(scores)
         assert result["stage"] == 3
         assert result["recommended_stream"] == "S3"
@@ -73,15 +76,14 @@ class TestComputeCpStage:
 
     def test_recommended_stream_bounds(self):
         from db.queries.cp_assessment import compute_cp_stage
-        # stage=1 → S1, stage=5 → S4 (max)
-        scores_low = {s: 1 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.iwe", "cp.int", "cp.agt"]}
-        scores_high = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.iwe", "cp.int", "cp.agt"]}
+        scores_low = {s: 1 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
+        scores_high = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         assert compute_cp_stage(scores_low)["recommended_stream"] == "S1"
         assert compute_cp_stage(scores_high)["recommended_stream"] == "S4"
 
     def test_skip_to_stage_equals_stage(self):
         from db.queries.cp_assessment import compute_cp_stage
-        scores = {"cp.rhy": 4, "cp.wld": 3, "cp.skl": 4, "cp.iwe": 4, "cp.int": 4, "cp.agt": 4}
+        scores = {"cp.rhy": 4, "cp.wld": 3, "cp.skl": 4, "cp.int": 4, "cp.agt": 4}
         result = compute_cp_stage(scores)
         assert result["skip_to_stage"] == result["stage"] == 3
 
@@ -89,10 +91,43 @@ class TestComputeCpStage:
         """Отсутствующий слот трактуется как 1 (conservative default)."""
         from db.queries.cp_assessment import compute_cp_stage
         # cp.agt отсутствует
-        scores = {"cp.rhy": 4, "cp.wld": 4, "cp.skl": 4, "cp.iwe": 4, "cp.int": 4}
+        scores = {"cp.rhy": 4, "cp.wld": 4, "cp.skl": 4, "cp.int": 4}
         result = compute_cp_stage(scores)
         assert result["stage"] == 1
         assert result["bottleneck_slot"] == "cp.agt"
+
+    # WP-370 acceptance tests
+    def test_all_max_gives_proactive_no_bottleneck(self):
+        """5/5/5/5/5 → ступень 5 (Проактивный), bottleneck=None (нет узких мест)."""
+        from db.queries.cp_assessment import compute_cp_stage
+        scores = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
+        result = compute_cp_stage(scores)
+        assert result["stage"] == 5
+        assert result["bottleneck_slot"] is None  # WP-370: stage ≥4 → нет узких мест
+        assert result["recommended_stream"] == "S4"
+
+    def test_stage_4_no_bottleneck(self):
+        """Все 4+ → bottleneck=None (порог «нет узких мест»)."""
+        from db.queries.cp_assessment import compute_cp_stage
+        scores = {s: 4 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
+        assert compute_cp_stage(scores)["bottleneck_slot"] is None
+
+    def test_stage_3_shows_bottleneck(self):
+        """stage=3 — ещё показывает bottleneck."""
+        from db.queries.cp_assessment import compute_cp_stage
+        scores = {"cp.rhy": 3, "cp.wld": 5, "cp.skl": 5, "cp.int": 5, "cp.agt": 5}
+        result = compute_cp_stage(scores)
+        assert result["stage"] == 3
+        assert result["bottleneck_slot"] == "cp.rhy"
+
+    def test_cp_iwe_does_not_affect_stage(self):
+        """WP-370: cp.iwe — informational, не входит в mandatory → не блокирует ступень."""
+        from db.queries.cp_assessment import compute_cp_stage
+        # все mandatory = 5, cp.iwe = 1 → stage всё равно 5
+        scores = {"cp.rhy": 5, "cp.wld": 5, "cp.skl": 5, "cp.int": 5, "cp.agt": 5, "cp.iwe": 1}
+        result = compute_cp_stage(scores)
+        assert result["stage"] == 5
+        assert result["bottleneck_slot"] is None
 
 
 # ─── 3. DiagnoseStates FSM ─────────────────────────────────
@@ -105,23 +140,36 @@ class TestDiagnoseStates:
         assert hasattr(DiagnoseStates, 'q3')
         assert hasattr(DiagnoseStates, 'q4')
         assert hasattr(DiagnoseStates, 'q5')
+        assert hasattr(DiagnoseStates, 'q6')  # WP-370: Phase 2 drill-down
 
     def test_phase1_questions_count(self):
         from handlers.diagnose import PHASE1_QUESTIONS
-        assert len(PHASE1_QUESTIONS) == 4
+        # WP-370: 5 вопросов = 4 mandatory якорных + 1 informational (cp.iwe)
+        assert len(PHASE1_QUESTIONS) == 5
 
-    def test_phase1_slots_are_mandatory(self):
+    def test_phase1_covers_4_mandatory_anchors(self):
+        """WP-370: PHASE1 должна содержать 4 mandatory якорных (cp.rhy/wld/int/agt) + cp.iwe.
+        cp.skl derive из cp.rhy в _finish_diagnose."""
         from handlers.diagnose import PHASE1_QUESTIONS
-        from db.queries.cp_assessment import MANDATORY_SLOTS
-        for q in PHASE1_QUESTIONS:
-            assert q["slot"] in MANDATORY_SLOTS, f"Slot {q['slot']} not in MANDATORY_SLOTS"
+        slots = [q["slot"] for q in PHASE1_QUESTIONS]
+        assert "cp.rhy" in slots
+        assert "cp.wld" in slots
+        assert "cp.int" in slots
+        assert "cp.agt" in slots
+        assert "cp.iwe" in slots  # informational
+        assert "cp.skl" not in slots  # derive из cp.rhy
 
-    def test_phase2_questions_cover_all_bottlenecks(self):
+    def test_phase2_questions_cover_all_mandatory(self):
         from handlers.diagnose import PHASE2_QUESTIONS
         from db.queries.cp_assessment import MANDATORY_SLOTS
-        # Phase 2 drill-down должен покрывать все mandatory слоты
+        # Phase 2 drill-down должен покрывать все 5 mandatory слотов
         for slot in MANDATORY_SLOTS:
             assert slot in PHASE2_QUESTIONS, f"Missing drill-down for {slot}"
+
+    def test_min_anchors_constant(self):
+        """WP-370: MIN_ANCHORS = 4 (все mandatory якорные)."""
+        from handlers.diagnose import MIN_ANCHORS
+        assert MIN_ANCHORS == 4
 
 
 # ─── 4. _show_cp_profile() rendering ──────────────────────
@@ -237,8 +285,51 @@ class TestDoubleGate:
     def test_cp_gate_allows_lower_bh(self):
         """cp_confirmed(3) >= bh_recommended(2) → переход по bh разрешён."""
         bh_recommended = 2
-        cp_scores = {s: 3 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.iwe", "cp.int", "cp.agt"]}
+        cp_scores = {s: 3 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         from db.queries.cp_assessment import compute_cp_stage
         cp_stage = compute_cp_stage(cp_scores)["stage"]
         confirmed = min(bh_recommended, cp_stage)
         assert confirmed == 2
+
+
+# ─── 6. WP-370: Pack-sync drift detector ──────────────────
+
+class TestPackSyncDrift:
+    """Анти-drift тест: MANDATORY_SLOTS должен совпадать с PD.FORM.089 §2 «Стержневые для расчёта ступени».
+
+    Source: PACK-personal/.../formalizations/PD.FORM.089-learner-rcs.md
+    Если spec изменится → этот тест должен fail и заставить синхронизировать.
+    """
+
+    EXPECTED_FROM_FORM089 = {"cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"}
+
+    def test_mandatory_matches_form089(self):
+        from db.queries.cp_assessment import MANDATORY_SLOTS
+        assert set(MANDATORY_SLOTS) == self.EXPECTED_FROM_FORM089, (
+            "MANDATORY_SLOTS дрейфует от PD.FORM.089 v5.0 §2 «Стержневые для расчёта ступени». "
+            "Обнови один из двух источников или зафиксируй drift в issue."
+        )
+
+    def test_cp_iwe_informational_not_mandatory(self):
+        """v5.0 явно: cp.iwe и cp.cre — informational. Не должны быть в MANDATORY_SLOTS."""
+        from db.queries.cp_assessment import MANDATORY_SLOTS
+        assert "cp.iwe" not in MANDATORY_SLOTS
+        assert "cp.cre" not in MANDATORY_SLOTS
+
+    def test_phase1_anchors_match_form089_table(self):
+        """PHASE1 якорные = 4 mandatory (cp.skl derive) + 1 informational (cp.iwe).
+
+        Spec §6.1 Фаза 1 таблица: cp.rhy, cp.wld, cp.iwe, cp.int.
+        cp.skl выводится из cp.rhy.
+        cp.agt — дополнительный вопрос (или bh.agn-прокси).
+
+        Здесь интерпретация Plan A′: 4 mandatory anchors (rhy/wld/int/agt) + cp.iwe.
+        """
+        from handlers.diagnose import PHASE1_QUESTIONS
+        slots = {q["slot"] for q in PHASE1_QUESTIONS}
+        # 4 mandatory якорных (без cp.skl — derive)
+        assert {"cp.rhy", "cp.wld", "cp.int", "cp.agt"}.issubset(slots)
+        # informational
+        assert "cp.iwe" in slots
+        # cp.skl НЕ должен быть в PHASE1 — derive в _finish_diagnose
+        assert "cp.skl" not in slots

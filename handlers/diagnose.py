@@ -1,7 +1,7 @@
 """
 /diagnose — Диагностика ученика R28 (WP-318 Ф6).
 
-# see DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1 v4.2
+# see DP.SC.132, DP.ROLE.042, PD.FORM.089 §6.1 v5.0 (WP-370: cp.iwe informational, derive cp.skl из cp.rhy)
 
 Алгоритм CAT: ≤5 вопросов, старт со ст. 3.
 Фаза 1 (2-3 якорных вопроса) → Фаза 2 (1-2 drill-down по bottleneck).
@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime, timezone
 
@@ -50,72 +51,89 @@ class DiagnoseStates(StatesGroup):
     q2 = State()
     q3 = State()
     q4 = State()
-    q5 = State()
+    q5 = State()  # Phase 1 cp.iwe (informational, last anchor)
+    q6 = State()  # WP-370: Phase 2 drill-down по mandatory bottleneck
 
 
 # ── Вопросы FORM.089 §6.1 ─────────────────────────────────────────────────────
 
 # Фаза 1: якорные вопросы (всегда задаются)
+# WP-370: 5 вопросов = 4 mandatory якорных (cp.rhy/wld/int/agt) + 1 informational (cp.iwe).
+# cp.skl derive из cp.rhy в _finish_diagnose (§6.1: «ритм и мастерство коррелируют»).
 PHASE1_QUESTIONS = [
     {
-        "slot": "cp.skl",
+        "slot": "cp.rhy",
         "text": (
             "📍 <b>Вопрос 1 из 5</b>\n\n"
-            "Вы осознанно выделяете время на изучение нового — не просто читаете что попадётся, "
-            "а именно отводите время под развитие?\n"
+            "Как вы ведёте учёт времени на саморазвитие и насколько регулярный ритм?\n"
             "Сколько примерно часов в неделю?"
         ),
         "labels": {
-            1: "Не выделяю осознанно, по ситуации",
-            2: "Стараюсь всегда учиться, но ритма нет",
-            3: "Явно знаю, что получается 3-4 ч/нед",
-            4: "Регулярно, не менее 1 часа в день и до 8 ч/нед",
-            5: "Ежедневная практика и более 10 ч/нед",
-        },
-    },
-    {
-        "slot": "cp.agt",
-        "text": (
-            "📍 <b>Вопрос 2 из 5</b>\n\n"
-            "Используете ли вы конкретные методы для своего развития?\n"
-            "Например: ведение заметок, учёт времени, регулярные сессии стратегирования и планирования."
-        ),
-        "labels": {
-            1: "Нет",
-            2: "Иногда пробую что-то, но не приживается",
-            3: "Есть 1-2 приёма, применяю",
-            4: "Есть много методов, которые осознанно добавляю",
-            5: "Развиваю и передаю методы другим",
+            1: "Не выделяю, как пойдёт",
+            2: "Стараюсь, но без ритма (1-2 ч/нед)",
+            3: "Еженедельно явно (3-4 ч/нед)",
+            4: "Ежедневная практика + трекер (5-10 ч/нед)",
+            5: "Автоматизировано + артефакты (10+ ч/нед)",
         },
     },
     {
         "slot": "cp.wld",
         "text": (
-            "📍 <b>Вопрос 3 из 5</b>\n\n"
-            "Есть ли у вас принципы, которые определяют ваши важные решения?\n"
-            "Насколько они явные — вы могли бы их сформулировать прямо сейчас?"
+            "📍 <b>Вопрос 2 из 5</b>\n\n"
+            "Как вы принимаете важные решения?\n"
+            "Через интуицию, ценности или системный анализ?"
         ),
         "labels": {
-            1: "Решаю интуитивно",
-            2: "Что-то есть, но смутно",
-            3: "Могу назвать 2-3 принципа",
-            4: "Принципы явные, записаны",
-            5: "Есть целостное мировоззрение, передаю другим",
+            1: "В основном интуитивно",
+            2: "Пробую разные подходы, не сложилось",
+            3: "Через сформулированные принципы / мировоззрение",
+            4: "Системно: цели, ограничения, альтернативы",
+            5: "Передаю свои методы и принципы другим",
         },
     },
     {
-        "slot": "cp.iwe",
+        "slot": "cp.int",
         "text": (
-            "📍 <b>Вопрос 4 из 5</b>\n\n"
-            "Насколько хорошо у вас настроен инструмент хранения и обработки знаний — "
-            "заметки, база знаний, инструменты?"
+            "📍 <b>Вопрос 3 из 5</b>\n\n"
+            "Применяете ли вы системное мышление — видите ли роли, границы, "
+            "интерфейсы, надсистемы в реальных задачах?"
         ),
         "labels": {
-            1: "У меня его нет",
-            2: "Сделал самый простой (заметки в телефоне, папка в облаке)",
-            3: "Есть рабочий инструмент, пользуюсь регулярно",
-            4: "Настроен процесс работы с несколькими сервисами: структура, связи, поиск",
-            5: "Регулярно развиваю его",
+            1: "Нет опыта",
+            2: "Слышал(а), но не применяю",
+            3: "Базовые различения (роль/функция/граница)",
+            4: "Системный разбор в работе",
+            5: "Формализую модели, учу других",
+        },
+    },
+    {
+        "slot": "cp.agt",
+        "text": (
+            "📍 <b>Вопрос 4 из 5</b>\n\n"
+            "Какая доля задач за последний месяц инициирована вами лично — "
+            "не «спустили», а вы сами увидели и взяли?"
+        ),
+        "labels": {
+            1: "Почти всё спущено сверху",
+            2: "Иногда сам(а), редко",
+            3: "Около половины — мои",
+            4: "Большинство задач — моя инициатива",
+            5: "Задаю повестку для других",
+        },
+    },
+    {
+        "slot": "cp.iwe",  # informational — не входит в mandatory, не блокирует ступень
+        "text": (
+            "📍 <b>Вопрос 5 из 5</b>\n\n"
+            "Насколько у вас настроена среда работы со знаниями — "
+            "заметки, база знаний, инструменты (VS Code + Pack + ИИ, или альтернативы)?"
+        ),
+        "labels": {
+            1: "Среды нет",
+            2: "Простейшее (заметки в телефоне, папка в облаке)",
+            3: "Базово настроено, пользуюсь регулярно",
+            4: "Несколько сервисов, структура, связи, поиск",
+            5: "Развиваю как систему — Pack/протоколы/агенты",
         },
     },
 ]
@@ -214,8 +232,12 @@ PHASE2_QUESTIONS = {
     },
 }
 
-# Дефолтные значения cp-слотов (не задавались в диалоге)
-_DEFAULT_CP = {s: 2 for s in MANDATORY_SLOTS}  # консервативный дефолт
+# WP-370: defaults только для mandatory (5). Применяется ТОЛЬКО при partial-завершении (q_count<MIN_ANCHORS).
+# При full-завершении все mandatory заполнены через PHASE1 (4 явных) + derive cp.skl (из cp.rhy).
+_DEFAULT_CP = {s: 2 for s in MANDATORY_SLOTS}
+
+# WP-370: минимум якорных вопросов для валидного stage. Если меньше — показываем «диагностика не завершена».
+MIN_ANCHORS = 4  # все 4 mandatory якорных в PHASE1 (cp.rhy, cp.wld, cp.int, cp.agt); cp.iwe — informational
 
 # Человеко-читаемые имена ступеней
 STAGE_NAMES = {
@@ -236,23 +258,77 @@ STREAM_LABELS = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _truncate_label(label: str, max_len: int = 25) -> str:
+    """Усечение лейбла на границе слова с многоточием. Короткие отдаются как есть.
+
+    iPhone Telegram режет inline-button text около 30-35 символов; max_len=25
+    оставляет запас на префикс «N — » и эллипсис, влезая на iPhone SE.
+    Полная формулировка варианта дублируется в тексте сообщения через _format_question().
+    """
+    if len(label) <= max_len:
+        return label
+    cut = label[:max_len]
+    if " " in cut:
+        words = cut.rstrip().split(" ")
+        if len(words[-1]) <= 3 and len(words) > 1:
+            words = words[:-1]
+        cut = " ".join(words)
+    return cut.rstrip(",.;:") + "…"
+
+
 def _make_scale_keyboard(slot: str, q_idx: int, labels: dict[int, str]) -> InlineKeyboardMarkup:
-    """Inline-клавиатура 1-5 с подписями."""
+    """Inline-клавиатура 1-5: 5 рядов по 1 кнопке. На каждой — цифра + усечённый лейбл.
+
+    Полный лейбл — в тексте сообщения (см. _format_question). Кнопка во всю ширину
+    обеспечивает max tap-target (Apple HIG ≥44pt) — критично для диагностики, где
+    разница между уровнями определяет ступень мастерства.
+    """
     buttons = []
     for val in range(1, 6):
         label = labels.get(val, str(val))
+        short = _truncate_label(label)
         cb = f"{CB_PREFIX}:{slot}:{val}:{q_idx}"
-        buttons.append([InlineKeyboardButton(text=f"{val} — {label}", callback_data=cb[:64])])
+        buttons.append([InlineKeyboardButton(text=f"{val} — {short}", callback_data=cb[:64])])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def _format_question(q: dict) -> str:
+    """Текст вопроса + полные тексты всех 5 вариантов под ним.
+
+    Источник истины для рубрик FORM.089 §6.1 — q["labels"] (дословно).
+    Пользователь видит формулировку без обрезки и нажимает кнопку по цифре.
+    """
+    lines = [q["text"], "", "<b>Варианты ответа:</b>"]
+    for val in range(1, 6):
+        lines.append(f"<b>{val}</b> — {html.escape(q['labels'][val])}")
+    return "\n".join(lines)
+
+
+async def send_diagnostic_question(target, q: dict, q_idx: int, *, prefix: str = "") -> None:
+    """Единая точка отправки вопроса диагностики.
+
+    target — Message или callback.message (поддерживает .answer()).
+    prefix — опциональный preamble (используется для первого вопроса с шапкой).
+    """
+    text = prefix + _format_question(q) if prefix else _format_question(q)
+    await target.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=_make_scale_keyboard(q["slot"], q_idx, q["labels"]),
+    )
+
+
 def _determine_phase2_slot(scores: dict) -> str | None:
-    """Слот с наименьшим значением среди заданных в Фазе 1."""
-    asked = {k: v for k, v in scores.items() if k in [q["slot"] for q in PHASE1_QUESTIONS]}
-    if not asked:
+    """Слот с наименьшим значением среди MANDATORY (не informational), для drill-down.
+
+    WP-370: informational cp.iwe не триггерит Phase 2 даже при низком значении.
+    Phase 2 нужна только если есть пробел в mandatory (≤2).
+    """
+    mandatory_asked = {k: v for k, v in scores.items() if k in MANDATORY_SLOTS}
+    if not mandatory_asked:
         return None
-    bottleneck = min(asked, key=asked.get)
-    return bottleneck if asked[bottleneck] < 3 else None
+    bottleneck = min(mandatory_asked, key=mandatory_asked.get)
+    return bottleneck if mandatory_asked[bottleneck] < 3 else None
 
 
 def _format_result(profile: dict, valid_until_iso: str | None) -> str:
@@ -263,15 +339,19 @@ def _format_result(profile: dict, valid_until_iso: str | None) -> str:
     stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
     stream_label = STREAM_LABELS.get(stream, stream)
 
-    # Человеко-читаемый bottleneck (без cp.NNN)
-    bottleneck_human = {
-        "cp.rhy": "регулярность и ритм занятий",
-        "cp.wld": "мировоззрение и системный взгляд",
-        "cp.skl": "учёт времени и собранность",
-        "cp.iwe": "рабочая среда и инструменты",
-        "cp.int": "системное мышление",
-        "cp.agt": "агентность и инициатива",
-    }.get(bottleneck, bottleneck)
+    # WP-370: bottleneck = None при stage ≥ 4 → нет узких мест.
+    if bottleneck is None:
+        priority_line = "Узких мест нет — поддерживайте темп и берите следующие ступени."
+    else:
+        bottleneck_human = {
+            "cp.rhy": "регулярность и ритм занятий",
+            "cp.wld": "мировоззрение и системный взгляд",
+            "cp.skl": "учёт времени и собранность",
+            "cp.iwe": "рабочая среда и инструменты",
+            "cp.int": "системное мышление",
+            "cp.agt": "агентность и инициатива",
+        }.get(bottleneck, bottleneck)
+        priority_line = f"Приоритет роста: {bottleneck_human}"
 
     valid_str = ""
     if valid_until_iso:
@@ -284,7 +364,7 @@ def _format_result(profile: dict, valid_until_iso: str | None) -> str:
     return (
         f"📊 <b>Результаты диагностики</b>\n\n"
         f"Ступень: <b>{stage_name} ({stage} из 5)</b>\n\n"
-        f"Приоритет роста: {bottleneck_human}\n\n"
+        f"{priority_line}\n\n"
         f"Рекомендованное руководство: <b>{stream}</b> — {stream_label}"
         f"{valid_str}"
     )
@@ -340,14 +420,12 @@ async def _start_phase1(target, state: FSMContext, account_id: str | None) -> No
     await state.update_data(scores={}, account_id=account_id, q_count=0)
     q = PHASE1_QUESTIONS[0]
     await state.set_state(DiagnoseStates.q1)
-    await target.answer(
+    preamble = (
         "🔬 <b>Диагностика ступени мастерства</b>\n\n"
         "До 5 вопросов с вариантами ответа. Занимает ~3 минуты.\n"
         "Выбирайте то, что ближе всего к вашей текущей практике.\n\n"
-        + q["text"],
-        parse_mode="HTML",
-        reply_markup=_make_scale_keyboard(q["slot"], 0, q["labels"]),
     )
+    await send_diagnostic_question(target, q, 0, prefix=preamble)
 
 
 @diagnose_router.callback_query(F.data == CB_FORCE_RESTART)
@@ -401,27 +479,23 @@ async def _process_answer(callback: CallbackQuery, state: FSMContext, q_idx: int
         pass
 
     next_idx = q_idx + 1
+    # WP-370: 5 вопросов Phase 1 (4 mandatory + cp.iwe informational), states q1..q5.
+    states_map = [
+        DiagnoseStates.q1, DiagnoseStates.q2, DiagnoseStates.q3,
+        DiagnoseStates.q4, DiagnoseStates.q5,
+    ]
     if next_idx < len(PHASE1_QUESTIONS):
-        # Следующий якорный вопрос
         nq = PHASE1_QUESTIONS[next_idx]
-        states_map = [DiagnoseStates.q1, DiagnoseStates.q2, DiagnoseStates.q3, DiagnoseStates.q4]
         await state.set_state(states_map[next_idx])
-        await callback.message.answer(
-            nq["text"],
-            parse_mode="HTML",
-            reply_markup=_make_scale_keyboard(nq["slot"], next_idx, nq["labels"]),
-        )
+        await send_diagnostic_question(callback.message, nq, next_idx)
     else:
-        # Фаза 1 завершена — определить нужен ли Phase 2
+        # Фаза 1 завершена. Phase 2 drill-down: только по mandatory bottleneck (cp.iwe — informational, не триггерит).
+        # MANDATORY_SLOTS = 5 (cp.rhy, cp.wld, cp.skl, cp.int, cp.agt) — cp.skl derive из cp.rhy в _finish_diagnose.
         bottleneck_slot = _determine_phase2_slot(scores)
-        if bottleneck_slot and bottleneck_slot in PHASE2_QUESTIONS and q_count < 5:
+        if bottleneck_slot and bottleneck_slot in PHASE2_QUESTIONS and bottleneck_slot != "cp.iwe":
             p2q = PHASE2_QUESTIONS[bottleneck_slot]
-            await state.set_state(DiagnoseStates.q5)
-            await callback.message.answer(
-                p2q["text"],
-                parse_mode="HTML",
-                reply_markup=_make_scale_keyboard(p2q["slot"], 99, p2q["labels"]),
-            )
+            await state.set_state(DiagnoseStates.q6)  # WP-370: Phase 2 drill-down (q5 занят Phase 1 cp.iwe)
+            await send_diagnostic_question(callback.message, p2q, 99)
         else:
             await _finish_diagnose(callback.message, state)
 
@@ -448,6 +522,13 @@ async def answer_q4(callback: CallbackQuery, state: FSMContext) -> None:
 
 @diagnose_router.callback_query(DiagnoseStates.q5, F.data.startswith(CB_PREFIX + ":"))
 async def answer_q5(callback: CallbackQuery, state: FSMContext) -> None:
+    """Phase 1, last anchor — cp.iwe informational. После него возможен Phase 2 drill-down."""
+    await _process_answer(callback, state, 4)
+
+
+@diagnose_router.callback_query(DiagnoseStates.q6, F.data.startswith(CB_PREFIX + ":"))
+async def answer_q6(callback: CallbackQuery, state: FSMContext) -> None:
+    """WP-370: Phase 2 drill-down handler (бывший answer_q5 на DiagnoseStates.q5)."""
     parts = callback.data.split(":")
     if len(parts) < 4:
         await callback.answer()
@@ -483,7 +564,13 @@ async def answer_q5(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _finish_diagnose(message: Message, state: FSMContext) -> None:
-    """Вычислить профиль, сохранить, показать результат."""
+    """Вычислить профиль, сохранить, показать результат.
+
+    WP-370: §6.1 v5.0 compliance.
+    - q_count < MIN_ANCHORS (4 mandatory) → partial: показать «не завершена», не вычислять stage.
+    - cp.skl derive из cp.rhy (§6.1 line 144 «cp.skl определяется из ответа на cp.rhy»).
+    - all mandatory ≥ 4 → bottleneck = None (показывается как «нет узких мест»).
+    """
     data = await state.get_data()
     await state.clear()
 
@@ -491,10 +578,27 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
     scores_raw = data.get("scores", {})
     q_count = data.get("q_count", 0)
 
-    # Фаза 3 (bh-прокси): автоматически подтягивает bh-индексы
-    # Реализовано через get_bh_proxy (если доступны данные WP-310)
+    # WP-370 partial-flag: меньше 4 mandatory ответов — диагностика недостоверна.
+    if q_count < MIN_ANCHORS:
+        await message.answer(
+            "⚠️ <b>Диагностика не завершена</b>\n\n"
+            f"Получено ответов: {q_count} из {MIN_ANCHORS} обязательных.\n"
+            "Для корректной оценки ступени нужно пройти все обязательные вопросы.\n\n"
+            "Запустите заново: /diagnose",
+            parse_mode="HTML",
+        )
+        return
+
+    # Default consevativeно подстраховывает редкие partial-кейсы (после MIN_ANCHORS check — обычно не сработает).
     scores = dict(_DEFAULT_CP)
     scores.update(scores_raw)
+
+    # WP-370 derive: cp.skl выводится из cp.rhy (spec §6.1).
+    # setdefault — если cp.skl уже задан явно (будущий код), не перезаписываем.
+    scores.setdefault("cp.skl", scores.get("cp.rhy", 2))
+    if "cp.skl" not in scores_raw and "cp.rhy" in scores_raw:
+        scores["cp.skl"] = scores_raw["cp.rhy"]  # explicit override default
+
     scores = await _apply_bh_proxy(account_id, scores)
 
     profile = compute_cp_stage(scores)
