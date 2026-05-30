@@ -537,21 +537,26 @@ def _build_marathon_message(content_type: str, day: int, content_ref: str | None
     if content_ref:
         return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
     # WP-330 Ф2.6: читаем из marathon-content.json
+    # WP-330 Ф10.B: long_complex референс (lesson_full/practice_full) + опц. faq_hint
     from core.marathon_content import get_day_text
-    if content_type == 'lesson_practice':
-        lesson = get_day_text(day, 'lesson')
-        practice = get_day_text(day, 'practice')
-        if lesson and practice:
-            return f"{lesson}\n\n{practice}"
-        return lesson or practice or None
-    text = get_day_text(day, content_type)
-    if text:
-        return text
-    # Fallback — минимальный текст
+    # Fallback — минимальный текст (доступен из обеих веток ниже)
     templates = {
         'lesson_practice': f"📚 *День {day}*\n\nСегодняшний урок и практика готовы!",
         'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
     }
+    if content_type == 'lesson_practice':
+        lesson = get_day_text(day, 'lesson_full') or get_day_text(day, 'lesson')
+        practice = get_day_text(day, 'practice_full') or get_day_text(day, 'practice')
+        if lesson and practice:
+            message = f"{lesson}\n\n{practice}"
+            faq = get_day_text(day, 'faq_hint')
+            if faq:
+                message += f"\n\n{faq}"
+            return message
+        return lesson or practice or templates['lesson_practice']
+    text = get_day_text(day, content_type)
+    if text:
+        return text
     return templates.get(content_type)
 
 

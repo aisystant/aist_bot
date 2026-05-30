@@ -42,7 +42,9 @@ def get_day_text(day: int, content_type: str) -> Optional[str]:
 
     Args:
         day: номер дня (1–14)
-        content_type: 'lesson', 'practice', 'checkin'
+        content_type: legacy: 'lesson', 'practice', 'checkin'.
+                       WP-330 Ф10.B: 'lesson_full', 'practice_full',
+                       'reflection_question', 'faq_hint'.
 
     Returns:
         Текст в Markdown или None, если не найден.
