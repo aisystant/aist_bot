@@ -173,7 +173,7 @@ class SettingsState(BaseState):
 
         # --- Собираем текст ---
         connections_summary = (
-            f"  {gateway_status} Gateway (IWE)\n"
+            f"  {gateway_status} Aisystant MCP\n"
             f"  {github_status} GitHub\n"
             f"  {waka_status} WakaTime\n"
             f"  {gcal_status} Календарь Google"
@@ -856,7 +856,7 @@ class SettingsState(BaseState):
 
         text = (
             f"*{t('settings.connections_label', lang)}*\n\n"
-            f"{chk(gateway_connected)} Gateway (IWE)\n"
+            f"{chk(gateway_connected)} Aisystant MCP\n"
             f"{chk(github_connected)} GitHub\n"
             f"{chk(waka_conn)} WakaTime\n"
             f"{chk(gcal_connected)} Календарь Google\n"
@@ -866,7 +866,7 @@ class SettingsState(BaseState):
 
         buttons = [
             [
-                InlineKeyboardButton(text="🌐 Gateway (IWE)", callback_data="conn_gateway"),
+                InlineKeyboardButton(text="🌐 Aisystant MCP", callback_data="conn_gateway"),
                 InlineKeyboardButton(text="🐙 GitHub", callback_data="conn_github"),
             ],
             [
@@ -914,7 +914,7 @@ class SettingsState(BaseState):
 
         auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
         text = (
-            "🔄 *Переподключение Gateway*\n\n"
+            "🔄 *Переподключение Aisystant MCP*\n\n"
             "Нажмите кнопку ниже для повторной авторизации.\n"
             "Это обновит токены доступа."
         )
