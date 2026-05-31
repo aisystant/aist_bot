@@ -159,9 +159,12 @@ async def show_marathon_activated(message, intern: dict, edit: bool = False):
     else:
         marathon_day = 1
 
+    from core.topics import get_display_day
+    display_day = get_display_day(intern)
+
     # Формируем текст
     text = f"{t('modes.marathon_activated', lang)}\n\n"
-    text += f"{t('modes.day_progress', lang, day=marathon_day, completed=completed)}\n\n"
+    text += f"{t('modes.day_progress', lang, day=display_day, completed=completed)}\n\n"
     text += f"{t('modes.your_settings', lang)}\n"
     text += f"{t('modes.time_label', lang)} {schedule_time}\n"
     text += f"{t('modes.duration_label', lang)} {study_duration} {t('modes.min_suffix', lang)}\n"
@@ -295,10 +298,13 @@ async def marathon_set_date(callback: CallbackQuery):
 
     completed = len(intern.get('completed_topics', []))
 
+    from core.topics import get_display_day
+    display_day = get_display_day(intern) if start_date else 0
+
     text = f"🗓 *{t('modes.start_date_title', lang)}*\n\n"
     text += f"{t('modes.start_date_current', lang)}: {current_date_str}"
     if start_date:
-        text += f" ({t('modes.day_label', lang)} {marathon_day})"
+        text += f" ({t('modes.day_label', lang)} {display_day})"
     text += "\n\n"
 
     # Кнопки

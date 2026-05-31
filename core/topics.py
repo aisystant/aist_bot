@@ -157,6 +157,30 @@ def get_marathon_day(intern: dict) -> int:
     return min(days_passed + 1, MARATHON_DAYS)
 
 
+def get_display_day(intern: dict) -> int:
+    """День, который показывается пользователю в UI-заголовках/напоминаниях.
+
+    Возвращает day ближайшего pending-топика в пределах текущего marathon_day fence.
+    Это устраняет расхождение между календарным днём и днём отображаемого контента
+    (типичный случай: пилот отстал на N дней — marathon_day упёрся в 14,
+    а реально проходит топики дня 7).
+
+    Если pending-топиков в fence нет — fallback на marathon_day (для completed-кейса
+    и для пользователей, идущих в темпе календаря).
+
+    НЕ для fence-логики (`topic['day'] > marathon_day`) — там используется get_marathon_day.
+    """
+    marathon_day = get_marathon_day(intern)
+    completed = set(intern.get('completed_topics') or [])
+    for i, topic in enumerate(TOPICS):
+        if i in completed:
+            continue
+        if topic['day'] > marathon_day:
+            break
+        return topic['day']
+    return marathon_day
+
+
 def get_topics_for_day(day: int) -> List[dict]:
     """Получить темы для конкретного дня марафона"""
     return [t for t in TOPICS if t['day'] == day]

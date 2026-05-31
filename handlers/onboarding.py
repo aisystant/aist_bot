@@ -252,10 +252,11 @@ async def cmd_start(message: Message, state: FSMContext):
 
         # Прогресс активности
         from db.queries.activity import get_activity_stats
-        from core.topics import get_marathon_day
+        from core.topics import get_marathon_day, get_display_day
         stats = await get_activity_stats(message.chat.id)
         total_active = stats.get('total', 0)
         marathon_day = get_marathon_day(intern)
+        display_day = get_display_day(intern)
 
         # Send welcome with tier-based ReplyKeyboard (WP-52)
         from core.tier_ui import build_reply_keyboard, sync_menu_commands
@@ -270,7 +271,7 @@ async def cmd_start(message: Message, state: FSMContext):
         text = (
             t('welcome.returning', lang, name=intern['name']) + "\n" +
             f"{mode_emoji} {t('welcome.current_mode', lang)}: *{mode_name}*\n" +
-            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {marathon_day}"
+            f"📊 {t('welcome.activity_progress', lang)}: {total_active} {t('shared.of', lang)} {display_day}"
         )
         if not aisystant_id:
             text += "\n\n" + t('welcome.link_reminder', lang)
@@ -608,8 +609,9 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         intern = await get_intern(chat_id)
         lang = intern.get('language', 'ru') or 'ru'
 
-        from core.topics import get_marathon_day
+        from core.topics import get_marathon_day, get_display_day
         marathon_day = get_marathon_day(intern)
+        display_day = get_display_day(intern)
         start_date = intern.get('marathon_start_date')
 
         await callback.answer(t('update.saved', lang))
@@ -623,7 +625,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             if start_date > today:
                 start_msg = f"🗓 *{t('profile.marathon_will_start', lang, date=start_date.strftime('%d.%m.%Y'))}*"
             else:
-                start_msg = f"🗓 *{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}*"
+                start_msg = f"🗓 *{t('progress.day', lang, day=display_day, total=MARATHON_DAYS)}*"
         else:
             start_msg = f"🗓 {t('profile.date_not_set', lang)}"
 
