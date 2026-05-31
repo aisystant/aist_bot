@@ -122,6 +122,8 @@ async def test_marathon_day1_immediate():
          patch("handlers.marathon.update_intern", new_callable=AsyncMock), \
          patch("handlers.marathon.enqueue_day_items", side_effect=fake_enqueue), \
          patch("handlers.marathon.moscow_now", return_value=now_msk), \
+         patch("db.queries.get_intern", new_callable=AsyncMock,
+               return_value={"study_duration": 15, "complexity_level": 1}), \
          patch("core.marathon_content.get_day_text", return_value="content"):
         from handlers.marathon import start_marathon_flow
         await start_marathon_flow(12345, mock_reply)
@@ -151,6 +153,8 @@ async def test_marathon_day1_tomorrow():
          patch("handlers.marathon.update_intern", new_callable=AsyncMock), \
          patch("handlers.marathon.enqueue_day_items", side_effect=fake_enqueue), \
          patch("handlers.marathon.moscow_now", return_value=now_msk), \
+         patch("db.queries.get_intern", new_callable=AsyncMock,
+               return_value={"study_duration": 15, "complexity_level": 1}), \
          patch("core.marathon_content.get_day_text", return_value="content"):
         from handlers.marathon import start_marathon_flow
         await start_marathon_flow(12345, mock_reply)
