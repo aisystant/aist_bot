@@ -28,11 +28,12 @@ progress_router = Router(name="progress")
 def _bot_imports():
     """Lazy imports to avoid circular imports."""
     from core.topics import (
-        get_marathon_day, get_lessons_tasks_progress,
+        get_marathon_day, get_display_day, get_lessons_tasks_progress,
         get_days_progress, TOPICS,
     )
     return {
         'get_marathon_day': get_marathon_day,
+        'get_display_day': get_display_day,
         'get_lessons_tasks_progress': get_lessons_tasks_progress,
         'get_days_progress': get_days_progress,
         'TOPICS': TOPICS,
@@ -106,6 +107,7 @@ async def cmd_progress(message: Message, state: FSMContext = None):
     days_active_week = activity_stats.get('days_active_this_week', 0)
 
     marathon_day = b['get_marathon_day'](intern)
+    display_day = b['get_display_day'](intern)
     lessons_week = marathon_stats.get('theory_answers', 0)
     tasks_week = marathon_stats.get('work_products', 0)
 
@@ -126,7 +128,7 @@ async def cmd_progress(message: Message, state: FSMContext = None):
     text += "\n"
 
     text += f"🏃 *{t('progress.marathon_title', lang)}*\n"
-    text += f"{t('progress.day_of_total', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
+    text += f"{t('progress.day_of_total', lang, day=display_day, total=MARATHON_DAYS)}\n"
     text += f"📖 {t('progress.lessons', lang)}: {lessons_week}. 📝 {t('progress.tasks', lang)}: {tasks_week}\n\n"
 
     text += f"📚 *{t('progress.feed_title', lang)}*\n"
@@ -190,6 +192,7 @@ async def show_full_progress(callback: CallbackQuery):
         total_active = total_stats.get('total_active_days', 0)
 
         marathon_day = b['get_marathon_day'](intern)
+        display_day = b['get_display_day'](intern)
         progress = b['get_lessons_tasks_progress'](intern.get('completed_topics', []))
 
         try:
@@ -235,7 +238,7 @@ async def show_full_progress(callback: CallbackQuery):
         text += f"📈 *{t('progress.active_days_both', lang)}:* {total_active} {t('shared.of', lang)} {days_since}\n\n"
 
         text += f"🏃 *{t('progress.marathon_title', lang)}*\n"
-        text += f"{t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)}\n"
+        text += f"{t('progress.day', lang, day=display_day, total=MARATHON_DAYS)}\n"
         text += f"📖 {t('progress.lessons', lang)}: {progress['lessons']['completed']}/{progress['lessons']['total']}\n"
         text += f"📝 {t('progress.tasks', lang)}: {progress['tasks']['completed']}/{progress['tasks']['total']}\n"
         text += f"{t('progress.work_products_count', lang)}: {total_stats.get('total_work_products', 0)}\n"

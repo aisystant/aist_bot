@@ -52,7 +52,7 @@ class UpdateStates(StatesGroup):
 
 async def _show_update_screen(message, intern, state):
     """Показать экран настроек."""
-    from core.topics import get_marathon_day
+    from core.topics import get_marathon_day, get_display_day
     lang = intern.get('language', 'ru') or 'ru'
     study_duration = intern.get('study_duration') or 15
     bloom_level = intern.get('bloom_level') or 1
@@ -67,6 +67,7 @@ async def _show_update_screen(message, intern, state):
         marathon_start_str = "—"
 
     marathon_day = get_marathon_day(intern)
+    display_day = get_display_day(intern)
     interests_str = ', '.join(intern.get('interests', [])) if intern.get('interests') else '—'
     motivation_short = intern.get('motivation', '')[:80] + '...' if len(intern.get('motivation', '')) > 80 else intern.get('motivation', '') or '—'
     goals_short = (intern.get('goals') or '')[:80] + '...' if len(intern.get('goals') or '') > 80 else intern.get('goals') or '—'
@@ -90,7 +91,7 @@ async def _show_update_screen(message, intern, state):
         f"🎯 {goals_short}\n\n"
         f"{t(f'duration.minutes_{study_duration}', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
-        f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=14)})\n"
+        f"🗓 {marathon_start_str} ({t('progress.day', lang, day=display_day, total=14)})\n"
         f"⏰ {intern.get('schedule_time', '09:00')} ({t('shared.timezone_msk', lang)})\n"
         f"🌐 {get_language_name(lang)}\n\n"
         f"*{t('settings.what_to_change', lang)}*",
@@ -159,7 +160,7 @@ async def cmd_connect_guide(message: Message):
 
 @settings_router.message(Command("profile"))
 async def cmd_profile(message: Message):
-    from core.topics import get_marathon_day
+    from core.topics import get_marathon_day, get_display_day
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru')
 
@@ -178,6 +179,7 @@ async def cmd_profile(message: Message):
     goals_short = goals[:100] + '...' if len(goals) > 100 else goals
 
     marathon_day = get_marathon_day(intern)
+    display_day = get_display_day(intern)
     start_date = intern.get('marathon_start_date')
     marathon_start_str = start_date.strftime('%d.%m.%Y') if start_date else t('profile.date_not_set', lang)
 
@@ -212,7 +214,7 @@ async def cmd_profile(message: Message):
         f"{STUDY_DURATIONS.get(str(study_duration), {}).get('emoji', '')} "
         f"{STUDY_DURATIONS.get(str(study_duration), {}).get('name', '')} {t('profile.per_topic', lang)}\n"
         f"{bloom_emojis.get(bloom_level, '🔵')} {t(f'bloom.level_{bloom_level}_short', lang)}\n"
-        f"🗓 {marathon_start_str} ({t('progress.day', lang, day=marathon_day, total=MARATHON_DAYS)})\n"
+        f"🗓 {marathon_start_str} ({t('progress.day', lang, day=display_day, total=MARATHON_DAYS)})\n"
         f"⏰ {intern.get('schedule_time', '09:00')} ({t('shared.timezone_msk', lang)})\n"
         f"{assessment_line}\n\n"
         f"{t('commands.settings', lang)}",
@@ -559,11 +561,12 @@ async def on_upd_delivery_from_settings(callback: CallbackQuery, state: FSMConte
 
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_marathon_start")
 async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
-    from core.topics import get_marathon_day
+    from core.topics import get_marathon_day, get_display_day
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     start_date = intern.get('marathon_start_date')
     marathon_day = get_marathon_day(intern)
+    display_day = get_display_day(intern)
 
     if start_date:
         if isinstance(start_date, datetime):
@@ -574,7 +577,7 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.edit_text(
         f"🗓 *{t('update.current_start_date', lang)}* {current_date_str}\n"
-        f"*{t('update.marathon_day_info', lang, day=marathon_day, total=MARATHON_DAYS)}*\n\n"
+        f"*{t('update.marathon_day_info', lang, day=display_day, total=MARATHON_DAYS)}*\n\n"
         f"⚠️ *{t('update.start_date_warning', lang)}*\n\n"
         f"{t('update.select_start_date', lang)}",
         parse_mode="Markdown",

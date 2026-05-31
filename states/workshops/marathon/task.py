@@ -156,9 +156,10 @@ class MarathonTaskState(BaseState):
                     one_time_keyboard=True
                 )
 
+                topic_day = topic.get('day', marathon_day)
                 await self.send(
                     user,
-                    f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n\n"
+                    f"✏️ *{t('marathon.day_practice', lang, day=topic_day)}*\n\n"
                     f"📋 *{t('marathon.task', lang)}:*\n"
                     f"{task_text}\n\n"
                     f"🎯 *{t('marathon.work_product', lang)}:* {work_product}\n\n"
@@ -172,13 +173,14 @@ class MarathonTaskState(BaseState):
 
         # ─── Показываем практическое задание ───
         topic_title = get_topic_title(topic, lang)
+        topic_day = topic.get('day', marathon_day)
         intro = practice_data.get('intro', '')
         task_text = practice_data.get('task', '') or topic.get('task', t('marathon.task_default', lang))
         work_product = practice_data.get('work_product', '') or topic.get('work_product', t('marathon.work_product_default', lang))
         examples = practice_data.get('examples', '')
 
         message = (
-            f"✏️ *{t('marathon.day_practice', lang, day=marathon_day)}*\n"
+            f"✏️ *{t('marathon.day_practice', lang, day=topic_day)}*\n"
             f"*{topic_title}*\n\n"
         )
 

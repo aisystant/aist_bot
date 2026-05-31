@@ -91,7 +91,7 @@ class ProgressState(BaseState):
         from db.queries.activity import get_activity_stats, get_activity_calendar
         from db.queries.qa import get_user_qa_stats
         from db.queries.github import get_github_connection
-        from core.topics import get_marathon_day, TOPICS
+        from core.topics import get_marathon_day, get_display_day, TOPICS
 
         intern = await get_intern(chat_id)
         if not intern:
@@ -153,6 +153,7 @@ class ProgressState(BaseState):
                 completed_topics = []
 
         marathon_day = get_marathon_day(intern)
+        display_day = get_display_day(intern)
         days_progress = self._get_days_progress(completed_topics, marathon_day)
         lessons_tasks = self._get_lessons_tasks_progress(completed_topics)
 
@@ -262,6 +263,7 @@ class ProgressState(BaseState):
             'calendar_total_days': len(calendar),
             # Marathon
             'marathon_day': marathon_day,
+            'display_day': display_day,
             'marathon_total': MARATHON_DAYS,
             'done_count': len(completed_topics) if completed_topics else 0,
             'lessons': lessons_tasks['lessons'],
@@ -428,7 +430,7 @@ class ProgressState(BaseState):
         await self._show_section(user, text, self._back_button(lang), callback)
 
     async def _show_marathon(self, user, cache: dict, lang: str, callback: CallbackQuery = None) -> None:
-        day = cache.get('marathon_day', 1)
+        day = cache.get('display_day', cache.get('marathon_day', 1))
         total = cache.get('marathon_total', MARATHON_DAYS)
         lessons = cache.get('lessons', {'completed': 0, 'total': 0})
         tasks = cache.get('tasks', {'completed': 0, 'total': 0})

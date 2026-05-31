@@ -1508,7 +1508,7 @@ async def send_user_reminder(chat_id: int, text: str, reminder_id: int, bot: Bot
 async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     """Отправляет напоминание с кнопкой «Получить урок»."""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from core.topics import get_marathon_day
+    from core.topics import get_marathon_day, get_display_day
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
@@ -1521,6 +1521,7 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
     marathon_day = get_marathon_day(intern)
     if marathon_day == 0:
         return
+    display_day = get_display_day(intern)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
@@ -1549,7 +1550,7 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
         await bot.send_message(
             chat_id,
             f"⏰ *{t('reminders.title', lang)}*\n\n"
-            f"{t('reminders.day_waiting', lang, day=marathon_day)}\n\n"
+            f"{t('reminders.day_waiting', lang, day=display_day)}\n\n"
             f"{t('reminders.two_topics_today', lang)}",
             reply_markup=keyboard,
             parse_mode="Markdown"
@@ -1558,7 +1559,7 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
         await bot.send_message(
             chat_id,
             f"🔔 *{t('reminders.last_reminder', lang)}*\n\n"
-            f"{t('reminders.day_not_started', lang, day=marathon_day)}\n\n"
+            f"{t('reminders.day_not_started', lang, day=display_day)}\n\n"
             f"{t('reminders.regularity_tip', lang)}\n"
             f"{t('reminders.even_15_min', lang)}",
             reply_markup=keyboard,
