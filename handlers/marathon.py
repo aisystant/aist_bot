@@ -70,6 +70,10 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
     await update_intern(user_id, marathon_status="active", onboarding_completed=True)
 
     from core.marathon_content import get_day_text
+    from db.queries import get_intern
+
+    # WP-330 С9a: подаём intern в get_day_text для routing 4 версий контента
+    intern_for_routing = await get_intern(user_id)
 
     # DP.SC.157: <18:00 МСК → день 1 немедленно; ≥18:00 → завтра 04:00 МСК
     sched_h, sched_m = map(int, schedule_time.split(":"))
@@ -85,8 +89,8 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
 
     for day in range(1, 15):
         scheduled = day1_time if day == 1 else next_day_base + timedelta(days=day - 2)
-        lesson = get_day_text(day, 'lesson')
-        practice = get_day_text(day, 'practice')
+        lesson = get_day_text(day, 'lesson', intern=intern_for_routing)
+        practice = get_day_text(day, 'practice', intern=intern_for_routing)
         lesson_practice = f"{lesson}\n\n{practice}" if lesson and practice else (lesson or practice or "")
         content_texts = {
             'lesson_practice': lesson_practice,
@@ -281,7 +285,14 @@ async def callback_marathon_practice(callback: CallbackQuery):
         return
 
     from core.marathon_content import get_day_text
-    practice = get_day_text(day, 'practice_full') or get_day_text(day, 'practice')
+    from db.queries import get_intern
+    # WP-330 С9a: routing по профилю → short_simple/short_complex/long_simple/long_complex
+    intern_for_routing = await get_intern(user_id)
+    practice = (
+        get_day_text(day, 'practice', intern=intern_for_routing)
+        or get_day_text(day, 'practice_full')
+        or get_day_text(day, 'practice')
+    )
     if not practice:
         await callback.answer("Практика для этого дня недоступна", show_alert=True)
         logger.warning(f"[MarathonPractice] No practice content for day {day} (user {user_id})")

@@ -307,10 +307,27 @@ BLOOM_INSTRUCTION = {
 }
 
 
-def calc_words(duration_minutes: int, bloom_level: int = 1) -> int:
-    """Рассчитать целевое количество слов по Content Budget Model."""
-    bl = max(1, min(bloom_level, 3))
-    return int(duration_minutes * WPM_BASE * BLOOM_MULTIPLIER.get(bl, 1.0))
+def calc_words(duration_minutes, bloom_level: int = 1) -> int:
+    """Рассчитать целевое количество слов по Content Budget Model.
+
+    Безопасна к str / range / None: нормализует duration_minutes перед расчётом.
+    Принимает int 15, str '15', legacy range '5-10' (берёт первое число), None/'' (→ 15).
+    """
+    if duration_minutes is None or duration_minutes == "":
+        duration_int = 15
+    else:
+        try:
+            duration_str = str(duration_minutes).split("-")[0]
+            duration_int = int(duration_str)
+        except (ValueError, TypeError):
+            duration_int = 15
+
+    try:
+        bl_int = int(bloom_level) if bloom_level is not None else 1
+    except (ValueError, TypeError):
+        bl_int = 1
+    bl = max(1, min(bl_int, 3))
+    return int(duration_int * WPM_BASE * BLOOM_MULTIPLIER.get(bl, 1.0))
 
 
 # Telegram Markdown v1 formatting rules for Claude prompts

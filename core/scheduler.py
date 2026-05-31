@@ -261,7 +261,13 @@ async def _process_marathon_queue():
                     if content_type == 'lesson_practice' and not content_text:
                         from core.marathon_content import get_day_text
                         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                        lesson = get_day_text(day, 'lesson_full') or get_day_text(day, 'lesson')
+                        # WP-330 С9a: подаём intern в get_day_text для routing 4 версий
+                        intern_for_routing = await get_intern(chat_id)
+                        lesson = (
+                            get_day_text(day, 'lesson', intern=intern_for_routing)
+                            or get_day_text(day, 'lesson_full')
+                            or get_day_text(day, 'lesson')
+                        )
                         faq = get_day_text(day, 'faq_hint')
                         if lesson:
                             lesson_text = lesson + (f"\n\n{faq}" if faq else "")
@@ -307,8 +313,9 @@ async def _process_marathon_queue():
                             continue  # пропускаем старый путь
                         # Иначе fallthrough на старый путь (safety net)
 
-                    # Формируем текст сообщения
-                    text = _build_marathon_message(content_type, day, content_ref, content_text)
+                    # Формируем текст сообщения (WP-330 С9a: intern для legacy fallback routing)
+                    intern_for_build = await get_intern(chat_id) if not content_text else None
+                    text = _build_marathon_message(content_type, day, content_ref, content_text, intern=intern_for_build)
                     if not text:
                         logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
                         await mark_queue_failed(queue_id, "empty_text")
@@ -687,23 +694,34 @@ async def _check_marathon_split_delivery():
         await bot.session.close()
 
 
-def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None) -> str | None:
-    """Собрать текст сообщения из кэша или ref."""
+def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None, intern: dict | None = None) -> str | None:
+    """Собрать текст сообщения из кэша или ref.
+
+    WP-330 С9a: intern опционален; если передан — get_day_text применяет routing
+    по study_duration/complexity_level и возвращает одну из 4 версий.
+    """
     if content_text:
         return content_text
     if content_ref:
         return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
     # WP-330 Ф2.6: читаем из marathon-content.json
-    # WP-330 Ф10.B: long_complex референс (lesson_full/practice_full) + опц. faq_hint
+    # WP-330 Ф10.B + С9a: routing по профилю → long_complex/short_simple/etc.
     from core.marathon_content import get_day_text
-    # Fallback — минимальный текст (доступен из обеих веток ниже)
     templates = {
         'lesson_practice': f"📚 *День {day}*\n\nСегодняшний урок и практика готовы!",
         'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
     }
     if content_type == 'lesson_practice':
-        lesson = get_day_text(day, 'lesson_full') or get_day_text(day, 'lesson')
-        practice = get_day_text(day, 'practice_full') or get_day_text(day, 'practice')
+        lesson = (
+            get_day_text(day, 'lesson', intern=intern)
+            or get_day_text(day, 'lesson_full')
+            or get_day_text(day, 'lesson')
+        )
+        practice = (
+            get_day_text(day, 'practice', intern=intern)
+            or get_day_text(day, 'practice_full')
+            or get_day_text(day, 'practice')
+        )
         if lesson and practice:
             message = f"{lesson}\n\n{practice}"
             faq = get_day_text(day, 'faq_hint')
