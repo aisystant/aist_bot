@@ -17,7 +17,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional, List
 
 from config import get_logger, MOSCOW_TZ
-from db.connection import get_pool
+from db.connection import get_pool, get_learning_pool
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
 logger = get_logger(__name__)
@@ -540,14 +540,22 @@ async def get_marathon_users_at_time(hour: int, minute: int) -> list:
             '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
-                 AND onboarding_completed = TRUE
-                 AND NOT EXISTS (
-                     SELECT 1 FROM learning.marathon_progress
-                     WHERE user_id = development.user_state.chat_id
-                 )''',
+                 AND onboarding_completed = TRUE''',
             time_str
         )
-    return [row['chat_id'] for row in rows]
+
+    if not rows:
+        return []
+
+    chat_ids = [row['chat_id'] for row in rows]
+    learning_pool = await get_learning_pool()
+    async with learning_pool.acquire() as l_conn:
+        progress_rows = await l_conn.fetch(
+            'SELECT user_id FROM learning.marathon_progress WHERE user_id = ANY($1::bigint[])',
+            chat_ids
+        )
+    completed_ids = {row['user_id'] for row in progress_rows}
+    return [cid for cid in chat_ids if cid not in completed_ids]
 
 
 async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
@@ -555,20 +563,16 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
     pool = await get_pool()
     time_str = f"{hour:02d}:{minute:02d}"
     async with pool.acquire() as conn:
-        # Марафон: schedule_time совпадает, марафон активен (legacy only — WP-330 excluded)
+        # Марафон: schedule_time совпадает, марафон активен
         marathon_rows = await conn.fetch(
             '''SELECT chat_id FROM development.user_state
                WHERE schedule_time = $1
                  AND marathon_status = 'active'
                  AND onboarding_completed = TRUE
-                 AND bot_blocked IS NOT TRUE
-                 AND NOT EXISTS (
-                     SELECT 1 FROM learning.marathon_progress
-                     WHERE user_id = development.user_state.chat_id
-                 )''',
+                 AND bot_blocked IS NOT TRUE''',
             time_str
         )
-        marathon_ids = {row['chat_id'] for row in marathon_rows}
+        raw_marathon_ids = {row['chat_id'] for row in marathon_rows}
 
         # Лента: feed_schedule_time совпадает, лента активна
         feed_rows = await conn.fetch(
@@ -593,16 +597,29 @@ async def get_all_scheduled_interns(hour: int, minute: int) -> List[tuple]:
         )
         feed_ids = feed_ids | {row['chat_id'] for row in fallback_rows}
 
-        # Объединяем
-        result = []
-        for cid in marathon_ids | feed_ids:
-            if cid in marathon_ids and cid in feed_ids:
-                result.append((cid, 'both'))
-            elif cid in feed_ids:
-                result.append((cid, 'feed'))
-            else:
-                result.append((cid, 'marathon'))
-        return result
+    # Фильтр марафонцев по прогрессу (app-side join, Neon learning DB)
+    if raw_marathon_ids:
+        learning_pool = await get_learning_pool()
+        async with learning_pool.acquire() as l_conn:
+            progress_rows = await l_conn.fetch(
+                'SELECT user_id FROM learning.marathon_progress WHERE user_id = ANY($1::bigint[])',
+                list(raw_marathon_ids)
+            )
+        completed_ids = {row['user_id'] for row in progress_rows}
+        marathon_ids = raw_marathon_ids - completed_ids
+    else:
+        marathon_ids = raw_marathon_ids
+
+    # Объединяем
+    result = []
+    for cid in marathon_ids | feed_ids:
+        if cid in marathon_ids and cid in feed_ids:
+            result.append((cid, 'both'))
+        elif cid in feed_ids:
+            result.append((cid, 'feed'))
+        else:
+            result.append((cid, 'marathon'))
+    return result
 
 
 # --- Slot management (auto-stagger) ---
