@@ -91,8 +91,6 @@ onboarding:
   ask_goals: "¿Qué quieres cambiar en tu vida?"
   ask_goals_hint: "_Esto ayuda a conectar el material con tus metas._"
   ask_duration: "¿Cuántos minutos por tema?"
-  ask_complexity: "¿Qué estilo de lenguaje para las lecciones?"
-  ask_complexity_hint: "_Lenguaje simple — sin términos especiales. Con términos IWE — exoesqueleto, memes, estados._"
   ask_time: "¿Cuándo debo recordarte sobre nuevos temas?"
   ask_time_hint: "_Formato: HH:MM (ej. 09:00). Zona horaria: Moscú (UTC+3)_"
   ask_start_date: "¿Cuándo empezamos el maratón?"
@@ -102,13 +100,8 @@ onboarding:
 
 duration:
   minutes_5: "⚡ 5 minutos"
-  minutes_10: "🕐 10 minutos"
   minutes_15: "🕑 15 minutos"
   minutes_25: "🕓 25 minutos"
-
-complexity:
-  level_1: "🌱 Lenguaje simple"
-  level_2: "🔬 Con términos IWE"
 
 buttons:
   "yes": "Sí"

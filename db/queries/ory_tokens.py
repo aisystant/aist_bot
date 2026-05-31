@@ -10,7 +10,7 @@ Persistence для Ory OAuth tokens (WP-209 Ф0).
 WP-253 lift-and-shift (8 мая): хранилище перенесено из bot_data в Neon secrets БД.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from config import get_logger
@@ -83,95 +83,3 @@ async def get_expiring_ory_tokens(margin_seconds: int = 600) -> List[Dict]:
             margin_seconds,
         )
         return [dict(r) for r in rows]
-
-
-async def refresh_ory_token_with_lock(
-    chat_id: int,
-    refresh_fn,
-    fresh_threshold_seconds: int = 60,
-):
-    """Cross-process safe refresh через SELECT FOR UPDATE + double-check.
-
-    WP-200 follow-up: устраняет race между ботом и iwe-gateway-bridge.py,
-    которые оба могут вызвать refresh_token rotation на одной строке ory_tokens.
-
-    Алгоритм:
-      1. Открыть транзакцию, взять row-lock через `SELECT ... FOR UPDATE WHERE chat_id = $1`.
-      2. Double-check: если `expires_at > now + fresh_threshold_seconds` — другой writer
-         уже обновил, возвращаем текущее значение из БД без вызова Ory.
-      3. Иначе вызываем `refresh_fn(refresh_token)` (async), получаем новые tokens.
-      4. UPDATE строки в той же транзакции.
-      5. COMMIT — отпускаем lock.
-
-    refresh_fn: async callable, принимает refresh_token (str), возвращает dict с ключами
-        access_token, refresh_token (опционально), expires_in (опционально, секунды).
-        Может бросить исключение — транзакция автоматически откатится через async with.
-
-    Returns:
-        dict с access_token + expires_at (после refresh или из БД при double-check hit) либо
-        None, если строки нет.
-
-    Raises:
-        InvalidGrantError или любое исключение от refresh_fn (обработка возложена на caller —
-        транзакция отказывается перед тем как exception дойдёт до caller).
-    """
-    pool = await get_secrets_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            row = await conn.fetchrow(
-                '''SELECT access_token, refresh_token, expires_at, ory_id
-                   FROM ory_tokens
-                   WHERE chat_id = $1
-                   FOR UPDATE''',
-                chat_id,
-            )
-            if row is None:
-                return None
-
-            # Double-check: пока ждали lock, кто-то мог уже обновить
-            expires_at = row['expires_at']
-            now = datetime.utcnow()
-            if expires_at.tzinfo is not None:
-                expires_at_naive = expires_at.replace(tzinfo=None)
-            else:
-                expires_at_naive = expires_at
-            if expires_at_naive > now + timedelta(seconds=fresh_threshold_seconds):
-                # Уже свежий — возвращаем без HTTP-вызова к Ory.
-                return {
-                    'access_token': row['access_token'],
-                    'refresh_token': row['refresh_token'],
-                    'expires_at': expires_at_naive,
-                    'ory_id': row['ory_id'],
-                    'from_cache': True,
-                }
-
-            # Идём в Ory под row-lock — никто другой не сможет конкурентно
-            # запросить refresh для этой же строки (бот ↔ bridge race закрыт).
-            new_tokens = await refresh_fn(row['refresh_token'])
-            if not new_tokens:
-                return None
-
-            # WP-200 follow-up H2: `expires_in` отсчитывается от момента ответа Ory,
-            # не от начала запроса. При медленном HTTP (3-5с) старый `now` давал
-            # `expires_at` на N секунд раньше реального. Пересчитываем после await.
-            now_after = datetime.utcnow()
-            new_expires_at = now_after + timedelta(
-                seconds=new_tokens.get('expires_in', 3600)
-            )
-            new_access = new_tokens['access_token']
-            new_refresh = new_tokens.get('refresh_token') or row['refresh_token']
-
-            await conn.execute(
-                '''UPDATE ory_tokens
-                   SET access_token = $1, refresh_token = $2,
-                       expires_at = $3, updated_at = NOW()
-                   WHERE chat_id = $4''',
-                new_access, new_refresh, new_expires_at, chat_id,
-            )
-            return {
-                'access_token': new_access,
-                'refresh_token': new_refresh,
-                'expires_at': new_expires_at,
-                'ory_id': row['ory_id'],
-                'from_cache': False,
-            }

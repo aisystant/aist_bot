@@ -585,14 +585,6 @@ async def main():
             except Exception as e:
                 logger.warning(f"[session] recovery scan skip: {type(e).__name__}: {e}")
 
-            # WP-7 TGSH7: boot recovery — restart heartbeat-pollers for active FSM sessions.
-            try:
-                from handlers.external_session import recover_active_heartbeat_pollers
-                asyncio.create_task(recover_active_heartbeat_pollers(bot))
-                logger.info("[heartbeat] active-session boot recovery scheduled (WP-7 TGSH7)")
-            except Exception as e:
-                logger.warning(f"[heartbeat] boot recovery skip: {type(e).__name__}: {e}")
-
             # Keep running until shutdown signal
             stop_event = asyncio.Event()
             loop = asyncio.get_running_loop()

@@ -44,23 +44,10 @@ def kb_learning_style(lang: str = 'ru') -> InlineKeyboardMarkup:
 
 
 def kb_study_duration(lang: str = 'ru') -> InlineKeyboardMarkup:
-    """Клавиатура выбора длительности занятия (WP-330 С9a: 2 кнопки 10 / 25)"""
+    """Клавиатура выбора длительности занятия"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t(f'duration.minutes_{k}', lang), callback_data=f"duration_{k}")]
-        for k in [10, 25]
-    ])
-
-
-def kb_complexity_level(lang: str = 'ru') -> InlineKeyboardMarkup:
-    """Клавиатура выбора сложности контента (WP-330 С9a).
-
-    Уровни:
-      1 — своими словами, без терминов
-      2 — с терминами IWE
-    """
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t(f'complexity.level_{k}', lang), callback_data=f"complexity_{k}")]
-        for k in [1, 2]
+        for k in [5, 15, 25]
     ])
 
 
