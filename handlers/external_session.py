@@ -258,11 +258,15 @@ async def recover_active_heartbeat_pollers(bot) -> None:
     """WP-7 TGSH7: boot recovery — restart heartbeat-pollers for active FSM sessions.
 
     Symmetric to recover_orphan_finalizations (orphan SESSION-* в GitHub),
-    но для FSM-active в Neon (свежий last_turn_at, есть working_message_id).
+    но для FSM-active в fsm-БД (свежий last_turn_at, есть working_message_id).
+
+    Schema fsm_states (Railway-local FSM, см. db/models.py + core/storage.py):
+      chat_id BIGINT PK | state TEXT | data TEXT (JSON-string) | updated_at TIMESTAMP
+    Фильтрация по data — в Python (data — TEXT, не JSONB).
     """
     try:
-        from db.connection import get_pool
-        pool = await get_pool()
+        from db.connection import get_fsm_pool
+        pool = await get_fsm_pool()
     except Exception as exc:
         logger.warning("[heartbeat] boot recovery pool error: %s", type(exc).__name__)
         return
@@ -270,31 +274,30 @@ async def recover_active_heartbeat_pollers(bot) -> None:
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
-                SELECT key, data
-                FROM fsm_states
-                WHERE state = $1
-                  AND data->>'session_id' IS NOT NULL
-                  AND data->>'last_turn_at' > to_char(NOW() - INTERVAL '30 minutes', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-                  AND data->>'working_message_id' IS NOT NULL
-                """,
+                "SELECT chat_id, data FROM fsm_states WHERE state = $1",
                 "ExternalSession:active",
             )
     except Exception as exc:
         logger.warning("[heartbeat] boot recovery query failed: %s", type(exc).__name__)
         return
 
+    cutoff_iso = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     for row in rows:
         try:
-            data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
-            key = row["key"]
-            # FSM key format aiogram: "bot:<bot_id>:user:<user_id>:chat:<chat_id>" or similar
-            chat_id_str = key.split(":chat:")[-1].split(":")[0]
-            chat_id = int(chat_id_str)
-            session_id = data["session_id"]
-            working_message_id = int(data["working_message_id"])
+            chat_id = int(row["chat_id"])
+            raw = row["data"]
+            if not raw:
+                continue
+            data = raw if isinstance(raw, dict) else json.loads(raw)
+            session_id = data.get("session_id")
+            working_message_id = data.get("working_message_id")
+            last_turn_at = data.get("last_turn_at")
+            if not (session_id and working_message_id and last_turn_at):
+                continue
+            if last_turn_at <= cutoff_iso:
+                continue
             turn_n = int(data.get("turn_count", 1))
-            await _start_heartbeat_poller(bot, chat_id, session_id, working_message_id, turn_n)
+            await _start_heartbeat_poller(bot, chat_id, session_id, int(working_message_id), turn_n)
             logger.info("[heartbeat] boot recovery resumed poller for %s (chat=%s)", session_id, chat_id)
         except Exception as exc:
             logger.warning("[heartbeat] boot recovery row skip: %s", type(exc).__name__)
