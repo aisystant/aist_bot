@@ -416,6 +416,14 @@ onboarding:
     ru: "Сколько минут готов уделять одной теме?"
     en: "How many minutes per topic?"
 
+  ask_complexity:
+    ru: "На каком языке писать урок?"
+    en: "What language style for lessons?"
+
+  ask_complexity_hint:
+    ru: "_Своими словами — без специальных терминов. С терминами IWE — экзоскелет, мемы, состояния._"
+    en: "_Plain language — no special terms. With IWE terms — exoskeleton, memes, states._"
+
   ask_time:
     ru: "Во сколько напоминать о новой теме?"
     en: "When should I remind you about new topics?"
@@ -594,6 +602,11 @@ duration:
     en: "⚡ 5 minutes"
     max_length: 20
 
+  minutes_10:
+    ru: "🕐 10 минут"
+    en: "🕐 10 minutes"
+    max_length: 20
+
   minutes_15:
     ru: "🕑 15 минут"
     en: "🕑 15 minutes"
@@ -603,6 +616,20 @@ duration:
     ru: "🕓 25 минут"
     en: "🕓 25 minutes"
     max_length: 20
+
+# -----------------------------------------------------------------------------
+# Сложность контента (WP-330 С9a)
+# -----------------------------------------------------------------------------
+complexity:
+  level_1:
+    ru: "🌱 Своими словами"
+    en: "🌱 Plain language"
+    max_length: 24
+
+  level_2:
+    ru: "🔬 С терминами IWE"
+    en: "🔬 With IWE terms"
+    max_length: 24
 
 # -----------------------------------------------------------------------------
 # Кнопки (общие)

@@ -15,7 +15,10 @@ import os
 import random
 import re
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+
+# WP-330 С5 watchdog active window (МСК). После 31 мая функция auto-noop.
+_WP330_C5_WATCHDOG_DATE = date(2026, 5, 31)
 from typing import Optional
 
 from aiogram import Bot
@@ -253,8 +256,66 @@ async def _process_marathon_queue():
                     content_text = item.get('content_text')
                     attempts = item['attempts']
 
-                    # Формируем текст сообщения
-                    text = _build_marathon_message(content_type, day, content_ref, content_text)
+                    # WP-330 Ф10.C: split lesson_practice на 2 сообщения для новых записей
+                    # (content_text=NULL). Legacy (content_text!=NULL) идут старым путём ниже.
+                    if content_type == 'lesson_practice' and not content_text:
+                        from core.marathon_content import get_day_text
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        # WP-330 С9a: подаём intern в get_day_text для routing 4 версий
+                        intern_for_routing = await get_intern(chat_id)
+                        lesson = (
+                            get_day_text(day, 'lesson', intern=intern_for_routing)
+                            or get_day_text(day, 'lesson_full')
+                            or get_day_text(day, 'lesson')
+                        )
+                        faq = get_day_text(day, 'faq_hint')
+                        if lesson:
+                            lesson_text = lesson + (f"\n\n{faq}" if faq else "")
+                            # Length guard для future long_complex (Шаг E)
+                            if len(lesson_text) > 4000:
+                                lesson_text = lesson_text[:3990] + "\n\n…"
+                            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                                InlineKeyboardButton(
+                                    text="✏️ Перейти к практике",
+                                    callback_data=f"marathon_practice:{day}"
+                                )
+                            ]])
+                            try:
+                                await bot.send_message(chat_id, lesson_text, parse_mode="Markdown", reply_markup=keyboard)
+                                await mark_queue_sent(queue_id)
+                                progress = await get_or_create_progress(chat_id)
+                                current_day = progress.get('current_day', 0)
+                                new_day = max(current_day, day)
+                                if new_day != current_day:
+                                    await update_progress(chat_id, current_day=new_day)
+                                    logger.info(f"[MarathonQueue] Updated current_day {current_day}→{new_day} for {chat_id}")
+                                logger.info(f"[MarathonQueue] Sent lesson_practice (split) day {day} to {chat_id}")
+                            except Exception as e:
+                                error_msg = str(e)
+                                logger.error(
+                                    f"[MarathonQueue] Failed to send split lesson day {day} to {chat_id}: "
+                                    f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
+                                )
+                                from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
+                                if isinstance(e, TelegramRetryAfter):
+                                    retry_after = getattr(e, 'retry_after', 30)
+                                    delay_minutes = math.ceil(retry_after / 60)
+                                    logger.warning(
+                                        f"[MarathonQueue] Rate limit (split) for {chat_id}, "
+                                        f"retry_after={retry_after}s, reschedule in {delay_minutes}min"
+                                    )
+                                    await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
+                                    await asyncio.sleep(min(retry_after, 10))
+                                    continue
+                                if isinstance(e, TelegramForbiddenError) or _is_user_unavailable(e):
+                                    await _handle_unavailable_user(chat_id, "marathon split lesson")
+                                await mark_queue_failed(queue_id, error_msg[:200])
+                            continue  # пропускаем старый путь
+                        # Иначе fallthrough на старый путь (safety net)
+
+                    # Формируем текст сообщения (WP-330 С9a: intern для legacy fallback routing)
+                    intern_for_build = await get_intern(chat_id) if not content_text else None
+                    text = _build_marathon_message(content_type, day, content_ref, content_text, intern=intern_for_build)
                     if not text:
                         logger.warning(f"[MarathonQueue] Empty text for {chat_id} day {day} {content_type}, skip")
                         await mark_queue_failed(queue_id, "empty_text")
@@ -452,6 +513,40 @@ async def _send_marathon_nudges():
                     await _handle_unavailable_user(chat_id, "marathon nudge")
                 else:
                     logger.warning(f"[MarathonNudge] Failed to send to {chat_id}: {e}")
+
+        # WP-330 Ф10.D: напоминание о непрочитанной практике
+        # (lesson_practice доставлен вчера, кнопка «✏️ Перейти к практике» не нажата)
+        from db.queries.marathon_newcomer import get_users_for_practice_nudge
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+        practice_users = await get_users_for_practice_nudge()
+        for pu in practice_users:
+            chat_id = pu['user_id']
+            day = pu['day_number']
+            # Dedup nudge: один раз в день на пару (user, day)
+            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{today_str}"
+            if not await try_insert_notification(chat_id, 'marathon_practice_nudge', nudge_key):
+                continue
+            try:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="✏️ Перейти к практике",
+                        callback_data=f"marathon_practice:{day}"
+                    )
+                ]])
+                await bot.send_message(
+                    chat_id,
+                    f"📚 Вчера пришёл урок Дня {day}, но практику ещё не открыли.\n\n"
+                    "Нажмите кнопку ниже, чтобы продолжить:",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+                logger.info(f"[MarathonPracticeNudge] Sent to {chat_id} for day {day}")
+            except Exception as e:
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, "marathon practice nudge")
+                else:
+                    logger.warning(f"[MarathonPracticeNudge] Failed to send to {chat_id}: {e}")
     finally:
         await bot.session.close()
 
@@ -530,23 +625,103 @@ async def _send_marathon_weekly_digest():
         await bot.session.close()
 
 
-def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None) -> str | None:
-    """Собрать текст сообщения из кэша или ref."""
+async def _check_marathon_split_delivery():
+    """WP-330 С5 watchdog: убедиться что split-формат уроков уехал утром 31 мая.
+
+    Запускается каждые 30 мин в окне 04:00–06:30 МСК 31 мая 2026.
+    Если за последние 60 мин 0 lesson_practice-доставок с content_text IS NULL
+    (=split-путь) — алерт в MENTOR_CHANNEL_ID.
+
+    Read-only для user state (§10.10b). Dedup per-window через notification_log
+    (§10.10). Auto-noop после окна — функция остаётся в коде до W22-close, потом
+    удаляется отдельным коммитом.
+    """
+    from db.queries.notifications import try_insert_notification
+    from db.connection import get_learning_pool
+
+    if not MENTOR_CHANNEL_ID or not _bot_token:
+        _warn_if_no_mentor_channel()
+        return
+
+    now = moscow_now()
+    if now.date() != _WP330_C5_WATCHDOG_DATE:
+        return
+    if not (4 <= now.hour <= 6):
+        return
+
+    # Кумулятивный счёт с 04:00 МСК сегодня — иначе sliding 60-мин окно
+    # даёт false-positive в поздних слотах (06:05/06:35), если все доставки
+    # прошли в 04:00–05:00. См. peer-review 2026-05-30-34, High #1.
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT
+                count(*) FILTER (WHERE content_text IS NULL)     AS split,
+                count(*) FILTER (WHERE content_text IS NOT NULL) AS legacy
+              FROM learning.marathon_queue
+             WHERE status = 'sent'
+               AND content_type = 'lesson_practice'
+               AND sent_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'Europe/Moscow')
+                            + INTERVAL '4 hours'
+        """)
+    split = int(row['split'] or 0)
+    legacy = int(row['legacy'] or 0)
+
+    window_key = f"marathon_split_watchdog:{now.strftime('%Y-%m-%d-%H%M')}"
+    logger.info(f"[MarathonSplitWatchdog] window={window_key} split={split} legacy={legacy}")
+
+    if split > 0:
+        return
+
+    if not await try_insert_notification(MENTOR_CHANNEL_ID, 'marathon_split_watchdog', window_key):
+        return
+
+    bot = Bot(token=_bot_token)
+    try:
+        await bot.send_message(
+            MENTOR_CHANNEL_ID,
+            f"🚨 *WP-330 С5 watchdog*\n\n"
+            f"Окно `{now.strftime('%H:%M')}` МСК 31 мая: с 04:00 МСК сегодня 0 split-доставок "
+            f"(legacy={legacy}). Migration не сработала или cron спит. Проверь:\n"
+            f"• `git log -1 --oneline new-architecture` — С2 (c5820ea) на проде?\n"
+            f"• `SELECT count(*) FROM learning.marathon_queue WHERE status='pending' "
+            f"AND content_text IS NULL AND content_type='lesson_practice'` ≥ 1?\n"
+            f"• Railway logs `[MarathonQueue]` за последний час",
+            parse_mode="Markdown",
+        )
+        logger.warning(f"[MarathonSplitWatchdog] Alert sent: 0 split deliveries in last 60 min (legacy={legacy})")
+    finally:
+        await bot.session.close()
+
+
+def _build_marathon_message(content_type: str, day: int, content_ref: str | None, content_text: str | None, intern: dict | None = None) -> str | None:
+    """Собрать текст сообщения из кэша или ref.
+
+    WP-330 С9a: intern опционален; если передан — get_day_text применяет routing
+    по study_duration/complexity_level и возвращает одну из 4 версий.
+    """
     if content_text:
         return content_text
     if content_ref:
         return f"📚 *День {day}*\n\n[Открыть материал]({content_ref})"
     # WP-330 Ф2.6: читаем из marathon-content.json
-    # WP-330 Ф10.B: long_complex референс (lesson_full/practice_full) + опц. faq_hint
+    # WP-330 Ф10.B + С9a: routing по профилю → long_complex/short_simple/etc.
     from core.marathon_content import get_day_text
-    # Fallback — минимальный текст (доступен из обеих веток ниже)
     templates = {
         'lesson_practice': f"📚 *День {day}*\n\nСегодняшний урок и практика готовы!",
         'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
     }
     if content_type == 'lesson_practice':
-        lesson = get_day_text(day, 'lesson_full') or get_day_text(day, 'lesson')
-        practice = get_day_text(day, 'practice_full') or get_day_text(day, 'practice')
+        lesson = (
+            get_day_text(day, 'lesson', intern=intern)
+            or get_day_text(day, 'lesson_full')
+            or get_day_text(day, 'lesson')
+        )
+        practice = (
+            get_day_text(day, 'practice', intern=intern)
+            or get_day_text(day, 'practice_full')
+            or get_day_text(day, 'practice')
+        )
         if lesson and practice:
             message = f"{lesson}\n\n{practice}"
             faq = get_day_text(day, 'faq_hint')
@@ -661,6 +836,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
+    _scheduler.add_job(_check_marathon_split_delivery, 'cron', hour='4,5,6', minute='5,35', id='marathon_split_watchdog', max_instances=1)  # WP-330 С5: split rollout watchdog (auto-noop вне 31.05 04:00-06:30 МСК)
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
 
