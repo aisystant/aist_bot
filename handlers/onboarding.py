@@ -73,7 +73,7 @@ from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT, is_onboarded
 from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
-    kb_study_duration, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
+    kb_study_duration, kb_complexity_level, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
     kb_slot_suggestions,
 )
 
@@ -89,6 +89,7 @@ class OnboardingStates(StatesGroup):
     choosing_language = State()          # 0. Язык (для неподдерживаемых языков)
     waiting_for_name = State()           # 1. Имя
     waiting_for_study_duration = State() # 2. Время на тему
+    waiting_for_complexity_level = State()  # 2b. Сложность контента (WP-330 С9a)
     waiting_for_schedule = State()       # 3. Время напоминания
     waiting_for_start_date = State()     # 4. Дата старта марафона
     confirming_profile = State()
@@ -469,15 +470,34 @@ async def on_duration(callback: CallbackQuery, state: FSMContext):
     await update_intern(callback.message.chat.id, study_duration=duration)
     await callback.answer()
     await callback.message.edit_text(
+        t('onboarding.ask_complexity', lang) + "\n\n" +
+        t('onboarding.ask_complexity_hint', lang),
+        parse_mode="Markdown",
+        reply_markup=kb_complexity_level(lang)
+    )
+    await state.set_state(OnboardingStates.waiting_for_complexity_level)
+
+    # WP-151 Ф3: onboarding_step
+    from db.queries.events import log_event
+    await log_event(callback.message.chat.id, 'onboarding_step', {'step': 'duration'})
+
+
+@onboarding_router.callback_query(OnboardingStates.waiting_for_complexity_level, F.data.startswith("complexity_"))
+async def on_complexity(callback: CallbackQuery, state: FSMContext):
+    """WP-330 С9a: пилот выбирает уровень сложности контента (1 или 2)."""
+    lang = await get_lang(state)
+    level = int(callback.data.replace("complexity_", ""))
+    await update_intern(callback.message.chat.id, complexity_level=level)
+    await callback.answer()
+    await callback.message.edit_text(
         t('onboarding.ask_time', lang) + "\n\n" +
         t('onboarding.ask_time_hint', lang),
         parse_mode="Markdown"
     )
     await state.set_state(OnboardingStates.waiting_for_schedule)
 
-    # WP-151 Ф3: onboarding_step
     from db.queries.events import log_event
-    await log_event(callback.message.chat.id, 'onboarding_step', {'step': 'duration'})
+    await log_event(callback.message.chat.id, 'onboarding_step', {'step': 'complexity'})
 
 @onboarding_router.message(OnboardingStates.waiting_for_schedule)
 async def on_schedule(message: Message, state: FSMContext):

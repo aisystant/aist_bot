@@ -196,11 +196,15 @@ class GatewayMCPClient:
                 refreshed += 1
             else:
                 failed += 1
-                # Proactive видит явный invalid_grant → refresh_token действительно
-                # невалиден (в отличие от reactive race), можно безопасно удалить.
-                logger.warning(f"Gateway: proactive refresh failed for user {user_id}, removing tokens")
-                self._tokens.pop(user_id, None)
-                self._refresh_locks.pop(user_id, None)
+                # WP-200 follow-up: НЕ удаляем токен здесь. _refresh_single_token
+                # сам делает pop+delete_ory_tokens только при InvalidGrantError.
+                # На сетевые ошибки/таймауты/5xx — токен остаётся, retry на следующем
+                # cycle (10 мин) или reactive path (401 → refresh). Иначе transient
+                # сбой Ory мгновенно отключает пользователя без реального revoke.
+                logger.warning(
+                    f"Gateway: proactive refresh failed for user {user_id} "
+                    f"(state managed by _refresh_single_token)"
+                )
 
         if refreshed or failed:
             logger.info(f"Gateway: proactive refresh — {refreshed} ok, {failed} failed")
@@ -208,9 +212,14 @@ class GatewayMCPClient:
     async def _refresh_single_token(self, telegram_user_id: int) -> bool:
         """Refresh Ory token для одного пользователя (при 401). Возвращает True при успехе.
 
-        Сериализован через per-user asyncio.Lock. При thundering herd (N параллельных
-        вызовов из одной корутины) только первый делает реальный POST в Ory, остальные
-        ждут lock и попадают в double-check ветку со свежим токеном.
+        Два слоя сериализации:
+          - in-memory `_refresh_locks[user_id]` — concurrent корутины внутри **одного** процесса.
+          - БД `SELECT ... FOR UPDATE` через `refresh_ory_token_with_lock` — concurrent **процессы**
+            (бот в Railway + iwe-gateway-bridge.py локально). WP-200 follow-up — устраняет
+            multi-writer race на rotating refresh_token Ory.
+
+        Layered порядок: asyncio.Lock → asyncpg transaction → FOR UPDATE.
+        Deadlock невозможен — порядок захвата детерминирован (per-user).
         """
         lock = self._refresh_locks.setdefault(telegram_user_id, asyncio.Lock())
         async with lock:
@@ -218,53 +227,53 @@ class GatewayMCPClient:
             if not data:
                 return False
 
-            # Double-check: пока ждали lock, другая корутина могла уже обновить
+            # NB: In-memory double-check НЕ делаем — _tokens может быть несвежим
+            # относительно БД (bridge мог обновить под FOR UPDATE'ом). Пусть
+            # refresh_ory_token_with_lock сам сделает double-check под БД-lock'ом —
+            # round-trip ~10ms против риска вернуть stale access_token.
             expires_at = data.get("expires_at")
             if isinstance(expires_at, datetime) and expires_at.tzinfo is not None:
                 expires_at = expires_at.replace(tzinfo=None)
-            if isinstance(expires_at, datetime) and expires_at > datetime.utcnow() + timedelta(seconds=60):
-                logger.debug(f"Gateway: refresh skipped for user {telegram_user_id} — token already fresh")
-                return True
 
-            refresh_token = data.get("refresh_token")
-            if not refresh_token:
-                return False
             try:
                 from clients.ory_oauth import ory_oauth, InvalidGrantError
-                from db.queries.ory_tokens import save_ory_tokens, delete_ory_tokens
+                from db.queries.ory_tokens import refresh_ory_token_with_lock, delete_ory_tokens
 
-                new_tokens = await ory_oauth.refresh_access_token(refresh_token)
-                if new_tokens:
-                    new_expires_at = datetime.utcnow() + timedelta(
-                        seconds=new_tokens.get("expires_in", 3600)
-                    )
-                    new_access = new_tokens["access_token"]
-                    new_refresh = new_tokens.get("refresh_token", refresh_token)
-
-                    self._tokens[telegram_user_id] = {
-                        "access_token": new_access,
-                        "refresh_token": new_refresh,
-                        "expires_at": new_expires_at,
-                        "ory_id": data.get("ory_id"),
-                    }
-                    await save_ory_tokens(
-                        chat_id=telegram_user_id,
-                        access_token=new_access,
-                        refresh_token=new_refresh,
-                        expires_at=new_expires_at,
-                        ory_id=data.get("ory_id"),
-                    )
-                    logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
-                    return True
-                # B4.20 диагностика: ory_oauth вернул None (детали выше в [OryOAuth] логе)
-                logger.warning(
-                    f"Gateway: refresh returned None for user {telegram_user_id} "
-                    f"(ory_id={data.get('ory_id', '?')[:8]}..., "
-                    f"token_age={(datetime.utcnow() - expires_at).seconds // 60 if isinstance(expires_at, datetime) else '?'}min expired)"
+                # БД-сериализация: refresh выполняется под row-lock.
+                # Если другой процесс (bridge) уже сделал refresh → double-check внутри
+                # `refresh_ory_token_with_lock` вернёт свежий токен из БД без вызова Ory.
+                result = await refresh_ory_token_with_lock(
+                    chat_id=telegram_user_id,
+                    refresh_fn=ory_oauth.refresh_access_token,
+                    fresh_threshold_seconds=60,
                 )
-                return False
+                if result is None:
+                    logger.warning(
+                        f"Gateway: refresh returned None for user {telegram_user_id} "
+                        f"(ory_id={(data.get('ory_id') or '?')[:8]}..., "
+                        f"token_age={(datetime.utcnow() - expires_at).seconds // 60 if isinstance(expires_at, datetime) else '?'}min expired)"
+                    )
+                    return False
+
+                # Sync in-memory cache с тем, что в БД (могло измениться bridge'ем).
+                self._tokens[telegram_user_id] = {
+                    "access_token": result["access_token"],
+                    "refresh_token": result["refresh_token"],
+                    "expires_at": result["expires_at"],
+                    "ory_id": result["ory_id"] or data.get("ory_id"),
+                }
+                if result.get("from_cache"):
+                    logger.info(
+                        f"Gateway: token for user {telegram_user_id} already fresh in DB "
+                        f"(updated by another writer, e.g. bridge)"
+                    )
+                else:
+                    logger.info(f"Gateway: refreshed token for user {telegram_user_id}")
+                return True
             except InvalidGrantError:
-                # Refresh token отозван — очищаем кеш и БД, пользователь должен заново авторизоваться
+                # Refresh token отозван (Ory вернул invalid_grant) — транзакция в
+                # refresh_ory_token_with_lock уже откатилась (raise внутри async with
+                # transaction = rollback). Чистим in-memory и БД отдельно.
                 self._tokens.pop(telegram_user_id, None)
                 try:
                     await delete_ory_tokens(telegram_user_id)
@@ -275,6 +284,9 @@ class GatewayMCPClient:
             except Exception as e:
                 logger.error(f"Gateway: refresh error for user {telegram_user_id}: {e}", exc_info=True)
                 return False
+        # NB: _refresh_locks НЕ удаляется при invalid_grant — lock остаётся в setdefault-словаре
+        # до restart процесса. Это benign: при re-auth user_id получит свежий setdefault.
+        # Удалять lock под `async with lock` самим owner'ом — race с параллельной setdefault.
 
     # =========================================================================
     # CIRCUIT BREAKER

@@ -91,6 +91,8 @@ onboarding:
   ask_goals: "你想改变生活中的什么？"
   ask_goals_hint: "_这有助于将内容与你的目标联系起来。_"
   ask_duration: "每个主题多少分钟？"
+  ask_complexity: "用什么语言风格上课？"
+  ask_complexity_hint: "_通俗易懂 — 不用专业术语。带 IWE 术语 — 外骨骼、模因、状态。_"
   ask_time: "什么时候提醒你学习新主题？"
   ask_time_hint: "_格式：HH:MM（例如 09:00）。时区：莫斯科（UTC+3）_"
   ask_start_date: "什么时候开始马拉松？"
@@ -100,8 +102,13 @@ onboarding:
 
 duration:
   minutes_5: "⚡ 5分钟"
+  minutes_10: "🕐 10分钟"
   minutes_15: "🕑 15分钟"
   minutes_25: "🕓 25分钟"
+
+complexity:
+  level_1: "🌱 通俗易懂"
+  level_2: "🔬 带 IWE 术语"
 
 buttons:
   "yes": "是"

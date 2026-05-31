@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import re
@@ -86,6 +87,13 @@ _RECOVERY_CUTOVER_DATE = "20260529"  # YYYYMMDD, без дефисов для п
 # держит task пока тот не закончится; done_callback discard выгребает обратно.
 _BG_TASKS: set[asyncio.Task] = set()
 
+# WP-7 TGSH (2026-05-30): heartbeat-poller per active chat_id.
+# Бот subscribes to session.heartbeat events in learning.domain_event, edits «⏳ Работаю...»
+# message with elapsed seconds and triggers chat_action(typing). Soft cut-off: heartbeat missing >15 мин → fail.
+_HEARTBEAT_POLLERS: dict[int, asyncio.Task] = {}
+_HEARTBEAT_POLL_INTERVAL_SEC = 10
+_HEARTBEAT_TIMEOUT_SEC = 15 * 60  # 15 мин без heartbeat → soft cut-off (TGSH6)
+
 
 def _spawn(coro) -> asyncio.Task:
     """asyncio.create_task с защитой от GC (Medium-1)."""
@@ -93,6 +101,203 @@ def _spawn(coro) -> asyncio.Task:
     _BG_TASKS.add(task)
     task.add_done_callback(_BG_TASKS.discard)
     return task
+
+
+async def _start_heartbeat_poller(
+    bot, chat_id: int, session_id: str, working_message_id: int, turn_n: int,
+) -> None:
+    """WP-7 TGSH5/6: poll learning.domain_event для session.heartbeat → edit "⏳ Работаю...".
+
+    Стопится автоматически при session.turn_completed/turn_failed event ИЛИ при отсутствии heartbeat ≥15 мин (soft cut-off).
+    Также может быть отменён через _stop_heartbeat_poller (cmd_close/cmd_cancel/finalize).
+    """
+    # Cancel previous poller if any (idempotent)
+    await _stop_heartbeat_poller(chat_id)
+
+    async def _loop():
+        from db.connection import get_learning_pool
+        from aiogram.exceptions import TelegramBadRequest
+
+        last_heartbeat_at: Optional[datetime] = None
+        started = datetime.now(timezone.utc)
+        try:
+            pool = await get_learning_pool()
+        except Exception as exc:
+            logger.warning("[heartbeat] learning pool unavailable for %s: %s", session_id, exc)
+            return
+
+        while True:
+            await asyncio.sleep(_HEARTBEAT_POLL_INTERVAL_SEC)
+            try:
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT event_type, occurred_at, payload
+                        FROM domain_event
+                        WHERE event_type IN (
+                                'session.heartbeat',
+                                'session.turn_completed',
+                                'session.turn_failed'
+                            )
+                          AND payload->>'session_id' = $1
+                          AND (payload->>'turn_n')::int = $2
+                        ORDER BY occurred_at DESC
+                        LIMIT 1
+                        """,
+                        session_id, turn_n,
+                    )
+            except Exception as exc:
+                logger.warning("[heartbeat] poll error for %s: %s", session_id, type(exc).__name__)
+                continue
+
+            now = datetime.now(timezone.utc)
+
+            if row is None:
+                # No heartbeat yet — soft-timeout считаем от старта poller
+                if (now - started).total_seconds() > _HEARTBEAT_TIMEOUT_SEC:
+                    await _heartbeat_soft_fail(bot, chat_id, session_id, working_message_id,
+                                                reason="no_heartbeat")
+                    return
+                continue
+
+            ev_type = row["event_type"]
+            occurred_at = row["occurred_at"]
+            if occurred_at.tzinfo is None:
+                occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+
+            if ev_type == "session.turn_completed":
+                logger.info("[heartbeat] %s turn %d completed — poller stops", session_id, turn_n)
+                return
+
+            if ev_type == "session.turn_failed":
+                reason = (row["payload"] or {}).get("reason", "unknown")
+                await _heartbeat_soft_fail(bot, chat_id, session_id, working_message_id,
+                                            reason=reason)
+                return
+
+            # session.heartbeat
+            last_heartbeat_at = occurred_at
+            payload = row["payload"] or {}
+            elapsed = payload.get("elapsed_sec", int((now - started).total_seconds()))
+            hint = payload.get("progress_hint", "")
+            new_text = f"⏳ Работаю... {elapsed}с"
+            if hint:
+                new_text += f" — {hint}"
+            try:
+                await bot.edit_message_text(
+                    chat_id=chat_id, message_id=working_message_id, text=new_text,
+                )
+            except TelegramBadRequest as exc:
+                # Message can be old enough that TG forbids edit, OR message identical (no-op).
+                if "message is not modified" not in str(exc).lower():
+                    logger.info("[heartbeat] edit failed for %s: %s", session_id, exc)
+            except Exception as exc:
+                logger.warning("[heartbeat] edit failed for %s: %s", session_id, type(exc).__name__)
+            # Typing indicator — родной TG UX, мгновенный
+            try:
+                await bot.send_chat_action(chat_id=chat_id, action="typing")
+            except Exception:
+                pass
+
+            # Soft cut-off: проверка stale heartbeat
+            if last_heartbeat_at and (now - last_heartbeat_at).total_seconds() > _HEARTBEAT_TIMEOUT_SEC:
+                await _heartbeat_soft_fail(bot, chat_id, session_id, working_message_id,
+                                            reason="stale_heartbeat")
+                return
+
+    task = _spawn(_loop())
+    _HEARTBEAT_POLLERS[chat_id] = task
+    task.add_done_callback(lambda t, cid=chat_id: _HEARTBEAT_POLLERS.pop(cid, None))
+
+
+async def _stop_heartbeat_poller(chat_id: int) -> None:
+    """Отменить активный heartbeat-poller для chat_id (если есть)."""
+    task = _HEARTBEAT_POLLERS.pop(chat_id, None)
+    if task and not task.done():
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+
+
+async def _heartbeat_soft_fail(
+    bot, chat_id: int, session_id: str, working_message_id: int, reason: str,
+) -> None:
+    """WP-7 TGSH6: soft-timeout fail — edit «⏳ Работаю...» → «❌ Превышен таймаут».
+
+    Reason patterns: 'no_heartbeat' / 'stale_heartbeat' / 'usage_limit' / 'timeout' / 'unknown'.
+    """
+    from aiogram.exceptions import TelegramBadRequest
+    reason_text = {
+        "no_heartbeat": "обработчик не начал отвечать в течение 15 мин",
+        "stale_heartbeat": "обработчик замолчал (нет сигналов жизни ≥15 мин)",
+        "usage_limit": "превышен лимит обращений к Claude API — повтори через несколько минут",
+        "timeout": "превышен системный таймаут обработчика (30 мин)",
+        "unknown": "обработчик завершился с ошибкой",
+    }.get(reason, "обработчик завершился с ошибкой")
+
+    text = (
+        f"❌ Ход не завершён: {reason_text}.\n"
+        f"Сессия {session_id} помечена failed.\n"
+        f"Открой новую: /claude <запрос>"
+    )
+    try:
+        await bot.edit_message_text(chat_id=chat_id, message_id=working_message_id, text=text)
+    except TelegramBadRequest:
+        # Fallback — send fresh message
+        try:
+            await bot.send_message(chat_id=chat_id, text=text)
+        except Exception as exc:
+            logger.warning("[heartbeat] fail message send failed for %s: %s", session_id, exc)
+    except Exception as exc:
+        logger.warning("[heartbeat] fail edit failed for %s: %s", session_id, exc)
+
+
+async def recover_active_heartbeat_pollers(bot) -> None:
+    """WP-7 TGSH7: boot recovery — restart heartbeat-pollers for active FSM sessions.
+
+    Symmetric to recover_orphan_finalizations (orphan SESSION-* в GitHub),
+    но для FSM-active в Neon (свежий last_turn_at, есть working_message_id).
+    """
+    try:
+        from db.connection import get_pool
+        pool = await get_pool()
+    except Exception as exc:
+        logger.warning("[heartbeat] boot recovery pool error: %s", type(exc).__name__)
+        return
+
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT key, data
+                FROM fsm_states
+                WHERE state = $1
+                  AND data->>'session_id' IS NOT NULL
+                  AND data->>'last_turn_at' > to_char(NOW() - INTERVAL '30 minutes', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                  AND data->>'working_message_id' IS NOT NULL
+                """,
+                "ExternalSession:active",
+            )
+    except Exception as exc:
+        logger.warning("[heartbeat] boot recovery query failed: %s", type(exc).__name__)
+        return
+
+    for row in rows:
+        try:
+            data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+            key = row["key"]
+            # FSM key format aiogram: "bot:<bot_id>:user:<user_id>:chat:<chat_id>" or similar
+            chat_id_str = key.split(":chat:")[-1].split(":")[0]
+            chat_id = int(chat_id_str)
+            session_id = data["session_id"]
+            working_message_id = int(data["working_message_id"])
+            turn_n = int(data.get("turn_count", 1))
+            await _start_heartbeat_poller(bot, chat_id, session_id, working_message_id, turn_n)
+            logger.info("[heartbeat] boot recovery resumed poller for %s (chat=%s)", session_id, chat_id)
+        except Exception as exc:
+            logger.warning("[heartbeat] boot recovery row skip: %s", type(exc).__name__)
 
 
 async def cancel_bg_tasks(timeout: float = 5.0) -> int:
@@ -1003,12 +1208,19 @@ async def _open_new_session(
             "Если токен истёк — переподключите GitHub."
         )
         return
+    await message.answer(
+        f"Сессия открыта: {session_id}\n"
+        "Claude обработает запрос и ответит здесь."
+    )
+    # WP-7 TGSH5: захватываем message_id «⏳ Работаю...» для heartbeat-edit.
+    working_msg = await message.answer("⏳ Работаю...")
     try:
         await state.set_state(ExternalSession.active)
         await state.update_data(
             session_id=session_id,
             turn_count=1,
             last_turn_at=_now_iso_for_state(),
+            working_message_id=working_msg.message_id,
         )
     except Exception as exc:
         logger.error("[session] FSM set_state failed for %s: %s", chat_id, type(exc).__name__)
@@ -1017,13 +1229,10 @@ async def _open_new_session(
             "Возможно проблемы с БД — попробуйте через минуту."
         )
         return
-    await message.answer(
-        f"Сессия открыта: {session_id}\n"
-        "Claude обработает запрос и ответит здесь."
-    )
+    await _start_heartbeat_poller(message.bot, chat_id, session_id, working_msg.message_id, turn_n=1)
 
 
-@external_session_router.message(Command("claude"))
+@external_session_router.message(Command("claude", ignore_case=True))
 async def cmd_claude(message: Message, state: FSMContext) -> None:
     """/claude <text> — open or continue a session."""
     parts = (message.text or "").split(maxsplit=1)
@@ -1075,15 +1284,21 @@ async def cmd_claude(message: Message, state: FSMContext) -> None:
                 except (ValueError, TypeError):
                     pass  # fail-open
             turn_n = int(data.get("turn_count", 0)) + 1
-            try:
-                await state.update_data(turn_count=turn_n, last_turn_at=_now_iso_for_state())
-            except Exception as exc:
-                logger.error("[session] FSM update_data failed: %s", type(exc).__name__)
-                await message.answer("Не удалось обновить состояние. Попробуйте ещё раз.")
-                return
             ok = await _append_pilot_turn(session_id, message.message_id, user_text, turn_n, token, repo, branch)
             if ok:
-                await message.answer("⏳ Работаю...")
+                # WP-7 TGSH5: захват working_message_id для heartbeat-edit + старт poller'а.
+                working_msg = await message.answer("⏳ Работаю...")
+                try:
+                    await state.update_data(
+                        turn_count=turn_n,
+                        last_turn_at=_now_iso_for_state(),
+                        working_message_id=working_msg.message_id,
+                    )
+                except Exception as exc:
+                    logger.error("[session] FSM update_data failed: %s", type(exc).__name__)
+                    await message.answer("Не удалось обновить состояние. Попробуйте ещё раз.")
+                    return
+                await _start_heartbeat_poller(message.bot, chat_id, session_id, working_msg.message_id, turn_n)
             else:
                 await message.answer("Ошибка при записи хода. Попробуй ещё раз.")
             return
@@ -1188,16 +1403,22 @@ async def handle_session_text(message: Message, state: FSMContext) -> None:
 
     token, repo, branch = creds
     turn_n = int(data.get("turn_count", 0)) + 1
-    try:
-        await state.update_data(turn_count=turn_n, last_turn_at=_now_iso_for_state())
-    except Exception as exc:
-        logger.error("[session] FSM update_data failed: %s", type(exc).__name__)
-        await message.answer("Не удалось обновить состояние. Попробуйте ещё раз.")
-        return
 
     ok = await _append_pilot_turn(session_id, message.message_id, text, turn_n, token, repo, branch)
     if ok:
-        await message.answer("⏳ Работаю...")
+        # WP-7 TGSH5: захват working_message_id + старт heartbeat-poller'а.
+        working_msg = await message.answer("⏳ Работаю...")
+        try:
+            await state.update_data(
+                turn_count=turn_n,
+                last_turn_at=_now_iso_for_state(),
+                working_message_id=working_msg.message_id,
+            )
+        except Exception as exc:
+            logger.error("[session] FSM update_data failed: %s", type(exc).__name__)
+            await message.answer("Не удалось обновить состояние. Попробуйте ещё раз.")
+            return
+        await _start_heartbeat_poller(message.bot, chat_id, session_id, working_msg.message_id, turn_n)
     else:
         await message.answer("Ошибка при записи хода. Попробуй ещё раз.")
 
@@ -1216,6 +1437,8 @@ async def cmd_close(message: Message, state: FSMContext) -> None:
 
     data = await _get_session_data(state)
     session_id = (data or {}).get("session_id")
+    # WP-7 TGSH5: остановить heartbeat-poller перед очисткой state (cmd_close).
+    await _stop_heartbeat_poller(chat_id)
     try:
         await state.clear()
     except Exception as exc:
@@ -1380,6 +1603,8 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 
     data = await _get_session_data(state)
     session_id = (data or {}).get("session_id")
+    # WP-7 TGSH5: остановить heartbeat-poller перед очисткой state (cmd_cancel).
+    await _stop_heartbeat_poller(chat_id)
     try:
         await state.clear()
     except Exception as exc:
