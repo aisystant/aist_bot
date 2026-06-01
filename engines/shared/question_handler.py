@@ -11,6 +11,7 @@
 - Метаданные темы (related_concepts, pain_point, key_insight)
 """
 
+import hashlib
 import json
 from typing import Optional, List, Tuple, Dict, Callable, Awaitable
 
@@ -28,6 +29,11 @@ from .context import (
 )
 
 logger = get_logger(__name__)
+
+
+def _hash_chat_id(chat_id) -> str:
+    """Детерминированный 6-hex хеш chat_id для логов (PII-safe, cross-session)."""
+    return hashlib.md5(str(chat_id).encode()).hexdigest()[:6]
 
 
 # Маппинг complexity_level → стиль ответа
@@ -169,9 +175,9 @@ async def handle_question(
     if len(keywords) <= 1 or (len(keywords) <= 2 and len(question) > 30):
         search_query = question[:150]
 
-    logger.info(f"QuestionHandler: chat_id={chat_id}, mode={mode}")
+    logger.info(f"QuestionHandler: user_hash={_hash_chat_id(chat_id)}, mode={mode}")
     logger.info(f"QuestionHandler: вопрос len={len(question)}")
-    logger.info(f"QuestionHandler: извлечённые ключевые слова: {keywords}")
+    logger.info(f"QuestionHandler: извлечённые ключевые слова count={len(keywords)}")
 
     if context_topic:
         logger.info(f"QuestionHandler: контекст темы: '{context_topic}'")
@@ -209,7 +215,7 @@ async def handle_question(
         # Fallback на старый метод
         if context_topic:
             search_query = f"{context_topic} {search_query}"
-        logger.info(f"QuestionHandler: итоговый поисковый запрос: '{search_query}'")
+        logger.info(f"QuestionHandler: итоговый поисковый запрос len={len(search_query)}")
         mcp_context, sources = await search_mcp_context(search_query)
 
     await report_progress(ProcessingStage.SEARCHING, 60)
@@ -291,7 +297,7 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
                                 sources.append(f"База знаний: {source}")
                     context_parts.append(text[:1500])
         else:
-            logger.warning(f"MCP-Knowledge: пустой результат для запроса '{query}'")
+            logger.warning(f"MCP-Knowledge: пустой результат, запрос len={len(query)}")
     except Exception as e:
         logger.error(f"MCP-Knowledge search error: {e}", exc_info=True)
 
@@ -443,7 +449,12 @@ async def generate_answer(
     answer = await claude.generate(system_prompt, user_prompt)
 
     if not answer:
-        answer = f"К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
+        display_name = name if name else ""
+        answer = (
+            f"{display_name + ', ' if display_name else ''}"
+            "внешний сервис временно недоступен. "
+            "Попробуйте через минуту — обычно это быстро проходит."
+        )
 
     return answer
 
@@ -576,7 +587,7 @@ async def handle_question_with_tools(
         **sections,
     )
 
-    logger.info(f"Consultation T{tier}: prompt {len(system_prompt)} chars for user {telegram_user_id}")
+    logger.info(f"Consultation T{tier}: prompt {len(system_prompt)} chars for user_hash={_hash_chat_id(telegram_user_id)}")
 
     # Подготовка tools и executor
     tools = get_tools_for_tier(has_digital_twin)
@@ -622,13 +633,18 @@ async def handle_question_with_tools(
     await report_progress(ProcessingStage.DONE, 100)
 
     if not answer:
-        # WP-209: диагностика причины None от Claude API
+        # WP-209: диагностика причины None от Claude API (PII-safe)
         logger.error(
-            f"generate_with_tools returned None for user={chat_id}, "
-            f"question='{question[:80]}', tools={[t['name'] for t in tools]}, "
+            f"generate_with_tools returned None for user_hash={_hash_chat_id(chat_id)}, "
+            f"question_len={len(question)}, tools={[t['name'] for t in tools]}, "
             f"system_prompt_len={len(system_prompt)}, token_limit={token_limit}"
         )
-        answer = f"К сожалению, {name}, не удалось получить ответ. Попробуйте переформулировать вопрос или спросить позже."
+        display_name = name if name else ""
+        answer = (
+            f"{display_name + ', ' if display_name else ''}"
+            "внешний сервис временно недоступен. "
+            "Попробуйте через минуту — обычно это быстро проходит."
+        )
 
     # Сохраняем в историю
     sources: List[str] = []

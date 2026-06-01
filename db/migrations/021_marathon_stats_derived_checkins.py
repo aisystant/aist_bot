@@ -44,7 +44,7 @@ GROUP BY mp.user_id
 
 
 async def migrate():
-    conn = await asyncpg.connect(LEARNING_URL)
+    conn = await asyncpg.connect(LEARNING_URL, statement_cache_size=0)
     try:
         async with conn.transaction():
             await conn.execute("DROP VIEW IF EXISTS learning.marathon_stats")

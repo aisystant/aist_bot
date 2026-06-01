@@ -13,6 +13,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 import asyncio
+import hashlib
 import json
 import time as _time
 
@@ -486,6 +487,7 @@ class ClaudeClient:
         stop_reason: Optional[str] = None
         input_json_parts: list[str] = []
 
+        request_start = _time.monotonic()
         for attempt in range(2):
             try:
                 async with session.post(
@@ -566,6 +568,11 @@ class ClaudeClient:
                                 "stop_reason": stop_reason or "end_turn",
                                 "content": content_blocks,
                             }
+                        elapsed = _time.monotonic() - request_start
+                        logger.warning(
+                            "Claude API empty stream (HTTP 200, zero content_blocks) "
+                            f"elapsed={elapsed:.1f}s, attempt={attempt + 1}"
+                        )
                         return None
 
                     elif resp.status == 429:
@@ -630,6 +637,11 @@ class ClaudeClient:
                         "stop_reason": "error_partial",
                         "content": content_blocks,
                     }
+                elapsed = _time.monotonic() - request_start
+                logger.warning(
+                    f"Claude API exhausted retries without content "
+                    f"elapsed={elapsed:.1f}s"
+                )
                 return None
         return None
 
@@ -863,6 +875,13 @@ class ClaudeClient:
                 text_parts = [b["text"] for b in data.get("content", []) if b.get("type") == "text"]
                 if text_parts:
                     return "\n".join(text_parts)
+                logger.error(
+                    "Claude force-text: response has no text blocks, "
+                    f"stop_reason={data.get('stop_reason')}, "
+                    f"block_types={[b.get('type') for b in data.get('content', [])]}"
+                )
+            else:
+                logger.error("Claude force-text: _api_call_streaming_full returned None")
             return None
 
     async def generate_content(self, topic: dict, intern: dict, mcp_client=None, knowledge_client=None, model=None) -> str:
@@ -1033,7 +1052,7 @@ class ClaudeClient:
         if result is None and model is not None and model != CLAUDE_MODEL_SONNET and not is_api_degraded():
             logger.warning(
                 f"[generate_content] {model} returned None (truncated?), "
-                f"retrying with Sonnet for chat_id={chat_id}"
+                f"retrying with Sonnet for chat_id_hash={hashlib.md5(str(chat_id).encode()).hexdigest()[:6]}"
             )
             result = await self.generate(
                 system_prompt, user_prompt, max_tokens=max_tokens,
