@@ -20,6 +20,7 @@ from db.queries.marathon_newcomer import (
     clear_marathon_queue,
     clear_marathon_state,
     get_sent_checkins_count,
+    get_total_checkins_count,
 )
 from db.queries.users import moscow_now, update_intern
 from config import get_logger
@@ -144,7 +145,7 @@ async def cmd_marathon_progress(message: Message):
 
     status = progress.get("status", "registered")
     current_day = progress.get("current_day", 0)
-    total_checkins = progress.get("total_checkins", 0)
+    total_checkins = await get_total_checkins_count(chat_id)
     started_at = progress.get("started_at")
 
     status_emoji = {
@@ -209,10 +210,8 @@ async def callback_marathon_checkin(callback: CallbackQuery):
     if is_first_checkin:
         progress = await get_or_create_progress(user_id)
         current_day = progress.get("current_day", 0)
-        total_checkins = progress.get("total_checkins", 0)
 
         new_day = max(current_day, day)
-        new_total = total_checkins + 1
         new_status = None
         if day >= 14:
             new_status = "completed"
@@ -220,7 +219,6 @@ async def callback_marathon_checkin(callback: CallbackQuery):
         await update_progress(
             user_id=user_id,
             current_day=new_day,
-            total_checkins=new_total,
             status=new_status,
         )
 
@@ -230,7 +228,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
         logger.info(
             f"[MarathonCheckin] User {user_id} day {day} state={state} "
-            f"current_day {current_day}→{new_day} total_checkins {total_checkins}→{new_total}"
+            f"current_day {current_day}→{new_day}"
         )
     else:
         logger.info(f"[MarathonCheckin] User {user_id} updated day {day} state={state} (already checked in)")

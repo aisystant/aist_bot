@@ -435,7 +435,7 @@ async def _check_marathon_missed_checkins():
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
-            missed = max(0, current_day - total_checkins)
+            missed = user.get('missed', max(0, current_day - total_checkins))
 
             # Один алерт в день на участника (§10.10 dedup)
             alert_key = f"marathon_mentor_alert:{chat_id}:{today_str}"
