@@ -26,6 +26,7 @@ states:
       onboarding_complete: common.mode_select
       existing_user: common.mode_select
       error: common.error
+    allow_global: [consultation, notes]
 
   common.error:
     description: "Обработка ошибок"
