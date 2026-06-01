@@ -53,7 +53,8 @@ async def load_all_ory_tokens() -> List[Dict]:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
                FROM ory_tokens
-               WHERE refresh_token IS NOT NULL AND refresh_token != '''''
+               WHERE refresh_token IS NOT NULL
+                 AND length(refresh_token) > 0'''
         )
         return [dict(r) for r in rows]
 
@@ -75,7 +76,9 @@ async def load_one_ory_token(chat_id: int) -> Optional[Dict]:
         row = await conn.fetchrow(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
                FROM ory_tokens
-               WHERE chat_id = $1 AND refresh_token IS NOT NULL''',
+               WHERE chat_id = $1
+                 AND refresh_token IS NOT NULL
+                 AND length(refresh_token) > 0''',
             chat_id,
         )
         return dict(row) if row else None
@@ -101,7 +104,8 @@ async def get_expiring_ory_tokens(margin_seconds: int = 600) -> List[Dict]:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
                FROM ory_tokens
-               WHERE refresh_token IS NOT NULL AND refresh_token != ''
+               WHERE refresh_token IS NOT NULL
+                 AND length(refresh_token) > 0
                  AND expires_at < NOW() + INTERVAL '1 second' * $1''',
             margin_seconds,
         )
