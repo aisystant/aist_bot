@@ -289,15 +289,33 @@ async def get_missed_checkin_users(min_days: int = 2):
 
 
 async def get_users_for_nudge(limit: int = 100) -> list[dict]:
-    """Получить активных участников с пропусками чек-инов для nudge."""
+    """Получить активных участников с пропусками чек-инов для nudge.
+
+    WP-330 fix (peer-session 2026-06-01): считаем missed через фактические
+    записи в marathon_state за окно [current_day-2 .. current_day],
+    а не через разность current_day - total_checkins.
+    """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT user_id, current_day, total_checkins
-               FROM learning.marathon_progress
-               WHERE status = 'active'
-                 AND current_day > total_checkins
-                 AND current_day > 0
+            '''WITH nudge_calc AS (
+                 SELECT mp.user_id,
+                        mp.current_day,
+                        mp.total_checkins,
+                        (SELECT COUNT(*) FROM generate_series(
+                            GREATEST(1, mp.current_day - 2), mp.current_day
+                         ) AS d
+                         WHERE NOT EXISTS (
+                             SELECT 1 FROM learning.marathon_state ms
+                             WHERE ms.user_id = mp.user_id AND ms.day = d
+                         )
+                        ) AS missed
+                 FROM learning.marathon_progress mp
+                 WHERE mp.status = 'active' AND mp.current_day > 0
+               )
+               SELECT user_id, current_day, total_checkins, missed
+               FROM nudge_calc
+               WHERE missed >= 1
                LIMIT $1''',
             limit,
         )
@@ -307,7 +325,11 @@ async def get_users_for_nudge(limit: int = 100) -> list[dict]:
 async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
     """WP-330 Ф10.D: получить пользователей, которые получили урок вчера,
     но не нажали кнопку «✏️ Перейти к практике» (нет события notification_sent
-    с external_id 'notification-marathon_practice:<user_id>:<day>')."""
+    с external_id 'notification-marathon_practice:<user_id>:<day>').
+
+    WP-330 fix (peer-session 2026-06-01): не напоминать, если пользователь
+    уже сделал чек-ин за этот день (есть запись в marathon_state).
+    """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -325,6 +347,10 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
                      AND de.external_id =
                        'notification-marathon_practice:' || mq.user_id::text
                        || ':' || mq.day_number::text
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM learning.marathon_state ms
+                   WHERE ms.user_id = mq.user_id AND ms.day = mq.day_number
                  )
                LIMIT $1''',
             limit,

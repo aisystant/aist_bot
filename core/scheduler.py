@@ -481,7 +481,7 @@ async def _send_marathon_nudges():
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
-            missed = max(0, current_day - total_checkins)
+            missed = user.get('missed', max(0, current_day - total_checkins))
 
             # Защита от дублей: один nudge в день
             nudge_key = f"marathon_nudge:{chat_id}:{today_str}"
