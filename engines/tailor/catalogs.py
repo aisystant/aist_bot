@@ -83,7 +83,7 @@ def get_memes_for_area(area: int, student_stage: int) -> List[dict]:
     """Получить мемы для области, релевантные ступени ученика.
 
     Мемы фильтруются по области и блокируемому переходу:
-    - Мем с blocks_transition='1→2' актуален для ступеней 0-1
+    - Мем с blocks_transition='1→2' актуален для ступеней 1-2
     - Мем с blocks_transition='2→3' актуален для ступеней 1-2
     - Мем с blocks_transition='3→4' актуален для ступеней 2-3
 
@@ -136,7 +136,7 @@ def get_practices_for_area(
     all_practices = _load_practices()
 
     # Ceiling: student_stage ограничивает max доступную степень
-    stage_max = {0: 1, 1: 1, 2: 2, 3: 3, 4: 4}
+    stage_max = {1: 1, 2: 1, 3: 2, 4: 3, 5: 4}
     max_degree = stage_max.get(student_stage, 1)
 
     candidates = []
