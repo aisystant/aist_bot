@@ -225,7 +225,41 @@ class GatewayMCPClient:
         async with lock:
             data = self._tokens.get(telegram_user_id)
             if not data:
-                return False
+                # Cache miss — закрывает silent Путь A (peer-session 2026-06-01-19,
+                # Block GTW): 6+ user_id за 7 дней получали `refresh failed (not
+                # disconnecting)` без предшествующих refresh-логов = единственный
+                # путь возврата False БЕЗ логирования. Подгипотезы A1 (OAuth не
+                # завершился), A2 (restart wiped memory + load_tokens_from_db
+                # пропустил), A3 (save silently failed), A4 multi-worker — все
+                # закрываются единым defensive reload из БД + явный лог.
+                logger.warning(
+                    f"Gateway: token cache miss for user {telegram_user_id} — "
+                    f"attempting DB reload"
+                )
+                from db.queries.ory_tokens import load_one_ory_token
+                row = await load_one_ory_token(telegram_user_id)
+                if row is None:
+                    logger.warning(
+                        f"Gateway: no token for user {telegram_user_id} in cache or DB "
+                        f"— treating as not connected (re-auth needed)"
+                    )
+                    return False
+                # Repopulate in-memory cache и идём в нормальный refresh-путь —
+                # `refresh_ory_token_with_lock` сделает double-check expires_at
+                # и вернёт cached или запросит Ory.
+                expires_at = row["expires_at"]
+                if isinstance(expires_at, datetime) and expires_at.tzinfo is not None:
+                    expires_at = expires_at.replace(tzinfo=None)
+                self._tokens[telegram_user_id] = {
+                    "access_token": row["access_token"],
+                    "refresh_token": row["refresh_token"],
+                    "expires_at": expires_at,
+                    "ory_id": row.get("ory_id"),
+                }
+                logger.info(
+                    f"Gateway: token reloaded from DB for user {telegram_user_id}"
+                )
+                data = self._tokens[telegram_user_id]
 
             # NB: In-memory double-check НЕ делаем — _tokens может быть несвежим
             # относительно БД (bridge мог обновить под FOR UPDATE'ом). Пусть
