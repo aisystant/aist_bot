@@ -18,6 +18,7 @@ from aiogram.fsm.context import FSMContext
 from config import MARATHON_DAYS
 from db.queries import get_intern
 from db.queries.users import is_onboarded
+from db.queries.marathon_newcomer import has_active_marathon_progress
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,16 @@ async def cmd_progress(message: Message, state: FSMContext = None):
         lang = intern.get('language', 'ru') if intern else 'ru'
         await message.answer(t('progress.first_start', lang))
         return
+
+    # WP-330 B3: guard — если пользователь в активном WP-330 марафоне,
+    # legacy /progress показывает нули. Редиректим на /marathon_progress.
+    if intern and intern.get('marathon_status') == 'active':
+        if await has_active_marathon_progress(message.chat.id):
+            await message.answer(
+                "🏃 У тебя активный марафон «Первые шаги в IWE».\n\n"
+                "📊 Статистика марафона: /marathon_progress"
+            )
+            return
 
     # WP-151 Ф3: progress_viewed
     from db.queries.events import log_event

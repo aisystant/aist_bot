@@ -80,7 +80,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     qualification = derived.get(DTGroup.QUALIFICATION) or {}
     stage_num = qualification.get("stage")
     if stage_num is not None:
-        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num + 1}/5)"
+        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
     else:
         stage = profile.get("stage") or t('twin.not_set', lang)
 
@@ -530,10 +530,10 @@ def _annotate_repos(repos_list: list) -> str:
 # /me — Compact Dashboard (WP-135 Ф0)
 # ═══════════════════════════════════════════════════════════
 
-STAGE_EMOJI = {0: "🌱", 1: "🌿", 2: "🌳", 3: "⚡", 4: "🌟"}
+STAGE_EMOJI = {1: "🌱", 2: "🌿", 3: "🌳", 4: "⚡", 5: "🌟"}
 STAGE_NAMES_RU = {
-    0: "Случайный", 1: "Практикующий", 2: "Систематический",
-    3: "Дисциплинированный", 4: "Проактивный",
+    1: "Случайный", 2: "Практикующий", 3: "Систематический",
+    4: "Дисциплинированный", 5: "Проактивный",
 }
 
 
@@ -572,7 +572,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     qualification = derived.get('3_4_qualification') or {}
     stage_num = qualification.get('stage')
     if stage_num is not None:
-        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num + 1}/5)"
+        stage = f"{STAGE_NAMES_RU.get(stage_num, '?')} ({stage_num}/5)"
         lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
 
     # Agency index

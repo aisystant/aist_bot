@@ -76,6 +76,38 @@ async def mark_queue_failed(queue_id: int, error: str):
         )
 
 
+async def has_active_marathon_progress(user_id: int) -> bool:
+    """Проверить, есть ли активный марафон WP-330 у пользователя."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT 1 FROM learning.marathon_progress
+               WHERE user_id = $1 AND status = 'active'
+               LIMIT 1''',
+            user_id,
+        )
+    return row is not None
+
+
+async def get_sent_checkins_count(user_id: int) -> int:
+    """Количество уже отправленных чек-инов пользователю.
+
+    Используется для корректного расчёта missed_checkins (WP-330 B1):
+    missed = sent_checkins - total_checkins (а не current_day - total_checkins).
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT COUNT(*) AS cnt
+               FROM learning.marathon_queue
+               WHERE user_id = $1
+                 AND content_type = 'checkin'
+                 AND status = 'sent' ''',
+            user_id,
+        )
+    return row["cnt"] if row else 0
+
+
 async def get_or_create_progress(user_id: int) -> dict:
     """Получить или создать прогресс участника."""
     pool = await get_learning_pool()

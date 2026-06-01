@@ -19,6 +19,7 @@ from db.queries.marathon_newcomer import (
     save_checkin,
     clear_marathon_queue,
     clear_marathon_state,
+    get_sent_checkins_count,
 )
 from db.queries.users import moscow_now, update_intern
 from config import get_logger
@@ -89,11 +90,11 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
 
     for day in range(1, 15):
         scheduled = day1_time if day == 1 else next_day_base + timedelta(days=day - 2)
-        lesson = get_day_text(day, 'lesson', intern=intern_for_routing)
-        practice = get_day_text(day, 'practice', intern=intern_for_routing)
-        lesson_practice = f"{lesson}\n\n{practice}" if lesson and practice else (lesson or practice or "")
+        # WP-330 B2: delivery-time rendering — не материализуем lesson_practice при enqueue.
+        # Scheduler рендерит текст из свежего intern непосредственно перед отправкой.
+        # checkin не routable — материализуем сразу.
         content_texts = {
-            'lesson_practice': lesson_practice,
+            'lesson_practice': None,
             'checkin': get_day_text(day, 'checkin'),
         }
         await enqueue_day_items(user_id, day, scheduled, content_texts)
@@ -160,7 +161,10 @@ async def cmd_marathon_progress(message: Message):
 
     if status == "active":
         display_day = current_day if current_day > 0 else 1
-        missed_checkins = max(0, current_day - total_checkins)
+        # WP-330 B1: считаем пропущенные от отправленных чек-инов, не от current_day.
+        # current_day — это номер последнего задеплоенного дня, а не ожидаемых чек-инов.
+        sent_checkins = await get_sent_checkins_count(chat_id)
+        missed_checkins = max(0, sent_checkins - total_checkins)
         lines.append(f"📅 День марафона: {display_day} / 14")
         lines.append(f"🌙 Чек-инов: {total_checkins}")
         lines.append(f"❌ Пропущено чек-инов: {missed_checkins}")

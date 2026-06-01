@@ -174,7 +174,7 @@ def check_stage_upgrade(engagement, user_meta, derived):
     Бот читает payload и рисует соответствующие inline-кнопки через handlers/tier_upgrade.py.
     """
     qualification = derived.get('3_4_qualification') or {}
-    stage = qualification.get('stage', 0)
+    stage = qualification.get('stage', 1)
 
     if stage < 2:
         return None
@@ -228,7 +228,7 @@ def check_low_regularity(engagement, user_meta, derived):
 
     # Practicing+ but low regularity (< 2 days/week)
     qualification = derived.get('3_4_qualification') or {}
-    stage = qualification.get('stage', 0)
+    stage = qualification.get('stage', 1)
 
     if stage >= 1 and days_per_week < 2:
         return "nudge_low_regularity"

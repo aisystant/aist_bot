@@ -302,9 +302,23 @@ class ProgressState(BaseState):
     async def enter(self, user, context: dict = None) -> None:
         """Обзорная карточка + навигационные кнопки."""
         from db.queries.users import update_intern
+        from db.queries.marathon_newcomer import has_active_marathon_progress
 
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
+
+        # WP-330 B3: guard — если пользователь в активном WP-330 марафоне,
+        # SM ProgressState показывает нулевую legacy-статистику. Редиректим.
+        # Универсальная проверка: и dict, и object.
+        marathon_status = user.get('marathon_status') if isinstance(user, dict) else getattr(user, 'marathon_status', None)
+        if marathon_status == 'active':
+            if await has_active_marathon_progress(chat_id):
+                await self.send(
+                    user,
+                    "🏃 У тебя активный марафон «Первые шаги в IWE».\n\n"
+                    "📊 Статистика марафона: /marathon_progress"
+                )
+                return
 
         try:
             cache = await self._prefetch(chat_id)
