@@ -2,12 +2,57 @@
 # Pre-push hook: блокирует push в new-architecture без явного подтверждения.
 # Правило Pilot-First: все изменения сначала на pilot, потом на прод.
 # Обход: FORCE_PROD=1 git push origin new-architecture
+# WP-7 peer-session 2026-06-01-44: детекция дубль-коммитов + escape-hatch.
+# Примечание: FORCE_PROD=1 НЕ обходит детектор дублей — нужен [incident-ok] в commit message.
 
 PROTECTED_BRANCH="new-architecture"
 remote="$1"
 
 while read local_ref local_sha remote_ref remote_sha; do
     if echo "$remote_ref" | grep -q "refs/heads/${PROTECTED_BRANCH}"; then
+
+        # ─── WP-7: детекция дубль-коммитов (peer-session 2026-06-01-44) ───
+        # Escape-hatch: осознанный обход при инциденте или cherry-pick
+        has_escape_hatch=false
+        if [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
+            if git log --format="%s %b" "${remote_sha}..${local_sha}" 2>/dev/null | grep -qE '\[(incident-ok|cherry-pick-ok)\]'; then
+                has_escape_hatch=true
+            fi
+        fi
+
+        if [ "$has_escape_hatch" = false ] && [ "$remote_sha" != "0000000000000000000000000000000000000000" ] && git show-ref --verify --quiet refs/heads/pilot; then
+            duplicate_found=false
+            while read commit_sha; do
+                [ -z "$commit_sha" ] && continue
+                # Пропускаем коммиты, которые уже есть на pilot (legitimate merge)
+                if git branch --contains "$commit_sha" 2>/dev/null | grep -q "pilot"; then
+                    continue
+                fi
+                should_break=false
+                while IFS= read -r file; do
+                    [ -z "$file" ] && continue
+                    if git log pilot --since="24 hours ago" --oneline -- "$file" 2>/dev/null | grep -q .; then
+                        echo ""
+                        echo "⚠️  DUPLICATE WARNING: '$file' менялся на pilot за последние 24ч."
+                        echo "    Возможно, этот фикс уже есть на pilot — сделай merge вместо повторной правки."
+                        echo "    Если осознанный cherry-pick: добавь [cherry-pick-ok] в сообщение коммита"
+                        echo "    Если hotfix инцидента: добавь [incident-ok] в сообщение коммита"
+                        echo ""
+                        duplicate_found=true
+                        should_break=true
+                        break
+                    fi
+                done < <(git diff-tree --no-commit-id --name-only -r "$commit_sha" 2>/dev/null)
+                if [ "$should_break" = true ]; then
+                    break
+                fi
+            done < <(git rev-list --no-merges "${remote_sha}..${local_sha}" 2>/dev/null)
+
+            if [ "$duplicate_found" = true ]; then
+                exit 1
+            fi
+        fi
+
         if [ "$FORCE_PROD" != "1" ]; then
             echo ""
             echo "⛔ PUSH BLOCKED: ветка '${PROTECTED_BRANCH}' защищена (Pilot-First)."
