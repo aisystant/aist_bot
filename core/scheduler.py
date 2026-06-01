@@ -412,8 +412,9 @@ async def _process_marathon_queue():
 async def _check_marathon_missed_checkins():
     """WP-330 P1: проверить пропуски чек-инов и отправить алерты наставникам.
 
-    Запускается каждые 6 часов. Находит активных участников с current_day - total_checkins >= 2
-    (2+ дня без чек-ина) и отправляет алерт в MENTOR_CHANNEL_ID.
+    Запускается каждые 6 часов. Находит активных участников с >= 2 пропущенными
+    днями в окне [current_day-2 .. current_day] через marathon_state (не через
+    разность колонок). Отправляет алерт в MENTOR_CHANNEL_ID.
     Деdup через notification_log: один алерт на участника в день (§10.10).
     """
     from db.queries.marathon_newcomer import get_missed_checkin_users
@@ -435,7 +436,7 @@ async def _check_marathon_missed_checkins():
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
-            missed = max(0, current_day - total_checkins)
+            missed = user.get('missed', max(0, current_day - total_checkins))
 
             # Один алерт в день на участника (§10.10 dedup)
             alert_key = f"marathon_mentor_alert:{chat_id}:{today_str}"
@@ -481,7 +482,7 @@ async def _send_marathon_nudges():
             chat_id = user['user_id']
             current_day = user['current_day']
             total_checkins = user['total_checkins']
-            missed = max(0, current_day - total_checkins)
+            missed = user.get('missed', max(0, current_day - total_checkins))
 
             # Защита от дублей: один nudge в день
             nudge_key = f"marathon_nudge:{chat_id}:{today_str}"

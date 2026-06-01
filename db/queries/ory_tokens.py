@@ -53,9 +53,35 @@ async def load_all_ory_tokens() -> List[Dict]:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
                FROM ory_tokens
-               WHERE refresh_token IS NOT NULL'''
+               WHERE refresh_token IS NOT NULL
+                 AND length(refresh_token) > 0'''
         )
         return [dict(r) for r in rows]
+
+
+async def load_one_ory_token(chat_id: int) -> Optional[Dict]:
+    """Загрузить токен одного пользователя из БД.
+
+    Используется в _refresh_single_token (reactive path 401) для recovery,
+    когда in-memory cache не содержит токен — например, после перезапуска
+    бота если load_tokens_from_db пропустил эту строку, либо при race с
+    OAuth-callback в том же процессе (peer-session 2026-06-01-19, Block GTW).
+
+    Returns:
+        dict с {chat_id, access_token, refresh_token, expires_at, ory_id} или None
+        если строки нет в БД (значит юзер не подключён к Gateway).
+    """
+    pool = await get_secrets_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
+               FROM ory_tokens
+               WHERE chat_id = $1
+                 AND refresh_token IS NOT NULL
+                 AND length(refresh_token) > 0''',
+            chat_id,
+        )
+        return dict(row) if row else None
 
 
 async def delete_ory_tokens(chat_id: int) -> None:
@@ -79,6 +105,7 @@ async def get_expiring_ory_tokens(margin_seconds: int = 600) -> List[Dict]:
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
                FROM ory_tokens
                WHERE refresh_token IS NOT NULL
+                 AND length(refresh_token) > 0
                  AND expires_at < NOW() + INTERVAL '1 second' * $1''',
             margin_seconds,
         )

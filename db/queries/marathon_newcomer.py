@@ -135,7 +135,7 @@ async def update_progress(
     current_day: Optional[int] = None,
     status: Optional[str] = None,
     started_at: Optional[datetime] = None,
-    total_checkins: Optional[int] = None,
+    total_checkins: Optional[int] = None,  # DEPRECATED (WP-330 P1): derived from marathon_state, do not increment
     badge_list: Optional[list] = None,
     nudge_variant: Optional[str] = None,
 ):
@@ -214,6 +214,22 @@ async def get_checkins(user_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_total_checkins_count(user_id: int) -> int:
+    """Количество уникальных дней с чек-ином у участника.
+
+    WP-330 P1: derived из marathon_state вместо инкрементной колонки.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''SELECT COUNT(DISTINCT day) AS cnt
+               FROM learning.marathon_state
+               WHERE user_id = $1''',
+            user_id,
+        )
+    return row["cnt"] if row else 0
+
+
 async def get_checkin_for_day(user_id: int, day: int) -> dict | None:
     """Получить check-in за конкретный день. None если ещё не было."""
     pool = await get_learning_pool()
@@ -272,32 +288,70 @@ async def get_failed_queue_items(limit: int = 50):
 async def get_missed_checkin_users(min_days: int = 2):
     """Получить активных участников, пропустивших чек-ин min_days+ дней подряд.
 
-    Логика: current_day - total_checkins >= min_days
-    (если current_day=3, total_checkins=0 → 3 дня без чек-ина)
+    WP-330 P1 fix (peer-session 2026-06-01): считаем missed через фактические
+    записи в marathon_state за окно [current_day-2 .. current_day].
     """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT user_id, current_day, total_checkins, started_at
-               FROM learning.marathon_progress
-               WHERE status = 'active'
-                 AND current_day - total_checkins >= $1
-                 AND current_day > 0''',
+            '''WITH missed_calc AS (
+                 SELECT mp.user_id,
+                        mp.current_day,
+                        (SELECT COUNT(DISTINCT day)
+                         FROM learning.marathon_state ms
+                         WHERE ms.user_id = mp.user_id
+                        ) AS total_checkins,
+                        mp.started_at,
+                        (SELECT COUNT(*) FROM generate_series(
+                            GREATEST(1, mp.current_day - 2), mp.current_day
+                         ) AS d
+                         WHERE NOT EXISTS (
+                             SELECT 1 FROM learning.marathon_state ms
+                             WHERE ms.user_id = mp.user_id AND ms.day = d
+                         )
+                        ) AS missed
+                 FROM learning.marathon_progress mp
+                 WHERE mp.status = 'active' AND mp.current_day > 0
+               )
+               SELECT user_id, current_day, total_checkins, started_at, missed
+               FROM missed_calc
+               WHERE missed >= $1''',
             min_days,
         )
     return [dict(r) for r in rows]
 
 
 async def get_users_for_nudge(limit: int = 100) -> list[dict]:
-    """Получить активных участников с пропусками чек-инов для nudge."""
+    """Получить активных участников с пропусками чек-инов для nudge.
+
+    WP-330 fix (peer-session 2026-06-01): считаем missed через фактические
+    записи в marathon_state за окно [current_day-2 .. current_day],
+    а не через разность current_day - total_checkins.
+    """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT user_id, current_day, total_checkins
-               FROM learning.marathon_progress
-               WHERE status = 'active'
-                 AND current_day > total_checkins
-                 AND current_day > 0
+            '''WITH nudge_calc AS (
+                 SELECT mp.user_id,
+                        mp.current_day,
+                        (SELECT COUNT(DISTINCT day)
+                         FROM learning.marathon_state ms
+                         WHERE ms.user_id = mp.user_id
+                        ) AS total_checkins,
+                        (SELECT COUNT(*) FROM generate_series(
+                            GREATEST(1, mp.current_day - 2), mp.current_day
+                         ) AS d
+                         WHERE NOT EXISTS (
+                             SELECT 1 FROM learning.marathon_state ms
+                             WHERE ms.user_id = mp.user_id AND ms.day = d
+                         )
+                        ) AS missed
+                 FROM learning.marathon_progress mp
+                 WHERE mp.status = 'active' AND mp.current_day > 0
+               )
+               SELECT user_id, current_day, total_checkins, missed
+               FROM nudge_calc
+               WHERE missed >= 1
                LIMIT $1''',
             limit,
         )
@@ -307,7 +361,11 @@ async def get_users_for_nudge(limit: int = 100) -> list[dict]:
 async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
     """WP-330 Ф10.D: получить пользователей, которые получили урок вчера,
     но не нажали кнопку «✏️ Перейти к практике» (нет события notification_sent
-    с external_id 'notification-marathon_practice:<user_id>:<day>')."""
+    с external_id 'notification-marathon_practice:<user_id>:<day>').
+
+    WP-330 fix (peer-session 2026-06-01): не напоминать, если пользователь
+    уже сделал чек-ин за этот день (есть запись в marathon_state).
+    """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -326,6 +384,10 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
                        'notification-marathon_practice:' || mq.user_id::text
                        || ':' || mq.day_number::text
                  )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM learning.marathon_state ms
+                   WHERE ms.user_id = mq.user_id AND ms.day = mq.day_number
+                 )
                LIMIT $1''',
             limit,
         )
@@ -333,13 +395,20 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
 
 
 async def get_active_marathon_users() -> list[dict]:
-    """Получить всех активных участников марафона."""
+    """Получить всех активных участников марафона.
+
+    WP-330 P1: total_checkins теперь derived из marathon_state.
+    """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT user_id, current_day, total_checkins, started_at
-               FROM learning.marathon_progress
-               WHERE status = 'active' '''
+            '''SELECT mp.user_id, mp.current_day, mp.started_at,
+                      (SELECT COUNT(DISTINCT day)
+                       FROM learning.marathon_state ms
+                       WHERE ms.user_id = mp.user_id
+                      ) AS total_checkins
+               FROM learning.marathon_progress mp
+               WHERE mp.status = 'active' '''
         )
     return [dict(r) for r in rows]
 
