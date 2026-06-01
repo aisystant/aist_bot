@@ -11,11 +11,15 @@
 ### 1. Pre-deploy (обязательно)
 
 ```bash
-# 1.1 Проверить расхождения колонки vs derived
+# 1.1 Установить LEARNING_URL = pilot/prod Neon endpoint (см. Railway env)
+# Локальный .env даст misleading PASS — нужны реальные данные активных пользователей.
+export LEARNING_URL="postgresql://...pooler.neon.tech/learning?sslmode=require"
 python -m scripts.wp330_dry_run_total_checkins
 ```
 
-**Ожидаемый результат:** exit 1 (расхождения есть у активных пользователей — это нормально, колонка не обновлялась после P0).
+**Ожидаемый результат:** exit 1 (расхождения есть у активных пользователей — это нормально, колонка не обновлялась после P0). Exit 0 возможен только если все активные пользователи на день 1 или нет чек-инов.
+
+**PASS-критерий:** скрипт завершился без Python exception и без asyncpg error. Exit code 0/1 — оба приемлемы.
 
 **Действие:**
 - Если нужен плавный переход без «прыжка» — выполнить `REMEDIATION_SQL` из вывода скрипта:
@@ -32,11 +36,18 @@ python -m scripts.wp330_dry_run_total_checkins
 
 ### 2. Миграция БД
 
+Миграция 021 не имеет `migrate_if_needed` и не запускается автоматически при старте бота. Запуск только вручную:
+
 ```bash
+export LEARNING_URL="postgresql://...pooler.neon.tech/learning?sslmode=require"
 python -m db.migrations.021_marathon_stats_derived_checkins
 ```
 
-**Время блокировки:** ~100–500 мс (DROP VIEW + CREATE VIEW).
+**Время блокировки:** ~100–500 мс ACCESS EXCLUSIVE lock на `learning.marathon_stats` (DROP VIEW + CREATE VIEW внутри одной транзакции).
+
+**Сайд-эффект:** параллельные SELECT из Metabase / dt-collect получат гарантированную ошибку `relation "marathon_stats" does not exist` либо заблокируются до CREATE. Это ожидаемо — scheduled refresh Metabase покажет один failed data point.
+
+**Порядок критичен:** миграция 021 ОБЯЗАТЕЛЬНО ДО шага 3 (рестарт бота). Иначе старый код будет читать новое view (безопасно), но runbook этого ожидает.
 
 ### 3. Деплой бота
 
@@ -56,15 +67,20 @@ python -m scripts.wp330_dry_run_total_checkins
 
 ## Rollback
 
-Если нужен откат:
-1. Revert коммитов `d2e087e` → `bead7d4` → `b64ff16` → `ca52eb4` → `d799a12`.
-2. Восстановить `total_checkins=0` в `start_marathon_flow` и инкремент в `callback_marathon_checkin`.
-3. Вернуть старый view `marathon_stats` из миграции 020.
+**Реалистичный сценарий — redeploy предыдущего тега:**
+
+1. Railway redeploy на коммит `a5e5662` (HEAD до WP-330 P1 серии). Бот вернётся к старому коду — будет писать в колонку при `callback_marathon_checkin`.
+2. Миграция 021 view-only — view `marathon_stats` безопасен и для старого кода (старый код не читает view, только Metabase). Откат миграции не нужен.
+3. Колонка `total_checkins` после redeploy постепенно обновится при новых чек-инах. У активных пользователей значения будут расходиться с derived до завершения текущих марафонов.
+
+**Полный revert серии не рекомендуется** — 5 коммитов, переплетение с другими WP. Redeploy надёжнее.
 
 ## Known issues
 
 - **«Прыжок» digest/alert:** после деплоя `total_checkins` для активных пользователей может резко измениться (если не выполнен REMEDIATION_SQL). Это корректное поведение — фикс бага.
 - **Backfill-расхождение:** старые значения `total_checkins` в колонке могут не совпадать с `COUNT(marathon_state)` из-за предыдущих багов инкремента.
+- **Metabase failed refresh:** дашборды на `learning.marathon_stats` покажут одну failed query во время миграции 021. Retry восстановит данные — потери нет.
+- **Колонка `marathon_progress.total_checkins` остаётся в схеме:** не читается, не пишется. Удаление колонки отдельным cleanup-РП (не блокер деплоя).
 
 ## Артефакты
 
