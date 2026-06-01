@@ -477,6 +477,16 @@ class ClaudeClient:
         Returns:
             dict {"stop_reason": str, "content": list} or None on error
         """
+        # Proxy doesn't support SSE passthrough — fall back to non-streaming call
+        if self._proxy_secret:
+            resp = await self._api_call({**payload, "stream": False}, timeout=120)
+            if not resp:
+                return None
+            return {
+                "stop_reason": resp.get("stop_reason", "end_turn"),
+                "content": resp.get("content", []),
+            }
+
         session = await self.get_session()
         headers = self._request_headers()
         payload = {**payload, "stream": True}
