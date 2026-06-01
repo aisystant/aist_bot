@@ -135,7 +135,6 @@ async def update_progress(
     current_day: Optional[int] = None,
     status: Optional[str] = None,
     started_at: Optional[datetime] = None,
-    total_checkins: Optional[int] = None,  # DEPRECATED (WP-330 P1): derived from marathon_state, do not increment
     badge_list: Optional[list] = None,
     nudge_variant: Optional[str] = None,
 ):
@@ -156,10 +155,6 @@ async def update_progress(
     if started_at is not None:
         fields.append(f"started_at = ${idx}")
         values.append(started_at)
-        idx += 1
-    if total_checkins is not None:
-        fields.append(f"total_checkins = ${idx}")
-        values.append(total_checkins)
         idx += 1
     if badge_list is not None:
         fields.append(f"badge_list = ${idx}")
@@ -259,8 +254,9 @@ async def clear_marathon_state(user_id: int):
 
     Вызывается из /marathon_stop и при перезапуске марафона в start_marathon_flow,
     чтобы новый марафон не наследовал записи прошлых тестов.
-    Без этого первый реальный чек-ин не инкрементирует current_day/total_checkins
+    Без этого первый реальный чек-ин не инкрементирует current_day
     (handler видит existing запись от прошлого старта и пропускает increment).
+    total_checkins derived из marathon_state, см. get_total_checkins_count.
     """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:

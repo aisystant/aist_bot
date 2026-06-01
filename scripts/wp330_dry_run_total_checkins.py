@@ -40,8 +40,17 @@ ORDER BY ABS(mp.total_checkins - COUNT(DISTINCT ms.day)) DESC
 """
 
 
+REMEDIATION_SQL = """UPDATE learning.marathon_progress mp
+SET total_checkins = (
+    SELECT COUNT(DISTINCT day)
+    FROM learning.marathon_state ms
+    WHERE ms.user_id = mp.user_id
+)
+WHERE mp.status = 'active';"""
+
+
 async def dry_run():
-    conn = await asyncpg.connect(LEARNING_URL)
+    conn = await asyncpg.connect(LEARNING_URL, statement_cache_size=0)
     try:
         rows = await conn.fetch(DRY_RUN_SQL)
         if not rows:
@@ -55,7 +64,9 @@ async def dry_run():
             print(f"{r['user_id']:>12} | {r['current_day']:>11} | {r['column_value'] or 0:>8} | {r['derived_value']:>8} | {r['diff'] or 0:>6}")
 
         print(f"\n📊 Итог: {len(rows)} пользователей нуждаются в коррекции.")
-        print("   Рекомендация: запустить миграцию или ручной UPDATE после проверки.")
+        print("\n🛠  Remediation SQL (выполнить вручную ДО рестарта, если нужен sync колонки с derived):")
+        print(REMEDIATION_SQL)
+        print("\nЛибо принять «прыжок» — после деплоя WP-330 P1 колонка не читается, derived = истина.")
         return 1
     finally:
         await conn.close()
