@@ -297,7 +297,10 @@ async def get_missed_checkin_users(min_days: int = 2):
             '''WITH missed_calc AS (
                  SELECT mp.user_id,
                         mp.current_day,
-                        mp.total_checkins,
+                        (SELECT COUNT(DISTINCT day)
+                         FROM learning.marathon_state ms
+                         WHERE ms.user_id = mp.user_id
+                        ) AS total_checkins,
                         mp.started_at,
                         (SELECT COUNT(*) FROM generate_series(
                             GREATEST(1, mp.current_day - 2), mp.current_day
@@ -331,7 +334,10 @@ async def get_users_for_nudge(limit: int = 100) -> list[dict]:
             '''WITH nudge_calc AS (
                  SELECT mp.user_id,
                         mp.current_day,
-                        mp.total_checkins,
+                        (SELECT COUNT(DISTINCT day)
+                         FROM learning.marathon_state ms
+                         WHERE ms.user_id = mp.user_id
+                        ) AS total_checkins,
                         (SELECT COUNT(*) FROM generate_series(
                             GREATEST(1, mp.current_day - 2), mp.current_day
                          ) AS d
