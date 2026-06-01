@@ -748,6 +748,7 @@ class ClaudeClient:
 
         async with span("claude.tool_use", max_tokens=max_tokens, tools=len(tools)):
             conversation = list(messages)  # Копируем, чтобы не мутировать оригинал
+            content_blocks: list = []  # init для случая early break до line 770
 
             for round_num in range(max_tool_rounds):
                 async with self._semaphore:
@@ -763,8 +764,8 @@ class ClaudeClient:
                         payload, inactivity_timeout=inactivity_timeout
                     )
                     if not data:
-                        logger.error(f"Claude API failed (tool_use round {round_num})")
-                        return None
+                        logger.error(f"Claude API failed (tool_use round {round_num}) — going to force-text")
+                        break
 
                 stop_reason = data.get("stop_reason")
                 content_blocks = data.get("content", [])
@@ -778,7 +779,15 @@ class ClaudeClient:
                     for block in content_blocks:
                         if block.get("type") == "text":
                             text_parts.append(block["text"])
-                    return "\n".join(text_parts) if text_parts else None
+                    if text_parts:
+                        return "\n".join(text_parts)
+                    # end_turn без text — редкий silent-None путь (peer-сессия 2026-06-01-15-qa-regression-aist-bot)
+                    logger.error(
+                        "Claude end_turn без text blocks: %d blocks types=%s — going to force-text",
+                        len(content_blocks), [b.get("type") for b in content_blocks]
+                    )
+                    conversation.pop()  # убрать assistant с не-текстовым content
+                    break
 
                 if stop_reason == "tool_use":
                     # Обрабатываем все tool_use блоки
@@ -810,30 +819,41 @@ class ClaudeClient:
                     # Добавляем результаты tools в conversation
                     conversation.append({"role": "user", "content": tool_results})
                 else:
-                    # Неожиданный stop_reason
-                    logger.warning(f"Claude unexpected stop_reason: {stop_reason}")
+                    # Неожиданный stop_reason (max_tokens / pause_turn / refusal / ...)
                     text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
-                    return "\n".join(text_parts) if text_parts else None
+                    if text_parts:
+                        logger.warning(f"Claude unexpected stop_reason: {stop_reason} — returning partial text")
+                        return "\n".join(text_parts)
+                    # Без text — четвёртый silent-None путь (review-01.md High #2, peer-session 2026-06-01-15)
+                    logger.error(
+                        "Claude unexpected stop_reason без text blocks: %s, %d blocks types=%s — going to force-text",
+                        stop_reason, len(content_blocks), [b.get("type") for b in content_blocks]
+                    )
+                    conversation.pop()  # убрать assistant с не-текстовым content
+                    break
 
-            logger.warning(f"Claude tool_use: exhausted {max_tool_rounds} rounds")
-            # Возвращаем последний текстовый ответ если есть
+            # Дошли сюда: (а) exhausted max_tool_rounds, (б) transient API fail (break line 767),
+            # (в) end_turn без text (break после conversation.pop() line ~795).
+            # Возвращаем последний текстовый ответ если есть (только для (а))
             for block in content_blocks:
                 if block.get("type") == "text":
                     return block["text"]
 
-            # Force-text fallback: контекст из tool_use уже в conversation,
-            # делаем финальный запрос БЕЗ tools — Claude обязан ответить текстом
-            logger.info("Claude force-text: final request without tools (tool rounds exhausted)")
-            force_msg = {
-                "role": "user",
-                "content": "Ответь на вопрос пользователя на основе уже найденной информации. Не ищи дополнительно."
-            }
-            conversation.append(force_msg)
+            # Force-text fallback: conversation НЕ мутируется — заканчивается на валидном
+            # user-сообщении (tool_results или начальный user_prompt). Инструкция «не ищи»
+            # переехала в system, чтобы не нарушать alternation roles в messages
+            # (peer-сессия 2026-06-01-15-qa-regression-aist-bot).
+            logger.info("Claude force-text: final request without tools")
+            force_system = (
+                system_prompt + "\n\n"
+                "ВАЖНО: ответь на вопрос пользователя на основе уже найденной информации. "
+                "Не запрашивай дополнительные инструменты."
+            )
             async with self._semaphore:
                 force_payload = {
                     "model": model,
                     "max_tokens": max_tokens,
-                    "system": system_prompt,
+                    "system": force_system,
                     "messages": conversation,
                 }
                 data = await self._api_call_streaming_full(
