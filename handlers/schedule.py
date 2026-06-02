@@ -243,9 +243,10 @@ async def callback_category(callback: CallbackQuery):
 
         if aisystant_id and price:
             code = course.get("code", "")
-            dot_pos = name.find(".")
-            btn_name = name[dot_pos + 1:].strip() if dot_pos > 0 else name
-            paid_courses.append((code, btn_name[:25], int(price)))
+            btn_name = name.strip()
+            if len(btn_name) > 30:
+                btn_name = btn_name[:27] + "..."
+            paid_courses.append((code, btn_name, int(price)))
 
     if paid_courses:
         lines.append(t('buy.payment_note', lang))
