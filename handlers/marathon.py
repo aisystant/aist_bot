@@ -266,7 +266,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
 @marathon_router.callback_query(F.data.startswith("marathon_practice:"))
 async def callback_marathon_practice(callback: CallbackQuery):
-    """Доставить practice_full по нажатию кнопки. Idempotent через domain_event."""
+    """Доставить practice по нажатию кнопки. Idempotent через domain_event."""
     parts = callback.data.split(":")
     if len(parts) != 2:
         await callback.answer("Ошибка формата данных", show_alert=True)
@@ -292,7 +292,6 @@ async def callback_marathon_practice(callback: CallbackQuery):
     intern_for_routing = await get_intern(user_id)
     practice = (
         get_day_text(day, 'practice', intern=intern_for_routing)
-        or get_day_text(day, 'practice_full')
         or get_day_text(day, 'practice')
     )
     if not practice:
@@ -314,7 +313,7 @@ async def callback_marathon_practice(callback: CallbackQuery):
         except Exception:
             pass  # некритично если не получилось снять inline-кнопку
         await callback.answer()
-        logger.info(f"[MarathonPractice] Sent practice_full day {day} to {user_id}")
+        logger.info(f"[MarathonPractice] Sent practice day {day} to {user_id}")
     except Exception as e:
         logger.error(
             f"[MarathonPractice] Failed to send practice day {day} to {user_id}: "

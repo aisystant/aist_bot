@@ -2,7 +2,7 @@
 
 Покрытие:
   - resolve_variant: 14 кейсов (8 базовых + None/empty/boundary/range)
-  - get_day_text: 8 кейсов routing + legacy fallback + aliases
+  - get_day_text: 6 кейсов routing + legacy fallback
   - calc_words: 5 кейсов (int, str, range, None, malformed)
 Итого: 27 кейсов.
 """
@@ -124,12 +124,6 @@ class TestGetDayTextRouting(unittest.TestCase):
 
     def test_no_intern_falls_back_to_legacy_practice(self):
         self.assertEqual(get_day_text(1, "practice"), "legacy practice D1")
-
-    def test_alias_lesson_full_maps_to_long_complex(self):
-        self.assertEqual(get_day_text(1, "lesson_full"), "long_complex lesson D1 (new)")
-
-    def test_alias_practice_full_maps_to_long_complex(self):
-        self.assertEqual(get_day_text(1, "practice_full"), "long_complex practice D1 (new)")
 
     def test_checkin_no_routing(self):
         intern = {"study_duration": 10, "complexity_level": 2}

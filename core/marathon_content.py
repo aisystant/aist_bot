@@ -17,11 +17,6 @@ from config import get_logger
 
 logger = get_logger(__name__)
 
-_LEGACY_ALIASES = {
-    "lesson_full": "lesson_long_complex",
-    "practice_full": "practice_long_complex",
-}
-
 _ROUTABLE_TYPES = {"lesson", "practice"}
 
 
@@ -92,8 +87,6 @@ def get_day_text(day: int, content_type: str, intern: Optional[dict] = None) -> 
                                    делается routing на один из 4 вариантов
                                    (lesson_short_simple, lesson_long_complex и т.п.);
                                    без intern — fallback на legacy ключ 'lesson'/'practice'.
-          - 'lesson_full' / 'practice_full': legacy aliases, маппятся на
-                                              'lesson_long_complex' / 'practice_long_complex'.
           - 'checkin' / 'reflection_question' / 'faq_hint': прямое чтение, без routing.
           - 'lesson_<bucket>_<style>' и зеркало для practice: прямое чтение варианта.
         intern: опциональный dict с полями 'study_duration', 'complexity_level'.
@@ -106,7 +99,7 @@ def get_day_text(day: int, content_type: str, intern: Optional[dict] = None) -> 
         return None
 
     day_data = _CONTENT[day_key]
-    resolved_type = _LEGACY_ALIASES.get(content_type, content_type)
+    resolved_type = content_type
 
     if resolved_type in _ROUTABLE_TYPES and intern is not None:
         variant = resolve_variant(
