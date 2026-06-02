@@ -277,7 +277,6 @@ async def _process_marathon_queue():
                         intern_for_routing = await get_intern(chat_id)
                         lesson = (
                             get_day_text(day, 'lesson', intern=intern_for_routing)
-                            or get_day_text(day, 'lesson_full')
                             or get_day_text(day, 'lesson')
                         )
                         faq = get_day_text(day, 'faq_hint')
@@ -727,12 +726,10 @@ def _build_marathon_message(content_type: str, day: int, content_ref: str | None
     if content_type == 'lesson_practice':
         lesson = (
             get_day_text(day, 'lesson', intern=intern)
-            or get_day_text(day, 'lesson_full')
             or get_day_text(day, 'lesson')
         )
         practice = (
             get_day_text(day, 'practice', intern=intern)
-            or get_day_text(day, 'practice_full')
             or get_day_text(day, 'practice')
         )
         if lesson and practice:
