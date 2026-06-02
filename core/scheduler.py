@@ -245,7 +245,11 @@ async def _process_marathon_queue():
         return
 
     # P0: filter out blocked users to eliminate L1 noise (3× burst per blocked user)
-    blocked_ids = await _get_blocked_chat_ids()
+    try:
+        blocked_ids = await _get_blocked_chat_ids()
+    except Exception as e:
+        logger.warning("[MarathonQueue] _get_blocked_chat_ids failed: %s — processing without block filter", e)
+        blocked_ids = set()
     if blocked_ids:
         items = [item for item in items if item['user_id'] not in blocked_ids]
     if not items:
@@ -1601,6 +1605,7 @@ async def check_reminders():
     blocked_list = list(blocked_ids) if blocked_ids else [0]  # NULL-safe placeholder
 
     pool = await get_learning_pool()
+    bot_data_pool = await get_pool()
     bot = Bot(token=_bot_token)
 
     logger.debug("[Scheduler] check_reminders: now_naive=%s, blocked=%d", now_naive, len(blocked_list))
@@ -1626,14 +1631,15 @@ async def check_reminders():
                 if not row:
                     break
 
-                # P0: TOCTOU guard — re-check bot_blocked right before sending
-                bot_data_pool = await get_pool()
+                # P0: TOCTOU guard — re-check bot_blocked right before sending.
+                # If blocked: revert sent=TRUE so the reminder isn't silently lost.
                 is_blocked_now = await bot_data_pool.fetchval(
                     "SELECT bot_blocked FROM development.user_state WHERE chat_id = $1",
                     row['chat_id']
                 )
                 if is_blocked_now:
-                    logger.info(f"[Scheduler] Skipping reminder {row['id']} — user {row['chat_id']} blocked (TOCTOU)")
+                    await conn.execute("UPDATE reminder SET sent = FALSE WHERE id = $1", row['id'])
+                    logger.info(f"[Scheduler] Reverted reminder {row['id']} — user {row['chat_id']} blocked (TOCTOU)")
                     continue
 
                 try:
