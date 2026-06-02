@@ -228,6 +228,9 @@ def _row_to_dict(row) -> dict:
         # IWE template update notifications (WP-90)
         'notify_template_updates': safe_get('notify_template_updates', False),
 
+        # Tier cache (WP-52 / WP-85) — persisted in public.users, parsed by onboarding
+        'tier': safe_get('tier', None),
+
         # Scheduler exhaustion guard (BE5-fix)
         'retry_exhausted_date': safe_get('retry_exhausted_date', None),
     }
