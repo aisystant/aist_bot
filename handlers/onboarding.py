@@ -5,6 +5,7 @@
 Вся логика собрана здесь, bot.py только импортирует OnboardingStates.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -237,9 +238,13 @@ async def cmd_start(message: Message, state: FSMContext):
 
             # Sync per-user menu commands (hamburger)
             from core.tier_ui import sync_menu_commands
-            from core.tier_detector import detect_ui_tier
-            tier = await detect_ui_tier(message.chat.id)
-            await sync_menu_commands(message.bot, message.chat.id, tier, lang)
+            tier_str = intern.get('tier')
+            if tier_str and tier_str.startswith('T'):
+                tier = int(tier_str[1:])
+            else:
+                from core.tier_detector import detect_ui_tier
+                tier = await detect_ui_tier(message.chat.id)
+            asyncio.create_task(sync_menu_commands(message.bot, message.chat.id, tier, lang))
             return
 
         lang = intern.get('language', 'ru')
@@ -260,8 +265,12 @@ async def cmd_start(message: Message, state: FSMContext):
 
         # Send welcome with tier-based ReplyKeyboard (WP-52)
         from core.tier_ui import build_reply_keyboard, sync_menu_commands
-        from core.tier_detector import detect_ui_tier
-        tier = await detect_ui_tier(message.chat.id)
+        tier_str = intern.get('tier')
+        if tier_str and tier_str.startswith('T'):
+            tier = int(tier_str[1:])
+        else:
+            from core.tier_detector import detect_ui_tier
+            tier = await detect_ui_tier(message.chat.id)
         keyboard = build_reply_keyboard(tier, lang)
 
         # Напоминание о привязке Aisystant, если не привязан
@@ -282,8 +291,8 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=keyboard,
         )
 
-        # Sync per-user menu commands
-        await sync_menu_commands(message.bot, message.chat.id, tier, lang)
+        # Sync per-user menu commands (fire-and-forget to reduce latency)
+        asyncio.create_task(sync_menu_commands(message.bot, message.chat.id, tier, lang))
         return
 
     # WP-79: Упрощённый онбординг — 0 шагов

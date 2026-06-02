@@ -28,6 +28,7 @@ from aiogram.fsm.storage.base import StorageKey
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID
+from db.connection import get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, mark_notification_sent, cleanup_expired_content, cleanup_error_questions
@@ -240,6 +241,13 @@ async def _process_marathon_queue():
     _warn_if_no_mentor_channel()
 
     items = await get_pending_queue_items(limit=100)
+    if not items:
+        return
+
+    # P0: filter out blocked users to eliminate L1 noise (3× burst per blocked user)
+    blocked_ids = await _get_blocked_chat_ids()
+    if blocked_ids:
+        items = [item for item in items if item['user_id'] not in blocked_ids]
     if not items:
         return
 
@@ -1617,6 +1625,16 @@ async def check_reminders():
                 )
                 if not row:
                     break
+
+                # P0: TOCTOU guard — re-check bot_blocked right before sending
+                bot_data_pool = await get_pool()
+                is_blocked_now = await bot_data_pool.fetchval(
+                    "SELECT bot_blocked FROM development.user_state WHERE chat_id = $1",
+                    row['chat_id']
+                )
+                if is_blocked_now:
+                    logger.info(f"[Scheduler] Skipping reminder {row['id']} — user {row['chat_id']} blocked (TOCTOU)")
+                    continue
 
                 try:
                     # WP-320 Ф2: custom text reminders (DP.SC.134)
