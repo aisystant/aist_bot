@@ -413,33 +413,59 @@ async def acquire():
 db_pool = None
 
 async def _verify_schema(pool: asyncpg.Pool) -> None:
-    """Fail-fast проверка критичных таблиц после миграций.
+    """Проверка критичных таблиц в ТЕХ ЖЕ пулах, откуда они читаются в рантайме.
 
-    Поднимает RuntimeError если схема не соответствует ожиданиям —
-    это ловит деплойный drift до первого пользовательского запроса.
+    Контракт «verify-пул == read-пул» (WP-330 A-zero, peer-session 2026-06-03-18):
+    каждую таблицу проверяем в инстансе, куда РЕАЛЬНО идут запросы, а не в
+    bot_data «по умолчанию». После 12-BC миграции (WP-268/269/253):
+      - feed_sessions читается из learning-пула (db/queries/profile.py),
+      - feedback_triage — из journal-пула (db/queries/profile.py:218 DELETE,
+        core/feedback_triage.py INSERT/UPDATE).
+    Старая версия проверяла обе в bot_data → ложная зелёнка на feed_sessions
+    (есть в bot_data, нет в learning) и ложное падение на feedback_triage
+    (есть в journal, нет в bot_data) → crash-loop деплоя 2026-06-03.
+
+    НЕ-фатально: детектор дрейфа НЕ имеет права ронять прод. При дрейфе —
+    ERROR-лог + TG-алерт, но без RuntimeError (иначе страж крэшит деплой,
+    как 2026-06-03 07:51 UTC). feed_sessions/feedback_triage — некритичные
+    (статистика /progress, admin-триаж); крэшить весь бот для 50 пользователей
+    из-за них нельзя. Критичные пользовательские таблицы fail-fast'ятся на
+    create_tables() выше.
+
+    Параметр `pool` сохранён для обратной совместимости вызова (init_db), но
+    проверки идут по правильным per-domain пулам.
     """
-    async with pool.acquire() as conn:
-        # 1. feed_sessions
-        feed_exists = await conn.fetchval(
-            "SELECT to_regclass('feed_sessions')"
-        )
-        # 2. feedback_triage.suggested_action
-        col_exists = await conn.fetchval(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name = 'feedback_triage'
-              AND column_name = 'suggested_action'
-            """
-        )
     missing: list[str] = []
-    if not feed_exists:
-        missing.append("feed_sessions")
-    if not col_exists:
-        missing.append("feedback_triage.suggested_action")
+
+    # 1. feed_sessions — learning-пул (read path: profile.py)
+    try:
+        lpool = await get_learning_pool()
+        async with lpool.acquire() as conn:
+            if not await conn.fetchval("SELECT to_regclass('feed_sessions')"):
+                missing.append("feed_sessions@learning")
+    except Exception as e:
+        logger.warning(f"[schema-verify] feed_sessions@learning check skipped: {e}")
+
+    # 2. feedback_triage.suggested_action — journal-пул (read path: feedback.py)
+    try:
+        jpool = await get_journal_pool()
+        async with jpool.acquire() as conn:
+            col_exists = await conn.fetchval(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'feedback_triage'
+                  AND column_name = 'suggested_action'
+                """
+            )
+            if not col_exists:
+                missing.append("feedback_triage.suggested_action@journal")
+    except Exception as e:
+        logger.warning(f"[schema-verify] feedback_triage@journal check skipped: {e}")
+
     if missing:
         msg = f"Schema drift detected: {', '.join(missing)} missing. Run migrations."
-        logger.error(f"❌ {msg}")
+        logger.error(f"❌ {msg} (non-fatal — bot continues, see WP-330 A-zero)")
         # Fire-and-forget TG alert (best effort — bot not fully started yet)
         async def _alert():
             try:
@@ -452,19 +478,21 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
                     try:
                         await bot.send_message(
                             int(dev_chat),
-                            f"🚨 <b>Schema drift</b>\n<code>{msg}</code>",
+                            f"🚨 <b>Schema drift</b> (non-fatal)\n<code>{msg}</code>",
                             parse_mode="HTML",
                         )
                     finally:
                         await bot.session.close()
             except Exception:
                 pass
-        try:
-            import asyncio
-            asyncio.get_running_loop().create_task(_alert())
-        except Exception:
-            pass
-        raise RuntimeError(msg)
+        # Await напрямую (а не detached task): init_db выполняется до start_polling,
+        # detached task мог не успеть выполниться до рестарта → алерт терялся.
+        # _alert полностью обёрнут в try/except → не может пробросить исключение.
+        await _alert()
+        # NON-FATAL: НЕ raise — страж не должен крэшить прод.
+        return
+
+    logger.info("✅ Schema verify passed (learning.feed_sessions, journal.feedback_triage)")
 
 
 async def init_db():
