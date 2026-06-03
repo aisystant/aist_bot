@@ -795,7 +795,7 @@ async def _recheck_blocked_users():
                 cleared += 1
             else:
                 # Продлеваем recheck на +1 день
-                from db.pool import get_pool
+                from db.connection import get_pool
                 pool = await get_pool()
                 async with pool.acquire() as conn:
                     await conn.execute(

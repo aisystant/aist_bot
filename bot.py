@@ -643,9 +643,11 @@ async def main():
     from clients.claude import ClaudeClient
     from clients.mcp import MCPClient
     from clients.gateway_mcp import gateway_mcp
+    from clients.wakatime import wakatime_client
     await ClaudeClient.close_session()
     await MCPClient.close_session()
     await gateway_mcp.close()
+    await wakatime_client.close_session()
     logger.info("🔒 HTTP sessions закрыты")
 
     # Langfuse flush (WP-179 Ф3)

@@ -412,15 +412,73 @@ async def acquire():
 # Для обратной совместимости
 db_pool = None
 
+async def _verify_schema(pool: asyncpg.Pool) -> None:
+    """Fail-fast проверка критичных таблиц после миграций.
+
+    Поднимает RuntimeError если схема не соответствует ожиданиям —
+    это ловит деплойный drift до первого пользовательского запроса.
+    """
+    async with pool.acquire() as conn:
+        # 1. feed_sessions
+        feed_exists = await conn.fetchval(
+            "SELECT to_regclass('feed_sessions')"
+        )
+        # 2. feedback_triage.suggested_action
+        col_exists = await conn.fetchval(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'feedback_triage'
+              AND column_name = 'suggested_action'
+            """
+        )
+    missing: list[str] = []
+    if not feed_exists:
+        missing.append("feed_sessions")
+    if not col_exists:
+        missing.append("feedback_triage.suggested_action")
+    if missing:
+        msg = f"Schema drift detected: {', '.join(missing)} missing. Run migrations."
+        logger.error(f"❌ {msg}")
+        # Fire-and-forget TG alert (best effort — bot not fully started yet)
+        async def _alert():
+            try:
+                import os
+                token = os.getenv("TELEGRAM_BOT_TOKEN")
+                dev_chat = os.getenv("DEVELOPER_CHAT_ID")
+                if token and dev_chat:
+                    from aiogram import Bot
+                    bot = Bot(token=token)
+                    try:
+                        await bot.send_message(
+                            int(dev_chat),
+                            f"🚨 <b>Schema drift</b>\n<code>{msg}</code>",
+                            parse_mode="HTML",
+                        )
+                    finally:
+                        await bot.session.close()
+            except Exception:
+                pass
+        try:
+            import asyncio
+            asyncio.get_running_loop().create_task(_alert())
+        except Exception:
+            pass
+        raise RuntimeError(msg)
+
+
 async def init_db():
     """Инициализация базы данных (для обратной совместимости)"""
     global db_pool
     pool = await get_pool()
     db_pool = pool
-    
+
     # Создание таблиц
     from .models import create_tables
     await create_tables(pool)
-    
+
+    # Fail-fast: проверить что критичные таблицы на месте
+    await _verify_schema(pool)
+
     logger.info("✅ База данных инициализирована")
     return pool
