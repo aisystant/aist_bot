@@ -114,6 +114,18 @@ async def log_event(
         except Exception:
             pass
 
+        # WP-253: consent guard — skip logging for users with explicit opt_out
+        if user_uuid:
+            try:
+                from db.queries.consent import get_consent
+                consent = await get_consent(str(user_uuid))
+                if consent and not consent.opt_in:
+                    logger.info(f"[Events] skip {event_type} for {user_id}: tracking consent opt_out")
+                    return None
+            except Exception as e:
+                logger.warning(f"[Events] consent check failed for {user_id}: {e}")
+                # fail-open: continue logging on consent check errors
+
         external_id = _make_external_id(user_id, event_type)
 
         async with pool.acquire() as conn:
