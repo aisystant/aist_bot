@@ -195,6 +195,81 @@ async def save_checkin(user_id: int, day: int, state: str, notes: Optional[str] 
     return bool(row["is_new_insert"]) if row else True
 
 
+async def save_marathon_activity(
+    user_id: int,
+    activity_date,
+    action_type: str = "checkin",
+    raw_count: int = 1,
+):
+    """Upsert факта активности в marathon_activity (календарный день).
+
+    Peer-session 2026-06-03-16: идемпотентный upsert через DO UPDATE.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''INSERT INTO learning.marathon_activity (user_id, activity_date, action_type, raw_count)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (user_id, activity_date, action_type)
+               DO UPDATE SET
+                   raw_count = EXCLUDED.raw_count,
+                   updated_at = NOW()''',
+            user_id,
+            activity_date,
+            action_type,
+            raw_count,
+        )
+
+
+async def get_missed_streak(user_id: int, working_days: list[int] | None = None) -> int:
+    """Посчитать streak пропущенных рабочих дней до вчерашнего дня включительно.
+
+    Peer-session 2026-06-03-16: compute-on-demand через generate_series + marathon_activity.
+    working_days — дни недели (1=Mon..7=Sun); default все дни.
+    """
+    wd = working_days if working_days is not None else [1, 2, 3, 4, 5, 6, 7]
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''WITH working_days AS (SELECT $2::int[] AS wd),
+                 user_progress AS (
+                     SELECT COALESCE(started_at, created_at)::DATE AS start_date
+                     FROM learning.marathon_progress
+                     WHERE user_id = $1
+                 ),
+                 days_series AS (
+                     SELECT generate_series(
+                         start_date,
+                         CURRENT_DATE - INTERVAL '1 day',
+                         '1 day'
+                     )::DATE AS d
+                     FROM user_progress
+                 ),
+                 relevant_days AS (
+                     SELECT d FROM days_series
+                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
+                 ),
+                 activity AS (
+                     SELECT activity_date FROM learning.marathon_activity
+                     WHERE user_id = $1
+                 ),
+                 missed AS (
+                     SELECT d FROM relevant_days
+                     WHERE NOT EXISTS (SELECT 1 FROM activity WHERE activity_date = d)
+                 ),
+                 last_active AS (
+                     SELECT COALESCE(MAX(activity_date), '1970-01-01'::DATE) AS d
+                     FROM activity
+                 )
+                 SELECT COUNT(*) AS missed_streak
+                 FROM missed
+                 WHERE d > (SELECT d FROM last_active)''',
+            user_id,
+            wd,
+        )
+    return int(row["missed_streak"]) if row else 0
+
+
 async def get_checkins(user_id: int) -> list[dict]:
     """Получить все check-ins участника."""
     pool = await get_learning_pool()
@@ -281,75 +356,151 @@ async def get_failed_queue_items(limit: int = 50):
     return [dict(r) for r in rows]
 
 
-async def get_missed_checkin_users(min_days: int = 2):
+async def get_missed_checkin_users(min_days: int = 2, working_days: list[int] | None = None):
     """Получить активных участников, пропустивших чек-ин min_days+ дней подряд.
 
-    WP-330 P1 fix (peer-session 2026-06-01): считаем missed через фактические
-    записи в marathon_state за окно [current_day-2 .. current_day].
+    Peer-session 2026-06-03-16: календарные даты через marathon_activity.
+    working_days — дни недели (1=Mon..7=Sun); default все дни.
     """
+    wd = working_days if working_days is not None else [1, 2, 3, 4, 5, 6, 7]
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''WITH missed_calc AS (
-                 SELECT mp.user_id,
-                        mp.current_day,
-                        (SELECT COUNT(DISTINCT day)
-                         FROM learning.marathon_state ms
-                         WHERE ms.user_id = mp.user_id
-                        ) AS total_checkins,
-                        mp.started_at,
-                        (SELECT COUNT(*) FROM generate_series(
-                            GREATEST(1, mp.current_day - 2), mp.current_day
-                         ) AS d
-                         WHERE NOT EXISTS (
-                             SELECT 1 FROM learning.marathon_state ms
-                             WHERE ms.user_id = mp.user_id AND ms.day = d
-                         )
-                        ) AS missed
-                 FROM learning.marathon_progress mp
-                 WHERE mp.status = 'active' AND mp.current_day > 0
-               )
-               SELECT user_id, current_day, total_checkins, started_at, missed
-               FROM missed_calc
-               WHERE missed >= $1''',
+            '''WITH working_days AS (SELECT $2::int[] AS wd),
+                 active_users AS (
+                     SELECT user_id,
+                            COALESCE(started_at, created_at)::DATE AS start_date,
+                            current_day
+                     FROM learning.marathon_progress
+                     WHERE status = 'active' AND current_day > 0
+                 ),
+                 days_series AS (
+                     SELECT user_id, generate_series(
+                         start_date,
+                         CURRENT_DATE - INTERVAL '1 day',
+                         '1 day'
+                     )::DATE AS d
+                     FROM active_users
+                 ),
+                 relevant_days AS (
+                     SELECT user_id, d FROM days_series
+                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
+                 ),
+                 activity AS (
+                     SELECT user_id, activity_date
+                     FROM learning.marathon_activity
+                     WHERE user_id IN (SELECT user_id FROM active_users)
+                 ),
+                 missed AS (
+                     SELECT rd.user_id, rd.d
+                     FROM relevant_days rd
+                     LEFT JOIN activity a
+                         ON a.user_id = rd.user_id AND a.activity_date = rd.d
+                     WHERE a.user_id IS NULL
+                 ),
+                 last_active AS (
+                     SELECT user_id, MAX(activity_date) AS last_d
+                     FROM activity
+                     GROUP BY user_id
+                 ),
+                 streaks AS (
+                     SELECT m.user_id, COUNT(*) AS missed_streak
+                     FROM missed m
+                     LEFT JOIN last_active la ON la.user_id = m.user_id
+                     WHERE m.d > COALESCE(la.last_d, '1970-01-01'::DATE)
+                     GROUP BY m.user_id
+                 ),
+                 total_checkins AS (
+                     SELECT user_id, COUNT(DISTINCT day) AS cnt
+                     FROM learning.marathon_state
+                     WHERE user_id IN (SELECT user_id FROM active_users)
+                     GROUP BY user_id
+                 )
+                 SELECT au.user_id,
+                        au.current_day,
+                        COALESCE(tc.cnt, 0) AS total_checkins,
+                        au.start_date AS started_at,
+                        COALESCE(s.missed_streak, 0) AS missed
+                 FROM active_users au
+                 LEFT JOIN streaks s ON s.user_id = au.user_id
+                 LEFT JOIN total_checkins tc ON tc.user_id = au.user_id
+                 WHERE COALESCE(s.missed_streak, 0) >= $1''',
             min_days,
+            wd,
         )
     return [dict(r) for r in rows]
 
 
-async def get_users_for_nudge(limit: int = 100) -> list[dict]:
+async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None = None) -> list[dict]:
     """Получить активных участников с пропусками чек-инов для nudge.
 
-    WP-330 fix (peer-session 2026-06-01): считаем missed через фактические
-    записи в marathon_state за окно [current_day-2 .. current_day],
-    а не через разность current_day - total_checkins.
+    Peer-session 2026-06-03-16: календарные даты через marathon_activity.
     """
+    wd = working_days if working_days is not None else [1, 2, 3, 4, 5, 6, 7]
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''WITH nudge_calc AS (
-                 SELECT mp.user_id,
-                        mp.current_day,
-                        (SELECT COUNT(DISTINCT day)
-                         FROM learning.marathon_state ms
-                         WHERE ms.user_id = mp.user_id
-                        ) AS total_checkins,
-                        (SELECT COUNT(*) FROM generate_series(
-                            GREATEST(1, mp.current_day - 2), mp.current_day
-                         ) AS d
-                         WHERE NOT EXISTS (
-                             SELECT 1 FROM learning.marathon_state ms
-                             WHERE ms.user_id = mp.user_id AND ms.day = d
-                         )
-                        ) AS missed
-                 FROM learning.marathon_progress mp
-                 WHERE mp.status = 'active' AND mp.current_day > 0
-               )
-               SELECT user_id, current_day, total_checkins, missed
-               FROM nudge_calc
-               WHERE missed >= 1
-               LIMIT $1''',
+            '''WITH working_days AS (SELECT $2::int[] AS wd),
+                 active_users AS (
+                     SELECT user_id,
+                            COALESCE(started_at, created_at)::DATE AS start_date,
+                            current_day
+                     FROM learning.marathon_progress
+                     WHERE status = 'active' AND current_day > 0
+                 ),
+                 days_series AS (
+                     SELECT user_id, generate_series(
+                         start_date,
+                         CURRENT_DATE - INTERVAL '1 day',
+                         '1 day'
+                     )::DATE AS d
+                     FROM active_users
+                 ),
+                 relevant_days AS (
+                     SELECT user_id, d FROM days_series
+                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
+                 ),
+                 activity AS (
+                     SELECT user_id, activity_date
+                     FROM learning.marathon_activity
+                     WHERE user_id IN (SELECT user_id FROM active_users)
+                 ),
+                 missed AS (
+                     SELECT rd.user_id, rd.d
+                     FROM relevant_days rd
+                     LEFT JOIN activity a
+                         ON a.user_id = rd.user_id AND a.activity_date = rd.d
+                     WHERE a.user_id IS NULL
+                 ),
+                 last_active AS (
+                     SELECT user_id, MAX(activity_date) AS last_d
+                     FROM activity
+                     GROUP BY user_id
+                 ),
+                 streaks AS (
+                     SELECT m.user_id, COUNT(*) AS missed_streak
+                     FROM missed m
+                     LEFT JOIN last_active la ON la.user_id = m.user_id
+                     WHERE m.d > COALESCE(la.last_d, '1970-01-01'::DATE)
+                     GROUP BY m.user_id
+                 ),
+                 total_checkins AS (
+                     SELECT user_id, COUNT(DISTINCT day) AS cnt
+                     FROM learning.marathon_state
+                     WHERE user_id IN (SELECT user_id FROM active_users)
+                     GROUP BY user_id
+                 )
+                 SELECT au.user_id,
+                        au.current_day,
+                        COALESCE(tc.cnt, 0) AS total_checkins,
+                        COALESCE(s.missed_streak, 0) AS missed
+                 FROM active_users au
+                 LEFT JOIN streaks s ON s.user_id = au.user_id
+                 LEFT JOIN total_checkins tc ON tc.user_id = au.user_id
+                 WHERE COALESCE(s.missed_streak, 0) >= 1
+                 LIMIT $1''',
             limit,
+            wd,
         )
     return [dict(r) for r in rows]
 
