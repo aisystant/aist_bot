@@ -2187,14 +2187,33 @@ async def _check_schedule_integrity(now) -> Optional[str]:
 # ═══════════════════════════════════════════════════════════
 
 async def _neon_keep_alive():
-    """Пинг Neon каждые 4 минуты — предотвращение idle timeout (cold start)."""
+    """Пинг каждые 4 минуты — предотвращение Neon idle suspend (cold start).
+
+    ВАЖНО (WP-330 латентность, peer-session 2026-06-03-18): get_pool() =
+    DATABASE_URL = bot_data (Railway-local Postgres) — он НЕ suspend'ится,
+    пинговать его для борьбы с cold-start бесполезно. Реальные cold-start'ы —
+    на Neon serverless пулах (learning/journal/persona/consent/indicators/...),
+    которые делят ОДИН Neon compute endpoint (ep-dark-hall). Пинг любого Neon-пула
+    держит общий compute «тёплым» → нет multi-секундного wake на nav-командах
+    (/settings и /start трогают persona+consent = Neon).
+    """
+    # 1. Neon compute (shared endpoint) — это то, что реально засыпает.
+    #    Один пинг learning держит весь Neon-compute тёплым для всех Neon-БД.
+    try:
+        from db.connection import get_learning_pool
+        npool = await get_learning_pool()
+        async with npool.acquire() as conn:
+            await conn.fetchval('SELECT 1')
+    except Exception as e:
+        logger.warning(f"[Scheduler] Neon keep-alive (learning) failed: {e}")
+    # 2. bot_data (Railway-local) — поддержать пул живым (не suspend, но дёшево).
     try:
         from db.connection import get_pool
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.fetchval('SELECT 1')
     except Exception as e:
-        logger.warning(f"[Scheduler] Neon keep-alive failed: {e}")
+        logger.warning(f"[Scheduler] keep-alive (bot_data) failed: {e}")
 
 
 async def _rollback_expired_burn_reservations():
