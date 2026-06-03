@@ -40,8 +40,17 @@ class WakaTimeClient:
             )
         return self._session
 
+    async def close_session(self) -> None:
+        """Закрытие singleton session при shutdown."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
     @staticmethod
     def _make_headers(api_key: str) -> dict:
+        if not api_key or not isinstance(api_key, str):
+            logger.warning("WakaTime API: empty or invalid api_key")
+            return {}
         # OAuth token (waka_tok_xxx) → Bearer Auth. API key (waka_xxx) → Basic Auth.
         if api_key.startswith("waka_tok_"):
             return {"Authorization": f"Bearer {api_key}"}
@@ -55,6 +64,10 @@ class WakaTimeClient:
             async with session.get(url, headers=self._make_headers(api_key)) as resp:
                 if resp.status == 401:
                     logger.warning("WakaTime API: invalid key (401)")
+                    return None
+                if resp.status == 422:
+                    body = await resp.text()
+                    logger.error(f"WakaTime API error 422: {body[:500]}")
                     return None
                 if resp.status >= 400:
                     logger.error(f"WakaTime API error: {resp.status}")
@@ -82,6 +95,10 @@ class WakaTimeClient:
         else:
             target = day or (date.today() - timedelta(days=1))
         ds = target.isoformat()
+        # Validate key before request to prevent 422 from malformed auth
+        if not api_key or not isinstance(api_key, str):
+            logger.warning("WakaTime get_day_summary: missing api_key")
+            return None
         data = await self._fetch(f"{API_BASE}/summaries?start={ds}&end={ds}", api_key)
         if not data:
             return None
