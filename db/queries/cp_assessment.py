@@ -102,6 +102,30 @@ async def save_cp_assessment(
             rcs_version,
             valid_until,
         )
+
+        # WP-368 Ф6 (R8.1/R8.3): fire-and-forget событие cp_assessment_recorded в
+        # КАНОНИЧЕСКУЮ шину public.domain_event (в learning-БД). occurred_at = timestamptz
+        # → aware datetime ОК (исключение из правила naive-datetime 10.6, колонка aware).
+        # Сбой emit не должен ронять уже сохранённый снимок.
+        try:
+            occurred_at = datetime.now(timezone.utc)
+            await conn.execute(
+                """INSERT INTO public.domain_event
+                     (source, external_id, event_type, schema_version, payload, account_id, occurred_at)
+                   VALUES ($1, $2, $3, $4, $5::jsonb, $6::uuid, $7)
+                   ON CONFLICT (source, external_id) DO NOTHING""",
+                "cp-assessment",
+                f"cp_assessment_recorded-{account_id}-{row_id}",
+                "cp_assessment_recorded",
+                "v1",
+                json.dumps({"source": "cp-assessment", "char_keys": list(cp_scores.keys()),
+                            "assessment_id": row_id, "stage": profile["stage"]}),
+                account_id,
+                occurred_at,
+            )
+        except Exception as ev_e:
+            logger.warning("[cp_assessment] cp_assessment_recorded emit failed (non-fatal): %s", ev_e)
+
     logger.info(
         "[cp_assessment] saved id=%s account=%s stage=%s bottleneck=%s",
         row_id, account_id, profile["stage"], profile["bottleneck_slot"],
