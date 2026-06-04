@@ -18,18 +18,26 @@ async def touch_last_active_date(chat_id: int):
 
     Вызывается fire-and-forget из TracingMiddleware на КАЖДЫЙ запрос.
     Условие WHERE гарантирует: max 1 реальный UPDATE/день на пользователя.
+
+    Observability (peer-session 2026-06-04-02): запускается через asyncio.create_task,
+    а голый `except` в middleware ловит только ПЛАНИРОВАНИЕ задачи, не её исполнение.
+    Поэтому исключения логируем здесь — иначе они теряются как
+    "Task exception was never retrieved" и last_active_date молча не пишется без следа.
     """
     from .users import moscow_today
 
-    pool = await get_pool()
     today = moscow_today()
-    async with pool.acquire() as conn:
-        await conn.execute('''
-            UPDATE development.user_state
-            SET last_active_date = $2
-            WHERE chat_id = $1
-              AND (last_active_date IS NULL OR last_active_date < $2)
-        ''', chat_id, today)
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                UPDATE development.user_state
+                SET last_active_date = $2
+                WHERE chat_id = $1
+                  AND (last_active_date IS NULL OR last_active_date < $2)
+            ''', chat_id, today)
+    except Exception as e:
+        logger.warning(f"[touch_last_active_date] failed for chat_id={chat_id}: {e}")
 
 
 async def record_active_day(chat_id: int, activity_type: str,
