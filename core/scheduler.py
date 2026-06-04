@@ -563,6 +563,46 @@ async def _send_marathon_nudges():
         await bot.session.close()
 
 
+async def _process_marathon_activity_batch():
+    """WP-253: ночной batch агрегации календарной активности в marathon_activity.
+
+    Peer-session 2026-06-03-16: агрегирует marathon_state за предыдущий
+    календарный день (00:00–23:59 MSK) и upsert'ит в learning.marathon_activity.
+    Запускается ежедневно в 03:00 MSK.
+    """
+    from db.queries.marathon_newcomer import save_marathon_activity
+    from db.connection import get_learning_pool
+
+    yesterday = (moscow_now() - timedelta(days=1)).date()
+    pool = await get_learning_pool()
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                '''SELECT user_id,
+                       (check_in_at AT TIME ZONE 'Europe/Moscow')::DATE AS activity_date,
+                       COUNT(*)::INTEGER AS raw_count
+                 FROM learning.marathon_state
+                 WHERE check_in_at >= $1::timestamptz
+                   AND check_in_at < $2::timestamptz
+                 GROUP BY user_id, (check_in_at AT TIME ZONE 'Europe/Moscow')::DATE''',
+                datetime.combine(yesterday, datetime.min.time(), tzinfo=MOSCOW_TZ),
+                datetime.combine(moscow_now().date(), datetime.min.time(), tzinfo=MOSCOW_TZ),
+            )
+        for row in rows:
+            await save_marathon_activity(
+                user_id=row["user_id"],
+                activity_date=row["activity_date"],
+                action_type="checkin",
+                raw_count=row["raw_count"],
+            )
+        if rows:
+            logger.info(f"[MarathonActivityBatch] Upserted {len(rows)} rows for {yesterday}")
+        else:
+            logger.info(f"[MarathonActivityBatch] No activity for {yesterday}")
+    except Exception as e:
+        logger.exception(f"[MarathonActivityBatch] Failed for {yesterday}: {e}")
+
+
 async def _send_marathon_weekly_digest():
     """WP-330 P2: еженедельный digest для активных участников (воскресенье 18:00).
 
@@ -843,6 +883,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
+    _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
