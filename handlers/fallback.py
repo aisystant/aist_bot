@@ -100,22 +100,34 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     return
 
                 # WP-392 Ф3.1: Hermes-роутер (DP.SC.167)
-                # Проверяем тир из intern (public.users.tier — authoritative source)
-                tier_str = intern.get('tier', 'T1') if intern else 'T1'
-                tier_num = int(tier_str[1]) if (
-                    isinstance(tier_str, str) and tier_str.startswith('T') and len(tier_str) == 2
-                ) else 1
-                if tier_num < 3:
-                    await message.answer("Функция недоступна на твоём тире")
+                # Требует явный prefix "Гермес"/"hermes" (peer-session 2026-06-04-50)
+                _HERMES_PREFIXES = ("гермес", "hermes")
+                _text_lower = text.lower().strip()
+                _is_hermes = any(_text_lower.startswith(p) for p in _HERMES_PREFIXES)
+                if not _is_hermes:
+                    # Без prefix → тихий fallback в SM routing (вариант B MVP)
+                    pass
+                else:
+                    # Проверяем тир из intern (public.users.tier — authoritative source)
+                    tier_str = intern.get('tier', 'T1') if intern else 'T1'
+                    tier_num = int(tier_str[1]) if (
+                        isinstance(tier_str, str) and tier_str.startswith('T') and len(tier_str) == 2
+                    ) else 1
+                    if tier_num < 3:
+                        await message.answer("Функция недоступна на твоём тире")
+                        return
+                    # T3+: убираем prefix + пунктуацию
+                    import re
+                    hermes_msg = re.sub(
+                        r'^(гермес|hermes)[,:\s]+', '', text, flags=re.IGNORECASE
+                    ).strip() or text
+                    from clients.gateway_mcp import gateway_mcp
+                    response = await gateway_mcp.hermes_chat(
+                        message=hermes_msg,
+                        telegram_user_id=chat_id,
+                    )
+                    await message.answer(response)
                     return
-                # T3+ → hermes_chat
-                from clients.gateway_mcp import gateway_mcp
-                response = await gateway_mcp.hermes_chat(
-                    message=text,
-                    telegram_user_id=chat_id,
-                )
-                await message.answer(response)
-                return
 
         logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, len={len(text)}")
         try:
