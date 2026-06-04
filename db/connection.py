@@ -97,10 +97,10 @@ async def get_persona_pool() -> asyncpg.Pool:
         _persona_pool = await asyncpg.create_pool(
             PERSONA_URL,
             statement_cache_size=100,
-            min_size=1,
+            min_size=2,  # WP-330 латентность: держать соединения тёплыми (nav hot-path: resolve_ory)
             max_size=10,
             command_timeout=30,
-            max_inactive_connection_lifetime=60,
+            max_inactive_connection_lifetime=300,  # WP-330: было 60 → реконнект на каждой nav-команде
         )
         logger.info("✅ Persona пул соединений создан")
     return _persona_pool
@@ -145,10 +145,10 @@ async def get_learning_pool() -> asyncpg.Pool:
         _learning_pool = await asyncpg.create_pool(
             LEARNING_URL,
             statement_cache_size=100,
-            min_size=1,
+            min_size=2,  # WP-330 латентность: nav hot-path (/progress feed/answers)
             max_size=10,
             command_timeout=30,
-            max_inactive_connection_lifetime=60,
+            max_inactive_connection_lifetime=300,  # WP-330: было 60
         )
         logger.info("✅ Learning пул соединений создан")
     return _learning_pool
@@ -188,10 +188,10 @@ async def get_consent_pool() -> asyncpg.Pool:
         _consent_pool = await asyncpg.create_pool(
             CONSENT_URL,
             statement_cache_size=0,  # Neon pooled endpoint compatibility
-            min_size=1,
+            min_size=2,  # WP-330 латентность: nav hot-path (/settings typing-tracking)
             max_size=3,
             command_timeout=15,
-            max_inactive_connection_lifetime=60,
+            max_inactive_connection_lifetime=300,  # WP-330: было 60
         )
         logger.info("✅ Consent пул соединений создан")
     return _consent_pool
