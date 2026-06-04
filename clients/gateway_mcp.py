@@ -355,6 +355,44 @@ class GatewayMCPClient:
         self._request_id += 1
         return self._request_id
 
+    # WP-392 Ф3.1: hermes_chat — прокси к Hermes-рантайму (DP.SC.167, T4)
+    HERMES_TIMEOUT_MESSAGE = (
+        "Запрос обрабатывался слишком долго (лимит 25 секунд). "
+        "Попробуй упростить вопрос или разбить на части."
+    )
+    HERMES_UNAVAILABLE_MESSAGE = "Hermes временно недоступен. Попробуй позже."
+
+    async def hermes_chat(
+        self,
+        message: str,
+        telegram_user_id: int,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """Вызов hermes_chat через gateway-mcp. Возвращает текст ответа Hermes."""
+        args: dict = {"message": message}
+        if session_id:
+            args["session_id"] = session_id
+        result = await self._call("hermes_chat", args, telegram_user_id=telegram_user_id)
+        if result is None:
+            return self.HERMES_UNAVAILABLE_MESSAGE
+        # Gateway возвращает { content: [{ type: "text", text: "..." }], isError?: bool }
+        content = result.get("content", [])
+        raw_text = content[0].get("text", "") if content else ""
+        # Парсим JSON-ответ gateway (timeout / error / нормальный)
+        try:
+            import json
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, dict):
+                if parsed.get("error") == "timeout":
+                    return parsed.get("message", self.HERMES_TIMEOUT_MESSAGE)
+                if parsed.get("error"):
+                    return self.HERMES_UNAVAILABLE_MESSAGE
+                if "response" in parsed:
+                    return str(parsed["response"])
+        except (ValueError, TypeError):
+            pass
+        return raw_text or self.HERMES_UNAVAILABLE_MESSAGE
+
     async def _call(self, tool_name: str, arguments: dict,
                     telegram_user_id: Optional[int] = None) -> Optional[dict]:
         """Вызов инструмента Gateway MCP через JSON-RPC.

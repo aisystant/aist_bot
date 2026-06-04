@@ -99,6 +99,24 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 if handled:
                     return
 
+                # WP-392 Ф3.1: Hermes-роутер (DP.SC.167)
+                # Проверяем тир из intern (public.users.tier — authoritative source)
+                tier_str = intern.get('tier', 'T1') if intern else 'T1'
+                tier_num = int(tier_str[1]) if (
+                    isinstance(tier_str, str) and tier_str.startswith('T') and len(tier_str) == 2
+                ) else 1
+                if tier_num < 3:
+                    await message.answer("Функция недоступна на твоём тире")
+                    return
+                # T3+ → hermes_chat
+                from bot import gateway_mcp_client
+                response = await gateway_mcp_client.hermes_chat(
+                    message=text,
+                    telegram_user_id=chat_id,
+                )
+                await message.answer(response)
+                return
+
         logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, len={len(text)}")
         try:
             await state.clear()
