@@ -33,7 +33,13 @@ async def test_arbitrary_text_does_not_crash(bot, dp, patch_fallback_deps):
 
 @pytest.mark.asyncio
 async def test_arbitrary_text_with_sm(bot, dp, patch_fallback_deps):
-    """Сценарий 8.7: С активной SM произвольный текст делегируется."""
+    """Сценарий 8.7: С активной SM и current_state произвольный текст делегируется в SM."""
+    # WP-392 Ф3.1: Hermes-роутер перехватывает только при current_state=None.
+    # Пользователь с current_state (активный SM-стейт) должен идти через route_message.
+    patch_fallback_deps["get_intern"].return_value = make_intern(
+        onboarding_completed=True,
+        current_state="marathon.lesson",  # активный SM-стейт → Hermes не перехватывает
+    )
     mock_dispatcher = MagicMock()
     mock_dispatcher.is_sm_active = True
     mock_dispatcher.route_message = AsyncMock(return_value=True)
@@ -43,6 +49,48 @@ async def test_arbitrary_text_with_sm(bot, dp, patch_fallback_deps):
         await dp.feed_update(bot, update)
 
     mock_dispatcher.route_message.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_hermes_routing_tier1_blocked(bot, dp, patch_fallback_deps):
+    """WP-392 Ф3.1: T1-пользователь получает сообщение о недоступности."""
+    patch_fallback_deps["get_intern"].return_value = make_intern(
+        onboarding_completed=True, tier="T1", current_state=None
+    )
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.is_sm_active = True
+    mock_dispatcher.route_message = AsyncMock(return_value=True)
+
+    with patch("handlers.get_dispatcher", return_value=mock_dispatcher), \
+         patch("handlers.onboarding_intent.route_onboarding_intent", new_callable=AsyncMock, return_value=False):
+        update = text_message("какой статус WP-392?", chat_id=12345)
+        await dp.feed_update(bot, update)
+
+    mock_dispatcher.route_message.assert_not_called()
+    msgs = bot.get_sent("send_message")
+    assert any("недоступна" in (m.get("text") or "") for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_hermes_routing_tier3_calls_hermes(bot, dp, patch_fallback_deps):
+    """WP-392 Ф3.1: T3-пользователь получает ответ от hermes_chat."""
+    patch_fallback_deps["get_intern"].return_value = make_intern(
+        onboarding_completed=True, tier="T3", current_state=None
+    )
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.is_sm_active = True
+    mock_hermes = AsyncMock(return_value="Статус WP-392: в работе")
+
+    with patch("handlers.get_dispatcher", return_value=mock_dispatcher), \
+         patch("handlers.onboarding_intent.route_onboarding_intent", new_callable=AsyncMock, return_value=False), \
+         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+        mock_gmc.hermes_chat = mock_hermes
+        update = text_message("какой статус WP-392?", chat_id=12345)
+        await dp.feed_update(bot, update)
+
+    mock_hermes.assert_called_once()
+    msgs = bot.get_sent("send_message")
+    assert any("Статус WP-392" in (m.get("text") or "") for m in msgs)
 
 
 # ─── 8.8: Channel/group messages игнорируются ───

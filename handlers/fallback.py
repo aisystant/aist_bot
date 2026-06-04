@@ -109,8 +109,8 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     await message.answer("Функция недоступна на твоём тире")
                     return
                 # T3+ → hermes_chat
-                from bot import gateway_mcp_client
-                response = await gateway_mcp_client.hermes_chat(
+                from clients.gateway_mcp import gateway_mcp
+                response = await gateway_mcp.hermes_chat(
                     message=text,
                     telegram_user_id=chat_id,
                 )
