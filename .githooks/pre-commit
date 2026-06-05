@@ -119,6 +119,20 @@ else
     echo "   ⚠️  docs/ в этом commit НЕ изменены. Подумай: нужно ли обновить документацию?"
 fi
 
+# ─── Проверка drift контента марафона (warning-only) ───
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYNC_SCRIPT="$SCRIPT_DIR/scripts/sync-marathon-content.sh"
+if [[ -f "$SYNC_SCRIPT" ]]; then
+    SYNC_OUT=$(bash "$SYNC_SCRIPT" --check 2>&1)
+    SYNC_CODE=$?
+    if [[ $SYNC_CODE -ne 0 ]]; then
+        echo ""
+        echo "   ⚠️  Контент марафона: расхождение SoT vs bot-копия."
+        echo "      Запусти: bash scripts/sync-marathon-content.sh"
+        echo "      Затем: git add data/marathon-content.json && git commit --amend --no-edit"
+    fi
+fi
+
 echo ""
 echo "   Это только напоминание. Commit продолжится в любом случае."
 echo ""
