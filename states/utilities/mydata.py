@@ -569,14 +569,9 @@ class MyDataState(BaseState):
             stage_num = qual_s.get('stage')
             if stage_num is not None:
                 stage_name = STAGE_NAMES_RU.get(stage_num, '?')
-                result['Ступень ученика'] = f"{stage_name} ({stage_num}/4)"
-            elif profile.get('stage') is not None:
-                stage_val = profile['stage']
-                if isinstance(stage_val, int):
-                    stage_name = STAGE_NAMES_RU.get(stage_val, '?')
-                    result['Ступень ученика'] = f"{stage_name} ({stage_val}/4)"
-                else:
-                    result['Ступень ученика'] = stage_val
+                result['Ступень ученика'] = f"{stage_name} ({stage_num}/5)"
+            # Note: profile.get('stage') is legacy — removed to avoid stale data.
+            # Always use 3_derived.3_4_qualification as source of truth.
             indicators = profile.get('indicators', {})
             pref = indicators.get('IND.1.PREF', {})
             if pref.get('objective'):

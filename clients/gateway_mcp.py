@@ -704,6 +704,108 @@ class GatewayMCPClient:
         return self._parse_text_content(result)
 
     # =========================================================================
+    # WP-349 Ф30: ONBOARDING PROJECTION TOOLS
+    # =========================================================================
+
+    async def get_journey_state(self, telegram_user_id: int) -> Optional[dict]:
+        """Получить состояние пути оснащения пилота через Gateway.
+
+        Returns:
+            dict с ключами tech_tier, tier_source, content_stage, github_connected, has_consent
+            или None при ошибке.
+        """
+        result = await self._call("get_journey_state", {}, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    async def get_next_onboarding_step(self, telegram_user_id: int) -> Optional[dict]:
+        """Получить следующий приоритетный шаг онбординга через Gateway.
+
+        Returns:
+            dict с ключами journey_state, next_step
+            или None при ошибке.
+        """
+        result = await self._call("get_next_onboarding_step", {}, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    async def grant_consent(
+        self,
+        telegram_user_id: int,
+        agreed: bool = True,
+        scopes: Optional[list[str]] = None,
+    ) -> Optional[dict]:
+        """Записать согласие на обработку данных через Gateway.
+
+        Args:
+            agreed: True — дать согласие, False — отозвать
+            scopes: список scope (default: ["data_analysis", "text_analysis"])
+
+        Returns:
+            dict с ключами success, scopes_granted
+            или None при ошибке.
+        """
+        args: dict = {"agreed": agreed}
+        if scopes is not None:
+            args["scopes"] = scopes
+        result = await self._call("grant_consent", args, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    async def request_equipment_upgrade(
+        self,
+        telegram_user_id: int,
+        target_tier: str,
+        channel: str = "telegram",
+        trigger: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Запросить апгрейд оборудования через Gateway.
+
+        Args:
+            target_tier: "T2", "T3" или "T4"
+            channel: канал запроса (telegram, web, vscode)
+            trigger: что спровоцировало запрос (nudge_f, nudge_g, user_action)
+
+        Returns:
+            dict с ключами success, target_tier, current_tier, next_steps, requirements
+            или None при ошибке.
+        """
+        args: dict = {"target_tier": target_tier, "channel": channel}
+        if trigger:
+            args["trigger"] = trigger
+        result = await self._call("request_equipment_upgrade", args, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    # =========================================================================
+    # WP-349 Ф29: BYOK — управление пользовательскими LLM-ключами (T4)
+    # =========================================================================
+
+    async def list_llm_keys(self, telegram_user_id: int) -> Optional[list]:
+        """Список BYOK LLM-ключей пользователя (маскированные)."""
+        result = await self._call("list_llm_keys", {}, telegram_user_id=telegram_user_id)
+        parsed = self._parse_text_content(result)
+        if isinstance(parsed, dict):
+            return parsed.get("keys", [])
+        return None
+
+    async def grant_llm_key(
+        self,
+        telegram_user_id: int,
+        provider: str,
+        api_key: str,
+        label: Optional[str] = None,
+        is_default: bool = False,
+    ) -> Optional[dict]:
+        """Сохранить LLM API-ключ (зашифровывается в gateway)."""
+        args: dict = {"provider": provider, "api_key": api_key, "is_default": is_default}
+        if label:
+            args["label"] = label
+        result = await self._call("grant_llm_key", args, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    async def revoke_llm_key(self, telegram_user_id: int, key_id: str) -> Optional[dict]:
+        """Отозвать LLM API-ключ по UUID."""
+        result = await self._call("revoke_llm_key", {"key_id": key_id}, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    # =========================================================================
     # BACKWARD COMPATIBILITY
     # =========================================================================
 

@@ -11,6 +11,8 @@ import os
 import re
 from datetime import timedelta
 
+from core.tracing import span
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
@@ -142,7 +144,9 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # Single DB load — reused across all deep-link branches (latency fix, WP- peer-session)
     _uid = message.from_user.id if message.from_user else message.chat.id
-    intern = await get_intern(_uid)
+    # WP-330 (peer-session 2026-06-05-34): span на первичную загрузку intern.
+    async with span("start.get_intern"):
+        intern = await get_intern(_uid)
 
     # Deep links: /start consent | consent_optout | consent_revoke
     if len(args) > 1 and args[1] in ("consent", "consent_optout", "consent_revoke"):
@@ -227,7 +231,9 @@ async def cmd_start(message: Message, state: FSMContext):
         from handlers import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher and dispatcher.is_sm_active:
-            await dispatcher.route_command('mode', intern)
+            # WP-330: span на вход в mode_select (там gather из 5 проверок tier/gateway).
+            async with span("start.route_mode"):
+                await dispatcher.route_command('mode', intern)
 
             # Напоминание о привязке Aisystant, если не привязан
             from db.queries.aisystant import get_aisystant_id

@@ -37,6 +37,9 @@ from db.queries.cp_assessment import get_latest_cp_assessment
 from db.queries.onboarding_journey import get_onboarding_state, write_last_nudge_at
 from helpers.dual_write import resolve_ory_id_from_chat
 
+# WP-349 Ф30: gateway MCP client для проекции состояния
+from clients.gateway_mcp import gateway_mcp
+
 logger = logging.getLogger(__name__)
 
 setup_router = Router(name="setup")
@@ -54,6 +57,8 @@ def _compute_journey(tier: int, cp_row: dict | None, onb: dict | None) -> dict:
     """Вычислить состояние пути оснащения.
 
     tier_detector — единственный источник тира (DP.SC.155).
+    WP-349 Ф30: устарело — используй _journey_from_gateway для нового кода.
+    Оставлено как fallback при недоступности gateway.
     """
     stage = cp_row.get("stage") if cp_row else None
     return {
@@ -63,6 +68,43 @@ def _compute_journey(tier: int, cp_row: dict | None, onb: dict | None) -> dict:
         "has_browser": tier >= UITier.T3_PERSONALIZATION,
         "has_github": tier >= UITier.T4_CREATION,
     }
+
+
+def _tier_from_gateway(tech_tier: str) -> int:
+    """Маппинг tech_tier из gateway → UITier constant."""
+    mapping = {
+        "T0": UITier.T0,
+        "T1": UITier.T1,
+        "T2": UITier.T2_LEARNING,
+        "T3": UITier.T3_PERSONALIZATION,
+        "T4": UITier.T4_CREATION,
+    }
+    return mapping.get(tech_tier, UITier.T1)
+
+
+async def _get_journey_from_gateway(chat_id: int) -> dict | None:
+    """WP-349 Ф30: получить состояние пути из gateway MCP.
+
+    Returns:
+        dict с ключами tier, stage, has_subscription, has_browser, has_github
+        или None при ошибке (gateway недоступен, не аутентифицирован).
+    """
+    try:
+        journey = await gateway_mcp.get_journey_state(chat_id)
+        if not journey or not isinstance(journey, dict):
+            return None
+        tech_tier = journey.get("tech_tier", "T1")
+        tier = _tier_from_gateway(tech_tier)
+        return {
+            "tier": tier,
+            "stage": journey.get("content_stage"),
+            "has_subscription": tech_tier in ("T2", "T3", "T4"),
+            "has_browser": tech_tier in ("T3", "T4"),
+            "has_github": journey.get("github_connected", False),
+        }
+    except Exception as exc:
+        logger.warning("[Setup] get_journey_state failed for %s: %s", chat_id, exc)
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -191,12 +233,17 @@ async def send_setup_screen(chat_id: int, message) -> None:
     ory_uuid = await resolve_ory_id_from_chat(chat_id)
     if not ory_uuid:
         return
-    tier, cp_row, onb = await asyncio.gather(
-        detect_ui_tier(chat_id),
-        get_latest_cp_assessment(ory_uuid),
-        get_onboarding_state(ory_uuid),
-    )
-    j = _compute_journey(tier, cp_row, onb)
+
+    # WP-349 Ф30: пробуем gateway first, fallback на локальную логику
+    j = await _get_journey_from_gateway(chat_id)
+    if j is None:
+        tier, cp_row, onb = await asyncio.gather(
+            detect_ui_tier(chat_id),
+            get_latest_cp_assessment(ory_uuid),
+            get_onboarding_state(ory_uuid),
+        )
+        j = _compute_journey(tier, cp_row, onb)
+
     text = _render_tier_screen(j, is_returning=False)
     kb = _tier_keyboard(j)
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
@@ -214,14 +261,19 @@ async def cmd_setup(message: Message) -> None:
         )
         return
 
-    tier, cp_row, onb, intern = await asyncio.gather(
-        detect_ui_tier(chat_id),
-        get_latest_cp_assessment(ory_uuid),
-        get_onboarding_state(ory_uuid),
-        get_intern(chat_id),
-    )
-
-    j = _compute_journey(tier, cp_row, onb)
+    # WP-349 Ф30: пробуем gateway first, fallback на локальную логику
+    j = await _get_journey_from_gateway(chat_id)
+    if j is None:
+        tier, cp_row, onb, intern = await asyncio.gather(
+            detect_ui_tier(chat_id),
+            get_latest_cp_assessment(ory_uuid),
+            get_onboarding_state(ory_uuid),
+            get_intern(chat_id),
+        )
+        j = _compute_journey(tier, cp_row, onb)
+    else:
+        # Для re-entry detection нужен intern
+        intern = await get_intern(chat_id)
 
     # Re-entry: пользователь уже был — показываем тот же экран с пометкой
     last_active = (intern or {}).get("last_active_date")
