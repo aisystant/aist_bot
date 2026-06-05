@@ -245,6 +245,18 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 023 skipped: {_e}")
 
+    # reminder.bot_id → NOT NULL (learning DB) — WP-212 Layer 1.
+    # peer-session 2026-06-05-33: bundle с кодом (Layer 2) → ограничение включается
+    # при старте ДО планировщика, т.е. после того как инстанс уже пишет bot_id.
+    try:
+        import importlib as _il
+        _m024 = _il.import_module("db.migrations.024_reminder_bot_id_not_null")
+        _lpool = await get_learning_pool()
+        await _m024.migrate_if_needed(_lpool)
+        logger.info("✅ Migration 024: reminder.bot_id NOT NULL ensured (learning DB)")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 024 skipped: {_e}")
+
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
     from db.migrations.migrate_products import migrate_products_if_needed

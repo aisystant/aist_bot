@@ -1468,7 +1468,8 @@ async def _check_retry_storm():
 
 
 async def _ensure_reminder_text_column():
-    """WP-320: добавить text + bot_id столбцы в reminder, если ещё нет."""
+    """WP-320: добавить text столбец в reminder, если ещё нет.
+    bot_id больше не ensure-им здесь — его гарантирует миграция 024 (WP-212 Layer 1)."""
     try:
         from db.connection import get_learning_pool
         pool = await get_learning_pool()
@@ -1476,10 +1477,7 @@ async def _ensure_reminder_text_column():
             await conn.execute(
                 "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
             )
-            await conn.execute(
-                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS bot_id BIGINT"
-            )
-        logger.info("[Scheduler] reminder.text + bot_id columns ensured")
+        logger.info("[Scheduler] reminder.text column ensured")
     except Exception as e:
         logger.warning("[Scheduler] _ensure_reminder_text_column failed: %s", e)
 
