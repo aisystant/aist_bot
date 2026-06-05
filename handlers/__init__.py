@@ -73,6 +73,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .tier_upgrade import tier_upgrade_router
     from .referral import referral_router
     from .external_session import external_session_router
+    from .hermes import hermes_router
 
     dp.include_router(onboarding_router)
     dp.include_router(workshop_router)
@@ -117,6 +118,9 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(setup_router)
     dp.include_router(tier_upgrade_router)
     dp.include_router(referral_router)
+    # WP-392: hermes_router ДО external_session — «Гермес» адресует Hermes-рантайм,
+    # а не активную Claude-сессию (которая иначе перехватила бы текст первой).
+    dp.include_router(hermes_router)
     dp.include_router(external_session_router)
 
     # ReplyKeyboard text → command routing (AFTER all command routers, BEFORE fallback)

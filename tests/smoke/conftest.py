@@ -281,6 +281,7 @@ def _get_dispatcher():
         from handlers.callbacks import callbacks_router
         from handlers.settings import settings_router
         from handlers.progress import progress_router
+        from handlers.hermes import hermes_router
         from handlers.fallback import fallback_router
 
         _dp_instance.include_router(onboarding_router)
@@ -288,6 +289,8 @@ def _get_dispatcher():
         _dp_instance.include_router(callbacks_router)
         _dp_instance.include_router(settings_router)
         _dp_instance.include_router(progress_router)
+        # WP-392: hermes_router ДО fallback — «Гермес» → Hermes-рантайм.
+        _dp_instance.include_router(hermes_router)
         _dp_instance.include_router(fallback_router)
 
     return _dp_instance

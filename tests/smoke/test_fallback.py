@@ -51,49 +51,8 @@ async def test_arbitrary_text_with_sm(bot, dp, patch_fallback_deps):
     mock_dispatcher.route_message.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_hermes_routing_tier1_blocked(bot, dp, patch_fallback_deps):
-    """WP-392 Ф3.1: T1-пользователь получает сообщение о недоступности."""
-    patch_fallback_deps["get_intern"].return_value = make_intern(
-        onboarding_completed=True, tier="T1", current_state=None
-    )
-    mock_dispatcher = MagicMock()
-    mock_dispatcher.is_sm_active = True
-    mock_dispatcher.route_message = AsyncMock(return_value=True)
-
-    with patch("handlers.get_dispatcher", return_value=mock_dispatcher), \
-         patch("handlers.onboarding_intent.route_onboarding_intent", new_callable=AsyncMock, return_value=False):
-        update = text_message("Гермес какой статус WP-392?", chat_id=12345)
-        await dp.feed_update(bot, update)
-
-    mock_dispatcher.route_message.assert_not_called()
-    msgs = bot.get_sent("send_message")
-    assert any("недоступна" in (m.get("text") or "") for m in msgs)
-
-
-@pytest.mark.asyncio
-async def test_hermes_routing_tier3_calls_hermes(bot, dp, patch_fallback_deps):
-    """WP-392 Ф3.1: T3-пользователь получает ответ от hermes_chat."""
-    patch_fallback_deps["get_intern"].return_value = make_intern(
-        onboarding_completed=True, tier="T3", current_state=None
-    )
-    mock_dispatcher = MagicMock()
-    mock_dispatcher.is_sm_active = True
-    mock_hermes = AsyncMock(return_value="Статус WP-392: в работе")
-
-    with patch("handlers.get_dispatcher", return_value=mock_dispatcher), \
-         patch("handlers.onboarding_intent.route_onboarding_intent", new_callable=AsyncMock, return_value=False), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
-        mock_gmc.hermes_chat = mock_hermes
-        update = text_message("Гермес, какой статус WP-392?", chat_id=12345)
-        await dp.feed_update(bot, update)
-
-    mock_hermes.assert_called_once()
-    # Проверяем что текст к Hermes передан без prefix (strip punctuation)
-    call_args = mock_hermes.call_args
-    assert "гермес" not in call_args.kwargs.get("message", "").lower()
-    msgs = bot.get_sent("send_message")
-    assert any("Статус WP-392" in (m.get("text") or "") for m in msgs)
+# WP-392: тесты Hermes-роутинга перенесены в tests/smoke/test_hermes.py
+# (логика «Гермес» вынесена из fallback в выделенный handlers/hermes.py).
 
 
 # ─── 8.8: Channel/group messages игнорируются ───

@@ -1546,7 +1546,9 @@ async def send_user_reminder(chat_id: int, text: str, reminder_id: int, bot: Bot
         logger.warning("[Scheduler] idempotency check failed for reminder %s: %s — proceeding", reminder_id, e)
 
     try:
-        await bot.send_message(chat_id, f"🔔 {text}")
+        # parse_mode="Markdown" → SafeBot перехватывает и конвертирует **жирный**/_курсив_
+        # в HTML (см. core/safe_bot.py). Без него GitHub-разметка (**) приходит в TG литералом.
+        await bot.send_message(chat_id, f"🔔 {text}", parse_mode="Markdown")
         logger.info("[Scheduler] user_reminder %s delivered to %s", reminder_id, chat_id)
     except Exception:
         logger.exception("[Scheduler] user_reminder %s failed for %s", reminder_id, chat_id)
