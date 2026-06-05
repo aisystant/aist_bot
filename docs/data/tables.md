@@ -377,6 +377,25 @@
 
 ---
 
+### 4.7. `learning.consent_grant` (versioned consent, WP-316 Ф9)
+
+> Схема `learning` (Neon). Миграция 023 (peer-session 2026-06-05-02). Запросы: `db/queries/consent.py`.
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `id` | BIGINT | IDENTITY | PK (surrogate) |
+| `account_id` | UUID | — | NOT NULL, Ory account |
+| `scope` | TEXT | — | NOT NULL (`typing_tracking`, `text_analysis`) |
+| `granted` | BOOLEAN | — | NOT NULL |
+| `consent_version` | TEXT | `'v1.0'` | NOT NULL |
+| `granted_at` | TIMESTAMPTZ | `NOW()` | NOT NULL |
+| `revoked_at` | TIMESTAMPTZ | — | при `granted=false` |
+| `interface` | TEXT | — | `bot` / прочее |
+
+**Constraints:** UNIQUE(account_id, scope, consent_version) → таргет ON CONFLICT в `set_consent_grant`. INDEX `idx_consent_grant_account_scope`(account_id, scope). Проверяется в `_verify_schema` (db/connection.py).
+
+---
+
 ## 5. Наблюдаемость и ошибки
 
 ### 5.1. `error_logs` (WP-45)
