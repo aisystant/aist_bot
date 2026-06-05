@@ -34,6 +34,7 @@ from db.queries.consent import (
     set_consent_grant,
     DEFAULT_SCOPE,
 )
+from clients.gateway_mcp import gateway_mcp
 from helpers.dual_write import resolve_ory_id_from_chat
 from i18n import t
 
@@ -483,8 +484,25 @@ async def on_consent_accept(callback: CallbackQuery):
     if not account_id:
         await callback.answer("Аккаунт не привязан", show_alert=True)
         return
+
+    # WP-349 Ф30: запись consent через gateway MCP (cross-channel)
     try:
-        consent = await set_consent(account_id, opt_in=True, scope=DEFAULT_SCOPE)
+        result = await gateway_mcp.grant_consent(
+            telegram_user_id=user_id,
+            agreed=True,
+            scopes=list(DEFAULT_SCOPE) if DEFAULT_SCOPE else ["data_analysis", "text_analysis"],
+        )
+        if result is None:
+            logger.warning("[consent_accept] gateway grant_consent returned None for %s", user_id)
+            # Fallback: прямая запись в БД
+            consent = await set_consent(account_id, opt_in=True, scope=DEFAULT_SCOPE)
+        elif not result.get("success"):
+            logger.error("[consent_accept] gateway grant_consent failed: %s", result)
+            await callback.answer("Ошибка записи. Попробуй позже.", show_alert=True)
+            return
+        else:
+            # Читаем обратно из БД для UI (gateway пишет в БД, но не возвращает row)
+            consent = await get_consent(account_id)
     except Exception as exc:
         logger.error("[consent_accept] account_id=%s: %s", account_id, exc)
         await callback.answer("Ошибка записи. Попробуй позже.", show_alert=True)
@@ -687,6 +705,20 @@ async def on_consent_goto_optout(callback: CallbackQuery):
             reply_markup=_status_keyboard(consent),
         )
         return
+
+    # WP-349 Ф30: отзыв consent через gateway MCP (cross-channel)
+    try:
+        result = await gateway_mcp.grant_consent(
+            telegram_user_id=chat_id,
+            agreed=False,
+            scopes=list(DEFAULT_SCOPE) if DEFAULT_SCOPE else ["data_analysis", "text_analysis"],
+        )
+        if result is None:
+            logger.warning("[consent_goto_optout] gateway grant_consent returned None for %s", chat_id)
+    except Exception as exc:
+        logger.warning("[consent_goto_optout] gateway call failed: %s", exc)
+
+    # Fallback: прямая запись в БД (gateway может не поддерживать agreed=false)
     await set_consent(account_id, opt_in=False, scope=consent["scope"])
     await callback.message.edit_text(
         "🚫 <b>Согласие отозвано.</b>\n\n"

@@ -35,6 +35,7 @@ from config import PLATFORM_URLS
 from db.queries import get_intern
 from db.queries.events import log_event
 from i18n import t
+from clients.gateway_mcp import gateway_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +321,19 @@ async def nudge_personal_guide_cta(
 
     Returns True если сообщение отправлено, False при ошибке.
     """
+    # WP-349 Ф30: записать intent апгрейда через gateway MCP (fire-and-forget)
+    try:
+        result = await gateway_mcp.request_equipment_upgrade(
+            telegram_user_id=chat_id,
+            target_tier="T3",
+            channel="telegram",
+            trigger="nudge_f",
+        )
+        if result and result.get("success"):
+            logger.info("[TierUpgrade] T3 request recorded for %s", chat_id)
+    except Exception as exc:
+        logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
+
     guide_url = _guide_web_url()
     text = (
         f"Вы занимаетесь уже {activity_days} дней — самое время создать личную базу знаний.\n\n"
@@ -351,6 +365,19 @@ async def nudge_fullenv_cta(
 
     Returns True если сообщение отправлено, False при ошибке.
     """
+    # WP-349 Ф30: записать intent апгрейда через gateway MCP (fire-and-forget)
+    try:
+        result = await gateway_mcp.request_equipment_upgrade(
+            telegram_user_id=chat_id,
+            target_tier="T4",
+            channel="telegram",
+            trigger="nudge_g",
+        )
+        if result and result.get("success"):
+            logger.info("[TierUpgrade] T4 request recorded for %s", chat_id)
+    except Exception as exc:
+        logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
+
     text = (
         f"Вы занимаетесь уже {activity_days} дней и ваша база знаний растёт. "
         "Следующий уровень — полное окружение IWE.\n\n"
@@ -380,12 +407,29 @@ UPGRADE_NUDGE_SENDERS: dict = {
 
 @tier_upgrade_router.callback_query(F.data == "tier_upgrade_fullenv_start")
 async def on_tier_upgrade_fullenv_start(callback: CallbackQuery):
-    """«Подключить VS Code» → направляем к /connect."""
+    """«Подключить VS Code» → запрос T4 через gateway + направляем к /connect."""
     await callback.answer()
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+
+    # WP-349 Ф30: записать intent апгрейда через gateway MCP
+    chat_id = callback.from_user.id
+    try:
+        result = await gateway_mcp.request_equipment_upgrade(
+            telegram_user_id=chat_id,
+            target_tier="T4",
+            channel="telegram",
+            trigger="user_action",
+        )
+        if result and result.get("success"):
+            logger.info("[TierUpgrade] T4 request recorded for %s", chat_id)
+        else:
+            logger.warning("[TierUpgrade] T4 request failed for %s: %s", chat_id, result)
+    except Exception as exc:
+        logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
+
     await callback.message.answer(
         "Выполните /connect в этом чате — бот проверит подключение и обновит ваш путь."
     )
