@@ -178,9 +178,7 @@ async def cmd_remind(message: Message):
             await conn.execute(
                 "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
             )
-            await conn.execute(
-                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS bot_id BIGINT"
-            )
+            # bot_id колонку гарантирует миграция 024 (WP-212 Layer 1) при старте.
             row = await conn.fetchrow(
                 """INSERT INTO reminder (chat_id, reminder_type, scheduled_for, text, bot_id)
                    VALUES ($1, 'custom', $2, $3, $4)
