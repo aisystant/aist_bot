@@ -557,15 +557,16 @@ async def handle_question_with_tools(
     # результаты в {knowledge_section}. Claude видит релевантные документы
     # даже если не вызовет search_knowledge tool.
     from .context_pipeline import assemble_context
-    sections = await assemble_context(
-        tier=tier,
-        intern=intern,
-        lang=lang,
-        bot_context=bot_context or "",
-        personal_claude_md=personal_claude_md or "",
-        ui_tier=ui_tier,
-        question=question,
-    )
+    async with span("consultation.assemble_context", tier=tier):
+        sections = await assemble_context(
+            tier=tier,
+            intern=intern,
+            lang=lang,
+            bot_context=bot_context or "",
+            personal_claude_md=personal_claude_md or "",
+            ui_tier=ui_tier,
+            question=question,
+        )
 
     # Загружаем шаблон промпта и подставляем переменные
     # DP.D.044: role_prompt_override заменяет tier-промпт при смене роли

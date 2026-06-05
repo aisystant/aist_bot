@@ -151,8 +151,11 @@ async def collect_pre_search(
         context = "\n\n---\n\n".join(parts)
         section = (
             f"\n\nИНФОРМАЦИЯ ИЗ БАЗЫ ЗНАНИЙ (pre-search):\n{context}\n\n"
-            "Используй эту информацию для ответа. Если нужно больше деталей — "
-            "вызови search_knowledge или search_guides для уточняющего поиска."
+            "ИНСТРУКЦИЯ: Эти результаты уже получены из базы знаний по запросу "
+            "пользователя. Используй их для ответа. НЕ вызывай search_knowledge "
+            "повторно для того же запроса — это дублирует работу и замедляет ответ. "
+            "search_knowledge или search_guides используй ТОЛЬКО для уточняющего "
+            "поиска с ИЗМЕНЁННЫМ запросом, если текущих результатов недостаточно."
         )
         auth_note = "" if telegram_user_id else " [anon fallback]"
         logger.info(f"Pre-search{auth_note}: {len(parts)} results, {len(section)} chars for question '{question[:50]}...'")
