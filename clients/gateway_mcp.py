@@ -774,6 +774,38 @@ class GatewayMCPClient:
         return self._parse_text_content(result)
 
     # =========================================================================
+    # WP-349 Ф29: BYOK — управление пользовательскими LLM-ключами (T4)
+    # =========================================================================
+
+    async def list_llm_keys(self, telegram_user_id: int) -> Optional[list]:
+        """Список BYOK LLM-ключей пользователя (маскированные)."""
+        result = await self._call("list_llm_keys", {}, telegram_user_id=telegram_user_id)
+        parsed = self._parse_text_content(result)
+        if isinstance(parsed, dict):
+            return parsed.get("keys", [])
+        return None
+
+    async def grant_llm_key(
+        self,
+        telegram_user_id: int,
+        provider: str,
+        api_key: str,
+        label: Optional[str] = None,
+        is_default: bool = False,
+    ) -> Optional[dict]:
+        """Сохранить LLM API-ключ (зашифровывается в gateway)."""
+        args: dict = {"provider": provider, "api_key": api_key, "is_default": is_default}
+        if label:
+            args["label"] = label
+        result = await self._call("grant_llm_key", args, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    async def revoke_llm_key(self, telegram_user_id: int, key_id: str) -> Optional[dict]:
+        """Отозвать LLM API-ключ по UUID."""
+        result = await self._call("revoke_llm_key", {"key_id": key_id}, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
+    # =========================================================================
     # BACKWARD COMPATIBILITY
     # =========================================================================
 
