@@ -1,7 +1,7 @@
 {
   "meta": {
-    "version": "2026-05-21",
-    "format": "day -> content_type -> text (Markdown). lesson/practice/checkin ≤1 экран (legacy). lesson_full/practice_full многоэкранные (1200-2500 / 500-1000 симв). reflection_question 50-150 симв. faq_hint опционально.",
+    "version": "2026-05-30-c6",
+    "format": "day -> content_type -> text. Поля: lesson/practice (legacy ≤500 симв), checkin, lesson_full/practice_full (long_complex, 1200-2500/500-1000), lesson_short_simple/practice_short_simple (short_simple, 800-1200/400-600 — Ф10.E v2 C6), reflection_question (50-150), faq_hint (опционально).",
     "source": "BOT_PROGRAM.md WP-330 v2.0 + синхронизация с PDF",
     "sync_with": "DS-marathon-v2-tseren/materials/participants/workbook_combined.md (4 встречи + 4 этапа)"
   },
