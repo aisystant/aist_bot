@@ -120,15 +120,11 @@ async def _create_course_buttons(
                 )]
         except Exception as e:
             logger.error(f"[Schedule] pre-create payment error for {code} amount={amount}: {e}")
-        # Fallback: callback button (pre-create не удался → пользователь нажмёт вручную)
-        logger.warning(f"[Schedule] fallback to callback for {code} amount={amount}")
-        return [InlineKeyboardButton(
-            text=f"{emoji} {short_name} — {amount} ₽",
-            callback_data=f"schedule_pay:{code}:{amount}",
-        )]
+        logger.warning(f"[Schedule] payment pre-create failed for {code} amount={amount}, hiding button")
+        return []
 
     rows = await asyncio.gather(*[_one(c, n, a) for c, n, a in paid_courses])
-    return list(rows)
+    return [row for row in rows if row]
 
 
 # ── Hub ─────────────────────────────────────────────────
@@ -442,12 +438,9 @@ async def callback_pay_choice(callback: CallbackQuery):
         except Exception as e:
             logger.error(f"[Schedule] pre-create full payment error for {code}: {e}")
 
-    # Fallback: callback-кнопка если pre-create не удался
+    # Если pre-create не удался — кнопка полной оплаты недоступна, только рассрочка
     if not buttons:
-        buttons.append([InlineKeyboardButton(
-            text=t('schedule.btn_pay_full', lang, amount=amount),
-            callback_data=f"schedule_pay:{code}:{amount}",
-        )])
+        logger.warning(f"[Schedule] pay_choice: full payment pre-create failed for {code}, showing installment only")
 
     # 2. Рассрочка — callback (создаётся при нажатии, т.к. другая сумма)
     buttons.append([InlineKeyboardButton(
