@@ -119,6 +119,27 @@ else
     echo "   ⚠️  docs/ в этом commit НЕ изменены. Подумай: нужно ли обновить документацию?"
 fi
 
+# ─── WP-212: linter — INSERT INTO reminder без bot_id = BLOCK ───
+# Защита от регрессии: любой INSERT в reminder без bot_id в списке колонок
+# приводит к отклонению коммита (fail-fast).
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.py$' || true)
+if [ -n "$STAGED_PY" ]; then
+    # Ищем INSERT INTO reminder ... VALUES где нет bot_id в колонках
+    # Паттерн: INSERT INTO reminder ( ... ) — bot_id должен быть в скобках
+    VIOLATIONS=$(git diff --cached --diff-filter=ACMR -U0 | grep -E '^\+.*INSERT INTO reminder' | grep -v 'bot_id' || true)
+    if [ -n "$VIOLATIONS" ]; then
+        echo ""
+        echo "❌ COMMIT BLOCKED (WP-212): INSERT INTO reminder без bot_id"
+        echo "   Найдены нарушения в staged-изменениях:"
+        echo "$VIOLATIONS" | sed 's/^/   /'
+        echo ""
+        echo "   Исправь: добавь bot_id в список колонок и VALUES."
+        echo "   См. WP-212 — изоляция напоминаний по инстансам бота."
+        echo ""
+        exit 1
+    fi
+fi
+
 # ─── Проверка drift контента марафона (warning-only) ───
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYNC_SCRIPT="$SCRIPT_DIR/scripts/sync-marathon-content.sh"

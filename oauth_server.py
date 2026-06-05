@@ -1710,11 +1710,13 @@ async def internal_remind_handler(request: web.Request) -> web.Response:
             await conn.execute(
                 "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
             )
+            # WP-212: bot_id из TELEGRAM_BOT_TOKEN для изоляции напоминаний по инстансам
+            _bot_id = int(os.getenv('TELEGRAM_BOT_TOKEN', '0').split(':')[0])
             record = await conn.fetchrow(
-                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for, text)
-                   VALUES ($1, $2, $3, $4)
+                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for, text, bot_id)
+                   VALUES ($1, $2, $3, $4, $5)
                    RETURNING id, scheduled_for''',
-                chat_id, 'custom', scheduled_for, text
+                chat_id, 'custom', scheduled_for, text, _bot_id
             )
 
         reminder_id = record['id']
