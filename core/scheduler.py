@@ -1521,9 +1521,9 @@ async def schedule_reminders(chat_id: int, intern: dict):
             # Убираем timezone для совместимости с TIMESTAMP (без timezone)
             reminder_time_naive = reminder_time.replace(tzinfo=None)
             await conn.execute(
-                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for)
-                   VALUES ($1, $2, $3)''',
-                chat_id, f'+{hours}h', reminder_time_naive
+                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for, bot_id)
+                   VALUES ($1, $2, $3, $4)''',
+                chat_id, f'+{hours}h', reminder_time_naive, _bot_id
             )
 
 
@@ -1660,7 +1660,7 @@ async def check_reminders():
                            SELECT r.id FROM reminder r
                            WHERE r.sent = FALSE AND r.scheduled_for <= $1
                              AND NOT (r.chat_id = ANY($2::bigint[]))
-                             AND (r.bot_id = $3 OR r.bot_id IS NULL)
+                             AND r.bot_id = $3
                            ORDER BY r.scheduled_for
                            LIMIT 1
                            FOR UPDATE OF r SKIP LOCKED
