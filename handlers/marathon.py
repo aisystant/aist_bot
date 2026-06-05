@@ -273,7 +273,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
 @marathon_router.callback_query(F.data.startswith("marathon_practice:"))
 async def callback_marathon_practice(callback: CallbackQuery):
-    """Доставить practice по нажатию кнопки. Idempotent через domain_event."""
+    """Доставить practice по нажатию кнопки. Повторяемо без ограничений (WP-330)."""
     parts = callback.data.split(":")
     if len(parts) != 2:
         await callback.answer("Ошибка формата данных", show_alert=True)
@@ -286,12 +286,13 @@ async def callback_marathon_practice(callback: CallbackQuery):
 
     user_id = callback.from_user.id
 
-    from db.queries.notifications import was_notification_sent, try_insert_notification
+    from db.queries.notifications import try_insert_notification
+    # WP-330 (2026-06-05): практику можно получать повторно сколько угодно раз
+    # (запрос пилота). Раньше was_notification_sent блокировал вторую доставку
+    # сообщением «уже доставлена» — проверку убрали. Запись события оставляем:
+    # она гасит напоминание (get_users_for_practice_nudge), но повторную
+    # доставку НЕ блокирует.
     idempotency_key = f"marathon_practice:{user_id}:{day}"
-    # Сначала проверка без записи (избегаем dedup-lock при сбое доставки → retry возможен)
-    if await was_notification_sent(idempotency_key):
-        await callback.answer("Практика дня уже доставлена ✅", show_alert=False)
-        return
 
     from core.marathon_content import get_day_text
     from db.queries import get_intern
@@ -312,13 +313,10 @@ async def callback_marathon_practice(callback: CallbackQuery):
 
     try:
         await callback.message.answer(practice_text, parse_mode="Markdown")
-        # Запись dedup только после успешной доставки (sent-before-log)
+        # Фиксируем факт первого получения практики (гасит напоминание-nudge).
+        # На повторных кликах ON CONFLICT DO NOTHING → no-op, доставка не блокируется.
         await try_insert_notification(user_id, "marathon_practice", idempotency_key)
-        # Убираем кнопку у lesson-сообщения, чтобы избежать визуального дребезга
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass  # некритично если не получилось снять inline-кнопку
+        # Кнопку НЕ снимаем: практику можно получать повторно сколько угодно раз.
         await callback.answer()
         logger.info(f"[MarathonPractice] Sent practice day {day} to {user_id}")
     except Exception as e:
