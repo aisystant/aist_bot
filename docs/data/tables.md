@@ -273,9 +273,11 @@
 | `id` | SERIAL | — | PK |
 | `chat_id` | BIGINT | — | |
 | `reminder_type` | TEXT | — | |
-| `scheduled_for` | TIMESTAMP | — | |
+| `scheduled_for` | TIMESTAMP | — | naive UTC |
 | `sent` | BOOLEAN | `FALSE` | |
-| `fail_count` | INTEGER | `0` | |
+| `fail_count` | INTEGER | `0` | retry guard (≥2 → give up) |
+| `text` | TEXT | — | кастомный текст напоминания (WP-320, `reminder_type='custom'`) |
+| `bot_id` | BIGINT | — | **NOT NULL** (миграция 024, WP-212): изоляция напоминаний по инстансу бота. Выборка `check_reminders` фильтрует строго `bot_id = own`; INSERT всегда с bot_id |
 | `created_at` | TIMESTAMP | `NOW()` | |
 
 ### 3.3. `activity_log` (лог активности для streak)
