@@ -66,7 +66,9 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         await message.answer(_UNAVAILABLE_TIER_MSG)
         return
 
-    if _tier_num(intern) < _TIER_REQUIRED:
+    tier_num = _tier_num(intern)
+    logger.info("[hermes] chat_id=%s tier_str=%r tier_num=%s required=%s", chat_id, intern.get("tier"), tier_num, _TIER_REQUIRED)
+    if tier_num < _TIER_REQUIRED:
         await message.answer(_UNAVAILABLE_TIER_MSG)
         return
 

@@ -101,6 +101,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
             tier_num = 1
             if isinstance(tier_str, str) and tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
                 tier_num = int(tier_str[1])
+            logger.info("[fallback] hermes prefix chat_id=%s tier_str=%r tier_num=%s", chat_id, tier_str, tier_num)
             if tier_num < 3:
                 await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
                 return
