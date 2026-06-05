@@ -20,6 +20,12 @@ CALLBACKS_PY = PROJECT_ROOT / "handlers" / "callbacks.py"
 MODE_SELECTOR_PY = PROJECT_ROOT / "engines" / "mode_selector.py"
 MARATHON_STATES_DIR = PROJECT_ROOT / "states" / "workshops" / "marathon"
 SCHEDULER_PY = PROJECT_ROOT / "core" / "scheduler.py"
+ONBOARDING_PY = PROJECT_ROOT / "handlers" / "onboarding.py"
+
+# Источники push-кнопок: доставляются вне SM-стейта (scheduler-напоминания,
+# онбординг). Их callback'и обязаны иметь явный handler у роутера, который
+# реально срабатывает (а не падает в else→SM у cb_marathon_actions).
+PUSH_SOURCES = [SCHEDULER_PY, ONBOARDING_PY]
 
 
 def _extract_marathon_callbacks(file_path: Path) -> set[str]:
@@ -167,11 +173,17 @@ def test_pushed_marathon_callbacks_have_explicit_branch():
     сканировал только states/ + mode_selector и считал «covered» сам факт попадания
     под широкий фильтр.
     """
-    pushed = _extract_pushed_callbacks(SCHEDULER_PY)
-    assert pushed, "Не найдено ни одной push-кнопки в core/scheduler.py — проверь регекс/путь."
+    pushed: set[str] = set()
+    for src in PUSH_SOURCES:
+        pushed |= _extract_pushed_callbacks(src)
+    assert pushed, "Не найдено ни одной push-кнопки — проверь регекс/пути PUSH_SOURCES."
 
+    # Реальное покрытие дают только роутеры, зарегистрированные ДО callbacks_router
+    # (mode_router, onboarding_router) и явные ветки cb_marathon_actions. Декораторы
+    # marathon_router намеренно НЕ считаем — они затенены callbacks_router.
     explicit = _extract_explicit_branches(CALLBACKS_PY)
     explicit += _extract_handler_patterns(MODE_SELECTOR_PY)
+    explicit += _extract_handler_patterns(ONBOARDING_PY)
 
     uncovered = [
         cb for cb in sorted(pushed)
