@@ -284,6 +284,15 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
             from handlers.marathon import callback_marathon_checkin
             await callback_marathon_checkin(callback)
 
+        elif data.startswith("marathon_practice:"):
+            # WP-330 (2026-06-05): тот же shadowing, что у checkin. Handler практики
+            # живёт на marathon_router (handlers/marathon.py), но callbacks_router
+            # зарегистрирован раньше и перехватывает все marathon_*. Без явного
+            # forward callback проваливался в else→SM, где его никто не обрабатывает
+            # → callback.answer() не вызывался → кнопка «мигает и ничего».
+            from handlers.marathon import callback_marathon_practice
+            await callback_marathon_practice(callback)
+
         elif data == "marathon_catchup_no":
             # User declines catch-up
             await callback.answer()

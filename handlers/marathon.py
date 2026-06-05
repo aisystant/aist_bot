@@ -113,6 +113,7 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
         "Утром — теория и практика (один конкретный шаг), вечером — чек-ин.\n\n"
         f"📅 {first_lesson_note}\n\n"
         "📋 Команды:\n"
+        "• /learn — получить урок\n"
         "• /marathon_progress — прогресс\n"
         "• /marathon_stop — поставить на паузу\n"
         "• /profile — изменить время и уровень сложности\n"
@@ -263,6 +264,12 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 # ════════════════════════════════════════════════════════════════════
 # WP-330 Ф10.C — Callback «✏️ Перейти к практике»
 # ════════════════════════════════════════════════════════════════════
+# NOTE (2026-06-05): callbacks_router (handlers/__init__.py:84) подключён РАНЬШЕ
+# marathon_router (:116), а его cb_marathon_actions с фильтром
+# F.data.startswith("marathon_") перехватывает этот callback первым. Поэтому
+# хендлер достижим через ЯВНЫЙ forward из handlers/callbacks.py
+# (elif data.startswith("marathon_practice:")), а НЕ напрямую через этот
+# декоратор роутера — та же схема, что у callback_marathon_checkin.
 
 @marathon_router.callback_query(F.data.startswith("marathon_practice:"))
 async def callback_marathon_practice(callback: CallbackQuery):
