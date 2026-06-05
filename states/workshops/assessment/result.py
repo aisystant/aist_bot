@@ -218,7 +218,16 @@ class AssessmentResultState(BaseState):
         data = callback.data
 
         if data == "assess_result_marathon":
-            return "marathon"
+            # WP-330 cutover (2026-06-05): «Марафон» после теста → старт НОВОГО
+            # марафона (handlers/marathon), а не вход в старую SM. Стейт остаётся
+            # (осиротеет безвредно) — новый марафон работает вне SM, по marathon_progress.
+            from handlers.marathon import start_marathon_flow
+            from db.queries import get_intern
+            user_id = callback.from_user.id
+            intern = await get_intern(user_id)
+            sched = (intern or {}).get("schedule_time") or "04:00"
+            await start_marathon_flow(user_id, callback.message, schedule_time=sched)
+            return None
         elif data == "assess_result_settings":
             return "settings"
         elif data == "assess_result_menu":

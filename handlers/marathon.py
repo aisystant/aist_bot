@@ -122,6 +122,87 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
 
 
 # ════════════════════════════════════════════════════════════════════
+# WP-330 cutover /learn (2026-06-05): доставка урока дня в НОВОМ формате.
+# Закрывает 4 входа в старую SM (workshop.marathon.lesson): /learn, кнопка
+# «Учиться», меню-сервис marathon, кнопки-напоминания. Старый SM-поток
+# (states/workshops/marathon/* + core/topics.py) deprecated, удалить после
+# 2026-07-05. Прогресс читается из marathon_progress.current_day (сохраняется
+# в Neon) — переключение не теряет позицию пользователя.
+# ════════════════════════════════════════════════════════════════════
+
+
+async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict = None) -> None:
+    """Отдать урок дня в новом формате: статический текст get_day_text + кнопка практики.
+
+    Зеркало доставки scheduler (lesson_practice, core/scheduler.py). target —
+    объект с .answer() (Message или callback.message).
+    """
+    from core.marathon_content import get_day_text
+    from db.queries import get_intern
+
+    if intern is None:
+        intern = await get_intern(user_id)
+    day = max(1, min(14, day or 1))
+
+    # WP-330 С9a: routing по профилю (4 версии); fallback на legacy-ключ.
+    lesson = get_day_text(day, 'lesson', intern=intern) or get_day_text(day, 'lesson')
+    if not lesson:
+        await target.answer("Урок для этого дня недоступен. Загляни в /support.")
+        logger.warning(f"[Learn] No lesson content for day {day} (user {user_id})")
+        return
+
+    faq = get_day_text(day, 'faq_hint')
+    text = lesson + (f"\n\n{faq}" if faq else "")
+    if len(text) > 4000:
+        text = text[:3990] + "\n\n…"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✏️ Перейти к практике", callback_data=f"marathon_practice:{day}")
+    ]])
+    await target.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+    logger.info(f"[Learn] Delivered new-format lesson day {day} to {user_id}")
+
+
+async def try_deliver_new_marathon(user_id: int, target, intern: dict = None) -> bool:
+    """Если пользователь в марафоне — отдать урок дня (новый формат) и вернуть True.
+
+    Возвращает False только для НЕ-марафонских режимов (Лента) — тогда вызывающий
+    идёт прежним путём. Для марафона всегда обрабатывает сам:
+      active     → урок текущего дня,
+      completed  → сообщение «завершил»,
+      иначе      → подсказка /marathon_start (без авто-старта).
+    """
+    from db.queries import get_intern
+
+    if intern is None:
+        intern = await get_intern(user_id)
+    mode = (intern or {}).get('mode') or 'marathon'
+    if mode not in ('marathon', 'both'):
+        return False  # Лента и пр. — не трогаем марафон-прогресс
+
+    progress = await get_or_create_progress(user_id)
+    status = progress.get('status')
+
+    if status == 'active':
+        await _deliver_marathon_lesson(user_id, target, progress.get('current_day', 1), intern)
+        return True
+
+    if status == 'completed':
+        await target.answer(
+            "✅ Ты уже завершил марафон!\n\n"
+            "Если хочешь пройти снова — напиши в поддержку /support."
+        )
+        return True
+
+    # registered / dropped / не стартовал — подсказка, НЕ авто-старт (WP-330 cutover design)
+    await target.answer(
+        "🚀 Марафон ещё не запущен.\n\n"
+        "Начни командой /marathon_start — придёт первый урок."
+    )
+    return True
+
+
+# ════════════════════════════════════════════════════════════════════
 # Ф2.3 /marathon_start — регистрация + заполнение очереди на 14 дней
 # ════════════════════════════════════════════════════════════════════
 
