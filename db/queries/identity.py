@@ -150,7 +150,12 @@ async def update_user_dt(telegram_id: int, dt_user_id: str) -> bool:
 
 
 async def update_user_tier(telegram_id: int, tier: str) -> bool:
-    """Обновить тир пользователя."""
+    """Обновить тир пользователя.
+
+    WP-392 Б1: dual-write в persona.ory_identity.traits->>'tier' — единственная
+    точка, где бот (writer) и шлюз (reader) встречаются. Шлюз читает тир отсюда
+    для Hydra hook (T3/T4 grant). Fire-and-forget: не блокируем основной поток.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Читаем текущий tier+ory_id ДО апдейта чтобы понять было ли изменение
@@ -180,5 +185,35 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
                     "tier_to": tier,
                 },
             ))
+
+            # WP-392 Б1: пишем tier в persona.ory_identity.traits для шлюза
+            if ory_id_str:
+                asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
+
             return True
         return False
+
+
+async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
+    """Fire-and-forget: записать tier в persona.ory_identity.traits."""
+    try:
+        from db.connection import get_persona_pool
+        persona_pool = await get_persona_pool()
+        async with persona_pool.acquire() as pconn:
+            await pconn.execute(
+                """
+                UPDATE public.ory_identity
+                SET traits = jsonb_set(
+                    COALESCE(traits, '{}'::jsonb),
+                    '{tier}',
+                    to_jsonb($2::text),
+                    true
+                ),
+                last_sync = NOW()
+                WHERE account_id = $1::uuid
+                """,
+                ory_id, tier,
+            )
+    except Exception as exc:
+        logger.warning(f"[Identity] _sync_tier_to_persona failed for ory_id={ory_id}: {exc}")
+        # Не поднимаем — fire-and-forget, шлюз упадёт на fallbackTier
