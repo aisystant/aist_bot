@@ -231,7 +231,7 @@ async def cmd_start(message: Message, state: FSMContext):
         from handlers import get_dispatcher
         dispatcher = get_dispatcher()
         if dispatcher and dispatcher.is_sm_active:
-            # WP-330: span на вход в mode_select (там gather из 5 проверок tier/gateway).
+            # WP-330: span на вход в mode_select (detect_ui_tier: sequential aisystant_id → parallel sub/github/dt).
             async with span("start.route_mode"):
                 await dispatcher.route_command('mode', intern)
 

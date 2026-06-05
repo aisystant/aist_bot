@@ -137,16 +137,17 @@ async def main():
     # Параллельный прогрев всех Neon-пулов при старте (perf fix: устраняет lazy-init
     # внутри первого запроса пользователя, который добавлял 5-8 сек латентности).
     from db.connection import (
-        get_fsm_pool, get_persona_pool, get_subscription_pool,
+        get_pool, get_fsm_pool, get_persona_pool, get_subscription_pool,
         get_indicators_pool, get_learning_pool, get_rewards_pool, get_journal_pool,
         get_reference_pool, get_publication_pool, get_community_pool, get_lead_pool,
     )
     from config.settings import (
-        FSM_URL, PERSONA_URL, SUBSCRIPTION_URL,
+        DATABASE_URL, FSM_URL, PERSONA_URL, SUBSCRIPTION_URL,
         INDICATORS_URL, LEARNING_URL, REWARDS_URL, JOURNAL_URL,
         REFERENCE_URL, PUBLICATION_URL, COMMUNITY_URL, LEAD_URL,
     )
     _pool_warmup = [
+        (DATABASE_URL, get_pool, "Main"),
         (FSM_URL, get_fsm_pool, "FSM"),
         (PERSONA_URL, get_persona_pool, "Persona"),
         (SUBSCRIPTION_URL, get_subscription_pool, "Subscription"),
