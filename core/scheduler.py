@@ -1820,7 +1820,17 @@ async def scheduled_check():
     # 🚨 Latency alert: проверяем каждые 15 минут
     if now.minute % 15 == 0 and dev_chat_id:
         try:
-            from db.queries.traces import check_latency_alerts
+            from db.queries.traces import check_latency_alerts, check_nav_latency_alerts
+            # Early-warning: nav-red precedes consultation-red by 2+ hours
+            nav_alert = await check_nav_latency_alerts(minutes=15)
+            if nav_alert:
+                bot = Bot(token=_bot_token)
+                try:
+                    await bot.send_message(int(dev_chat_id), nav_alert, parse_mode="HTML")
+                    logger.info("[Scheduler] Nav latency early-warning sent")
+                finally:
+                    await bot.session.close()
+            # Main latency alert (consultation + nav)
             alert_text = await check_latency_alerts(minutes=15)
             if alert_text:
                 bot = Bot(token=_bot_token)
