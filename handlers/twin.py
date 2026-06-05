@@ -108,8 +108,10 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
 
     # ── Coding from 2_6_coding ──
     coding = collected.get("2_6_coding", {}) or {}
-    code_7d = coding.get("coding_hours_7d")
-    code_30d = coding.get("coding_hours_30d")
+    code_7d_raw = coding.get("coding_seconds_7d")
+    code_30d_raw = coding.get("coding_seconds_30d")
+    code_7d = round(code_7d_raw / 3600, 1) if code_7d_raw is not None else None
+    code_30d = round(code_30d_raw / 3600, 1) if code_30d_raw is not None else None
     code_7d_text = f"{code_7d}ч" if code_7d is not None else "—"
     code_30d_text = f"{code_30d}ч" if code_30d is not None else "—"
 
@@ -118,7 +120,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     comp_parts = []
     for key, label in [("regularity", "регулярность"), ("activity", "активность"),
                        ("learning", "обучение"), ("notifications", "уведомления"),
-                       ("longevity", "стаж")]:
+                       ("longevity", "длительность")]:
         val = components.get(key)
         if val is not None:
             comp_parts.append(f"{label}={round(val)}")
