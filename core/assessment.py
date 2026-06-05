@@ -81,11 +81,20 @@ def get_dominant_group(assessment: dict, scores: dict[str, int]) -> dict:
     """Определить преобладающую группу.
 
     Returns:
-        Словарь группы с максимальным баллом
+        Словарь группы с максимальным баллом.
+        Если все баллы равны 0 (ничья / все ответы «Нет»),
+        возвращает группу-заглушку с id='unsure'.
     """
     groups = assessment.get('groups', [])
+    if not groups:
+        return {}
+
+    # UX-audit Day 1 №1: явно разрешаем ничью «все нули».
+    if scores and max(scores.values()) == 0:
+        return {'id': 'unsure', 'emoji': '🤔', 'title': {'ru': 'Не определено', 'en': 'Unclear'}}
+
     max_score = -1
-    dominant = groups[0] if groups else {}
+    dominant = groups[0]
 
     for group in groups:
         score = scores.get(group['id'], 0)

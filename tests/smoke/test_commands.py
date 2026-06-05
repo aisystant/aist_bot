@@ -124,6 +124,8 @@ async def test_learn_marathon_delivers_new_format(bot, dp, patch_db):
     with patch("handlers.get_dispatcher", return_value=mock_dispatcher), \
          patch("handlers.marathon.get_or_create_progress", new_callable=AsyncMock,
                return_value={"status": "active", "current_day": 3}), \
+         patch("handlers.marathon.has_recent_lesson_practice_sent", new_callable=AsyncMock,
+               return_value=False), \
          patch("core.marathon_content.get_day_text", return_value="Урок дня 3"):
         update = learn_command(chat_id=12345)
         await dp.feed_update(bot, update)

@@ -21,6 +21,7 @@ from db.queries.marathon_newcomer import (
     clear_marathon_state,
     get_sent_checkins_count,
     get_total_checkins_count,
+    has_recent_lesson_practice_sent,
 )
 from db.queries.users import moscow_now, update_intern
 from config import get_logger
@@ -184,6 +185,18 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None) ->
     status = progress.get('status')
 
     if status == 'active':
+        # UX-audit Day 1 №4+№7: повторный /learn не должен дублировать урок дня.
+        # Если lesson_practice уже отправлялся сегодня — показываем статус.
+        if await has_recent_lesson_practice_sent(user_id, within_minutes=720):
+            display_day = progress.get('current_day', 1) if progress.get('current_day', 0) > 0 else 1
+            await target.answer(
+                f"📚 Урок дня уже отправлен.\n\n"
+                f"📅 День марафона: {display_day} / 14\n"
+                f"🌙 Чек-ин придёт вечером.\n\n"
+                "Если хочешь повторить практику — нажми кнопку «✏️ Перейти к практике» "
+                "в уроке или используй /marathon_progress."
+            )
+            return True
         await _deliver_marathon_lesson(user_id, target, progress.get('current_day', 1), intern)
         return True
 
@@ -249,7 +262,8 @@ async def cmd_marathon_progress(message: Message):
         sent_checkins = await get_sent_checkins_count(chat_id)
         missed_checkins = max(0, sent_checkins - total_checkins)
         lines.append(f"📅 День марафона: {display_day} / 14")
-        lines.append(f"🌙 Чек-инов: {total_checkins}")
+        # UX-audit Day 1 №8: пояснить, что чек-ин приходит вечером.
+        lines.append(f"🌙 Чек-инов: {total_checkins} (приходит вечером)")
         lines.append(f"❌ Пропущено чек-инов: {missed_checkins}")
         if started_at:
             started_str = started_at.strftime("%d.%m.%Y")
@@ -394,6 +408,13 @@ async def callback_marathon_practice(callback: CallbackQuery):
 
     try:
         await callback.message.answer(practice_text, parse_mode="Markdown")
+        # UX-audit Day 1 №2: после практики сообщаем, что день завершён.
+        # Формулировка без призыва «записаться в марафон» — пользователь уже в нём.
+        await callback.message.answer(
+            f"✅ День {day} завершён.\n\n"
+            "🌙 Вечером придёт чек-ин — короткая рефлексия о том, как прошёл день.\n\n"
+            "Завтра продолжим — урок придёт в запланированное время."
+        )
         # Фиксируем факт первого получения практики (гасит напоминание-nudge).
         # На повторных кликах ON CONFLICT DO NOTHING → no-op, доставка не блокируется.
         await try_insert_notification(user_id, "marathon_practice", idempotency_key)

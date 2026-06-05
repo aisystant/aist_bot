@@ -23,6 +23,7 @@ from states.base import BaseState
 from i18n import t
 from db.queries import update_intern
 from db.queries.assessment import save_assessment
+from db.queries.marathon_newcomer import has_active_marathon_progress
 from core.assessment import (
     load_assessment,
     calculate_scores,
@@ -162,6 +163,12 @@ class AssessmentResultState(BaseState):
             result,
         ]
 
+        # UX-audit Day 1 №6: пояснить разницу между тестом и самооценкой.
+        lines.append(
+            "\n_📝 Результат теста — предположение на основе ответов. "
+            "Самооценка ниже — твоя личная оценка._"
+        )
+
         if self_check_label:
             lines.append(f"\n🪞 {t('assessment.self_check_label', lang)}: {self_check_label}")
 
@@ -179,21 +186,33 @@ class AssessmentResultState(BaseState):
             await self.send(user, "\n".join(lines).replace("*", "").replace("_", ""))
 
         # Рекомендация: марафон + профиль
-        rec_lines = [t('assessment.recommend_marathon', lang)]
+        # UX-audit Day 1 №5: не предлагать марафон, если пользователь уже в нём.
+        is_marathon_active = await has_active_marathon_progress(chat_id)
+        if is_marathon_active:
+            rec_lines = ["🏃 Ты уже в марафоне — продолжай в том же ритме."]
+        else:
+            rec_lines = [t('assessment.recommend_marathon', lang)]
         if self._is_profile_sparse(user):
             rec_lines.append(t('assessment.recommend_profile', lang))
 
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
+        # UX-audit Day 1 №5: не предлагать марафон, если пользователь уже в нём.
+        # Сохраняем компоновку: основные кнопки в одном ряду, меню — отдельно.
+        top_row = []
+        if not is_marathon_active:
+            top_row.append(
                 InlineKeyboardButton(
                     text=t('assessment.btn_marathon', lang),
                     callback_data="assess_result_marathon",
-                ),
-                InlineKeyboardButton(
-                    text=t('assessment.btn_profile', lang),
-                    callback_data="assess_result_settings",
-                ),
-            ],
+                )
+            )
+        top_row.append(
+            InlineKeyboardButton(
+                text=t('assessment.btn_profile', lang),
+                callback_data="assess_result_settings",
+            )
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            top_row,
             [
                 InlineKeyboardButton(
                     text=t('assessment.btn_menu', lang),

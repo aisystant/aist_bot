@@ -143,6 +143,14 @@ class AssessmentFlowState(BaseState):
         if phase == PHASE_OPEN:
             skip_words = ["пропустить", "skip", "saltar", "passer", "/skip"]
             if text.lower() in skip_words:
+                # UX-audit Day 1 №10: подтвердить пропуск открытого вопроса.
+                skip_msg = {
+                    'ru': "⏭ Открытый вопрос пропущен. Перехожу к результату теста.",
+                    'en': "⏭ Open question skipped. Moving to the test result.",
+                    'es': "⏭ Pregunta abierta omitida. Pasando al resultado del test.",
+                    'fr': "⏭ Question ouverte passée. Passage au résultat du test.",
+                }.get(lang, "⏭ Open question skipped. Moving to the test result.")
+                await self.send(user, skip_msg)
                 await self.save_state(user, {**data, 'open_response': None})
                 return "done"
 
