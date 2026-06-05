@@ -412,7 +412,7 @@ async def callback_pay_choice(callback: CallbackQuery):
                                 start=_format_date(started, lang),
                                 end=_format_date(finished, lang)))
 
-        chat_link = course_data.get("chatLink", "")
+        chat_link = course_data.get("chatLink", "").replace("_", "\\_")
         if chat_link:
             text_parts.append(t('schedule.pay_choice_chat', lang, link=chat_link))
 
