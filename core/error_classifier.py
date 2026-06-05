@@ -204,6 +204,9 @@ _SUPPRESSED_PATTERNS: list[re.Pattern] = [
     re.compile(r"(?i)ConflictError.*polling"),  # transient Railway redeploy
     re.compile(r"(?i)terminated by other.*getUpdates"),  # webhook/polling switch
     re.compile(r"(?i)RetryAfter|flood.?control"),  # TG rate limit, auto-handled
+    # peer-session 2026-06-05-02: два класса, что монитор ложно клеил как claude_api/L2.
+    re.compile(r"(?i)WakaTime API error 422|missing a timezone"),  # внешнее per-user: нет таймзоны в чужом WakaTime-аккаунте, наш код не чинит
+    re.compile(r"(?i)Unclosed (client session|connector)"),  # resource leak — лечится закрытием сессий в shutdown, не код-баг класса Claude
 ]
 
 

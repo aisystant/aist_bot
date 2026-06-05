@@ -463,6 +463,18 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
     except Exception as e:
         logger.warning(f"[schema-verify] feedback_triage@journal check skipped: {e}")
 
+    # 3. learning.consent_grant — learning-пул (write path: db/queries/consent.py).
+    # peer-session 2026-06-05-02: эта таблица отсутствовала на pilot и каждый тап
+    # кнопки согласия падал db/L4, а guard был зелёным (consent_grant не было в
+    # списке). Миграция 023 создаёт её; эта проверка не даёт guard'у снова замолчать.
+    try:
+        lpool2 = await get_learning_pool()
+        async with lpool2.acquire() as conn:
+            if not await conn.fetchval("SELECT to_regclass('learning.consent_grant')"):
+                missing.append("learning.consent_grant@learning")
+    except Exception as e:
+        logger.warning(f"[schema-verify] consent_grant@learning check skipped: {e}")
+
     if missing:
         msg = f"Schema drift detected: {', '.join(missing)} missing. Run migrations."
         logger.error(f"❌ {msg} (non-fatal — bot continues, see WP-330 A-zero)")
@@ -492,7 +504,7 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
         # NON-FATAL: НЕ raise — страж не должен крэшить прод.
         return
 
-    logger.info("✅ Schema verify passed (learning.feed_sessions, journal.feedback_triage)")
+    logger.info("✅ Schema verify passed (learning.feed_sessions, journal.feedback_triage, learning.consent_grant)")
 
 
 async def init_db():

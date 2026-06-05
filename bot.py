@@ -233,6 +233,18 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Canary state init skipped: {_e}")
 
+    # consent_grant table (learning DB) — versioned consent (WP-316 Ф9).
+    # peer-session 2026-06-05-02: запросы были, DDL отсутствовал → set_grant падал db/L4.
+    try:
+        import importlib as _il
+        _m023 = _il.import_module("db.migrations.023_consent_grant")
+        _lpool = await get_learning_pool()
+        _created = await _m023.migrate_if_needed(_lpool)
+        if _created:
+            logger.info("✅ Migration 023: consent_grant created in learning DB")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 023 skipped: {_e}")
+
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
     from db.migrations.migrate_products import migrate_products_if_needed
@@ -648,6 +660,18 @@ async def main():
     await MCPClient.close_session()
     await gateway_mcp.close()
     await wakatime_client.close_session()
+    # ФИКС (peer-session 2026-06-05-02): singleton-сессии aisystant/discourse/
+    # github_content не закрывались нигде → "Unclosed client session/connector"
+    # при остановке процесса. Закрываем все три (discourse/github_content
+    # создаются условно → null-guard).
+    from clients.aisystant import aisystant
+    from clients.discourse import discourse
+    from clients.github_content import github_content
+    await aisystant.close()
+    if discourse:
+        await discourse.close()
+    if github_content:
+        await github_content.close()
     logger.info("🔒 HTTP sessions закрыты")
 
     # Langfuse flush (WP-179 Ф3)

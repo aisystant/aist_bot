@@ -120,21 +120,29 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
     except Exception:
         pass
 
-        # Lazy write в identity_map для Activity Hub (WP-109)
-        user_uuid = await conn.fetchval(
-            'SELECT id FROM public.users WHERE telegram_id = $1',
-            chat_id,
-        )
-        logger.info(f"[Aisystant] user_uuid from SELECT: {user_uuid}")
-
-        if user_uuid:
-            await conn.execute(
-                '''INSERT INTO development.identity_map (source, external_id, user_uuid)
-                   VALUES ('lms', $1, $2)
-                   ON CONFLICT (source, external_id) DO NOTHING''',
-                str(aisystant_id), user_uuid,
+    # Lazy write в identity_map для Activity Hub (WP-109).
+    # ФИКС (peer-session 2026-06-05-02): блок был ошибочно вложен в `except: pass`
+    # выше (отступ 8 пробелов) → на нормальном пути не исполнялся, а user_uuid
+    # оставался несвязанным → UnboundLocalError на account_id_str ниже. Плюс conn
+    # из `async with` выше уже закрыт. Решение: свежее соединение + init user_uuid=None.
+    user_uuid = None
+    try:
+        async with pool.acquire() as conn2:
+            user_uuid = await conn2.fetchval(
+                'SELECT id FROM public.users WHERE telegram_id = $1',
+                chat_id,
             )
-            logger.info(f"[Aisystant] identity_map INSERT for {user_uuid}")
+            logger.info(f"[Aisystant] user_uuid from SELECT: {user_uuid}")
+            if user_uuid:
+                await conn2.execute(
+                    '''INSERT INTO development.identity_map (source, external_id, user_uuid)
+                       VALUES ('lms', $1, $2)
+                       ON CONFLICT (source, external_id) DO NOTHING''',
+                    str(aisystant_id), user_uuid,
+                )
+                logger.info(f"[Aisystant] identity_map INSERT for {user_uuid}")
+    except Exception as exc:
+        logger.warning(f"[Aisystant] identity_map lazy-write failed: {exc}")
 
     logger.info(f"[Aisystant] linked: chat_id={chat_id}, aisystant_id={aisystant_id}")
 
