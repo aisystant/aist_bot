@@ -67,6 +67,11 @@ async def cb_service_select(callback: CallbackQuery, state: FSMContext):
 
     await state.clear()
     await callback.message.edit_reply_markup()
+    # WP-330 cutover: сервис marathon → новый формат, не старая SM
+    if service.id == 'marathon':
+        from handlers.marathon import try_deliver_new_marathon
+        if await try_deliver_new_marathon(callback.message.chat.id, callback.message, intern):
+            return
     await dispatcher.go_to(intern, entry_state)
 
 
@@ -87,6 +92,10 @@ async def cb_learn(callback: CallbackQuery, state: FSMContext):
 
     if dispatcher and dispatcher.is_sm_active:
         await state.clear()
+        # WP-330 cutover: марафон → новый формат, не старая SM
+        from handlers.marathon import try_deliver_new_marathon
+        if await try_deliver_new_marathon(callback.message.chat.id, callback.message, intern):
+            return
         await dispatcher.route_learn(intern)
         return
 
@@ -262,20 +271,18 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
                     'source': 'marathon_get_lesson',
                 })
 
-            if data == "marathon_catchup_today":
-                # Catch-up: user wants today's lesson after completing yesterday's
-                lang = intern.get('language', 'ru') or 'ru'
-                await callback.message.answer(
-                    f"⏳ {t('reminders.marathon_catchup_generating', lang)}"
-                )
-                await dispatcher.go_to(intern, "workshop.marathon.lesson")
-            else:
+            # WP-330 cutover (2026-06-05): кнопки-напоминания → новый формат
+            # (статический урок мгновенно), не старая SM. Новый scheduler шлёт
+            # только marathon_get_lesson; get_question/get_practice — legacy.
+            from handlers.marathon import try_deliver_new_marathon
+            if not await try_deliver_new_marathon(chat_id, callback.message, intern):
                 state_map = {
                     "marathon_get_lesson": "workshop.marathon.lesson",
                     "marathon_get_question": "workshop.marathon.question",
                     "marathon_get_practice": "workshop.marathon.task",
+                    "marathon_catchup_today": "workshop.marathon.lesson",
                 }
-                await dispatcher.go_to(intern, state_map[data])
+                await dispatcher.go_to(intern, state_map.get(data, "workshop.marathon.lesson"))
 
         elif data.startswith("marathon_checkin:"):
             # WP-330 P0-1: route checkin callbacks to marathon handler

@@ -105,6 +105,11 @@ async def cmd_learn(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
+        # WP-330 cutover (2026-06-05): марафон-пользователей — в новый формат,
+        # не в старую SM (workshop.marathon.lesson). Лента идёт прежним путём.
+        from handlers.marathon import try_deliver_new_marathon
+        if await try_deliver_new_marathon(message.chat.id, message, intern):
+            return
         await _safe_route(message, state, intern, dispatcher.route_learn(intern))
         return
 

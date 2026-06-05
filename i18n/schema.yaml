@@ -590,8 +590,8 @@ connect:
     en: "Want to connect an AI assistant to platform knowledge?"
 
   onboarding_button:
-    ru: "Подключить IWE"
-    en: "Connect IWE"
+    ru: "Подключить к Aisystant mcp"
+    en: "Connect to Aisystant MCP"
 
 # -----------------------------------------------------------------------------
 # Длительность

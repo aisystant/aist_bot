@@ -120,15 +120,11 @@ async def _create_course_buttons(
                 )]
         except Exception as e:
             logger.error(f"[Schedule] pre-create payment error for {code} amount={amount}: {e}")
-        # Fallback: callback button (pre-create не удался → пользователь нажмёт вручную)
-        logger.warning(f"[Schedule] fallback to callback for {code} amount={amount}")
-        return [InlineKeyboardButton(
-            text=f"{emoji} {short_name} — {amount} ₽",
-            callback_data=f"schedule_pay:{code}:{amount}",
-        )]
+        logger.warning(f"[Schedule] payment pre-create failed for {code} amount={amount}, hiding button")
+        return []
 
     rows = await asyncio.gather(*[_one(c, n, a) for c, n, a in paid_courses])
-    return list(rows)
+    return [row for row in rows if row]
 
 
 # ── Hub ─────────────────────────────────────────────────
@@ -416,7 +412,7 @@ async def callback_pay_choice(callback: CallbackQuery):
                                 start=_format_date(started, lang),
                                 end=_format_date(finished, lang)))
 
-        chat_link = course_data.get("chatLink", "")
+        chat_link = course_data.get("chatLink", "").replace("_", "\\_")
         if chat_link:
             text_parts.append(t('schedule.pay_choice_chat', lang, link=chat_link))
 
@@ -442,12 +438,9 @@ async def callback_pay_choice(callback: CallbackQuery):
         except Exception as e:
             logger.error(f"[Schedule] pre-create full payment error for {code}: {e}")
 
-    # Fallback: callback-кнопка если pre-create не удался
+    # Если pre-create не удался — кнопка полной оплаты недоступна, только рассрочка
     if not buttons:
-        buttons.append([InlineKeyboardButton(
-            text=t('schedule.btn_pay_full', lang, amount=amount),
-            callback_data=f"schedule_pay:{code}:{amount}",
-        )])
+        logger.warning(f"[Schedule] pay_choice: full payment pre-create failed for {code}, showing installment only")
 
     # 2. Рассрочка — callback (создаётся при нажатии, т.к. другая сумма)
     buttons.append([InlineKeyboardButton(
@@ -464,8 +457,12 @@ async def callback_pay_choice(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     try:
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
-    except Exception:
-        await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception as _edit_err:
+        logger.warning(f"[Schedule] pay_choice edit_text failed for {code}: {_edit_err}")
+        try:
+            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception as _ans_err:
+            logger.error(f"[Schedule] pay_choice answer also failed for {code}: {_ans_err}")
 
 
 @schedule_router.callback_query(F.data.startswith("sched_pay_inst:"))

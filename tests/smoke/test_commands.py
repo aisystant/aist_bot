@@ -94,7 +94,14 @@ async def test_learn_requires_onboarding(bot, dp, patch_db):
 
 @pytest.mark.asyncio
 async def test_learn_delegates_to_dispatcher(bot, dp, patch_db):
-    """Сценарий 7.3: /learn делегирует в Dispatcher (если SM активна)."""
+    """Сценарий 7.3: /learn для Ленты (mode=feed) делегирует в Dispatcher.
+
+    WP-330 cutover: марафон-пользователей /learn обрабатывает сам (новый формат),
+    в route_learn делегирует только не-марафонские режимы.
+    """
+    patch_db["get_intern_commands"].return_value = make_intern(
+        onboarding_completed=True, mode="feed"
+    )
     mock_dispatcher = MagicMock()
     mock_dispatcher.is_sm_active = True
     mock_dispatcher.route_learn = AsyncMock()
@@ -104,6 +111,28 @@ async def test_learn_delegates_to_dispatcher(bot, dp, patch_db):
         await dp.feed_update(bot, update)
 
     mock_dispatcher.route_learn.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_learn_marathon_delivers_new_format(bot, dp, patch_db):
+    """WP-330 cutover: /learn для марафон-пользователя отдаёт урок дня (новый формат),
+    НЕ уходит в route_learn (старую SM)."""
+    mock_dispatcher = MagicMock()
+    mock_dispatcher.is_sm_active = True
+    mock_dispatcher.route_learn = AsyncMock()
+
+    with patch("handlers.get_dispatcher", return_value=mock_dispatcher), \
+         patch("handlers.marathon.get_or_create_progress", new_callable=AsyncMock,
+               return_value={"status": "active", "current_day": 3}), \
+         patch("handlers.marathon.has_recent_lesson_practice_sent", new_callable=AsyncMock,
+               return_value=False), \
+         patch("core.marathon_content.get_day_text", return_value="Урок дня 3"):
+        update = learn_command(chat_id=12345)
+        await dp.feed_update(bot, update)
+
+    mock_dispatcher.route_learn.assert_not_called()
+    msgs = bot.get_sent("send_message")
+    assert len(msgs) > 0, "марафон-урок не отправлен по /learn"
 
 
 @pytest.mark.asyncio

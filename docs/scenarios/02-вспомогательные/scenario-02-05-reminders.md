@@ -53,13 +53,16 @@
 │ 1. Отправка темы пользователю                       │
 │    send_scheduled_topic(chat_id, bot)               │
 │                                                     │
-│    [USE_STATE_MACHINE=true]                         │
-│    → state_machine.go_to("workshop.marathon.lesson")│
-│    → SM устанавливает current_state в БД            │
+│    [Новый формат WP-330 — актуально]                │
+│    → scheduler рендерит get_day_text(day, 'lesson') │
+│    → отправляет статический текст + кнопка практики │
+│    [marathon_get_lesson кнопка-напоминание]          │
+│    → try_deliver_new_marathon() → урок текущего дня │
 │                                                     │
-│    [USE_STATE_MACHINE=false]                        │
+│    [USE_STATE_MACHINE=true — deprecated]            │
+│    → state_machine.go_to("workshop.marathon.lesson")│
+│    [USE_STATE_MACHINE=false — deprecated]           │
 │    → send_theory_topic() / send_practice_topic()    │
-│    → Legacy FSM state                               │
 └────────────────────┬────────────────────────────────┘
                      │
                      ↓
@@ -332,15 +335,12 @@ for hours in [1, 3, 5, 24]:  # Добавить +5h и +24h
 
 | Файл | Строки | Назначение |
 |------|--------|-----------|
-| `bot.py` | 2628-2714 | send_scheduled_topic() — SM или legacy routing |
-| `bot.py` | 2717-2739 | schedule_reminders() |
-| `bot.py` | 2741-2774 | send_reminder() |
-| `bot.py` | 2776-2806 | check_reminders() |
-| `bot.py` | 2809-2830 | scheduled_check() |
-| `bot.py` | 3267-3268 | Инициализация scheduler |
+| `core/scheduler.py` | — | Утренняя доставка (lesson_practice), кнопки-напоминания |
+| `handlers/marathon.py` | — | `try_deliver_new_marathon` — on-demand by button |
+| `core/marathon_content.py` | — | Статический контент (routing по профилю) |
 | `db/models.py` | 162-173 | Таблица reminders |
-| `states/workshops/marathon/lesson.py` | — | SM стейт: урок (при USE_STATE_MACHINE) |
-| `states/workshops/marathon/task.py` | — | SM стейт: задание (при USE_STATE_MACHINE) |
+| `states/workshops/marathon/lesson.py` | — | **Deprecated** SM стейт: урок (удалить после 2026-07-05) |
+| `states/workshops/marathon/task.py` | — | **Deprecated** SM стейт: задание (удалить после 2026-07-05) |
 
 ---
 
@@ -348,6 +348,7 @@ for hours in [1, 3, 5, 24]:  # Добавить +5h и +24h
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-06-05 | WP-330 cutover: кнопка marathon_get_lesson → try_deliver_new_marathon (новый формат). SM-routing deprecated. Обновлены ключевые файлы. |
 | 2026-02-05 | Добавлена документация State Machine routing в send_scheduled_topic() |
 | 2026-02-05 | Обновлены номера строк в разделе «Ключевые файлы» |
 | 2026-01-22 | Создание документа |

@@ -21,6 +21,7 @@ from db.queries.marathon_newcomer import (
     clear_marathon_state,
     get_sent_checkins_count,
     get_total_checkins_count,
+    has_recent_lesson_practice_sent,
 )
 from db.queries.users import moscow_now, update_intern
 from config import get_logger
@@ -122,6 +123,99 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
 
 
 # ════════════════════════════════════════════════════════════════════
+# WP-330 cutover /learn (2026-06-05): доставка урока дня в НОВОМ формате.
+# Закрывает 4 входа в старую SM (workshop.marathon.lesson): /learn, кнопка
+# «Учиться», меню-сервис marathon, кнопки-напоминания. Старый SM-поток
+# (states/workshops/marathon/* + core/topics.py) deprecated, удалить после
+# 2026-07-05. Прогресс читается из marathon_progress.current_day (сохраняется
+# в Neon) — переключение не теряет позицию пользователя.
+# ════════════════════════════════════════════════════════════════════
+
+
+async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict = None) -> None:
+    """Отдать урок дня в новом формате: статический текст get_day_text + кнопка практики.
+
+    Зеркало доставки scheduler (lesson_practice, core/scheduler.py). target —
+    объект с .answer() (Message или callback.message).
+    """
+    from core.marathon_content import get_day_text
+    from db.queries import get_intern
+
+    if intern is None:
+        intern = await get_intern(user_id)
+    day = max(1, min(14, day or 1))
+
+    # WP-330 С9a: routing по профилю (4 версии); fallback на legacy-ключ.
+    lesson = get_day_text(day, 'lesson', intern=intern) or get_day_text(day, 'lesson')
+    if not lesson:
+        await target.answer("Урок для этого дня недоступен. Загляни в /support.")
+        logger.warning(f"[Learn] No lesson content for day {day} (user {user_id})")
+        return
+
+    faq = get_day_text(day, 'faq_hint')
+    text = lesson + (f"\n\n{faq}" if faq else "")
+    if len(text) > 4000:
+        text = text[:3990] + "\n\n…"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✏️ Перейти к практике", callback_data=f"marathon_practice:{day}")
+    ]])
+    await target.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+    logger.info(f"[Learn] Delivered new-format lesson day {day} to {user_id}")
+
+
+async def try_deliver_new_marathon(user_id: int, target, intern: dict = None) -> bool:
+    """Если пользователь в марафоне — отдать урок дня (новый формат) и вернуть True.
+
+    Возвращает False только для НЕ-марафонских режимов (Лента) — тогда вызывающий
+    идёт прежним путём. Для марафона всегда обрабатывает сам:
+      active     → урок текущего дня,
+      completed  → сообщение «завершил»,
+      иначе      → подсказка /marathon_start (без авто-старта).
+    """
+    from db.queries import get_intern
+
+    if intern is None:
+        intern = await get_intern(user_id)
+    mode = (intern or {}).get('mode') or 'marathon'
+    if mode not in ('marathon', 'both'):
+        return False  # Лента и пр. — не трогаем марафон-прогресс
+
+    progress = await get_or_create_progress(user_id)
+    status = progress.get('status')
+
+    if status == 'active':
+        # UX-audit Day 1 №4+№7: повторный /learn не должен дублировать урок дня.
+        # Если lesson_practice уже отправлялся сегодня — показываем статус.
+        if await has_recent_lesson_practice_sent(user_id, within_minutes=720):
+            display_day = progress.get('current_day', 1) if progress.get('current_day', 0) > 0 else 1
+            await target.answer(
+                f"📚 Урок дня уже отправлен.\n\n"
+                f"📅 День марафона: {display_day} / 14\n"
+                f"🌙 Чек-ин придёт вечером.\n\n"
+                "Если хочешь повторить практику — нажми кнопку «✏️ Перейти к практике» "
+                "в уроке или используй /marathon_progress."
+            )
+            return True
+        await _deliver_marathon_lesson(user_id, target, progress.get('current_day', 1), intern)
+        return True
+
+    if status == 'completed':
+        await target.answer(
+            "✅ Ты уже завершил марафон!\n\n"
+            "Если хочешь пройти снова — напиши в поддержку /support."
+        )
+        return True
+
+    # registered / dropped / не стартовал — подсказка, НЕ авто-старт (WP-330 cutover design)
+    await target.answer(
+        "🚀 Марафон ещё не запущен.\n\n"
+        "Начни командой /marathon_start — придёт первый урок."
+    )
+    return True
+
+
+# ════════════════════════════════════════════════════════════════════
 # Ф2.3 /marathon_start — регистрация + заполнение очереди на 14 дней
 # ════════════════════════════════════════════════════════════════════
 
@@ -168,7 +262,8 @@ async def cmd_marathon_progress(message: Message):
         sent_checkins = await get_sent_checkins_count(chat_id)
         missed_checkins = max(0, sent_checkins - total_checkins)
         lines.append(f"📅 День марафона: {display_day} / 14")
-        lines.append(f"🌙 Чек-инов: {total_checkins}")
+        # UX-audit Day 1 №8: пояснить, что чек-ин приходит вечером.
+        lines.append(f"🌙 Чек-инов: {total_checkins} (приходит вечером)")
         lines.append(f"❌ Пропущено чек-инов: {missed_checkins}")
         if started_at:
             started_str = started_at.strftime("%d.%m.%Y")
@@ -313,6 +408,13 @@ async def callback_marathon_practice(callback: CallbackQuery):
 
     try:
         await callback.message.answer(practice_text, parse_mode="Markdown")
+        # UX-audit Day 1 №2: после практики сообщаем, что день завершён.
+        # Формулировка без призыва «записаться в марафон» — пользователь уже в нём.
+        await callback.message.answer(
+            f"✅ День {day} завершён.\n\n"
+            "🌙 Вечером придёт чек-ин — короткая рефлексия о том, как прошёл день.\n\n"
+            "Завтра продолжим — урок придёт в запланированное время."
+        )
         # Фиксируем факт первого получения практики (гасит напоминание-nudge).
         # На повторных кликах ON CONFLICT DO NOTHING → no-op, доставка не блокируется.
         await try_insert_notification(user_id, "marathon_practice", idempotency_key)
