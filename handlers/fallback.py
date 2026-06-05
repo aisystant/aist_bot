@@ -6,6 +6,7 @@ Fallback хендлеры — обработка неизвестных сооб
 """
 
 import logging
+import re
 
 from aiogram import Router
 from aiogram.types import Message, CallbackQuery
@@ -17,6 +18,10 @@ from i18n import t, detect_language
 logger = logging.getLogger(__name__)
 
 fallback_router = Router(name="fallback")
+
+_HERMES_PREFIXES_RE = re.compile(r"^(гермес|hermes)[,:\s]+", re.IGNORECASE)
+_HERMES_UNAVAILABLE_TIER_MSG = "Функция недоступна на твоём тире"
+_HERMES_UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен. Попробуй позже."
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
@@ -87,6 +92,30 @@ async def on_unknown_message(message: Message, state: FSMContext):
     if dispatcher and dispatcher.is_sm_active:
         intern = await get_intern(chat_id)
 
+        # WP-392 Ф3.1: явный вызов Hermes через префикс — ДО онбординг-интентов.
+        # Fail-safe: если hermes_router пропустил (SkipHandler при marathon SM),
+        # fallback перехватывает и маршрутизирует в Hermes напрямую.
+        if text and _HERMES_PREFIXES_RE.search(text):
+            # Проверяем tier — Hermes доступен только T3+
+            tier_str = (intern or {}).get("tier", "T1")
+            tier_num = 1
+            if isinstance(tier_str, str) and tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
+                tier_num = int(tier_str[1])
+            if tier_num < 3:
+                await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
+                return
+            hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+            from clients.gateway_mcp import gateway_mcp
+            try:
+                from helpers.typing_indicator import keep_typing
+                async with keep_typing(message):
+                    response = await gateway_mcp.hermes_chat(message=hermes_msg, telegram_user_id=chat_id)
+            except Exception:
+                logger.exception("[fallback] hermes_chat failed for chat %s", chat_id)
+                response = _HERMES_UNAVAILABLE_RUNTIME_MSG
+            await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+            return
+
         # Ф22 (WP-349): текстовый роутинг онбординг-интентов.
         # Условие: пользователь онбордирован, нет ни FSM-стейта ни SM custom state, текст не команда.
         if (text and not text.startswith('/') and
@@ -98,8 +127,8 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 handled = await route_onboarding_intent(text, chat_id, message, state)
                 if handled:
                     return
-                # WP-392: «Гермес»/«hermes» обрабатывает hermes_router (handlers/hermes.py),
-                # зарегистрированный ДО fallback. Сюда такие сообщения не доходят.
+                # WP-392: «Гермес»/«hermes» обрабатывается выше (префиксный триггер)
+                # или hermes_router (handlers/hermes.py), зарегистрированный ДО fallback.
 
         logger.info(f"[SM] Routing message to SM: chat_id={chat_id}, len={len(text)}")
         try:

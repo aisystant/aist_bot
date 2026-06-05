@@ -47,22 +47,24 @@ def _tier_num(intern: dict) -> int:
 async def on_hermes(message: Message, state: FSMContext) -> None:
     """«Гермес, <текст>» → hermes_chat. Tier < T3 → отказ.
 
-    SkipHandler (пропуск к следующим роутерам), если:
-      - пользователь не онбординжен (пусть обработает онбординг),
-      - marathon SM ждёт ответ (не ломать марафон).
+    WP-392 Ф3.1: префикс «Гермес» имеет абсолютный приоритет.
+    SkipHandler ТОЛЬКО если marathon SM ждёт ответ (не ломать марафон).
+    Не-онбордированным показываем отказ tier — не пропускаем в fallback.
     """
     chat_id = message.chat.id
     text = message.text or ""
 
     intern = await get_intern(chat_id)
-    if not intern or not intern.get("onboarding_completed"):
-        raise SkipHandler
 
     # Не перехватывать у marathon SM, ожидающей ответ пользователя.
     from handlers.external_session import _sm_is_expecting_reply
     if await _sm_is_expecting_reply(chat_id):
         logger.info("[hermes] SM expecting reply for chat %s — skipping", chat_id)
         raise SkipHandler
+
+    if not intern or not intern.get("onboarding_completed"):
+        await message.answer(_UNAVAILABLE_TIER_MSG)
+        return
 
     if _tier_num(intern) < _TIER_REQUIRED:
         await message.answer(_UNAVAILABLE_TIER_MSG)
