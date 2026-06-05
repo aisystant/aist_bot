@@ -493,10 +493,78 @@ BLOOM_INSTRUCTION = {
 
 ---
 
+---
+
+## 11. Новый формат марафона (WP-330, актуально)
+
+> **Статус:** Основной формат с 2026-05-30. Старый SM-формат (секции 2-10) — deprecated, удаление после 2026-07-05.
+
+### Ключевые отличия
+
+| Параметр | Старый SM-формат (deprecated) | Новый формат (WP-330) |
+|----------|-------------------------------|----------------------|
+| Структура | 28 LLM-тем через SM-состояния | 14 дней × статический контент |
+| Контент | Генерируется Haiku/Sonnet per user | Фиксированный текст из `data/marathon-content.json` (4 версии под профиль) |
+| Доставка утром | Scheduler → `lesson_practice` → JSON | То же |
+| On-demand `/learn` | → `workshop.marathon.lesson` (SM) | → `_deliver_marathon_lesson` (статика) |
+| Прогресс | `interns.current_topic_index` | `marathon_progress.current_day` (Neon) |
+
+### Поток (новый)
+
+```
+[Ученик]                              [Бот]
+
+/learn ─────────────────────────────► try_deliver_new_marathon()
+                                        ↓ читает marathon_progress.current_day
+                                        ↓ get_day_text(day, 'lesson', intern)
+                                      Урок дня N (статический текст)
+                                      [✏️ Перейти к практике]
+
+Кнопка «Перейти к практике» ────────► get_day_text(day, 'practice', intern)
+                                      Практика дня N
+```
+
+### Версии контента
+
+4 версии под профиль пользователя (routing через `core/marathon_content.py:resolve_variant`):
+
+| study_duration | complexity_level | Ключ |
+|---|---|---|
+| < 15 мин | 1 | `lesson_short_simple` |
+| < 15 мин | ≥ 2 | `lesson_short_complex` |
+| ≥ 15 мин | 1 | `lesson_long_simple` |
+| ≥ 15 мин | ≥ 2 | `lesson_long_complex` |
+
+Fallback при отсутствии версионного ключа → legacy-ключ `lesson` (≤500 символов).
+
+### Файлы нового формата
+
+| Файл | Назначение |
+|------|-----------|
+| `handlers/marathon.py` | Старт, доставка урока on-demand, прогресс |
+| `core/marathon_content.py` | Загрузчик JSON, routing по профилю |
+| `data/marathon-content.json` | Runtime-контент (source: DS-marathon-v2-tseren) |
+| `scripts/sync-marathon-content.sh` | Синхронизация авторского файла → data/ |
+| `db/queries/marathon_newcomer.py` | Очередь, прогресс, чек-ины |
+| `core/scheduler.py` | Утренняя доставка (lesson_practice) |
+
+### Входы в марафон (все переключены на новый формат)
+
+| Точка | Файл | Действие |
+|-------|------|---------|
+| `/learn` команда | `handlers/commands.py:cmd_learn` | `try_deliver_new_marathon` → урок дня |
+| Кнопка «Учиться» | `handlers/callbacks.py:cb_learn` | То же |
+| Меню «Марафон» | `handlers/callbacks.py:cb_service_select` | То же |
+| Кнопки-напоминания | `handlers/callbacks.py` (`marathon_get_lesson`) | То же |
+| «Марафон» после теста | `states/workshops/assessment/result.py` | `start_marathon_flow` |
+
+---
+
 ## История изменений
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-06-05 | WP-330 cutover: `/learn` и все 4 входа → новый формат. Добавлена секция §11. SM-формат deprecated. |
 | 2026-04-11 | Добавлена секция «Content Budget Model (DP.D.027)» — 3 оси, константы, правило раздельности, auto-upgrade. Ссылка на P-02 §7. |
 | 2026-01-22 | Создание документа |
 | 2026-01-22 | Добавлена кнопка «Посмотреть прогресс» после завершения дня |
