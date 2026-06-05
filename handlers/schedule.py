@@ -457,8 +457,12 @@ async def callback_pay_choice(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     try:
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
-    except Exception:
-        await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+    except Exception as _edit_err:
+        logger.warning(f"[Schedule] pay_choice edit_text failed for {code}: {_edit_err}")
+        try:
+            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+        except Exception as _ans_err:
+            logger.error(f"[Schedule] pay_choice answer also failed for {code}: {_ans_err}")
 
 
 @schedule_router.callback_query(F.data.startswith("sched_pay_inst:"))
