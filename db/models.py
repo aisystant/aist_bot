@@ -319,6 +319,16 @@ async def create_tables(pool: asyncpg.Pool):
         except Exception:
             pass
 
+        # Индекс для delete_feed_sessions (week_id + status) — устраняет seq scan
+        # при смене тем в Ленте (peer-session WP-396, latency 41s → <1s).
+        try:
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_feed_sessions_week_status
+                ON feed_sessions (week_id, status)
+            ''')
+        except Exception:
+            pass
+
         # ═══════════════════════════════════════════════════════════
         # МАРАФОН: ПРЕ-ГЕНЕРИРОВАННЫЙ КОНТЕНТ
         # ═══════════════════════════════════════════════════════════
@@ -1394,6 +1404,62 @@ async def create_tables(pool: asyncpg.Pool):
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_channel_monitors_channel
             ON channel_monitors(channel_id) WHERE active = TRUE
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
+        # СООБЩЕСТВО IWE: ОПЛАТЫ + УЧАСТНИКИ (WP-181)
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS workshop_payments (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                aisystant_id TEXT,
+                amount NUMERIC NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                source TEXT NOT NULL DEFAULT 'bot',
+                payment_id TEXT,
+                paid_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_workshop_payments_tg
+            ON workshop_payments (telegram_id)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_workshop_payments_status
+            ON workshop_payments (telegram_id, status)
+            WHERE status = 'success'
+        ''')
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_workshop_payments_payment_id
+            ON workshop_payments (payment_id)
+            WHERE payment_id IS NOT NULL
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS community_members (
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                username TEXT,
+                first_name TEXT,
+                source TEXT NOT NULL DEFAULT 'unknown',
+                joined_at TIMESTAMP DEFAULT NOW(),
+                left_at TIMESTAMP
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_community_members_chat
+            ON community_members (chat_id)
+            WHERE left_at IS NULL
+        ''')
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_community_members_unique
+            ON community_members (telegram_id, chat_id)
+            WHERE left_at IS NULL
         ''')
 
     logger.info("All tables created/updated")
