@@ -602,18 +602,27 @@ async def handle_question_with_tools(
     # 18с выше медианы knowledge_search (2-6с, в пике 12-15с), но режет worst-case.
     PER_TOOL_TIMEOUT = 18
 
-    # cold-review (subagent, 2026-06-05): wait_for добавляет точку отмены.
-    # Discovered-инструменты шлюза (get_tools_for_tier) могут включать write-операции
-    # (dt_write_digital_twin, personal_write, grant_*, reindex). Отмена write на
-    # середине = частичная запись. Fail-safe: таймаут (отмену) применяем ТОЛЬКО к
-    # инструментам, заведомо read-only (allowlist префиксов); всё неизвестное и
-    # мутирующее выполняем без отмены — gateway_mcp имеет свой внутренний таймаут.
-    _READONLY_PREFIXES = ("search", "get", "read", "list", "describe",
-                          "analyze", "expand", "status", "traverse")
+    # cold-review (subagent, 2026-06-05, итерация 2): wait_for добавляет точку отмены.
+    # Discovered-инструменты шлюза имеют доменный префикс ПЕРВЫМ (knowledge_search,
+    # dt_read_*, personal_*) — prefix-match их пропускал, и основной knowledge_search
+    # оставался без таймаута. Новая логика: cancel-safe = есть read-маркер где угодно
+    # в имени И нет ни одного мутирующего маркера. Инвариант (главное): ни один
+    # write-инструмент (dt_write, personal_write, grant_*, *reindex*, create_*) НЕ
+    # получает wait_for — мутирующая проверка идёт первой и возвращает False.
+    _MUTATING_MARKERS = ("write", "grant", "revoke", "connect", "disconnect",
+                         "create", "delete", "update", "purge", "reindex",
+                         "scaffold", "propose", "redeem", "upsert", "set_",
+                         "run_", "request_", "load_skill", "feedback", "chat",
+                         "send", "extractor", "strategist", "remind")
+    _READONLY_MARKERS = ("search", "get", "read", "list", "describe", "analyze",
+                         "expand", "status", "traverse", "concept", "graph",
+                         "learner", "document", "brief", "stats", "progress")
 
     def _is_cancel_safe(name: str) -> bool:
         n = name.lower()
-        return n.startswith(_READONLY_PREFIXES) or "concept" in n
+        if any(m in n for m in _MUTATING_MARKERS):
+            return False  # никогда не отменять потенциальную запись
+        return any(r in n for r in _READONLY_MARKERS)
 
     async def tool_executor(tool_name: str, tool_input: dict) -> str:
         async with span(f"tool.{tool_name}"):
