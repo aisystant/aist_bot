@@ -11,12 +11,14 @@
 - Метаданные темы (related_concepts, pain_point, key_insight)
 """
 
+import asyncio
 import hashlib
 import json
 from typing import Optional, List, Tuple, Dict, Callable, Awaitable
 
 from config import get_logger, ONTOLOGY_RULES
 from core.intent import get_question_keywords
+from core.tracing import span
 from clients import claude
 from clients.gateway_mcp import gateway_mcp
 from db.queries.qa import save_qa, get_qa_history
@@ -274,7 +276,10 @@ async def search_mcp_context(query: str) -> Tuple[str, List[str]]:
     # Поиск в unified Knowledge MCP (все источники: pack + guides + ds)
     try:
         logger.info(f"Gateway-Knowledge: отправляю запрос, len={len(query)}")
-        results = await gateway_mcp.knowledge_search(query, limit=6)
+        # WP-330: span на pre-search — отделяет его время от tool-раундов Claude
+        # и ловит дубль (если Claude повторно зовёт knowledge_search через tool).
+        async with span("consultation.presearch", query_len=len(query)):
+            results = await gateway_mcp.knowledge_search(query, limit=6)
         logger.info(f"Gateway-Knowledge: получено {len(results) if results else 0} результатов")
 
         if results:
@@ -592,8 +597,43 @@ async def handle_question_with_tools(
     # Подготовка tools и executor
     tools = get_tools_for_tier(has_digital_twin)
 
+    # WP-330 (peer-session 2026-06-05-34): таймаут на отдельный tool call.
+    # Без него max_tool_rounds×35с (gateway timeout) давали потолок до 105с.
+    # 18с выше медианы knowledge_search (2-6с, в пике 12-15с), но режет worst-case.
+    PER_TOOL_TIMEOUT = 18
+
+    # cold-review (subagent, 2026-06-05): wait_for добавляет точку отмены.
+    # Discovered-инструменты шлюза (get_tools_for_tier) могут включать write-операции
+    # (dt_write_digital_twin, personal_write, grant_*, reindex). Отмена write на
+    # середине = частичная запись. Fail-safe: таймаут (отмену) применяем ТОЛЬКО к
+    # инструментам, заведомо read-only (allowlist префиксов); всё неизвестное и
+    # мутирующее выполняем без отмены — gateway_mcp имеет свой внутренний таймаут.
+    _READONLY_PREFIXES = ("search", "get", "read", "list", "describe",
+                          "analyze", "expand", "status", "traverse")
+
+    def _is_cancel_safe(name: str) -> bool:
+        n = name.lower()
+        return n.startswith(_READONLY_PREFIXES) or "concept" in n
+
     async def tool_executor(tool_name: str, tool_input: dict) -> str:
-        return await execute_tool(tool_name, tool_input, telegram_user_id)
+        async with span(f"tool.{tool_name}"):
+            if not _is_cancel_safe(tool_name):
+                # без wait_for: нельзя отменять потенциально мутирующую операцию
+                return await execute_tool(tool_name, tool_input, telegram_user_id)
+            try:
+                return await asyncio.wait_for(
+                    execute_tool(tool_name, tool_input, telegram_user_id),
+                    timeout=PER_TOOL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[Consultation] tool '{tool_name}' превысил {PER_TOOL_TIMEOUT}с — "
+                    f"возвращаю пустой результат, Claude продолжит цикл"
+                )
+                return (
+                    f"Инструмент {tool_name} не ответил за {PER_TOOL_TIMEOUT}с. "
+                    f"Ответь на основе уже доступного контекста, не вызывай этот инструмент повторно."
+                )
 
     await report_progress(ProcessingStage.ANALYZING, 20)
 
@@ -621,14 +661,18 @@ async def handle_question_with_tools(
     # на ответ оставалось ~1500 → обрезка. Унифицировано до 4000.
     token_limit = 4000
 
-    answer = await claude.generate_with_tools(
-        system_prompt=system_prompt,
-        messages=messages,
-        tools=tools,
-        tool_executor=tool_executor,
-        max_tokens=token_limit,
-        max_tool_rounds=3,
-    )
+    # WP-330: max_tool_rounds 3→2. Pre-search knowledge_search уже выполнен до Claude,
+    # большинство консультаций укладываются в 1-2 раунда. Force-text fallback
+    # (clients/claude.py §9) гарантирует ответ при исчерпании раундов.
+    async with span("consultation.claude_with_tools", max_tool_rounds=2):
+        answer = await claude.generate_with_tools(
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=tools,
+            tool_executor=tool_executor,
+            max_tokens=token_limit,
+            max_tool_rounds=2,
+        )
 
     await report_progress(ProcessingStage.DONE, 100)
 
