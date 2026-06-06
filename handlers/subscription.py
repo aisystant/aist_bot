@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Подписка «Бесконечное развитие» через Aisystant (WP-79).
+Подписка «Инженерия интеллекта» через Aisystant (WP-79).
 
 Команда: /subscription (кнопка «💳 Подписка» на T1 linked)
 Показывает тарифы и создаёт платёж через Aisystant API.

@@ -263,8 +263,8 @@ commands:
     ru: "/schedule — расписание занятий"
     en: "/schedule — class schedule"
   subscription:
-    ru: "/subscription — подписка «Бесконечное развитие»"
-    en: "/subscription — subscribe to «Infinite Development»"
+    ru: "/subscription — подписка «Инженерия интеллекта»"
+    en: "/subscription — subscribe to «Intelligence Engineering»"
   contacts:
     ru: "/contacts — контактная информация"
     en: "/contacts — contact information"
@@ -4560,8 +4560,8 @@ assessment:
 # -----------------------------------------------------------------------------
 subscription:
   paywall_text:
-    ru: "💳 Для доступа к этой функции нужна подписка «Бесконечное развитие» на Aisystant.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально.\n\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно."
-    en: "💳 An «Infinite Development» subscription on Aisystant is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated.\n\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free."
+    ru: "💳 Для доступа к этой функции нужна подписка «Инженерия интеллекта» на Aisystant.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально.\n\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно."
+    en: "💳 An «Intelligence Engineering» subscription on Aisystant is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated.\n\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free."
 
   subscribe_button:
     ru: "💳 Оформить подписку"
@@ -4578,8 +4578,8 @@ subscription:
     en: "Access to Feed, Consultant, Notes, and Plans for 30 days."
 
   invoice_text:
-    ru: "Оформите подписку «Бесконечное развитие» на Aisystant (system-school.ru)."
-    en: "Subscribe to «Infinite Development» on Aisystant (system-school.ru)."
+    ru: "Оформите подписку «Инженерия интеллекта»: system-school.ru/open-endedness"
+    en: "Subscribe to «Intelligence Engineering»: system-school.ru/open-endedness"
 
   pay_button:
     ru: "💳 Оформить подписку"
@@ -4599,12 +4599,12 @@ subscription:
     en: "🆓 Free trial: {days} days left."
 
   trial_expiring:
-    ru: "⏳ Ваш бесплатный период (30 дней, тир T2 — Learning) заканчивается завтра!\n\nОформите подписку «Бесконечное развитие», чтобы сохранить доступ к Ленте, Консультанту, Заметкам и Планам.\n\nПодписка также даёт возможность бесплатно поднять тир до T3 — Personalization (Цифровой двойник, персональные рекомендации) и T4 — Creation (публикации в Клуб через GitHub).\n\nБез подписки вы перейдёте на тир T1 — Start. Бесплатно останутся: Марафон, Тренажёр, Оценка квалификации и Расписание."
-    en: "⏳ Your free trial (30 days, tier T2 — Learning) ends tomorrow!\n\nSubscribe to «Infinite Development» to keep access to Feed, Consultant, Notes, and Plans.\n\nThe subscription also lets you upgrade for free to T3 — Personalization (Digital Twin, personal recommendations) and T4 — Creation (publish to Club via GitHub).\n\nWithout a subscription you'll move to tier T1 — Start. Free features: Marathon, Training, Qualification Assessment, and Schedule."
+    ru: "⏳ Ваш бесплатный период (30 дней, тир T2 — Learning) заканчивается завтра!\n\nОформите подписку «Инженерия интеллекта», чтобы сохранить доступ к Ленте, Консультанту, Заметкам и Планам.\n\nПодписка также даёт возможность бесплатно поднять тир до T3 — Personalization (Цифровой двойник, персональные рекомендации) и T4 — Creation (публикации в Клуб через GitHub).\n\nБез подписки вы перейдёте на тир T1 — Start. Бесплатно останутся: Марафон, Тренажёр, Оценка квалификации и Расписание."
+    en: "⏳ Your free trial (30 days, tier T2 — Learning) ends tomorrow!\n\nSubscribe to «Intelligence Engineering» to keep access to Feed, Consultant, Notes, and Plans.\n\nThe subscription also lets you upgrade for free to T3 — Personalization (Digital Twin, personal recommendations) and T4 — Creation (publish to Club via GitHub).\n\nWithout a subscription you'll move to tier T1 — Start. Free features: Marathon, Training, Qualification Assessment, and Schedule."
 
   trial_expired:
-    ru: "⌛ Бесплатный период (30 дней) закончился. Ваш тир сменился на T1 — Start.\n\nБесплатно доступны: Марафон, Тренажёр, Оценка квалификации, Расписание.\n\nОформите подписку «Бесконечное развитие» — вернутся Лента, Консультант, Заметки и Планы (T2). А подключив Цифрового двойника (T3) и GitHub (T4), вы бесплатно получите персональные рекомендации и публикации в Клуб."
-    en: "⌛ Your free trial (30 days) has ended. You are now on tier T1 — Start.\n\nFree features: Marathon, Training, Qualification Assessment, Schedule.\n\nSubscribe to «Infinite Development» to restore Feed, Consultant, Notes, and Plans (T2). Connect Digital Twin (T3) and GitHub (T4) to unlock personal recommendations and Club publishing — at no extra cost."
+    ru: "⌛ Бесплатный период (30 дней) закончился. Ваш тир сменился на T1 — Start.\n\nБесплатно доступны: Марафон, Тренажёр, Оценка квалификации, Расписание.\n\nОформите подписку «Инженерия интеллекта» — вернутся Лента, Консультант, Заметки и Планы (T2). А подключив Цифрового двойника (T3) и GitHub (T4), вы бесплатно получите персональные рекомендации и публикации в Клуб."
+    en: "⌛ Your free trial (30 days) has ended. You are now on tier T1 — Start.\n\nFree features: Marathon, Training, Qualification Assessment, Schedule.\n\nSubscribe to «Intelligence Engineering» to restore Feed, Consultant, Notes, and Plans (T2). Connect Digital Twin (T3) and GitHub (T4) to unlock personal recommendations and Club publishing — at no extra cost."
 
   status_active:
     ru: "✅ Подписка активна до {date}"
@@ -4637,20 +4637,20 @@ subscription:
     max_length: 20
 
   current_price:
-    ru: "Подписка «Бесконечное развитие» на Aisystant"
-    en: "«Infinite Development» subscription on Aisystant"
+    ru: "Подписка «Инженерия интеллекта» на Aisystant"
+    en: "«Intelligence Engineering» subscription on Aisystant"
 
   price_locked:
     ru: "🔒 Подписка активна"
     en: "🔒 Subscription active"
 
   why_paid:
-    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка «Бесконечное развитие» на Aisystant покрывает эти расходы и позволяет улучшать продукт.\n\n💰 Все средства идут на развитие и популяризацию продукта."
-    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The «Infinite Development» subscription on Aisystant covers these costs and helps improve the product.\n\n💰 All funds go towards product development and promotion."
+    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка «Инженерия интеллекта» на Aisystant покрывает эти расходы и позволяет улучшать продукт.\n\n💰 Все средства идут на развитие и популяризацию продукта."
+    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The «Intelligence Engineering» subscription on Aisystant covers these costs and helps improve the product.\n\n💰 All funds go towards product development and promotion."
 
   launch_notification:
-    ru: "🚀 *Важное обновление!*\n\nДля расширенных функций (Лента, Консультант, Заметки, Планы) нужна подписка «Бесконечное развитие» на Aisystant (system-school.ru).\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
-    en: "🚀 *Important update!*\n\nAdvanced features (Feed, Consultant, Notes, Plans) require an «Infinite Development» subscription on Aisystant (system-school.ru).\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 30 free days* — try everything without limits.\n💰 All funds go towards product development and promotion.\n\n*What remains free:* Marathon, Assessment, Progress, Profile, Settings."
+    ru: "🚀 *Важное обновление!*\n\nДля расширенных функций (Лента, Консультант, Заметки, Планы) нужна подписка «Инженерия интеллекта» на Aisystant (system-school.ru).\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
+    en: "🚀 *Important update!*\n\nAdvanced features (Feed, Consultant, Notes, Plans) require an «Intelligence Engineering» subscription on Aisystant (system-school.ru).\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 30 free days* — try everything without limits.\n💰 All funds go towards product development and promotion.\n\n*What remains free:* Marathon, Assessment, Progress, Profile, Settings."
 
   settings_label:
     ru: "Подписка"
@@ -4922,7 +4922,7 @@ github:
     ru: "[от {name}]"
     en: "[from {name}]"
   sub_required_hint:
-    ru: "⚠️ Для отправки заметок и публикации постов нужна подписка «Бесконечное развитие»."
+    ru: "⚠️ Для отправки заметок и публикации постов нужна подписка «Инженерия интеллекта»."
     en: "⚠️ Sending notes and publishing posts require a subscription."
 
 # -----------------------------------------------------------------------------
@@ -5001,8 +5001,8 @@ milestones:
     en: "Try opening your first lesson — it only takes a couple of minutes!"
 
   day_7_trial:
-    ru: "\n\n💡 Напоминаем: первые 30 дней — пробный период. После него Лента и консультации доступны по подписке «Бесконечное развитие»."
-    en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Бесконечное развитие» subscription."
+    ru: "\n\n💡 Напоминаем: первые 30 дней — пробный период. После него Лента и консультации доступны по подписке «Инженерия интеллекта»."
+    en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Инженерия интеллекта» subscription."
 
   day_14:
     ru: "🏃 *Две недели обучения!*\n\n{marathon_status}\n\nВы входите в число самых активных учеников."
@@ -5284,11 +5284,11 @@ twin:
     ru: "Цифровой двойник подключён, но профиль пока пустой.\n\nЗаполните профиль в IWE или через команду `/twin objective <цель>`."
     en: "Digital Twin is connected, but the profile is empty.\n\nFill in your profile in IWE or use `/twin objective <goal>`."
   no_subscription:
-    ru: "Подписка «Бесконечное развитие» истекла. Цифровой двойник недоступен."
-    en: "«Infinite Development» subscription expired. Digital Twin is unavailable."
+    ru: "Подписка «Инженерия интеллекта» истекла. Цифровой двойник недоступен."
+    en: "«Intelligence Engineering» subscription expired. Digital Twin is unavailable."
   br_paywall:
-    ru: "*Цифровой двойник — по подписке «Бесконечное развитие»*\n\nДля подключения нужна активная подписка на Aisystant."
-    en: "*Digital Twin requires «Infinite Development» subscription*\n\nAn active Aisystant subscription is required to connect."
+    ru: "*Цифровой двойник — по подписке «Инженерия интеллекта»*\n\nДля подключения нужна активная подписка на Aisystant."
+    en: "*Digital Twin requires «Intelligence Engineering» subscription*\n\nAn active Aisystant subscription is required to connect."
   temporary_error:
     ru: "Цифровой двойник временно недоступен. Попробуйте через минуту."
     en: "Digital Twin is temporarily unavailable. Try again in a minute."
@@ -5431,8 +5431,8 @@ link:
     en: "Link not yet completed.\n\nFollow the link above and connect Telegram in your Aisystant account."
 
   next_steps_no_sub:
-    ru: "📋 *Что делать дальше:*\n\n1️⃣ Оформи подписку «Бесконечное развитие» — открывает все программы и AI-ассистент\n2️⃣ Или начни бесплатный марафон прямо сейчас → нажми «Учиться» на клавиатуре"
-    en: "📋 *What to do next:*\n\n1️⃣ Get «Infinite Development» subscription — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
+    ru: "📋 *Что делать дальше:*\n\n1️⃣ Оформи подписку «Инженерия интеллекта» — открывает все программы и AI-ассистент\n2️⃣ Или начни бесплатный марафон прямо сейчас → нажми «Учиться» на клавиатуре"
+    en: "📋 *What to do next:*\n\n1️⃣ Get «Intelligence Engineering» subscription — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
 
   next_steps_with_sub:
     ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни обучение"
@@ -5736,16 +5736,16 @@ paywall:
 # ═══════════════════════════════════════════════════════════
 aisystant_sub:
   title:
-    ru: "💳 *Подписка «Бесконечное развитие»*"
-    en: "💳 *«Infinite Development» Subscription*"
+    ru: "💳 *Подписка «Инженерия интеллекта»*"
+    en: "💳 *«Intelligence Engineering» Subscription*"
 
   desc:
-    ru: "Подписка открывает полный доступ:\n• Лента дайджестов\n• Тренировка принципов\n• Персональный Гид\n• Все программы"
-    en: "Subscription unlocks full access:\n• Digest feed\n• Principles training\n• Personal Guide\n• All programs"
+    ru: "Подписка открывает полный доступ:\n• Лента дайджестов\n• Тренировка принципов\n• Персональный Гид\n• Все программы\n\nsystem-school.ru/open-endedness"
+    en: "Subscription unlocks full access:\n• Digest feed\n• Principles training\n• Personal Guide\n• All programs\n\nsystem-school.ru/open-endedness"
 
   already_active:
-    ru: "✅ Подписка «Бесконечное развитие» активна."
-    en: "✅ «Infinite Development» subscription is active."
+    ru: "✅ Подписка «Инженерия интеллекта» активна."
+    en: "✅ «Intelligence Engineering» subscription is active."
 
   no_account:
     ru: "Сначала привяжите аккаунт Aisystant.\n\nНажмите /link"
@@ -5814,11 +5814,11 @@ buy:
     ru: "Для покупок привяжите аккаунт Aisystant: /link"
     en: "Link your Aisystant account first: /link"
   sub_active:
-    ru: "✅ Подписка «Бесконечное развитие» активна"
-    en: "✅ «Infinite Development» subscription is active"
+    ru: "✅ Подписка «Инженерия интеллекта» активна"
+    en: "✅ «Intelligence Engineering» subscription is active"
   sub_section:
-    ru: "*💎 Подписка «Бесконечное развитие»*"
-    en: "*💎 «Infinite Development» subscription*"
+    ru: "*💎 Подписка «Инженерия интеллекта»*"
+    en: "*💎 «Intelligence Engineering» subscription*"
   courses_section:
     ru: "*📚 Практикумы, резидентуры, семинары*"
     en: "*📚 Workshops, residencies, seminars*"
@@ -5851,13 +5851,13 @@ info:
 
   # --- /feed_info ---
   feed_text:
-    ru: "📖 *Лента*\n\n*Что это?*\nПерсонализированный режим обучения — вы выбираете до 3 тем и получаете ежедневные дайджесты, адаптированные под ваш профиль и цели.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить развитие в своём ритме. Глубже изучайте интересные темы, получайте контент, созданный для вас.\n\n*Для кого?*\nДля пользователей с подпиской «Бесконечное развитие».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения дайджестов и сложность — и контент будет максимально релевантным."
-    en: "📖 *Feed*\n\n*What is it?*\nA personalized learning mode — choose up to 3 topics and receive daily digests adapted to your profile and goals.\n\n*Why?*\nFor those who completed the marathon and want to continue development at their own pace. Explore topics deeper, get content created for you.\n\n*For whom?*\nFor users with an «Infinite Development» subscription.\n\n*How does it work?*\n1. Choose topics from the catalog\n2. The bot sends a digest at your scheduled time\n3. Study the material (5-25 min)\n4. Write a fixation — your personal takeaway\n\n*Customize it:*\nDescribe yourself in your profile, set digest delivery time and difficulty — and content will be maximally relevant."
+    ru: "📖 *Лента*\n\n*Что это?*\nПерсонализированный режим обучения — вы выбираете до 3 тем и получаете ежедневные дайджесты, адаптированные под ваш профиль и цели.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить развитие в своём ритме. Глубже изучайте интересные темы, получайте контент, созданный для вас.\n\n*Для кого?*\nДля пользователей с подпиской «Инженерия интеллекта».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения дайджестов и сложность — и контент будет максимально релевантным."
+    en: "📖 *Feed*\n\n*What is it?*\nA personalized learning mode — choose up to 3 topics and receive daily digests adapted to your profile and goals.\n\n*Why?*\nFor those who completed the marathon and want to continue development at their own pace. Explore topics deeper, get content created for you.\n\n*For whom?*\nFor users with an «Intelligence Engineering» subscription.\n\n*How does it work?*\n1. Choose topics from the catalog\n2. The bot sends a digest at your scheduled time\n3. Study the material (5-25 min)\n4. Write a fixation — your personal takeaway\n\n*Customize it:*\nDescribe yourself in your profile, set digest delivery time and difficulty — and content will be maximally relevant."
 
   # --- /train_info ---
   train_text:
-    ru: "🧠 *Тренировка*\n\n*Что это?*\nИнтерактивная тренировка принципов системного мышления. Вопросы адаптируются под ваш уровень и прогресс.\n\n*Зачем?*\nЧтобы принципы из уроков стали частью мышления. Тренировка проверяет понимание, а не запоминание — вы учитесь применять знания к реальным ситуациям.\n\n*Для кого?*\nДля пользователей с подпиской «Бесконечное развитие».\n\n*Как это работает?*\n1. Бот задаёт вопрос по изученным принципам\n2. Вы отвечаете своими словами\n3. ИИ оценивает понимание и даёт обратную связь\n4. После 2 неудачных попыток — показывает пример ответа\n\n*Настройте под себя:*\nОпишите себя в профиле и укажите сложность — тренировка адаптируется под ваш уровень."
-    en: "🧠 *Training*\n\n*What is it?*\nInteractive training on systems thinking principles. Questions adapt to your level and progress.\n\n*Why?*\nSo that principles from lessons become part of your thinking. Training checks understanding, not memorization — you learn to apply knowledge to real situations.\n\n*For whom?*\nFor users with an «Infinite Development» subscription.\n\n*How does it work?*\n1. The bot asks a question about studied principles\n2. You answer in your own words\n3. AI evaluates understanding and gives feedback\n4. After 2 failed attempts — shows an example answer\n\n*Customize it:*\nDescribe yourself in your profile and set difficulty — training adapts to your level."
+    ru: "🧠 *Тренировка*\n\n*Что это?*\nИнтерактивная тренировка принципов системного мышления. Вопросы адаптируются под ваш уровень и прогресс.\n\n*Зачем?*\nЧтобы принципы из уроков стали частью мышления. Тренировка проверяет понимание, а не запоминание — вы учитесь применять знания к реальным ситуациям.\n\n*Для кого?*\nДля пользователей с подпиской «Инженерия интеллекта».\n\n*Как это работает?*\n1. Бот задаёт вопрос по изученным принципам\n2. Вы отвечаете своими словами\n3. ИИ оценивает понимание и даёт обратную связь\n4. После 2 неудачных попыток — показывает пример ответа\n\n*Настройте под себя:*\nОпишите себя в профиле и укажите сложность — тренировка адаптируется под ваш уровень."
+    en: "🧠 *Training*\n\n*What is it?*\nInteractive training on systems thinking principles. Questions adapt to your level and progress.\n\n*Why?*\nSo that principles from lessons become part of your thinking. Training checks understanding, not memorization — you learn to apply knowledge to real situations.\n\n*For whom?*\nFor users with an «Intelligence Engineering» subscription.\n\n*How does it work?*\n1. The bot asks a question about studied principles\n2. You answer in your own words\n3. AI evaluates understanding and gives feedback\n4. After 2 failed attempts — shows an example answer\n\n*Customize it:*\nDescribe yourself in your profile and set difficulty — training adapts to your level."
 
   # --- Кнопки ---
   btn_marathon:
@@ -5993,7 +5993,7 @@ features:
     ru: "Для *T1* привяжите аккаунт Aisystant.\n\nКоманда: /link"
     en: "For *T1* link your Aisystant account.\n\nCommand: /link"
   next_t2:
-    ru: "Для *T2* нужна подписка «Бесконечное развитие» на Aisystant.\n\nОткроет: Ленту, Планы, Расписание."
+    ru: "Для *T2* нужна подписка «Инженерия интеллекта» на Aisystant.\n\nОткроет: Ленту, Планы, Расписание."
     en: "For *T2* you need an active subscription on Aisystant.\n\nUnlocks: Feed, Plans, Schedule."
   next_t3:
     ru: "Для *T3* подключите Цифровой Двойник.\n\nКоманда: /twin\n\nДаст персонализацию контента."
@@ -6148,8 +6148,8 @@ channels:
     en: "Please complete onboarding first via /start"
 
   tier_required:
-    ru: "Мониторинг каналов доступен с подпиской «Бесконечное развитие».\n\n/buy — оформить подписку"
-    en: "Channel monitoring requires an active «Infinite Development» subscription.\n\n/buy — subscribe"
+    ru: "Мониторинг каналов доступен с подпиской «Инженерия интеллекта».\n\n/buy — оформить подписку"
+    en: "Channel monitoring requires an active «Intelligence Engineering» subscription.\n\n/buy — subscribe"
 
   no_monitors:
     ru: "У вас нет отслеживаемых каналов.\n\nДобавьте бота как админа в свой канал или группу — мониторинг включится автоматически."

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Stars-подписки «Бесконечное развитие» (WP-246 Ф1.1).
+Stars-подписки «Инженерия интеллекта» (WP-246 Ф1.1).
 
 Поток:
   /subscribe_stars → выбор тарифа → invoice Stars →
@@ -75,7 +75,7 @@ async def cmd_subscribe_stars(message: Message):
     lang = _lang(intern)
 
     text = (
-        "⭐ *Подписка «Бесконечное развитие» через Telegram Stars*\n\n"
+        "⭐ *Подписка «Инженерия интеллекта» через Telegram Stars*\n\n"
         "Stars — встроенная валюта Telegram. Оплата без карты, мгновенно.\n\n"
         "Выберите период:"
     )
@@ -115,7 +115,7 @@ async def cb_stars_sub_select(callback: CallbackQuery):
         link = await callback.bot.create_invoice_link(
             title=f"Подписка БР — {tariff['label']}",
             description=(
-                f"«Бесконечное развитие» на {tariff['months']} мес. "
+                f"«Инженерия интеллекта» на {tariff['months']} мес. "
                 "Доступ к полному курсу, Ленте, ЦД и Aisystant MCP."
             ),
             payload=payload,
@@ -165,7 +165,7 @@ async def cb_stars_sub_back(callback: CallbackQuery):
     ]
 
     await callback.message.edit_text(
-        "⭐ *Подписка «Бесконечное развитие» через Telegram Stars*\n\n"
+        "⭐ *Подписка «Инженерия интеллекта» через Telegram Stars*\n\n"
         "Выберите период:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),

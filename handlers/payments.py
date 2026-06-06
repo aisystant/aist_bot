@@ -2,7 +2,7 @@
 Обработка донатов через Telegram Stars.
 
 WP-85: Stars = донаты (благодарность), НЕ влияют на тир/доступ.
-Подписка «Бесконечное развитие» (определяет T2) → handlers/subscription.py.
+Подписка «Инженерия интеллекта» (определяет T2) → handlers/subscription.py.
 
 Два варианта донатов:
 - donate_once: разовый донат (без subscription_period)
@@ -130,7 +130,7 @@ async def cb_donate_recurring(callback: CallbackQuery):
 async def cb_subscribe_legacy(callback: CallbackQuery):
     """Legacy: старые кнопки подписки → перенаправляем на подписку Aisystant.
 
-    WP-85: Stars = донаты. Подписка = «Бесконечное развитие» на Aisystant.
+    WP-85: Stars = донаты. Подписка = «Инженерия интеллекта» на Aisystant.
     """
     from handlers.subscription import callback_aisystant_subscribe
     await callback_aisystant_subscribe(callback)

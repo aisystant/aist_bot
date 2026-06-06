@@ -5,7 +5,7 @@
 
 Модель доступа (WP-85, WP-210 Ф2a, 2026-04-11):
   1. Бесплатный сервис (не в LOCKED_SERVICES) → True
-  2. Подписка «Бесконечное развитие» на Aisystant (system-school.ru) → True
+  2. Подписка «Инженерия интеллекта» на Aisystant (system-school.ru) → True
   3. Иначе → False (paywall)
 
 Триал убран (WP-210 Ф2a): единственный источник права на T2+ — активная БР-подписка.
@@ -113,7 +113,7 @@ class AccessLayer:
     async def get_paywall(self, service_id: str, lang: str = "ru") -> tuple[str, InlineKeyboardMarkup]:
         """Получить текст paywall и кнопку подписки.
 
-        WP-79: Paywall ведёт на Aisystant «Бесконечное развитие».
+        WP-79: Paywall ведёт на Aisystant «Инженерия интеллекта».
         П2: Контекстный paywall — описание конкретного сервиса.
 
         Returns:

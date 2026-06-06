@@ -7,7 +7,7 @@ Architecture ref: DP.ARCH.002 (service tiers)
 Tier model (payment-first, cumulative):
   T0:  not linked to Aisystant (brand new user)
   T1: linked to Aisystant, no БР subscription
-  T2: Aisystant «Бесконечное развитие» subscription active
+  T2: Aisystant «Инженерия интеллекта» subscription active
   T3: T2 + DT connected
   T4: T3 + GitHub connected
   T5: admin (DEVELOPER_CHAT_ID) — menu set in bot.py, NOT here

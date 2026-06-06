@@ -300,7 +300,7 @@ async def cmd_points(message: Message):
         )
     else:
         sub_url = PLATFORM_URLS.get("subscription", "https://system-school.ru/open-endedness")
-        text += "💎 <b>Бонусы:</b> доступны по подписке «Бесконечное развитие»\n"
+        text += "💎 <b>Бонусы:</b> доступны по подписке «Инженерия интеллекта»\n"
         text += f'➡️ <a href="{sub_url}">Оформить подписку</a>\n'
 
     # Typing stats section (WP-327 Phase 3)
