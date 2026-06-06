@@ -4560,8 +4560,8 @@ assessment:
 # -----------------------------------------------------------------------------
 subscription:
   paywall_text:
-    ru: "💳 Для доступа к этой функции нужна подписка «Инженерия интеллекта» на Aisystant.\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально.\n\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно."
-    en: "💳 An «Intelligence Engineering» subscription on Aisystant is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated.\n\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free."
+    ru: "💳 Для доступа к этой функции нужна подписка «Инженерия интеллекта».\n\nПодписка покрывает стоимость ИИ-токенов и персонализации — каждый ответ генерируется индивидуально.\n\n💡 Все средства идут на развитие и популяризацию продукта.\n\nПервые 30 дней — бесплатно.\n\nsystem-school.ru/open-endedness"
+    en: "💳 «Intelligence Engineering» subscription is required for this feature.\n\nThe subscription covers AI token costs and personalization — every response is individually generated.\n\n💡 All funds go towards product development and promotion.\n\nFirst 30 days are free.\n\nsystem-school.ru/open-endedness"
 
   subscribe_button:
     ru: "💳 Оформить подписку"
@@ -4599,12 +4599,12 @@ subscription:
     en: "🆓 Free trial: {days} days left."
 
   trial_expiring:
-    ru: "⏳ Ваш бесплатный период (30 дней, тир T2 — Learning) заканчивается завтра!\n\nОформите подписку «Инженерия интеллекта», чтобы сохранить доступ к Ленте, Консультанту, Заметкам и Планам.\n\nПодписка также даёт возможность бесплатно поднять тир до T3 — Personalization (Цифровой двойник, персональные рекомендации) и T4 — Creation (публикации в Клуб через GitHub).\n\nБез подписки вы перейдёте на тир T1 — Start. Бесплатно останутся: Марафон, Тренажёр, Оценка квалификации и Расписание."
-    en: "⏳ Your free trial (30 days, tier T2 — Learning) ends tomorrow!\n\nSubscribe to «Intelligence Engineering» to keep access to Feed, Consultant, Notes, and Plans.\n\nThe subscription also lets you upgrade for free to T3 — Personalization (Digital Twin, personal recommendations) and T4 — Creation (publish to Club via GitHub).\n\nWithout a subscription you'll move to tier T1 — Start. Free features: Marathon, Training, Qualification Assessment, and Schedule."
+    ru: "⏳ Ваш бесплатный период (30 дней, тир T2 — Learning) заканчивается завтра!\n\nОформите подписку «Инженерия интеллекта» (system-school.ru/open-endedness), чтобы сохранить доступ к Ленте, Консультанту, Заметкам и Планам.\n\nПодписка также даёт возможность бесплатно поднять тир до T3 — Personalization (Цифровой двойник, персональные рекомендации) и T4 — Creation (публикации в Клуб через GitHub).\n\nБез подписки вы перейдёте на тир T1 — Start. Бесплатно останутся: Марафон, Тренажёр, Оценка квалификации и Расписание."
+    en: "⏳ Your free trial (30 days, tier T2 — Learning) ends tomorrow!\n\nSubscribe to «Intelligence Engineering» (system-school.ru/open-endedness) to keep access to Feed, Consultant, Notes, and Plans.\n\nThe subscription also lets you upgrade for free to T3 — Personalization (Digital Twin, personal recommendations) and T4 — Creation (publish to Club via GitHub).\n\nWithout a subscription you'll move to tier T1 — Start. Free features: Marathon, Training, Qualification Assessment, and Schedule."
 
   trial_expired:
-    ru: "⌛ Бесплатный период (30 дней) закончился. Ваш тир сменился на T1 — Start.\n\nБесплатно доступны: Марафон, Тренажёр, Оценка квалификации, Расписание.\n\nОформите подписку «Инженерия интеллекта» — вернутся Лента, Консультант, Заметки и Планы (T2). А подключив Цифрового двойника (T3) и GitHub (T4), вы бесплатно получите персональные рекомендации и публикации в Клуб."
-    en: "⌛ Your free trial (30 days) has ended. You are now on tier T1 — Start.\n\nFree features: Marathon, Training, Qualification Assessment, Schedule.\n\nSubscribe to «Intelligence Engineering» to restore Feed, Consultant, Notes, and Plans (T2). Connect Digital Twin (T3) and GitHub (T4) to unlock personal recommendations and Club publishing — at no extra cost."
+    ru: "⌛ Бесплатный период (30 дней) закончился. Ваш тир сменился на T1 — Start.\n\nБесплатно доступны: Марафон, Тренажёр, Оценка квалификации, Расписание.\n\nОформите подписку «Инженерия интеллекта» (system-school.ru/open-endedness) — вернутся Лента, Консультант, Заметки и Планы (T2). А подключив Цифрового двойника (T3) и GitHub (T4), вы бесплатно получите персональные рекомендации и публикации в Клуб."
+    en: "⌛ Your free trial (30 days) has ended. You are now on tier T1 — Start.\n\nFree features: Marathon, Training, Qualification Assessment, Schedule.\n\nSubscribe to «Intelligence Engineering» (system-school.ru/open-endedness) to restore Feed, Consultant, Notes, and Plans (T2). Connect Digital Twin (T3) and GitHub (T4) to unlock personal recommendations and Club publishing — at no extra cost."
 
   status_active:
     ru: "✅ Подписка активна до {date}"
@@ -4637,19 +4637,19 @@ subscription:
     max_length: 20
 
   current_price:
-    ru: "Подписка «Инженерия интеллекта» на Aisystant"
-    en: "«Intelligence Engineering» subscription on Aisystant"
+    ru: "Подписка «Инженерия интеллекта» — system-school.ru/open-endedness"
+    en: "«Intelligence Engineering» — system-school.ru/open-endedness"
 
   price_locked:
     ru: "🔒 Подписка активна"
     en: "🔒 Subscription active"
 
   why_paid:
-    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка «Инженерия интеллекта» на Aisystant покрывает эти расходы и позволяет улучшать продукт.\n\n💰 Все средства идут на развитие и популяризацию продукта."
-    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The «Intelligence Engineering» subscription on Aisystant covers these costs and helps improve the product.\n\n💰 All funds go towards product development and promotion."
+    ru: "💡 *Почему подписка?*\n\nКаждый ответ бота генерируется индивидуально с помощью ИИ — это стоит реальных денег (токены API). Подписка «Инженерия интеллекта» (system-school.ru/open-endedness) покрывает эти расходы и позволяет улучшать продукт.\n\n💰 Все средства идут на развитие и популяризацию продукта."
+    en: "💡 *Why a subscription?*\n\nEvery bot response is individually generated using AI — this costs real money (API tokens). The «Intelligence Engineering» subscription (system-school.ru/open-endedness) covers these costs and helps improve the product.\n\n💰 All funds go towards product development and promotion."
 
   launch_notification:
-    ru: "🚀 *Важное обновление!*\n\nДля расширенных функций (Лента, Консультант, Заметки, Планы) нужна подписка «Инженерия интеллекта» на Aisystant (system-school.ru).\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
+    ru: "🚀 *Важное обновление!*\n\nДля расширенных функций (Лента, Консультант, Заметки, Планы) нужна подписка «Инженерия интеллекта»: system-school.ru/open-endedness\n\n*Почему?* Каждый ваш запрос — это индивидуальная генерация ИИ, которая стоит реальных денег.\n\n🎁 *Вам доступны 30 бесплатных дней* — попробуйте всё без ограничений.\n💰 Все средства пойдут на развитие и популяризацию продукта.\n\n*Что остаётся бесплатным:* Марафон, Оценка, Прогресс, Профиль, Настройки."
     en: "🚀 *Important update!*\n\nAdvanced features (Feed, Consultant, Notes, Plans) require an «Intelligence Engineering» subscription on Aisystant (system-school.ru).\n\n*Why?* Every request generates an individual AI response, which costs real money.\n\n🎁 *You get 30 free days* — try everything without limits.\n💰 All funds go towards product development and promotion.\n\n*What remains free:* Marathon, Assessment, Progress, Profile, Settings."
 
   settings_label:
@@ -4922,8 +4922,8 @@ github:
     ru: "[от {name}]"
     en: "[from {name}]"
   sub_required_hint:
-    ru: "⚠️ Для отправки заметок и публикации постов нужна подписка «Инженерия интеллекта»."
-    en: "⚠️ Sending notes and publishing posts require a subscription."
+    ru: "⚠️ Для отправки заметок и публикации постов нужна подписка «Инженерия интеллекта»: system-school.ru/open-endedness"
+    en: "⚠️ Sending notes and publishing posts require a «Intelligence Engineering» subscription: system-school.ru/open-endedness"
 
 # -----------------------------------------------------------------------------
 # Стратег интеграция
@@ -5001,7 +5001,7 @@ milestones:
     en: "Try opening your first lesson — it only takes a couple of minutes!"
 
   day_7_trial:
-    ru: "\n\n💡 Напоминаем: первые 30 дней — пробный период. После него Лента и консультации доступны по подписке «Инженерия интеллекта»."
+    ru: "\n\n💡 Напоминаем: первые 30 дней — пробный период. После него Лента и консультации доступны по подписке «Инженерия интеллекта» (system-school.ru/open-endedness)."
     en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Инженерия интеллекта» subscription."
 
   day_14:
@@ -5287,8 +5287,8 @@ twin:
     ru: "Подписка «Инженерия интеллекта» истекла. Цифровой двойник недоступен."
     en: "«Intelligence Engineering» subscription expired. Digital Twin is unavailable."
   br_paywall:
-    ru: "*Цифровой двойник — по подписке «Инженерия интеллекта»*\n\nДля подключения нужна активная подписка на Aisystant."
-    en: "*Digital Twin requires «Intelligence Engineering» subscription*\n\nAn active Aisystant subscription is required to connect."
+    ru: "*Цифровой двойник — по подписке «Инженерия интеллекта»*\n\nДля подключения нужна активная подписка.\n\nsystem-school.ru/open-endedness"
+    en: "*Digital Twin requires «Intelligence Engineering» subscription*\n\nAn active subscription is required to connect.\n\nsystem-school.ru/open-endedness"
   temporary_error:
     ru: "Цифровой двойник временно недоступен. Попробуйте через минуту."
     en: "Digital Twin is temporarily unavailable. Try again in a minute."
@@ -5431,8 +5431,8 @@ link:
     en: "Link not yet completed.\n\nFollow the link above and connect Telegram in your Aisystant account."
 
   next_steps_no_sub:
-    ru: "📋 *Что делать дальше:*\n\n1️⃣ Оформи подписку «Инженерия интеллекта» — открывает все программы и AI-ассистент\n2️⃣ Или начни бесплатный марафон прямо сейчас → нажми «Учиться» на клавиатуре"
-    en: "📋 *What to do next:*\n\n1️⃣ Get «Intelligence Engineering» subscription — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
+    ru: "📋 *Что делать дальше:*\n\n1️⃣ Оформи подписку «Инженерия интеллекта» (system-school.ru/open-endedness) — открывает все программы и AI-ассистент\n2️⃣ Или начни бесплатный марафон прямо сейчас → нажми «Учиться» на клавиатуре"
+    en: "📋 *What to do next:*\n\n1️⃣ Get «Intelligence Engineering» subscription (system-school.ru/open-endedness) — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
 
   next_steps_with_sub:
     ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни обучение"
@@ -5993,7 +5993,7 @@ features:
     ru: "Для *T1* привяжите аккаунт Aisystant.\n\nКоманда: /link"
     en: "For *T1* link your Aisystant account.\n\nCommand: /link"
   next_t2:
-    ru: "Для *T2* нужна подписка «Инженерия интеллекта» на Aisystant.\n\nОткроет: Ленту, Планы, Расписание."
+    ru: "Для *T2* нужна подписка «Инженерия интеллекта»: system-school.ru/open-endedness\n\nОткроет: Ленту, Планы, Расписание."
     en: "For *T2* you need an active subscription on Aisystant.\n\nUnlocks: Feed, Plans, Schedule."
   next_t3:
     ru: "Для *T3* подключите Цифровой Двойник.\n\nКоманда: /twin\n\nДаст персонализацию контента."
@@ -6148,8 +6148,8 @@ channels:
     en: "Please complete onboarding first via /start"
 
   tier_required:
-    ru: "Мониторинг каналов доступен с подпиской «Инженерия интеллекта».\n\n/buy — оформить подписку"
-    en: "Channel monitoring requires an active «Intelligence Engineering» subscription.\n\n/buy — subscribe"
+    ru: "Мониторинг каналов доступен с подпиской «Инженерия интеллекта».\n\nsystem-school.ru/open-endedness"
+    en: "Channel monitoring requires a «Intelligence Engineering» subscription.\n\nsystem-school.ru/open-endedness"
 
   no_monitors:
     ru: "У вас нет отслеживаемых каналов.\n\nДобавьте бота как админа в свой канал или группу — мониторинг включится автоматически."
