@@ -234,6 +234,19 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Canary state init skipped: {_e}")
 
+    # learning schema bootstrap (Railway Postgres) — WP-7 Ф-Pilot-LearningDB-Isolation.
+    # Создаёт всю learning-схему если её нет (marathon_queue, cp_assessments, etc.).
+    # Идемпотентно: пропускает если таблицы уже существуют.
+    try:
+        import importlib as _il
+        _m025 = _il.import_module("db.migrations.025_learning_schema_railway")
+        _lpool = await get_learning_pool()
+        _created = await _m025.migrate_if_needed(_lpool)
+        if _created:
+            logger.info("✅ Migration 025: learning schema bootstrapped in learning DB")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 025 skipped: {_e}")
+
     # consent_grant table (learning DB) — versioned consent (WP-316 Ф9).
     # peer-session 2026-06-05-02: запросы были, DDL отсутствовал → set_grant падал db/L4.
     try:
