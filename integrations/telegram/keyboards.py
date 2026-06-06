@@ -178,7 +178,8 @@ def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"🚀 {names[0]}", callback_data="start_today")],
         [InlineKeyboardButton(text=f"📅 {names[1]} ({tomorrow.strftime('%d.%m')})", callback_data="start_tomorrow")],
-        [InlineKeyboardButton(text=f"📅 {names[2]} ({day_after.strftime('%d.%m')})", callback_data="start_day_after")]
+        [InlineKeyboardButton(text=f"📅 {names[2]} ({day_after.strftime('%d.%m')})", callback_data="start_day_after")],
+        [InlineKeyboardButton(text=t('update.keep_start_date_btn', lang), callback_data="keep_start_date")],
     ])
 
 

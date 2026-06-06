@@ -2595,6 +2595,18 @@ update:
   select_start_date:
     ru: "Выберите новую дату старта:"
     en: "Select a new start date:"
+  keep_start_date_btn:
+    ru: "↩️ Оставить как есть"
+    en: "↩️ Keep current date"
+  start_date_kept:
+    ru: "Дата не изменена."
+    en: "Date unchanged."
+  marathon_active_block_title:
+    ru: "Марафон уже идёт — дату не изменить"
+    en: "Marathon is in progress — date cannot be changed"
+  marathon_active_block_text:
+    ru: "Пока марафон активен, менять дату старта нельзя: это сбросит расписание уроков. Дождитесь завершения марафона или обратитесь к куратору."
+    en: "You cannot change the start date while the marathon is active — it would reset your lesson schedule. Wait for the marathon to finish or contact your mentor."
   not_set:
     ru: "не задана"
     en: "not set"
