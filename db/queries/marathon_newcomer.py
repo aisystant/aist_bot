@@ -19,6 +19,25 @@ from config import get_logger
 logger = get_logger(__name__)
 
 
+async def is_on_newcomer_marathon(user_id: int) -> bool:
+    """True, если пользователь переведён на новый движок марафона (WP-330 cutover).
+
+    Симметрично фильтру в get_all_scheduled_interns (db/queries/users.py): наличие
+    строки в learning.marathon_progress = пользователь на новой системе. Для таких
+    пользователей legacy-доставка (send_scheduled_topic) И legacy-напоминания
+    (+1h/+3h, send_reminder) обязаны быть отключены — иначе два движка шлют
+    параллельно (рассинхрон Block MAR: уроки «День 2» новым движком + напоминания
+    «День 1 не начат» старым).
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            'SELECT 1 FROM learning.marathon_progress WHERE user_id = $1 LIMIT 1',
+            user_id,
+        )
+    return exists is not None
+
+
 async def get_pending_queue_items(limit: int = 100):
     """Выбрать pending-записи из очереди, которые пора отправлять."""
     pool = await get_learning_pool()

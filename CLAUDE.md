@@ -570,6 +570,16 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 - После прохождения пропущенного → предложить сегодняшний урок (генерация на лету по кнопке).
 - Ограничение: **max 1 день** catch-up. `MAX_TOPICS_PER_DAY = 4` (2 yesterday + 2 today).
 
+### Cutover legacy ↔ новый движок марафона (Block MAR, 6 июня)
+
+> **Инвариант:** для пользователя на новом движке (есть строка `learning.marathon_progress`) ОБА legacy-пути обязаны молчать. Иначе два движка шлют параллельно: уроки «День 2» новым + напоминания «День 1 не начат» старым (два независимых счётчика дня).
+
+**Единый предикат:** `db.queries.marathon_newcomer.is_on_newcomer_marathon(user_id)` — наличие строки в `learning.marathon_progress`. Гейтит:
+1. **Доставку** — `get_all_scheduled_interns` (`db/queries/users.py`) исключает таких из legacy-рассылки (cutover `34dcb6f`).
+2. **Напоминания +1h/+3h** — `send_reminder` (`core/scheduler.py`) гасит legacy-напоминание (это и был хвост: cutover закрыл только доставку, таблица `reminder` слала дальше). Custom-напоминания (DP.SC.134, `send_user_reminder`) НЕ гейтятся.
+
+**Правило:** при добавлении нового legacy-пути доставки/напоминаний — гейтить `is_on_newcomer_marathon`. Тест: `tests/test_marathon_reminder_gate.py`.
+
 ---
 
 ### Новый набор учебных ячеек (child/kids curriculum) — чеклист wire-up
