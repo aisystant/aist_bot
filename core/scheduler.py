@@ -323,7 +323,23 @@ async def _process_marathon_queue():
                                     f"[MarathonQueue] Failed to send split lesson day {day} to {chat_id}: "
                                     f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
                                 )
-                                await mark_queue_failed(queue_id, error_msg[:200])
+                                if attempts >= 2:  # 3-я попытка (0,1,2) → failed
+                                    await mark_queue_failed(queue_id, error_msg[:200])
+                                    if MENTOR_CHANNEL_ID:
+                                        try:
+                                            await bot.send_message(
+                                                MENTOR_CHANNEL_ID,
+                                                f"🚨 *Алерт марафона*\n\n"
+                                                f"Не удалось отправить урок участнику `{chat_id}`\n"
+                                                f"День {day}, split lesson\n"
+                                                f"Ошибка: `{error_msg[:200]}`",
+                                                parse_mode="Markdown",
+                                            )
+                                        except Exception as alert_err:
+                                            logger.warning(f"[MarathonQueue] Failed to send mentor alert: {alert_err}")
+                                else:
+                                    delay_minutes = min(30 * (2 ** attempts), 120)
+                                    await schedule_queue_retry(queue_id, attempts, delay_minutes=delay_minutes)
                             continue  # пропускаем старый путь
                         # Иначе fallthrough на старый путь (safety net)
 
