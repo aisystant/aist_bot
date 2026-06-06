@@ -20,7 +20,6 @@ from aiogram.filters import Command
 
 from config import GATEWAY_MCP_URL
 from db.queries import get_intern
-from db.queries.users import is_onboarded
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -56,14 +55,6 @@ async def cmd_connect(message: Message):
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
     if not intern:
-        await message.answer(t('connect.need_start', lang))
-        return
-    # auto-heal: если Aisystant привязан — считаем онбордированным (WP-7 QAR5 fix)
-    if not intern.get('onboarding_completed') and intern.get('aisystant_id'):
-        from db.queries.users import update_intern
-        await update_intern(message.chat.id, onboarding_completed=True)
-        intern['onboarding_completed'] = True
-    if not await is_onboarded(intern):
         await message.answer(t('connect.need_start', lang))
         return
 
