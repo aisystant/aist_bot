@@ -131,6 +131,19 @@ async def cmd_github(message: Message):
             status_lines.append(f"\n{t('github.note_instruction', lang)}")
             status_lines.append(t('github.note_example', lang))
 
+        from core.access import access_layer
+        has_notes_access = await access_layer.has_access(telegram_user_id, 'notes')
+        if not has_notes_access:
+            status_lines.append(f"\n{t('github.sub_required_hint', lang)}")
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=t('aisystant_sub.btn_subscribe', lang),
+                        callback_data="aisystant_subscribe",
+                    )
+                ]
+            )
+
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -365,6 +378,10 @@ async def handle_fleeting_note(message: Message):
     # Проверяем доступ (подписка/триал)
     from core.access import access_layer
     if not await access_layer.has_access(telegram_user_id, 'notes'):
+        intern = await get_intern(telegram_user_id)
+        lang = _lang(intern)
+        text, keyboard = await access_layer.get_paywall('notes', lang)
+        await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
         return
 
     if not await github_oauth.is_connected(telegram_user_id):

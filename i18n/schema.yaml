@@ -4921,6 +4921,9 @@ github:
   from_user:
     ru: "[от {name}]"
     en: "[from {name}]"
+  sub_required_hint:
+    ru: "⚠️ Для отправки заметок и публикации постов нужна подписка «Бесконечное развитие»."
+    en: "⚠️ Sending notes and publishing posts require a subscription."
 
 # -----------------------------------------------------------------------------
 # Стратег интеграция
