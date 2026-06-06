@@ -69,7 +69,11 @@ def _is_hermes_message(message: Message) -> bool:
 
 def _tier_num(intern: dict) -> int:
     tier_str = intern.get("tier", "T1")
-    if isinstance(tier_str, str) and tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
+    if not isinstance(tier_str, str):
+        return 1
+    if tier_str == "TD1":
+        return 4  # developer tier → full Hermes access
+    if tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
         return int(tier_str[1])
     return 1
 
