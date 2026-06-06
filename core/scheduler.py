@@ -552,6 +552,69 @@ async def _send_marathon_nudges():
         await bot.session.close()
 
 
+async def _send_practice_nudges():
+    """WP-330 Ф10.D v2: нуджи о практике через +30 и +150 мин после доставки урока.
+
+    Запускается каждые 10 мин. Максимум 2 нуджа в день на пользователя:
+    - Первый  (+30 мин):  ключ ...:30m  (окно 30–150 мин после sent_at)
+    - Второй  (+150 мин): ключ ...:150m (>150 мин после sent_at)
+    """
+    from aiogram import Bot
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from db.queries.marathon_newcomer import get_users_for_practice_nudge
+    from db.queries.notifications import try_insert_notification
+
+    if not _bot_token:
+        return
+
+    practice_users = await get_users_for_practice_nudge()
+    if not practice_users:
+        return
+
+    bot = Bot(token=_bot_token)
+    now = moscow_now()
+    try:
+        for pu in practice_users:
+            chat_id = pu['user_id']
+            day = pu['day_number']
+            sent_at = pu['sent_at']
+            minutes_elapsed = (now - sent_at).total_seconds() / 60
+
+            if minutes_elapsed >= 150:
+                nudge_slot = '150m'
+                text = (
+                    f"⏰ Урок Дня {day} пришёл несколько часов назад — практику ещё не открыли.\n\n"
+                    "Последний шанс сегодня:"
+                )
+            else:
+                nudge_slot = '30m'
+                text = (
+                    f"📚 Урок Дня {day} ждёт вас. Займёт 15–20 минут!\n\n"
+                    "Переходите к практике:"
+                )
+
+            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{nudge_slot}"
+            if not await try_insert_notification(chat_id, 'marathon_practice_nudge', nudge_key):
+                continue
+
+            try:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="✏️ Перейти к практике",
+                        callback_data=f"marathon_practice:{day}"
+                    )
+                ]])
+                await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                logger.info(f"[PracticeNudge] Sent {nudge_slot} to {chat_id} day {day}")
+            except Exception as e:
+                if _is_user_unavailable(e):
+                    await _handle_unavailable_user(chat_id, f"practice nudge {nudge_slot}")
+                else:
+                    logger.warning(f"[PracticeNudge] Failed {nudge_slot} to {chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+
 async def _process_marathon_activity_batch():
     """WP-253: ночной batch агрегации календарной активности в marathon_activity.
 
