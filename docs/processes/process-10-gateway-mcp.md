@@ -145,6 +145,28 @@ return None
 
 UX следствие: user видит ошибку `token_expired` → кнопка «Переподключить ЦД» (не «отключён навсегда»).
 
+### 5.4. Defensive reload — load_one_ory_token (Block GTW, 2026-06-01)
+
+**Когда вызывается:** внутри `_refresh_single_token`, перед попыткой POST в Ory, если `telegram_user_id` отсутствует в `self._tokens` (in-memory cache пустой).
+
+**Зачем:** два сценария, когда cache пуст, но токен есть в БД:
+1. **Перезапуск бота** — `load_tokens_from_db` при старте загружает все строки с `refresh_token IS NOT NULL`, но если строка появилась между стартом и первым запросом пользователя (race), её нет в cache.
+2. **Race с OAuth-callback** — OAuth flow записывает токен в БД и обновляет cache, но если reactive путь стартовал на пике, он может проверить cache до обновления.
+
+**Поведение:**
+```python
+# db/queries/ory_tokens.py:62
+row = await load_one_ory_token(chat_id)
+if row:
+    self._tokens[telegram_user_id] = row  # repopulate cache
+    logger.warning("Gateway: token cache miss, reloaded from DB for user %s", telegram_user_id)
+    return True  # токен свежий — не делаем POST в Ory
+```
+
+**Что возвращает:** `{chat_id, access_token, refresh_token, expires_at, ory_id}` или `None` (пользователь не подключён к Gateway).
+
+**Мониторинг:** `WARNING "Gateway: token cache miss"` в логах — нормально при единичных событиях. >10/час = аномалия (см. GTW6 в WP-7).
+
 ---
 
 ## 6. Cloudflare 429 rate limiting (WP-209 Ф4)
