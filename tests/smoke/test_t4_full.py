@@ -16,9 +16,14 @@ Smoke-тесты: WP-392 Ф3.1b — T4-full mode (всё в Hermes, без пр�
 """
 
 import contextlib
+import importlib
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
+
+# clients/__init__.py re-exports `gateway_mcp` as instance → patch("clients.gateway_mcp.gateway_mcp")
+# resolves to the instance, not the submodule. Use patch.object on the real submodule instead.
+_gmc_mod = importlib.import_module("clients.gateway_mcp")
 
 from tests.smoke.conftest import make_intern
 from handlers.fallback import on_unknown_message
@@ -72,7 +77,7 @@ async def test_t4_plain_text_goes_to_hermes(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -96,7 +101,7 @@ async def test_t4_reminder_goes_to_hermes(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -116,7 +121,7 @@ async def test_t4_command_skips_hermes(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -138,7 +143,7 @@ async def test_t3_plain_text_not_hermes(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -158,7 +163,7 @@ async def test_t3_hermes_prefix_calls_hermes(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -182,7 +187,7 @@ async def test_t1_hermes_prefix_blocked(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T1", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -205,7 +210,7 @@ async def test_t4_session_id_passed(state):
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
-         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
         await on_unknown_message(msg, state)
 
@@ -231,7 +236,7 @@ async def test_t4_session_id_reused(state):
         with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                    return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
              patch("handlers.get_dispatcher", return_value=mock_dp), \
-             patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+             patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
             mock_gmc.hermes_chat = mock_hermes
             await on_unknown_message(msg, state)
 
