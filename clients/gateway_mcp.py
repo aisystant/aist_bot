@@ -362,6 +362,11 @@ class GatewayMCPClient:
     )
     HERMES_UNAVAILABLE_MESSAGE = "Hermes временно недоступен. Попробуй позже."
 
+    # WP-392: hermes_chat требует отдельного таймаута — Railway Hermes может работать до 60с
+    # (ASCII-арт, HTML, диаграммы). Глобальный GATEWAY_MCP_TIMEOUT=35 — временная заглушка
+    # в Railway env; здесь — постоянный per-tool override.
+    HERMES_CALL_TIMEOUT = int(os.getenv("GATEWAY_MCP_HERMES_TIMEOUT", "60"))
+
     async def hermes_chat(
         self,
         message: str,
@@ -372,7 +377,11 @@ class GatewayMCPClient:
         args: dict = {"message": message}
         if session_id:
             args["session_id"] = session_id
-        result = await self._call("hermes_chat", args, telegram_user_id=telegram_user_id)
+        result = await self._call(
+            "hermes_chat", args,
+            telegram_user_id=telegram_user_id,
+            timeout=self.HERMES_CALL_TIMEOUT,
+        )
         if result is None:
             return self.HERMES_UNAVAILABLE_MESSAGE
         # Gateway возвращает { content: [{ type: "text", text: "..." }], isError?: bool }
@@ -394,7 +403,8 @@ class GatewayMCPClient:
         return raw_text or self.HERMES_UNAVAILABLE_MESSAGE
 
     async def _call(self, tool_name: str, arguments: dict,
-                    telegram_user_id: Optional[int] = None) -> Optional[dict]:
+                    telegram_user_id: Optional[int] = None,
+                    timeout: Optional[int] = None) -> Optional[dict]:
         """Вызов инструмента Gateway MCP через JSON-RPC.
 
         Args:
@@ -415,10 +425,11 @@ class GatewayMCPClient:
         # WP-209 Ф4: сериализуем запросы к Gateway через global semaphore.
         # Защита от Cloudflare 429 (burst от scheduler pre-gen fan-out).
         async with self._call_semaphore:
-            return await self._do_call(tool_name, arguments, telegram_user_id)
+            return await self._do_call(tool_name, arguments, telegram_user_id, timeout=timeout)
 
     async def _do_call(self, tool_name: str, arguments: dict,
-                       telegram_user_id: Optional[int] = None) -> Optional[dict]:
+                       telegram_user_id: Optional[int] = None,
+                       timeout: Optional[int] = None) -> Optional[dict]:
         """Фактический HTTP call. Вызывается только из _call под semaphore."""
 
         payload = {
@@ -456,7 +467,7 @@ class GatewayMCPClient:
         last_error = None
 
         for attempt in range(self.MAX_RETRIES + 1):
-            timeout = self.DEFAULT_TIMEOUT if attempt == 0 else self.RETRY_TIMEOUT
+            timeout = (timeout or self.DEFAULT_TIMEOUT) if attempt == 0 else (timeout or self.RETRY_TIMEOUT)
 
             try:
                 async with session.post(

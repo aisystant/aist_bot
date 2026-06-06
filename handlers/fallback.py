@@ -108,6 +108,8 @@ async def on_unknown_message(message: Message, state: FSMContext):
             # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
             # но если написал, Hermes не должен видеть служебный токен.
             hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+            # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
+            await state.clear()
             session_id = _HERMES_SESSION_MAP.get(chat_id)
             from clients.gateway_mcp import gateway_mcp
             try:
