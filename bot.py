@@ -117,6 +117,58 @@ async def _validate_middleware():
     logger.info("✅ Middleware validation passed")
 
 
+async def _bootstrap_learning_schema() -> None:
+    """Migrações de learning-pool rodadas em background após o web server subir.
+
+    Moved out of init_db() so Railway healthcheck is not blocked by the
+    first-run table creation (migration 025 creates ~15 tables on first deploy).
+    """
+    import importlib as _il
+    from db.connection import get_learning_pool
+
+    # Canary state + restore pause across redeploys
+    try:
+        _m016 = _il.import_module("db.migrations.016_canary_state")
+        _lpool = await get_learning_pool()
+        _created = await _m016.migrate_if_needed(_lpool)
+        if _created:
+            logger.info("✅ Migration 016: canary_state created in learning DB")
+        from clients.claude import set_canary_pool, restore_canary_from_db
+        set_canary_pool(_lpool)
+        await restore_canary_from_db(_lpool)
+    except Exception as _e:
+        logger.warning(f"⚠️ Canary state init skipped: {_e}")
+
+    # Full learning schema for Railway Postgres pilot (WP-7 Ф-Pilot-LearningDB-Isolation)
+    try:
+        _m025 = _il.import_module("db.migrations.025_learning_schema_railway")
+        _lpool = await get_learning_pool()
+        _created = await _m025.migrate_if_needed(_lpool)
+        if _created:
+            logger.info("✅ Migration 025: learning schema bootstrapped in learning DB")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 025 skipped: {_e}")
+
+    # consent_grant table
+    try:
+        _m023 = _il.import_module("db.migrations.023_consent_grant")
+        _lpool = await get_learning_pool()
+        _created = await _m023.migrate_if_needed(_lpool)
+        if _created:
+            logger.info("✅ Migration 023: consent_grant created in learning DB")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 023 skipped: {_e}")
+
+    # reminder.bot_id NOT NULL
+    try:
+        _m024 = _il.import_module("db.migrations.024_reminder_bot_id_not_null")
+        _lpool = await get_learning_pool()
+        await _m024.migrate_if_needed(_lpool)
+        logger.info("✅ Migration 024: reminder.bot_id NOT NULL ensured (learning DB)")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 024 skipped: {_e}")
+
+
 async def main():
     global state_machine
 
@@ -220,56 +272,9 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 019 skipped: {_e}")
 
-    # Canary state table (Learning/Neon) + restore pause across redeploys
-    try:
-        import importlib as _il
-        _m016 = _il.import_module("db.migrations.016_canary_state")
-        _lpool = await get_learning_pool()
-        _created = await _m016.migrate_if_needed(_lpool)
-        if _created:
-            logger.info("✅ Migration 016: canary_state created in learning DB")
-        from clients.claude import set_canary_pool, restore_canary_from_db
-        set_canary_pool(_lpool)
-        await restore_canary_from_db(_lpool)
-    except Exception as _e:
-        logger.warning(f"⚠️ Canary state init skipped: {_e}")
-
-    # learning schema bootstrap (Railway Postgres) — WP-7 Ф-Pilot-LearningDB-Isolation.
-    # Создаёт всю learning-схему если её нет (marathon_queue, cp_assessments, etc.).
-    # Идемпотентно: пропускает если таблицы уже существуют.
-    try:
-        import importlib as _il
-        _m025 = _il.import_module("db.migrations.025_learning_schema_railway")
-        _lpool = await get_learning_pool()
-        _created = await _m025.migrate_if_needed(_lpool)
-        if _created:
-            logger.info("✅ Migration 025: learning schema bootstrapped in learning DB")
-    except Exception as _e:
-        logger.warning(f"⚠️ Migration 025 skipped: {_e}")
-
-    # consent_grant table (learning DB) — versioned consent (WP-316 Ф9).
-    # peer-session 2026-06-05-02: запросы были, DDL отсутствовал → set_grant падал db/L4.
-    try:
-        import importlib as _il
-        _m023 = _il.import_module("db.migrations.023_consent_grant")
-        _lpool = await get_learning_pool()
-        _created = await _m023.migrate_if_needed(_lpool)
-        if _created:
-            logger.info("✅ Migration 023: consent_grant created in learning DB")
-    except Exception as _e:
-        logger.warning(f"⚠️ Migration 023 skipped: {_e}")
-
-    # reminder.bot_id → NOT NULL (learning DB) — WP-212 Layer 1.
-    # peer-session 2026-06-05-33: bundle с кодом (Layer 2) → ограничение включается
-    # при старте ДО планировщика, т.е. после того как инстанс уже пишет bot_id.
-    try:
-        import importlib as _il
-        _m024 = _il.import_module("db.migrations.024_reminder_bot_id_not_null")
-        _lpool = await get_learning_pool()
-        await _m024.migrate_if_needed(_lpool)
-        logger.info("✅ Migration 024: reminder.bot_id NOT NULL ensured (learning DB)")
-    except Exception as _e:
-        logger.warning(f"⚠️ Migration 024 skipped: {_e}")
+    # Learning-pool migrations (016, 025, 023, 024) moved to _bootstrap_learning_schema()
+    # which runs as asyncio.create_task after the web server is up, so Railway healthcheck
+    # is not blocked by the first-run table creation (migration 025 creates ~15 tables).
 
     # WP-253 G5: one-time ETL products /bot_data → reference.product
     from db.connection import get_bot_data_pool, get_reference_pool
@@ -532,6 +537,9 @@ async def main():
         site = web.TCPSite(runner, "0.0.0.0", PORT)
         await site.start()
         logger.info(f"✅ Web server listening on port {PORT}")
+
+        # Bootstrap learning schema in background — healthcheck is already passing above
+        asyncio.create_task(_bootstrap_learning_schema())
 
         # Register webhook with Telegram (secret already sanitized/generated in settings.py)
         webhook_ok = False
