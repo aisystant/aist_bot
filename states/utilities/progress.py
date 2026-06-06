@@ -598,7 +598,8 @@ class ProgressState(BaseState):
         if cp:
             stage = cp.get('stage', '—')
             stage_label = self._CP_STAGE_LABELS.get(stage, str(stage))
-            bottleneck = cp.get('bottleneck_slot') or ''  # WP-370: None при stage≥4
+            _btn_raw = cp.get('bottleneck_slot')
+            bottleneck = '' if not _btn_raw or _btn_raw == 'none' else _btn_raw  # WP-370: None/'none' при stage≥4
             stream = cp.get('recommended_stream', '—')
             valid_until = cp.get('valid_until') or ''
             valid_str = valid_until[:10] if isinstance(valid_until, str) and valid_until else '—'
