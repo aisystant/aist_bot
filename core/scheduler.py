@@ -188,7 +188,7 @@ async def _notify_retry_exhausted(chat_id: int, content_type: str):
     try:
         await bot.send_message(chat_id, text)
     except Exception as e:
-        if not is_suppressed(str(e)):
+        if not is_suppressed(__name__, str(e)):
             logger.error(f"[Scheduler] Failed to notify {chat_id} retry exhausted: {e}")
     finally:
         await bot.session.close()
@@ -303,10 +303,6 @@ async def _process_marathon_queue():
                                 logger.info(f"[MarathonQueue] Sent lesson_practice (split) day {day} to {chat_id}")
                             except Exception as e:
                                 error_msg = str(e)
-                                logger.error(
-                                    f"[MarathonQueue] Failed to send split lesson day {day} to {chat_id}: "
-                                    f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
-                                )
                                 from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
                                 if isinstance(e, TelegramRetryAfter):
                                     retry_after = getattr(e, 'retry_after', 30)
@@ -319,7 +315,14 @@ async def _process_marathon_queue():
                                     await asyncio.sleep(min(retry_after, 10))
                                     continue
                                 if isinstance(e, TelegramForbiddenError) or _is_user_unavailable(e):
+                                    logger.info(f"[MarathonQueue] Skipped {chat_id} (blocked) split lesson day {day}")
                                     await _handle_unavailable_user(chat_id, "marathon split lesson")
+                                    await mark_queue_failed(queue_id, error_msg[:200])
+                                    continue
+                                logger.error(
+                                    f"[MarathonQueue] Failed to send split lesson day {day} to {chat_id}: "
+                                    f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
+                                )
                                 await mark_queue_failed(queue_id, error_msg[:200])
                             continue  # пропускаем старый путь
                         # Иначе fallthrough на старый путь (safety net)
@@ -356,10 +359,6 @@ async def _process_marathon_queue():
                         logger.info(f"[MarathonQueue] Sent {content_type} day {day} to {chat_id}")
                     except Exception as e:
                         error_msg = str(e)
-                        logger.error(
-                            f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: "
-                            f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
-                        )
 
                         # --- Specific Telegram error handling ---
                         from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError
@@ -368,6 +367,7 @@ async def _process_marathon_queue():
                             # TODO: нет механизма реактивации. Пользователь может разблокировать
                             # бота позже — тогда нужен фоновый periodic re-check или manual
                             # /unblock команда. Сейчас помечаем unavailable навсегда.
+                            logger.info(f"[MarathonQueue] Skipped {chat_id} (blocked) {content_type} day {day}")
                             await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
                             await mark_queue_failed(queue_id, f"forbidden: {error_msg[:200]}")
                             continue
@@ -386,10 +386,15 @@ async def _process_marathon_queue():
                             continue
 
                         if _is_user_unavailable(e):
+                            logger.info(f"[MarathonQueue] Skipped {chat_id} (unavailable) {content_type} day {day}")
                             await _handle_unavailable_user(chat_id, f"marathon {content_type} day {day}")
                             await mark_queue_failed(queue_id, f"user_unavailable: {error_msg[:200]}")
                             continue
 
+                        logger.error(
+                            f"[MarathonQueue] Failed to send {content_type} day {day} to {chat_id}: "
+                            f"{type(e).__name__}: {error_msg} | repr={repr(e)[:400]}"
+                        )
                         if attempts >= 2:  # 3-я попытка (0,1,2)
                             await mark_queue_failed(queue_id, error_msg[:500])
                             # WP-330 P1: алерт в канал наставников
