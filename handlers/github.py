@@ -182,13 +182,13 @@ async def callback_github_select_repo(callback: CallbackQuery):
 
     await callback.answer()
 
-    repos = await github_oauth.get_repos(telegram_user_id, limit=20)
+    repos = await github_oauth.get_repos(telegram_user_id, limit=10)
     if not repos:
-        await callback.message.answer(t('github.repos_error', lang))
+        await callback.message.edit_text(t('github.repos_error', lang))
         return
 
     buttons = []
-    for repo in repos[:10]:
+    for repo in repos:
         full_name = repo.get("full_name", "")
         name = repo.get("name", "")
         buttons.append(
@@ -202,7 +202,7 @@ async def callback_github_select_repo(callback: CallbackQuery):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    await callback.message.answer(
+    await callback.message.edit_text(
         f"*{t('github.select_repo_title', lang)}*\n\n"
         f"{t('github.select_repo_desc', lang)}",
         parse_mode="Markdown",
@@ -271,13 +271,13 @@ async def callback_github_select_knowledge_repo(callback: CallbackQuery):
 
     await callback.answer()
 
-    repos = await github_oauth.get_repos(telegram_user_id, limit=20)
+    repos = await github_oauth.get_repos(telegram_user_id, limit=10)
     if not repos:
-        await callback.message.answer(t('github.repos_error', lang))
+        await callback.message.edit_text(t('github.repos_error', lang))
         return
 
     buttons = []
-    for repo in repos[:10]:
+    for repo in repos:
         full_name = repo.get("full_name", "")
         name = repo.get("name", "")
         buttons.append(
@@ -310,11 +310,14 @@ async def callback_github_knowledge_repo_selected(callback: CallbackQuery):
     repo_full_name = callback.data.split(":", 1)[1]
 
     await github_oauth.set_knowledge_repo(telegram_user_id, repo_full_name)
+    target_repo = await github_oauth.get_target_repo(telegram_user_id)
 
     await callback.answer(t('github.knowledge_repo_selected', lang), show_alert=True)
 
+    notes_line = f"{t('github.repo_label', lang)}: `{target_repo}`\n" if target_repo else ""
     await callback.message.edit_text(
         f"✅ *{t('github.knowledge_repo_configured', lang)}*\n\n"
+        f"{notes_line}"
         f"{t('github.knowledge_repo_label', lang)}: `{repo_full_name}`\n\n"
         f"{t('github.all_configured', lang)}",
         parse_mode="Markdown",
