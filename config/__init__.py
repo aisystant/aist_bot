@@ -181,6 +181,9 @@ from .settings import (
 
     # WP-349: URL платформы для /setup
     PLATFORM_URLS,
+
+    # Aisystant base URL (WP-181, link handler)
+    AISYSTANT_BASE_URL,
 )
 
 from .onboarding_intents import ONBOARDING_INTENT_MAP, NEGATIVE_PATTERNS  # WP-349 Ф22
@@ -297,6 +300,7 @@ __all__ = [
     'LEAD_URL',
     'REFERENCE_URL',
     'PLATFORM_URLS',
+    'AISYSTANT_BASE_URL',
     'ONBOARDING_INTENT_MAP',
     'NEGATIVE_PATTERNS',
 ]
