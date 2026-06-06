@@ -48,19 +48,59 @@ def test_filter_rejects_non_hermes():
 # ─── Tier-gate ───
 
 @pytest.mark.asyncio
-async def test_hermes_tier1_blocked(bot, dp, patch_hermes_deps):
-    """T1-пользователь получает сообщение о недоступности, hermes_chat НЕ вызывается."""
+async def test_hermes_tier1_routes_to_conductor(bot, dp, patch_hermes_deps):
+    """T1-пользователь получает ответ от Проводника (Haiku), hermes_chat НЕ вызывается.
+
+    WP-349 Ф33 / DP.SC.169.
+    """
     patch_hermes_deps["get_intern"].return_value = make_intern(
         onboarding_completed=True, tier="T1", current_state=None
     )
     mock_hermes = AsyncMock(return_value="не должно вызваться")
-    with patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+    mock_generate = AsyncMock(return_value="Чтобы перейти на T2, оформи подписку через /setup.")
+    with patch("clients.gateway_mcp.gateway_mcp") as mock_gmc,          patch("clients.claude.claude.generate", mock_generate):
         mock_gmc.hermes_chat = mock_hermes
-        await dp.feed_update(bot, text_message("Гермес какой статус WP-392?", chat_id=12345))
+        await dp.feed_update(bot, text_message("Гермес, как перейти на T2?", chat_id=12345))
 
     mock_hermes.assert_not_called()
+    mock_generate.assert_called_once()
+    call_kwargs = mock_generate.call_args.kwargs
+    assert call_kwargs.get("model", "").startswith("claude-haiku")
+    assert "onboarding_completed" not in call_kwargs.get("system_prompt", "")  # не течёт внутренний state
     msgs = bot.get_sent("send_message")
-    assert any("недоступна" in (m.get("text") or "") for m in msgs)
+    assert any("Проводник:" in (m.get("text") or "") for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_hermes_tier2_routes_to_conductor(bot, dp, patch_hermes_deps):
+    """T2-пользователь тоже получает Проводника, не Hermes-рантайм."""
+    patch_hermes_deps["get_intern"].return_value = make_intern(
+        onboarding_completed=True, tier="T2", current_state=None
+    )
+    mock_generate = AsyncMock(return_value="Подключи браузерную среду через /connect.")
+    with patch("clients.gateway_mcp.gateway_mcp") as mock_gmc,          patch("clients.claude.claude.generate", mock_generate):
+        mock_gmc.hermes_chat = AsyncMock()
+        await dp.feed_update(bot, text_message("Гермес, что дальше?", chat_id=12345))
+
+    mock_gmc.hermes_chat.assert_not_called()
+    mock_generate.assert_called_once()
+    msgs = bot.get_sent("send_message")
+    assert any("Проводник:" in (m.get("text") or "") for m in msgs)
+
+
+@pytest.mark.asyncio
+async def test_hermes_conductor_fallback_on_error(bot, dp, patch_hermes_deps):
+    """При ошибке Haiku Проводник отвечает fallback-текстом (не крашит бот)."""
+    patch_hermes_deps["get_intern"].return_value = make_intern(
+        onboarding_completed=True, tier="T1", current_state=None
+    )
+    mock_generate = AsyncMock(side_effect=RuntimeError("api down"))
+    with patch("clients.claude.claude.generate", mock_generate):
+        await dp.feed_update(bot, text_message("Гермес, помоги", chat_id=12345))
+
+    msgs = bot.get_sent("send_message")
+    texts = [m.get("text") or "" for m in msgs]
+    assert any("Проводник временно недоступен" in t for t in texts)
 
 
 @pytest.mark.asyncio
