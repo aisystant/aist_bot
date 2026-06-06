@@ -164,6 +164,57 @@ async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict 
     logger.info(f"[Learn] Delivered new-format lesson day {day} to {user_id}")
 
 
+async def _migrate_old_marathon_to_new(user_id: int, intern: dict) -> dict:
+    """WP-330 cutover fix: авто-миграция из старой системы в новую.
+
+    Вызывается когда marathon_progress.status='registered' но intern.marathon_status='active'.
+    Восстанавливает позицию пользователя: заполняет очередь на 14 дней, пропускает
+    дни 1..(old_day-1), доставляет old_day через 2 минуты.
+    """
+    from core.topics import get_marathon_day
+    from db.connection import get_learning_pool
+
+    old_day = get_marathon_day(intern)
+    old_day = max(1, min(14, old_day))
+    sched_time = (intern or {}).get('schedule_time') or '04:00'
+    now = moscow_now()
+
+    logger.info(f"[Marathon] Auto-migrating user {user_id} from old system to new, day={old_day}")
+
+    await clear_marathon_state(user_id)
+    await clear_marathon_queue(user_id)
+    await update_progress(user_id=user_id, status='active', started_at=now, current_day=old_day)
+    await update_intern(user_id, marathon_status='active', onboarding_completed=True)
+
+    # Заполнить очередь на 14 дней (дни 1..old_day-1 сразу помечаем sent)
+    from core.marathon_content import get_day_text
+    sched_h, sched_m = map(int, sched_time.split(':'))
+    tomorrow_sched = datetime(now.year, now.month, now.day, sched_h, sched_m, 0,
+                              tzinfo=now.tzinfo) + timedelta(days=1)
+    for day in range(1, 15):
+        if day == old_day:
+            scheduled = now + timedelta(minutes=2)
+        elif day < old_day:
+            scheduled = now - timedelta(hours=1)  # в прошлом — будет помечен sent
+        else:
+            scheduled = tomorrow_sched + timedelta(days=day - old_day - 1)
+        content_texts = {'lesson_practice': None, 'checkin': get_day_text(day, 'checkin')}
+        await enqueue_day_items(user_id, day, scheduled, content_texts)
+
+    # Пометить уже пройденные дни как sent
+    if old_day > 1:
+        pool = await get_learning_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE learning.marathon_queue
+                   SET status='sent', sent_at=NOW(), updated_at=NOW()
+                   WHERE user_id=$1 AND day_number < $2 AND status='pending'""",
+                user_id, old_day,
+            )
+
+    return await get_or_create_progress(user_id)
+
+
 async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, dedup_minutes: int = 60) -> bool:
     """Если пользователь в марафоне — отдать урок дня (новый формат) и вернуть True.
 
@@ -187,6 +238,12 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, de
 
     progress = await get_or_create_progress(user_id)
     status = progress.get('status')
+
+    # WP-330 cutover fix (2026-06-06): пользователь был активен в старой системе,
+    # но в новой — ещё не стартовал. Авто-мигрировать на правильный день.
+    if status == 'registered' and (intern or {}).get('marathon_status') == 'active':
+        progress = await _migrate_old_marathon_to_new(user_id, intern)
+        status = progress.get('status')
 
     if status == 'active':
         # UX-audit Day 1 №4+№7: повторный /learn не должен дублировать урок дня.

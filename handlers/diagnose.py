@@ -345,8 +345,8 @@ def _format_result(profile: dict, valid_until_iso: str | None) -> str:
     stage_name = STAGE_NAMES.get(stage, f"Ступень {stage}")
     stream_label = STREAM_LABELS.get(stream, stream)
 
-    # WP-370: bottleneck = None при stage ≥ 4 → нет узких мест.
-    if bottleneck is None:
+    # WP-370: bottleneck = None или 'none' при stage ≥ 4 → нет узких мест.
+    if bottleneck is None or bottleneck == 'none':
         priority_line = "Узких мест нет — поддерживайте темп и берите следующие ступени."
     else:
         bottleneck_human = {

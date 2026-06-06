@@ -121,7 +121,8 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
             logger.exception("[hermes:conductor] Haiku call failed for chat %s", chat_id)
             response = None
         await message.answer(
-            f"Проводник: {response}" if response else _CONDUCTOR_UNAVAILABLE_MSG
+            f"Проводник: {response}" if response else _CONDUCTOR_UNAVAILABLE_MSG,
+            parse_mode="Markdown",
         )
         return
 
@@ -133,4 +134,4 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         logger.exception("[hermes] hermes_chat failed for chat %s", chat_id)
         response = _UNAVAILABLE_RUNTIME_MSG
 
-    await message.answer(response or _UNAVAILABLE_RUNTIME_MSG)
+    await message.answer(response or _UNAVAILABLE_RUNTIME_MSG, parse_mode="Markdown")
