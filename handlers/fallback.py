@@ -105,13 +105,16 @@ async def on_unknown_message(message: Message, state: FSMContext):
 
         # WP-392 Ф3.1b: T4-full — ВСЁ в Hermes (без префикса, без консультанта)
         if tier_num >= 4 and text and not text.startswith('/'):
+            # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
+            # но если написал, Hermes не должен видеть служебный токен.
+            hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
             session_id = _HERMES_SESSION_MAP.get(chat_id)
             from clients.gateway_mcp import gateway_mcp
             try:
                 from helpers.typing_indicator import keep_typing
                 async with keep_typing(message):
                     response = await gateway_mcp.hermes_chat(
-                        message=text,
+                        message=hermes_text,
                         telegram_user_id=chat_id,
                         session_id=session_id,
                     )

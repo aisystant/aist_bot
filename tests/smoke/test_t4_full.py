@@ -129,6 +129,26 @@ async def test_t4_command_skips_hermes(state):
     mock_dp.route_message.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_t4_hermes_prefix_stripped(state):
+    """T4: «Гермес, привет» → Hermes получает «привет» без префикса."""
+    msg = _make_msg("Гермес, привет")
+    mock_hermes = AsyncMock(return_value="Привет!")
+    mock_dp = MagicMock()
+    mock_dp.is_sm_active = True
+    mock_dp.route_message = AsyncMock(return_value=True)
+
+    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
+               return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.get_dispatcher", return_value=mock_dp), \
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
+        mock_gmc.hermes_chat = mock_hermes
+        await on_unknown_message(msg, state)
+
+    mock_hermes.assert_called_once()
+    assert mock_hermes.call_args.kwargs.get("message") == "привет"
+
+
 # ─── T3: обычный текст → НЕ Hermes ───
 
 @pytest.mark.asyncio
