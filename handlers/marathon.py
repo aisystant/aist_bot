@@ -164,7 +164,7 @@ async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict 
     logger.info(f"[Learn] Delivered new-format lesson day {day} to {user_id}")
 
 
-async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, dedup_minutes: int = 720) -> bool:
+async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, dedup_minutes: int = 60) -> bool:
     """Если пользователь в марафоне — отдать урок дня (новый формат) и вернуть True.
 
     Возвращает False только для НЕ-марафонских режимов (Лента) — тогда вызывающий
