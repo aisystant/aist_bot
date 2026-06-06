@@ -20,6 +20,7 @@ from aiogram.types import Message
 
 from config.settings import CLAUDE_MODEL_HAIKU
 from db.queries import get_intern
+from helpers.typing_indicator import keep_typing
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,6 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
     if tier < _TIER_REQUIRED:
         # WP-349 Ф33 / DP.SC.169: Проводник — онбординг-помощник на Haiku (T1/T2).
         from clients.claude import claude
-        from helpers.typing_indicator import keep_typing
         try:
             async with keep_typing(message):
                 response = await claude.generate(
@@ -127,7 +127,6 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
 
     from clients.gateway_mcp import gateway_mcp
     try:
-        from helpers.typing_indicator import keep_typing
         async with keep_typing(message):
             response = await gateway_mcp.hermes_chat(message=hermes_msg, telegram_user_id=chat_id)
     except Exception:
