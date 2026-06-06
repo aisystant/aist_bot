@@ -562,11 +562,24 @@ async def on_upd_delivery_from_settings(callback: CallbackQuery, state: FSMConte
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_marathon_start")
 async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     from core.topics import get_marathon_day, get_display_day
+    from db.queries.marathon_newcomer import is_on_newcomer_marathon
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     start_date = intern.get('marathon_start_date')
     marathon_day = get_marathon_day(intern)
     display_day = get_display_day(intern)
+    marathon_status = intern.get('marathon_status', '')
+
+    # MAR7: блок при активном марафоне (новый движок)
+    if str(marathon_status) == 'active' and await is_on_newcomer_marathon(callback.message.chat.id):
+        await callback.answer()
+        await callback.message.edit_text(
+            f"🔒 *{t('update.marathon_active_block_title', lang)}*\n\n"
+            f"{t('update.marathon_active_block_text', lang)}",
+            parse_mode="Markdown"
+        )
+        await state.clear()
+        return
 
     if start_date:
         if isinstance(start_date, datetime):
@@ -581,9 +594,19 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
         f"⚠️ *{t('update.start_date_warning', lang)}*\n\n"
         f"{t('update.select_start_date', lang)}",
         parse_mode="Markdown",
-        reply_markup=kb_marathon_start()
+        reply_markup=kb_marathon_start(lang)
     )
     await state.set_state(UpdateStates.updating_marathon_start)
+
+@settings_router.callback_query(UpdateStates.updating_marathon_start, F.data == "keep_start_date")
+async def on_keep_marathon_start(callback: CallbackQuery, state: FSMContext):
+    """MAR7: пользователь решил не менять дату старта."""
+    intern = await get_intern(callback.message.chat.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+    await state.clear()
+    await callback.answer(t('update.start_date_kept', lang))
+    await callback.message.edit_reply_markup(reply_markup=None)
+
 
 @settings_router.callback_query(UpdateStates.updating_marathon_start, F.data.startswith("start_"))
 async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
