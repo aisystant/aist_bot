@@ -247,10 +247,10 @@ async def get_health_pool() -> asyncpg.Pool:
         _health_pool = await asyncpg.create_pool(
             HEALTH_URL,
             statement_cache_size=100,
-            min_size=1,
+            min_size=2,  # WP-330: nav-red early indicator — keep connections warm
             max_size=10,
             command_timeout=30,
-            max_inactive_connection_lifetime=60,
+            max_inactive_connection_lifetime=300,  # WP-330: было 60 → reconnect on every nav burst
         )
         logger.info("✅ Health пул соединений создан (min=1, max=10)")
     return _health_pool

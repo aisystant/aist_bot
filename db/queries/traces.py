@@ -182,6 +182,52 @@ async def get_latency_report(hours: int = 24) -> dict:
     }
 
 
+async def check_nav_latency_alerts(minutes: int = 15) -> Optional[str]:
+    """Early-warning: nav commands in red zone (yellow/red).
+
+    Nav-red precedes consultation-red by 2+ hours (peer-session 2026-06-05-36).
+    This alert fires when nav commands exceed yellow threshold —
+    indicating DB pool exhaustion or Neon wakeup before consultation suffers.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                payload->>'command' AS command,
+                (payload->>'total_ms')::numeric AS total_ms,
+                payload->>'state' AS state,
+                ingested_at AS created_at
+            FROM domain_event
+            WHERE source = 'aist-bot'
+              AND event_type = 'request_traced'
+              AND ingested_at > NOW() - INTERVAL '1 minute' * $1
+            ORDER BY (payload->>'total_ms')::numeric DESC
+        """, minutes)
+
+    if not rows:
+        return None
+
+    nav_red_items = []
+    for r in rows:
+        cat = classify_command(r['command'])
+        if cat == 'nav':
+            _, yellow_max = THRESHOLDS['nav']
+            if r['total_ms'] > yellow_max:
+                nav_red_items.append(r)
+
+    if len(nav_red_items) < 3:
+        return None
+
+    lines = [f"\U0001f6a8 <b>Алерт: нагрузка на пул</b> ({len(nav_red_items)} nav-команд >{THRESHOLDS['nav'][1]}мс за {minutes} мин)\n"]
+    lines.append("\U0001f7e1 Ранний сигнал: DB pool exhaustion или Neon wakeup.")
+    for r in nav_red_items[:5]:
+        ms = int(r['total_ms'])
+        lines.append(f"  \U0001f534 {html.escape(r['command'])}: <b>{ms}мс</b>")
+
+    lines.append(f"\n\U0001f449 /latency — полный отчёт")
+    return "\n".join(lines)
+
+
 async def check_latency_alerts(minutes: int = 15) -> Optional[str]:
     """Check recent traces for red-zone violations.
 

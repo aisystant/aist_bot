@@ -659,20 +659,53 @@ async def handle_question_with_tools(
     }
     user_prompt = user_prompts.get(lang, user_prompts['ru'])
 
-    # Multi-turn: используем conversation history если есть
-    if conversation_messages:
-        messages = conversation_messages
-        logger.info(f"Consultation: multi-turn with {len(messages)} messages")
+    # WP-330 P3: pre-search + synthetic tool-result injection.
+    # Устраняет дублирующий вызов search_knowledge в tool-раундах Claude (−14с).
+    # Claude видит tool_result с результатами → не повторяет поиск.
+    # Fallback: если шлюз вернул пусто → идём без инжекта (Claude сам позовёт).
+    pre_results = ""
+    try:
+        async with span("consultation.presearch_p3", query_len=len(question)):
+            raw_presearch = await gateway_mcp.knowledge_search(question, limit=6)
+        if raw_presearch:
+            fragments = []
+            seen = set()
+            for item in raw_presearch:
+                text = extract_text(item) if isinstance(item, dict) else (item or "")
+                if text and text[:100] not in seen:
+                    seen.add(text[:100])
+                    fragments.append(text[:1500])
+            pre_results = "\n\n---\n\n".join(fragments[:5])
+        logger.info(f"P3 presearch: {len(fragments) if raw_presearch else 0} фрагментов")
+    except Exception as e:
+        logger.warning(f"P3 presearch failed, fallback to tool-only: {e}")
+
+    # Строим messages с synthetic tool-result (если pre-search дал результаты)
+    base_messages = conversation_messages if conversation_messages else [
+        {"role": "user", "content": user_prompt}
+    ]
+    if pre_results:
+        synthetic_id = "presearch_0"
+        inject = [
+            {"role": "assistant", "content": [{"type": "tool_use", "id": synthetic_id,
+                "name": "search_knowledge", "input": {"query": question}}]},
+            {"role": "user", "content": [{"type": "tool_result",
+                "tool_use_id": synthetic_id, "content": pre_results}]},
+        ]
+        messages = base_messages + inject
+        logger.info(f"P3: synthetic tool-result injected ({len(pre_results)} chars)")
     else:
-        messages = [{"role": "user", "content": user_prompt}]
+        messages = base_messages
+        logger.info(f"Consultation: {'multi-turn' if conversation_messages else 'new'} "
+                    f"with {len(messages)} messages (no presearch inject)")
 
     # WP-7 fix (W14): 2500 недостаточно для русского + tool_use overhead
     # (5 feedback K-category за ночь 2026-04-02). Tool rounds съедают ~700-1000 tok,
     # на ответ оставалось ~1500 → обрезка. Унифицировано до 4000.
     token_limit = 4000
 
-    # WP-330: max_tool_rounds 3→2. Pre-search knowledge_search уже выполнен до Claude,
-    # большинство консультаций укладываются в 1-2 раунда. Force-text fallback
+    # WP-330: max_tool_rounds 3→2. Pre-search knowledge_search уже выполнен (P3 inject),
+    # большинство консультаций укладываются в 0-1 раунд. Force-text fallback
     # (clients/claude.py §9) гарантирует ответ при исчерпании раундов.
     async with span("consultation.claude_with_tools", max_tool_rounds=2):
         answer = await claude.generate_with_tools(

@@ -142,7 +142,7 @@ async def main():
         get_reference_pool, get_publication_pool, get_community_pool, get_lead_pool,
     )
     from config.settings import (
-        DATABASE_URL, FSM_URL, PERSONA_URL, SUBSCRIPTION_URL,
+        FSM_URL, PERSONA_URL, SUBSCRIPTION_URL,
         INDICATORS_URL, LEARNING_URL, REWARDS_URL, JOURNAL_URL,
         REFERENCE_URL, PUBLICATION_URL, COMMUNITY_URL, LEAD_URL,
     )

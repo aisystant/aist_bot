@@ -55,6 +55,13 @@ class AisystantClient:
 
     _session: aiohttp.ClientSession | None = None
 
+    # Probe-with-backoff state (peer-session 2026-06-05-36)
+    _consecutive_errors: int = 0
+    _degraded: bool = False
+    _last_probe_ts: float = 0.0
+    _PROBE_INTERVAL_SEC: float = 300.0  # 5 min
+    _ERROR_THRESHOLD: int = 3
+
     def __init__(self, base_url: str, tech_password: str):
         self.base_url = base_url.rstrip("/")
         self._auth = aiohttp.BasicAuth("tech@aisystant.com", tech_password)
@@ -84,17 +91,75 @@ class AisystantClient:
             logger.error(f"Aisystant GET {path} exception: {e}")
             return None
 
+    def _record_error(self, status: int):
+        """Track consecutive errors for probe-with-backoff."""
+        import time
+        if status in (403, 502, 503, 504):
+            self._consecutive_errors += 1
+            if self._consecutive_errors >= self._ERROR_THRESHOLD and not self._degraded:
+                self._degraded = True
+                logger.warning(f"[Aisystant] Degraded mode ON ({self._consecutive_errors} consecutive errors)")
+        else:
+            # Non-degrading error (e.g. 400) — reset counter but don't clear degraded
+            self._consecutive_errors = 0
+
+    def _record_success(self):
+        """Clear error state on successful response."""
+        if self._consecutive_errors > 0:
+            self._consecutive_errors = 0
+            logger.info("[Aisystant] Error counter reset after success")
+        if self._degraded:
+            self._degraded = False
+            logger.info("[Aisystant] Degraded mode OFF — API recovered")
+
+    async def _probe_recovery(self) -> bool:
+        """Lightweight probe to check if Aisystant recovered."""
+        import time
+        now = time.monotonic()
+        if now - self._last_probe_ts < self._PROBE_INTERVAL_SEC:
+            return False  # too soon
+        self._last_probe_ts = now
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{self.base_url}/api/profile/health",
+                auth=self._auth,
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status == 200:
+                    self._record_success()
+                    return True
+                else:
+                    self._record_error(resp.status)
+                    return False
+        except Exception as e:
+            logger.debug(f"[Aisystant] Probe failed: {e}")
+            return False
+
     async def _post(self, path: str, params: dict | None = None,
                     body: dict | None = None) -> dict | list | None:
-        """POST-запрос к Aisystant API."""
+        """POST-запрос к Aisystant API.
+
+        Probe-with-backoff: если API в degraded mode — пробуем восстановление
+        перед каждым POST. При persistent failure — возвращаем None (graceful fallback).
+        """
+        # Try recovery probe if degraded
+        if self._degraded:
+            recovered = await self._probe_recovery()
+            if not recovered:
+                logger.warning(f"[Aisystant] Skipping POST {path} — degraded mode")
+                return None
+
         session = await self._get_session()
         url = f"{self.base_url}{path}"
         try:
             async with session.post(url, auth=self._auth, params=params, json=body) as resp:
                 if resp.status != 200:
                     text = await resp.text()
+                    self._record_error(resp.status)
                     logger.error(f"Aisystant POST {path} error {resp.status}: {text[:300]} | body={body}")
                     return None
+                self._record_success()
                 text = await resp.text()
                 return json.loads(text) if text else None
         except Exception as e:
