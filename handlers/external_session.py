@@ -166,7 +166,29 @@ async def _start_heartbeat_poller(
                 occurred_at = occurred_at.replace(tzinfo=timezone.utc)
 
             if ev_type == "session.turn_completed":
-                logger.info("[heartbeat] %s turn %d completed — poller stops", session_id, turn_n)
+                total_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000
+                logger.info(
+                    "[heartbeat] %s turn %d completed in %.0fms — poller stops",
+                    session_id, turn_n, total_ms,
+                )
+                # TGSH10: пишем turn duration в request_traces для Grafana
+                try:
+                    from db.connection import get_health_pool
+                    hpool = await get_health_pool()
+                    async with hpool.acquire() as hconn:
+                        await hconn.execute(
+                            """INSERT INTO request_traces
+                               (trace_id, user_id, command, state, total_ms, spans, created_at)
+                               VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
+                            session_id,
+                            chat_id,
+                            "/claude",
+                            f"session_turn:{turn_n}",
+                            total_ms,
+                            "[]",
+                        )
+                except Exception as _trace_exc:
+                    logger.debug("[heartbeat] trace write skipped: %s", _trace_exc)
                 return
 
             if ev_type == "session.turn_failed":
@@ -1289,6 +1311,7 @@ async def cmd_claude(message: Message, state: FSMContext) -> None:
             turn_n = int(data.get("turn_count", 0)) + 1
             ok = await _append_pilot_turn(session_id, message.message_id, user_text, turn_n, token, repo, branch)
             if ok:
+                logger.info("[session] %s turn %d appended (chat=%s)", session_id, turn_n, chat_id)
                 # WP-7 TGSH5: захват working_message_id для heartbeat-edit + старт poller'а.
                 working_msg = await message.answer("⏳ Работаю...")
                 try:
@@ -1409,6 +1432,7 @@ async def handle_session_text(message: Message, state: FSMContext) -> None:
 
     ok = await _append_pilot_turn(session_id, message.message_id, text, turn_n, token, repo, branch)
     if ok:
+        logger.info("[session] %s turn %d appended (chat=%s)", session_id, turn_n, chat_id)
         # WP-7 TGSH5: захват working_message_id + старт heartbeat-poller'а.
         working_msg = await message.answer("⏳ Работаю...")
         try:
