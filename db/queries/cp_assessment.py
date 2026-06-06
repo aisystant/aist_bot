@@ -30,7 +30,8 @@ def compute_cp_stage(cp_scores: dict) -> dict:
     """
     vals = {s: int(cp_scores.get(s, 1)) for s in MANDATORY_SLOTS}
     stage = min(vals.values())
-    bottleneck = None if stage >= 4 else min(vals, key=vals.get)
+    # 'none' вместо None: bottleneck_slot NOT NULL в БД (WP-370 §6.1: нет узких мест на ст. 4-5)
+    bottleneck = 'none' if stage >= 4 else min(vals, key=vals.get)
     if stage >= 5:
         recommended_stream = "РР"
     else:
