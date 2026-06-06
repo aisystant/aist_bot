@@ -13,6 +13,7 @@ import html
 from typing import Optional
 from db.connection import get_health_pool
 from config import get_logger
+from core.error_classifier import is_suppressed
 
 logger = get_logger(__name__)
 
@@ -44,6 +45,10 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
             LIMIT 10
         """, minutes)
 
+    if not rows:
+        return None
+
+    rows = [r for r in rows if not is_suppressed(r['logger_name'], r['message'] or '')]
     if not rows:
         return None
 
