@@ -113,19 +113,19 @@ class TestComputeCpStage:
 
     # WP-370 acceptance tests
     def test_all_max_gives_proactive_no_bottleneck(self):
-        """5/5/5/5/5 → ступень 5 (Проактивный), bottleneck=None (нет узких мест), recommended РР (WP-371)."""
+        """5/5/5/5/5 → ступень 5 (Проактивный), bottleneck='none' (нет узких мест), recommended РР (WP-371)."""
         from db.queries.cp_assessment import compute_cp_stage
         scores = {s: 5 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
         result = compute_cp_stage(scores)
         assert result["stage"] == 5
-        assert result["bottleneck_slot"] is None  # WP-370: stage ≥4 → нет узких мест
+        assert result["bottleneck_slot"] == "none"  # WP-370: stage ≥4 → 'none' sentinel (NOT NULL в БД)
         assert result["recommended_stream"] == "РР"  # WP-371: ст. 5 → РР, не S4
 
     def test_stage_4_no_bottleneck(self):
-        """Все 4+ → bottleneck=None (порог «нет узких мест»)."""
+        """Все 4+ → bottleneck='none' (порог «нет узких мест»)."""
         from db.queries.cp_assessment import compute_cp_stage
         scores = {s: 4 for s in ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]}
-        assert compute_cp_stage(scores)["bottleneck_slot"] is None
+        assert compute_cp_stage(scores)["bottleneck_slot"] == "none"
 
     def test_stage_3_shows_bottleneck(self):
         """stage=3 — ещё показывает bottleneck."""
@@ -142,7 +142,7 @@ class TestComputeCpStage:
         scores = {"cp.rhy": 5, "cp.wld": 5, "cp.skl": 5, "cp.int": 5, "cp.agt": 5, "cp.iwe": 1}
         result = compute_cp_stage(scores)
         assert result["stage"] == 5
-        assert result["bottleneck_slot"] is None
+        assert result["bottleneck_slot"] == "none"
 
 
 # ─── 3. DiagnoseStates FSM ─────────────────────────────────
