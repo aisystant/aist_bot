@@ -525,22 +525,23 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
 
 
 async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
-    """WP-330 Ф10.D: получить пользователей, которые получили урок вчера,
-    но не нажали кнопку «✏️ Перейти к практике» (нет события notification_sent
-    с external_id 'notification-marathon_practice:<user_id>:<day>').
+    """WP-330 Ф10.D: пользователи, получившие урок СЕГОДНЯ >30 мин назад,
+    но не нажавшие «✏️ Перейти к практике» и не сделавшие чек-ин.
 
-    WP-330 fix (peer-session 2026-06-01): не напоминать, если пользователь
-    уже сделал чек-ин за этот день (есть запись в marathon_state).
+    Возвращает sent_at, чтобы планировщик мог определить окно:
+    - 30–150 мин → первый нудж (:30m)
+    - >150 мин   → второй и последний нудж (:150m)
     """
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT mq.user_id, mq.day_number
+            '''SELECT mq.user_id, mq.day_number, mq.sent_at
                FROM learning.marathon_queue mq
                JOIN learning.marathon_progress mp ON mp.user_id = mq.user_id
                WHERE mq.content_type = 'lesson_practice'
                  AND mq.status = 'sent'
-                 AND mq.sent_at::date = (CURRENT_DATE - INTERVAL '1 day')::date
+                 AND mq.sent_at::date = CURRENT_DATE
+                 AND mq.sent_at <= NOW() - INTERVAL '30 minutes'
                  AND mp.status = 'active'
                  AND NOT EXISTS (
                    SELECT 1 FROM domain_event de

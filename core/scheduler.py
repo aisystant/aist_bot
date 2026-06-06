@@ -531,19 +531,56 @@ async def _send_marathon_nudges():
                 else:
                     logger.warning(f"[MarathonNudge] Failed to send to {chat_id}: {e}")
 
-        # WP-330 Ф10.D: напоминание о непрочитанной практике
-        # (lesson_practice доставлен вчера, кнопка «✏️ Перейти к практике» не нажата)
-        from db.queries.marathon_newcomer import get_users_for_practice_nudge
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        # WP-330 Ф10.D: перенесено в _send_practice_nudges (запускается каждые 10 мин)
+    finally:
+        await bot.session.close()
 
-        practice_users = await get_users_for_practice_nudge()
+
+async def _send_practice_nudges():
+    """WP-330 Ф10.D v2: нуджи о практике через +30 и +150 мин после доставки урока.
+
+    Запускается каждые 10 мин. Максимум 2 нуджа в день на пользователя:
+    - Первый  (+30 мин):  ключ ...:30m  (окно 30–150 мин после sent_at)
+    - Второй  (+150 мин): ключ ...:150m (>150 мин после sent_at)
+    """
+    from aiogram import Bot
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from db.queries.marathon_newcomer import get_users_for_practice_nudge
+    from db.queries.notifications import try_insert_notification
+
+    if not _bot_token:
+        return
+
+    practice_users = await get_users_for_practice_nudge()
+    if not practice_users:
+        return
+
+    bot = Bot(token=_bot_token)
+    now = moscow_now()
+    try:
         for pu in practice_users:
             chat_id = pu['user_id']
             day = pu['day_number']
-            # Dedup nudge: один раз в день на пару (user, day)
-            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{today_str}"
+            sent_at = pu['sent_at']
+            minutes_elapsed = (now - sent_at).total_seconds() / 60
+
+            if minutes_elapsed >= 150:
+                nudge_slot = '150m'
+                text = (
+                    f"⏰ Урок Дня {day} пришёл несколько часов назад — практику ещё не открыли.\n\n"
+                    "Последний шанс сегодня:"
+                )
+            else:
+                nudge_slot = '30m'
+                text = (
+                    f"📚 Урок Дня {day} ждёт вас. Займёт 15–20 минут!\n\n"
+                    "Переходите к практике:"
+                )
+
+            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{nudge_slot}"
             if not await try_insert_notification(chat_id, 'marathon_practice_nudge', nudge_key):
                 continue
+
             try:
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(
@@ -551,19 +588,13 @@ async def _send_marathon_nudges():
                         callback_data=f"marathon_practice:{day}"
                     )
                 ]])
-                await bot.send_message(
-                    chat_id,
-                    f"📚 Вчера пришёл урок Дня {day}, но практику ещё не открыли.\n\n"
-                    "Нажмите кнопку ниже, чтобы продолжить:",
-                    parse_mode="Markdown",
-                    reply_markup=keyboard,
-                )
-                logger.info(f"[MarathonPracticeNudge] Sent to {chat_id} for day {day}")
+                await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                logger.info(f"[PracticeNudge] Sent {nudge_slot} to {chat_id} day {day}")
             except Exception as e:
                 if _is_user_unavailable(e):
-                    await _handle_unavailable_user(chat_id, "marathon practice nudge")
+                    await _handle_unavailable_user(chat_id, f"practice nudge {nudge_slot}")
                 else:
-                    logger.warning(f"[MarathonPracticeNudge] Failed to send to {chat_id}: {e}")
+                    logger.warning(f"[PracticeNudge] Failed {nudge_slot} to {chat_id}: {e}")
     finally:
         await bot.session.close()
 
@@ -888,6 +919,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_ensure_reminder_text_column, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=10), id='ensure_reminder_text')
     _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
+    _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
