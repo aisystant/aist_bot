@@ -1568,6 +1568,18 @@ async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    # WP-330 cutover (Block MAR): пользователь переведён на новый движок марафона
+    # (есть строка в learning.marathon_progress) → legacy +1h/+3h напоминания для
+    # него отключены. Симметрично гейту доставки в get_all_scheduled_interns.
+    # Без этого: старые/мигрированные напоминания «День N не начат» летят параллельно
+    # новой доставке (два счётчика дня → «День 1 не начат» при пройденном «Дне 2»).
+    # Строка reminder уже помечена sent=TRUE в check_reminders → повтора не будет.
+    from db.queries.marathon_newcomer import is_on_newcomer_marathon
+    if await is_on_newcomer_marathon(chat_id):
+        logger.info(f"[Scheduler] {chat_id}: на новом движке марафона, гашу legacy-напоминание {reminder_type}")
+        return
+
     topics_today = get_topics_today(intern)
 
     # Если уже начал изучение сегодня — не напоминаем
