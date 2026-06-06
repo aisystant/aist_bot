@@ -23,6 +23,16 @@ _HERMES_PREFIXES_RE = re.compile(r"^(гермес|hermes)[,:\s]+", re.IGNORECASE
 _HERMES_UNAVAILABLE_TIER_MSG = "Функция недоступна на твоём тире"
 _HERMES_UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен. Попробуй позже."
 
+# WP-392 Ф3.1b: session_id для hermes_chat (память диалога T4-full)
+_HERMES_SESSION_MAP: dict[int, str] = {}
+
+
+def _tier_num(intern: dict) -> int:
+    tier_str = intern.get("tier", "T1")
+    if isinstance(tier_str, str) and tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
+        return int(tier_str[1])
+    return 1
+
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
     """Проверяет, что callback НЕ принадлежит engines/ роутерам."""
@@ -91,26 +101,53 @@ async def on_unknown_message(message: Message, state: FSMContext):
 
     if dispatcher and dispatcher.is_sm_active:
         intern = await get_intern(chat_id)
+        tier_num = _tier_num(intern or {})
+
+        # WP-392 Ф3.1b: T4-full — ВСЁ в Hermes (без префикса, без консультанта)
+        if tier_num >= 4 and text and not text.startswith('/'):
+            session_id = _HERMES_SESSION_MAP.get(chat_id)
+            from clients.gateway_mcp import gateway_mcp
+            try:
+                from helpers.typing_indicator import keep_typing
+                async with keep_typing(message):
+                    response = await gateway_mcp.hermes_chat(
+                        message=text,
+                        telegram_user_id=chat_id,
+                        session_id=session_id,
+                    )
+            except Exception:
+                logger.exception("[fallback] hermes_chat (T4-full) failed for chat %s", chat_id)
+                response = _HERMES_UNAVAILABLE_RUNTIME_MSG
+            # Сохраняем session_id для продолжения диалога
+            if response and not response.startswith(_HERMES_UNAVAILABLE_RUNTIME_MSG):
+                # Gateway возвращает session_id в ответе? Нет — hermes_chat возвращает текст.
+                # session_id управляется на стороне gateway/hermes. Для T4-full
+                # gateway сам поддерживает сессию по telegram_user_id.
+                # Оставляем _HERMES_SESSION_MAP на случай если gateway вернёт session_id
+                # в будущем; пока — no-op (gateway держит сессию по user_id).
+                pass
+            await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+            return
 
         # WP-392 Ф3.1: явный вызов Hermes через префикс — ДО онбординг-интентов.
         # Fail-safe: если hermes_router пропустил (SkipHandler при marathon SM),
         # fallback перехватывает и маршрутизирует в Hermes напрямую.
         if text and _HERMES_PREFIXES_RE.search(text):
-            # Проверяем tier — Hermes доступен только T3+
-            tier_str = (intern or {}).get("tier", "T1")
-            tier_num = 1
-            if isinstance(tier_str, str) and tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
-                tier_num = int(tier_str[1])
-            logger.info("[fallback] hermes prefix chat_id=%s tier_str=%r tier_num=%s", chat_id, tier_str, tier_num)
+            logger.info("[fallback] hermes prefix chat_id=%s tier_str=%r tier_num=%s", chat_id, (intern or {}).get("tier"), tier_num)
             if tier_num < 3:
                 await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
                 return
             hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+            session_id = _HERMES_SESSION_MAP.get(chat_id)
             from clients.gateway_mcp import gateway_mcp
             try:
                 from helpers.typing_indicator import keep_typing
                 async with keep_typing(message):
-                    response = await gateway_mcp.hermes_chat(message=hermes_msg, telegram_user_id=chat_id)
+                    response = await gateway_mcp.hermes_chat(
+                        message=hermes_msg,
+                        telegram_user_id=chat_id,
+                        session_id=session_id,
+                    )
             except Exception:
                 logger.exception("[fallback] hermes_chat failed for chat %s", chat_id)
                 response = _HERMES_UNAVAILABLE_RUNTIME_MSG
