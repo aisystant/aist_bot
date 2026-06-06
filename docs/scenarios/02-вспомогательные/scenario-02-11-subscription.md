@@ -60,7 +60,7 @@ Payment result (callback)
 ## 5. Telegram Stars vs Aisystant payment
 
 ⚠️ **Два независимых платежных канала:**
-- **Aisystant payment** (Yookassa) — основной способ для «Бесконечное развитие», идёт через `clients/aisystant.py`
+- **Aisystant payment** (Yookassa) — основной способ для «Инженерия интеллекта», идёт через `clients/aisystant.py`
 - **Telegram Stars** — используется для донатов / благодарностей (НЕ влияет на tier, только `is_first_recurring` в `subscriptions`)
 
 Правило (§12 CLAUDE.md): TG Stars = донаты, НЕ влияют на tier/доступ.

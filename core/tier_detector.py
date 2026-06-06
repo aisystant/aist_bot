@@ -8,7 +8,7 @@ Source-of-truth: WP-52 + WP-79 + WP-85
 Tier model (cumulative, payment-first):
   T0 (0):  not linked to Aisystant
   T1 (1): linked, no active БР subscription
-  T2: Aisystant «Бесконечное развитие» subscription active
+  T2: Aisystant «Инженерия интеллекта» subscription active
   T3: T2 + Digital Twin connected
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
@@ -124,7 +124,7 @@ async def _get_aisystant_id(chat_id: int) -> str | None:
 async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     """Check if user has active Aisystant БР subscription.
 
-    WP-85, WP-210 Ф2a: только оплаченная «Бесконечное развитие».
+    WP-85, WP-210 Ф2a: только оплаченная «Инженерия интеллекта».
     Триал убран — единственный источник T2+ права = активная БР.
     TG Stars donations do NOT affect this check.
     """

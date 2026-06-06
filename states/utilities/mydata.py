@@ -806,7 +806,7 @@ class MyDataState(BaseState):
         tiers_info = {
             'ru': {
                 0: ('Новый пользователь. Марафон, тест, прогресс. Trial 30 дней.', 'Привязать аккаунт Aisystant (/link)'),
-                1: ('Привязан к Aisystant. Марафон, базовый профиль.', 'Оформить подписку «Бесконечное развитие»'),
+                1: ('Привязан к Aisystant. Марафон, базовый профиль.', 'Оформить подписку «Инженерия интеллекта»'),
                 2: ('Подписка. Лента, консультации, заметки, планы.', 'Подключить Цифровой Двойник (/twin)'),
                 3: ('ЦД подключён. Персонализация, полный профиль.', 'Подключить GitHub (/github)'),
                 4: ('Локальный экзокортекс. Claude Code, агенты, личная база знаний.', 'Установить Claude Code + fork шаблона'),
@@ -863,13 +863,13 @@ class MyDataState(BaseState):
         actions = {
             'ru': {
                 0: ("🔗 Привязать Aisystant", "mydata_action_link"),
-                1: ("💳 Оформить подписку «Бесконечное развитие»", "aisystant_subscribe"),
+                1: ("💳 Оформить подписку «Инженерия интеллекта»", "aisystant_subscribe"),
                 2: ("🧬 Подключить Цифровой Двойник", "mydata_action_twin"),
                 3: ("🔗 Подключить GitHub", "mydata_action_github"),
             },
             'en': {
                 0: ("🔗 Link Aisystant", "mydata_action_link"),
-                1: ("💳 Subscribe to «Infinite Development»", "aisystant_subscribe"),
+                1: ("💳 Subscribe to «Intelligence Engineering»", "aisystant_subscribe"),
                 2: ("🧬 Connect Digital Twin", "mydata_action_twin"),
                 3: ("🔗 Connect GitHub", "mydata_action_github"),
             },

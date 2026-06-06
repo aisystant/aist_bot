@@ -53,8 +53,8 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
 async def cmd_connect(message: Message):
     """Команда /connect — IWE setup wizard."""
     intern = await get_intern(message.chat.id)
-    if not intern or not intern.get('onboarding_completed'):
-        lang = intern.get('language', 'ru') if intern else 'ru'
+    lang = intern.get('language', 'ru') if intern else 'ru'
+    if not intern:
         await message.answer(t('connect.need_start', lang))
         return
 
