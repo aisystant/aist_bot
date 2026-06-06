@@ -164,7 +164,7 @@ async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict 
     logger.info(f"[Learn] Delivered new-format lesson day {day} to {user_id}")
 
 
-async def try_deliver_new_marathon(user_id: int, target, intern: dict = None) -> bool:
+async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, dedup_minutes: int = 720) -> bool:
     """Если пользователь в марафоне — отдать урок дня (новый формат) и вернуть True.
 
     Возвращает False только для НЕ-марафонских режимов (Лента) — тогда вызывающий
@@ -172,6 +172,10 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None) ->
       active     → урок текущего дня,
       completed  → сообщение «завершил»,
       иначе      → подсказка /marathon_start (без авто-старта).
+
+    dedup_minutes: окно дедупликации (720 мин для /learn, 10 мин для callback-кнопок).
+    Короткое окно позволяет пользователю получить урок по кнопке catch-up уведомления
+    даже если урок был недавно доставлен автоматически.
     """
     from db.queries import get_intern
 
@@ -186,8 +190,9 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None) ->
 
     if status == 'active':
         # UX-audit Day 1 №4+№7: повторный /learn не должен дублировать урок дня.
-        # Если lesson_practice уже отправлялся сегодня — показываем статус.
-        if await has_recent_lesson_practice_sent(user_id, within_minutes=720):
+        # Если lesson_practice уже отправлялся недавно — показываем статус.
+        # При вызове из callback (catch-up кнопка) dedup_minutes=10 мин — короткое окно.
+        if await has_recent_lesson_practice_sent(user_id, within_minutes=dedup_minutes):
             display_day = progress.get('current_day', 1) if progress.get('current_day', 0) > 0 else 1
             await target.answer(
                 f"📚 Урок дня уже отправлен.\n\n"

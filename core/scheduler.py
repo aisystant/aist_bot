@@ -294,6 +294,18 @@ async def _process_marathon_queue():
                             try:
                                 await bot.send_message(chat_id, lesson_text, parse_mode="Markdown", reply_markup=keyboard)
                                 await mark_queue_sent(queue_id)
+                                # Фикс WP-330 catch-up bug: ставим notification_sent_at чтобы
+                                # _catch_up_missed_deliveries не слала ложное уведомление.
+                                from db.connection import get_learning_pool as _get_lpool
+                                _lpool = await _get_lpool()
+                                async with _lpool.acquire() as _lconn:
+                                    await _lconn.execute(
+                                        '''UPDATE marathon_content
+                                           SET notification_sent_at = NOW(), updated_at = NOW()
+                                           WHERE user_id = $1 AND day_number = $2
+                                             AND notification_sent_at IS NULL''',
+                                        chat_id, day,
+                                    )
                                 progress = await get_or_create_progress(chat_id)
                                 current_day = progress.get('current_day', 0)
                                 new_day = max(current_day, day)
@@ -347,6 +359,17 @@ async def _process_marathon_queue():
                             await bot.send_message(chat_id, text, parse_mode="Markdown")
                         await mark_queue_sent(queue_id)
                         if content_type == 'lesson_practice':
+                            # Фикс WP-330 catch-up bug (legacy path)
+                            from db.connection import get_learning_pool as _get_lpool
+                            _lpool = await _get_lpool()
+                            async with _lpool.acquire() as _lconn:
+                                await _lconn.execute(
+                                    '''UPDATE learning.marathon_content
+                                       SET notification_sent_at = NOW(), updated_at = NOW()
+                                       WHERE user_id = $1 AND day_number = $2
+                                         AND notification_sent_at IS NULL''',
+                                    chat_id, day,
+                                )
                             progress = await get_or_create_progress(chat_id)
                             current_day = progress.get('current_day', 0)
                             new_day = max(current_day, day)
@@ -2019,13 +2042,23 @@ async def _catch_up_missed_deliveries():
     today_msk = now.date()
 
     # Шаг 1: chat_ids уже получивших уведомление сегодня (learning БД).
+    # Также исключаем тех, кому урок уже доставлен через marathon_queue сегодня —
+    # fallback на случай если notification_sent_at не был выставлен (краш, race).
     learning_pool_inst = await get_learning_pool()
     async with learning_pool_inst.acquire() as lconn:
         notified_rows = await lconn.fetch('''
             SELECT DISTINCT chat_id FROM marathon_content
             WHERE notification_sent_at >= $1::date
         ''', today_msk)
-    notified_chat_ids = [r['chat_id'] for r in notified_rows]
+        queue_delivered_rows = await lconn.fetch('''
+            SELECT DISTINCT user_id AS chat_id FROM learning.marathon_queue
+            WHERE content_type = 'lesson_practice'
+              AND status = 'sent'
+              AND sent_at >= $1::date
+        ''', today_msk)
+    notified_chat_ids = list(
+        {r['chat_id'] for r in notified_rows} | {r['chat_id'] for r in queue_delivered_rows}
+    )
 
     # Шаг 2: candidates из user_state, исключая уже notified.
     pool = await get_pool()

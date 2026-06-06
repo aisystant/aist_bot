@@ -275,7 +275,9 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
             # (статический урок мгновенно), не старая SM. Новый scheduler шлёт
             # только marathon_get_lesson; get_question/get_practice — legacy.
             from handlers.marathon import try_deliver_new_marathon
-            if not await try_deliver_new_marathon(chat_id, callback.message, intern):
+            # dedup_minutes=10: короткое окно позволяет получить урок по кнопке
+            # catch-up уведомления даже если урок был доставлен автоматически.
+            if not await try_deliver_new_marathon(chat_id, callback.message, intern, dedup_minutes=10):
                 state_map = {
                     "marathon_get_lesson": "workshop.marathon.lesson",
                     "marathon_get_question": "workshop.marathon.question",
