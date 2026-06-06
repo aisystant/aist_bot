@@ -576,7 +576,10 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             f"🔒 *{t('update.marathon_active_block_title', lang)}*\n\n"
             f"{t('update.marathon_active_block_text', lang)}",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=t('update.back_to_settings_btn', lang), callback_data="back_to_update_screen")
+            ]])
         )
         await state.clear()
         return
@@ -597,6 +600,15 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
         reply_markup=kb_marathon_start(lang)
     )
     await state.set_state(UpdateStates.updating_marathon_start)
+
+@settings_router.callback_query(F.data == "back_to_update_screen")
+async def on_back_to_update_screen(callback: CallbackQuery, state: FSMContext):
+    """MAR7: вернуться к экрану настроек из блок-сообщения активного марафона."""
+    intern = await get_intern(callback.message.chat.id)
+    await callback.answer()
+    await callback.message.delete()
+    await _show_update_screen(callback.message, intern, state)
+
 
 @settings_router.callback_query(UpdateStates.updating_marathon_start, F.data == "keep_start_date")
 async def on_keep_marathon_start(callback: CallbackQuery, state: FSMContext):

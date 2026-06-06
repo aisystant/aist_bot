@@ -2601,6 +2601,9 @@ update:
   start_date_kept:
     ru: "Дата не изменена."
     en: "Date unchanged."
+  back_to_settings_btn:
+    ru: "↩️ Назад к настройкам"
+    en: "↩️ Back to settings"
   marathon_active_block_title:
     ru: "Марафон уже идёт — дату не изменить"
     en: "Marathon is in progress — date cannot be changed"
