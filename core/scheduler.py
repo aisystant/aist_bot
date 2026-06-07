@@ -257,6 +257,7 @@ async def _process_marathon_queue():
 
     bot = Bot(token=_bot_token)
     try:
+        lesson_delivered_users: set[int] = set()  # burst guard: max 1 lesson_practice per user per run
         for item in items:
             async with _marathon_semaphore:
                 try:
@@ -267,6 +268,15 @@ async def _process_marathon_queue():
                     content_ref = item.get('content_ref')
                     content_text = item.get('content_text')
                     attempts = item['attempts']
+
+                    if content_type == 'lesson_practice':
+                        if chat_id in lesson_delivered_users:
+                            logger.info(
+                                "[MarathonQueue] Burst guard: skip day %s for %s (already delivered this run)",
+                                day, chat_id,
+                            )
+                            continue
+                        lesson_delivered_users.add(chat_id)
 
                     # WP-330 Ф10.C: split lesson_practice на 2 сообщения для новых записей
                     # (content_text=NULL). Legacy (content_text!=NULL) идут старым путём ниже.

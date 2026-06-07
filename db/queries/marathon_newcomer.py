@@ -620,8 +620,8 @@ async def enqueue_day_items(user_id: int, day_number: int, scheduled_at: datetim
                ON CONFLICT (user_id, day_number, content_type) DO UPDATE SET
                    content_text = EXCLUDED.content_text,
                    scheduled_at = EXCLUDED.scheduled_at,
-                   status = 'pending',
-                   sent_at = NULL,
+                   status = CASE WHEN marathon_queue.status = 'sent' THEN 'sent' ELSE 'pending' END,
+                   sent_at = CASE WHEN marathon_queue.status = 'sent' THEN marathon_queue.sent_at ELSE NULL END,
                    error = NULL,
                    updated_at = NOW()''',
             user_id, day_number, scheduled_at, lesson_practice_text, checkin_text,
