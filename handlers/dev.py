@@ -868,3 +868,148 @@ async def cmd_broadcast_reconnect(message: Message):
         f"Всего кандидатов: {total}",
         parse_mode="HTML",
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# /user_repair — диагностика и починка GitHub-интеграции пользователя
+# (WP-field fix: user_integrations отсутствует → activity-hub не собирает
+# коммиты → нет начислений баллов)
+# ─────────────────────────────────────────────────────────────────────
+
+@dev_router.message(Command("user_repair"))
+async def cmd_user_repair(message: Message):
+    """/user_repair <email> [fix] — диагностика и починка GitHub-интеграции.
+
+    Режимы:
+      /user_repair email@example.com       — только диагностика
+      /user_repair email@example.com fix   — диагностика + создать/обновить
+                                             persona.user_integrations из github_connections
+
+    Проверяет:
+      1. users (chat_id, tier, email)
+      2. ory_identity (account_id, ory_id)
+      3. github_connections (github_username, user_uuid)
+      4. persona.user_integrations (active, metadata.github_username)
+    """
+    if not _is_developer(message.chat.id):
+        return
+
+    parts = (message.text or "").split(maxsplit=2)
+    if len(parts) < 2:
+        await message.answer(
+            "Использование: <code>/user_repair email@example.com [fix]</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    email = parts[1].strip().lower()
+    do_fix = len(parts) >= 3 and parts[2].strip() == "fix"
+
+    lines: list[str] = [f"<b>/user_repair {email}</b>\n"]
+
+    try:
+        from db.connection import get_pool, get_secrets_pool, get_persona_pool
+        bot_pool = await get_pool()
+        secrets_pool = await get_secrets_pool()
+        persona_pool = await get_persona_pool()
+
+        # 1. users
+        async with bot_pool.acquire() as conn:
+            u = await conn.fetchrow(
+                "SELECT chat_id, tier, email FROM users WHERE lower(email) = $1 LIMIT 1",
+                email,
+            )
+        if not u:
+            lines.append(f"❌ Пользователь <code>{email}</code> не найден в <code>users</code>.")
+            await message.answer("\n".join(lines), parse_mode="HTML")
+            return
+
+        chat_id = u["chat_id"]
+        lines.append(f"✅ users: chat_id=<code>{chat_id}</code>, tier=<code>{u['tier']}</code>")
+
+        # 2. ory_identity
+        async with persona_pool.acquire() as conn:
+            ory_row = await conn.fetchrow(
+                "SELECT account_id, ory_id FROM ory_identity WHERE telegram_id = $1 LIMIT 1",
+                chat_id,
+            )
+        if not ory_row or not ory_row["account_id"]:
+            lines.append("❌ ory_identity: нет account_id → repair невозможен (нужен Ory-аккаунт)")
+            await message.answer("\n".join(lines), parse_mode="HTML")
+            return
+
+        account_id = ory_row["account_id"]
+        lines.append(f"✅ ory_identity: account_id=<code>{str(account_id)[:16]}…</code>")
+
+        # 3. github_connections
+        from db.queries.github import get_github_connection
+        gh = await get_github_connection(chat_id)
+        if not gh:
+            lines.append("⚠️ github_connections: нет записи → GitHub не подключён через бота")
+        else:
+            gh_username = gh.get("github_username", "")
+            has_token = bool(gh.get("access_token"))
+            lines.append(
+                f"✅ github_connections: username=<code>{gh_username or '—'}</code>, "
+                f"token={'✅' if has_token else '❌'}"
+            )
+
+        # 4. persona.user_integrations
+        async with persona_pool.acquire() as conn:
+            ui = await conn.fetchrow(
+                "SELECT active, metadata FROM user_integrations "
+                "WHERE account_id = $1 AND service = 'github' LIMIT 1",
+                account_id,
+            )
+
+        import json as _json
+        if not ui:
+            lines.append("❌ user_integrations: запись отсутствует → activity-hub не собирает коммиты")
+        else:
+            meta = ui["metadata"] or {}
+            if isinstance(meta, str):
+                meta = _json.loads(meta)
+            ui_username = meta.get("github_username", "")
+            lines.append(
+                f"{'✅' if ui['active'] else '⚠️'} user_integrations: "
+                f"active=<code>{ui['active']}</code>, "
+                f"username=<code>{ui_username or '—'}</code>"
+            )
+
+        # 5. Repair
+        if do_fix and gh:
+            gh_username = gh.get("github_username", "")
+            access_token = gh.get("access_token", "")
+            if not access_token:
+                lines.append("❌ fix: нет access_token в github_connections — нечего писать")
+            elif not gh_username:
+                lines.append("❌ fix: github_username пуст — нечего писать")
+            else:
+                try:
+                    from db.queries.github import sync_github_to_user_integrations
+                    await sync_github_to_user_integrations(
+                        chat_id=chat_id,
+                        access_token=access_token,
+                        github_username=gh_username,
+                    )
+                    lines.append(
+                        f"🔧 fix: persona.user_integrations обновлена "
+                        f"(username=<code>{gh_username}</code>)\n"
+                        "Activity-hub подхватит на следующем ежедневном sync-iwe."
+                    )
+                except Exception as fix_err:
+                    lines.append(f"❌ fix failed: <code>{fix_err}</code>")
+        elif do_fix and not gh:
+            lines.append("❌ fix: нет github_connections — попроси пользователя переподключить GitHub через /github")
+
+        if not do_fix:
+            lines.append(
+                "\n💡 Чтобы починить, добавь <code>fix</code>: "
+                f"<code>/user_repair {email} fix</code>"
+            )
+
+    except Exception as e:
+        logger.error("[user_repair] failed for %s: %s", email, e)
+        lines.append(f"❌ Ошибка: <code>{e}</code>")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")

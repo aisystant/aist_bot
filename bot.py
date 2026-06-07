@@ -507,6 +507,7 @@ async def main():
                 BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="tailor", description="Занятие Портного (WP-149)"),
                 BotCommand(command="dt_sync", description="Sync engagement → digital twins"),
+                BotCommand(command="user_repair", description="Диагностика/починка GitHub-интеграции пользователя"),
                 BotCommand(command="reset", description="Full wipe тестера → ре-онбординг"),
                 BotCommand(command="waka", description="WakaTime статистика"),
                 BotCommand(command="mode", description="Главное меню"),

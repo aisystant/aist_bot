@@ -216,9 +216,9 @@ class PlansState(BaseState):
         branch = await github_strategy.get_strategy_branch(chat_id)
         text = self._format_content(content, repo_url, branch)
 
-        # Day Plan может быть >4096 символов — разбиваем на части (§10.21)
-        from helpers.message_split import prepare_html_parts
-        parts = prepare_html_parts(text)
+        # text уже HTML (из format_strategy_content) — только делим, не конвертируем
+        from helpers.message_split import split_message_safe
+        parts = split_message_safe(text)
         for i, part in enumerate(parts):
             rm = keyboard if i == len(parts) - 1 else None
             await self.send(user, part, parse_mode="HTML", reply_markup=rm)
