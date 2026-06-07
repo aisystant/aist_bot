@@ -724,3 +724,16 @@ async def __call__(self, handler, event, data):
 
 **Правило 3 — config/__init__.py barrel sync (правило 10.17):**
 Любая новая константа из `config/settings.py`, используемая в middleware, должна быть добавлена в оба места `config/__init__.py` (import + `__all__`).
+
+### 10.38. `___` (тройной underscore) в статическом контенте Markdown v1
+
+Telegram Markdown v1 парсит `_` как маркер курсива. Три подряд `___` создают: парный `_`+`_` (пустой курсив) + непарный `_` (ищет закрывающую пару до конца текста). Если последний `_` в тексте — это открывающий маркер → ошибка `Can't find end of entity at byte offset N`.
+
+**Источник (2026-06-07):** `practice_short_simple` Day 1 марафона — 988 байт, `___` как fill-in prompt на байтах 545-547, последний `_` на байте 987 → именно эта ошибка у пользователя babais.
+
+**Правило:** в текстах `marathon-content.json` и любом статическом контенте с `parse_mode="Markdown"`:
+- `___` как заполнитель → заменить на `(Хаос / Тупик / Поворот)` или конкретный текст
+- После правки — проверить все варианты (practice_short_simple, practice_long_simple и т.д.)
+- Добавить `try/except` с fallback без parse_mode в каждый handler, отправляющий статический контент
+
+**SoT контента:** `DS-marathon-v2-tseren/materials/participants/marathon-content.json` → sync → `data/marathon-content.json` (bot runtime). Dockerfile не включает DS-marathon-v2-tseren → fallback path в prod недоступен.
