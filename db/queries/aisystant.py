@@ -106,6 +106,20 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                 chat_id, str(aisystant_id),
             )
             logger.info(f"[Aisystant] persona.ory_identity UPDATE: {persona_result} for chat_id={chat_id} aisystant={aisystant_id}")
+
+            # WP-327 fix: sync Ory UUID → public.users.dt_user_id so /points and 6 other
+            # handlers work immediately after /link without a separate DT OAuth flow.
+            ory_uuid = await pconn.fetchval(
+                """SELECT account_id FROM public.ory_identity
+                   WHERE (traits->>'aisystant_suser_id' = $1 OR traits->>'aisystant_id' = $1)
+                   ORDER BY (traits->>'aisystant_suser_id' = $1) DESC
+                   LIMIT 1""",
+                str(aisystant_id),
+            )
+            if ory_uuid:
+                from db.queries.identity import update_user_dt
+                await update_user_dt(chat_id, str(ory_uuid))
+                logger.info(f"[Aisystant] synced dt_user_id={ory_uuid} for chat_id={chat_id}")
     except Exception as exc:
         # Не блокируем /link — лучше успешная привязка с задержкой ory-моста,
         # чем падение /link целиком. Без telegram_id в persona /consent выведет
