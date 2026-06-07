@@ -457,6 +457,41 @@ def _format_analytics(report: dict) -> str:
     return text
 
 
+@dev_router.message(Command("find_user"))
+async def cmd_find_user(message: Message):
+    """/find_user <часть-имени-или-username> — найти пользователя по имени/username для получения chat_id."""
+    if not _is_developer(message.chat.id):
+        return
+
+    parts = message.text.strip().split(None, 1)
+    if len(parts) < 2:
+        await message.answer("<b>Использование:</b> /find_user &lt;часть имени или username&gt;", parse_mode="HTML")
+        return
+
+    query = parts[1].strip().lstrip('@')
+    from db.connection import get_pool
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT u.telegram_id AS chat_id, u.name, u.tg_username
+            FROM public.users u
+            WHERE LOWER(u.name) LIKE LOWER($1)
+               OR LOWER(u.tg_username) LIKE LOWER($1)
+            ORDER BY u.name
+            LIMIT 10
+        ''', f'%{query}%')
+
+    if not rows:
+        await message.answer(f"❌ Ничего не найдено по запросу <code>{query}</code>.", parse_mode="HTML")
+        return
+
+    lines = [f"<b>Найдено {len(rows)} пользователей:</b>\n"]
+    for r in rows:
+        uname = f"@{r['tg_username']}" if r['tg_username'] else "—"
+        lines.append(f"<code>{r['chat_id']}</code> | {r['name']} | {uname}")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @dev_router.message(Command("fix_marathon_startdate"))
 async def cmd_fix_marathon_startdate(message: Message):
     """/fix_marathon_startdate <@username|chat_id> — исправить marathon_start_date сбитого пользователя.
