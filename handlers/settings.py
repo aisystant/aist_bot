@@ -570,8 +570,21 @@ async def on_upd_marathon_start(callback: CallbackQuery, state: FSMContext):
     display_day = get_display_day(intern)
     marathon_status = intern.get('marathon_status', '')
 
-    # MAR7: блок при активном марафоне (новый движок)
-    if str(marathon_status) == 'active' and await is_on_newcomer_marathon(callback.message.chat.id):
+    # MAR7: блок при активном марафоне с прогрессом (новый движок или старый с пройденными темами).
+    # Изменение marathon_start_date при наличии прогресса ломает счётчик дней:
+    # старый движок пересчитывает marathon_day от новой даты → повтор уже пройденных уроков.
+    completed_raw = intern.get('completed_topics') or '[]'
+    if isinstance(completed_raw, str):
+        import json as _json
+        try:
+            completed_list = _json.loads(completed_raw)
+        except (ValueError, TypeError):
+            completed_list = []
+    else:
+        completed_list = list(completed_raw) if completed_raw else []
+    has_progress = len(completed_list) > 0
+
+    if str(marathon_status) == 'active' and (has_progress or await is_on_newcomer_marathon(callback.message.chat.id)):
         await callback.answer()
         await callback.message.edit_text(
             f"🔒 *{t('update.marathon_active_block_title', lang)}*\n\n"

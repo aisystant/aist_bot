@@ -2113,6 +2113,22 @@ async def _catch_up_missed_deliveries():
     if not missed:
         return
 
+    # Шаг 3: исключить пользователей нового движка (learning.marathon_progress).
+    # get_all_scheduled_interns делает это через app-side join; здесь тот же фильтр
+    # чтобы избежать race condition: catch-up может запуститься до того, как
+    # marathon_queue обновит status='sent', и повторно доставит Day 1 старым движком.
+    missed_ids = [r['chat_id'] for r in missed]
+    async with learning_pool_inst.acquire() as lconn:
+        progress_rows = await lconn.fetch(
+            'SELECT user_id FROM learning.marathon_progress WHERE user_id = ANY($1::bigint[])',
+            missed_ids
+        )
+    newcomer_ids = {r['user_id'] for r in progress_rows}
+    missed = [r for r in missed if r['chat_id'] not in newcomer_ids]
+
+    if not missed:
+        return
+
     # Фильтруем пользователей, которые завершили все темы — их marathon_content
     # не создаётся (нет следующей темы), но catch-up не должен слать им поздравления.
     # Также фильтруем тех, кто уже достиг дневного лимита тем — catch-up бесполезен.

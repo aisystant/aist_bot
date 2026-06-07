@@ -457,6 +457,129 @@ def _format_analytics(report: dict) -> str:
     return text
 
 
+@dev_router.message(Command("fix_marathon_startdate"))
+async def cmd_fix_marathon_startdate(message: Message):
+    """/fix_marathon_startdate <@username|chat_id> — исправить marathon_start_date сбитого пользователя.
+
+    Диагностирует: marathon_start_date, completed_topics, marathon_day.
+    Если start_date = сегодня (при наличии пройденных тем) → сдвигает на вчера,
+    очищает notification_sent_at в marathon_content чтобы catch-up доставил Day 2.
+    """
+    if not _is_developer(message.chat.id):
+        return
+
+    import json as _json
+    from datetime import date, timedelta, timezone
+    from db.queries.users import get_intern, update_intern, moscow_today
+    from db.queries.channels import find_user_by_username
+    from core.topics import get_marathon_day
+    from db.connection import get_learning_pool
+
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer(
+            "<b>Использование:</b> /fix_marathon_startdate @username\n"
+            "или: /fix_marathon_startdate &lt;chat_id&gt;",
+            parse_mode="HTML",
+        )
+        return
+
+    target = parts[1].lstrip('@')
+    chat_id = None
+
+    # Resolve username → chat_id
+    try:
+        chat_id = int(target)
+    except ValueError:
+        row = await find_user_by_username(target)
+        if row:
+            chat_id = row['chat_id']
+
+    if not chat_id:
+        await message.answer(f"❌ Пользователь <code>{target}</code> не найден.", parse_mode="HTML")
+        return
+
+    intern = await get_intern(chat_id)
+    if not intern:
+        await message.answer(f"❌ Intern-запись для {chat_id} не найдена.", parse_mode="HTML")
+        return
+
+    today = moscow_today()
+    start_date = intern.get('marathon_start_date')
+    if start_date and hasattr(start_date, 'date'):
+        start_date = start_date.date()
+
+    completed_raw = intern.get('completed_topics') or '[]'
+    if isinstance(completed_raw, str):
+        try:
+            completed = _json.loads(completed_raw)
+        except Exception:
+            completed = []
+    else:
+        completed = list(completed_raw) if completed_raw else []
+
+    marathon_day = get_marathon_day(intern)
+    marathon_status = intern.get('marathon_status', '—')
+
+    lines = [
+        f"<b>Диагностика @{target} ({chat_id})</b>\n",
+        f"marathon_status: <code>{marathon_status}</code>",
+        f"marathon_start_date: <code>{start_date}</code>",
+        f"marathon_day (текущий): <code>{marathon_day}</code>",
+        f"completed_topics: <code>{len(completed)}</code> шт.",
+        f"current_topic_index: <code>{intern.get('current_topic_index', 0)}</code>",
+    ]
+
+    # Нужна ли починка?
+    needs_fix = (
+        start_date == today
+        and len(completed) > 0
+        and marathon_status == 'active'
+    )
+
+    if not needs_fix:
+        lines.append("\n✅ Починка не нужна: start_date ≠ today или нет прогресса.")
+        await message.answer("\n".join(lines), parse_mode="HTML")
+        return
+
+    # Вычислить корректную дату: days_done = кол-во завершённых дней
+    days_done = max(1, len(completed) // 2)  # 2 темы на день
+    correct_date = today - timedelta(days=days_done)
+    lines.append(f"\n⚠️ start_date = today при {len(completed)} пройденных темах → <b>баг</b>")
+    lines.append(f"Корректная дата: <code>{correct_date}</code> (дней пройдено: {days_done})")
+    lines.append("Исправляю...")
+
+    await update_intern(chat_id, marathon_start_date=correct_date)
+
+    # Очистить notification_sent_at для текущей темы чтобы catch-up доставил следующий день
+    topic_index = intern.get('current_topic_index', 0)
+    today_str = today.strftime('%Y-%m-%d')
+    try:
+        pool = await get_learning_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                '''UPDATE marathon_content
+                   SET notification_sent_at = NULL
+                   WHERE chat_id = $1 AND topic_index = $2''',
+                chat_id, topic_index
+            )
+            # Очищаем idempotency-запись из learning.domain_event чтобы catch-up снова смог отправить
+            marathon_key = f"marathon_lesson:{chat_id}:{today_str}:topic{topic_index}"
+            await conn.execute(
+                "DELETE FROM domain_event WHERE source = 'aist-bot' AND external_id = $1",
+                f"notification-{marathon_key}",
+            )
+        lines.append("✅ notification_sent_at и idempotency очищены → catch-up пришлёт следующий день в течение 30 мин.")
+    except Exception as e:
+        lines.append(f"⚠️ Не удалось очистить notification_sent_at: <code>{e}</code>")
+        lines.append("Пользователь получит следующий день завтра в своё время.")
+
+    new_day = get_marathon_day({'marathon_start_date': correct_date})
+    lines.append(f"\n✅ Готово. Новый marathon_day: <code>{new_day}</code>")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 @dev_router.message(Command("reset"))
 async def cmd_reset(message: Message):
     """/reset <chat_id> — полный wipe тестера (удаляет ВСЁ, включая профиль → повторный онбординг)."""
