@@ -144,7 +144,7 @@ async def get_learning_pool() -> asyncpg.Pool:
     if _learning_pool is None:
         _learning_pool = await asyncpg.create_pool(
             LEARNING_URL,
-            statement_cache_size=100,
+            statement_cache_size=0,  # Neon pooled endpoint: prepared stmt cache вызывает UndefinedColumnError при переключении соединений
             min_size=2,  # WP-330 латентность: nav hot-path (/progress feed/answers)
             max_size=10,
             command_timeout=30,
