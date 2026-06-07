@@ -451,10 +451,14 @@ async def callback_marathon_practice(callback: CallbackQuery):
     # доставку НЕ блокирует.
     idempotency_key = f"marathon_practice:{user_id}:{day}"
 
-    from core.marathon_content import get_day_text
+    from core.marathon_content import get_day_text, resolve_variant
     from db.queries import get_intern
     # WP-330 С9a: routing по профилю → short_simple/short_complex/long_simple/long_complex
     intern_for_routing = await get_intern(user_id)
+    variant = resolve_variant(
+        intern_for_routing.get("study_duration") if intern_for_routing else None,
+        intern_for_routing.get("complexity_level") if intern_for_routing else None,
+    )
     practice = (
         get_day_text(day, 'practice', intern=intern_for_routing)
         or get_day_text(day, 'practice')
@@ -469,7 +473,18 @@ async def callback_marathon_practice(callback: CallbackQuery):
         practice_text = practice_text[:3990] + "\n\n…"
 
     try:
-        await callback.message.answer(practice_text, parse_mode="Markdown")
+        try:
+            await callback.message.answer(practice_text, parse_mode="Markdown")
+        except Exception as md_err:
+            if "can't parse entities" in str(md_err).lower():
+                # Markdown parse error — retry without formatting to deliver content
+                logger.warning(
+                    f"[MarathonPractice] Markdown error day {day} user {user_id} "
+                    f"variant={variant} bytes={len(practice_text.encode())}: {md_err}"
+                )
+                await callback.message.answer(practice_text)
+            else:
+                raise
         # UX-audit Day 1 №2: после практики сообщаем, что день завершён.
         # Формулировка без призыва «записаться в марафон» — пользователь уже в нём.
         await callback.message.answer(
@@ -482,11 +497,11 @@ async def callback_marathon_practice(callback: CallbackQuery):
         await try_insert_notification(user_id, "marathon_practice", idempotency_key)
         # Кнопку НЕ снимаем: практику можно получать повторно сколько угодно раз.
         await callback.answer()
-        logger.info(f"[MarathonPractice] Sent practice day {day} to {user_id}")
+        logger.info(f"[MarathonPractice] Sent practice day {day} to {user_id} variant={variant}")
     except Exception as e:
         logger.error(
-            f"[MarathonPractice] Failed to send practice day {day} to {user_id}: "
-            f"{type(e).__name__}: {e}"
+            f"[MarathonPractice] Failed to send practice day {day} to {user_id} "
+            f"variant={variant}: {type(e).__name__}: {e}"
         )
         await callback.answer("Не удалось отправить практику. Попробуй ещё раз позже.", show_alert=True)
 
