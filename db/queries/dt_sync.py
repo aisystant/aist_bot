@@ -315,9 +315,16 @@ async def sync_engagement_to_dt() -> dict:
                     }
 
                     # ─── LMS Qualification → 2_2_courses (WP-151 fix) ───
+                    # "Ученик" (numeric=20) и "Первокурсник" (numeric=10) управляются
+                    # stage_transitions, не LMS. Работник+ (numeric>=25) — из LMS.
                     qual = qual_by_chat_id.get(row['user_id'])
-                    if qual:
+                    if qual and qual.get('numeric', 0) >= 25:
                         collected_data["2_2_courses"]["qualification_level"] = qual
+                    elif qual and qual.get('numeric', 0) < 25:
+                        logger.debug(
+                            f"[DT Sync] Skipping LMS qual numeric={qual.get('numeric')} "
+                            f"for user {row['user_id']} — managed by stage_transitions"
+                        )
 
                     # ─── 2_5_notifications (WP-152 Ф4) ───
                     # e.user_id = chat_id (telegram_id)
@@ -669,8 +676,15 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                 if user_row:
                     quals = await _preload_lms_qualifications([user_row['aisystant_id']])
                     qual = quals.get(user_row['aisystant_id'])
-                    if qual:
+                    # "Ученик" (numeric=20) и "Первокурсник" (numeric=10) управляются
+                    # stage_transitions, не LMS. Работник+ (numeric>=25) — из LMS.
+                    if qual and qual.get('numeric', 0) >= 25:
                         collected_data["2_2_courses"]["qualification_level"] = qual
+                    elif qual and qual.get('numeric', 0) < 25:
+                        logger.debug(
+                            f"[DT Sync] single-user: skipping LMS qual numeric={qual.get('numeric')} "
+                            f"for user {row['user_id']} — managed by stage_transitions"
+                        )
             except Exception as e:
                 logger.warning(f"[DT Sync] single-user qualification failed: {e}")
 
