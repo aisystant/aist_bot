@@ -160,7 +160,7 @@ async def cleanup_expired_content():
 
         # Feed: expire (не delete) — сохраняем для аналитики
         feed_result = await conn.execute(
-            '''UPDATE feed_session SET status = 'expired'
+            '''UPDATE feed_sessions SET status = 'expired'
                WHERE status IN ('pending', 'active') AND session_date < $1''',
             today,
         )

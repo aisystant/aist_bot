@@ -234,14 +234,14 @@ async def delete_all_user_data(chat_id: int) -> dict:
     try:
         learning_pool = await get_learning_pool()
         async with learning_pool.acquire() as lconn:
-            # feed_session зависит от feed_week (FK week_id) — удалять первой
+            # feed_sessions зависит от feed_weeks (FK week_id) — удалять первой
             deleted = await lconn.execute(
-                '''DELETE FROM feed_session
-                   WHERE week_id IN (SELECT id FROM feed_week WHERE chat_id = $1)''',
+                '''DELETE FROM feed_sessions
+                   WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)''',
                 chat_id
             )
-            result['feed_session'] = _parse_delete_count(deleted)
-            for table in ('feed_week', 'marathon_content', 'answers', 'activity_log', 'assessments'):
+            result['feed_sessions'] = _parse_delete_count(deleted)
+            for table in ('feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments'):
                 deleted = await lconn.execute(
                     f'DELETE FROM {table} WHERE chat_id = $1', chat_id
                 )
@@ -334,14 +334,14 @@ async def reset_learning_data(chat_id: int) -> dict:
     try:
         learning_pool = await get_learning_pool()
         async with learning_pool.acquire() as lconn:
-            # feed_session зависит от feed_week (FK week_id) — удалять первой
+            # feed_sessions зависит от feed_weeks (FK week_id) — удалять первой
             deleted = await lconn.execute(
-                '''DELETE FROM feed_session
-                   WHERE week_id IN (SELECT id FROM feed_week WHERE chat_id = $1)''',
+                '''DELETE FROM feed_sessions
+                   WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)''',
                 chat_id
             )
-            result['feed_session'] = _parse_delete_count(deleted)
-            for table in ('feed_week', 'marathon_content', 'answers', 'activity_log', 'assessments'):
+            result['feed_sessions'] = _parse_delete_count(deleted)
+            for table in ('feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments'):
                 deleted = await lconn.execute(
                     f'DELETE FROM {table} WHERE chat_id = $1', chat_id
                 )
