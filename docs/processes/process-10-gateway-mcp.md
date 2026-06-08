@@ -297,6 +297,33 @@ gateway_mcp = GatewayMCPClient(url=GATEWAY_MCP_URL)
 - `sync_fields(telegram_user_id, fields)` — гранулярная синхронизация конкретных полей
 - `get_connected_user_ids()` — список user IDs с активным токеном
 
+### 11.6. Онбординг — Journey API (WP-349 Ф28, gateway-mcp a378127)
+
+> **Уровень доступа:** T0/T1 (публичные, token не обязателен для T0). Реализованы в gateway-mcp.
+> **Используются:** `/setup`, `handlers/onboarding.py`, `handlers/hermes.py` (бот → проекция, Ф30 WP-349).
+
+- `get_journey_state(telegram_user_id=None)` → `JourneyState` — обе координаты пути пилота:
+  - **Технологическая:** тир T0-T4 (Ory sub? подписка? ЦД? managed-репо? GitHub?)
+  - **Содержательная:** cp_stage (ступень 1-5), bottleneck, has_diagnosis, программа
+  - Источники: `learning.onboarding_state` + `learning.cp_assessments` + контракт подписки
+  - Режим отказа: если Neon недоступен → вернуть T0-состояние с флагом `degraded=true`
+
+- `get_next_onboarding_step(telegram_user_id=None, channel_hint=None)` → `OnboardingStep` — один приоритетный шаг:
+  - Эвристика v2: ступень неизвестна → диагностика; tier < мин-тир-программы → оснащение; иначе → контент
+  - `channel_hint`: `"bot"` | `"browser"` | `"vscode"` — для подбора CTA-текста канала
+  - Возвращает: `{step_type, message_key, cta_label, cta_action, coordinate}`
+
+- `grant_consent(telegram_user_id, scope, granted, interface)` — запись consent из любого канала:
+  - UPSERT `consent_grant` (scoped), COALESCE opted_at
+  - `interface`: `"telegram"` | `"browser"` | `"vscode"` — аудитовый след
+  - Free tool (T0/T1, без проверки подписки)
+
+- `request_equipment_upgrade(telegram_user_id, target_tier)` — инициировать апгрейд оснащения:
+  - T1→T2: вернуть ссылку оплаты; T2→T3: вызвать `create_repository` managed; T3→T4: вызвать `github_connect`
+  - Заменяет бот-only tier_upgrade.py CTA (используется из любого MCP-клиента)
+
+**Добавление в tool prefix table** (§2): все четыре инструмента используют prefix `get_journey_state`, `get_next_onboarding_step`, `grant_consent`, `request_equipment_upgrade` — без prefix (public tools, как `get_instructions`).
+
 ---
 
 ## 12. Антипаттерны
