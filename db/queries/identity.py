@@ -195,25 +195,37 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
 
 
 async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
-    """Fire-and-forget: записать tier в persona.ory_identity.traits."""
-    try:
-        from db.connection import get_persona_pool
-        persona_pool = await get_persona_pool()
-        async with persona_pool.acquire() as pconn:
-            await pconn.execute(
-                """
-                UPDATE public.ory_identity
-                SET traits = jsonb_set(
-                    COALESCE(traits, '{}'::jsonb),
-                    '{tier}',
-                    to_jsonb($2::text),
-                    true
-                ),
-                last_sync = NOW()
-                WHERE account_id = $1::uuid
-                """,
-                ory_id, tier,
-            )
-    except Exception as exc:
-        logger.warning(f"[Identity] _sync_tier_to_persona failed for ory_id={ory_id}: {exc}")
-        # Не поднимаем — fire-and-forget, шлюз упадёт на fallbackTier
+    """Fire-and-forget: записать tier в persona.ory_identity.traits. Retry 3× с backoff."""
+    from db.connection import get_persona_pool
+
+    _SQL = """
+        UPDATE public.ory_identity
+        SET traits = jsonb_set(
+            COALESCE(traits, '{}'::jsonb),
+            '{tier}',
+            to_jsonb($2::text),
+            true
+        ),
+        last_sync = NOW()
+        WHERE account_id = $1::uuid
+    """
+    delays = [0, 5, 30]  # секунды перед 1-й, 2-й, 3-й попыткой
+    for attempt, delay in enumerate(delays, start=1):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as pconn:
+                await pconn.execute(_SQL, ory_id, tier)
+            return
+        except Exception as exc:
+            if attempt == len(delays):
+                logger.error(
+                    f"[Identity] _sync_tier_to_persona gave up after {attempt} attempts "
+                    f"for ory_id={ory_id}: {exc}"
+                )
+            else:
+                logger.warning(
+                    f"[Identity] _sync_tier_to_persona attempt {attempt} failed "
+                    f"for ory_id={ory_id}: {exc}. Retrying in {delays[attempt]}s."
+                )
