@@ -67,6 +67,32 @@ async def write_last_nudge_at(account_id: str) -> bool:
         return False
 
 
+async def sync_cp_stage_to_onboarding_state(account_id: str, cp_stage: int) -> bool:
+    """Мгновенно синхронизировать cp_stage и has_diagnosis в onboarding_state (mini-sync).
+
+    WP-349: вызывается после save_cp_assessment для немедленного отражения ступени.
+    Fail-safe — batch-sync исправит на следующем tick, если этот вызов упадёт.
+    UPSERT создаёт строку, если onboarding_controller ещё не успел (race-safe).
+    """
+    try:
+        pool = await get_learning_pool()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """INSERT INTO learning.onboarding_state (account_id, cp_stage, has_diagnosis)
+                   VALUES ($1::uuid, $2, TRUE)
+                   ON CONFLICT (account_id) DO UPDATE
+                   SET cp_stage = EXCLUDED.cp_stage,
+                       has_diagnosis = TRUE""",
+                account_id,
+                cp_stage,
+            )
+        tag = result or ""
+        return tag.startswith("INSERT") or tag.startswith("UPDATE")
+    except Exception as e:
+        logger.warning("[WP-349] mini-sync cp_stage failed (non-fatal): %s", e)
+        return False
+
+
 async def write_referral_source(account_id: str, referral_uuid: str) -> bool:
     """Записать referral_source = <ory_uuid рефери> при consent_accept (WP-349 Ф20).
 

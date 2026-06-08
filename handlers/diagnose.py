@@ -643,6 +643,13 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
             parse_mode="HTML",
         )
         logger.info("[diagnose] saved id=%s stage=%s", row_id, profile["stage"])
+
+        # WP-349 mini-sync: мгновенное обновление cp_stage в onboarding_state
+        try:
+            from db.queries.onboarding_journey import sync_cp_stage_to_onboarding_state
+            await sync_cp_stage_to_onboarding_state(account_id, profile["stage"])
+        except Exception as sync_e:
+            logger.warning("[diagnose] mini-sync cp_stage failed (non-fatal): %s", sync_e)
     except Exception as e:
         logger.error("[diagnose] save failed: %s", e)
         await message.answer(

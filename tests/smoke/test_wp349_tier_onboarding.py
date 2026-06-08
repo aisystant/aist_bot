@@ -246,3 +246,64 @@ async def test_marathon_integration_full():
         await on_setup_action(callback)
 
     assert flow_called == [777], "start_marathon_flow должна быть вызвана с user_id=777"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WP-349 mini-sync: cp_stage immediate update after diagnosis
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_sync_cp_stage_to_onboarding_state_insert_and_update():
+    """sync_cp_stage_to_onboarding_state делает INSERT, а при повторном вызове — UPDATE."""
+    from db.queries.onboarding_journey import sync_cp_stage_to_onboarding_state
+
+    call_log = []
+
+    class FakeConn:
+        async def execute(self, sql, *args):
+            call_log.append(("execute", sql, args))
+            # Первый вызов — INSERT, второй — UPDATE
+            if len([c for c in call_log if c[0] == "execute"]) == 1:
+                return "INSERT 0 1"
+            return "UPDATE 0 1"
+
+    class FakePool:
+        def acquire(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return FakeConn()
+                async def __aexit__(self, *args):
+                    pass
+            return _Ctx()
+
+    with patch("db.queries.onboarding_journey.get_learning_pool", new_callable=AsyncMock,
+               return_value=FakePool()):
+        # INSERT path
+        result1 = await sync_cp_stage_to_onboarding_state("00000000-0000-0000-0000-000000000001", 2)
+        assert result1 is True
+        assert call_log[-1][2][1] == 2  # cp_stage arg
+
+        # UPDATE path (повторная диагностика, другая ступень)
+        result2 = await sync_cp_stage_to_onboarding_state("00000000-0000-0000-0000-000000000001", 3)
+        assert result2 is True
+        assert call_log[-1][2][1] == 3
+
+
+@pytest.mark.asyncio
+async def test_sync_cp_stage_to_onboarding_state_fail_safe():
+    """Сбой mini-sync возвращает False, не кидает исключение наружу."""
+    from db.queries.onboarding_journey import sync_cp_stage_to_onboarding_state
+
+    class BrokenPool:
+        def acquire(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    raise RuntimeError("neon unreachable")
+                async def __aexit__(self, *args):
+                    pass
+            return _Ctx()
+
+    with patch("db.queries.onboarding_journey.get_learning_pool", new_callable=AsyncMock,
+               return_value=BrokenPool()):
+        result = await sync_cp_stage_to_onboarding_state("00000000-0000-0000-0000-000000000001", 2)
+        assert result is False
