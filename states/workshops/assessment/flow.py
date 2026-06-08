@@ -20,6 +20,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 
 from states.base import BaseState
 from i18n import t
@@ -177,6 +178,16 @@ class AssessmentFlowState(BaseState):
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
         """Обработка нажатий inline-кнопок."""
+        # Отвечаем немедленно — Telegram даёт 10 сек, а DB-запрос ниже может занять 1-5 сек
+        try:
+            await callback.answer()
+        except TelegramBadRequest as e:
+            logger.warning(f"Stale callback ignored ({callback.data}): {e}")
+            return None
+        except TelegramAPIError as e:
+            logger.warning(f"callback.answer() failed ({callback.data}): {e}")
+            return None
+
         lang = self._get_lang(user)
         data = await self._get_data(user)
         cb_data = callback.data
@@ -186,33 +197,34 @@ class AssessmentFlowState(BaseState):
         # --- INTRO ---
         if phase == PHASE_INTRO:
             if cb_data == "assess_start":
-                await callback.answer()
-                await callback.message.edit_reply_markup()
+                try:
+                    await callback.message.edit_reply_markup()
+                except (TelegramBadRequest, TelegramAPIError):
+                    pass
                 data = {**data, 'phase': PHASE_QUESTIONS, 'question_index': 0, 'answers': {}}
                 await self.save_state(user, data)
                 await self._send_question(user, data, lang)
                 return None
 
             if cb_data == "assess_cancel":
-                await callback.answer()
-                await callback.message.edit_text(t('assessment.cancelled', lang))
+                try:
+                    await callback.message.edit_text(t('assessment.cancelled', lang))
+                except (TelegramBadRequest, TelegramAPIError):
+                    pass
                 await self.clear_state(user)
                 return "cancel"
 
         # --- QUESTIONS ---
         if phase == PHASE_QUESTIONS:
             if cb_data in ("assess_yes", "assess_no"):
-                await callback.answer()
                 return await self._process_answer(user, callback, data, lang, cb_data == "assess_yes")
 
         # --- SELF CHECK ---
         if phase == PHASE_SELF_CHECK:
             if cb_data.startswith("assess_self_"):
-                await callback.answer()
                 choice = cb_data.replace("assess_self_", "")
                 data = {**data, 'self_check': choice}
 
-                # Edit message to show choice
                 assessment = load_assessment(data['assessment_id'])
                 self_check = assessment.get('self_check', {})
                 options = self_check.get('options', [])
@@ -222,17 +234,18 @@ class AssessmentFlowState(BaseState):
                         chosen_label = opt.get('label', {}).get(lang, opt.get('label', {}).get('ru', choice))
                         break
 
-                await callback.message.edit_text(
-                    f"✅ {t('assessment.self_check_answer', lang)}: {chosen_label}"
-                )
+                try:
+                    await callback.message.edit_text(
+                        f"✅ {t('assessment.self_check_answer', lang)}: {chosen_label}"
+                    )
+                except (TelegramBadRequest, TelegramAPIError):
+                    pass
 
-                # Переходим к открытому вопросу
                 data = {**data, 'phase': PHASE_OPEN}
                 await self.save_state(user, data)
                 await self._send_open_question(user, data, lang)
                 return None
 
-        await callback.answer()
         return None
 
     # =================================================================
@@ -276,10 +289,13 @@ class AssessmentFlowState(BaseState):
         q_text = question.get('text', {}).get(lang, question.get('text', {}).get('ru', ''))
         answer_text = t('assessment.answer_yes', lang) if answer else t('assessment.answer_no', lang)
 
-        await callback.message.edit_text(
-            f"✅ {t('assessment.question_label', lang)} {qi + 1} {t('assessment.of', lang)} {total}\n\n"
-            f"{q_text}\n→ {answer_text}"
-        )
+        try:
+            await callback.message.edit_text(
+                f"✅ {t('assessment.question_label', lang)} {qi + 1} {t('assessment.of', lang)} {total}\n\n"
+                f"{q_text}\n→ {answer_text}"
+            )
+        except (TelegramBadRequest, TelegramAPIError):
+            pass
 
         # Следующий вопрос или переход к результатам
         next_qi = qi + 1

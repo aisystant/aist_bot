@@ -18,6 +18,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 
 from states.base import BaseState
 from i18n import t
@@ -233,7 +234,11 @@ class AssessmentResultState(BaseState):
 
     async def handle_callback(self, user, callback: CallbackQuery) -> Optional[str]:
         """Обработка нажатий кнопок после результата."""
-        await callback.answer()
+        try:
+            await callback.answer()
+        except (TelegramBadRequest, TelegramAPIError) as e:
+            logger.warning(f"Stale callback ignored ({callback.data}): {e}")
+            return None
         data = callback.data
 
         if data == "assess_result_marathon":
@@ -245,7 +250,8 @@ class AssessmentResultState(BaseState):
             user_id = callback.from_user.id
             intern = await get_intern(user_id)
             sched = (intern or {}).get("schedule_time") or "04:00"
-            await start_marathon_flow(user_id, callback.message, schedule_time=sched)
+            if callback.message:
+                await start_marathon_flow(user_id, callback.message, schedule_time=sched)
             return None
         elif data == "assess_result_settings":
             return "settings"
