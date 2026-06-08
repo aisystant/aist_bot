@@ -5660,8 +5660,8 @@ schedule:
     en: "IWE Seminar (funnel)"
 
   menu_subscription:
-    ru: "Подписка БР"
-    en: "ID Subscription"
+    ru: "Подписка «Инженерия интеллекта»"
+    en: "Subscription «Инженерия интеллекта»"
 
   menu_my_courses:
     ru: "Мои программы"
