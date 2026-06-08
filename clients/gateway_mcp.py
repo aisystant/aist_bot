@@ -785,6 +785,16 @@ class GatewayMCPClient:
         result = await self._call("request_equipment_upgrade", args, telegram_user_id=telegram_user_id)
         return self._parse_text_content(result)
 
+    async def get_onboarding_context(self, telegram_user_id: int) -> Optional[dict]:
+        """Получить полный онбординг-контекст пилота через Gateway.
+
+        Returns:
+            dict с JourneyState + история шагов + активные consent + program_hint
+            или None при ошибке.
+        """
+        result = await self._call("get_onboarding_context", {}, telegram_user_id=telegram_user_id)
+        return self._parse_text_content(result)
+
     # =========================================================================
     # WP-349 Ф29: BYOK — управление пользовательскими LLM-ключами (T4)
     # =========================================================================
