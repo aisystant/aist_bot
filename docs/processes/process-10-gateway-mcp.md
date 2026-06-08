@@ -61,6 +61,7 @@ Gateway определяет бэкенд по префиксу tool name:
 | `personal_*` | personal-knowledge-mcp (L4: личные заметки) | `personal_search`, `personal_write` |
 | (без prefix) | unified | `search` (across all backends) |
 | `get_instructions` | public tool | `get_instructions` (IWE platform) |
+| `get_journey_state`, `get_next_onboarding_step`,<br>`grant_consent`, `request_equipment_upgrade`,<br>`get_onboarding_context` | onboarding-service (T0/T1 public) | прямой вызов через `_call`; `telegram_user_id` опционален (T0 — без токена) |
 
 **Правило:** при добавлении нового tool — подставить wrapper над `_call(tool_name, args, telegram_user_id)`, выбрать правильный префикс, указать нужен ли `telegram_user_id` (для public tools — нет).
 
@@ -322,7 +323,13 @@ gateway_mcp = GatewayMCPClient(url=GATEWAY_MCP_URL)
   - T1→T2: вернуть ссылку оплаты; T2→T3: вызвать `create_repository` managed; T3→T4: вызвать `github_connect`
   - Заменяет бот-only tier_upgrade.py CTA (используется из любого MCP-клиента)
 
-**Добавление в tool prefix table** (§2): все четыре инструмента используют prefix `get_journey_state`, `get_next_onboarding_step`, `grant_consent`, `request_equipment_upgrade` — без prefix (public tools, как `get_instructions`).
+- `get_onboarding_context(telegram_user_id=None)` → `OnboardingContext` — полный снимок онбординг-контекста пилота:
+  - Объединяет `JourneyState` + историю шагов + активные consent + `program_hint`
+  - Предназначен для Портного (DP.ROLE.030) и Герменевта — отдаёт всё за один вызов вместо N отдельных
+  - **Нет обёртки в `gateway_mcp.py`** (добавить отдельной задачей): вызывается напрямую через `_call("get_onboarding_context", {...})`
+  - Режим отказа: degraded-флаг при недоступности Neon
+
+**Добавление в tool prefix table** (§2): все пять инструментов — без prefix (public tools, как `get_instructions`). Backend: onboarding-service. `telegram_user_id` опционален (T0 не требует токена).
 
 ---
 
