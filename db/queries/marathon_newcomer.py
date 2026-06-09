@@ -360,6 +360,76 @@ async def clear_marathon_state(user_id: int):
         )
 
 
+async def pause_marathon(user_id: int) -> bool:
+    """Поставить марафон на паузу (status='paused'), НЕ стирая очередь.
+
+    В отличие от /marathon_stop (status='dropped' + clear_marathon_queue),
+    пауза сохраняет прогресс и будущие уроки. Планировщик пропускает
+    paused-пользователей (см. _get_paused_user_ids в scheduler).
+    Возвращает True, если статус действительно сменился с active.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            '''UPDATE learning.marathon_progress
+               SET status = 'paused', updated_at = NOW()
+               WHERE user_id = $1 AND status = 'active' ''',
+            user_id,
+        )
+    return result and result != "UPDATE 0"
+
+
+async def resume_marathon(user_id: int, schedule_time: str = "04:00") -> bool:
+    """Снять паузу (status='active') и переставить оставшиеся уроки от завтра.
+
+    Пересдвиг нужен, чтобы накопившиеся за паузу дни не свалились пачкой:
+    каждый pending-день получает новую дату по порядку, начиная с завтра,
+    в привычное время schedule_time. Check-in = +14 часов от урока.
+    Возвращает True, если был на паузе.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            '''UPDATE learning.marathon_progress
+               SET status = 'active', updated_at = NOW()
+               WHERE user_id = $1 AND status = 'paused' ''',
+            user_id,
+        )
+        if not result or result == "UPDATE 0":
+            return False
+        await conn.execute(
+            '''WITH ranked AS (
+                   SELECT DISTINCT day_number,
+                          DENSE_RANK() OVER (ORDER BY day_number) AS rn
+                   FROM learning.marathon_queue
+                   WHERE user_id = $1 AND status = 'pending'
+               )
+               UPDATE learning.marathon_queue q
+               SET scheduled_at = CASE
+                       WHEN q.content_type = 'lesson_practice'
+                       THEN (CURRENT_DATE + r.rn)::timestamp + $2::time
+                       ELSE (CURRENT_DATE + r.rn)::timestamp + $2::time + INTERVAL '14 hours'
+                   END,
+                   error = NULL,
+                   updated_at = NOW()
+               FROM ranked r
+               WHERE q.user_id = $1 AND q.day_number = r.day_number
+                 AND q.status = 'pending' ''',
+            user_id, schedule_time,
+        )
+    return True
+
+
+async def get_paused_user_ids() -> set[int]:
+    """ID участников на паузе — планировщик пропускает их при доставке."""
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT user_id FROM learning.marathon_progress WHERE status = 'paused'"
+        )
+    return {r['user_id'] for r in rows}
+
+
 async def get_failed_queue_items(limit: int = 50):
     """Получить failed-записи из очереди для алертов наставникам."""
     pool = await get_learning_pool()

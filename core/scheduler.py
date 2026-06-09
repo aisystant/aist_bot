@@ -233,6 +233,7 @@ async def _process_marathon_queue():
         mark_queue_failed,
         get_or_create_progress,
         update_progress,
+        get_paused_user_ids,
     )
 
     if not _bot_token:
@@ -262,6 +263,18 @@ async def _process_marathon_queue():
                 len(blocked_in_queue),
                 sorted(blocked_in_queue),
             )
+    if not items:
+        return
+
+    # Пауза: пропускаем участников со статусом 'paused' — очередь сохранена,
+    # доставка возобновится после resume_marathon (см. /marathon_pause).
+    try:
+        paused_ids = await get_paused_user_ids()
+    except Exception as e:
+        logger.warning("[MarathonQueue] get_paused_user_ids failed: %s — processing without pause filter", e)
+        paused_ids = set()
+    if paused_ids:
+        items = [item for item in items if item['user_id'] not in paused_ids]
     if not items:
         return
 

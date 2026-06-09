@@ -22,6 +22,8 @@ from db.queries.marathon_newcomer import (
     get_sent_checkins_count,
     get_total_checkins_count,
     has_recent_lesson_practice_sent,
+    pause_marathon,
+    resume_marathon,
 )
 from db.queries.users import moscow_now, update_intern
 from config import get_logger
@@ -45,10 +47,26 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
             f"📅 День марафона: {progress.get('current_day', 0)} / 14\n\n"
             "📋 Команды:\n"
             "• /marathon_progress — статус и прогресс\n"
-            "• /marathon_stop — остановить марафон\n"
+            "• /marathon_pause — пауза (прогресс сохранится)\n"
+            "• /marathon_stop — выйти из марафона\n"
             "• /profile — изменить время и уровень сложности\n"
             "• /support — поддержка"
         )
+        return
+
+    if current_status == "paused":
+        resumed = await resume_marathon(user_id, schedule_time)
+        if resumed:
+            await update_intern(user_id, marathon_status="active")
+            await reply_msg.answer(
+                "▶️ Возвращаю тебя в марафон!\n\n"
+                f"📅 Ты на дне {progress.get('current_day', 0)} / 14. "
+                f"Оставшиеся уроки придут по одному в день в {schedule_time} МСК, начиная с завтра.\n\n"
+                "📋 /marathon_progress — прогресс | /marathon_pause — снова пауза"
+            )
+            logger.info("[Marathon] user_id=%s resumed from pause", user_id)
+        else:
+            await reply_msg.answer("Не получилось возобновить. Загляни в /support.")
         return
 
     if current_status == "completed":
@@ -116,7 +134,8 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
         "📋 Команды:\n"
         "• /learn — получить урок\n"
         "• /marathon_progress — прогресс\n"
-        "• /marathon_stop — поставить на паузу\n"
+        "• /marathon_pause — пауза (прогресс сохранится)\n"
+        "• /marathon_stop — выйти из марафона\n"
         "• /profile — изменить время и уровень сложности\n"
         "• /support — поддержка"
     )
@@ -402,7 +421,7 @@ async def callback_marathon_checkin(callback: CallbackQuery):
 
     # Убираем кнопки и показываем выбор
     original_text = callback.message.text or callback.message.caption or ""
-    footer = "" if is_completed else "\n\n📋 /marathon_progress — прогресс | /marathon_stop — пауза"
+    footer = "" if is_completed else "\n\n📋 /marathon_progress — прогресс | /marathon_pause — пауза | /marathon_stop — выход"
     await callback.message.edit_text(
         f"{original_text}\n\n✅ Твой выбор: {label}{footer}",
         reply_markup=None,
@@ -514,13 +533,41 @@ async def callback_marathon_practice(callback: CallbackQuery):
 # Ф2.8 /marathon_stop — выход из марафона
 # ════════════════════════════════════════════════════════════════════
 
-@marathon_router.message(Command("marathon_stop"))
-async def cmd_marathon_stop(message: Message):
-    """Остановить марафон: очистить очередь, статус → dropped."""
+@marathon_router.message(Command("marathon_pause"))
+async def cmd_marathon_pause(message: Message):
+    """Пауза марафона: статус → paused, очередь и прогресс сохраняются."""
     chat_id = message.chat.id
     progress = await get_or_create_progress(chat_id)
 
     if progress.get("status") != "active":
+        await message.answer(
+            "ℹ️ У тебя нет активного марафона, ставить на паузу нечего.\n"
+            "Начать или продолжить — /marathon_start"
+        )
+        return
+
+    paused = await pause_marathon(chat_id)
+    if not paused:
+        await message.answer("Не получилось поставить на паузу. Загляни в /support.")
+        return
+    await update_intern(chat_id, marathon_status="paused")
+
+    logger.info(f"[Marathon] User {chat_id} paused marathon at day {progress.get('current_day', 0)}.")
+    await message.answer(
+        "⏸ Марафон на паузе.\n\n"
+        f"Ты на дне {progress.get('current_day', 0)} / 14 — прогресс сохранён.\n"
+        "Когда будешь готов продолжить — /marathon_start (с того же места).\n\n"
+        "📋 /profile — настройки | /support — поддержка"
+    )
+
+
+@marathon_router.message(Command("marathon_stop"))
+async def cmd_marathon_stop(message: Message):
+    """Выйти из марафона: очистить очередь, статус → dropped (необратимо)."""
+    chat_id = message.chat.id
+    progress = await get_or_create_progress(chat_id)
+
+    if progress.get("status") not in ("active", "paused"):
         await message.answer(
             "ℹ️ У тебя нет активного марафона.\n"
             "Начни командой /marathon_start"
@@ -542,7 +589,9 @@ async def cmd_marathon_stop(message: Message):
 
     logger.info(f"[Marathon] User {chat_id} stopped marathon.")
     await message.answer(
-        "🛑 Марафон остановлен.\n\n"
-        "Если захочешь вернуться — /marathon_start (начнёшь сначала).\n\n"
+        "🛑 Ты вышел из марафона. Прогресс сброшен.\n\n"
+        "Если нужна была временная пауза — в следующий раз /marathon_pause "
+        "(сохраняет прогресс).\n"
+        "Начать заново с первого дня — /marathon_start.\n\n"
         "📋 /profile — настройки | /support — поддержка"
     )
