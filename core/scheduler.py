@@ -32,6 +32,7 @@ from db.connection import get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, mark_notification_sent, cleanup_expired_content, cleanup_error_questions
+from db.queries.marathon_newcomer import is_on_newcomer_marathon
 from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
@@ -257,7 +258,11 @@ async def _process_marathon_queue():
 
     bot = Bot(token=_bot_token)
     try:
-        lesson_delivered_users: set[int] = set()  # burst guard: max 1 lesson_practice per user per run
+        # Burst guard: максимум 1 lesson_practice на пользователя за запуск.
+        # Если у пользователя несколько lesson_practice (retry старого дня +
+        # нормальный новый день), отправляем только самый свежий (максимальный
+        # day_number). Retry старого дня помечаем failed='superseded'.
+        lesson_delivered_day: dict[int, int] = {}
         for item in items:
             async with _marathon_semaphore:
                 try:
@@ -270,13 +275,30 @@ async def _process_marathon_queue():
                     attempts = item['attempts']
 
                     if content_type == 'lesson_practice':
-                        if chat_id in lesson_delivered_users:
-                            logger.info(
-                                "[MarathonQueue] Burst guard: skip day %s for %s (already delivered this run)",
-                                day, chat_id,
-                            )
+                        prev_day = lesson_delivered_day.get(chat_id)
+                        if prev_day is not None:
+                            if day < prev_day:
+                                logger.info(
+                                    "[MarathonQueue] Superseded: skip retry day %s for %s (delivered day %s)",
+                                    day, chat_id, prev_day,
+                                )
+                                await mark_queue_failed(queue_id, "superseded_by_higher_day")
+                            elif day == prev_day:
+                                logger.info(
+                                    "[MarathonQueue] Duplicate: skip day %s for %s",
+                                    day, chat_id,
+                                )
+                                await mark_queue_failed(queue_id, "duplicate")
+                            else:
+                                # day > prev_day: retry старого дня пришёл раньше нового по scheduled_at.
+                                # Уже отправили один урок в этом запуске — откладываем до следующего тика.
+                                logger.warning(
+                                    "[MarathonQueue] Burst guard: skip day %s for %s"
+                                    " (already sent day %s this run, will retry next tick)",
+                                    day, chat_id, prev_day,
+                                )
                             continue
-                        lesson_delivered_users.add(chat_id)
+                        lesson_delivered_day[chat_id] = day
 
                     # WP-330 Ф10.C: split lesson_practice на 2 сообщения для новых записей
                     # (content_text=NULL). Legacy (content_text!=NULL) идут старым путём ниже.
@@ -558,69 +580,6 @@ async def _send_marathon_nudges():
                     logger.warning(f"[MarathonNudge] Failed to send to {chat_id}: {e}")
 
         # WP-330 Ф10.D: перенесено в _send_practice_nudges (запускается каждые 10 мин)
-    finally:
-        await bot.session.close()
-
-
-async def _send_practice_nudges():
-    """WP-330 Ф10.D v2: нуджи о практике через +30 и +150 мин после доставки урока.
-
-    Запускается каждые 10 мин. Максимум 2 нуджа в день на пользователя:
-    - Первый  (+30 мин):  ключ ...:30m  (окно 30–150 мин после sent_at)
-    - Второй  (+150 мин): ключ ...:150m (>150 мин после sent_at)
-    """
-    from aiogram import Bot
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    from db.queries.marathon_newcomer import get_users_for_practice_nudge
-    from db.queries.notifications import try_insert_notification
-
-    if not _bot_token:
-        return
-
-    practice_users = await get_users_for_practice_nudge()
-    if not practice_users:
-        return
-
-    bot = Bot(token=_bot_token)
-    now = moscow_now()
-    try:
-        for pu in practice_users:
-            chat_id = pu['user_id']
-            day = pu['day_number']
-            sent_at = pu['sent_at']
-            minutes_elapsed = (now - sent_at).total_seconds() / 60
-
-            if minutes_elapsed >= 150:
-                nudge_slot = '150m'
-                text = (
-                    f"⏰ Урок Дня {day} пришёл несколько часов назад — практику ещё не открыли.\n\n"
-                    "Последний шанс сегодня:"
-                )
-            else:
-                nudge_slot = '30m'
-                text = (
-                    f"📚 Урок Дня {day} ждёт вас. Займёт 15–20 минут!\n\n"
-                    "Переходите к практике:"
-                )
-
-            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{nudge_slot}"
-            if not await try_insert_notification(chat_id, 'marathon_practice_nudge', nudge_key):
-                continue
-
-            try:
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
-                        text="✏️ Перейти к практике",
-                        callback_data=f"marathon_practice:{day}"
-                    )
-                ]])
-                await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
-                logger.info(f"[PracticeNudge] Sent {nudge_slot} to {chat_id} day {day}")
-            except Exception as e:
-                if _is_user_unavailable(e):
-                    await _handle_unavailable_user(chat_id, f"practice nudge {nudge_slot}")
-                else:
-                    logger.warning(f"[PracticeNudge] Failed {nudge_slot} to {chat_id}: {e}")
     finally:
         await bot.session.close()
 
@@ -1403,6 +1362,13 @@ async def send_scheduled_topic(chat_id: int, bot: Bot):
 
     intern = await get_intern(chat_id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    # Guard: пользователи нового движка (WP-330) получают уроки через _process_marathon_queue.
+    # Устраняет race condition, при которой legacy scheduler дублировал уроки
+    # пользователям с learning.marathon_progress (например, Дарья @dnbutorina).
+    if await is_on_newcomer_marathon(chat_id):
+        logger.info(f"[Scheduler] {chat_id}: newcomer marathon user, skip legacy send_scheduled_topic")
+        return
 
     # Проверяем что марафон активен
     marathon_status = intern.get('marathon_status', 'not_started')
