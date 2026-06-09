@@ -107,8 +107,8 @@ async def on_unknown_message(message: Message, state: FSMContext):
         if tier_num >= 4 and text and not text.startswith('/'):
             # Не перехватывать у SM, ожидающей ответ (фиксация, марафон и др.)
             from handlers.external_session import _sm_is_expecting_reply
-            from states.feed.digest import DigestState
-            if await _sm_is_expecting_reply(chat_id) or DigestState.is_waiting_fixation(chat_id):
+            from states.feed.digest import FeedDigestState
+            if await _sm_is_expecting_reply(chat_id) or FeedDigestState.is_waiting_fixation(chat_id):
                 logger.info("[fallback] T4-full skipped: SM or feed expecting reply for chat %s", chat_id)
                 # fall through to SM dispatch below
             else:
@@ -139,8 +139,8 @@ async def on_unknown_message(message: Message, state: FSMContext):
         # fallback перехватывает и маршрутизирует в Hermes напрямую.
         # Исключение: feed.digest ждёт фиксацию — передать в SM, не в Hermes.
         if text and _HERMES_PREFIXES_RE.search(text):
-            from states.feed.digest import DigestState
-            if DigestState.is_waiting_fixation(chat_id):
+            from states.feed.digest import FeedDigestState
+            if FeedDigestState.is_waiting_fixation(chat_id):
                 logger.info("[fallback] hermes prefix skipped: feed waiting fixation for chat %s", chat_id)
                 # fall through to SM dispatch below
             else:
