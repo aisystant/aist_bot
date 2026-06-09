@@ -571,6 +571,20 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 `/delivery` dev-команда показывает эту разницу: 🟢 прочитано / 🟡 отправлено, не открыт.
 
+### data/marathon-content.json — READ-ONLY (sync-managed)
+
+⛔ **ЗАПРЕЩЕНО редактировать `data/marathon-content.json` напрямую.** Файл управляется скриптом sync и будет перезаписан при следующем запуске.
+
+**Source-of-truth:** `DS-marathon-v2-tseren/materials/participants/marathon-content.json` (авторский репо).
+
+**Правильный поток для любых правок текста марафона:**
+1. Редактировать ТОЛЬКО авторский файл в `DS-marathon-v2-tseren/`
+2. Закоммитить авторский файл ДО запуска sync (`git add <file> && git commit && git push`)
+3. Sync: `bash scripts/sync-marathon-content.sh`
+4. Закоммитить результат: `git add data/marathon-content.json && git commit && git push`
+
+**Почему важно:** 9 июня 2026 sync (коммит `138a760`) перезаписал правильные правки бота (`db243c0`: IWE→ИИ-помощник) незакоммиченным авторским файлом. Незакоммиченный авторский файл = undefined state при sync.
+
 ### Catch-up (нагонять пропущенный урок)
 
 - Если `topic['day'] < marathon_day` → catch-up notification (вместо обычного).
