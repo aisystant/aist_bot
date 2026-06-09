@@ -29,6 +29,7 @@ COPY engines/ ./engines/
 COPY integrations/ ./integrations/
 COPY topics/ ./topics/
 COPY states/ ./states/
+COPY archive/ ./archive/
 COPY handlers/ ./handlers/
 COPY helpers/ ./helpers/
 COPY data/ ./data/
