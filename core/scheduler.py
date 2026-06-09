@@ -252,7 +252,16 @@ async def _process_marathon_queue():
         logger.warning("[MarathonQueue] _get_blocked_chat_ids failed: %s — processing without block filter", e)
         blocked_ids = set()
     if blocked_ids:
+        before_count = len(items)
+        blocked_in_queue = {item['user_id'] for item in items if item['user_id'] in blocked_ids}
         items = [item for item in items if item['user_id'] not in blocked_ids]
+        if blocked_in_queue:
+            logger.warning(
+                "[MarathonQueue] Filtered %d items for %d bot-blocked users: %s",
+                before_count - len(items),
+                len(blocked_in_queue),
+                sorted(blocked_in_queue),
+            )
     if not items:
         return
 

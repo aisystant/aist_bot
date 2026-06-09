@@ -473,10 +473,11 @@ async def cmd_find_user(message: Message):
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT u.telegram_id AS chat_id, u.name, u.tg_username
+            SELECT u.telegram_id AS chat_id, u.name, u.tg_username, u.email
             FROM public.users u
             WHERE LOWER(u.name) LIKE LOWER($1)
                OR LOWER(u.tg_username) LIKE LOWER($1)
+               OR LOWER(COALESCE(u.email, '')) LIKE LOWER($1)
             ORDER BY u.name
             LIMIT 10
         ''', f'%{query}%')
@@ -488,7 +489,8 @@ async def cmd_find_user(message: Message):
     lines = [f"<b>Найдено {len(rows)} пользователей:</b>\n"]
     for r in rows:
         uname = f"@{r['tg_username']}" if r['tg_username'] else "—"
-        lines.append(f"<code>{r['chat_id']}</code> | {r['name']} | {uname}")
+        email = f" | {r['email']}" if r.get('email') else ""
+        lines.append(f"<code>{r['chat_id']}</code> | {r['name']} | {uname}{email}")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
