@@ -37,6 +37,8 @@ _TIER_LABELS = {
     0: "T0 (анонимный)",
     1: "T1 (аккаунт подключён, без подписки)",
     2: "T2 (подписка активна)",
+    3: "T3 (браузерная среда IWE)",
+    4: "T4 (полное окружение с VS Code)",
 }
 
 
@@ -67,17 +69,6 @@ def _is_hermes_message(message: Message) -> bool:
     return text.startswith(_HERMES_PREFIXES)
 
 
-def _tier_num(intern: dict) -> int:
-    tier_str = intern.get("tier", "T1")
-    if not isinstance(tier_str, str):
-        return 1
-    if tier_str == "TD1":
-        return 4  # developer tier → full Hermes access
-    if tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
-        return int(tier_str[1])
-    return 1
-
-
 @hermes_router.message(_is_hermes_message)
 async def on_hermes(message: Message, state: FSMContext) -> None:
     """«Гермес, <текст>» → hermes_chat. Tier < T3 → отказ.
@@ -102,10 +93,15 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         await message.answer(_UNAVAILABLE_TIER_MSG)
         return
 
-    tier = _tier_num(intern)
+    # Используем detect_ui_tier для актуального тира, а не устаревшее поле из БД.
+    # get_intern читает public.users.tier, которое обновляется только при переходах тира
+    # через detect_ui_tier. Если тир менялся (подключили GitHub/ЦД) между деплоями,
+    # DB-поле может быть stale — тогда Проводник неверно отказывает T4-пользователям.
+    from core.tier_detector import detect_ui_tier
+    tier = await detect_ui_tier(chat_id)
     logger.info(
-        "[hermes] chat_id=%s tier_str=%r tier=%s required=%s",
-        chat_id, intern.get("tier"), tier, _TIER_REQUIRED,
+        "[hermes] chat_id=%s tier=%s required=%s",
+        chat_id, tier, _TIER_REQUIRED,
     )
 
     hermes_msg = re.sub(r"^(гермес|hermes)[,:\s]+", "", text, flags=re.IGNORECASE).strip() or text
