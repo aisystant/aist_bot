@@ -18,7 +18,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CALLBACKS_PY = PROJECT_ROOT / "handlers" / "callbacks.py"
 MODE_SELECTOR_PY = PROJECT_ROOT / "engines" / "mode_selector.py"
-MARATHON_STATES_DIR = PROJECT_ROOT / "states" / "workshops" / "marathon"
+MARATHON_STATES_DIR = PROJECT_ROOT / "archive" / "states" / "marathon_legacy"
 SCHEDULER_PY = PROJECT_ROOT / "core" / "scheduler.py"
 ONBOARDING_PY = PROJECT_ROOT / "handlers" / "onboarding.py"
 
@@ -139,7 +139,7 @@ def test_marathon_state_callbacks_are_covered(
         uncovered.append(cb)
 
     assert not uncovered, (
-        f"Следующие marathon callbacks из states/workshops/marathon "
+        f"Следующие marathon callbacks из archive/states/marathon_legacy "
         f"не покрыты ни mode_router, ни callbacks_router: {uncovered}\n"
         f"Если добавляешь новый in-state callback — убедись, что он либо "
         f"обрабатывается mode_router, либо попадает под фильтр "

@@ -17,18 +17,18 @@ from tests.smoke.sm_helpers import create_state, make_message_obj, make_callback
 @pytest.fixture(autouse=True)
 def patch_marathon_deps():
     """Мокаем DB, topics, claude для marathon стейтов."""
-    with patch("states.workshops.marathon.lesson.get_intern", new_callable=AsyncMock) as mock_get, \
-         patch("states.workshops.marathon.lesson.update_intern", new_callable=AsyncMock) as mock_upd, \
-         patch("states.workshops.marathon.lesson.get_total_topics", return_value=28) as mock_total, \
-         patch("states.workshops.marathon.lesson.get_topic") as mock_topic, \
-         patch("states.workshops.marathon.lesson.get_topic_title", return_value="Системное мышление") as mock_title, \
-         patch("states.workshops.marathon.lesson.get_topics_today", return_value=0) as mock_today_topics, \
-         patch("states.workshops.marathon.lesson.moscow_today", return_value=date(2026, 3, 27)) as mock_today, \
-         patch("states.workshops.marathon.lesson.get_marathon_content", new_callable=AsyncMock) as mock_content, \
-         patch("states.workshops.marathon.lesson.mark_content_delivered", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.lesson.save_marathon_content", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.lesson.claude") as mock_claude, \
-         patch("states.workshops.marathon.lesson.canonical_get_marathon_day", return_value=1):
+    with patch("archive.states.marathon_legacy.lesson.get_intern", new_callable=AsyncMock) as mock_get, \
+         patch("archive.states.marathon_legacy.lesson.update_intern", new_callable=AsyncMock) as mock_upd, \
+         patch("archive.states.marathon_legacy.lesson.get_total_topics", return_value=28) as mock_total, \
+         patch("archive.states.marathon_legacy.lesson.get_topic") as mock_topic, \
+         patch("archive.states.marathon_legacy.lesson.get_topic_title", return_value="Системное мышление") as mock_title, \
+         patch("archive.states.marathon_legacy.lesson.get_topics_today", return_value=0) as mock_today_topics, \
+         patch("archive.states.marathon_legacy.lesson.moscow_today", return_value=date(2026, 3, 27)) as mock_today, \
+         patch("archive.states.marathon_legacy.lesson.get_marathon_content", new_callable=AsyncMock) as mock_content, \
+         patch("archive.states.marathon_legacy.lesson.mark_content_delivered", new_callable=AsyncMock), \
+         patch("archive.states.marathon_legacy.lesson.save_marathon_content", new_callable=AsyncMock), \
+         patch("archive.states.marathon_legacy.lesson.claude") as mock_claude, \
+         patch("archive.states.marathon_legacy.lesson.canonical_get_marathon_day", return_value=1):
 
         mock_get.return_value = make_intern(onboarding_completed=True, mode="marathon")
         mock_topic.return_value = {"id": "topic_1", "type": "theory", "title": "Системное мышление", "day": 1}
@@ -50,7 +50,7 @@ def patch_marathon_deps():
 
 def _make_lesson_state(bot=None):
     """Создаёт MarathonLessonState с ThinMockBot."""
-    from states.workshops.marathon.lesson import MarathonLessonState
+    from archive.states.marathon_legacy.lesson import MarathonLessonState
     return create_state(MarathonLessonState, bot)
 
 

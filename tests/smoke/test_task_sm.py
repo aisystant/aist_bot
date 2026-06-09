@@ -14,19 +14,19 @@ from tests.smoke.sm_helpers import create_state, make_message_obj, make_callback
 
 @pytest.fixture(autouse=True)
 def patch_task_deps():
-    with patch("states.workshops.marathon.task.update_intern", new_callable=AsyncMock) as mock_upd, \
-         patch("states.workshops.marathon.task.save_answer", new_callable=AsyncMock) as mock_save, \
+    with patch("archive.states.marathon_legacy.task.update_intern", new_callable=AsyncMock) as mock_upd, \
+         patch("archive.states.marathon_legacy.task.save_answer", new_callable=AsyncMock) as mock_save, \
          patch("db.queries.events.log_event", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.task.get_marathon_content", new_callable=AsyncMock) as mock_content, \
-         patch("states.workshops.marathon.task.save_marathon_content", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.task.get_topic", return_value={"id": "t2", "type": "practice", "title": "Задание", "day": 1}), \
-         patch("states.workshops.marathon.task.get_topic_title", return_value="Практика"), \
-         patch("states.workshops.marathon.task.get_total_topics", return_value=28), \
-         patch("states.workshops.marathon.task.moscow_today", return_value=date(2026, 3, 27)), \
-         patch("states.workshops.marathon.task.get_marathon_day", return_value=1), \
-         patch("states.workshops.marathon.task.claude") as mock_claude, \
-         patch("states.workshops.marathon.task.EVALUATION_ENABLED", False), \
-         patch("states.workshops.marathon.task.WP_VALIDATION_ENABLED", False):
+         patch("archive.states.marathon_legacy.task.get_marathon_content", new_callable=AsyncMock) as mock_content, \
+         patch("archive.states.marathon_legacy.task.save_marathon_content", new_callable=AsyncMock), \
+         patch("archive.states.marathon_legacy.task.get_topic", return_value={"id": "t2", "type": "practice", "title": "Задание", "day": 1}), \
+         patch("archive.states.marathon_legacy.task.get_topic_title", return_value="Практика"), \
+         patch("archive.states.marathon_legacy.task.get_total_topics", return_value=28), \
+         patch("archive.states.marathon_legacy.task.moscow_today", return_value=date(2026, 3, 27)), \
+         patch("archive.states.marathon_legacy.task.get_marathon_day", return_value=1), \
+         patch("archive.states.marathon_legacy.task.claude") as mock_claude, \
+         patch("archive.states.marathon_legacy.task.EVALUATION_ENABLED", False), \
+         patch("archive.states.marathon_legacy.task.WP_VALIDATION_ENABLED", False):
 
         mock_content.return_value = {"practice_content": {"intro": "Опишите свой опыт применения...", "instructions": "Задание"}, "id": 1}
         mock_claude.generate_practice_intro = AsyncMock(return_value="Практическое задание: опишите...")
@@ -41,7 +41,7 @@ def patch_task_deps():
 
 
 def _make_task_state(bot=None):
-    from states.workshops.marathon.task import MarathonTaskState
+    from archive.states.marathon_legacy.task import MarathonTaskState
     return create_state(MarathonTaskState, bot)
 
 

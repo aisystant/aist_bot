@@ -17,8 +17,8 @@ from i18n import I18n
 # Импортируем стейты
 from states.common import StartState, ErrorState, ModeSelectState, ProfileState, SettingsState, ConsultationState, PlansState
 
-# Марафон (полностью реализовано)
-from states.workshops.marathon import (
+# Марафон legacy (архивировано — новый движок WP-330 в handlers/marathon.py)
+from archive.states.marathon_legacy import (
     MarathonLessonState,
     MarathonQuestionState,
     MarathonBonusState,

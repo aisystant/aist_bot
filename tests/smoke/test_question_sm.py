@@ -16,14 +16,14 @@ from tests.smoke.sm_helpers import create_state, make_message_obj, make_callback
 
 @pytest.fixture(autouse=True)
 def patch_question_deps():
-    with patch("states.workshops.marathon.question.update_intern", new_callable=AsyncMock) as mock_upd, \
-         patch("states.workshops.marathon.question.save_answer", new_callable=AsyncMock) as mock_save, \
-         patch("states.workshops.marathon.question.log_event", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.question.get_theory_count_at_level", new_callable=AsyncMock, return_value=3), \
-         patch("states.workshops.marathon.question.get_marathon_content", new_callable=AsyncMock) as mock_content, \
-         patch("states.workshops.marathon.question.save_marathon_content", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.question.get_topic", return_value={"id": "t1", "type": "theory", "title": "Тема", "day": 1}), \
-         patch("states.workshops.marathon.question.claude") as mock_claude:
+    with patch("archive.states.marathon_legacy.question.update_intern", new_callable=AsyncMock) as mock_upd, \
+         patch("archive.states.marathon_legacy.question.save_answer", new_callable=AsyncMock) as mock_save, \
+         patch("archive.states.marathon_legacy.question.log_event", new_callable=AsyncMock), \
+         patch("archive.states.marathon_legacy.question.get_theory_count_at_level", new_callable=AsyncMock, return_value=3), \
+         patch("archive.states.marathon_legacy.question.get_marathon_content", new_callable=AsyncMock) as mock_content, \
+         patch("archive.states.marathon_legacy.question.save_marathon_content", new_callable=AsyncMock), \
+         patch("archive.states.marathon_legacy.question.get_topic", return_value={"id": "t1", "type": "theory", "title": "Тема", "day": 1}), \
+         patch("archive.states.marathon_legacy.question.claude") as mock_claude:
 
         mock_content.return_value = {"question_content": "Тестовый вопрос по теме?", "id": 1}
         mock_claude.generate_question = AsyncMock(return_value="Сгенерированный вопрос?")
@@ -38,7 +38,7 @@ def patch_question_deps():
 
 
 def _make_question_state(bot=None):
-    from states.workshops.marathon.question import MarathonQuestionState
+    from archive.states.marathon_legacy.question import MarathonQuestionState
     return create_state(MarathonQuestionState, bot)
 
 
@@ -109,9 +109,9 @@ async def test_question_callback_next_bonus(patch_question_deps):
 
 @pytest.fixture
 def patch_bonus_deps():
-    with patch("states.workshops.marathon.bonus.update_intern", new_callable=AsyncMock), \
-         patch("states.workshops.marathon.bonus.save_answer", new_callable=AsyncMock) as mock_save, \
-         patch("states.workshops.marathon.bonus.claude") as mock_claude:
+    with patch("archive.states.marathon_legacy.bonus.update_intern", new_callable=AsyncMock), \
+         patch("archive.states.marathon_legacy.bonus.save_answer", new_callable=AsyncMock) as mock_save, \
+         patch("archive.states.marathon_legacy.bonus.claude") as mock_claude:
 
         mock_claude.generate_question = AsyncMock(return_value="Бонусный вопрос?")
 
@@ -119,7 +119,7 @@ def patch_bonus_deps():
 
 
 def _make_bonus_state(bot=None):
-    from states.workshops.marathon.bonus import MarathonBonusState
+    from archive.states.marathon_legacy.bonus import MarathonBonusState
     return create_state(MarathonBonusState, bot)
 
 
