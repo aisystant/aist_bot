@@ -1928,6 +1928,57 @@ async def _check_schedule_integrity(now) -> Optional[str]:
                           f"marathon_status={r['marathon_status']} but "
                           f"start_date={r['marathon_start_date']}, topic_index={r['current_topic_index']}")
 
+        # 3. Cross-DB sync: Railway marathon_status vs Neon marathon_progress.status
+        try:
+            from db.connection import get_learning_pool
+            _NEON_TO_RAILWAY = {
+                "registered": "not_started",
+                "active":     "active",
+                "paused":     "paused",
+                "completed":  "completed",
+                "dropped":    "not_started",
+            }
+            neon_pool = await get_learning_pool()
+            async with neon_pool.acquire() as neon_conn:
+                neon_rows = await neon_conn.fetch(
+                    "SELECT user_id, status FROM learning.marathon_progress"
+                )
+            neon_map = {r["user_id"]: r["status"] for r in neon_rows}
+
+            rw_rows = await conn.fetch(
+                "SELECT chat_id, marathon_status FROM development.user_state "
+                "WHERE marathon_status IS NOT NULL"
+            )
+            rw_map = {r["chat_id"]: r["marathon_status"] for r in rw_rows}
+
+            drift_ids: dict[str, list[int]] = {}  # target_status → [user_ids]
+            for user_id, neon_status in neon_map.items():
+                target = _NEON_TO_RAILWAY.get(neon_status)
+                if target is None or user_id not in rw_map:
+                    continue
+                if rw_map[user_id] != target:
+                    drift_ids.setdefault(target, []).append(user_id)
+
+            total_drift = sum(len(v) for v in drift_ids.values())
+            if drift_ids:
+                for target, ids in drift_ids.items():
+                    await conn.execute(
+                        "UPDATE development.user_state SET marathon_status = $1 "
+                        "WHERE chat_id = ANY($2::bigint[])",
+                        target, ids,
+                    )
+                issues.append(
+                    f"🔄 Railway↔Neon marathon_status: авто-исправлено {total_drift} расхождений "
+                    f"(Neon — источник истины)"
+                )
+                if total_drift > 5:
+                    issues.append(
+                        f"⚠️ Drift {total_drift} > 5 — возможен баг в коде синхронизации. "
+                        f"Проверить: python -m scripts.wp330_sync_marathon_status"
+                    )
+        except Exception as e:
+            logger.warning(f"[Integrity] cross-DB marathon_status sync failed: {e}")
+
     if not issues:
         return None
 
