@@ -59,6 +59,11 @@ class FeedDigestState(BaseState):
     # Состояние пользователя: chat_id -> {'session_id': int, 'waiting_fixation': bool}
     _user_data: Dict[int, Dict] = {}
 
+    @classmethod
+    def is_waiting_fixation(cls, chat_id: int) -> bool:
+        """True если пользователь нажал кнопку фиксации и ждёт текст."""
+        return bool(cls._user_data.get(chat_id, {}).get('waiting_fixation'))
+
     def _get_lang(self, user) -> str:
         """Получить язык пользователя."""
         if isinstance(user, dict):

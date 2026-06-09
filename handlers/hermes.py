@@ -91,10 +91,11 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
 
     intern = await get_intern(chat_id)
 
-    # Не перехватывать у marathon SM, ожидающей ответ пользователя.
+    # Не перехватывать у SM, ожидающей ответ (марафон, фиксация дайджеста и др.)
     from handlers.external_session import _sm_is_expecting_reply
-    if await _sm_is_expecting_reply(chat_id):
-        logger.info("[hermes] SM expecting reply for chat %s — skipping", chat_id)
+    from states.feed.digest import DigestState
+    if await _sm_is_expecting_reply(chat_id) or DigestState.is_waiting_fixation(chat_id):
+        logger.info("[hermes] SM or feed expecting reply for chat %s — skipping", chat_id)
         raise SkipHandler
 
     if not intern or not intern.get("onboarding_completed"):

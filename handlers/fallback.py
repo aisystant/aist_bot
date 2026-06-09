@@ -105,59 +105,65 @@ async def on_unknown_message(message: Message, state: FSMContext):
 
         # WP-392 Ф3.1b: T4-full — ВСЁ в Hermes (без префикса, без консультанта)
         if tier_num >= 4 and text and not text.startswith('/'):
-            # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
-            # но если написал, Hermes не должен видеть служебный токен.
-            hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
-            # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
-            await state.clear()
-            session_id = _HERMES_SESSION_MAP.get(chat_id)
-            from clients.gateway_mcp import gateway_mcp
-            try:
-                from helpers.typing_indicator import keep_typing
-                async with keep_typing(message):
-                    response = await gateway_mcp.hermes_chat(
-                        message=hermes_text,
-                        telegram_user_id=chat_id,
-                        session_id=session_id,
-                    )
-            except Exception:
-                logger.exception("[fallback] hermes_chat (T4-full) failed for chat %s", chat_id)
-                response = _HERMES_UNAVAILABLE_RUNTIME_MSG
-            # Сохраняем session_id для продолжения диалога
-            if response and not response.startswith(_HERMES_UNAVAILABLE_RUNTIME_MSG):
-                # Gateway возвращает session_id в ответе? Нет — hermes_chat возвращает текст.
-                # session_id управляется на стороне gateway/hermes. Для T4-full
-                # gateway сам поддерживает сессию по telegram_user_id.
-                # Оставляем _HERMES_SESSION_MAP на случай если gateway вернёт session_id
-                # в будущем; пока — no-op (gateway держит сессию по user_id).
-                pass
-            await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
-            return
+            # Не перехватывать у SM, ожидающей ответ (фиксация, марафон и др.)
+            from handlers.external_session import _sm_is_expecting_reply
+            from states.feed.digest import DigestState
+            if await _sm_is_expecting_reply(chat_id) or DigestState.is_waiting_fixation(chat_id):
+                logger.info("[fallback] T4-full skipped: SM or feed expecting reply for chat %s", chat_id)
+                # fall through to SM dispatch below
+            else:
+                # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
+                # но если написал, Hermes не должен видеть служебный токен.
+                hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+                # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
+                await state.clear()
+                session_id = _HERMES_SESSION_MAP.get(chat_id)
+                from clients.gateway_mcp import gateway_mcp
+                try:
+                    from helpers.typing_indicator import keep_typing
+                    async with keep_typing(message):
+                        response = await gateway_mcp.hermes_chat(
+                            message=hermes_text,
+                            telegram_user_id=chat_id,
+                            session_id=session_id,
+                        )
+                except Exception:
+                    logger.exception("[fallback] hermes_chat (T4-full) failed for chat %s", chat_id)
+                    response = _HERMES_UNAVAILABLE_RUNTIME_MSG
+                # session_id управляется на стороне gateway/hermes по telegram_user_id
+                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+                return
 
         # WP-392 Ф3.1: явный вызов Hermes через префикс — ДО онбординг-интентов.
         # Fail-safe: если hermes_router пропустил (SkipHandler при marathon SM),
         # fallback перехватывает и маршрутизирует в Hermes напрямую.
+        # Исключение: feed.digest ждёт фиксацию — передать в SM, не в Hermes.
         if text and _HERMES_PREFIXES_RE.search(text):
-            logger.info("[fallback] hermes prefix chat_id=%s tier_str=%r tier_num=%s", chat_id, (intern or {}).get("tier"), tier_num)
-            if tier_num < 3:
-                await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
+            from states.feed.digest import DigestState
+            if DigestState.is_waiting_fixation(chat_id):
+                logger.info("[fallback] hermes prefix skipped: feed waiting fixation for chat %s", chat_id)
+                # fall through to SM dispatch below
+            else:
+                logger.info("[fallback] hermes prefix chat_id=%s tier_str=%r tier_num=%s", chat_id, (intern or {}).get("tier"), tier_num)
+                if tier_num < 3:
+                    await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
+                    return
+                hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+                session_id = _HERMES_SESSION_MAP.get(chat_id)
+                from clients.gateway_mcp import gateway_mcp
+                try:
+                    from helpers.typing_indicator import keep_typing
+                    async with keep_typing(message):
+                        response = await gateway_mcp.hermes_chat(
+                            message=hermes_msg,
+                            telegram_user_id=chat_id,
+                            session_id=session_id,
+                        )
+                except Exception:
+                    logger.exception("[fallback] hermes_chat failed for chat %s", chat_id)
+                    response = _HERMES_UNAVAILABLE_RUNTIME_MSG
+                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
                 return
-            hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
-            session_id = _HERMES_SESSION_MAP.get(chat_id)
-            from clients.gateway_mcp import gateway_mcp
-            try:
-                from helpers.typing_indicator import keep_typing
-                async with keep_typing(message):
-                    response = await gateway_mcp.hermes_chat(
-                        message=hermes_msg,
-                        telegram_user_id=chat_id,
-                        session_id=session_id,
-                    )
-            except Exception:
-                logger.exception("[fallback] hermes_chat failed for chat %s", chat_id)
-                response = _HERMES_UNAVAILABLE_RUNTIME_MSG
-            await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
-            return
 
         # Ф22 (WP-349): текстовый роутинг онбординг-интентов.
         # Условие: пользователь онбордирован, нет ни FSM-стейта ни SM custom state, текст не команда.
