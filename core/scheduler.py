@@ -1847,13 +1847,6 @@ async def scheduled_check():
         except Exception as e:
             logger.error(f"[Scheduler] Error classifier error: {e}")
 
-    # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
-    if now.minute == 0:
-        try:
-            await _sync_dt_connected_users()
-        except Exception as e:
-            logger.error(f"[Scheduler] DT sync retry error: {e}")
-
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
     await github_notes.retry_pending()

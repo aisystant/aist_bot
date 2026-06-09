@@ -242,13 +242,6 @@ class ClaudeClient:
                         return None
                     else:
                         error = await resp.text()
-                        if resp.status == 400 and "usage limits" in error:
-                            record_api_degradation(is_rate_limit=True)
-                            logger.warning(f"Claude API usage limit (400), attempt {attempt + 1}")
-                            if attempt == 0:
-                                await asyncio.sleep(30)
-                                continue
-                            return None
                         system = payload.get("system") or ""
                         system_len = len(system) if isinstance(system, str) else sum(
                             len(b.get("text", "")) for b in system if isinstance(b, dict)
@@ -263,6 +256,21 @@ class ClaudeClient:
                         trace = get_current_trace()
                         if trace:
                             payload_meta["trace_id"] = trace.trace_id
+                        if resp.status == 400:
+                            if "usage limits" in error:
+                                record_api_degradation(is_rate_limit=True)
+                                logger.warning(f"Claude API usage limit (400), attempt {attempt + 1}")
+                                if attempt == 0:
+                                    await asyncio.sleep(30)
+                                    continue
+                                return None
+                            else:
+                                # Client-side 400 — retry бессмыслен, payload не изменился
+                                logger.error(
+                                    f"Claude API bad request (400): {error[:2000]} "
+                                    f"| payload_meta={payload_meta}"
+                                )
+                                return None
                         logger.error(
                             f"Claude API error {resp.status}: {error[:500]} "
                             f"| payload_meta={payload_meta}"
