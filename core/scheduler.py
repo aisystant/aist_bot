@@ -1011,8 +1011,6 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # One-time cleanup: обнулить question_content с текстом ошибки (bug fix)
     _scheduler.add_job(cleanup_error_questions, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=30), id='cleanup_error_questions')
 
-    # WP-253 Gap C: one-time notification to users needing GitHub relink (10 min after start)
-    _scheduler.add_job(_notify_github_relink, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=10), id='github_relink_notification')
 
     # WP-327 Этап 13: startup fallback — заполнить snapshot для сегодня если бот стартовал после полуночи до 01:00 UTC
     _scheduler.add_job(_refresh_subscribers_snapshot, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(seconds=60), id='subscribers_snapshot_startup')
