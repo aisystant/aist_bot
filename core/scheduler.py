@@ -986,7 +986,6 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
-    _scheduler.add_job(_gateway_proactive_refresh, 'cron', minute='*/10')  # Gateway: Ory token refresh every 10 min (WP-209, covers DT too)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
@@ -1937,6 +1936,26 @@ async def _send_slot_daily_prompt():
     except Exception as e:
         logger.exception(f"[SlotPrompt] Error in _send_slot_daily_prompt: {e}")
 
+
+async def send_milestone_notifications():
+    """Отправить milestone-уведомления (C3): 7/14/30/60/90 дней."""
+    import json
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from db.queries.conversion import (
+        get_milestone_eligible_users, log_conversion_event, MILESTONE_DAYS,
+    )
+    from config.settings import PLATFORM_URLS
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for day in MILESTONE_DAYS:
+            milestone = f"day_{day}"
+            users = await get_milestone_eligible_users(day)
+
+            for user in users:
+                chat_id = user['chat_id']
                 lang = user.get('language', 'ru') or 'ru'
 
                 try:
