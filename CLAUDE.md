@@ -360,6 +360,12 @@ Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `Syntax
 
 **Правило status-before-message:** При завершении марафона (или аналогичном изменении статуса) — `update_intern(status=COMPLETED)` ДО `send_message(поздравление)`. Иначе catch-up (каждые 30 мин) найдёт user с active status и отправит повторно.
 
+### 10.10c. При удалении функции из scheduler.py — сразу убрать add_job вызов
+
+При удалении любой `async def _fn()` из `core/scheduler.py` — немедленно найти и удалить `_scheduler.add_job(_fn, ...)` в блоке `init_scheduler`. Иначе бот падает при старте с `NameError` (инцидент 2026-06-09: три функции подряд — `_ensure_reminder_text_column`, `_gateway_proactive_refresh`, `_notify_github_relink`).
+
+Быстрая проверка перед push: `python3 -c "import re,sys; code=open('core/scheduler.py').read(); calls=set(re.findall(r'_scheduler\.add_job\((\w+),', code)); defs=set(re.findall(r'^(?:async )?def (\w+)', code, re.M)); missing=calls-defs; print('MISSING:', missing) if missing else print('OK')"`.
+
 ### 10.10b. Scheduler = read-only для user state
 
 Scheduler (`core/scheduler.py`) **НЕ ИМЕЕТ ПРАВА** менять поля прогресса пользователя: `current_topic_index`, `completed_topics`, `bloom_level`. Эти поля — собственность FSM states (lesson/question/task). Scheduler может читать состояние и генерировать контент, но запись в прогресс — только при реальном взаимодействии.
