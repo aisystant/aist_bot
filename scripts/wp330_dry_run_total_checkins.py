@@ -82,9 +82,9 @@ async def run(apply: bool = False) -> int:
         print("-" * 65)
         for r in rows:
             col = r["column_value"] if r["column_value"] is not None else "NULL"
-            diff = (r["column_value"] or 0) - r["derived_value"]
+            diff = r["diff"] if r["diff"] is not None else "NULL"
             print(f"{r['user_id']:>12} | {r['status']:>10} | {r['current_day']:>4} | "
-                  f"{col!s:>7} | {r['derived_value']:>8} | {diff:>6}")
+                  f"{col!s:>7} | {r['derived_value']:>8} | {diff!s:>6}")
 
         print(f"\n📊 Итог: {len(rows)} пользователей нуждаются в коррекции.")
 
