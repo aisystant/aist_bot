@@ -396,6 +396,18 @@
 
 **Constraints:** UNIQUE(account_id, scope, consent_version) → таргет ON CONFLICT в `set_consent_grant`. INDEX `idx_consent_grant_account_scope`(account_id, scope). Проверяется в `_verify_schema` (db/connection.py).
 
+### 4.8. `learning.marathon_progress` — поле `total_checkins`
+
+> ⚠️ **Управляется триггером** — не обновлять вручную из кода (миграция 026, 2026-06-09).
+
+`total_checkins INTEGER NOT NULL DEFAULT 0` - счётчик уникальных дней с чек-ином у участника.
+
+**Источник истины:** `COUNT(DISTINCT day) FROM learning.marathon_state WHERE user_id = ...`
+
+**Триггер:** `marathon_state_sync_total_checkins` (AFTER INSERT/UPDATE/DELETE ON marathon_state, FOR EACH ROW) вызывает `learning.sync_total_checkins()` и автоматически пересчитывает это поле. Любой ручной UPDATE колонки будет перезаписан при следующем чекине.
+
+**VIEW:** `learning.marathon_stats` тоже вычисляет значение через COUNT — это корректно, но первичный источник для внешних читателей (Metabase, MCP) — колонка в `marathon_progress`, которую триггер держит актуальной.
+
 ---
 
 ## 5. Наблюдаемость и ошибки

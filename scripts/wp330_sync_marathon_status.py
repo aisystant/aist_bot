@@ -37,32 +37,6 @@ NEON_TO_RAILWAY = {
     "dropped":    "not_started",
 }
 
-# Получаем все расхождения: пользователи есть в обеих БД, но статусы не совпадают.
-DIFF_SQL = """
-SELECT rw.chat_id,
-       rw.marathon_status  AS railway_status,
-       neon.status         AS neon_status
-FROM   development.user_state rw
-JOIN   public.users u ON u.telegram_id = rw.chat_id
--- JOIN через telegram_id в public.users → user_id в learning
-JOIN   (
-    SELECT mp.user_id, mp.status
-    FROM   learning.marathon_progress mp
-) neon ON neon.user_id = u.telegram_id
-WHERE  rw.marathon_status IS DISTINCT FROM (
-    CASE neon.status
-        WHEN 'registered' THEN 'not_started'
-        WHEN 'active'     THEN 'active'
-        WHEN 'paused'     THEN 'paused'
-        WHEN 'completed'  THEN 'completed'
-        WHEN 'dropped'    THEN 'not_started'
-        ELSE rw.marathon_status  -- неизвестный статус — не трогать
-    END
-)
-ORDER BY rw.chat_id
-"""
-
-
 async def run(apply: bool = False) -> int:
     # Railway и Neon — две разные БД, нужны два соединения.
     rw_conn = await asyncpg.connect(DATABASE_URL, statement_cache_size=0)
