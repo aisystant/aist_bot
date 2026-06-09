@@ -159,7 +159,15 @@ async def _is_dt_connected(chat_id: int) -> bool:
 # ═══════════════════════════════════════════════════════════
 
 async def _persist_tier(chat_id: int, tier: int) -> None:
-    """Persist computed tier to public.users (fire-and-forget)."""
+    """Persist computed tier to public.users (fire-and-forget).
+
+    Топология тира (WP-392): бот = authoritative вычислитель → пишет
+    public.users.tier (здесь, через update_user_tier) + эмитит tier_changed.
+    persona.ory_identity.traits.tier пишет WP-270 worker по tier_changed
+    (канонически) + временный дублёр в update_user_tier (флаг
+    DISABLE_BOT_TIER_SYNC). Шлюз ЧИТАЕТ тир из persona через
+    user-profile-service GET /tier (это читатель, не писатель).
+    """
     try:
         from db.queries.identity import update_user_tier
         tier_name = f"T{tier}"

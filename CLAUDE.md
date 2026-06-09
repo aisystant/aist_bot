@@ -360,6 +360,12 @@ Fullwidth quotes `"..."` (U+201C/U+201D) внутри Python `"..."` → `Syntax
 
 **Правило status-before-message:** При завершении марафона (или аналогичном изменении статуса) — `update_intern(status=COMPLETED)` ДО `send_message(поздравление)`. Иначе catch-up (каждые 30 мин) найдёт user с active status и отправит повторно.
 
+### 10.10c. При удалении функции из scheduler.py — сразу убрать add_job вызов
+
+При удалении любой `async def _fn()` из `core/scheduler.py` — немедленно найти и удалить `_scheduler.add_job(_fn, ...)` в блоке `init_scheduler`. Иначе бот падает при старте с `NameError` (инцидент 2026-06-09: три функции подряд — `_ensure_reminder_text_column`, `_gateway_proactive_refresh`, `_notify_github_relink`).
+
+Быстрая проверка перед push: `python3 -c "import re,sys; code=open('core/scheduler.py').read(); calls=set(re.findall(r'_scheduler\.add_job\((\w+),', code)); defs=set(re.findall(r'^(?:async )?def (\w+)', code, re.M)); missing=calls-defs; print('MISSING:', missing) if missing else print('OK')"`.
+
 ### 10.10b. Scheduler = read-only для user state
 
 Scheduler (`core/scheduler.py`) **НЕ ИМЕЕТ ПРАВА** менять поля прогресса пользователя: `current_topic_index`, `completed_topics`, `bloom_level`. Эти поля — собственность FSM states (lesson/question/task). Scheduler может читать состояние и генерировать контент, но запись в прогресс — только при реальном взаимодействии.
@@ -495,6 +501,7 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 - Menu ☰ per-user через `BotCommandScopeChat`
 - Все команды работают на любом тире (видимость ≠ доступность)
 - Paywall text НЕ должен обещать функциональность, которой нет у целевой команды (урок: `/start` не показывает тир-инфо)
+- **Tier в хэндлерах:** использовать `detect_ui_tier(chat_id)`, НЕ `get_intern().tier`. Поле `public.users.tier` — кэш, обновляется только при вызове `detect_ui_tier()`; если тир менялся (подключили GitHub/ЦД) между деплоями и `detect_ui_tier()` не вызывался — поле устарело (инцидент 2026-06-09: Hermes отказывал T4-пользователям, видел T2 из DB).
 
 ---
 
@@ -563,6 +570,20 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 **Idempotency:** `notification_sent_at` — guard против повторной отправки. Scheduler проверяет `notification_sent_at >= today` ДО отправки. Catch-up (`_catch_up_missed_deliveries`) ищет пользователей без `notification_sent_at` за сегодня (не `created_at` — контент может быть пре-генерирован заранее).
 
 `/delivery` dev-команда показывает эту разницу: 🟢 прочитано / 🟡 отправлено, не открыт.
+
+### data/marathon-content.json — READ-ONLY (sync-managed)
+
+⛔ **ЗАПРЕЩЕНО редактировать `data/marathon-content.json` напрямую.** Файл управляется скриптом sync и будет перезаписан при следующем запуске.
+
+**Source-of-truth:** `DS-marathon-v2-tseren/materials/participants/marathon-content.json` (авторский репо).
+
+**Правильный поток для любых правок текста марафона:**
+1. Редактировать ТОЛЬКО авторский файл в `DS-marathon-v2-tseren/`
+2. Закоммитить авторский файл ДО запуска sync (`git add <file> && git commit && git push`)
+3. Sync: `bash scripts/sync-marathon-content.sh`
+4. Закоммитить результат: `git add data/marathon-content.json && git commit && git push`
+
+**Почему важно:** 9 июня 2026 sync (коммит `138a760`) перезаписал правильные правки бота (`db243c0`: IWE→ИИ-помощник) незакоммиченным авторским файлом. Незакоммиченный авторский файл = undefined state при sync.
 
 ### Catch-up (нагонять пропущенный урок)
 

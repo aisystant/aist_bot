@@ -346,7 +346,8 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     # Автоматический перелив профиля бота → ЦД
     # NB: sync_profile требует Ory tokens (gateway_mcp). Если пользователь подключился
     # через DT OAuth (legacy), но не через Ory — sync пропускается (вернёт 0).
-    # Синхронизация произойдёт при следующем _sync_dt_connected_users из scheduler.
+    # NB: _sync_dt_connected_users удалён (a7681a2). Если нужна синхронизация —
+    # подключать через gateway_mcp.get_connected_user_ids() отдельно.
     try:
         from db.queries.users import get_intern
         intern = await get_intern(telegram_user_id)

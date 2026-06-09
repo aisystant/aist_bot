@@ -69,7 +69,6 @@ def _is_hermes_message(message: Message) -> bool:
     return text.startswith(_HERMES_PREFIXES)
 
 
-
 @hermes_router.message(_is_hermes_message)
 async def on_hermes(message: Message, state: FSMContext) -> None:
     """«Гермес, <текст>» → hermes_chat. Tier < T3 → отказ.

@@ -9,6 +9,7 @@ T1+: telegram_id + ory_id (заполняется при регистрации 
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -17,6 +18,14 @@ from db.connection import get_pool
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
+
+# WP-392-b1 follow-up (peer-session 2026-06-09-13): миграция на единственного
+# писателя persona.ory_identity.traits.tier = WP-270 projection-worker.
+# Флаг отключает ВРЕМЕННЫЙ прямой дублёр бота (_sync_tier_to_persona).
+# Default: дублёр ВКЛ (поведение без изменений). Установить "1"/"true"/"yes"
+# чтобы отдать запись persona.tier исключительно worker'у — только ПОСЛЕ
+# прод-верификации его курсора (см. follow-up D4 /health/deep в WP-392-b1).
+DISABLE_BOT_TIER_SYNC = os.getenv("DISABLE_BOT_TIER_SYNC", "").lower() in ("1", "true", "yes")
 
 
 async def get_or_create_user(
@@ -152,9 +161,17 @@ async def update_user_dt(telegram_id: int, dt_user_id: str) -> bool:
 async def update_user_tier(telegram_id: int, tier: str) -> bool:
     """Обновить тир пользователя.
 
-    WP-392 Б1: dual-write в persona.ory_identity.traits->>'tier' — единственная
-    точка, где бот (writer) и шлюз (reader) встречаются. Шлюз читает тир отсюда
-    для Hydra hook (T3/T4 grant). Fire-and-forget: не блокируем основной поток.
+    Бот — authoritative вычислитель тира: пишет public.users.tier (здесь) и
+    эмитит событие tier_changed. КАНОНИЧЕСКАЯ проекция tier_changed →
+    persona.ory_identity.traits.tier выполняется WP-270 projection-worker
+    (правило в reference.public.projection_rules; README worker'а, строка 34).
+
+    _sync_tier_to_persona ниже — ВРЕМЕННЫЙ прямой дублёр того же значения в
+    persona, НЕ safety-net: оба писателя выводят tier из одного события и пишут
+    одно значение. Расхождение возможно лишь в узком окне «две смены тира подряд
+    + отставший persona-курсор worker'а» (тир меняется редко, окно мало).
+    Дублёр управляется флагом DISABLE_BOT_TIER_SYNC и подлежит удалению после
+    перехода на worker как единственного писателя (WP-392-b1 follow-up #2).
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -186,8 +203,9 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
                 },
             ))
 
-            # WP-392 Б1: пишем tier в persona.ory_identity.traits для шлюза
-            if ory_id_str:
+            # WP-392 Б1: временный прямой дублёр в persona (канонический писатель —
+            # WP-270 worker по tier_changed). Гасится флагом DISABLE_BOT_TIER_SYNC.
+            if ory_id_str and not DISABLE_BOT_TIER_SYNC:
                 asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
 
             return True
@@ -195,7 +213,13 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
 
 
 async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
-    """Fire-and-forget: записать tier в persona.ory_identity.traits. Retry 3× с backoff."""
+    """Fire-and-forget: записать tier в persona.ory_identity.traits. Retry 3× с backoff.
+
+    ВРЕМЕННЫЙ дублёр (см. update_user_tier): канонический писатель — WP-270 worker
+    по событию tier_changed. Гонка-под-лагом возможна при быстрых сменах тира;
+    удалить после миграции на worker как единственного писателя (флаг
+    DISABLE_BOT_TIER_SYNC отключает дублёр без удаления кода).
+    """
     from db.connection import get_persona_pool
 
     _SQL = """

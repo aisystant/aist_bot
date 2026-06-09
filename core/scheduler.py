@@ -1364,6 +1364,138 @@ async def pre_generate_feed_digest(chat_id: int, bot: Bot):
 
 async def _check_retry_storm():
     """BE5: детектор retry-шторма — >10 retry jobs в очереди → TG-алерт."""
+    if not _scheduler:
+        return
+    retry_jobs = [j for j in _scheduler.get_jobs() if j.id.startswith('retry_')]
+    if len(retry_jobs) <= 10:
+        return
+    by_type = Counter(j.id.split('_')[1] for j in retry_jobs if '_' in j.id)
+    lines = [f"  {k}: {v}" for k, v in by_type.items()]
+    alert = (
+        f"⚠️ <b>[Scheduler] Retry storm:</b> {len(retry_jobs)} jobs в очереди\n"
+        + "\n".join(lines)
+    )
+    import os
+    dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
+    if not dev_chat_id or not _bot_token:
+        logger.warning(f"[Scheduler] Retry storm detected ({len(retry_jobs)} jobs) but no dev_chat_id/token")
+        return
+    try:
+        bot = Bot(token=_bot_token)
+        await bot.send_message(int(dev_chat_id), alert, parse_mode="HTML")
+        await bot.session.close()
+    except Exception as e:
+        logger.error(f"[Scheduler] Retry storm alert failed: {e}")
+    logger.warning(f"[Scheduler] Retry storm: {len(retry_jobs)} retry jobs — {dict(by_type)}")
+
+
+async def _get_blocked_chat_ids() -> set[int]:
+    """WP-253 lift-and-shift: получить список заблокированных пользователей.
+
+    После lift-and-shift таблица reminder в learning БД, user_state — в bot_data.
+    Cross-DB JOIN невозможен → отдельный запрос к user_state pool.
+    """
+    from db.connection import get_pool as _get_user_state_pool
+    user_state_pool = await _get_user_state_pool()
+    async with user_state_pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT chat_id FROM development.user_state WHERE bot_blocked IS TRUE'
+        )
+    return {r['chat_id'] for r in rows}
+
+
+async def send_user_reminder(chat_id: int, text: str, reminder_id: int, bot: Bot):
+    """WP-320 Ф2: доставка пользователь-инициированного напоминания (DP.SC.134).
+    see DP.SC.134, DP.ROLE.044
+    """
+    from db.queries.notifications import try_insert_notification
+    from db.queries.events import log_event
+
+    idempotency_key = f"user_remind:{chat_id}:{reminder_id}"
+    try:
+        inserted = await try_insert_notification(chat_id, 'reminder', idempotency_key)
+        if not inserted:
+            logger.info("[Scheduler] user_reminder %s already sent to %s, skip", reminder_id, chat_id)
+            return
+    except Exception as e:
+        logger.warning("[Scheduler] idempotency check failed for reminder %s: %s — proceeding", reminder_id, e)
+
+    try:
+        await bot.send_message(chat_id, f"🔔 {text}", parse_mode="Markdown")
+        logger.info("[Scheduler] user_reminder %s delivered to %s", reminder_id, chat_id)
+    except Exception:
+        logger.exception("[Scheduler] user_reminder %s failed for %s", reminder_id, chat_id)
+        raise
+
+    await log_event(chat_id, 'reminder_delivered', {'reminder_type': 'custom', 'reminder_id': reminder_id})
+
+
+async def send_reminder(chat_id: int, reminder_type: str, bot: Bot):
+    """Отправляет напоминание с кнопкой «Получить урок»."""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from core.topics import get_marathon_day, get_display_day
+
+    intern = await get_intern(chat_id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    # WP-330 cutover (Block MAR): пользователь на новом движке марафона → гасим legacy-напоминание.
+    from db.queries.marathon_newcomer import is_on_newcomer_marathon
+    if await is_on_newcomer_marathon(chat_id):
+        logger.info(f"[Scheduler] {chat_id}: на новом движке марафона, гашу legacy-напоминание {reminder_type}")
+        return
+
+    topics_today = get_topics_today(intern)
+
+    if topics_today > 0:
+        return
+
+    marathon_day = get_marathon_day(intern)
+    if marathon_day == 0:
+        return
+    display_day = get_display_day(intern)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"📚 {t('buttons.get_lesson', lang)}",
+            callback_data="marathon_get_lesson"
+        )]
+    ])
+
+    from db.queries.notifications import try_insert_notification
+    today_str = moscow_now().strftime('%Y-%m-%d')
+    reminder_key = f"reminder:{chat_id}:{today_str}:{reminder_type}"
+    inserted = await try_insert_notification(chat_id, 'reminder', reminder_key)
+    if not inserted:
+        logger.info(f"[Scheduler] Reminder {reminder_type} already sent to {chat_id} today, skip")
+        return
+
+    from db.queries.events import log_event
+    await log_event(chat_id, 'reminder_delivered', {
+        'reminder_type': reminder_type,
+        'marathon_day': marathon_day,
+    })
+
+    if reminder_type == '+1h':
+        await bot.send_message(
+            chat_id,
+            f"⏰ *{t('reminders.title', lang)}*\n\n"
+            f"{t('reminders.day_waiting', lang, day=display_day)}\n\n"
+            f"{t('reminders.two_topics_today', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+    elif reminder_type == '+3h':
+        await bot.send_message(
+            chat_id,
+            f"🔔 *{t('reminders.last_reminder', lang)}*\n\n"
+            f"{t('reminders.day_not_started', lang, day=display_day)}\n\n"
+            f"{t('reminders.regularity_tip', lang)}\n"
+            f"{t('reminders.even_15_min', lang)}",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+
+
 async def check_reminders():
     """Проверяет и отправляет запланированные напоминания.
 
@@ -1471,37 +1603,39 @@ async def scheduled_check():
     if scheduled:
         logger.info(f"[Scheduler] {time_str} MSK — найдено {len(scheduled)} пользователей для отправки")
         bot = Bot(token=_bot_token)
-        me = await bot.get_me()
-        logger.info(f"[Scheduler] Bot ID: {bot.id}, username: {me.username}")
+        try:
+            me = await bot.get_me()
+            logger.info(f"[Scheduler] Bot ID: {bot.id}, username: {me.username}")
 
-        async def _process_user(chat_id: int, send_type: str):
-            """Обработка одного пользователя (marathon + feed).
+            async def _process_user(chat_id: int, send_type: str):
+                """Обработка одного пользователя (marathon + feed).
 
-            Tailor delivery (WP-149 Портной) удалена 11 мая 2026 (WP-301):
-            бот = только Марафон + Лента + ссылки/напоминания. Персональное
-            руководство доставляется через git-канал (личный репо пилота +
-            GitHub App). См. /lesson + /lesson-close скиллы.
-            """
-            try:
-                if send_type in ('feed', 'both'):
-                    await pre_generate_feed_digest(chat_id, bot)
-                logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
-            except Exception as e:
-                if _is_user_unavailable(e):
-                    await _handle_unavailable_user(chat_id, f"scheduled {send_type}")
-                else:
-                    logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
+                Tailor delivery (WP-149 Портной) удалена 11 мая 2026 (WP-301):
+                бот = только Марафон + Лента + ссылки/напоминания. Персональное
+                руководство доставляется через git-канал (личный репо пилота +
+                GitHub App). См. /lesson + /lesson-close скиллы.
+                """
+                try:
+                    if send_type in ('feed', 'both'):
+                        await pre_generate_feed_digest(chat_id, bot)
+                    logger.info(f"[Scheduler] Sent {send_type} to {chat_id}")
+                except Exception as e:
+                    if _is_user_unavailable(e):
+                        await _handle_unavailable_user(chat_id, f"scheduled {send_type}")
+                    else:
+                        logger.error(f"[Scheduler] Ошибка отправки пользователю {chat_id}: {e}", exc_info=True)
 
-        # Параллельная обработка пользователей (max 40 одновременно)
-        # Telegram rate limit: 30 msg/sec, но Claude генерация (5-10с) stagger-ит сообщения
-        sem = asyncio.Semaphore(40)
+            # Параллельная обработка пользователей (max 40 одновременно)
+            # Telegram rate limit: 30 msg/sec, но Claude генерация (5-10с) stagger-ит сообщения
+            sem = asyncio.Semaphore(40)
 
-        async def _bounded(chat_id, send_type):
-            async with sem:
-                await _process_user(chat_id, send_type)
+            async def _bounded(chat_id, send_type):
+                async with sem:
+                    await _process_user(chat_id, send_type)
 
-        await asyncio.gather(*[_bounded(cid, st) for cid, st in scheduled])
-        await bot.session.close()
+            await asyncio.gather(*[_bounded(cid, st) for cid, st in scheduled])
+        finally:
+            await bot.session.close()
 
     # Проверяем напоминания
     await check_reminders()
@@ -1712,13 +1846,6 @@ async def scheduled_check():
             await classify_unprocessed()
         except Exception as e:
             logger.error(f"[Scheduler] Error classifier error: {e}")
-
-    # 🤖 Hourly DT sync retry: проверяем подключённых пользователей, досинхронизируем
-    if now.minute == 0:
-        try:
-            await _sync_dt_connected_users()
-        except Exception as e:
-            logger.error(f"[Scheduler] DT sync retry error: {e}")
 
     # Повторная отправка неотправленных заметок
     from clients.github_api import github_notes
