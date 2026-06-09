@@ -1938,6 +1938,25 @@ async def _send_slot_daily_prompt():
     except Exception as e:
         logger.exception(f"[SlotPrompt] Error in _send_slot_daily_prompt: {e}")
 
+async def send_milestone_notifications():
+    """Отправить milestone-уведомления (C3): 7/14/30/60/90 дней."""
+    import json
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from db.queries.conversion import (
+        get_milestone_eligible_users, log_conversion_event, MILESTONE_DAYS,
+    )
+    from config.settings import PLATFORM_URLS
+
+    bot = Bot(token=_bot_token)
+    total_sent = 0
+
+    try:
+        for day in MILESTONE_DAYS:
+            milestone = f"day_{day}"
+            users = await get_milestone_eligible_users(day)
+
+            for user in users:
+                chat_id = user['chat_id']
                 lang = user.get('language', 'ru') or 'ru'
 
                 try:
