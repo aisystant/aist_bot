@@ -2263,6 +2263,96 @@ async def typing_delta_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+async def external_auth_exchange_handler(request: web.Request) -> web.Response:
+    """WP-411 Ф2: обмен одноразового кода на пару access+refresh токенов.
+
+    POST /internal/auth/exchange
+    Body JSON: {"code": "<uuid>"}
+    Response: {"access_token": "ict_...", "refresh_token": "irt_...", "account_id": "uuid"}
+    Errors: 400 missing code | 404 code not found/expired | 500 internal
+    """
+    import json as _json
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    code = body.get("code", "").strip()
+    if not code:
+        return web.json_response({"error": "code required"}, status=400)
+
+    from db.queries.external_clients import exchange_auth_code, store_client_token
+    from clients.external_auth import generate_access_token, generate_refresh_token
+
+    payload = await exchange_auth_code(code)
+    if payload is None:
+        logger.warning("[ExternalAuth] exchange: code not found or expired")
+        return web.json_response({"error": "code not found or expired"}, status=404)
+
+    at_plain, at_hash, at_enc = generate_access_token()
+    rt_plain, rt_hash, rt_enc = generate_refresh_token()
+
+    try:
+        await store_client_token(
+            account_id=payload["account_id"],
+            access_hash=at_hash,
+            access_enc=at_enc,
+            refresh_hash=rt_hash,
+            refresh_enc=rt_enc,
+            scope=payload.get("scope", "full"),
+        )
+    except Exception:
+        logger.exception("[ExternalAuth] exchange: store_client_token failed")
+        return web.json_response({"error": "internal error"}, status=500)
+
+    logger.info("[ExternalAuth] exchange: issued token for account %s", payload["account_id"])
+    return web.json_response({
+        "access_token": at_plain,
+        "refresh_token": rt_plain,
+        "account_id": payload["account_id"],
+        "scope": payload.get("scope", "full"),
+    })
+
+
+async def external_auth_introspect_handler(request: web.Request) -> web.Response:
+    """WP-411 Ф2: gateway-mcp → проверка access-токена, возврат account_id.
+
+    POST /internal/auth/introspect
+    Headers: X-Introspect-Secret: <secret>
+    Body JSON: {"access_token": "ict_..."}
+    Response: {"account_id": "uuid", "scope": "full"}
+    Errors: 401 bad secret | 400 missing token | 404 token not found/revoked
+    """
+    from clients.external_auth import verify_introspect_secret, hash_token
+    from db.queries.external_clients import lookup_client_token, touch_client_token
+    import asyncio
+
+    provided = request.headers.get("X-Introspect-Secret", "")
+    if not verify_introspect_secret(provided):
+        logger.warning("[ExternalAuth] introspect: bad secret from %s", request.remote)
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    token = body.get("access_token", "").strip()
+    if not token:
+        return web.json_response({"error": "access_token required"}, status=400)
+
+    token_hash = hash_token(token)
+    row = await lookup_client_token(token_hash)
+    if row is None:
+        return web.json_response({"error": "token not found"}, status=404)
+
+    # fire-and-forget last_used update
+    asyncio.ensure_future(touch_client_token(row["id"]))
+
+    return web.json_response({"account_id": row["account_id"], "scope": row["scope"]})
+
+
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -2300,6 +2390,8 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
+    app.router.add_post("/internal/auth/exchange", external_auth_exchange_handler)    # WP-411 Ф2
+    app.router.add_post("/internal/auth/introspect", external_auth_introspect_handler)  # WP-411 Ф2
     app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)   # WP-341 Этап 2
     app.router.add_post("/webhook/discourse", discourse_webhook_handler) # WP-327 Этап 23
     app.router.add_post("/api/typing_delta", typing_delta_handler)       # WP-327 Phase 4: Browser Extension heartbeat

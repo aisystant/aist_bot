@@ -1583,4 +1583,43 @@ async def create_tables_health(pool: asyncpg.Pool):
             ON request_traces (user_id, created_at DESC)
         ''')
 
+        # ═══════════════════════════════════════════════════════════
+        # ВНЕШНИЕ КЛИЕНТЫ (WP-411 Ф2): одноразовые коды + токены
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS external_auth_codes (
+                code TEXT PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                account_id UUID NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'full',
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+                expires_at TIMESTAMP NOT NULL
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_eac_expires
+            ON external_auth_codes (expires_at)
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS ory_client_tokens (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                account_id UUID NOT NULL,
+                access_token_hash TEXT NOT NULL UNIQUE,
+                access_token_enc TEXT NOT NULL,
+                refresh_token_hash TEXT NOT NULL UNIQUE,
+                refresh_token_enc TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'full',
+                client_label TEXT DEFAULT 'Claude Code',
+                last_used TIMESTAMP,
+                revoked_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc')
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_oct_account
+            ON ory_client_tokens (account_id)
+            WHERE revoked_at IS NULL
+        ''')
+
     logger.info("Health BD tables created/updated")

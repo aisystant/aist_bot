@@ -13,6 +13,7 @@ Settings = управление подключениями БОТА (Gateway, Gi
 """
 
 import logging
+import os
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -20,7 +21,16 @@ from aiogram.filters import Command
 
 from config import GATEWAY_MCP_URL
 from db.queries import get_intern
+from db.queries.external_clients import (
+    create_auth_code,
+    list_client_tokens,
+    revoke_client_token,
+)
+from helpers.dual_write import resolve_ory_id_from_chat
 from i18n import t
+
+# Базовый URL бота (используется в инструкции по обмену кода)
+_BOT_AUTH_BASE = os.getenv("WEBHOOK_URL", "").rstrip("/")
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +175,102 @@ async def on_close(callback: CallbackQuery):
     intern = await get_intern(callback.from_user.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
     await callback.message.edit_text(t('connect.closed', lang), parse_mode="Markdown")
+
+
+# ============= EXTERNAL CLIENT AUTH (WP-411 Ф2) =============
+
+@connect_router.message(Command("connect"), F.text.regexp(r"^/connect\s+external"))
+async def cmd_connect_external(message: Message):
+    """Генерирует одноразовый код для подключения внешнего AI-клиента (напр. Claude Code)."""
+    chat_id = message.chat.id
+
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        await message.answer(
+            "⚠️ Твой аккаунт ещё не связан с платформой. "
+            "Пройди онбординг и попробуй снова."
+        )
+        return
+
+    code = await create_auth_code(chat_id, account_id)
+    exchange_url = f"{_BOT_AUTH_BASE}/internal/auth/exchange" if _BOT_AUTH_BASE else "<BOT_URL>/internal/auth/exchange"
+
+    text = (
+        "🔑 *Код подключения внешнего клиента*\n\n"
+        f"`{code}`\n\n"
+        "⏱ Действителен *5 минут*. Не передавай его другим.\n\n"
+        "*Как использовать:*\n"
+        "1\\. Выполни в терминале:\n"
+        f"```\ncurl -s -X POST {exchange_url} \\\n"
+        f"  -H 'Content-Type: application/json' \\\n"
+        f"  -d '{{\"code\":\"{code}\"}}'\n```\n"
+        "2\\. Скопируй `access_token` из ответа.\n"
+        "3\\. Добавь в настройки MCP\\-сервера:\n"
+        "```\n\"headers\": {{\"Authorization\": \"Bearer <access_token>\"}}\n```\n\n"
+        "Для просмотра активных подключений: /my\\_clients"
+    )
+    await message.answer(text, parse_mode="MarkdownV2")
+
+
+@connect_router.message(Command("my_clients"))
+async def cmd_my_clients(message: Message):
+    """Список активных внешних клиентов с кнопками отзыва."""
+    chat_id = message.chat.id
+
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        await message.answer("⚠️ Аккаунт не найден.")
+        return
+
+    tokens = await list_client_tokens(account_id)
+    if not tokens:
+        await message.answer(
+            "Нет активных внешних подключений.\n\n"
+            "Чтобы подключить внешний клиент: /connect external"
+        )
+        return
+
+    lines = ["*Активные внешние подключения:*\n"]
+    keyboard_rows = []
+    for tok in tokens:
+        since = tok["created_at"].strftime("%d.%m.%Y") if tok.get("created_at") else "?"
+        last = tok["last_used"].strftime("%d.%m %H:%M") if tok.get("last_used") else "не использовался"
+        lines.append(f"• *{tok['client_label']}* — с {since}, последний доступ: {last}")
+        keyboard_rows.append([
+            InlineKeyboardButton(
+                text=f"❌ Отключить {tok['client_label']}",
+                callback_data=f"iwe_revoke_{tok['id']}",
+            )
+        ])
+
+    keyboard_rows.append([
+        InlineKeyboardButton(text="✅ Закрыть", callback_data="iwe_close")
+    ])
+    text = "\n".join(lines)
+    await message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows),
+        parse_mode="Markdown",
+    )
+
+
+@connect_router.callback_query(F.data.startswith("iwe_revoke_"))
+async def on_revoke_client(callback: CallbackQuery):
+    """Отзывает токен внешнего клиента."""
+    await callback.answer()
+    token_id = callback.data.removeprefix("iwe_revoke_")
+
+    account_id = await resolve_ory_id_from_chat(callback.from_user.id)
+    if not account_id:
+        await callback.message.edit_text("⚠️ Аккаунт не найден.")
+        return
+
+    revoked = await revoke_client_token(token_id, account_id)
+    if revoked:
+        await callback.message.edit_text(
+            "✅ Подключение отозвано. Внешний клиент больше не имеет доступа."
+        )
+    else:
+        await callback.message.edit_text(
+            "⚠️ Не удалось отозвать — токен уже неактивен или не принадлежит тебе."
+        )
