@@ -192,16 +192,27 @@ async def on_close(callback: CallbackQuery):
 async def _handle_connect_external(message: Message):
     """Генерирует одноразовый код для подключения внешнего AI-клиента (напр. Claude Code)."""
     chat_id = message.chat.id
+    logger.info(f"[ConnectExternal] START chat_id={chat_id}")
 
     account_id = await resolve_ory_id_from_chat(chat_id)
+    logger.info(f"[ConnectExternal] account_id={account_id!r} for chat_id={chat_id}")
+
     if not account_id:
+        logger.info(f"[ConnectExternal] no account_id — sending warning to {chat_id}")
         await message.answer(
             "⚠️ Твой аккаунт ещё не связан с платформой. "
             "Пройди онбординг и попробуй снова."
         )
         return
 
-    code = await create_auth_code(chat_id, account_id)
+    try:
+        code = await create_auth_code(chat_id, account_id)
+        logger.info(f"[ConnectExternal] code created for chat_id={chat_id}")
+    except Exception as exc:
+        logger.error(f"[ConnectExternal] create_auth_code failed for chat_id={chat_id}: {exc}", exc_info=True)
+        await message.answer("⚠️ Ошибка создания кода, попробуй позже.")
+        return
+
     exchange_url = f"{_BOT_AUTH_BASE}/internal/auth/exchange" if _BOT_AUTH_BASE else "<BOT_URL>/internal/auth/exchange"
 
     text = (
@@ -215,7 +226,13 @@ async def _handle_connect_external(message: Message):
         "Увидишь галочки — всё работает и токен сохранён.\n\n"
         "Активные подключения: /my\\_clients"
     )
-    await message.answer(text, parse_mode="Markdown")
+    logger.info(f"[ConnectExternal] sending code message to chat_id={chat_id}")
+    try:
+        await message.answer(text, parse_mode="Markdown")
+        logger.info(f"[ConnectExternal] message sent OK to chat_id={chat_id}")
+    except Exception as exc:
+        logger.error(f"[ConnectExternal] message.answer failed for chat_id={chat_id}: {exc}", exc_info=True)
+        await message.answer(f"Код: `{code}` (5 мин)", parse_mode="Markdown")
 
 
 @connect_router.message(Command("my_clients"))
