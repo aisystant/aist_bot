@@ -431,6 +431,8 @@ async def main():
         BotCommand(command="features", description="Возможности платформы"),
         BotCommand(command="settings", description="Настройки и профиль"),
         BotCommand(command="support", description="Поддержка — открыть тикет"),
+        BotCommand(command="connect_external", description="Подключить внешний AI-клиент (Claude Code и др.)"),
+        BotCommand(command="my_clients", description="Активные внешние подключения"),
         BotCommand(command="status", description="Статус платформы"),
         BotCommand(command="help", description="Справка"),
     ])
@@ -448,6 +450,8 @@ async def main():
         BotCommand(command="consent", description="Tracking consent"),
         BotCommand(command="features", description="Platform features"),
         BotCommand(command="settings", description="Settings & profile"),
+        BotCommand(command="connect_external", description="Connect external AI client (Claude Code etc.)"),
+        BotCommand(command="my_clients", description="Active external connections"),
         BotCommand(command="status", description="Platform status"),
         BotCommand(command="help", description="Help"),
     ], language_code="en")

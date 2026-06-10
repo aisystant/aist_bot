@@ -59,6 +59,12 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
     ])
 
 
+@connect_router.message(Command("connect_external"))
+async def cmd_connect_external_direct(message: Message):
+    """Команда /connect_external — быстрый вход: сразу выдаёт одноразовый код."""
+    await _handle_connect_external(message)
+
+
 @connect_router.message(Command("connect"))
 async def cmd_connect(message: Message, command: CommandObject):
     """Команда /connect — IWE setup wizard. /connect external — внешний клиент."""
@@ -201,18 +207,15 @@ async def _handle_connect_external(message: Message):
     text = (
         "🔑 *Код подключения внешнего клиента*\n\n"
         f"`{code}`\n\n"
-        "⏱ Действителен *5 минут*. Не передавай его другим.\n\n"
-        "*Как использовать:*\n"
-        "1\\. Выполни в терминале:\n"
-        f"```\ncurl -s -X POST {exchange_url} \\\n"
-        f"  -H 'Content-Type: application/json' \\\n"
-        f"  -d '{{\"code\":\"{code}\"}}'\n```\n"
-        "2\\. Скопируй `access_token` из ответа.\n"
-        "3\\. Добавь в настройки MCP\\-сервера:\n"
-        "```\n\"headers\": {{\"Authorization\": \"Bearer <access_token>\"}}\n```\n\n"
-        "Для просмотра активных подключений: /my\\_clients"
+        "⏱ Действителен *5 минут*.\n\n"
+        "*Шаги:*\n"
+        "1. Скопируй код выше\n"
+        "2. В терминале (из папки бота):\n"
+        f"`python3 scripts/test_external_auth.py --code {code}`\n\n"
+        "Увидишь галочки — всё работает и токен сохранён.\n\n"
+        "Активные подключения: /my\\_clients"
     )
-    await message.answer(text, parse_mode="MarkdownV2")
+    await message.answer(text, parse_mode="Markdown")
 
 
 @connect_router.message(Command("my_clients"))
@@ -229,7 +232,7 @@ async def cmd_my_clients(message: Message):
     if not tokens:
         await message.answer(
             "Нет активных внешних подключений.\n\n"
-            "Чтобы подключить внешний клиент: /connect external"
+            "Чтобы подключить внешний клиент: /connect\\_external"
         )
         return
 
