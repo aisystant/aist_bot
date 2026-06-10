@@ -769,19 +769,22 @@ async def cmd_delivery_smoke(message: Message):
             await message.answer("\n".join(lines), parse_mode="HTML")
             return
 
-        # 2. Имитация чек-ина: обновить marathon_content (старый движок)
+        # 2. Имитация чек-ина: обновить marathon_content (старый движок — только если таблица есть)
         pool = await get_pool()
         async with pool.acquire() as conn:
-            updated = await conn.execute(
-                '''UPDATE marathon_content
-                   SET status = 'delivered', delivered_at = NOW()
-                   WHERE chat_id = $1
-                     AND status = 'pending'
-                     AND notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
-                ''',
-                target_id,
-            )
-        lines.append(f"Обновлений marathon_content: {updated}")
+            try:
+                updated = await conn.execute(
+                    '''UPDATE marathon_content
+                       SET status = 'delivered', delivered_at = NOW()
+                       WHERE chat_id = $1
+                         AND status = 'pending'
+                         AND notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                    ''',
+                    target_id,
+                )
+                lines.append(f"Обновлений marathon_content (старый движок): {updated}")
+            except Exception:
+                lines.append("marathon_content: таблица отсутствует (только новый движок)")
 
         # 3. Статус в learning.marathon_queue (новый движок)
         learning_pool = await get_learning_pool()
