@@ -222,14 +222,20 @@ async def get_pending_content_count() -> int:
 # === /delivery — отчёт о доставке марафона ===
 
 async def get_delivery_report() -> dict:
-    """Отчёт: кто из активных участников марафона получил урок сегодня."""
+    """Отчёт: кто из активных участников марафона получил урок сегодня.
+
+    Поддерживает два движка:
+    - Старый: marathon_content в bot_data (notification_sent_at)
+    - Новый: learning.marathon_queue (status='sent') + learning.marathon_state (checkin)
+    """
     from datetime import datetime, timezone, timedelta
     MOSCOW_TZ = timezone(timedelta(hours=3))
 
     pool = await get_pool()
+    learning_pool = await get_learning_pool()
+
     async with pool.acquire() as conn:
         now_msk = datetime.now(MOSCOW_TZ)
-        today_str = now_msk.strftime('%H:%M')
 
         # Active marathon users
         active = await conn.fetch('''
@@ -241,68 +247,103 @@ async def get_delivery_report() -> dict:
             ORDER BY s.schedule_time
         ''')
 
-        # Today's marathon_content per user (latest status)
-        # notification_sent_at = когда уведомление отправлено (idempotency field)
-        # Fallback на created_at для старых записей без notification_sent_at
-        content_today = await conn.fetch('''
-            SELECT DISTINCT ON (mc.chat_id)
-                mc.chat_id, mc.status, mc.created_at,
-                mc.notification_sent_at
-            FROM marathon_content mc
-            WHERE mc.notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
-               OR (mc.notification_sent_at IS NULL
-                   AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date)
-            ORDER BY mc.chat_id, COALESCE(mc.notification_sent_at, mc.created_at) DESC
-        ''')
+        # Старый движок: marathon_content в bot_data (может отсутствовать на новых инстансах)
+        try:
+            content_today = await conn.fetch('''
+                SELECT DISTINCT ON (mc.chat_id)
+                    mc.chat_id, mc.status, mc.created_at,
+                    mc.notification_sent_at
+                FROM marathon_content mc
+                WHERE mc.notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                   OR (mc.notification_sent_at IS NULL
+                       AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date)
+                ORDER BY mc.chat_id, COALESCE(mc.notification_sent_at, mc.created_at) DESC
+            ''')
+        except Exception:
+            content_today = []
         content_map = {r['chat_id']: r for r in content_today}
 
-        users = []
-        counts = {'sent_read': 0, 'sent_unread': 0, 'not_yet': 0, 'missed': 0}
+    # Новый движок: learning.marathon_queue (sent today) + marathon_state (checkin today)
+    # user_id в learning-таблицах = Telegram chat_id (одно значение, разные имена колонок)
+    async with learning_pool.acquire() as lconn:
+        queue_today = await lconn.fetch('''
+            SELECT DISTINCT ON (user_id)
+                user_id AS chat_id, status, sent_at
+            FROM learning.marathon_queue
+            WHERE sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+              AND status = 'sent'
+            ORDER BY user_id, sent_at DESC
+        ''')
+        queue_map = {r['chat_id']: r for r in queue_today}
 
-        for u in active:
-            chat_id = u['chat_id']
-            sched = u['schedule_time'] or '09:00'
-            entry = {
-                'chat_id': chat_id,
-                'username': u['tg_username'],
-                'schedule': sched,
-            }
+        # Checkin сегодня = пользователь открыл урок (новый движок)
+        checkins_today = await lconn.fetch('''
+            SELECT DISTINCT user_id AS chat_id
+            FROM learning.marathon_state
+            WHERE check_in_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+        ''')
+        checkin_set = {r['chat_id'] for r in checkins_today}
 
-            c = content_map.get(chat_id)
-            if c:
-                ts = c['notification_sent_at'] or c['created_at']
-                ts_msk = ts + timedelta(hours=3) if ts.tzinfo is None else ts.astimezone(MOSCOW_TZ)
-                entry['time'] = ts_msk.strftime('%H:%M')
-                # DB: 'delivered' = user opened lesson, 'pending' = sent but not opened yet
-                if c['status'] == 'delivered':
-                    entry['status'] = 'sent_read'
-                    counts['sent_read'] += 1
-                else:
-                    entry['status'] = 'sent_unread'
-                    counts['sent_unread'] += 1
+    users = []
+    counts = {'sent_read': 0, 'sent_unread': 0, 'not_yet': 0, 'missed': 0}
+
+    for u in active:
+        chat_id = u['chat_id']
+        sched = u['schedule_time'] or '09:00'
+        entry = {
+            'chat_id': chat_id,
+            'username': u['tg_username'],
+            'schedule': sched,
+        }
+
+        c = content_map.get(chat_id)
+        if c:
+            # Старый движок: запись есть в marathon_content (bot_data)
+            ts = c['notification_sent_at'] or c['created_at']
+            ts_msk = ts + timedelta(hours=3) if ts.tzinfo is None else ts.astimezone(MOSCOW_TZ)
+            entry['time'] = ts_msk.strftime('%H:%M')
+            if c['status'] == 'delivered':
+                entry['status'] = 'sent_read'
+                counts['sent_read'] += 1
             else:
-                # No content today — either not yet or missed
-                try:
-                    h, m = map(int, sched.split(':'))
-                    sched_dt = now_msk.replace(hour=h, minute=m, second=0)
-                    if now_msk < sched_dt:
-                        entry['status'] = 'not_yet'
-                        counts['not_yet'] += 1
-                    else:
-                        entry['status'] = 'missed'
-                        counts['missed'] += 1
-                except ValueError:
+                entry['status'] = 'sent_unread'
+                counts['sent_unread'] += 1
+        elif chat_id in queue_map:
+            # Новый движок: урок отправлен через learning.marathon_queue
+            q = queue_map[chat_id]
+            ts = q['sent_at']
+            ts_msk = ts + timedelta(hours=3) if ts.tzinfo is None else ts.astimezone(MOSCOW_TZ)
+            entry['time'] = ts_msk.strftime('%H:%M')
+            entry['engine'] = 'new'
+            if chat_id in checkin_set:
+                entry['status'] = 'sent_read'
+                counts['sent_read'] += 1
+            else:
+                entry['status'] = 'sent_unread'
+                counts['sent_unread'] += 1
+        else:
+            # Контента нет — либо ещё не время, либо пропущено
+            try:
+                h, m = map(int, sched.split(':'))
+                sched_dt = now_msk.replace(hour=h, minute=m, second=0)
+                if now_msk < sched_dt:
+                    entry['status'] = 'not_yet'
+                    counts['not_yet'] += 1
+                else:
                     entry['status'] = 'missed'
                     counts['missed'] += 1
+            except ValueError:
+                entry['status'] = 'missed'
+                counts['missed'] += 1
 
-            users.append(entry)
+        users.append(entry)
 
-        return {
-            'users': users,
-            'report_date': now_msk.strftime('%d.%m.%Y'),
-            'summary': {
-                'active': len(active),
-                'sent': counts['sent_read'] + counts['sent_unread'],
-                **counts,
-            },
-        }
+    return {
+        'users': users,
+        'report_date': now_msk.strftime('%d.%m.%Y'),
+        'summary': {
+            'active': len(active),
+            'sent': counts['sent_read'] + counts['sent_unread'],
+            **counts,
+        },
+    }

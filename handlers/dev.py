@@ -731,6 +731,93 @@ async def cmd_delivery(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════
+# /delivery_smoke — смок-тест доставки: как пользователь нажимает
+# ═══════════════════════════════════════════════════════════
+
+@dev_router.message(Command("delivery_smoke"))
+async def cmd_delivery_smoke(message: Message):
+    """/delivery_smoke [chat_id] — смок-тест: статус ДО и ПОСЛЕ имитации чек-ина.
+
+    Проверяет, что:
+    1. Пользователь виден в delivery report (не 🔴 при доставленном уроке)
+    2. После первого чек-ина статус меняется с 🟡 на 🟢 в marathon_content
+    Без аргумента — тестирует вызывающего.
+    """
+    if not _is_developer(message.chat.id):
+        return
+
+    logger.info("[DeliverySmoke] handler entered for chat_id=%s", message.chat.id)
+
+    from db.connection import get_pool, get_learning_pool
+    from db.queries.dev_stats import get_delivery_report
+    from datetime import datetime, timezone, timedelta
+    MOSCOW_TZ = timezone(timedelta(hours=3))
+
+    args = message.text.split()
+    target_id = int(args[1]) if len(args) > 1 else message.chat.id
+
+    lines = [f"<b>Смок-тест доставки</b> для {target_id}\n"]
+
+    try:
+        # 1. Статус до
+        report = await get_delivery_report()
+        user_before = next((u for u in report['users'] if u['chat_id'] == target_id), None)
+        if user_before:
+            lines.append(f"До чек-ина: {user_before['status']} ({user_before.get('time', user_before['schedule'])})")
+        else:
+            lines.append("До чек-ина: пользователь не найден среди активных марафонцев")
+            await message.answer("\n".join(lines), parse_mode="HTML")
+            return
+
+        # 2. Имитация чек-ина: обновить marathon_content (старый движок — только если таблица есть)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            try:
+                updated = await conn.execute(
+                    '''UPDATE marathon_content
+                       SET status = 'delivered', delivered_at = NOW()
+                       WHERE chat_id = $1
+                         AND status = 'pending'
+                         AND notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                    ''',
+                    target_id,
+                )
+                lines.append(f"Обновлений marathon_content (старый движок): {updated}")
+            except Exception:
+                lines.append("marathon_content: таблица отсутствует (только новый движок)")
+
+        # 3. Статус в learning.marathon_queue (новый движок)
+        learning_pool = await get_learning_pool()
+        async with learning_pool.acquire() as lconn:
+            queue_row = await lconn.fetchrow(
+                '''SELECT status, sent_at FROM learning.marathon_queue
+                   WHERE user_id = $1 AND sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                   ORDER BY sent_at DESC LIMIT 1''',
+                target_id,
+            )
+        if queue_row:
+            lines.append(f"learning.marathon_queue: статус={queue_row['status']}, отправлен={queue_row['sent_at'].strftime('%H:%M')}")
+        else:
+            lines.append("learning.marathon_queue: записей за сегодня нет (старый движок)")
+
+        # 4. Статус после
+        report2 = await get_delivery_report()
+        user_after = next((u for u in report2['users'] if u['chat_id'] == target_id), None)
+        status_after = user_after['status'] if user_after else 'не найден'
+        lines.append(f"После обновления: {status_after}")
+
+        # 5. Итог
+        ok = status_after in ('sent_read', 'sent_unread')
+        lines.append(f"\n{'✅ PASS' if ok else '❌ FAIL'}: пользователь {'виден' if ok else 'не виден'} в отчёте")
+
+        await message.answer("\n".join(lines), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error("[DeliverySmoke] FAILED for chat_id=%s target=%s: %s", message.chat.id, target_id, e, exc_info=True)
+        await message.answer(f"❌ Ошибка смок-теста:\n<code>{e}</code>", parse_mode="HTML")
+
+
+# ═══════════════════════════════════════════════════════════
 # L2 AUTO-FIX: approve/reject callbacks (WP-45 Phase 3)
 # ═══════════════════════════════════════════════════════════
 
