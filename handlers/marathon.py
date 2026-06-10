@@ -403,6 +403,24 @@ async def callback_marathon_checkin(callback: CallbackQuery):
             await update_intern(user_id, marathon_status="completed")
             is_completed = True
 
+        # Обновляем старый движок: marathon_content в bot_data → status='delivered'
+        # Нужно для корректного /delivery отчёта (old engine users)
+        try:
+            from db.connection import get_pool as _get_main_pool
+            _pool = await _get_main_pool()
+            async with _pool.acquire() as _conn:
+                await _conn.execute(
+                    '''UPDATE marathon_content
+                       SET status = 'delivered', delivered_at = NOW()
+                       WHERE chat_id = $1
+                         AND status = 'pending'
+                         AND notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
+                    ''',
+                    user_id,
+                )
+        except Exception as _e:
+            logger.warning("[MarathonCheckin] marathon_content mark delivered failed for %s: %s", user_id, _e)
+
         logger.info(
             f"[MarathonCheckin] User {user_id} day {day} state={state} "
             f"current_day {current_day}→{new_day}"
