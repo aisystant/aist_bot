@@ -31,8 +31,8 @@ def _msk_now() -> str:
 
 
 def _is_developer(chat_id: int) -> bool:
-    dev = os.getenv("DEVELOPER_CHAT_ID")
-    return bool(dev and str(chat_id) == dev)
+    dev = os.getenv("DEVELOPER_CHAT_ID", "")
+    return str(chat_id) in {d.strip() for d in dev.split(",") if d.strip()}
 
 
 @dev_router.message(Command("stats"))
