@@ -43,16 +43,16 @@ def hash_token(plaintext: str) -> str:
     return hashlib.sha256(plaintext.encode()).hexdigest()
 
 
-def generate_access_token() -> tuple[str, str, str]:
-    """Returns (plaintext, sha256_hash, fernet_encrypted)."""
+def generate_access_token() -> tuple[str, str]:
+    """Returns (plaintext, sha256_hash)."""
     plaintext = ACCESS_TOKEN_PREFIX + secrets.token_urlsafe(32)
-    return plaintext, hash_token(plaintext), encrypt_token(plaintext)
+    return plaintext, hash_token(plaintext)
 
 
-def generate_refresh_token() -> tuple[str, str, str]:
-    """Returns (plaintext, sha256_hash, fernet_encrypted)."""
+def generate_refresh_token() -> tuple[str, str]:
+    """Returns (plaintext, sha256_hash)."""
     plaintext = REFRESH_TOKEN_PREFIX + secrets.token_urlsafe(40)
-    return plaintext, hash_token(plaintext), encrypt_token(plaintext)
+    return plaintext, hash_token(plaintext)
 
 
 def verify_introspect_secret(header_value: str) -> bool:

@@ -2282,40 +2282,35 @@ async def external_auth_exchange_handler(request: web.Request) -> web.Response:
     if not code:
         return web.json_response({"error": "code required"}, status=400)
 
-    from db.queries.external_clients import exchange_auth_code, store_client_token
+    from db.queries.external_clients import exchange_code_and_store_tokens
     from clients.external_auth import generate_access_token, generate_refresh_token
 
-    payload = await exchange_auth_code(code)
-    if payload is None:
-        logger.warning("[ExternalAuth] exchange: code not found or expired")
-        return web.json_response({"error": "code not found or expired"}, status=404)
-
     try:
-        at_plain, at_hash, at_enc = generate_access_token()
-        rt_plain, rt_hash, rt_enc = generate_refresh_token()
+        at_plain, at_hash = generate_access_token()
+        rt_plain, rt_hash = generate_refresh_token()
     except RuntimeError as e:
         logger.error("[ExternalAuth] exchange: EXTERNAL_AUTH_KEY not configured: %s", e)
         return web.json_response({"error": "server misconfigured"}, status=500)
 
     try:
-        await store_client_token(
-            account_id=payload["account_id"],
+        result = await exchange_code_and_store_tokens(
+            code=code,
             access_hash=at_hash,
-            access_enc=at_enc,
             refresh_hash=rt_hash,
-            refresh_enc=rt_enc,
-            scope=payload.get("scope", "full"),
         )
     except Exception:
-        logger.exception("[ExternalAuth] exchange: store_client_token failed")
+        logger.exception("[ExternalAuth] exchange: exchange_code_and_store_tokens failed")
         return web.json_response({"error": "internal error"}, status=500)
 
-    logger.info("[ExternalAuth] exchange: issued token for account %s", payload["account_id"])
+    if result is None:
+        logger.warning("[ExternalAuth] exchange: code not found or expired")
+        return web.json_response({"error": "code not found or expired"}, status=404)
+
+    logger.info("[ExternalAuth] exchange: issued token for account %s", result["account_id"])
     return web.json_response({
         "access_token": at_plain,
         "refresh_token": rt_plain,
-        "account_id": payload["account_id"],
-        "scope": payload.get("scope", "full"),
+        "scope": result["scope"],
     })
 
 

@@ -34,52 +34,43 @@ async def create_auth_code(chat_id: int, account_id: str, scope: str = "full") -
     return code
 
 
-async def exchange_auth_code(code: str) -> Optional[dict]:
-    """Exchanges one-time code → {chat_id, account_id, scope}. Deletes on success.
 
-    Returns None if code is unknown or expired.
-    """
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            DELETE FROM external_auth_codes
-            WHERE code = $1 AND expires_at > NOW()
-            RETURNING chat_id, account_id::text, scope
-            """,
-            code,
-        )
-    if row is None:
-        return None
-    return {"chat_id": row["chat_id"], "account_id": row["account_id"], "scope": row["scope"]}
-
-
-async def store_client_token(
-    account_id: str,
+async def exchange_code_and_store_tokens(
+    code: str,
     access_hash: str,
-    access_enc: str,
     refresh_hash: str,
-    refresh_enc: str,
-    scope: str = "full",
     label: str = "Claude Code",
-) -> str:
-    """Stores encrypted token pair. Returns token id (UUID)."""
+) -> Optional[dict]:
+    """Atomic: consume bootstrap code + insert token pair in one transaction.
+
+    Returns {token_id, account_id, scope} or None if code unknown/expired.
+    If the DB call fails, the code is NOT consumed (transaction rolled back).
+    """
     token_id = str(uuid.uuid4())
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO ory_client_tokens
-              (id, account_id, access_token_hash, access_token_enc,
-               refresh_token_hash, refresh_token_enc, scope, client_label)
-            VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
-            """,
-            token_id, account_id,
-            access_hash, access_enc,
-            refresh_hash, refresh_enc,
-            scope, label,
-        )
-    return token_id
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                DELETE FROM external_auth_codes
+                WHERE code = $1 AND expires_at > NOW()
+                RETURNING chat_id, account_id::text, scope
+                """,
+                code,
+            )
+            if row is None:
+                return None
+            await conn.execute(
+                """
+                INSERT INTO ory_client_tokens
+                  (id, account_id, access_token_hash, refresh_token_hash, scope, client_label)
+                VALUES ($1, $2::uuid, $3, $4, $5, $6)
+                """,
+                token_id, row["account_id"],
+                access_hash, refresh_hash,
+                row["scope"], label,
+            )
+    return {"token_id": token_id, "account_id": row["account_id"], "scope": row["scope"]}
 
 
 async def lookup_client_token(access_hash: str) -> Optional[dict]:
