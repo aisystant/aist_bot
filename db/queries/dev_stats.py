@@ -261,24 +261,25 @@ async def get_delivery_report() -> dict:
         content_map = {r['chat_id']: r for r in content_today}
 
     # Новый движок: learning.marathon_queue (sent today) + marathon_state (checkin today)
+    # user_id в learning-таблицах = Telegram chat_id (одно значение, разные имена колонок)
     async with learning_pool.acquire() as lconn:
         queue_today = await lconn.fetch('''
             SELECT DISTINCT ON (user_id)
-                user_id, status, sent_at
+                user_id AS chat_id, status, sent_at
             FROM learning.marathon_queue
             WHERE sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
               AND status = 'sent'
             ORDER BY user_id, sent_at DESC
         ''')
-        queue_map = {r['user_id']: r for r in queue_today}
+        queue_map = {r['chat_id']: r for r in queue_today}
 
         # Checkin сегодня = пользователь открыл урок (новый движок)
         checkins_today = await lconn.fetch('''
-            SELECT DISTINCT user_id
+            SELECT DISTINCT user_id AS chat_id
             FROM learning.marathon_state
             WHERE check_in_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
         ''')
-        checkin_set = {r['user_id'] for r in checkins_today}
+        checkin_set = {r['chat_id'] for r in checkins_today}
 
     users = []
     counts = {'sent_read': 0, 'sent_unread': 0, 'not_yet': 0, 'missed': 0}
