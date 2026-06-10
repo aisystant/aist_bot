@@ -17,7 +17,7 @@ import os
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 
 from config import GATEWAY_MCP_URL
 from db.queries import get_intern
@@ -60,8 +60,12 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
 
 
 @connect_router.message(Command("connect"))
-async def cmd_connect(message: Message):
-    """Команда /connect — IWE setup wizard."""
+async def cmd_connect(message: Message, command: CommandObject):
+    """Команда /connect — IWE setup wizard. /connect external — внешний клиент."""
+    if command.args == "external":
+        await _handle_connect_external(message)
+        return
+
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
     if not intern:
@@ -179,8 +183,7 @@ async def on_close(callback: CallbackQuery):
 
 # ============= EXTERNAL CLIENT AUTH (WP-411 Ф2) =============
 
-@connect_router.message(Command("connect"), F.text.regexp(r"^/connect\s+external"))
-async def cmd_connect_external(message: Message):
+async def _handle_connect_external(message: Message):
     """Генерирует одноразовый код для подключения внешнего AI-клиента (напр. Claude Code)."""
     chat_id = message.chat.id
 

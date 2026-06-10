@@ -2290,8 +2290,12 @@ async def external_auth_exchange_handler(request: web.Request) -> web.Response:
         logger.warning("[ExternalAuth] exchange: code not found or expired")
         return web.json_response({"error": "code not found or expired"}, status=404)
 
-    at_plain, at_hash, at_enc = generate_access_token()
-    rt_plain, rt_hash, rt_enc = generate_refresh_token()
+    try:
+        at_plain, at_hash, at_enc = generate_access_token()
+        rt_plain, rt_hash, rt_enc = generate_refresh_token()
+    except RuntimeError as e:
+        logger.error("[ExternalAuth] exchange: EXTERNAL_AUTH_KEY not configured: %s", e)
+        return web.json_response({"error": "server misconfigured"}, status=500)
 
     try:
         await store_client_token(
