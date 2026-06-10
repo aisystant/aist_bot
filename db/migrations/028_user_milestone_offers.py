@@ -1,12 +1,13 @@
 """
-Миграция 028: таблица user_milestone_offers — история офферов Дорожника пользователям.
+Миграция 028: таблица user_milestone_offers — история офферов пользы пользователям.
 
 Контекст (WP-406 Ф6, peer-session 2026-06-10-11-wp406-f6-artifacts):
-  Дорожник (DP.SC.173) фиксирует каждое предложение «пользы» (P1-P9) и ответ
-  пользователя. Partial unique index не даёт одновременно существовать двум
+  Онбордер в Фазе 2 (DP.ROLE.067 §3) фиксирует каждое предложение «пользы» (P1-P9)
+  и ответ пользователя. Partial unique index не даёт одновременно существовать двум
   активным офферам одной пользы — гарантия на уровне схемы, не прикладного кода.
 
-# see DP.SC.173, DP.ROLE.073, migration 027
+# see DP.SC.170, DP.ROLE.067, migration 027
+# (Дорожник DP.SC.173/DP.ROLE.073 свёрнут в Фазу 2 Онбордера, WP-406 Ф6, коммит e10e30a)
 
 Запуск:
     python -m db.migrations.028_user_milestone_offers
@@ -39,7 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_offers_user_id
     ON user_milestone_offers (user_id);
 
 COMMENT ON TABLE user_milestone_offers IS
-    'История офферов Дорожника (DP.SC.173). '
+    'История офферов пользы (Онбордер Фаза 2, DP.SC.170). '
     'Partial unique index предотвращает дублирующиеся активные офферы. '
     'Source: WP-406 Ф6, peer-session 2026-06-10-11.';
 

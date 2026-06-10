@@ -5,9 +5,10 @@
   Девять промежуточных польз от первого полезного ответа (P1) до
   собственной среды развития (P9). Flat-таблица: один ряд на пользователя,
   9 boolean-колонок. Факты фиксирует event-процессор по proxy-условиям DP.VM.001.
-  Дорожник (DP.ROLE.073) читает эту таблицу, не пишет в неё напрямую.
+  Онбордер в Фазе 2 (DP.ROLE.067 §3) читает эту таблицу, не пишет в неё напрямую.
 
-# see DP.SC.173, DP.ROLE.073, DP.VM.001
+# see DP.SC.170, DP.ROLE.067, DP.VM.001
+# (Дорожник DP.SC.173/DP.ROLE.073 свёрнут в Фазу 2 Онбордера, WP-406 Ф6, коммит e10e30a)
 
 Запуск:
     python -m db.migrations.027_user_milestones
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS user_milestones (
 
 COMMENT ON TABLE user_milestones IS
     'Факты пережитых пользовательских польз P1-P9 (DP.VM.001). '
-    'Пишет event-процессор, читает Дорожник (DP.SC.173). '
+    'Пишет event-процессор, читает Онбордер в Фазе 2 (DP.SC.170). '
     'Source: WP-406 Ф6, peer-session 2026-06-10-11.';
 
 COMMENT ON COLUMN user_milestones.has_p1 IS 'Первый полезный ответ от ИИ';
