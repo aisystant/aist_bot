@@ -1,7 +1,7 @@
 """Smoke-тесты: hermes_router (WP-392 Ф3.1).
 
 «Гермес»/«hermes» → внешний Hermes-рантайм (Nous Research) через hermes_chat для T3+.
-Для T1/T2 — Проводник (Haiku, DP.SC.169, WP-349 Ф33).
+Для tier < T3 — временный fallback (Haiku); DP.SC.169 deprecated (WP-406 Ф7), замена — Онбордер (DP.SC.170, Ф5).
 Роутер выделен из fallback и регистрируется ДО external_session/fallback.
 """
 

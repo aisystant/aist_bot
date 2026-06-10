@@ -107,7 +107,8 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
     hermes_msg = re.sub(r"^(гермес|hermes)[,:\s]+", "", text, flags=re.IGNORECASE).strip() or text
 
     if tier < _TIER_REQUIRED:
-        # WP-349 Ф33 / DP.SC.169: Проводник — онбординг-помощник на Haiku (T1/T2).
+        # DP.SC.169 deprecated (WP-406 Ф7) → поглощён Онбордером (DP.SC.170).
+        # Временный fallback до реализации core/onboarder/ (WP-406 Ф5).
         from clients.claude import claude
         try:
             async with keep_typing(message):
