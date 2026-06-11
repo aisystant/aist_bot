@@ -758,3 +758,11 @@ Telegram Markdown v1 парсит `_` как маркер курсива. Три
 - Добавить `try/except` с fallback без parse_mode в каждый handler, отправляющий статический контент
 
 **SoT контента:** `DS-marathon-v2-tseren/materials/participants/marathon-content.json` → sync → `data/marathon-content.json` (bot runtime). Dockerfile не включает DS-marathon-v2-tseren → fallback path в prod недоступен.
+
+### 10.39. Провал генерации дайджеста не маскировать заглушкой
+
+`generate_multi_topic_digest()` при провале Claude (пустой ответ) возвращает `None`, **НЕ** dict с `main_content="Контент не удалось сгенерировать..."`. Заглушка с непустым `main_content` проходит guard `not content.get('main_content')` в `core/scheduler.py:pre_generate_feed_digest`, `states/feed/digest.py` и `engines/feed/engine.py` → провал сохраняется как `feed_session` и доставляется пользователю как «готовый» дайджест, без авто-повтора.
+
+**Источник (10-11 июня 2026):** 401 `authentication_error` на LLM-прокси (`auth-gateway`, рассинхрон `PROXY_SHARED_SECRET` после деплоя WP-400 Ф2) → ~48ч все дайджесты Ленты доставлены заглушкой. health-probe фиксировал провал каждые 5 мин, но никто не был оповещён → нашли по жалобе пользователя.
+
+**Правило:** генератор контента при провале возвращает `None`; каждый вызывающий обязан проверить `if not content or not content.get('main_content')` ДО `create_feed_session` и показать `t('errors.try_again')` / запланировать retry (`_schedule_retry`), а не сохранять сессию.

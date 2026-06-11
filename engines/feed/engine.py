@@ -238,6 +238,10 @@ class FeedEngine:
             depth_level=depth_level,
         )
 
+        # Провал генерации → не сохраняем заглушку как дайджест
+        if not content or not content.get('main_content'):
+            return None, t('errors.try_again', lang)
+
         # Создаём сессию (topic_title = все темы через запятую)
         topics_title = ", ".join(topics)
         session = await create_feed_session(

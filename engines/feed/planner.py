@@ -477,7 +477,7 @@ async def generate_multi_topic_digest(
     intern: dict,
     duration: int = 10,
     depth_level: int = 1
-) -> Dict:
+) -> Optional[Dict]:
     """Генерирует дайджест по всем темам.
 
     Новая модель:
@@ -646,14 +646,16 @@ async def generate_multi_topic_digest(
     response = await claude.generate(system_prompt, user_prompt)
 
     if not response:
-        return {
-            "intro": f"Сегодняшний дайджест: {topics_str}",
-            "main_content": "Контент не удалось сгенерировать. Попробуйте позже.",
-            "topics_detail": [],
-            "topics_list": topics,
-            "reflection_prompt": "Какие мысли вызвали эти темы?",
-            "depth_level": depth_level,
-        }
+        # При провале генерации возвращаем None, НЕ заглушку. Заглушка с непустым
+        # main_content проходила guard в вызывающем коде (scheduler/digest) и
+        # сохранялась как «готовый» дайджест → пользователь видел «Контент не
+        # удалось сгенерировать» вместо авто-повтора (инцидент 10-11 июня 2026:
+        # 401 на LLM-прокси → все дайджесты доставлены заглушкой).
+        logger.error(
+            f"Multi-topic digest generation failed (Claude returned empty) "
+            f"for topics={topics_str}, depth={depth_level}"
+        )
+        return None
 
     # Парсим JSON
     try:
