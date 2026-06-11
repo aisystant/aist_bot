@@ -303,9 +303,9 @@ async def cmd_points(message: Message):
         text += "💎 <b>Бонусы:</b> доступны по подписке «Инженерия интеллекта»\n"
         text += f'➡️ <a href="{sub_url}">Оформить подписку</a>\n'
 
-    # Typing stats section (WP-327 Phase 3)
-    if typing_stats and int(typing_stats.get("total_chars") or 0) > 0:
-        t_chars = int(typing_stats["total_chars"])
+    # Typing stats section (WP-327 Phase 3) — show always when connected, including 0
+    if typing_stats is not None:
+        t_chars = int(typing_stats.get("total_chars") or 0)
         t_pts = float(typing_stats.get("points_earned") or 0)
         TYPING_DAILY_CAP = 50
         t_bar = _progress_bar(t_pts, TYPING_DAILY_CAP)
