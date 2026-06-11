@@ -816,7 +816,7 @@ class GatewayMCPClient:
         label: Optional[str] = None,
         is_default: bool = False,
     ) -> Optional[dict]:
-        """Сохранить LLM API-ключ (зашифровывается в gateway)."""
+        """Сохранить LLM API-ключ (шифрование в user-profile-service)."""
         args: dict = {"provider": provider, "api_key": api_key, "is_default": is_default}
         if label:
             args["label"] = label
