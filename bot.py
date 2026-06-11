@@ -272,6 +272,15 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 019 skipped: {_e}")
 
+    # External auth tables (WP-411 Ф2): external_auth_codes + ory_client_tokens
+    try:
+        _m029 = _il.import_module("db.migrations.029_external_auth_tables")
+        _created = await _m029.migrate_if_needed(await _get_pool())
+        if _created:
+            logger.info("✅ Migration 029: external_auth_codes + ory_client_tokens created")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 029 skipped: {_e}")
+
     # Learning-pool migrations (016, 025, 023, 024) moved to _bootstrap_learning_schema()
     # which runs as asyncio.create_task after the web server is up, so Railway healthcheck
     # is not blocked by the first-run table creation (migration 025 creates ~15 tables).
