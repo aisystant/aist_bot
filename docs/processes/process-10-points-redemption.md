@@ -79,4 +79,4 @@ YK `create_payment` создаёт pending-платёж (не списывает
 - Source-of-truth контракт: [DP.SC.141](../../../../PACK-digital-platform/pack/digital-platform/08-service-clauses/DP.SC.141-points-redemption.md)
 - Роль исполнителя: [DP.ROLE.051](../../../../PACK-digital-platform/pack/digital-platform/02-domain-entities/DP.ROLE.051-points-redeemer.md)
 - Миграция схемы: `DS-IT-systems/neon-migrations/mvp/226-wp327-rewards-redeemed-events.sql`
-- Курс конвертации: `POINTS_TO_RUB_RATE = 0.875 ₽/балл` в `db/queries/redeem.py` (источник: DP.SC.105 = `$0.01 × курс USD/RUB`)
+- Курс конвертации: `0.10 ₽/бонус` из `reference.loyalty_pool_config` (читает `get_loyalty_rate()`; migration 244, WP-327 v4.4)

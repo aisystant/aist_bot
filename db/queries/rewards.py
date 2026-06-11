@@ -290,7 +290,7 @@ async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
 async def get_loyalty_rate() -> Decimal:
     """Текущий курс бонусов из loyalty_pool_config (WP-327 v4.1).
 
-    Returns: rate в ₽/бонус. Default 0.05 если конфиг не найден.
+    Returns: rate в ₽/бонус. Default 0.10 если конфиг не найден.
     """
     try:
         pool = await get_reference_pool()
@@ -303,10 +303,10 @@ async def get_loyalty_rate() -> Decimal:
                 LIMIT 1
                 """
             )
-            return Decimal(str(row['rate'])) if row and row['rate'] else Decimal("0.05")
+            return Decimal(str(row['rate'])) if row and row['rate'] else Decimal("0.10")
     except Exception as e:
         logger.error(f"[rewards] get_loyalty_rate: {e}")
-        return Decimal("0.05")
+        return Decimal("0.10")
 
 
 async def get_user_action_cap(account_id: Optional[str]) -> Optional[int]:

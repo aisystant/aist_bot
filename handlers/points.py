@@ -294,8 +294,8 @@ async def cmd_points(message: Message):
             discount_rub = int(balance_num * float(rate))
             text += f"Доступная скидка: <b>~{_fmt_pts(discount_rub)} ₽</b>\n"
         text += f"\nКурс: <b>{float(rate):.2f} ₽/бонус</b>"
-        # WP-327 v4.4: hint про целевой курс 0.20 если стартовый в диапазоне (0, 0.10]
-        if 0 < float(rate) <= 0.10:
+        # WP-327 v4.4: hint про целевой курс 0.20 пока курс ниже него
+        if 0 < float(rate) < 0.20:
             text += " (целевой — 0.20, бонусы дорожают)"
         text += ".\n"
         if balance_num == 0:
