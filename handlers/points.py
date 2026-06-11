@@ -195,10 +195,11 @@ def _format_event_compact(ev: dict) -> str:
         return f"• {ev.get('event_type', '?')}"
 
 
-def _build_points_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Правила начисления", callback_data="points_show_rules")],
-    ])
+def _build_points_keyboard(show_spend: bool = False) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="📋 Правила начисления", callback_data="points_show_rules")]]
+    if show_spend:
+        rows.append([InlineKeyboardButton(text="💡 Где потратить бонусы?", callback_data="points_how_to_spend")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @points_router.message(Command("points"))
@@ -289,15 +290,16 @@ async def cmd_points(message: Message):
     if has_subscription:
         text += f"Всего бонусов: <b>{_fmt_pts(int(balance_num))}</b>\n"
         text += f"Начислено за сегодня: {today_bonus_line}\n"
+        if balance_num > 0:
+            discount_rub = int(balance_num * float(rate))
+            text += f"Доступная скидка: <b>~{_fmt_pts(discount_rub)} ₽</b>\n"
         text += f"\nКурс: <b>{float(rate):.2f} ₽/бонус</b>"
         # WP-327 v4.4: hint про целевой курс 0.20 если стартовый в диапазоне (0, 0.10]
         if 0 < float(rate) <= 0.10:
             text += " (целевой — 0.20, бонусы дорожают)"
-        text += ". "
-        text += (
-            "Бонусы можно использовать при оплате. "
-            "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
-        )
+        text += ".\n"
+        if balance_num == 0:
+            text += "Развивайся систематично — бонусы растут с квалификацией.\n"
     else:
         sub_url = PLATFORM_URLS.get("subscription", "https://system-school.ru/open-endedness")
         text += "💎 <b>Бонусы:</b> доступны по подписке «Инженерия интеллекта»\n"
@@ -332,7 +334,7 @@ async def cmd_points(message: Message):
 
     text += "\n📋 <b>/rules</b> — подробные правила начисления"
 
-    kb = _build_points_keyboard()
+    kb = _build_points_keyboard(show_spend=has_subscription and balance_num > 0)
     try:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
     except Exception as e:
@@ -349,6 +351,22 @@ async def cb_points_show_rules(callback: CallbackQuery):
     """Inline-кнопка «Правила начисления» → отправляет /rules ответом."""
     await callback.answer()
     await cmd_rules(callback.message)
+
+
+@points_router.callback_query(F.data == "points_how_to_spend")
+async def cb_points_how_to_spend(callback: CallbackQuery):
+    """Inline-кнопка «Где потратить бонусы?»."""
+    await callback.answer()
+    text = (
+        "💡 <b>Как потратить бонусы</b>\n\n"
+        "Бонусы применяются при оплате:\n"
+        "• <b>Семинара</b> — выбери семинар, нажми «Оплатить»; "
+        "если в копилке есть бонусы, система предложит скидку автоматически\n"
+        "• <b>Подписки «Инженерия интеллекта»</b> — аналогично при продлении\n\n"
+        "<i>Скидка рассчитывается по курсу в момент оплаты. "
+        "Чем выше квалификация — тем больше суточный потолок бонусов.</i>"
+    )
+    await callback.message.answer(text, parse_mode="HTML")
 
 
 # WP-311 Ф7 (DP.SC.136): команда /rules — правила игры
