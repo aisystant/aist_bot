@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from core.tracing import span
 
@@ -858,55 +858,28 @@ async def on_start_diagnose_for_x3(callback: CallbackQuery, state: FSMContext):
 
 # ============= WP-406: ОНБОРДЕР — ЕДИНЫЙ ВХОД + Х2 (ПОНИМАНИЕ СООБЩЕСТВА) =============
 
-# Мягкий повтор оффера «Освоиться»: не чаще раза в N дней, чтобы не спамить
-# флот на каждом /start (у всех legacy-пользователей разрыв Х2/Х3 открыт). До
-# проактивных нуджей scheduler'а (follow-up) это единственный re-offer канал.
-_ONBOARDER_OFFER_COOLDOWN_DAYS = 3
-_ONBOARDER_OFFER_KEY = "offer_shown_at"
-
-
-def _offer_on_cooldown(offered_at_iso) -> bool:
-    """Был ли оффер показан недавно (внутри окна cooldown). Битый timestamp → не на cooldown."""
-    if not offered_at_iso:
-        return False
-    try:
-        dt = datetime.fromisoformat(offered_at_iso)
-    except (ValueError, TypeError):
-        return False
-    if dt.tzinfo is not None:
-        dt = dt.replace(tzinfo=None)
-    age_days = (datetime.utcnow() - dt).total_seconds() / 86400
-    return age_days < _ONBOARDER_OFFER_COOLDOWN_DAYS
-
-
 async def _maybe_offer_onboarder(message: Message, chat_id: int) -> None:
     """Показать кнопку «Освоиться» (вход Онбордера), если есть открытый разрыв Х2/Х3.
 
     Точка достижимости: вызывается там, куда новый человек реально попадает после
-    /start (Экран B быстрого пути) и в приветствии возвращающегося. Гейт
-    has_open_gap не даёт показывать оффер тем, кто уже Первокурсник; cooldown
-    не даёт показывать его чаще раза в _ONBOARDER_OFFER_COOLDOWN_DAYS дней.
+    /start (Экран B быстрого пути) и в приветствии возвращающегося. Решение «что и
+    когда» — в core/onboarder/offer.py (should_offer = разрыв + cooldown); здесь
+    только отрисовка кнопки.
     """
-    from core.onboarder import has_open_gap, storage
+    from core.onboarder import offer
     try:
-        if not await has_open_gap(chat_id):
-            return
-        ctx = await storage.get_onboarding_context(chat_id)
-        if _offer_on_cooldown(ctx.get(_ONBOARDER_OFFER_KEY)):
+        if not await offer.should_offer(chat_id):
             return
     except Exception as e:
-        logger.warning("[onboarder] offer-gate check failed for %s: %s", chat_id, e)
+        logger.warning("[onboarder] should_offer check failed for %s: %s", chat_id, e)
         return
+    payload = offer.offer_payload()
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🎓 Освоиться", callback_data="onboarder_start"),
+        InlineKeyboardButton(text=payload["button_text"], callback_data=payload["callback_data"]),
     ]])
-    await message.answer(
-        "Хочешь освоиться в сообществе? За пару минут покажу, как тут всё "
-        "устроено, и помогу выбрать первый курс.",
-        reply_markup=kb,
-    )
+    await message.answer(payload["text"], reply_markup=kb)
     try:
-        await storage.save_onboarding_context(chat_id, {_ONBOARDER_OFFER_KEY: datetime.utcnow().isoformat()})
+        await offer.mark_offered(chat_id)
     except Exception as e:
         logger.warning("[onboarder] failed to record offer timestamp for %s: %s", chat_id, e)
 
