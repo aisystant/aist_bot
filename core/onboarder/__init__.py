@@ -35,11 +35,12 @@
 
 import logging
 
-from core.onboarder import storage, x2, x3
+from core.onboarder import offer, storage, x2, x3
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "offer",
     "storage",
     "x2",
     "x3",

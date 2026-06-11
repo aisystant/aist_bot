@@ -125,12 +125,12 @@ class TestOnboarderEntrypointsAreCoroutines(unittest.TestCase):
 
 
 class TestOfferCooldown(unittest.TestCase):
-    """_offer_on_cooldown: мягкий повтор оффера «Освоиться» не чаще окна cooldown."""
+    """offer._on_cooldown: мягкий повтор оффера «Освоиться» не чаще окна cooldown."""
 
     def setUp(self):
-        from handlers.onboarding import _offer_on_cooldown, _ONBOARDER_OFFER_COOLDOWN_DAYS
-        self._fn = _offer_on_cooldown
-        self._window = _ONBOARDER_OFFER_COOLDOWN_DAYS
+        from core.onboarder import offer
+        self._fn = offer._on_cooldown
+        self._window = offer._COOLDOWN_DAYS
 
     def test_never_offered_not_on_cooldown(self):
         self.assertFalse(self._fn(None))
@@ -149,6 +149,47 @@ class TestOfferCooldown(unittest.TestCase):
     def test_broken_timestamp_not_on_cooldown(self):
         # Битый timestamp не должен навсегда заблокировать оффер.
         self.assertFalse(self._fn("not-a-date"))
+
+
+class TestOfferPayload(unittest.TestCase):
+    """offer.offer_payload: единый источник текста и кнопки для всех точек входа."""
+
+    def test_payload_has_required_keys(self):
+        from core.onboarder import offer
+        p = offer.offer_payload()
+        self.assertEqual(set(p.keys()), {"text", "button_text", "callback_data"})
+
+    def test_callback_routes_to_onboarder_entry(self):
+        from core.onboarder import offer
+        # callback_data должен совпадать с фильтром входа on_onboarder_start.
+        self.assertEqual(offer.offer_payload()["callback_data"], "onboarder_start")
+
+    def test_should_offer_is_coroutine(self):
+        from core.onboarder import offer
+        self.assertTrue(inspect.iscoroutinefunction(offer.should_offer))
+
+
+class TestHermesOnboardingQuery(unittest.TestCase):
+    """hermes._is_onboarding_query: кнопка «Освоиться» только на вопросы про вход."""
+
+    def setUp(self):
+        from handlers.hermes import _is_onboarding_query
+        self._fn = _is_onboarding_query
+
+    def test_onboarding_phrases_match(self):
+        for q in ("как тут всё устроено?", "с чего начать?", "хочу освоиться",
+                  "какой первый шаг", "что здесь происходит"):
+            self.assertTrue(self._fn(q), q)
+
+    def test_specific_question_does_not_match(self):
+        # Частный вопрос — кнопку не навязываем.
+        for q in ("какой сегодня день марафона?", "сколько уроков осталось",
+                  "когда придёт следующий урок"):
+            self.assertFalse(self._fn(q), q)
+
+    def test_empty_does_not_match(self):
+        self.assertFalse(self._fn(""))
+        self.assertFalse(self._fn(None))
 
 
 if __name__ == "__main__":

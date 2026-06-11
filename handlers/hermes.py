@@ -85,6 +85,21 @@ def _is_hermes_message(message: Message) -> bool:
     return text.startswith(_HERMES_PREFIXES)
 
 
+# Онбординг-релевантные запросы: только на них Проводник предлагает кнопку
+# «Освоиться» (вход Онбордера). На частные вопросы («какой день марафона»)
+# кнопку НЕ навязываем — Гермес остаётся Q&A, а не push (консенсус 2026-06-11-20).
+_ONBOARDING_QUERY_KEYWORDS = (
+    "начать", "с чего", "как устроен", "ориентац", "первый шаг",
+    "как тут", "что здесь", "что тут", "куда идти", "освоит", "с нуля",
+)
+
+
+def _is_onboarding_query(text: str) -> bool:
+    """Вопрос про вход в сообщество (а не частность) — по ключевым словам."""
+    low = (text or "").lower()
+    return any(kw in low for kw in _ONBOARDING_QUERY_KEYWORDS)
+
+
 def _is_hermes_document(message: Message) -> bool:
     """Document (file) with hermes prefix in caption — WP-428 Ф8 Layer 1."""
     if message.chat.type in ("channel", "group", "supergroup"):
@@ -226,7 +241,9 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
     hermes_msg = re.sub(r"^(гермес|hermes)[,:\s]+", "", text, flags=re.IGNORECASE).strip() or text
 
     if tier < _TIER_REQUIRED:
-        # WP-349 Ф33 / DP.SC.169: Проводник — онбординг-помощник на Haiku (T1/T2).
+        # DP.SC.169 deprecated (WP-406 Ф7) → поглощён Онбордером (DP.SC.170).
+        # Гибрид (WP-406 Ф5): живой Haiku-ответ Проводника на вопрос + кнопка
+        # «Освоиться» (вход Онбордера) только на онбординг-релевантные запросы.
         from clients.claude import claude
         try:
             async with keep_typing(message):
@@ -244,6 +261,7 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
             f"Проводник: {response}" if response else _CONDUCTOR_UNAVAILABLE_MSG,
             parse_mode="Markdown",
         )
+        await _maybe_offer_onboarder_after_conductor(message, chat_id, hermes_msg)
         return
 
     from clients.gateway_mcp import gateway_mcp
@@ -270,6 +288,35 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         await _hermes_reply(message, placeholder, response)
     else:
         await _send_unavailable(message, placeholder, chat_id)
+
+
+async def _maybe_offer_onboarder_after_conductor(message: Message, chat_id: int, query: str) -> None:
+    """После ответа Проводника (tier<T3) предложить вход Онбордера.
+
+    Двойной гейт: (1) вопрос про вход в сообщество (_is_onboarding_query), иначе
+    Гермес остаётся Q&A без push; (2) есть открытый разрыв Х2/Х3 и не на cooldown
+    (offer.should_offer). Отрисовка кнопки из общего payload — без дублирования
+    с onboarding.py.
+    """
+    if not _is_onboarding_query(query):
+        return
+    from core.onboarder import offer
+    try:
+        if not await offer.should_offer(chat_id):
+            return
+    except Exception as e:
+        logger.warning("[hermes] should_offer check failed for %s: %s", chat_id, e)
+        return
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    payload = offer.offer_payload()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=payload["button_text"], callback_data=payload["callback_data"]),
+    ]])
+    await message.answer(payload["text"], reply_markup=kb)
+    try:
+        await offer.mark_offered(chat_id)
+    except Exception as e:
+        logger.warning("[hermes] failed to record offer timestamp for %s: %s", chat_id, e)
 
 
 @hermes_router.message(_is_hermes_document)
