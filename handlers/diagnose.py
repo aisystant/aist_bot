@@ -625,6 +625,8 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
             _format_result(profile, None),
             parse_mode="HTML",
         )
+        from core.onboarder.x3 import check_x3_return_to_bridge
+        await check_x3_return_to_bridge(message.bot, message.chat.id, profile)
         return
 
     try:
@@ -657,6 +659,10 @@ async def _finish_diagnose(message: Message, state: FSMContext) -> None:
             "Попробуйте снова позже.",
             parse_mode="HTML",
         )
+
+    # WP-406 Ф5: мост обратно в Онбордер Х3 (bridge path)
+    from core.onboarder.x3 import check_x3_return_to_bridge
+    await check_x3_return_to_bridge(message.bot, message.chat.id, profile)
 
 
 async def _apply_bh_proxy(account_id: str | None, scores: dict) -> dict:
