@@ -202,6 +202,14 @@ class FeedDigestState(BaseState):
                 timeout=CONTENT_GENERATION_TIMEOUT
             )
 
+            # Провал генерации (Claude вернул пусто) → не сохраняем заглушку как
+            # дайджест. Сессия не создаётся → следующее открытие сгенерирует
+            # заново, а не покажет кэшированный провал.
+            if not content or not content.get('main_content'):
+                logger.error(f"Digest generation returned empty for user {chat_id}")
+                await self.send(user, t('errors.try_again', lang))
+                return None
+
             # Создаём сессию
             topics_title = ", ".join(topics)
             session = await create_feed_session(
