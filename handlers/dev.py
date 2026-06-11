@@ -1173,7 +1173,7 @@ async def cmd_user_repair(message: Message):
         # 1. users
         async with bot_pool.acquire() as conn:
             u = await conn.fetchrow(
-                "SELECT chat_id, tier, email FROM users WHERE lower(email) = $1 LIMIT 1",
+                "SELECT telegram_id AS chat_id, tier, email FROM users WHERE lower(email) = $1 LIMIT 1",
                 email,
             )
         if not u:

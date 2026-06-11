@@ -1,9 +1,9 @@
 """
-DB queries for external client token auth (WP-411 Ф2).
+DB queries for external client token auth (WP-411 Ф2/Ф4).
 
 Tables:
     external_auth_codes  — one-time bootstrap codes (TTL 5 min)
-    ory_client_tokens    — persistent access+refresh pairs (Fernet encrypted)
+    ory_client_tokens    — persistent access+refresh pairs
 """
 
 import uuid
@@ -34,17 +34,27 @@ async def create_auth_code(chat_id: int, account_id: str, scope: str = "full") -
     return code
 
 
+async def peek_auth_code_chat_id(code: str) -> Optional[int]:
+    """SELECT (not DELETE) chat_id from unexpired auth code. Used to pre-compute tier."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT chat_id FROM external_auth_codes WHERE code = $1 AND expires_at > NOW()",
+            code,
+        )
+    return int(row["chat_id"]) if row else None
+
 
 async def exchange_code_and_store_tokens(
     code: str,
     access_hash: str,
     refresh_hash: str,
     label: str = "Claude Code",
+    computed_tier: str = "T1",
 ) -> Optional[dict]:
     """Atomic: consume bootstrap code + insert token pair in one transaction.
 
-    Returns {token_id, account_id, scope} or None if code unknown/expired.
-    If the DB call fails, the code is NOT consumed (transaction rolled back).
+    Returns {token_id, account_id, scope, chat_id} or None if code unknown/expired.
     """
     token_id = str(uuid.uuid4())
     pool = await get_pool()
@@ -63,23 +73,30 @@ async def exchange_code_and_store_tokens(
             await conn.execute(
                 """
                 INSERT INTO ory_client_tokens
-                  (id, account_id, access_token_hash, refresh_token_hash, scope, client_label)
-                VALUES ($1, $2::uuid, $3, $4, $5, $6)
+                  (id, account_id, access_token_hash, refresh_token_hash,
+                   scope, client_label, computed_tier, chat_id)
+                VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
                 """,
                 token_id, row["account_id"],
                 access_hash, refresh_hash,
                 row["scope"], label,
+                computed_tier, row["chat_id"],
             )
-    return {"token_id": token_id, "account_id": row["account_id"], "scope": row["scope"]}
+    return {
+        "token_id": token_id,
+        "account_id": row["account_id"],
+        "scope": row["scope"],
+        "chat_id": int(row["chat_id"]),
+    }
 
 
 async def lookup_client_token(access_hash: str) -> Optional[dict]:
-    """Returns {id, account_id, scope} or None if not found / revoked."""
+    """Returns {id, account_id, scope, computed_tier} or None if not found / revoked."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT id::text, account_id::text, scope
+            SELECT id::text, account_id::text, scope, computed_tier
             FROM ory_client_tokens
             WHERE access_token_hash = $1 AND revoked_at IS NULL
             """,
@@ -87,7 +104,74 @@ async def lookup_client_token(access_hash: str) -> Optional[dict]:
         )
     if row is None:
         return None
-    return {"id": row["id"], "account_id": row["account_id"], "scope": row["scope"]}
+    return {
+        "id": row["id"],
+        "account_id": row["account_id"],
+        "scope": row["scope"],
+        "computed_tier": row["computed_tier"] or "T1",
+    }
+
+
+async def lookup_refresh_token(refresh_hash: str) -> Optional[dict]:
+    """Returns {id, account_id, scope, chat_id} for a valid (non-revoked) refresh token."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id::text, account_id::text, scope, chat_id
+            FROM ory_client_tokens
+            WHERE refresh_token_hash = $1 AND revoked_at IS NULL
+            """,
+            refresh_hash,
+        )
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "account_id": row["account_id"],
+        "scope": row["scope"],
+        "chat_id": int(row["chat_id"]) if row["chat_id"] else None,
+    }
+
+
+async def refresh_client_token(
+    old_refresh_hash: str,
+    new_access_hash: str,
+    new_refresh_hash: str,
+    computed_tier: str = "T1",
+) -> bool:
+    """Atomic: revoke old token row, insert new row with updated computed_tier.
+
+    Returns True if successful, False if refresh token not found / already revoked.
+    """
+    new_id = str(uuid.uuid4())
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            old = await conn.fetchrow(
+                """
+                UPDATE ory_client_tokens
+                SET revoked_at = NOW()
+                WHERE refresh_token_hash = $1 AND revoked_at IS NULL
+                RETURNING account_id::text, scope, client_label, chat_id
+                """,
+                old_refresh_hash,
+            )
+            if old is None:
+                return False
+            await conn.execute(
+                """
+                INSERT INTO ory_client_tokens
+                  (id, account_id, access_token_hash, refresh_token_hash,
+                   scope, client_label, computed_tier, chat_id)
+                VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
+                """,
+                new_id, old["account_id"],
+                new_access_hash, new_refresh_hash,
+                old["scope"], old["client_label"] or "Claude Code",
+                computed_tier, old["chat_id"],
+            )
+    return True
 
 
 async def touch_client_token(token_id: str) -> None:

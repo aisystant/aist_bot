@@ -2389,8 +2389,8 @@ profile:
     en: "Active day = answer a lesson, task, digest, or question"
 
   select_field_hint:
-    ru: "Нажмите кнопку выше, чтобы выбрать поле для редактирования"
-    en: "Tap a button above to select a field to edit"
+    ru: "Вы в разделе редактирования профиля. Нажмите одну из кнопок выше, чтобы изменить нужное поле, или «Назад», чтобы выйти."
+    en: "You're in profile editing. Tap a button above to edit a field, or «Back» to exit."
 
   your_profile:
     ru: "Ваш профиль"

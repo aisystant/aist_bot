@@ -2263,16 +2263,17 @@ async def typing_delta_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+_TIER_INT_TO_STR = {0: "T1", 1: "T1", 2: "T2", 3: "T3", 4: "T4", 5: "T4"}
+
+
 async def external_auth_exchange_handler(request: web.Request) -> web.Response:
-    """WP-411 Ф2: обмен одноразового кода на пару access+refresh токенов.
+    """WP-411 Ф2/Ф4: обмен одноразового кода на пару access+refresh токенов.
 
     POST /internal/auth/exchange
     Body JSON: {"code": "<uuid>"}
-    Response: {"access_token": "ict_...", "refresh_token": "irt_...", "account_id": "uuid"}
+    Response: {"access_token": "ict_...", "refresh_token": "irt_...", "scope": "full"}
     Errors: 400 missing code | 404 code not found/expired | 500 internal
     """
-    import json as _json
-
     try:
         body = await request.json()
     except Exception:
@@ -2282,8 +2283,21 @@ async def external_auth_exchange_handler(request: web.Request) -> web.Response:
     if not code:
         return web.json_response({"error": "code required"}, status=400)
 
-    from db.queries.external_clients import exchange_code_and_store_tokens
+    from db.queries.external_clients import exchange_code_and_store_tokens, peek_auth_code_chat_id
     from clients.external_auth import generate_access_token, generate_refresh_token
+    from core.tier_detector import detect_ui_tier
+
+    # Peek chat_id to compute tier before consuming the code.
+    chat_id = await peek_auth_code_chat_id(code)
+    if chat_id is None:
+        return web.json_response({"error": "code not found or expired"}, status=404)
+
+    try:
+        tier_int = await detect_ui_tier(chat_id)
+    except Exception:
+        logger.warning("[ExternalAuth] exchange: detect_ui_tier failed for chat_id=%s, defaulting T1", chat_id)
+        tier_int = 1
+    computed_tier = _TIER_INT_TO_STR.get(tier_int, "T1")
 
     try:
         at_plain, at_hash = generate_access_token()
@@ -2297,6 +2311,7 @@ async def external_auth_exchange_handler(request: web.Request) -> web.Response:
             code=code,
             access_hash=at_hash,
             refresh_hash=rt_hash,
+            computed_tier=computed_tier,
         )
     except Exception:
         logger.exception("[ExternalAuth] exchange: exchange_code_and_store_tokens failed")
@@ -2306,7 +2321,7 @@ async def external_auth_exchange_handler(request: web.Request) -> web.Response:
         logger.warning("[ExternalAuth] exchange: code not found or expired")
         return web.json_response({"error": "code not found or expired"}, status=404)
 
-    logger.info("[ExternalAuth] exchange: issued token for account %s", result["account_id"])
+    logger.info("[ExternalAuth] exchange: issued token tier=%s for account %s", computed_tier, result["account_id"])
     return web.json_response({
         "access_token": at_plain,
         "refresh_token": rt_plain,
@@ -2349,7 +2364,82 @@ async def external_auth_introspect_handler(request: web.Request) -> web.Response
     # fire-and-forget last_used update
     asyncio.ensure_future(touch_client_token(row["id"]))
 
-    return web.json_response({"account_id": row["account_id"], "scope": row["scope"]})
+    return web.json_response({
+        "account_id": row["account_id"],
+        "scope": row["scope"],
+        "tier": row["computed_tier"],
+    })
+
+
+async def external_auth_refresh_handler(request: web.Request) -> web.Response:
+    """WP-411 Ф4: refresh irt_ token → new ict_+irt_ pair with recomputed tier.
+
+    POST /internal/auth/refresh
+    Headers: X-Introspect-Secret: <secret>
+    Body JSON: {"refresh_token": "irt_..."}
+    Response: {"access_token": "ict_...", "refresh_token": "irt_..."}
+    Errors: 401 bad secret | 400 missing token | 404 not found/revoked | 500 internal
+    """
+    from clients.external_auth import (
+        verify_introspect_secret, hash_token,
+        generate_access_token, generate_refresh_token,
+    )
+    from db.queries.external_clients import lookup_refresh_token, refresh_client_token
+    from core.tier_detector import detect_ui_tier
+    import asyncio as _asyncio
+
+    provided = request.headers.get("X-Introspect-Secret", "")
+    if not verify_introspect_secret(provided):
+        logger.warning("[ExternalAuth] refresh: bad secret from %s", request.remote)
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    rt_plain = body.get("refresh_token", "").strip()
+    if not rt_plain:
+        return web.json_response({"error": "refresh_token required"}, status=400)
+
+    rt_hash = hash_token(rt_plain)
+    old = await lookup_refresh_token(rt_hash)
+    if old is None:
+        return web.json_response({"error": "refresh token not found"}, status=404)
+
+    chat_id = old.get("chat_id")
+    if chat_id:
+        try:
+            tier_int = await detect_ui_tier(chat_id)
+        except Exception:
+            logger.warning("[ExternalAuth] refresh: detect_ui_tier failed for chat_id=%s", chat_id)
+            tier_int = 1
+        computed_tier = _TIER_INT_TO_STR.get(tier_int, "T1")
+    else:
+        computed_tier = "T1"
+        logger.warning("[ExternalAuth] refresh: no chat_id on token %s, tier defaulting T1", old["id"])
+
+    try:
+        at_plain, at_hash = generate_access_token()
+        new_rt_plain, new_rt_hash = generate_refresh_token()
+    except RuntimeError as e:
+        logger.error("[ExternalAuth] refresh: EXTERNAL_AUTH_KEY not configured: %s", e)
+        return web.json_response({"error": "server misconfigured"}, status=500)
+
+    ok = await refresh_client_token(
+        old_refresh_hash=rt_hash,
+        new_access_hash=at_hash,
+        new_refresh_hash=new_rt_hash,
+        computed_tier=computed_tier,
+    )
+    if not ok:
+        return web.json_response({"error": "refresh token already revoked"}, status=404)
+
+    logger.info("[ExternalAuth] refresh: re-issued token tier=%s for account %s", computed_tier, old["account_id"])
+    return web.json_response({
+        "access_token": at_plain,
+        "refresh_token": new_rt_plain,
+    })
 
 
 def create_oauth_app(dp=None, bot=None) -> web.Application:
@@ -2391,6 +2481,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
     app.router.add_post("/internal/auth/exchange", external_auth_exchange_handler)    # WP-411 Ф2
     app.router.add_post("/internal/auth/introspect", external_auth_introspect_handler)  # WP-411 Ф2
+    app.router.add_post("/internal/auth/refresh", external_auth_refresh_handler)       # WP-411 Ф4
     app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)   # WP-341 Этап 2
     app.router.add_post("/webhook/discourse", discourse_webhook_handler) # WP-327 Этап 23
     app.router.add_post("/api/typing_delta", typing_delta_handler)       # WP-327 Phase 4: Browser Extension heartbeat
