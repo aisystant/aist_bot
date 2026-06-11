@@ -666,7 +666,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         nav_buttons_fsm = [[
             InlineKeyboardButton(
                 text="🧭 " + t('onboarding.navigator_hint', lang),
-                callback_data="start_navigator",
+                callback_data="start_onboarder_x3",
             )
         ]]
         guide_btn = await _personal_guide_button(chat_id)
@@ -779,6 +779,72 @@ async def on_start_navigator(callback: CallbackQuery, state: FSMContext):
         await dispatcher.route_command('navigator', intern)
     else:
         lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+
+
+# ============= WP-406: ОНБОРДЕР Х3 — ВЫБОР ТРАЕКТОРИИ =============
+
+@onboarding_router.callback_query(F.data == "start_onboarder_x3")
+async def on_start_onboarder_x3(callback: CallbackQuery):
+    """WP-406 Ф5: Запуск Х3 (выбор траектории) через Онбордера."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+    try:
+        from core.onboarder.x3 import run_x3
+        await run_x3(intern, callback.message)
+    except Exception as e:
+        logger.error("[onboarder_x3] run_x3 failed for %s: %s", chat_id, e)
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+
+
+@onboarding_router.callback_query(F.data.startswith("x3_confirm:"))
+async def on_x3_confirm(callback: CallbackQuery):
+    """WP-406 Ф5: Пользователь подтвердил выбор курса — закрыть Х3."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    try:
+        parts = callback.data.split(":", 1)
+        chosen_stream = parts[1] if len(parts) > 1 else ""
+        from core.onboarder.storage import mark_x3_done, save_onboarding_context
+        await mark_x3_done(chat_id)
+        if chosen_stream:
+            await save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
+        await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу.")
+    except Exception as e:
+        logger.error("[onboarder_x3] mark_x3_done failed for %s: %s", chat_id, e)
+        intern = await get_intern(chat_id)
+        lang = (intern.get('language', 'ru') or 'ru') if intern else 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+
+
+@onboarding_router.callback_query(F.data == "start_diagnose_for_x3")
+async def on_start_diagnose_for_x3(callback: CallbackQuery, state: FSMContext):
+    """WP-406 Ф5: Уточнить курс через Диагноста — поставить мост return_to и запустить /diagnose."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    try:
+        import datetime as _dt
+        from core.onboarder.storage import save_onboarding_context
+        from core.onboarder.x3 import _RETURN_TO_X3
+        await save_onboarding_context(chat_id, {
+            "return_to": _RETURN_TO_X3,
+            "set_at": _dt.datetime.utcnow().isoformat(),
+        })
+        from handlers.diagnose import cmd_diagnose
+        await cmd_diagnose(callback.message, state)
+    except Exception as e:
+        logger.error("[onboarder_x3] start_diagnose_for_x3 failed for %s: %s", chat_id, e)
+        try:
+            from core.onboarder.storage import save_onboarding_context
+            await save_onboarding_context(chat_id, {"return_to": None, "set_at": None})
+        except Exception as clear_e:
+            logger.debug("[onboarder_x3] failed to clear stale return_to for %s: %s", chat_id, clear_e)
+        intern = await get_intern(chat_id)
+        lang = (intern.get('language', 'ru') or 'ru') if intern else 'ru'
         await callback.message.answer(t('errors.processing_error', lang))
 
 

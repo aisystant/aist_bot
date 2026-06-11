@@ -1,10 +1,11 @@
-"""Фундамент Онбордера (WP-406 Ф5) — smoke-тесты каркаса core/onboarder/.
+"""Онбордер (WP-406 Ф5) — smoke-тесты core/onboarder/.
 
 Покрытие (без БД — чистые функции и контракт интерфейса):
   - describe_stream: маппинг recommended_stream → человекочитаемое имя (5 кейсов)
+  - X3 constants: _RETURN_TO_X3, _RETURN_TO_TTL_SECONDS (инварианты bridge-пути)
+  - check_x3_return_to_bridge: существует и принимает правильные аргументы
   - X2_TOPICS: контракт 4 пунктов понимания сообщества
-  - заглушки интерфейса (should_handle/handle/run_step/run_x3) явно поднимают
-    NotImplementedError — «Фундамент» не подключён к живому роутингу
+  - заглушки интерфейса (should_handle/handle/run_step) явно поднимают NotImplementedError
 """
 
 import asyncio
@@ -54,8 +55,26 @@ class TestX2Topics(unittest.TestCase):
         self.assertIn("where_to_ask", x2.X2_TOPICS)
 
 
+class TestX3BridgeConstants(unittest.TestCase):
+    """X3 bridge-path инварианты — константы и наличие функции (WP-406 Ф5)."""
+
+    def test_return_to_key(self):
+        self.assertEqual(x3._RETURN_TO_X3, "x3_offer")
+
+    def test_ttl_is_one_hour(self):
+        self.assertEqual(x3._RETURN_TO_TTL_SECONDS, 3600)
+
+    def test_check_x3_return_to_bridge_is_callable(self):
+        import inspect
+        self.assertTrue(inspect.iscoroutinefunction(x3.check_x3_return_to_bridge))
+
+    def test_show_x3_offer_is_callable(self):
+        import inspect
+        self.assertTrue(inspect.iscoroutinefunction(x3._show_x3_offer))
+
+
 class TestInterfaceStubsRaise(unittest.TestCase):
-    """Заглушки интерфейса поднимают NotImplementedError (не молчат, не возвращают None)."""
+    """Оставшиеся заглушки поднимают NotImplementedError (не молчат, не возвращают None)."""
 
     def test_should_handle_raises(self):
         with self.assertRaises(NotImplementedError):
@@ -68,10 +87,6 @@ class TestInterfaceStubsRaise(unittest.TestCase):
     def test_x2_run_step_raises(self):
         with self.assertRaises(NotImplementedError):
             asyncio.run(x2.run_step({}, None))
-
-    def test_x3_run_x3_raises(self):
-        with self.assertRaises(NotImplementedError):
-            asyncio.run(x3.run_x3({}, None))
 
 
 if __name__ == "__main__":
