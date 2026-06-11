@@ -14,13 +14,26 @@ Smoke-тест внешней авторизации (WP-411 Ф2).
 """
 import argparse
 import os
+import ssl
 import sys
 import urllib.request
 import urllib.error
 import json
 
 BOT_URL = os.getenv("BOT_BASE_URL", "https://aistmebot-production.up.railway.app")
-GATEWAY_URL = os.getenv("GATEWAY_URL", "")
+GATEWAY_URL = os.getenv("GATEWAY_URL", "https://mcp.aisystant.com/mcp")
+
+# Cloudflare перед шлюзом банит UA по умолчанию (Python-urllib) ошибкой 1010.
+# Свой UA проходит фильтр и доходит до проверки токена.
+_UA = "iwe-external-auth-smoke/1.0"
+
+# macOS: интерпретатор без системных сертификатов роняет HTTPS на проверке.
+# certifi есть почти всегда; иначе — дефолтный контекст ОС.
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    _SSL_CTX = ssl.create_default_context()
 
 
 def check(label: str, ok: bool, detail: str = "") -> None:
@@ -30,11 +43,19 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         sys.exit(1)
 
 
-def get(url: str, headers: dict | None = None) -> tuple[int, dict]:
-    req = urllib.request.Request(url, headers=headers or {})
+def _parse_json(raw: bytes) -> dict:
+    """Тело может быть не-JSON (/health отдаёт 'OK') — тогда пустой dict, без падения."""
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status, json.loads(r.read())
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+
+
+def get(url: str, headers: dict | None = None) -> tuple[int, dict]:
+    req = urllib.request.Request(url, headers={"User-Agent": _UA, **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as r:
+            return r.status, _parse_json(r.read())
     except urllib.error.HTTPError as e:
         return e.code, {}
     except Exception as e:
@@ -46,18 +67,14 @@ def post(url: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json", **(headers or {})},
+        headers={"Content-Type": "application/json", "User-Agent": _UA, **(headers or {})},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status, json.loads(r.read())
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as r:
+            return r.status, _parse_json(r.read())
     except urllib.error.HTTPError as e:
-        try:
-            body = json.loads(e.read())
-        except Exception:
-            body = {}
-        return e.code, body
+        return e.code, _parse_json(e.read())
     except Exception as e:
         return 0, {"error": str(e)}
 
@@ -71,7 +88,8 @@ def main() -> None:
 
     # 1. Бот живой?
     status, body = get(f"{BOT_URL}/health")
-    check("Бот отвечает", status == 200, f"HTTP {status}")
+    detail = f"HTTP {status}" if status else body.get("error", "нет соединения")
+    check("Бот отвечает", status == 200, detail)
 
     if not args.code:
         print("\nПередай код через --code чтобы проверить полный цикл.")
@@ -79,7 +97,7 @@ def main() -> None:
         return
 
     # 2. Обмен кода на токены
-    status, body = post(f"{BOT_URL}/oauth/external/exchange", {"code": args.code})
+    status, body = post(f"{BOT_URL}/internal/auth/exchange", {"code": args.code})
     check(
         "Обмен кода на токены",
         status == 200 and "access_token" in body,
@@ -92,15 +110,18 @@ def main() -> None:
     refresh_token = body.get("refresh_token", "")
     check("Refresh-токен начинается с irt_", refresh_token.startswith("irt_"), refresh_token[:20])
 
-    # 3. Шлюз принимает токен (опционально)
-    if GATEWAY_URL:
-        status, body = get(
-            f"{GATEWAY_URL}/health",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        check("Шлюз принимает токен", status == 200, f"HTTP {status}")
-    else:
-        print("  ⏭  Шлюз не настроен (GATEWAY_URL не задан) — пропущено")
+    # 3. Шлюз принимает токен — реальный MCP-вызов.
+    # /health не годится: он не проверяет авторизацию (false-green). Зовём tools/list
+    # тем же свежим токеном: 200 = принят, 401 = отклонён.
+    status, _ = post(
+        GATEWAY_URL,
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json, text/event-stream",
+        },
+    )
+    check("Шлюз принимает токен", status == 200, f"HTTP {status} (401 = токен отклонён)")
 
     print("\nВсё работает.\n")
 
