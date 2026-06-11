@@ -185,6 +185,11 @@ EVENT_GATEWAY_TIMEOUT: float = float(os.getenv("EVENT_GATEWAY_TIMEOUT", "5.0"))
 # Feature flag: можно отключить dual-write на проде через env var
 EVENT_GATEWAY_ENABLED: bool = os.getenv("EVENT_GATEWAY_ENABLED", "true").lower() == "true"
 
+# WP-418 Ф3: единый слой доставки (Доставщик, core.notification_service).
+# Выключен по умолчанию — пока 107 точек отправки не мигрированы (Ф4), drain-loop
+# не должен дублировать существующую доставку. Включать вместе с миграцией отправителей.
+DELIVERY_LAYER_ENABLED: bool = os.getenv("DELIVERY_LAYER_ENABLED", "false").lower() == "true"
+
 # ============= ЛОГИРОВАНИЕ =============
 # logging.basicConfig() вызывается в bot.py (единая точка конфигурации)
 

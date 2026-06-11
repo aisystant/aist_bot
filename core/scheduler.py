@@ -27,7 +27,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED
 from db.connection import get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
@@ -189,6 +189,37 @@ async def _notify_retry_exhausted(chat_id: int, content_type: str):
     except Exception as e:
         if not is_suppressed(__name__, str(e)):
             logger.error(f"[Scheduler] Failed to notify {chat_id} retry exhausted: {e}")
+    finally:
+        await bot.session.close()
+
+
+async def _drain_delivery_queue():
+    """WP-418 Ф3: разобрать очередь Доставщика и доставить через транспорт.
+
+    see DP.SC.177, DP.ROLE.075. Регистрируется в init_scheduler только при
+    DELIVERY_LAYER_ENABLED (по умолчанию выкл — пока 107 точек не мигрированы, Ф4).
+    deliver_fn инкапсулирует транспорт (Bot.send_message) с suppress-guard для
+    заблокировавших бота — политику/очередь держит core.notification_service.
+    """
+    from core.notification_service import drain
+    from core.error_classifier import is_suppressed
+
+    if not _bot_token:
+        return
+
+    bot = Bot(token=_bot_token)
+
+    async def deliver(chat_id: int, content_spec: dict):
+        text = content_spec.get("text", "")
+        try:
+            await bot.send_message(chat_id, text)
+        except Exception as e:
+            if is_suppressed(__name__, str(e)):
+                return  # benign (user blocked bot) — drain уже пометил sent, алерт не нужен
+            raise
+
+    try:
+        await drain(deliver)
     finally:
         await bot.session.close()
 
@@ -979,6 +1010,9 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(scheduled_check, 'cron', minute='*', max_instances=2)
     _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*', max_instances=2)  # Pre-gen за 3ч до доставки
     _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
+    if DELIVERY_LAYER_ENABLED:
+        _scheduler.add_job(_drain_delivery_queue, 'cron', minute='*', max_instances=1)  # WP-418 Ф3: дренаж очереди Доставщика
+        logger.info("[Scheduler] Delivery layer (WP-418) drain enabled")
     _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37')  # Discourse: scheduled posts (offset from :00/:30)
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)

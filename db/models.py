@@ -239,6 +239,45 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
+        # ДОСТАВЩИК: приватная очередь исходящих (WP-418 Ф3)
+        # see DP.SC.177, DP.ROLE.075. Снаружи модуля core.notification_service —
+        # raw SQL запрещён. Схема pgqueuer-ready (priority/dedup_key/scheduled_at/
+        # locked_at/attempts) — LISTEN/NOTIFY встанет потом без переписывания.
+        # ═══════════════════════════════════════════════════════════
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS notification_queue (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                notification_class TEXT NOT NULL,
+                payload JSONB NOT NULL,
+                priority INTEGER NOT NULL,
+                dedup_key TEXT,
+                status TEXT NOT NULL DEFAULT 'queued',
+                reason TEXT,
+                scheduled_at TIMESTAMP DEFAULT NOW(),
+                locked_at TIMESTAMP,
+                attempts INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT NOW(),
+                sent_at TIMESTAMP
+            )
+        ''')
+        # Потолок класса: COUNT WHERE chat_id, class, day, status IN (queued, sent).
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_notif_queue_cap
+            ON notification_queue(chat_id, notification_class, created_at)
+        ''')
+        # Дренаж: queued по приоритету.
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_notif_queue_drain
+            ON notification_queue(status, priority, scheduled_at)
+        ''')
+        # Дедуп по ключу.
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_notif_queue_dedup
+            ON notification_queue(dedup_key)
+        ''')
+
+        # ═══════════════════════════════════════════════════════════
         # ЛЕНТА: НЕДЕЛЬНЫЕ ПЛАНЫ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
