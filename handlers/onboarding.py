@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from core.tracing import span
 
@@ -251,6 +251,9 @@ async def cmd_start(message: Message, state: FSMContext):
                 from core.tier_detector import detect_ui_tier
                 tier = await detect_ui_tier(message.chat.id)
             asyncio.create_task(sync_menu_commands(message.bot, message.chat.id, tier, lang))
+
+            # WP-406 Ф5: вход Онбордера для вернувшихся с незакрытым Х2/Х3
+            await _maybe_offer_onboarder(message, message.chat.id)
             return
 
         lang = intern.get('language', 'ru')
@@ -299,6 +302,9 @@ async def cmd_start(message: Message, state: FSMContext):
 
         # Sync per-user menu commands (fire-and-forget to reduce latency)
         asyncio.create_task(sync_menu_commands(message.bot, message.chat.id, tier, lang))
+
+        # WP-406 Ф5: вход Онбордера для вернувшихся с незакрытым Х2/Х3
+        await _maybe_offer_onboarder(message, message.chat.id)
         return
 
     # WP-79: Упрощённый онбординг — 0 шагов
@@ -360,6 +366,8 @@ async def cmd_start(message: Message, state: FSMContext):
         )
         from handlers.consent import show_consent_optin
         await show_consent_optin(message)
+        # WP-406 Ф5: вход Онбордера сразу после привязки (Экран B быстрого пути)
+        await _maybe_offer_onboarder(message, message.chat.id)
 
     await sync_menu_commands(message.bot, message.chat.id, tier, lang)
 
@@ -862,6 +870,114 @@ async def on_start_diagnose_for_x3(callback: CallbackQuery, state: FSMContext):
             logger.debug("[onboarder_x3] failed to clear stale return_to for %s: %s", chat_id, clear_e)
         intern = await get_intern(chat_id)
         lang = (intern.get('language', 'ru') or 'ru') if intern else 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+
+
+# ============= WP-406: ОНБОРДЕР — ЕДИНЫЙ ВХОД + Х2 (ПОНИМАНИЕ СООБЩЕСТВА) =============
+
+# Мягкий повтор оффера «Освоиться»: не чаще раза в N дней, чтобы не спамить
+# флот на каждом /start (у всех legacy-пользователей разрыв Х2/Х3 открыт). До
+# проактивных нуджей scheduler'а (follow-up) это единственный re-offer канал.
+_ONBOARDER_OFFER_COOLDOWN_DAYS = 3
+_ONBOARDER_OFFER_KEY = "offer_shown_at"
+
+
+def _offer_on_cooldown(offered_at_iso) -> bool:
+    """Был ли оффер показан недавно (внутри окна cooldown). Битый timestamp → не на cooldown."""
+    if not offered_at_iso:
+        return False
+    try:
+        dt = datetime.fromisoformat(offered_at_iso)
+    except (ValueError, TypeError):
+        return False
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    age_days = (datetime.utcnow() - dt).total_seconds() / 86400
+    return age_days < _ONBOARDER_OFFER_COOLDOWN_DAYS
+
+
+async def _maybe_offer_onboarder(message: Message, chat_id: int) -> None:
+    """Показать кнопку «Освоиться» (вход Онбордера), если есть открытый разрыв Х2/Х3.
+
+    Точка достижимости: вызывается там, куда новый человек реально попадает после
+    /start (Экран B быстрого пути) и в приветствии возвращающегося. Гейт
+    has_open_gap не даёт показывать оффер тем, кто уже Первокурсник; cooldown
+    не даёт показывать его чаще раза в _ONBOARDER_OFFER_COOLDOWN_DAYS дней.
+    """
+    from core.onboarder import has_open_gap, storage
+    try:
+        if not await has_open_gap(chat_id):
+            return
+        ctx = await storage.get_onboarding_context(chat_id)
+        if _offer_on_cooldown(ctx.get(_ONBOARDER_OFFER_KEY)):
+            return
+    except Exception as e:
+        logger.warning("[onboarder] offer-gate check failed for %s: %s", chat_id, e)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎓 Освоиться", callback_data="onboarder_start"),
+    ]])
+    await message.answer(
+        "Хочешь освоиться в сообществе? За пару минут покажу, как тут всё "
+        "устроено, и помогу выбрать первый курс.",
+        reply_markup=kb,
+    )
+    try:
+        await storage.save_onboarding_context(chat_id, {_ONBOARDER_OFFER_KEY: datetime.utcnow().isoformat()})
+    except Exception as e:
+        logger.warning("[onboarder] failed to record offer timestamp for %s: %s", chat_id, e)
+
+
+@onboarding_router.callback_query(F.data == "onboarder_start")
+async def on_onboarder_start(callback: CallbackQuery):
+    """WP-406 Ф5: единый вход Онбордера — довести первый открытый разрыв (Х2 → Х3)."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+    try:
+        from core.onboarder import handle
+        await handle(intern, callback.message)
+    except Exception as e:
+        logger.error("[onboarder] handle failed for %s: %s", chat_id, e)
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+
+
+@onboarding_router.callback_query(F.data.startswith("x2_confirm:"))
+async def on_x2_confirm(callback: CallbackQuery):
+    """WP-406 Ф5: пользователь подтвердил пункт понимания сообщества → следующий шаг."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+    topic = callback.data.split(":", 1)[1] if ":" in callback.data else ""
+    try:
+        from core.onboarder import x2
+        await x2.confirm_topic(intern, callback.message, topic)
+    except Exception as e:
+        logger.error("[onboarder_x2] confirm_topic failed for %s (%s): %s", chat_id, topic, e)
+        lang = intern.get('language', 'ru') or 'ru'
+        await callback.message.answer(t('errors.processing_error', lang))
+
+
+@onboarding_router.callback_query(F.data.startswith("x2_more:"))
+async def on_x2_more(callback: CallbackQuery):
+    """WP-406 Ф5: «Подробнее» по пункту понимания сообщества."""
+    await callback.answer()
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    if not intern:
+        return
+    topic = callback.data.split(":", 1)[1] if ":" in callback.data else ""
+    try:
+        from core.onboarder import x2
+        await x2.show_more(intern, callback.message, topic)
+    except Exception as e:
+        logger.error("[onboarder_x2] show_more failed for %s (%s): %s", chat_id, topic, e)
+        lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.processing_error', lang))
 
 
