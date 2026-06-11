@@ -1,5 +1,6 @@
 """
-Миграция 030: отметки завершения характеристик Онбордера в user_state.
+Миграция 031: отметки завершения характеристик Онбордера в user_state.
+(номер 030 был занят 030_computed_tier.py — коллизия разведена 2026-06-11).
 
 # see DP.SC.170, DP.ROLE.067
 # (WP-406 Ф5, peer-session 2026-06-11-07-wp406-onboarder-f5-impl)
@@ -59,7 +60,7 @@ if __name__ == "__main__":
     async def run():
         pool = await asyncpg.create_pool(DATABASE_URL)
         created = await migrate_if_needed(pool)
-        print(f"Migration 030: {'columns added' if created else 'already present'}")
+        print(f"Migration 031: {'columns added' if created else 'already present'}")
         await pool.close()
 
     asyncio.run(run())
