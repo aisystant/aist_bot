@@ -115,6 +115,8 @@
 | `bot_blocked` | BOOLEAN | `FALSE` | Пользователь заблокировал бота |
 | `bot_blocked_at` | TIMESTAMP | `NULL` | Когда заблокировано |
 | `trial_started_at` | TIMESTAMP | `NULL` | Старт триала |
+| `x2_completed_at` | TIMESTAMP | `NULL` | Онбордер Х2: понял сообщество (WP-406 Ф5, миграция 030) |
+| `x3_completed_at` | TIMESTAMP | `NULL` | Онбордер Х3: выбрал траекторию (WP-406 Ф5, миграция 030) |
 | `assessment_state` | TEXT | `NULL` | State assessment-flow |
 | `assessment_date` | DATE | `NULL` | Дата прохождения |
 | `stats_reset_date` | DATE | `NULL` | Дата сброса статистики |
