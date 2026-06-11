@@ -5,10 +5,12 @@
   - X3 constants: _RETURN_TO_X3, _RETURN_TO_TTL_SECONDS (инварианты bridge-пути)
   - check_x3_return_to_bridge: существует и принимает правильные аргументы
   - X2_TOPICS: контракт 4 пунктов понимания сообщества
-  - заглушки интерфейса (should_handle/handle/run_step) явно поднимают NotImplementedError
+  - x2._next_topic: выбор следующего неподтверждённого пункта (чистая логика)
+  - x2 контент: ориентация и расширение покрывают все 4 пункта
+  - handle / run_step / confirm_topic / show_more: реализованы как корутины
 """
 
-import asyncio
+import inspect
 import os
 import sys
 import unittest
@@ -16,7 +18,7 @@ import unittest
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from core.onboarder import x2, x3, should_handle, handle  # noqa: E402
+from core.onboarder import x2, x3, handle  # noqa: E402
 
 
 class TestDescribeStream(unittest.TestCase):
@@ -73,20 +75,121 @@ class TestX3BridgeConstants(unittest.TestCase):
         self.assertTrue(inspect.iscoroutinefunction(x3._show_x3_offer))
 
 
-class TestInterfaceStubsRaise(unittest.TestCase):
-    """Оставшиеся заглушки поднимают NotImplementedError (не молчат, не возвращают None)."""
+class TestX2NextTopic(unittest.TestCase):
+    """x2._next_topic: первый неподтверждённый пункт в порядке X2_TOPICS."""
 
-    def test_should_handle_raises(self):
-        with self.assertRaises(NotImplementedError):
-            asyncio.run(should_handle({}, None))
+    def test_empty_confirmed_returns_first(self):
+        self.assertEqual(x2._next_topic([]), x2.X2_TOPICS[0])
 
-    def test_handle_raises(self):
-        with self.assertRaises(NotImplementedError):
-            asyncio.run(handle({}, None))
+    def test_skips_confirmed_in_order(self):
+        # Подтверждён только первый → следующий = второй.
+        self.assertEqual(x2._next_topic([x2.X2_TOPICS[0]]), x2.X2_TOPICS[1])
 
-    def test_x2_run_step_raises(self):
-        with self.assertRaises(NotImplementedError):
-            asyncio.run(x2.run_step({}, None))
+    def test_out_of_order_confirmed(self):
+        # Подтверждён второй, но не первый → возвращает первый (порядок X2_TOPICS).
+        self.assertEqual(x2._next_topic([x2.X2_TOPICS[1]]), x2.X2_TOPICS[0])
+
+    def test_all_confirmed_returns_none(self):
+        self.assertIsNone(x2._next_topic(list(x2.X2_TOPICS)))
+
+
+class TestX2Content(unittest.TestCase):
+    """Контент Х2 покрывает все 4 пункта — иначе шаг покажет KeyError."""
+
+    def test_topic_text_covers_all_topics(self):
+        self.assertEqual(set(x2._TOPIC_TEXT.keys()), set(x2.X2_TOPICS))
+
+    def test_topic_more_covers_all_topics(self):
+        self.assertEqual(set(x2._TOPIC_MORE.keys()), set(x2.X2_TOPICS))
+
+
+class TestOnboarderEntrypointsAreCoroutines(unittest.TestCase):
+    """Вход Онбордера и срез Х2 реализованы как корутины (не заглушки)."""
+
+    def test_handle_is_coroutine(self):
+        self.assertTrue(inspect.iscoroutinefunction(handle))
+
+    def test_run_step_is_coroutine(self):
+        self.assertTrue(inspect.iscoroutinefunction(x2.run_step))
+
+    def test_confirm_topic_is_coroutine(self):
+        self.assertTrue(inspect.iscoroutinefunction(x2.confirm_topic))
+
+    def test_show_more_is_coroutine(self):
+        self.assertTrue(inspect.iscoroutinefunction(x2.show_more))
+
+    def test_should_handle_removed(self):
+        # should_handle удалён (explicit-вход, не перехват) — его не должно быть в модуле.
+        import core.onboarder as onb
+        self.assertFalse(hasattr(onb, "should_handle"))
+
+
+class TestOfferCooldown(unittest.TestCase):
+    """offer._on_cooldown: мягкий повтор оффера «Освоиться» не чаще окна cooldown."""
+
+    def setUp(self):
+        from core.onboarder import offer
+        self._fn = offer._on_cooldown
+        self._window = offer._COOLDOWN_DAYS
+
+    def test_never_offered_not_on_cooldown(self):
+        self.assertFalse(self._fn(None))
+        self.assertFalse(self._fn(""))
+
+    def test_recent_offer_on_cooldown(self):
+        from datetime import datetime, timedelta
+        recent = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        self.assertTrue(self._fn(recent))
+
+    def test_old_offer_not_on_cooldown(self):
+        from datetime import datetime, timedelta
+        old = (datetime.utcnow() - timedelta(days=self._window + 1)).isoformat()
+        self.assertFalse(self._fn(old))
+
+    def test_broken_timestamp_not_on_cooldown(self):
+        # Битый timestamp не должен навсегда заблокировать оффер.
+        self.assertFalse(self._fn("not-a-date"))
+
+
+class TestOfferPayload(unittest.TestCase):
+    """offer.offer_payload: единый источник текста и кнопки для всех точек входа."""
+
+    def test_payload_has_required_keys(self):
+        from core.onboarder import offer
+        p = offer.offer_payload()
+        self.assertEqual(set(p.keys()), {"text", "button_text", "callback_data"})
+
+    def test_callback_routes_to_onboarder_entry(self):
+        from core.onboarder import offer
+        # callback_data должен совпадать с фильтром входа on_onboarder_start.
+        self.assertEqual(offer.offer_payload()["callback_data"], "onboarder_start")
+
+    def test_should_offer_is_coroutine(self):
+        from core.onboarder import offer
+        self.assertTrue(inspect.iscoroutinefunction(offer.should_offer))
+
+
+class TestHermesOnboardingQuery(unittest.TestCase):
+    """hermes._is_onboarding_query: кнопка «Освоиться» только на вопросы про вход."""
+
+    def setUp(self):
+        from handlers.hermes import _is_onboarding_query
+        self._fn = _is_onboarding_query
+
+    def test_onboarding_phrases_match(self):
+        for q in ("как тут всё устроено?", "с чего начать?", "хочу освоиться",
+                  "какой первый шаг", "что здесь происходит"):
+            self.assertTrue(self._fn(q), q)
+
+    def test_specific_question_does_not_match(self):
+        # Частный вопрос — кнопку не навязываем.
+        for q in ("какой сегодня день марафона?", "сколько уроков осталось",
+                  "когда придёт следующий урок"):
+            self.assertFalse(self._fn(q), q)
+
+    def test_empty_does_not_match(self):
+        self.assertFalse(self._fn(""))
+        self.assertFalse(self._fn(None))
 
 
 if __name__ == "__main__":
