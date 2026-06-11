@@ -150,6 +150,10 @@ async def create_tables(pool: asyncpg.Pool):
                 bot_recheck_at TIMESTAMP DEFAULT NULL,
                 trial_started_at TIMESTAMP DEFAULT NULL,
 
+                -- Онбордер (WP-406 Ф5): отметки закрытия характеристик Первокурсника
+                x2_completed_at TIMESTAMP DEFAULT NULL,
+                x3_completed_at TIMESTAMP DEFAULT NULL,
+
                 -- Оценка
                 assessment_state TEXT DEFAULT NULL,
                 assessment_date DATE DEFAULT NULL,
@@ -168,6 +172,13 @@ async def create_tables(pool: asyncpg.Pool):
         await conn.execute('''
             ALTER TABLE development.user_state
             ADD COLUMN IF NOT EXISTS notify_nudges BOOLEAN DEFAULT TRUE
+        ''')
+
+        # Migration 030: отметки завершения характеристик Онбордера (WP-406 Ф5)
+        await conn.execute('''
+            ALTER TABLE development.user_state
+            ADD COLUMN IF NOT EXISTS x2_completed_at TIMESTAMP DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS x3_completed_at TIMESTAMP DEFAULT NULL
         ''')
 
         # ═══════════════════════════════════════════════════════════
