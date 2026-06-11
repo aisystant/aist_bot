@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from db.connection import get_pool
+from db.connection import get_secrets_pool as get_pool
 from config import get_logger
 
 logger = get_logger(__name__)
