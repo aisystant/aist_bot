@@ -429,6 +429,28 @@ async def on_workshop_payment(message: Message):
     count = await get_workshop_payment_count(chat_id)
     logger.info(f"[Payment] payment recorded: tg={chat_id}, source={source}, count_after={count}")
 
+    # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер).
+    # Telegram-карта (currency != XTR) не эмитится: провайдер вне enum схемы
+    # шлюза (payment_received.v1: yookassa|tg_stars|aisystant|stripe|paybox).
+    if payment.currency == "XTR":
+        try:
+            from helpers.dual_write import emit_payment_received
+            await emit_payment_received(
+                provider="tg_stars",
+                external_payment_id=charge_id,
+                amount=payment.total_amount,
+                currency="XTR",
+                payment_kind_code="stars",
+                telegram_id=chat_id,
+            )
+        except Exception as e:
+            logger.error(f"[payment-event] workshop stars emit failed for tg={chat_id}: {e}")
+    else:
+        logger.warning(
+            f"[payment-event] workshop card payment (currency={payment.currency}) "
+            f"not emitted: provider outside gateway enum, tg={chat_id}"
+        )
+
     await _send_invite_by_count(message.bot, chat_id, count, lang, message)
 
 
@@ -657,6 +679,22 @@ async def process_workshop_webhook(data: dict, bot: Bot) -> dict:
 
     await _send_invite_by_count(bot, telegram_id, count, lang)
 
+    # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер).
+    # Без payment_id helper пропустит эмиссию с warning — идемпотентный
+    # external_id невозможен.
+    try:
+        from helpers.dual_write import emit_payment_received
+        await emit_payment_received(
+            provider="aisystant",
+            external_payment_id=payment_id,
+            amount=amount,
+            currency="RUB",
+            payment_kind_code="manual",
+            telegram_id=telegram_id,
+        )
+    except Exception as e:
+        logger.error(f"[payment-event] workshop aisystant emit failed for tg={telegram_id}: {e}")
+
     logger.info(f"[Workshop] webhook processed: tg={telegram_id}, count={count}, row={row_id}")
     return {"ok": True, "count": count, "payment_row_id": row_id}
 
@@ -726,27 +764,23 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
 
     await _send_invite_by_count(bot, telegram_id, count, lang)
 
-    # WP-327 Этап 22: welcome bonus 100 баллов при первой оплате подписки
-    if count == 1:
-        try:
-            from helpers.dual_write import post_event, resolve_ory_id_from_chat
-            from datetime import datetime
-            ory_id = await resolve_ory_id_from_chat(telegram_id)
-            if ory_id:
-                await post_event(
-                    source="aist-bot",
-                    external_id=f"sub-first-{payment_id}",
-                    event_type="subscription_first_purchased",
-                    schema_version="v1",
-                    occurred_at=datetime.utcnow(),
-                    account_id=ory_id,
-                    payload={"payment_id": payment_id, "amount": amount},
-                )
-                logger.info(f"[WelcomeBonus] emitted subscription_first_purchased for tg={telegram_id} ory={ory_id}")
-            else:
-                logger.warning(f"[WelcomeBonus] no ory_id for tg={telegram_id}, welcome bonus skipped")
-        except Exception as e:
-            logger.error(f"[WelcomeBonus] failed to emit event for tg={telegram_id}: {e}")
+    # WP-266 Ф5c: сырой payment_received → воркер централизованно решает
+    # «первая ли оплата» и начисляет welcome/referral (hook first_payment.py).
+    # Supersede subscription_first_purchased (WP-327 Этап 22): канал не может
+    # знать global-first — единой таблицы платежей в боте нет (peer-session
+    # 2026-06-11-39), правило-плейсхолдер закрыто миграцией 264.
+    try:
+        from helpers.dual_write import emit_payment_received
+        await emit_payment_received(
+            provider="yookassa",
+            external_payment_id=payment_id,
+            amount=amount,
+            currency="RUB",
+            payment_kind_code="bank_card",
+            telegram_id=telegram_id,
+        )
+    except Exception as e:
+        logger.error(f"[payment-event] yookassa emit failed for tg={telegram_id}: {e}")
 
     logger.info(f"[YooKassa] payment processed: tg={telegram_id}, amount={amount}, count={count}, row={row_id}")
     return {"ok": True, "count": count, "payment_row_id": row_id}
