@@ -10,11 +10,19 @@ from pydantic import BaseModel
 
 
 class LessonRequest(BaseModel):
-    """Запрос на сборку занятия."""
+    """Запрос на сборку занятия.
+
+    user_profile: профиль из ЦД (student_stage, it_level, assessment_state, energy, ...)
+    learning_history: [{element_id, element_type, passed, area, depth, ...}]
+    last_area: область вчерашнего занятия (для ротации, 1-5)
+    """
 
     user_id: int
     mode: str = "worldview"
     domain_hint: str = ""
+    user_profile: Optional[dict] = None
+    learning_history: Optional[list] = None
+    last_area: Optional[int] = None
 
 
 class LessonPacket(BaseModel):
