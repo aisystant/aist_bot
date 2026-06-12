@@ -8,13 +8,13 @@
 
 ## Обзор
 
-**38 таблиц + 3 VIEW** распределены по двум схемам:
+**39 таблиц + 3 VIEW** распределены по двум схемам:
 
 | Схема | Назначение | Таблицы |
 |-------|-----------|---------|
 | **public** (явно) | Identity + bot state backbone | `public.users` |
 | **development** (явно) | Bot state + engagement stream | `development.user_state`, `development.user_events`, VIEW `development.engagement`, VIEW `development.notification_engagement` |
-| **default (public implied)** | Всё остальное | 35 таблиц: answers, reminders, feed_weeks, feed_sessions, marathon_content, notification_log, activity_log, qa_history, assessments, feedback_reports, feedback_triage, service_usage, subscriptions, fsm_states, request_traces, error_logs, pending_fixes, content_cache, user_sessions, conversion_events, ory_tokens, dt_tokens, tier_events, training_settings, training_progress, training_attempts, training_children, channel_monitors, channel_mentions_log, github_connections, google_calendar_connections, discourse_accounts, published_posts, scheduled_publications, oauth_pending_states + VIEW `user_knowledge_profile` |
+| **default (public implied)** | Всё остальное | 36 таблиц: answers, reminders, feed_weeks, feed_sessions, marathon_content, notification_log, notification_queue, activity_log, qa_history, assessments, feedback_reports, feedback_triage, service_usage, subscriptions, fsm_states, request_traces, error_logs, pending_fixes, content_cache, user_sessions, conversion_events, ory_tokens, dt_tokens, tier_events, training_settings, training_progress, training_attempts, training_children, channel_monitors, channel_mentions_log, github_connections, google_calendar_connections, discourse_accounts, published_posts, scheduled_publications, oauth_pending_states + VIEW `user_knowledge_profile` |
 
 **Важно:** `digital_twins` НЕ в bot DB. Таблица живёт в shared Neon, writer — Profiler (WP-218 Ф2), бот читает через Gateway MCP (`dt_read`). См. [P-07 § 12b](../processes/process-07-dt-engagement-sync.md).
 
@@ -295,6 +295,32 @@
 **Constraints:** UNIQUE(chat_id, activity_date, activity_type) — одна запись типа в день
 
 **Индексы:** `idx_activity_date ON (chat_id, activity_date)`
+
+### 3.4. `notification_queue` (приватная очередь Доставщика)
+
+> WP-418 Ф3-Ф4: единый слой доставки. **Приватна** — raw SQL вне `core.notification_service` запрещён. См. [P-11 Delivery Layer](../processes/process-11-delivery-layer.md).
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `id` | SERIAL | — | PK |
+| `chat_id` | BIGINT | — | NOT NULL |
+| `notification_class` | TEXT | — | NOT NULL: `critical` / `must-deliver` / `transactional` / `capped` / `ops-alert` |
+| `payload` | JSONB | — | NOT NULL, канало-нейтральный content_spec: `text`, `format`, `actions` |
+| `priority` | INTEGER | — | NOT NULL, 1 = высший |
+| `dedup_key` | TEXT | `NULL` | дедуп в окне класса (дата в ключе ⇒ дневной) |
+| `journal_key` | TEXT | `NULL` | Ф4: семантический ключ журнала drain (контракт readers domain_event) |
+| `journal_type` | TEXT | `NULL` | Ф4: прежний `notification_type` (`nudge`, `marathon_nudge`, …), fallback = класс |
+| `status` | TEXT | `'queued'` | `queued` → `sent` / `suppressed` |
+| `reason` | TEXT | `NULL` | для suppressed: `opt-out` / `duplicate` / `cap-exceeded` / `journal-dup` |
+| `scheduled_at` | TIMESTAMP | `NOW()` | критерий доступности drain (и сторожа) |
+| `locked_at` | TIMESTAMP | `NULL` | pgqueuer-ready (пока не используется) |
+| `attempts` | INTEGER | `0` | pgqueuer-ready (пока не используется) |
+| `created_at` | TIMESTAMP | `NOW()` | |
+| `sent_at` | TIMESTAMP | `NULL` | |
+
+**Индексы:** `idx_notif_queue_cap (chat_id, notification_class, created_at)` — потолок; `idx_notif_queue_drain (status, priority, scheduled_at)` — дренаж; `idx_notif_queue_dedup (dedup_key)`.
+
+**Ретеншна нет** (рост навсегда). Constraint будущей чистки: retention ≥ max(dedup_hours) = 48 ч, иначе дедуп `capped` ослепнет.
 
 ---
 
@@ -893,6 +919,9 @@ channel_mentions_log — standalone (по channel_id + message_id)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-06-12 | **§3.4 `notification_queue` (WP-418 Ф3-Ф4):** приватная очередь Доставщика (класс-модель, дедуп, потолок, журнал). Ф4 добавил `journal_key`/`journal_type` (семантический журнал drain — контракт readers domain_event) + idempotent ALTER. Peer-сессия 2026-06-12-06. |
+| 2026-06-10 | **Миграции 027-028 (WP-406 Ф6):** `user_milestones` (flat таблица has_p1..has_p9 BOOLEAN — факты пережитых пользовательских польз P1-P9, пишет event-процессор, читает Онбордер в Фазе 2 DP.SC.170) + `user_milestone_offers` (история офферов пользы, partial UNIQUE index WHERE response IS NULL OR response = 'ignored' — защита от дублирующихся активных офферов). Роль Дорожник свёрнута в Фазу 2 Онбордера (коммит e10e30a). |
+| 2026-06-09 | **Миграция 026 (WP-330 followup):** триггер `learning.sync_total_checkins()` на `marathon_state` — автоматически пересчитывает `marathon_progress.total_checkins` при INSERT/UPDATE/DELETE. Backfill для всех пользователей (IS DISTINCT FROM, все статусы). До исправления: 39/77 активных имели stale total_checkins=0. |
 | 2026-06-06 | **Миграция 025 (WP-7 Ф-Pilot-LearningDB-Isolation):** learning-схема на Railway Postgres. Новые таблицы в `LEARNING_URL` pool: `domain_event`, `security_reject_log`, `bridge_2_cursors`, `content_cache`, `reminder`, `feed_sessions` (public schema); `learning.marathon_queue`, `learning.marathon_progress`, `learning.marathon_state`, `learning.marathon_activity`, `learning.tracking_consent`, `learning.stage_transitions`, `learning.cp_assessments`, `learning.onboarding_state` + views `learning.marathon_stats`, `learning.cp_invalidation_signals`. Пилот-бот переключён на Railway Postgres через reference var `LEARNING_URL = ${{Postgres.DATABASE_URL}}`. |
 | 2026-04-11 | **Переписан полностью:** 38 таблиц + 3 VIEW вместо 7 из 2026-01-23. Отражена миграция WP-82 Ф3 (`interns` → `users` + `user_state`), добавлены P-09 `notification_log`, P-10 `ory_tokens`/`dt_tokens`, WP-45 `error_logs`/`pending_fixes`/`feedback_triage`, WP-55 training_*, SC.118 channel_*, WP-52 tier_events, P-11 marathon_content, content_cache, request_traces, user_sessions, conversion_events, feedback_reports. Digital twins убраны — они НЕ в bot DB. |
 | 2026-02-03 | Добавлено поле `current_state` для State Machine |
