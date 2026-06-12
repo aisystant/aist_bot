@@ -184,6 +184,11 @@ from .settings import (
 
     # Aisystant base URL (WP-181, link handler)
     AISYSTANT_BASE_URL,
+
+    # Портной / EngineRouter (WP-262 В1.1)
+    TAILOR_ROUTE,
+    TAILOR_SERVICE_URL,
+    TAILOR_SHARED_SECRET,
 )
 
 from .onboarding_intents import ONBOARDING_INTENT_MAP, NEGATIVE_PATTERNS  # WP-349 Ф22
@@ -303,4 +308,7 @@ __all__ = [
     'AISYSTANT_BASE_URL',
     'ONBOARDING_INTENT_MAP',
     'NEGATIVE_PATTERNS',
+    'TAILOR_ROUTE',
+    'TAILOR_SERVICE_URL',
+    'TAILOR_SHARED_SECRET',
 ]
