@@ -100,6 +100,23 @@ async def notify_tailor_lesson(
         True если отправлено успешно.
     """
     text = _format_lesson_html(lesson, generated)
+
+    # WP-318 Ф9: фоновый Диагност предупреждает Портного об устаревшем cp.
+    # Подсказка добавляется в начало сообщения Портного, не отправляется
+    # пользователю сама по себе.
+    try:
+        from engines.diagnostician import suggest_for_tailor
+        account_id_for_cp = str(user_uuid) if user_uuid else None
+        if not account_id_for_cp:
+            from helpers.dual_write import resolve_ory_id_from_chat
+            account_id_for_cp = await resolve_ory_id_from_chat(chat_id)
+        if account_id_for_cp:
+            cp_hint = await suggest_for_tailor(account_id_for_cp)
+            if cp_hint:
+                text = cp_hint + "\n\n" + text
+    except Exception as e:
+        logger.warning("[Tailor/Bot] cp hint failed: %s", e)
+
     keyboard = _build_keyboard(lesson)
 
     try:

@@ -16,7 +16,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from helpers.message_split import prepare_html_parts
-from db.queries import get_intern, update_intern, save_answer, moscow_today
+from db.queries import get_intern, update_intern, save_answer, record_active_day, moscow_today
 from db.queries.marathon import get_marathon_content, save_marathon_content
 from core.knowledge import get_topic, get_topic_title, get_total_topics
 from core.topics import get_marathon_day
@@ -347,6 +347,12 @@ class MarathonTaskState(BaseState):
                 marathon_status=MarathonStatus.ACTIVE,
                 mode=derive_mode(MarathonStatus.ACTIVE, feed_status),
             )
+
+            # Записываем активный день
+            try:
+                await record_active_day(chat_id, 'work_product', mode='marathon')
+            except Exception as e:
+                logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
 
         # WP-151 Ф2: после первого завершённого урока — спросить о стиле подачи
         if chat_id and len(completed) == 1:
