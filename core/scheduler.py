@@ -285,7 +285,7 @@ async def _watch_delivery_queue():
             # Критерий = критерию дренажа (scheduled_at, не created_at): «строка
             # доступна drain 10+ минут» — будущие отложенные не дают ложный алерт.
             stuck = await conn.fetchval(
-                """SELECT count(*) FROM notification_queue
+                """SELECT count(*) FROM development.notification_queue
                    WHERE status = 'queued'
                      AND scheduled_at < NOW() - INTERVAL '10 minutes'"""
             )

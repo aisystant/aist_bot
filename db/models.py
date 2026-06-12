@@ -245,7 +245,7 @@ async def create_tables(pool: asyncpg.Pool):
         # locked_at/attempts) — LISTEN/NOTIFY встанет потом без переписывания.
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS notification_queue (
+            CREATE TABLE IF NOT EXISTS development.notification_queue (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 notification_class TEXT NOT NULL,
@@ -266,24 +266,24 @@ async def create_tables(pool: asyncpg.Pool):
         # Ф4: страховка для окружений, где таблица создана DDL Ф3 без journal_* —
         # CREATE IF NOT EXISTS колонки не добавляет (peer-сессия 2026-06-12-06).
         await conn.execute('''
-            ALTER TABLE notification_queue
+            ALTER TABLE development.notification_queue
             ADD COLUMN IF NOT EXISTS journal_key TEXT,
             ADD COLUMN IF NOT EXISTS journal_type TEXT
         ''')
         # Потолок класса: COUNT WHERE chat_id, class, day, status IN (queued, sent).
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notif_queue_cap
-            ON notification_queue(chat_id, notification_class, created_at)
+            ON development.notification_queue(chat_id, notification_class, created_at)
         ''')
         # Дренаж: queued по приоритету.
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notif_queue_drain
-            ON notification_queue(status, priority, scheduled_at)
+            ON development.notification_queue(status, priority, scheduled_at)
         ''')
         # Дедуп по ключу.
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notif_queue_dedup
-            ON notification_queue(dedup_key)
+            ON development.notification_queue(dedup_key)
         ''')
 
         # ═══════════════════════════════════════════════════════════

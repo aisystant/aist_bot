@@ -859,7 +859,7 @@ async def cmd_delivery_canary(message: Message):
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, status, scheduled_at FROM notification_queue WHERE id = $1",
+            "SELECT id, status, scheduled_at FROM development.notification_queue WHERE id = $1",
             msg_id,
         )
 
@@ -874,7 +874,7 @@ async def cmd_delivery_canary(message: Message):
 
     async with pool.acquire() as conn:
         row2 = await conn.fetchrow(
-            "SELECT status, sent_at FROM notification_queue WHERE id = $1",
+            "SELECT status, sent_at FROM development.notification_queue WHERE id = $1",
             msg_id,
         )
 

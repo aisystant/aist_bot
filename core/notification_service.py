@@ -135,7 +135,7 @@ async def enqueue(
 
             if policy.daily_cap is not None:
                 used = await conn.fetchval(
-                    """SELECT count(*) FROM notification_queue
+                    """SELECT count(*) FROM development.notification_queue
                        WHERE chat_id = $1 AND notification_class = $2
                          AND created_at::date = (NOW() AT TIME ZONE 'UTC')::date
                          AND status IN ('queued', 'sent')""",
@@ -147,7 +147,7 @@ async def enqueue(
                     )
 
             row = await conn.fetchrow(
-                """INSERT INTO notification_queue
+                """INSERT INTO development.notification_queue
                    (chat_id, notification_class, payload, priority, dedup_key,
                     journal_key, journal_type, status)
                    VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, 'queued')
@@ -185,7 +185,7 @@ async def drain(
             rows = await conn.fetch(
                 """SELECT id, chat_id, notification_class, payload, priority,
                           journal_key, journal_type
-                   FROM notification_queue
+                   FROM development.notification_queue
                    WHERE status = 'queued' AND scheduled_at <= NOW()
                    ORDER BY priority ASC, scheduled_at ASC
                    LIMIT $1
@@ -214,7 +214,7 @@ async def drain(
                     # Журнал уже помнит ключ: отправлено старым кодом до деплоя или
                     # параллельным инстансом (redeploy-overlap). Дубль не доставляем.
                     await conn.execute(
-                        """UPDATE notification_queue
+                        """UPDATE development.notification_queue
                            SET status = 'suppressed', reason = 'journal-dup'
                            WHERE id = $1""",
                         row["id"],
@@ -225,7 +225,7 @@ async def drain(
                     )
                     continue
                 await conn.execute(
-                    "UPDATE notification_queue SET status = 'sent', sent_at = NOW() WHERE id = $1",
+                    "UPDATE development.notification_queue SET status = 'sent', sent_at = NOW() WHERE id = $1",
                     row["id"],
                 )
                 try:
@@ -264,7 +264,7 @@ async def _is_opted_out(conn, chat_id: int, klass: str) -> bool:
 
 async def _is_duplicate(conn, dedup_key: str, window_hours: int) -> bool:
     row = await conn.fetchrow(
-        """SELECT 1 FROM notification_queue
+        """SELECT 1 FROM development.notification_queue
            WHERE dedup_key = $1 AND status IN ('queued', 'sent')
              AND created_at >= NOW() - INTERVAL '1 hour' * $2
            LIMIT 1""",
@@ -279,7 +279,7 @@ async def _record_suppressed(
 ) -> dict:
     """Записать подавление в очередь (аудит, не молчать) + лог."""
     row = await conn.fetchrow(
-        """INSERT INTO notification_queue
+        """INSERT INTO development.notification_queue
            (chat_id, notification_class, payload, priority, dedup_key, status, reason)
            VALUES ($1, $2, $3::jsonb, $4, $5, 'suppressed', $6)
            RETURNING id""",
