@@ -252,6 +252,8 @@ async def create_tables(pool: asyncpg.Pool):
                 payload JSONB NOT NULL,
                 priority INTEGER NOT NULL,
                 dedup_key TEXT,
+                journal_key TEXT,
+                journal_type TEXT,
                 status TEXT NOT NULL DEFAULT 'queued',
                 reason TEXT,
                 scheduled_at TIMESTAMP DEFAULT NOW(),
@@ -260,6 +262,13 @@ async def create_tables(pool: asyncpg.Pool):
                 created_at TIMESTAMP DEFAULT NOW(),
                 sent_at TIMESTAMP
             )
+        ''')
+        # Ф4: страховка для окружений, где таблица создана DDL Ф3 без journal_* —
+        # CREATE IF NOT EXISTS колонки не добавляет (peer-сессия 2026-06-12-06).
+        await conn.execute('''
+            ALTER TABLE notification_queue
+            ADD COLUMN IF NOT EXISTS journal_key TEXT,
+            ADD COLUMN IF NOT EXISTS journal_type TEXT
         ''')
         # Потолок класса: COUNT WHERE chat_id, class, day, status IN (queued, sent).
         await conn.execute('''

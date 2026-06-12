@@ -14,6 +14,7 @@ import math
 import os
 import random
 import re
+import time
 from collections import Counter
 from datetime import date, datetime, timedelta
 
@@ -27,7 +28,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED, DEVELOPER_CHAT_ID
 from db.connection import get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
@@ -193,13 +194,42 @@ async def _notify_retry_exhausted(chat_id: int, content_type: str):
         await bot.session.close()
 
 
+def _build_delivery_kwargs(content_spec: dict) -> tuple[str, dict]:
+    """Рендер канало-нейтрального content_spec в kwargs Telegram-транспорта (Ф4).
+
+    format: "markdown" → md_to_html + HTML (ловушка 10.2: сырой Markdown без
+    parse_mode показал бы звёздочки); "html" → HTML как есть; default plain.
+    actions: [{"label", "action"}] → InlineKeyboard (callback_data = action);
+    при другом канале (Ф5) те же actions рендерятся ссылками — контракт не ломается.
+    """
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from helpers.markdown_to_html import md_to_html
+
+    text = content_spec.get("text", "")
+    fmt = content_spec.get("format", "plain")
+    kwargs: dict = {}
+    if fmt == "markdown":
+        text = md_to_html(text)
+        kwargs["parse_mode"] = "HTML"
+    elif fmt == "html":
+        kwargs["parse_mode"] = "HTML"
+    actions = content_spec.get("actions") or []
+    if actions:
+        kwargs["reply_markup"] = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=a["label"], callback_data=a["action"])]
+            for a in actions
+        ])
+    return text, kwargs
+
+
 async def _drain_delivery_queue():
-    """WP-418 Ф3: разобрать очередь Доставщика и доставить через транспорт.
+    """WP-418 Ф3/Ф4: разобрать очередь Доставщика и доставить через транспорт.
 
     see DP.SC.177, DP.ROLE.075. Регистрируется в init_scheduler только при
-    DELIVERY_LAYER_ENABLED (по умолчанию выкл — пока 107 точек не мигрированы, Ф4).
-    deliver_fn инкапсулирует транспорт (Bot.send_message) с suppress-guard для
-    заблокировавших бота — политику/очередь держит core.notification_service.
+    DELIVERY_LAYER_ENABLED (включается в проде ДО merge волны миграции — env
+    безвреден для кода без этой ветки). deliver_fn инкапсулирует транспорт
+    (Bot.send_message) с suppress-guard для заблокировавших бота — политику/
+    очередь держит core.notification_service.
     """
     from core.notification_service import drain
     from core.error_classifier import is_suppressed
@@ -210,16 +240,75 @@ async def _drain_delivery_queue():
     bot = Bot(token=_bot_token)
 
     async def deliver(chat_id: int, content_spec: dict):
-        text = content_spec.get("text", "")
+        text, kwargs = _build_delivery_kwargs(content_spec)
         try:
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, **kwargs)
         except Exception as e:
+            if _is_user_unavailable(e):
+                # паритет с прямыми отправителями до Ф4: пометить blocked в БД
+                await _handle_unavailable_user(chat_id, "delivery")
+                return  # drain уже пометил sent — алерт не нужен
+            if kwargs.get("parse_mode") and "can't parse entities" in str(e).lower():
+                # ловушка 10.2: незакрытая разметка — повторить без форматирования,
+                # но С reply_markup (иначе «нажмите кнопку ниже» придёт без кнопки)
+                retry_kwargs = {k: v for k, v in kwargs.items() if k != "parse_mode"}
+                await bot.send_message(chat_id, content_spec.get("text", ""), **retry_kwargs)
+                return
             if is_suppressed(__name__, str(e)):
-                return  # benign (user blocked bot) — drain уже пометил sent, алерт не нужен
+                return  # benign — drain уже пометил sent, алерт не нужен
             raise
 
     try:
         await drain(deliver)
+    finally:
+        await bot.session.close()
+
+
+_last_delivery_watch_alert_ts: float = 0.0
+
+
+async def _watch_delivery_queue():
+    """WP-418 Ф4: сторож очереди Доставщика (peer-сессия 2026-06-12-06).
+
+    Детектит симптом «очередь не дренируется» независимо от причины (флаг
+    сброшен при редеплое / drain падает) — queued старше 10 минут. Работает
+    БЕЗ гейта DELIVERY_LAYER_ENABLED: именно сценарий «точки мигрированы,
+    дренаж выключен» он и ловит. Алерт — ПРЯМОЙ отправкой в dev-канал:
+    сторож не может зависеть от того, что сторожит. Fail-open: недоступность
+    БД не алертит (это зона других мониторов). Cooldown 1 час.
+    """
+    global _last_delivery_watch_alert_ts
+
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            # Критерий = критерию дренажа (scheduled_at, не created_at): «строка
+            # доступна drain 10+ минут» — будущие отложенные не дают ложный алерт.
+            stuck = await conn.fetchval(
+                """SELECT count(*) FROM notification_queue
+                   WHERE status = 'queued'
+                     AND scheduled_at < NOW() - INTERVAL '10 minutes'"""
+            )
+    except Exception as e:
+        logger.warning(f"[DeliveryWatch] fail-open, проверка пропущена: {e}")
+        return
+
+    if not stuck:
+        return
+    logger.error(f"[DeliveryWatch] {stuck} queued >10 мин — дренаж не работает")
+    if not _bot_token or not DEVELOPER_CHAT_ID:
+        return
+    if time.time() - _last_delivery_watch_alert_ts < 3600:
+        return  # cooldown: лог уже есть, не спамить канал каждые 10 мин
+    bot = Bot(token=_bot_token)
+    try:
+        await bot.send_message(
+            DEVELOPER_CHAT_ID,
+            f"⚠️ Доставщик: {stuck} сообщений висят в очереди >10 мин — "
+            "дренаж не работает (DELIVERY_LAYER_ENABLED сброшен или drain падает)",
+        )
+        # метка ПОСЛЕ успешной отправки: упавший send не съедает алерт на час
+        _last_delivery_watch_alert_ts = time.time()
     finally:
         await bot.session.close()
 
@@ -574,12 +663,14 @@ async def _check_marathon_missed_checkins():
 
 
 async def _send_marathon_nudges():
-    """WP-330 P2: отправить поддерживающие nudge участникам с пропусками чек-инов.
+    """WP-330 P2 / WP-418 Ф4 волна 1: поддерживающие nudge участникам с пропусками чек-инов.
 
-    Запускается ежедневно в 10:00 MSK. Защита от дублей через notification_log.
+    Запускается ежедневно в 10:00 MSK. Отправка — через Доставщик (enqueue, класс
+    capped): дневной дедуп держит dedup_key (дата в ключе), журнал для аналитики
+    и cooldown-readers пишет drain с прежним notification_type='marathon_nudge'.
     """
+    from core.notification_service import enqueue, CLASS_CAPPED
     from db.queries.marathon_newcomer import get_users_for_nudge
-    from db.queries.notifications import try_insert_notification
 
     if not _bot_token:
         return
@@ -588,51 +679,46 @@ async def _send_marathon_nudges():
     if not users:
         return
 
-    bot = Bot(token=_bot_token)
-    try:
-        now = moscow_now()
-        today_str = now.strftime('%Y-%m-%d')
+    today_str = moscow_now().strftime('%Y-%m-%d')
+    queued = 0
+    for user in users:
+        chat_id = user['user_id']
+        current_day = user['current_day']
+        total_checkins = user['total_checkins']
+        missed = user.get('missed', max(0, current_day - total_checkins))
 
-        for user in users:
-            chat_id = user['user_id']
-            current_day = user['current_day']
-            total_checkins = user['total_checkins']
-            missed = user.get('missed', max(0, current_day - total_checkins))
+        if missed == 1:
+            text = (
+                "🌤 *Небольшая пауза*\n\n"
+                "Вчера не получилось чекинуться — ничего страшного. "
+                "Сегодня новый день и новый слот. Попробуем снова?\n\n"
+                "Если что-то мешает — напиши /support."
+            )
+        elif missed >= 3:
+            text = (
+                "🤝 *Проверка связи*\n\n"
+                "Три дня без чек-ина. Возможно, марафон идёт в фоне, "
+                "а возможно, нужна помощь.\n\n"
+                "Напиши /support или просто ответь: что мешает?"
+            )
+        else:
+            continue  # missed == 2 — промежуточный, не отправляем
 
-            # Защита от дублей: один nudge в день
-            nudge_key = f"marathon_nudge:{chat_id}:{today_str}"
-            if not await try_insert_notification(chat_id, 'marathon_nudge', nudge_key):
-                continue
-
-            if missed == 1:
-                text = (
-                    "🌤 *Небольшая пауза*\n\n"
-                    "Вчера не получилось чекинуться — ничего страшного. "
-                    "Сегодня новый день и новый слот. Попробуем снова?\n\n"
-                    "Если что-то мешает — напиши /support."
-                )
-            elif missed >= 3:
-                text = (
-                    "🤝 *Проверка связи*\n\n"
-                    "Три дня без чек-ина. Возможно, марафон идёт в фоне, "
-                    "а возможно, нужна помощь.\n\n"
-                    "Напиши /support или просто ответь: что мешает?"
-                )
-            else:
-                continue  # missed == 2 — промежуточный, не отправляем
-
-            try:
-                await bot.send_message(chat_id, text, parse_mode="Markdown")
-                logger.info(f"[MarathonNudge] Sent to {chat_id} (missed {missed})")
-            except Exception as e:
-                if _is_user_unavailable(e):
-                    await _handle_unavailable_user(chat_id, "marathon nudge")
-                else:
-                    logger.warning(f"[MarathonNudge] Failed to send to {chat_id}: {e}")
-
-        # WP-330 Ф10.D: перенесено в _send_practice_nudges (запускается каждые 10 мин)
-    finally:
-        await bot.session.close()
+        nudge_key = f"marathon_nudge:{chat_id}:{today_str}"
+        try:
+            res = await enqueue(
+                chat_id, CLASS_CAPPED, {"text": text, "format": "markdown"},
+                dedup_key=nudge_key, journal_key=nudge_key,
+                journal_type='marathon_nudge',
+            )
+        except Exception as e:
+            logger.warning(f"[MarathonNudge] Failed to enqueue for {chat_id}: {e}")
+            continue
+        if res["status"] == "queued":
+            queued += 1
+            logger.info(f"[MarathonNudge] Queued for {chat_id} (missed {missed})")
+    if queued:
+        logger.info(f"[MarathonNudge] Queued total: {queued}")
 
 
 async def _process_marathon_activity_batch():
@@ -684,10 +770,8 @@ async def _send_practice_nudges():
 
     Условия отправки: урок доставлен сегодня, практика не открыта, чек-ин не сделан.
     """
-    from aiogram import Bot
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from core.notification_service import enqueue, CLASS_CAPPED
     from db.queries.marathon_newcomer import get_users_for_practice_nudge
-    from db.queries.notifications import try_insert_notification
 
     if not _bot_token:
         return
@@ -696,48 +780,47 @@ async def _send_practice_nudges():
     if not practice_users:
         return
 
-    bot = Bot(token=_bot_token)
     now = moscow_now()
-    try:
-        for pu in practice_users:
-            chat_id = pu['user_id']
-            day = pu['day_number']
-            sent_at = pu['sent_at']
-            minutes_elapsed = (now - sent_at).total_seconds() / 60
+    for pu in practice_users:
+        chat_id = pu['user_id']
+        day = pu['day_number']
+        sent_at = pu['sent_at']
+        minutes_elapsed = (now - sent_at).total_seconds() / 60
 
-            if minutes_elapsed >= 150:
-                nudge_slot = '150m'
-                text = (
-                    f"⏰ Урок Дня {day} пришёл несколько часов назад, практику ещё не открыли.\n\n"
-                    "Последний шанс сегодня — нажмите кнопку ниже:"
-                )
-            else:
-                nudge_slot = '30m'
-                text = (
-                    f"📚 Урок Дня {day} уже ждёт вас. Осталось только перейти к практике!\n\n"
-                    "Нажмите кнопку ниже:"
-                )
+        if minutes_elapsed >= 150:
+            nudge_slot = '150m'
+            text = (
+                f"⏰ Урок Дня {day} пришёл несколько часов назад, практику ещё не открыли.\n\n"
+                "Последний шанс сегодня — нажмите кнопку ниже:"
+            )
+        else:
+            nudge_slot = '30m'
+            text = (
+                f"📚 Урок Дня {day} уже ждёт вас. Осталось только перейти к практике!\n\n"
+                "Нажмите кнопку ниже:"
+            )
 
-            nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{nudge_slot}"
-            if not await try_insert_notification(chat_id, 'marathon_practice_nudge', nudge_key):
-                continue
-
-            try:
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
-                        text="✏️ Перейти к практике",
-                        callback_data=f"marathon_practice:{day}"
-                    )
-                ]])
-                await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
-                logger.info(f"[PracticeNudge] Sent {nudge_slot} nudge to {chat_id} day {day}")
-            except Exception as e:
-                if _is_user_unavailable(e):
-                    await _handle_unavailable_user(chat_id, f"practice nudge {nudge_slot}")
-                else:
-                    logger.warning(f"[PracticeNudge] Failed to send to {chat_id}: {e}")
-    finally:
-        await bot.session.close()
+        # WP-418 Ф4 волна 1б: кнопка — канало-нейтральным actions (рендер в drain).
+        nudge_key = f"marathon_practice_nudge:{chat_id}:{day}:{nudge_slot}"
+        try:
+            res = await enqueue(
+                chat_id, CLASS_CAPPED,
+                {
+                    "text": text,
+                    "format": "markdown",
+                    "actions": [{
+                        "label": "✏️ Перейти к практике",
+                        "action": f"marathon_practice:{day}",
+                    }],
+                },
+                dedup_key=nudge_key, journal_key=nudge_key,
+                journal_type='marathon_practice_nudge',
+            )
+        except Exception as e:
+            logger.warning(f"[PracticeNudge] Failed to enqueue for {chat_id}: {e}")
+            continue
+        if res["status"] == "queued":
+            logger.info(f"[PracticeNudge] Queued {nudge_slot} nudge for {chat_id} day {day}")
 
 
 async def _send_marathon_weekly_digest():
@@ -1013,6 +1096,9 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     if DELIVERY_LAYER_ENABLED:
         _scheduler.add_job(_drain_delivery_queue, 'cron', minute='*', max_instances=1)  # WP-418 Ф3: дренаж очереди Доставщика
         logger.info("[Scheduler] Delivery layer (WP-418) drain enabled")
+    # WP-418 Ф4: сторож очереди — БЕЗ гейта флага: ловит именно «точки мигрированы,
+    # дренаж выключен» (плюс «drain падает»). Fail-open внутри.
+    _scheduler.add_job(_watch_delivery_queue, 'cron', minute='*/10', max_instances=1)
     _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
     _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37')  # Discourse: scheduled posts (offset from :00/:30)
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
@@ -2325,10 +2411,9 @@ async def send_engagement_nudges():
     """Проанализировать engagement-данные T3+ и отправить nudge-уведомления."""
     import json
     from core.engagement_analyzer import analyze
+    from core.notification_service import enqueue, CLASS_CAPPED
     from db.queries.nudges import get_nudge_candidates
-    from db.queries.notifications import (
-        was_nudge_sent_recently, try_insert_notification,
-    )
+    from db.queries.notifications import was_nudge_sent_recently
     from i18n import t
 
     candidates = await get_nudge_candidates()
@@ -2454,20 +2539,23 @@ async def send_engagement_nudges():
                 try:
                     today_str = moscow_now().strftime('%Y-%m-%d')
                     notif_key = f"nudge:{chat_id}:{today_str}:{nudge_key}"
-                    inserted = await try_insert_notification(chat_id, 'nudge', notif_key)
-                    if not inserted:
-                        # Дубль — уже отправляли сегодня
+                    # WP-418 Ф4 волна 1: дневной дедуп и потолок ≤2/день — у
+                    # Доставщика (dedup_key); журнал с прежним type='nudge'
+                    # пишет drain — контракт was_nudge_sent_recently сохранён.
+                    res = await enqueue(
+                        chat_id, CLASS_CAPPED,
+                        {"text": text, "format": "markdown"},
+                        dedup_key=notif_key, journal_key=notif_key,
+                        journal_type='nudge',
+                    )
+                    if res["status"] != "queued":
+                        # Дубль дня или потолок — Доставщик подавил
                         continue
-
-                    await bot.send_message(chat_id, text, parse_mode="Markdown")
                     total_sent += 1
-                    logger.info(f"[Nudge] Sent {nudge_key} to {chat_id}")
+                    logger.info(f"[Nudge] Queued {nudge_key} for {chat_id}")
                     break  # One nudge per user per day
                 except Exception as e:
-                    if _is_user_unavailable(e):
-                        await _handle_unavailable_user(chat_id, "nudge")
-                    else:
-                        logger.error(f"[Nudge] Error for {chat_id}: {e}")
+                    logger.error(f"[Nudge] Error for {chat_id}: {e}")
                     break  # Don't retry other nudges for this user
     finally:
         await bot.session.close()

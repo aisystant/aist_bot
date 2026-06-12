@@ -19,7 +19,9 @@ class FakeConn:
         self._duplicate = duplicate
         self._drain_rows = drain_rows or []
         self._next_id = 100
-        self.updates = []  # (sql_verb, id) для проверки status-update в дренаже
+        self.updates = []  # id строк, по которым прошёл UPDATE (дренаж)
+        self.update_sqls = []  # SQL UPDATE'ов — различение sent / suppressed (Ф4)
+        self.inserts = []  # args INSERT'ов — проверка journal_key/journal_type (Ф4)
 
     def transaction(self):
         class _Tx:
@@ -32,6 +34,7 @@ class FakeConn:
     async def execute(self, sql, *args):
         if sql.strip().upper().startswith("UPDATE"):
             self.updates.append(args[0] if args else None)
+            self.update_sqls.append(sql)
         return "OK"
 
     async def fetchval(self, sql, *args):
@@ -41,6 +44,7 @@ class FakeConn:
         if sql.strip().startswith("SELECT 1"):  # _is_duplicate
             return {"x": 1} if self._duplicate else None
         self._next_id += 1  # INSERT ... RETURNING id
+        self.inserts.append(args)
         return {"id": self._next_id}
 
     async def fetch(self, sql, *args):
@@ -149,13 +153,17 @@ async def test_duplicate_dedup_key_suppressed(monkeypatch):
 @pytest.mark.asyncio
 async def test_drain_delivers_and_marks_sent(monkeypatch):
     row = {"id": 7, "chat_id": 555, "notification_class": ns.CLASS_MUST_DELIVER,
-           "payload": '{"text": "урок дня"}', "priority": 2}
+           "payload": '{"text": "урок дня"}', "priority": 2,
+           "journal_key": None, "journal_type": None}
     conn = FakeConn(drain_rows=[row])
     _patch_pool(monkeypatch, conn)
 
-    async def _noop_journal(**kwargs):
+    journaled = []
+
+    async def _capture_journal(**kwargs):
+        journaled.append(kwargs)
         return True
-    monkeypatch.setattr(ns, "try_insert_notification", _noop_journal)
+    monkeypatch.setattr(ns, "try_insert_notification", _capture_journal)
 
     delivered = []
 
@@ -167,3 +175,91 @@ async def test_drain_delivers_and_marks_sent(monkeypatch):
     assert delivered == [(555, "урок дня")]          # реально доставлено
     assert stats["delivered"] == 1
     assert conn.updates == [7]                        # статус помечен sent (log-before-send)
+    # без journal_* — технический fallback (canary/ops-alert)
+    assert journaled[0]["idempotency_key"] == "delivery:7"
+    assert journaled[0]["notification_type"] == ns.CLASS_MUST_DELIVER
+
+
+@pytest.mark.asyncio
+async def test_drain_journals_semantic_key_and_type(monkeypatch):
+    # Ф4: контракт readers (was_nudge_sent_recently ищет
+    # external_id LIKE 'notification-nudge:{chat}:%:{key}' и type='nudge') —
+    # drain обязан журналировать СЕМАНТИЧЕСКИМ ключом/типом отправителя, не классом.
+    row = {"id": 9, "chat_id": 555, "notification_class": ns.CLASS_CAPPED,
+           "payload": '{"text": "nudge"}', "priority": 4,
+           "journal_key": "nudge:555:2026-06-12:slot_missing_3d",
+           "journal_type": "nudge"}
+    conn = FakeConn(drain_rows=[row])
+    _patch_pool(monkeypatch, conn)
+
+    journaled = []
+
+    async def _capture_journal(**kwargs):
+        journaled.append(kwargs)
+        return True
+    monkeypatch.setattr(ns, "try_insert_notification", _capture_journal)
+
+    async def deliver(chat_id, content_spec):
+        pass
+
+    await ns.drain(deliver)
+
+    assert journaled[0]["idempotency_key"] == "nudge:555:2026-06-12:slot_missing_3d"
+    assert journaled[0]["notification_type"] == "nudge"   # не 'capped'
+
+
+@pytest.mark.asyncio
+async def test_drain_suppresses_journal_duplicate(monkeypatch):
+    # Журнал помнит ключ (отправлено старым кодом до деплоя / параллельным
+    # инстансом) → дубль НЕ доставляется, строка помечается suppressed.
+    row = {"id": 11, "chat_id": 555, "notification_class": ns.CLASS_CAPPED,
+           "payload": '{"text": "nudge"}', "priority": 4,
+           "journal_key": "marathon_practice_nudge:555:3:30m",
+           "journal_type": "marathon_practice_nudge"}
+    conn = FakeConn(drain_rows=[row])
+    _patch_pool(monkeypatch, conn)
+
+    async def _journal_remembers(**kwargs):
+        return False  # UNIQUE(source, external_id) — ключ уже есть
+    monkeypatch.setattr(ns, "try_insert_notification", _journal_remembers)
+
+    delivered = []
+
+    async def deliver(chat_id, content_spec):
+        delivered.append(chat_id)
+
+    stats = await ns.drain(deliver)
+
+    assert delivered == []                            # дубль не ушёл пользователю
+    assert stats["delivered"] == 0
+    assert conn.updates == [11]
+    assert "suppressed" in conn.update_sqls[0]        # помечен suppressed, не sent
+
+
+@pytest.mark.asyncio
+async def test_enqueue_rejects_action_without_label():
+    with pytest.raises(ValueError):
+        await ns.enqueue(123, ns.CLASS_CAPPED,
+                         {"text": "hi", "actions": [{"action": "go"}]})
+
+
+@pytest.mark.asyncio
+async def test_enqueue_rejects_oversize_callback_data():
+    with pytest.raises(ValueError):
+        await ns.enqueue(123, ns.CLASS_CAPPED,
+                         {"text": "hi",
+                          "actions": [{"label": "ок", "action": "x" * 65}]})
+
+
+@pytest.mark.asyncio
+async def test_enqueue_persists_journal_fields(monkeypatch):
+    conn = FakeConn(cap_count=0)
+    _patch_pool(monkeypatch, conn)
+    res = await ns.enqueue(
+        123, ns.CLASS_CAPPED, {"text": "nudge", "format": "markdown"},
+        dedup_key="k1", journal_key="nudge:123:2026-06-12:k1", journal_type="nudge",
+    )
+    assert res["status"] == "queued"
+    insert_args = conn.inserts[-1]
+    assert "nudge:123:2026-06-12:k1" in insert_args   # journal_key дошёл до очереди
+    assert "nudge" in insert_args                      # journal_type дошёл до очереди

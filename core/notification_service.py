@@ -73,11 +73,24 @@ async def enqueue(
     content_spec: dict,
     priority: Optional[int] = None,
     dedup_key: Optional[str] = None,
+    journal_key: Optional[str] = None,
+    journal_type: Optional[str] = None,
 ) -> dict:
     """Принять сообщение в воронку доставки.
 
     content_spec — канало-нейтральный: {"text": str, ...}. БЕЗ chat_id/reply_markup
     (рендер канала — в транспорте/дренаже). Это инвариант DP.SC.177.
+    Поле "format" ("markdown"|"html"|"plain") — прагматичный компромисс одного
+    канала (Ф4, peer-сессия 2026-06-12-06); при Ф5 (мультиканальность) пересмотр
+    на структурированные блоки.
+
+    journal_key/journal_type — семантический журнал доставки (Ф4): drain пишет
+    learning.domain_event с external_id = f"notification-{journal_key}" и
+    notification_type = journal_type. Контракт readers (was_nudge_sent_recently,
+    get_notification_stats) сохраняется при миграции отправителей: передавать
+    ПРЕЖНИЙ idempotency_key и ПРЕЖНИЙ notification_type ('nudge', 'marathon_nudge',
+    ...), не класс. Fallback (None) = f"delivery:{queue_id}" / klass — только для
+    canary/ops-alert.
 
     Returns: {"notification_id": int|None, "status": "queued"|"suppressed", "reason"?: str}
     """
@@ -87,6 +100,15 @@ async def enqueue(
     text = (content_spec or {}).get("text")
     if not text:
         raise ValueError("content_spec.text is required")
+    # Валидация actions на входе: KeyError в drain случился бы ПОСЛЕ status=sent —
+    # сообщение терялось бы молча. Громкая ошибка на стороне отправителя дешевле.
+    for action in (content_spec or {}).get("actions") or []:
+        if not action.get("label") or not action.get("action"):
+            raise ValueError("content_spec.actions: label and action are required")
+        if len(str(action["action"]).encode()) > 64:
+            raise ValueError(
+                f"content_spec.actions: callback_data >64 bytes (Telegram limit): {action['action']!r}"
+            )
     if priority is None:
         priority = policy.priority
 
@@ -126,10 +148,12 @@ async def enqueue(
 
             row = await conn.fetchrow(
                 """INSERT INTO notification_queue
-                   (chat_id, notification_class, payload, priority, dedup_key, status)
-                   VALUES ($1, $2, $3::jsonb, $4, $5, 'queued')
+                   (chat_id, notification_class, payload, priority, dedup_key,
+                    journal_key, journal_type, status)
+                   VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, 'queued')
                    RETURNING id""",
                 chat_id, klass, json.dumps(content_spec), priority, dedup_key,
+                journal_key, journal_type,
             )
             return {"notification_id": row["id"], "status": "queued"}
 
@@ -154,42 +178,65 @@ async def drain(
     delivered = 0
     failed = 0
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """SELECT id, chat_id, notification_class, payload, priority
-               FROM notification_queue
-               WHERE status = 'queued' AND scheduled_at <= NOW()
-               ORDER BY priority ASC, scheduled_at ASC
-               LIMIT $1
-               FOR UPDATE SKIP LOCKED""",
-            batch,
-        )
-        for row in rows:
-            content_spec = row["payload"]
-            if isinstance(content_spec, str):
-                content_spec = json.loads(content_spec)
-            chat_id = row["chat_id"]
-            klass = row["notification_class"]
+        # Явная транзакция: вне её asyncpg авто-коммитит SELECT и row-locks
+        # отпускаются сразу — FOR UPDATE SKIP LOCKED переставал разводить
+        # конкурентные consumers (redeploy-overlap: два инстанса берут одни строки).
+        async with conn.transaction():
+            rows = await conn.fetch(
+                """SELECT id, chat_id, notification_class, payload, priority,
+                          journal_key, journal_type
+                   FROM notification_queue
+                   WHERE status = 'queued' AND scheduled_at <= NOW()
+                   ORDER BY priority ASC, scheduled_at ASC
+                   LIMIT $1
+                   FOR UPDATE SKIP LOCKED""",
+                batch,
+            )
+            for row in rows:
+                content_spec = row["payload"]
+                if isinstance(content_spec, str):
+                    content_spec = json.loads(content_spec)
+                chat_id = row["chat_id"]
+                klass = row["notification_class"]
 
-            # log-before-send: журнал в learning.domain_event + статус sent
-            await try_insert_notification(
-                chat_id=chat_id,
-                notification_type=klass,
-                idempotency_key=f"delivery:{row['id']}",
-                payload={"notification_class": klass, "priority": row["priority"]},
-            )
-            await conn.execute(
-                "UPDATE notification_queue SET status = 'sent', sent_at = NOW() WHERE id = $1",
-                row["id"],
-            )
-            try:
-                await deliver_fn(chat_id, content_spec)
-                delivered += 1
-            except Exception as e:
-                failed += 1
-                logger.error(
-                    "[Delivery] deliver failed id=%s chat=%s class=%s: %s",
-                    row["id"], chat_id, klass, e,
+                # log-before-send: журнал в learning.domain_event + статус sent.
+                # Семантический ключ/тип от отправителя (Ф4) сохраняет контракт readers
+                # (was_nudge_sent_recently: external_id LIKE 'notification-nudge:...',
+                # get_notification_stats: payload->>'notification_type'). Fallback —
+                # технический delivery:{id} (canary/ops-alert без семантики).
+                inserted = await try_insert_notification(
+                    chat_id=chat_id,
+                    notification_type=row["journal_type"] or klass,
+                    idempotency_key=row["journal_key"] or f"delivery:{row['id']}",
+                    payload={"notification_class": klass, "priority": row["priority"]},
                 )
+                if not inserted:
+                    # Журнал уже помнит ключ: отправлено старым кодом до деплоя или
+                    # параллельным инстансом (redeploy-overlap). Дубль не доставляем.
+                    await conn.execute(
+                        """UPDATE notification_queue
+                           SET status = 'suppressed', reason = 'journal-dup'
+                           WHERE id = $1""",
+                        row["id"],
+                    )
+                    logger.info(
+                        "[Delivery] journal-dup skip id=%s chat=%s class=%s",
+                        row["id"], chat_id, klass,
+                    )
+                    continue
+                await conn.execute(
+                    "UPDATE notification_queue SET status = 'sent', sent_at = NOW() WHERE id = $1",
+                    row["id"],
+                )
+                try:
+                    await deliver_fn(chat_id, content_spec)
+                    delivered += 1
+                except Exception as e:
+                    failed += 1
+                    logger.error(
+                        "[Delivery] deliver failed id=%s chat=%s class=%s: %s",
+                        row["id"], chat_id, klass, e,
+                    )
 
     if delivered or failed:
         logger.info("[Delivery] drain: delivered=%s failed=%s", delivered, failed)
