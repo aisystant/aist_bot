@@ -76,6 +76,7 @@ async def test_t4_plain_text_goes_to_hermes(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -100,6 +101,7 @@ async def test_t4_reminder_goes_to_hermes(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -120,6 +122,7 @@ async def test_t4_command_skips_hermes(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -140,6 +143,7 @@ async def test_t4_hermes_prefix_stripped(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -162,6 +166,7 @@ async def test_t3_plain_text_not_hermes(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -182,6 +187,7 @@ async def test_t3_hermes_prefix_calls_hermes(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -206,6 +212,7 @@ async def test_t1_hermes_prefix_blocked(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T1", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=1), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -229,6 +236,7 @@ async def test_t4_session_id_passed(state):
 
     with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
          patch("handlers.get_dispatcher", return_value=mock_dp), \
          patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
         mock_gmc.hermes_chat = mock_hermes
@@ -255,6 +263,7 @@ async def test_t4_session_id_reused(state):
 
         with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
                    return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+             patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
              patch("handlers.get_dispatcher", return_value=mock_dp), \
              patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
             mock_gmc.hermes_chat = mock_hermes

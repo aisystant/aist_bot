@@ -13,6 +13,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from db.queries import get_intern
+from core.tier_detector import detect_ui_tier
 from i18n import t, detect_language
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,6 @@ _HERMES_UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен.
 
 # WP-392 Ф3.1b: session_id для hermes_chat (память диалога T4-full)
 _HERMES_SESSION_MAP: dict[int, str] = {}
-
-
-def _tier_num(intern: dict) -> int:
-    tier_str = intern.get("tier", "T1")
-    if isinstance(tier_str, str) and tier_str.startswith("T") and len(tier_str) == 2 and tier_str[1].isdigit():
-        return int(tier_str[1])
-    return 1
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
@@ -101,7 +95,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
 
     if dispatcher and dispatcher.is_sm_active:
         intern = await get_intern(chat_id)
-        tier_num = _tier_num(intern or {})
+        tier_num = await detect_ui_tier(chat_id)
 
         # WP-392 Ф3.1b: T4-full — ВСЁ в Hermes (без префикса, без консультанта)
         if tier_num >= 4 and text and not text.startswith('/'):
