@@ -24,6 +24,7 @@ HTTP стек: aiohttp (уже в requirements.txt бота). httpx целена
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -154,6 +155,70 @@ async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
         _ory_cache.clear()
     _ory_cache[chat_id] = ory
     return ory
+
+
+async def emit_payment_received(
+    *,
+    provider: str,
+    external_payment_id: Optional[str],
+    amount: float,
+    currency: str,
+    payment_kind_code: str,
+    telegram_id: int,
+    paid_at: Optional[datetime] = None,
+) -> None:
+    """Эмиссия сырого payment_received для любого канала оплаты (WP-266 Ф5c).
+
+    Дальше по конвейеру: event-gateway (schema payment_received.v1, strict) →
+    projection-worker rule 104 (UPSERT payment.payment_received) → hook
+    first_payment.py (welcome/referral на global-first оплате). Канал НЕ
+    решает «первая ли оплата» — в боте нет единой таблицы платежей
+    (peer-session 2026-06-11-39), детект централизован в воркере.
+
+    provider — строго из enum схемы шлюза: yookassa | tg_stars | aisystant
+    (stripe/paybox в боте не используются). payment_kind_code — код из
+    reference.payment_kind: bank_card | sbp | stars | manual (rule 104 делает
+    lookup, неизвестный код = DLQ).
+
+    Без external_payment_id идемпотентный external_id невозможен — событие
+    пропускается с warning (лучше нет события, чем дубль welcome при retry).
+    """
+    if not external_payment_id:
+        logger.warning(
+            f"[payment-event] {provider} payment without external id "
+            f"(tg={telegram_id}) — emission skipped"
+        )
+        return
+
+    if not amount or amount <= 0:
+        # Схема шлюза допускает amount=0 (minimum: 0), но CHECK(amount > 0)
+        # в payment.payment_received уронит UPSERT в вечный DLQ.
+        logger.warning(
+            f"[payment-event] {provider} payment with amount={amount!r} "
+            f"(tg={telegram_id}) — emission skipped"
+        )
+        return
+
+    account_id = await resolve_ory_id_from_chat(telegram_id)
+    occurred = paid_at or datetime.utcnow()
+    await post_event(
+        source="aist-bot",
+        external_id=f"pay-rcv-{provider}-{external_payment_id}",
+        event_type="payment_received",
+        schema_version="v1",
+        occurred_at=occurred,
+        account_id=account_id,
+        payload={
+            "payment_id": str(uuid.uuid4()),
+            "amount": float(amount),
+            "currency": currency,
+            "payment_kind_code": payment_kind_code,
+            "external_payment_id": str(external_payment_id),
+            "provider": provider,
+            "paid_at": _to_iso_utc(occurred),
+            "account_id_resolved": account_id,
+        },
+    )
 
 
 def fire_event(
