@@ -202,6 +202,21 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 032 (notification_queue) skipped: {_e}", exc_info=True)
 
+    # Миграция 005: пересчёт active_days_total/streak из activity_log (WP-7 Block MDA).
+    # activity_log — learning DB; development.user_state — dev DB.
+    # Запускается один раз для каждого пользователя: флаг activity_counters_recalculated_at.
+    try:
+        from db.connection import get_learning_pool as _get_learning_pool
+        _m005 = _il.import_module("db.migrations.005_recalc_activity_counters")
+        _lpool = await _get_learning_pool()
+        _ran = await _m005.migrate_if_needed(await _get_pool(), _lpool)
+        if _ran:
+            logger.info("✅ Migration 005: active_days пересчитаны из activity_log")
+        else:
+            logger.info("✅ Migration 005: active_days уже пересчитаны (все флаги установлены)")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 005 (active_days recalc) skipped: {_e}", exc_info=True)
+
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
     if HEALTH_URL != DATABASE_URL:
