@@ -830,12 +830,11 @@ async def cmd_delivery_canary(message: Message):
     if not _is_developer(message.chat.id):
         return
 
-    from core.notification_service import NotificationService, CLASS_OPS_ALERT
+    from core.notification_service import enqueue as _ns_enqueue, CLASS_OPS_ALERT
     from db.connection import get_pool
     import asyncio
 
     chat_id = message.chat.id
-    ns = NotificationService()
 
     await message.answer(
         "🔧 <b>Canary WP-418 Доставщик</b>\nШаг 1: вставляю тестовое сообщение в очередь…",
@@ -843,7 +842,7 @@ async def cmd_delivery_canary(message: Message):
     )
 
     try:
-        msg_id = await ns.enqueue(
+        result = await _ns_enqueue(
             chat_id=chat_id,
             klass=CLASS_OPS_ALERT,
             content_spec={"text": "✅ Canary WP-418: ops-alert через единый слой доставки. Если видишь это — drain работает.", "format": "plain"},
@@ -855,6 +854,15 @@ async def cmd_delivery_canary(message: Message):
         logger.error("[DeliveryCanary] enqueue failed: %s", e, exc_info=True)
         await message.answer(f"❌ enqueue упал: <code>{e}</code>", parse_mode="HTML")
         return
+
+    if result["status"] == "suppressed":
+        await message.answer(
+            f"⚠️ Подавлено (дедуп). Причина: {result.get('reason', '?')}\nПопробуй через час или в другом чате.",
+            parse_mode="HTML",
+        )
+        return
+
+    msg_id = result["notification_id"]
 
     pool = await get_pool()
     async with pool.acquire() as conn:
