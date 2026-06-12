@@ -184,7 +184,9 @@ async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: i
     WP-253 B-port (28 апр): миграция с legacy `platform.notification_log` на
     `learning.public.domain_event` (event_type='notification_sent', source='aist-bot').
 
-    Контракт writer'а (try_insert_notification:95): event.external_id = f"notification-{idempotency_key}".
+    Контракт writer'а (try_insert_notification): event.external_id = f"notification-{idempotency_key}".
+    Ф4 (WP-418): writer теперь drain Доставщика — отправитель передаёт прежний ключ
+    через enqueue(journal_key=...), формат external_id не меняется.
     Idempotency key для nudge: f"nudge:{chat_id}:{date}:{nudge_key}".
     Поэтому LIKE-паттерн: 'notification-nudge:{chat_id}:%:{nudge_key}'.
 
