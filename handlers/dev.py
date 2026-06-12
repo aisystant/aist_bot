@@ -818,6 +818,85 @@ async def cmd_delivery_smoke(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════
+# /delivery_canary — WP-418 Ф4: smoke-тест очереди доставки
+# ═══════════════════════════════════════════════════════════
+
+@dev_router.message(Command("delivery_canary"))
+async def cmd_delivery_canary(message: Message):
+    """/delivery_canary — enqueue тестового ops-alert + статус очереди.
+
+    Полный цикл: enqueue → очередь → drain (~1 мин) → журнал.
+    """
+    if not _is_developer(message.chat.id):
+        return
+
+    from core.notification_service import NotificationService, CLASS_OPS_ALERT
+    from db.connection import get_pool
+    import asyncio
+
+    chat_id = message.chat.id
+    ns = NotificationService()
+
+    await message.answer(
+        "🔧 <b>Canary WP-418 Доставщик</b>\nШаг 1: вставляю тестовое сообщение в очередь…",
+        parse_mode="HTML",
+    )
+
+    try:
+        msg_id = await ns.enqueue(
+            chat_id=chat_id,
+            klass=CLASS_OPS_ALERT,
+            content_spec={"text": "✅ Canary WP-418: ops-alert через единый слой доставки. Если видишь это — drain работает.", "format": "plain"},
+            dedup_key=f"canary-{message.message_id}",
+            journal_key=f"delivery-canary:{chat_id}:{message.message_id}",
+            journal_type="ops_alert",
+        )
+    except Exception as e:
+        logger.error("[DeliveryCanary] enqueue failed: %s", e, exc_info=True)
+        await message.answer(f"❌ enqueue упал: <code>{e}</code>", parse_mode="HTML")
+        return
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, status, scheduled_at FROM notification_queue WHERE id = $1",
+            msg_id,
+        )
+
+    status_now = row["status"] if row else "не найдена"
+    await message.answer(
+        f"Шаг 2: запись <code>#{msg_id}</code> в очереди → статус <b>{status_now}</b>\n"
+        f"Жду 65 сек (drain каждую минуту)…",
+        parse_mode="HTML",
+    )
+
+    await asyncio.sleep(65)
+
+    async with pool.acquire() as conn:
+        row2 = await conn.fetchrow(
+            "SELECT status, delivered_at FROM notification_queue WHERE id = $1",
+            msg_id,
+        )
+
+    final_status = row2["status"] if row2 else "не найдена"
+    delivered_at = row2["delivered_at"].strftime("%H:%M:%S") if row2 and row2["delivered_at"] else "—"
+
+    ok = final_status in ("delivered", "suppressed")
+    icon = "✅" if ok else "⚠️"
+    if final_status == "delivered":
+        verdict = "PASS — drain доставил"
+    elif final_status == "suppressed":
+        verdict = "PASS — journal-dup (ожидаемо при повторе)"
+    else:
+        verdict = f"FAIL — статус '{final_status}' (drain не сработал?)"
+
+    await message.answer(
+        f"Шаг 3: статус → <b>{final_status}</b> (в {delivered_at})\n{icon} {verdict}",
+        parse_mode="HTML",
+    )
+
+
+# ═══════════════════════════════════════════════════════════
 # L2 AUTO-FIX: approve/reject callbacks (WP-45 Phase 3)
 # ═══════════════════════════════════════════════════════════
 
