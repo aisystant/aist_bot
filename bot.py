@@ -178,6 +178,31 @@ async def main():
     # Инициализация БД
     await init_db()
 
+    # Миграция 031: отметки Онбордера (Х2/Х3) в development.user_state.
+    # В проде create_tables пропущена флагом SKIP_DB_MIGRATIONS, поэтому колонки
+    # добавляем явным вызовом миграции — как learning-миграции в _bootstrap_learning_schema.
+    # Без этого should_offer падает на отсутствующей колонке и кнопка «Освоиться» молчит.
+    try:
+        import importlib as _il
+        from db.connection import get_pool as _get_pool
+        _m031 = _il.import_module("db.migrations.031_onboarder_completion_marks")
+        if await _m031.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 031: онбордер-отметки добавлены в development.user_state")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 031 (онбордер-отметки) skipped: {_e}", exc_info=True)
+
+    # Миграция 032: notification_queue — очередь Доставщика (WP-418).
+    # create_tables пропущена в проде (SKIP_DB_MIGRATIONS), поэтому явный вызов.
+    try:
+        _m032 = _il.import_module("db.migrations.032_notification_queue")
+        if await _m032.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 032: notification_queue создана")
+        else:
+            logger.info("✅ Migration 032: notification_queue уже существует")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 032 (notification_queue) skipped: {_e}", exc_info=True)
+
+
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
     if HEALTH_URL != DATABASE_URL:
