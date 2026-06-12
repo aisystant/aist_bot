@@ -43,7 +43,7 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
             """
             SELECT EXISTS (
                 SELECT 1 FROM information_schema.tables
-                WHERE table_schema = 'public'
+                WHERE table_schema = 'development'
                   AND table_name = 'notification_queue'
             )
             """
@@ -52,7 +52,7 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
             # Страховка: добавить journal_* если таблица создана без них
             await conn.execute(
                 """
-                ALTER TABLE notification_queue
+                ALTER TABLE development.notification_queue
                 ADD COLUMN IF NOT EXISTS journal_key TEXT,
                 ADD COLUMN IF NOT EXISTS journal_type TEXT
                 """
@@ -62,7 +62,7 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS notification_queue (
+            CREATE TABLE IF NOT EXISTS development.notification_queue (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 notification_class TEXT NOT NULL,
@@ -84,19 +84,19 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_notif_queue_cap
-            ON notification_queue(chat_id, notification_class, created_at)
+            ON development.notification_queue(chat_id, notification_class, created_at)
             """
         )
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_notif_queue_drain
-            ON notification_queue(status, priority, scheduled_at)
+            ON development.notification_queue(status, priority, scheduled_at)
             """
         )
         await conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_notif_queue_dedup
-            ON notification_queue(dedup_key)
+            ON development.notification_queue(dedup_key)
             """
         )
     return True
