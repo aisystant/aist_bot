@@ -874,16 +874,16 @@ async def cmd_delivery_canary(message: Message):
 
     async with pool.acquire() as conn:
         row2 = await conn.fetchrow(
-            "SELECT status, delivered_at FROM notification_queue WHERE id = $1",
+            "SELECT status, sent_at FROM notification_queue WHERE id = $1",
             msg_id,
         )
 
     final_status = row2["status"] if row2 else "не найдена"
-    delivered_at = row2["delivered_at"].strftime("%H:%M:%S") if row2 and row2["delivered_at"] else "—"
+    sent_at = row2["sent_at"].strftime("%H:%M:%S") if row2 and row2["sent_at"] else "—"
 
-    ok = final_status in ("delivered", "suppressed")
+    ok = final_status in ("sent", "suppressed")
     icon = "✅" if ok else "⚠️"
-    if final_status == "delivered":
+    if final_status == "sent":
         verdict = "PASS — drain доставил"
     elif final_status == "suppressed":
         verdict = "PASS — journal-dup (ожидаемо при повторе)"
@@ -891,7 +891,7 @@ async def cmd_delivery_canary(message: Message):
         verdict = f"FAIL — статус '{final_status}' (drain не сработал?)"
 
     await message.answer(
-        f"Шаг 3: статус → <b>{final_status}</b> (в {delivered_at})\n{icon} {verdict}",
+        f"Шаг 3: статус → <b>{final_status}</b> (в {sent_at})\n{icon} {verdict}",
         parse_mode="HTML",
     )
 

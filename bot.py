@@ -191,6 +191,17 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 031 (онбордер-отметки) skipped: {_e}", exc_info=True)
 
+    # Миграция 032: notification_queue — очередь Доставщика (WP-418).
+    # create_tables пропущена в проде (SKIP_DB_MIGRATIONS), поэтому явный вызов.
+    try:
+        _m032 = _il.import_module("db.migrations.032_notification_queue")
+        if await _m032.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 032: notification_queue создана")
+        else:
+            logger.info("✅ Migration 032: notification_queue уже существует")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 032 (notification_queue) skipped: {_e}", exc_info=True)
+
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
     if HEALTH_URL != DATABASE_URL:
