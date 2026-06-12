@@ -88,11 +88,12 @@ def _setup_imports():
 
     # Мокаем пакеты, которые тянут asyncpg/db
     for pkg in ['db', 'db.queries', 'db.queries.qa', 'db.queries.users',
-                'db.queries.feed', 'db.queries.subscription', 'db.models',
+                'db.queries.feed', 'db.queries.subscription', 'db.queries.events',
+                'db.models',
                 'clients', 'clients.claude', 'clients.mcp_knowledge',
-                'clients.digital_twin', 'clients.github_oauth',
+                'clients.digital_twin', 'clients.github_oauth', 'clients.gateway_mcp',
                 'core', 'core.intent', 'core.registry', 'core.self_knowledge',
-                'core.access', 'core.feedback_triage',
+                'core.access', 'core.feedback_triage', 'core.tracing',
                 'i18n', 'helpers', 'helpers.message_split',
                 'config.conversion']:
         if pkg not in sys.modules:

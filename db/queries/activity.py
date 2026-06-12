@@ -62,43 +62,72 @@ async def record_active_day(chat_id: int, activity_type: str,
     dev_pool = await get_pool()
     today = moscow_today()
 
-    # 1. Записать в лог активности (learning БД)
+    # 1. Записать в лог активности (learning БД).
+    #    RETURNING id позволяет отличить реальную вставку от конфликта.
     async with learning_pool.acquire() as conn:
         try:
-            await conn.execute('''
+            log_row = await conn.fetchrow('''
                 INSERT INTO activity_log (chat_id, activity_date, activity_type, mode, reference_id)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (chat_id, activity_date, activity_type) DO NOTHING
+                RETURNING id
             ''', chat_id, today, activity_type, mode, reference_id)
         except Exception as e:
             logger.warning(f"Не удалось записать активность: {e}")
+            return
 
-    # 2. Атомарно обновить счётчики (только если дата изменилась).
-    #    dev_pool (development БД) — правильный пул для development.user_state.
-    #    COALESCE для longest_streak защищает от NULL при первом активном дне.
+    if log_row is None or log_row['id'] is None:
+        logger.debug(f"📅 Activity log entry already exists for {chat_id} today ({activity_type})")
+        return
+
+    # 2. Проверяем, не была ли уже засчитана активность сегодня по другому типу.
+    #    Source-of-truth для активного дня — activity_log, не last_active_date
+    #    (last_active_date обновляется middleware на любое взаимодействие).
+    async with learning_pool.acquire() as conn:
+        other_today = await conn.fetchval('''
+            SELECT 1 FROM activity_log
+            WHERE chat_id = $1 AND activity_date = $2 AND activity_type != $3
+            LIMIT 1
+        ''', chat_id, today, activity_type)
+
+    if other_today:
+        logger.debug(f"📅 Active day counters already updated for {chat_id} today (other activity type)")
+        return
+
+    # 3. Атомарно обновить счётчики (dev_pool — development БД).
+    #    Серия считается от наличия активности вчера в activity_log.
     async with dev_pool.acquire() as conn:
         row = await conn.fetchrow('''
             UPDATE development.user_state
             SET
                 active_days_total = active_days_total + 1,
                 active_days_streak = CASE
-                    WHEN last_active_date = $2::date - INTERVAL '1 day' THEN active_days_streak + 1
+                    WHEN EXISTS (
+                        SELECT 1 FROM activity_log
+                        WHERE chat_id = $1 AND activity_date = $2::date - INTERVAL '1 day'
+                    ) THEN COALESCE(active_days_streak, 0) + 1
                     ELSE 1
                 END,
                 longest_streak = GREATEST(COALESCE(longest_streak, 0), CASE
-                    WHEN last_active_date = $2::date - INTERVAL '1 day' THEN active_days_streak + 1
+                    WHEN EXISTS (
+                        SELECT 1 FROM activity_log
+                        WHERE chat_id = $1 AND activity_date = $2::date - INTERVAL '1 day'
+                    ) THEN COALESCE(active_days_streak, 0) + 1
                     ELSE 1
                 END),
                 last_active_date = $2
             WHERE chat_id = $1
-              AND (last_active_date IS NULL OR last_active_date < $2)
+              AND NOT EXISTS (
+                  SELECT 1 FROM activity_log
+                  WHERE chat_id = $1 AND activity_date = $2 AND activity_type != $3
+              )
             RETURNING active_days_total, active_days_streak, longest_streak
-        ''', chat_id, today)
+        ''', chat_id, today, activity_type)
 
         if row:
             logger.info(f"📅 Активный день для {chat_id}: streak={row['active_days_streak']}, total={row['active_days_total']}")
         else:
-            logger.debug(f"📅 Active day counters already updated for {chat_id} (last_active_date = today)")
+            logger.debug(f"📅 Active day counters already updated for {chat_id} today (race)")
 
 
 async def get_activity_stats(chat_id: int) -> dict:

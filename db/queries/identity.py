@@ -205,9 +205,25 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
 
             # WP-392 Б1: временный прямой дублёр в persona (канонический писатель —
             # WP-270 worker по tier_changed). Гасится флагом DISABLE_BOT_TIER_SYNC.
-            if ory_id_str and not DISABLE_BOT_TIER_SYNC:
-                asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
+            if ory_id_str:
+                if DISABLE_BOT_TIER_SYNC:
+                    logger.info(
+                        "[Identity] tier updated for telegram_id=%s tier=%s; "
+                        "DISABLE_BOT_TIER_SYNC is ON, skipping persona sync",
+                        telegram_id, tier,
+                    )
+                else:
+                    asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
+            else:
+                logger.info(
+                    "[Identity] tier updated for telegram_id=%s tier=%s; no ory_id, skipping persona sync",
+                    telegram_id, tier,
+                )
 
+            logger.info(
+                "[Identity] tier changed telegram_id=%s from=%s to=%s",
+                telegram_id, prev_tier, tier,
+            )
             return True
         return False
 
@@ -241,6 +257,7 @@ async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
             persona_pool = await get_persona_pool()
             async with persona_pool.acquire() as pconn:
                 await pconn.execute(_SQL, ory_id, tier)
+            logger.info("[Identity] persona tier synced ory_id=%s tier=%s", ory_id, tier)
             return
         except Exception as exc:
             if attempt == len(delays):
