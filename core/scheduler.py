@@ -911,6 +911,12 @@ async def _handle_unavailable_user(chat_id: int, context: str = ""):
     from db.queries.users import mark_bot_blocked
     await mark_bot_blocked(chat_id)
     logger.warning(f"[Scheduler] User {chat_id} unavailable ({context}), marked as blocked")
+    try:
+        from db.queries.marathon_newcomer import clear_marathon_queue
+        await clear_marathon_queue(chat_id)
+        logger.info(f"[Scheduler] Cleared marathon queue for blocked user {chat_id}")
+    except Exception as e:
+        logger.error(f"[Scheduler] Failed to clear marathon queue for {chat_id}: {e}")
 
 
 async def _recheck_blocked_users():
