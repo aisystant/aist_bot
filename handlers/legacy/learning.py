@@ -276,8 +276,7 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
         logger.info(f"[BONUS] Состояние после отправки сообщения: {final_state}")
     except Exception as e:
         logger.error(f"Ошибка генерации бонусного вопроса: {e}")
-        import traceback
-        logger.error(f"[BONUS] Traceback: {traceback.format_exc()}")
+        logger.exception("[BONUS] ошибка начисления бонуса")
         await callback.message.answer(
             f"Не удалось сгенерировать бонусный вопрос. Попробуйте позже.\n\n"
             f"{next_command or t('marathon.next_command', lang)}"

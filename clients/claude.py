@@ -150,6 +150,34 @@ from i18n.prompts import (
 logger = get_logger(__name__)
 
 
+# HTTP-статусы Claude API, которые НЕ transient: auth (401), permission (403),
+# validation (422). Повтор не помогает (credentials/payload не меняются) — это
+# инфраструктурная ошибка (часто рассинхрон прокси-секрета), её нужно эскалировать,
+# а не глушить как L1 transient. До BDR1 утренний всплеск 401 на pre-generation
+# попадал в общую ветку «Claude API error {status}» → классификатор по подсказке
+# логгера метил его claude_api/L1 (transient) → тихо.
+_NON_TRANSIENT_API_STATUSES = (401, 403, 422)
+
+
+def _log_api_error_status(status: int, error_text: str, payload_meta: Optional[dict] = None) -> None:
+    """Единый лог не-200 статуса Claude API (BDR1, см. WP-7 Block BDR).
+
+    401/403/422 → отдельное сообщение «auth/proxy error», которое классификатор
+    (core/error_classifier.py) метит claude_api/L3 (infra) и эскалирует.
+    Прочие статусы → прежнее generic-сообщение.
+    Вызывается из общей else-ветки всех трёх методов _api_call*.
+    """
+    meta_suffix = f" | payload_meta={payload_meta}" if payload_meta else ""
+    if status in _NON_TRANSIENT_API_STATUSES:
+        logger.error(
+            f"Claude API auth/proxy error ({status}) — non-transient, "
+            f"проверь IWE_LLM_PROXY_URL / PROXY_SHARED_SECRET: "
+            f"{error_text[:500]}{meta_suffix}"
+        )
+    else:
+        logger.error(f"Claude API error {status}: {error_text[:500]}{meta_suffix}")
+
+
 class ClaudeClient:
     """Клиент для работы с Claude API
 
@@ -271,10 +299,7 @@ class ClaudeClient:
                                     f"| payload_meta={payload_meta}"
                                 )
                                 return None
-                        logger.error(
-                            f"Claude API error {resp.status}: {error[:500]} "
-                            f"| payload_meta={payload_meta}"
-                        )
+                        _log_api_error_status(resp.status, error, payload_meta)
                         return None
             except asyncio.TimeoutError:
                 record_api_degradation()
@@ -429,10 +454,7 @@ class ClaudeClient:
                         trace = get_current_trace()
                         if trace:
                             payload_meta["trace_id"] = trace.trace_id
-                        logger.error(
-                            f"Claude API error {resp.status}: {error[:500]} "
-                            f"| payload_meta={payload_meta}"
-                        )
+                        _log_api_error_status(resp.status, error, payload_meta)
                         return None
             except asyncio.TimeoutError:
                 record_api_degradation()
@@ -617,7 +639,7 @@ class ClaudeClient:
                         return None
                     else:
                         error = await resp.text()
-                        logger.error(f"Claude API error {resp.status}: {error[:200]}")
+                        _log_api_error_status(resp.status, error)
                         return None
             except asyncio.TimeoutError:
                 # Flush current_block into content_blocks if partially received

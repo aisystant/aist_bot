@@ -76,7 +76,7 @@ async def show_feed_menu(message: Message, engine: FeedEngine, state: FSMContext
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в show_feed_menu: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в show_feed_menu: {e}")
         await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
 
 
@@ -150,7 +150,7 @@ async def cmd_feed(message: Message, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в cmd_feed: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в cmd_feed: {e}")
         lang = await get_user_lang(message.chat.id)
         await message.answer(t('feed.load_error', lang))
 
@@ -212,7 +212,7 @@ async def show_topic_selection(message: Message, topics: list, state: FSMContext
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в show_topic_selection: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в show_topic_selection: {e}")
         await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
 
 
@@ -259,7 +259,7 @@ async def show_topic_selection_direct(bot, chat_id: int, topics: list, state: FS
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в show_topic_selection_direct: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в show_topic_selection_direct: {e}")
         await bot.send_message(chat_id, t('errors.try_again', lang))
 
 
@@ -423,7 +423,7 @@ async def handle_topic_text_selection(message: Message, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в handle_topic_text_selection: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в handle_topic_text_selection: {e}")
         await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
 
 
@@ -605,7 +605,7 @@ async def feed_topics_menu(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в feed_topics_menu: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в feed_topics_menu: {e}")
         await callback.answer(t('errors.try_again', lang), show_alert=True)
 
 
@@ -717,7 +717,7 @@ async def handle_topic_edit(message: Message, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в handle_topic_edit: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в handle_topic_edit: {e}")
         await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
         await state.clear()
 
@@ -873,7 +873,7 @@ async def handle_feed_question(message: Message, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в handle_feed_question: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в handle_feed_question: {e}")
         await message.answer(t('shared.question_error', lang))
 
 
@@ -917,7 +917,7 @@ async def show_whats_next(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в show_whats_next: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в show_whats_next: {e}")
         await callback.answer(t('errors.try_again', lang), show_alert=True)
 
 
@@ -1034,7 +1034,7 @@ async def show_tomorrow_topics(message: Message, engine: FeedEngine, state: FSMC
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в show_tomorrow_topics: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в show_tomorrow_topics: {e}")
         await state.clear()
 
 
@@ -1101,7 +1101,7 @@ async def handle_tomorrow_selection(message: Message, state: FSMContext):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в handle_tomorrow_selection: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в handle_tomorrow_selection: {e}")
         await message.answer(t('errors.try_again', await get_user_lang(message.chat.id)))
         await state.clear()
 
@@ -1154,6 +1154,6 @@ async def cmd_feed_status(message: Message):
 
     except Exception as e:
         import traceback
-        logger.error(f"Ошибка в cmd_feed_status: {e}\n{traceback.format_exc()}")
+        logger.exception(f"Ошибка в cmd_feed_status: {e}")
         lang = await get_user_lang(message.chat.id)
         await message.answer(t('feed.status_load_error', lang))

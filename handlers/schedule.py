@@ -369,9 +369,7 @@ async def callback_course_detail(callback: CallbackQuery):
         else:
             await callback.message.answer(f"*{name}*\n\nБесплатная программа.", parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"[Schedule] course_detail error for code={code}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(f"[Schedule] course_detail error for code={code}: {e}")
         await callback.message.answer(t('schedule.error', lang))
 
 

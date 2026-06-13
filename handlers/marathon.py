@@ -26,6 +26,7 @@ from db.queries.marathon_newcomer import (
     resume_marathon,
 )
 from db.queries.users import moscow_now, update_intern
+from core.telegram_guard import safe_edit_message
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -440,7 +441,9 @@ async def callback_marathon_checkin(callback: CallbackQuery):
     # Убираем кнопки и показываем выбор
     original_text = callback.message.text or callback.message.caption or ""
     footer = "" if is_completed else "\n\n📋 /marathon_progress — прогресс | /marathon_pause — пауза | /marathon_stop — выход"
-    await callback.message.edit_text(
+    # safe_edit_message: глушим «message is not modified» при двойном тапе (BDR4)
+    await safe_edit_message(
+        callback.message.edit_text,
         f"{original_text}\n\n✅ Твой выбор: {label}{footer}",
         reply_markup=None,
     )

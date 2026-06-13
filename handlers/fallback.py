@@ -69,9 +69,7 @@ async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
                 if handled:
                     return
         except Exception as e:
-            logger.error(f"[SM] Error routing callback: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(f"[SM] Error routing callback: {e}")
 
     # SM не обработала или не активна — показываем "кнопка устарела"
     logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
@@ -183,9 +181,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 await dispatcher.sm.start({'telegram_id': chat_id}, context={'message': message})
                 return
         except Exception as e:
-            logger.error(f"[SM] Error in SM: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(f"[SM] Error in SM: {e}")
             lang = intern.get('language', 'ru') if intern else 'ru'
             await message.answer(
                 f"⚠️ {t('errors.processing_error', lang)}\n\n"

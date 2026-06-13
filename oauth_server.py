@@ -959,9 +959,7 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
             result = await process_workshop_webhook(data, _bot_instance)
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
-        logger.error(f"[WorkshopWebhook] error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(f"[WorkshopWebhook] error: {e}")
         return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 
@@ -1010,9 +1008,7 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
 
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
-        logger.error(f"[YooKassa Webhook] error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(f"[YooKassa Webhook] error: {e}")
         return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 
