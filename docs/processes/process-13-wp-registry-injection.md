@@ -43,6 +43,35 @@
 обычный пользователь без governance-репо честно получает «нет доступа», а не
 выдуманный список.
 
+## Путь T4-full — детерминированный ответ (WP-411 Ф7, перехват в fallback)
+
+Поток выше работает только для T1-T3 (путь консультанта `handle_question_with_tools`).
+Для **T4-full** любой свободный текст уходит в `gateway_mcp.hermes_chat()`
+(`handlers/fallback.py`, блок `tier_num >= 4`), минуя консультанта. Без отдельного
+перехвата фикс T1-T3 на T4-full не исполняется (регресс прод-приёмки 14 июня).
+
+### Перехват
+
+В `handlers/fallback.py` (блок T4-full, **после** guard `_sm_is_expecting_reply` /
+`is_waiting_fixation`, **перед** `hermes_chat`):
+
+1. `is_wp_query(hermes_text, strict=True)` — **strict=True**: только Strong-паттерны.
+   На co-thinking-пути ложный перехват прерывает разговор с Гермесом, поэтому
+   пограничные Weak-формулировки («какие активные посоветуешь») НЕ перехватываются.
+2. При срабатывании → `_answer_wp_registry(message, chat_id)` отвечает **без LLM**
+   (перечисление РП идёт из реестра напрямую → структурно ноль галлюцинаций):
+   - нет `strategy_repo` → «Реестр … ещё не подключён»;
+   - реестр пуст → «Не нашёл активных рабочих продуктов» (явно ≠ «нет доступа»);
+   - есть активные → список + приглашение продолжить детали в Гермесе.
+
+### Отличие от пути T1-T3
+
+| Ось | T1-T3 (консультант) | T4-full (fallback) |
+|-----|---------------------|--------------------|
+| Детектор | `is_wp_query` (Strong+Weak) | `is_wp_query(strict=True)` (Strong-only) |
+| Ответ | инжекция в `system_prompt`, отвечает LLM | детерминированный, **без LLM** |
+| Цель strict | — | не оборвать co-thinking ложным перехватом |
+
 ## Граница знаний
 
 `<no_wp_data/>` — частный случай правила #1 «ГРАНИЦА ЗНАНИЙ» (см. CLAUDE.md §10
@@ -50,5 +79,7 @@ Anti-hallucination): нет реальных данных → честный о�
 
 ## Тесты
 
-`tests/test_wp_query_detector.py` — Strong / Weak / Negation / PERSONAL_SIGNALS +
-парсер (активные/исключение done/strip markdown/max_rows).
+- `tests/test_wp_query_detector.py` — Strong / Weak / Negation / PERSONAL_SIGNALS +
+  strict-режим (Strong сохраняется, Weak отсекается) + парсер.
+- `tests/test_fallback_wp_registry.py` — три исхода `_answer_wp_registry`
+  (не подключён / пусто / список) + гейт `is_wp_query(strict=True)` на T4-full.

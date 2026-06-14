@@ -5,6 +5,7 @@ Fallback хендлеры — обработка неизвестных сооб
 Иначе — показывает подсказку.
 """
 
+import asyncio
 import logging
 import re
 
@@ -26,6 +27,45 @@ _HERMES_UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен.
 
 # WP-392 Ф3.1b: session_id для hermes_chat (память диалога T4-full)
 _HERMES_SESSION_MAP: dict[int, str] = {}
+
+_WP_REGISTRY_TIMEOUT_S = 5
+
+
+async def _answer_wp_registry(message: Message, chat_id: int) -> None:
+    """WP-411 Ф7: детерминированный ответ из реестра РП пользователя (без LLM).
+
+    Перечисление РП идёт из docs/WP-REGISTRY.md напрямую → модель в нём не
+    участвует → структурно ноль галлюцинаций. Три исхода различаются явно,
+    чтобы «нет активных РП» не выглядело как «нет доступа»:
+      - strategy_repo не подключён → честное «реестр не подключён»;
+      - реестр пуст (нет файла или нет активных строк) → нейтральное «активных нет»;
+      - есть активные → список + строка-приглашение продолжить в Гермесе.
+    """
+    from clients.github_oauth import github_oauth
+    from engines.shared.consultation_tools import get_wp_registry
+
+    strategy_repo = await github_oauth.get_strategy_repo(chat_id)
+    if not strategy_repo:
+        await message.answer(
+            "Реестр рабочих продуктов ещё не подключён. "
+            "Привяжи свой governance-репозиторий в настройках GitHub."
+        )
+        return
+
+    try:
+        registry = await asyncio.wait_for(
+            get_wp_registry(chat_id), timeout=_WP_REGISTRY_TIMEOUT_S
+        )
+    except Exception:
+        logger.exception("[fallback] get_wp_registry failed for chat %s", chat_id)
+        registry = ""
+
+    if registry:
+        await message.answer(
+            f"{registry}\n\nСпроси детали по конкретному РП — отвечу подробнее."
+        )
+    else:
+        await message.answer("Не нашёл активных рабочих продуктов в твоём реестре.")
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
@@ -107,6 +147,15 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
                 # но если написал, Hermes не должен видеть служебный токен.
                 hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+                # WP-411 Ф7: «мои РП» → детерминированный ответ из реестра, не Гермес.
+                # strict=True — на co-thinking-пути перехватываем только сильные
+                # паттерны («мои рп», «мой реестр»), чтобы ложно не оборвать диалог.
+                from engines.shared.wp_query_detector import is_wp_query
+                if is_wp_query(hermes_text, strict=True):
+                    logger.info("[fallback] T4-full WP-registry intercept for chat %s", chat_id)
+                    await state.clear()
+                    await _answer_wp_registry(message, chat_id)
+                    return
                 # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
                 await state.clear()
                 session_id = _HERMES_SESSION_MAP.get(chat_id)

@@ -124,3 +124,31 @@ def test_parse_respects_max_rows():
     # заголовок считает все активные, но в тело попадают только max_rows строк
     assert "Активных рабочих продуктов: 10" in out
     assert out.count("РП4") == 3
+
+
+# --- strict=True: Strong-only режим для T4-full (WP-411 Ф7) ---
+@pytest.mark.parametrize("q", [
+    "какие мои рп ты знаешь?",
+    "покажи мой реестр",
+    "что такое мой реестр рп",   # strong перевешивает даже в strict
+])
+def test_strict_keeps_strong_patterns(q):
+    assert is_wp_query(q, strict=True) is True
+
+
+@pytest.mark.parametrize("q", [
+    "мои активные рп",            # weak+personal → True без strict, False в strict
+    "сколько у меня активных рп",
+    "список моих текущих рп",
+    "расскажи мои активные рп",
+])
+def test_strict_drops_weak_patterns(q):
+    # без strict — личный запрос; в strict (путь Гермеса) — НЕ перехватываем,
+    # чтобы не оборвать co-thinking-сессию на пограничной формулировке.
+    assert is_wp_query(q) is True
+    assert is_wp_query(q, strict=True) is False
+
+
+def test_strict_default_is_false():
+    # дефолт сохраняет прежнее поведение пути консультанта (T1-T3)
+    assert is_wp_query("мои активные рп") is True
