@@ -624,6 +624,20 @@ async def on_seminar_payment(message: Message):
 
     logger.info(f"[Showcase] stars payment recorded: tg={chat_id}, product={code}")
 
+    # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер)
+    try:
+        from helpers.dual_write import emit_payment_received
+        await emit_payment_received(
+            provider="tg_stars",
+            external_payment_id=charge_id,
+            amount=payment.total_amount,
+            currency="XTR",
+            payment_kind_code="stars",
+            telegram_id=chat_id,
+        )
+    except Exception as e:
+        logger.error(f"[payment-event] seminar stars emit failed for tg={chat_id}: {e}")
+
     # WP-327: confirm_burn по provisional_id
     if provisional_id:
         try:
@@ -717,6 +731,20 @@ async def process_seminar_yookassa_webhook(data: dict, bot: Bot) -> dict:
     except Exception as e:
         logger.error(f"[Redeem] Showcase confirm_burn exception: payment_id={payment_id}, error={e}")
 
+    # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер)
+    try:
+        from helpers.dual_write import emit_payment_received
+        await emit_payment_received(
+            provider="yookassa",
+            external_payment_id=payment_id,
+            amount=amount,
+            currency="RUB",
+            payment_kind_code="bank_card",
+            telegram_id=telegram_id,
+        )
+    except Exception as e:
+        logger.error(f"[payment-event] seminar yookassa emit failed for tg={telegram_id}: {e}")
+
     seminar = await get_seminar_by_code(product_code)
     if seminar:
         intern = await get_intern(telegram_id)
@@ -776,6 +804,21 @@ async def process_seminar_aisystant_webhook(data: dict, bot: Bot) -> dict:
 
     if row_id == 0:
         return {"ok": True, "duplicate": True}
+
+    # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер).
+    # Без payment_id helper пропустит эмиссию с warning.
+    try:
+        from helpers.dual_write import emit_payment_received
+        await emit_payment_received(
+            provider="aisystant",
+            external_payment_id=payment_id,
+            amount=amount,
+            currency="RUB",
+            payment_kind_code="manual",
+            telegram_id=telegram_id,
+        )
+    except Exception as e:
+        logger.error(f"[payment-event] seminar aisystant emit failed for tg={telegram_id}: {e}")
 
     # Отправляем доступ
     intern = await get_intern(telegram_id)

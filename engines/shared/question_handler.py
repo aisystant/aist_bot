@@ -509,7 +509,9 @@ async def handle_question_with_tools(
         execute_tool,
         load_tier_prompt,
         fill_tier_prompt,
+        get_wp_registry,
     )
+    from .wp_query_detector import is_wp_query
 
     chat_id = intern.get('chat_id')
     mode = intern.get('mode', 'marathon')
@@ -597,6 +599,50 @@ async def handle_question_with_tools(
 
     # Подготовка tools и executor
     tools = get_tools_for_tier(has_digital_twin)
+
+    # WP-411 Ф7: детерминированная инжекция реестра РП на вопрос «мои РП».
+    # Без неё бот сочинял несуществующие РП (контекст-пайплайн реестр не тянет,
+    # personal_search его не находит — реестр помечен index-health:skip).
+    # Вариант В: fetch docs/WP-REGISTRY.md по пути из strategy_repo пользователя.
+    if is_wp_query(question):
+        # get_wp_registry сам возвращает "" если у пользователя нет strategy_repo —
+        # гейтить по has_digital_twin нельзя: реестр живёт в GitHub (strategy_repo),
+        # это ось, независимая от ЦД (T3 = github без ЦД тоже имеет реестр).
+        registry_text = ""
+        try:
+            registry_text = await asyncio.wait_for(
+                get_wp_registry(telegram_user_id), timeout=5
+            )
+        except Exception:
+            logger.warning(
+                f"WP-411 Ф7: registry fetch failed/timeout for "
+                f"user_hash={_hash_chat_id(telegram_user_id)}",
+                exc_info=True,
+            )
+        if registry_text:
+            system_prompt += (
+                "\n\nРЕЕСТР РАБОЧИХ ПРОДУКТОВ ПОЛЬЗОВАТЕЛЯ (источник истины, актуальный):\n"
+                + registry_text
+                + "\n\nНа вопрос про РП / реестр / рабочие продукты пользователя отвечай "
+                "ТОЛЬКО из этого списка. Не выдумывай и не добавляй РП вне списка."
+            )
+            logger.info(
+                f"WP-411 Ф7: injected registry ({len(registry_text)} chars) "
+                f"for user_hash={_hash_chat_id(telegram_user_id)}"
+            )
+        else:
+            system_prompt += (
+                "\n\n<no_wp_data/>\n"
+                "У тебя НЕТ доступа к реестру рабочих продуктов (РП) этого пользователя. "
+                "На вопрос про «мои РП / мой реестр / мои задачи / мои рабочие продукты» "
+                "отвечай ТОЛЬКО: «У меня нет доступа к вашему реестру РП.» "
+                "ЗАПРЕЩЕНО: выдумывать РП, угадывать или перечислять несуществующие "
+                "названия и проекты."
+            )
+            logger.info(
+                f"WP-411 Ф7: no registry data → <no_wp_data/> "
+                f"for user_hash={_hash_chat_id(telegram_user_id)}"
+            )
 
     # WP-330 (peer-session 2026-06-05-34): таймаут на отдельный tool call.
     # Без него max_tool_rounds×35с (gateway timeout) давали потолок до 105с.

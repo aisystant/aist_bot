@@ -38,6 +38,12 @@ MARATHON_SAME_DAY_CUTOFF_HOUR = 18
 
 async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:00") -> None:
     """Запуск марафона: регистрация, заполнение очереди, первый урок. DP.SC.157."""
+    from db.queries import get_intern
+    _intern = await get_intern(user_id)
+    if (_intern or {}).get("bot_blocked"):
+        logger.warning("[Marathon] start_marathon_flow skipped for bot-blocked user %s", user_id)
+        return
+
     progress = await get_or_create_progress(user_id)
     current_status = progress.get("status", "registered")
 

@@ -205,11 +205,40 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
 
             # WP-392 Б1: временный прямой дублёр в persona (канонический писатель —
             # WP-270 worker по tier_changed). Гасится флагом DISABLE_BOT_TIER_SYNC.
+            # Первый attempt inline (без задержки) — устраняет race с gateway GET /tier
+            # на T4-full-path (detect_ui_tier → _persist_tier — fire-and-forget task,
+            # hermes_chat вызывается сразу). При ошибке — fallback на background retry 3×.
             if ory_id_str and not DISABLE_BOT_TIER_SYNC:
-                asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
+                try:
+                    await _sync_persona_tier_once(ory_id_str, tier)
+                    logger.info("[Identity] persona tier synced inline ory_id=%s tier=%s", ory_id_str, tier)
+                except Exception as _exc:
+                    logger.warning("[Identity] inline persona sync failed (%s), scheduling background retry", _exc)
+                    asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
 
             return True
         return False
+
+
+_PERSONA_TIER_SQL = """
+    UPDATE public.ory_identity
+    SET traits = jsonb_set(
+        COALESCE(traits, '{}'::jsonb),
+        '{tier}',
+        to_jsonb($2::text),
+        true
+    ),
+    last_sync = NOW()
+    WHERE account_id = $1::uuid
+"""
+
+
+async def _sync_persona_tier_once(ory_id: str, tier: str) -> None:
+    """Single attempt to write tier into persona.ory_identity.traits (no delay, no retry)."""
+    from db.connection import get_persona_pool
+    persona_pool = await get_persona_pool()
+    async with persona_pool.acquire() as pconn:
+        await pconn.execute(_PERSONA_TIER_SQL, ory_id, tier)
 
 
 async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
@@ -220,27 +249,12 @@ async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
     удалить после миграции на worker как единственного писателя (флаг
     DISABLE_BOT_TIER_SYNC отключает дублёр без удаления кода).
     """
-    from db.connection import get_persona_pool
-
-    _SQL = """
-        UPDATE public.ory_identity
-        SET traits = jsonb_set(
-            COALESCE(traits, '{}'::jsonb),
-            '{tier}',
-            to_jsonb($2::text),
-            true
-        ),
-        last_sync = NOW()
-        WHERE account_id = $1::uuid
-    """
     delays = [0, 5, 30]  # секунды перед 1-й, 2-й, 3-й попыткой
     for attempt, delay in enumerate(delays, start=1):
         if delay:
             await asyncio.sleep(delay)
         try:
-            persona_pool = await get_persona_pool()
-            async with persona_pool.acquire() as pconn:
-                await pconn.execute(_SQL, ory_id, tier)
+            await _sync_persona_tier_once(ory_id, tier)
             return
         except Exception as exc:
             if attempt == len(delays):
