@@ -85,7 +85,7 @@ def _has_rp_word(q: str) -> bool:
     return bool(_RP_WORD.search(q))
 
 
-def is_wp_query(question: str, strict: bool = False) -> bool:
+def is_wp_query(question: str) -> bool:
     """True, если вопрос — про личный реестр РП пользователя.
 
     Порядок проверок (важен):
@@ -93,10 +93,10 @@ def is_wp_query(question: str, strict: bool = False) -> bool:
     2. Тематическая негация («что такое рп», «как устроена»…) → НЕ личный.
     3. Слабый паттерн (слово-РП + маркер списка) → личный ТОЛЬКО при личном сигнале.
 
-    strict=True — Strong-only: после проверки сильных паттернов сразу False,
-    слабые не рассматриваются. Нужно на пути Гермеса (T4-full, WP-411 Ф7): там
-    ложный перехват прерывает co-thinking-сессию, поэтому перехватываем только
-    однозначные формулировки («мои рп», «мой реестр»), а не «какие активные».
+    Личный сигнал в слабом паттерне — защита от ложного перехвата разговора:
+    «посоветуй активные рп» (нет «мои/у меня») → False, «какие мои активные рп»
+    → True. Один режим для обоих путей (консультант T1-T3 и Гермес T4): прежний
+    Strong-only на T4 терял реальный запрос «какие мои активные рп» (инцидент 14 июня).
     """
     if not question:
         return False
@@ -104,9 +104,6 @@ def is_wp_query(question: str, strict: bool = False) -> bool:
 
     if any(p in q for p in _STRONG_PATTERNS):
         return True
-
-    if strict:
-        return False
 
     if any(n in q for n in _NEGATIONS):
         return False

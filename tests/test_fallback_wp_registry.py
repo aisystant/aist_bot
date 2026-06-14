@@ -1,7 +1,7 @@
 """Unit-тесты детерминированного ответа из реестра РП на пути T4-full (WP-411 Ф7).
 
 Покрывают три исхода `_answer_wp_registry` (не подключён / пусто / есть активные)
-плюс гейт `is_wp_query(strict=True)` — он решает, перехватывать ли вопрос у Гермеса.
+плюс гейт `is_wp_query` — он решает, перехватывать ли вопрос у Гермеса.
 Источник регресса: прошлый фикс жил в пути консультанта (T1-T3), а T4-full в
 fallback.py уходит в hermes_chat. Эти тесты ловят «фикс не в том пути».
 """
@@ -82,9 +82,9 @@ async def test_non_empty_registry_returns_list(monkeypatch):
 
 
 def test_gate_intercepts_my_wp_but_not_thematic():
-    # T4-full перехватывает «мои рп» (strong), но НЕ тематический вопрос —
-    # тематический уходит в Гермес (is_wp_query=False → перехвата нет).
-    assert is_wp_query("какие мои рп", strict=True) is True
-    assert is_wp_query("что такое рп", strict=True) is False
-    # пограничный weak на co-thinking-пути НЕ перехватываем
-    assert is_wp_query("какие активные рп посоветуешь", strict=True) is False
+    # T4 перехватывает личный запрос (вкл. реальный «какие мои активные рп»),
+    # но НЕ тематический и НЕ безличный — те уходят в Гермес.
+    assert is_wp_query("какие мои активные рп?") is True   # дословно из инцидента
+    assert is_wp_query("какие мои рп") is True
+    assert is_wp_query("что такое рп") is False
+    assert is_wp_query("посоветуй активные рп") is False    # нет личного сигнала

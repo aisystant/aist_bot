@@ -148,10 +148,12 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 # но если написал, Hermes не должен видеть служебный токен.
                 hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
                 # WP-411 Ф7: «мои РП» → детерминированный ответ из реестра, не Гермес.
-                # strict=True — на co-thinking-пути перехватываем только сильные
-                # паттерны («мои рп», «мой реестр»), чтобы ложно не оборвать диалог.
+                # Полный детектор (Strong+Weak): реальный запрос пилота «какие мои
+                # активные рп» — слабый паттерн. Strong-only его терял (инцидент
+                # 14 июня). От ложного перехвата co-thinking защищает требование
+                # личного сигнала в Weak («посоветуй активные рп» → не ловится).
                 from engines.shared.wp_query_detector import is_wp_query
-                if is_wp_query(hermes_text, strict=True):
+                if is_wp_query(hermes_text):
                     logger.info("[fallback] T4-full WP-registry intercept for chat %s", chat_id)
                     await state.clear()
                     await _answer_wp_registry(message, chat_id)

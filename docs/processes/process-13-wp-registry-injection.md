@@ -55,9 +55,11 @@
 В `handlers/fallback.py` (блок T4-full, **после** guard `_sm_is_expecting_reply` /
 `is_waiting_fixation`, **перед** `hermes_chat`):
 
-1. `is_wp_query(hermes_text, strict=True)` — **strict=True**: только Strong-паттерны.
-   На co-thinking-пути ложный перехват прерывает разговор с Гермесом, поэтому
-   пограничные Weak-формулировки («какие активные посоветуешь») НЕ перехватываются.
+1. `is_wp_query(hermes_text)` — полный детектор (Strong + Weak). Реальный запрос
+   пилота «какие мои активные рп» — слабый паттерн; прежний Strong-only его терял
+   (инцидент 14 июня: вопрос ушёл в Гермес → галлюцинация). От ложного перехвата
+   co-thinking защищает требование личного сигнала в Weak: «посоветуй активные рп»
+   (без «мои/у меня») → False, уходит в Гермес.
 2. При срабатывании → `_answer_wp_registry(message, chat_id)` отвечает **без LLM**
    (перечисление РП идёт из реестра напрямую → структурно ноль галлюцинаций):
    - нет `strategy_repo` → «Реестр … ещё не подключён»;
@@ -68,9 +70,9 @@
 
 | Ось | T1-T3 (консультант) | T4-full (fallback) |
 |-----|---------------------|--------------------|
-| Детектор | `is_wp_query` (Strong+Weak) | `is_wp_query(strict=True)` (Strong-only) |
+| Детектор | `is_wp_query` (Strong+Weak) | `is_wp_query` (Strong+Weak, тот же) |
 | Ответ | инжекция в `system_prompt`, отвечает LLM | детерминированный, **без LLM** |
-| Цель strict | — | не оборвать co-thinking ложным перехватом |
+| Защита от ложного перехвата | — | личный сигнал в Weak (без «мои» → не ловим) |
 
 ## Граница знаний
 
@@ -80,6 +82,6 @@ Anti-hallucination): нет реальных данных → честный о�
 ## Тесты
 
 - `tests/test_wp_query_detector.py` — Strong / Weak / Negation / PERSONAL_SIGNALS +
-  strict-режим (Strong сохраняется, Weak отсекается) + парсер.
+  регресс на запрос пилота «какие мои активные рп» + парсер.
 - `tests/test_fallback_wp_registry.py` — три исхода `_answer_wp_registry`
-  (не подключён / пусто / список) + гейт `is_wp_query(strict=True)` на T4-full.
+  (не подключён / пусто / список) + гейт `is_wp_query` на T4-full.
