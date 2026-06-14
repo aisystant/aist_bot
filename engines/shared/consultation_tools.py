@@ -14,6 +14,7 @@ Tools:
 WP-209 Ф0: переключение на Gateway MCP.
 """
 
+import hashlib
 import json
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +22,11 @@ from config import get_logger
 from clients.gateway_mcp import gateway_mcp
 
 logger = get_logger(__name__)
+
+
+def _hash_chat_id(chat_id) -> str:
+    """Детерминированный 6-hex хеш chat_id для логов (PII-safe, cross-session)."""
+    return hashlib.md5(str(chat_id).encode()).hexdigest()[:6]
 
 
 # =============================================================================
@@ -599,6 +605,71 @@ def invalidate_personal_claude_cache(telegram_user_id: Optional[int] = None):
         _personal_claude_cache.pop(telegram_user_id, None)
     else:
         _personal_claude_cache.clear()
+
+
+# =============================================================================
+# WP-REGISTRY LOADER (WP-411 Ф7)
+# =============================================================================
+
+# In-memory кеш: telegram_user_id -> (parsed_registry, timestamp)
+_wp_registry_cache: Dict[int, tuple] = {}
+_WP_REGISTRY_CACHE_TTL = 300  # 5 минут
+
+
+async def get_wp_registry(telegram_user_id: int) -> str:
+    """Тянет реестр РП пользователя из strategy_repo и парсит активные строки.
+
+    Вариант В (WP-411 Ф7): детерминированный fetch docs/WP-REGISTRY.md по пути.
+    personal_search НЕ годится — реестр помечен `index-health: skip` и в
+    семантический индекс не попадает.
+
+    Источник истины — `docs/WP-REGISTRY.md` (коммитится). Не `current/active-wp.md`
+    (он generated + в .gitignore, на GitHub его нет).
+
+    Returns:
+        Компактный список активных РП или "" (нет strategy_repo / файла / активных).
+    """
+    import time
+
+    cached = _wp_registry_cache.get(telegram_user_id)
+    if cached:
+        content, ts = cached
+        if time.time() - ts < _WP_REGISTRY_CACHE_TTL:
+            return content
+
+    from clients.github_oauth import github_oauth
+    from clients.github_strategy import github_strategy
+    from .wp_query_detector import parse_active_registry
+
+    strategy_repo = await github_oauth.get_strategy_repo(telegram_user_id)
+    if not strategy_repo:
+        logger.info(f"WP-registry: no strategy_repo for user {_hash_chat_id(telegram_user_id)}")
+        _wp_registry_cache[telegram_user_id] = ("", time.time())
+        return ""
+
+    raw = await github_strategy.read_file(
+        telegram_user_id, strategy_repo, "docs/WP-REGISTRY.md"
+    )
+    if not raw:
+        logger.info(f"WP-registry: docs/WP-REGISTRY.md not found in {strategy_repo}")
+        _wp_registry_cache[telegram_user_id] = ("", time.time())
+        return ""
+
+    parsed = parse_active_registry(raw)
+    logger.info(
+        f"WP-registry loaded: {len(parsed)} chars from {strategy_repo} "
+        f"for user {_hash_chat_id(telegram_user_id)}"
+    )
+    _wp_registry_cache[telegram_user_id] = (parsed, time.time())
+    return parsed
+
+
+def invalidate_wp_registry_cache(telegram_user_id: Optional[int] = None):
+    """Сброс кеша реестра РП."""
+    if telegram_user_id:
+        _wp_registry_cache.pop(telegram_user_id, None)
+    else:
+        _wp_registry_cache.clear()
 
 
 # =============================================================================
