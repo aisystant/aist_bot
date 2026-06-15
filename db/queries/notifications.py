@@ -102,6 +102,7 @@ async def try_insert_notification(
     notification_type: str,
     idempotency_key: str,
     payload: Optional[dict] = None,
+    delivered_via: Optional[str] = None,
 ) -> bool:
     """Попытаться записать факт отправки уведомления.
 
@@ -110,11 +111,21 @@ async def try_insert_notification(
     Idempotency gate: UNIQUE(source, external_id) в domain_event.
     external_id = f"notification-{idempotency_key}" — контракт с was_notification_sent().
 
+    delivered_via — маркер транспортного пути (WP-418 Ф5): "notification_service"
+    при доставке через Доставщик, None при прямой отправке.
+
     Returns:
         True если запись успешна (уведомление ещё не отправлялось).
         False если дубль (idempotency_key уже существует в domain_event).
     """
     ory = await resolve_ory_id_from_chat(chat_id)
+    event_payload: dict = {
+        "notification_type": notification_type,
+        "idempotency_key": idempotency_key,
+        "payload_keys": list(payload.keys()) if payload else [],
+    }
+    if delivered_via is not None:
+        event_payload["delivered_via"] = delivered_via
     return await insert_domain_event_direct(
         source="aist-bot",
         external_id=f"notification-{idempotency_key}",
@@ -122,11 +133,7 @@ async def try_insert_notification(
         schema_version="v1",
         occurred_at=datetime.utcnow(),
         account_id=ory,
-        payload={
-            "notification_type": notification_type,
-            "idempotency_key": idempotency_key,
-            "payload_keys": list(payload.keys()) if payload else [],
-        },
+        payload=event_payload,
     )
 
 

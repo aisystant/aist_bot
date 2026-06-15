@@ -209,6 +209,7 @@ async def drain(
                     notification_type=row["journal_type"] or klass,
                     idempotency_key=row["journal_key"] or f"delivery:{row['id']}",
                     payload={"notification_class": klass, "priority": row["priority"]},
+                    delivered_via="notification_service",
                 )
                 if not inserted:
                     # Журнал уже помнит ключ: отправлено старым кодом до деплоя или
