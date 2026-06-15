@@ -21,8 +21,11 @@ logger = get_logger(__name__)
 async def get_aisystant_id(chat_id: int) -> str | None:
     """Получить aisystant_id по chat_id. None если не привязан.
 
-    WP-269 Ф1: чтение только из persona.ory_identity (backfill завершён 28 апр, 0 строк pending).
-    COALESCE покрывает оба ключа ETL: aisystant_suser_id (WP-268) и aisystant_id (alias).
+    WP-269 Ф1: primary path — persona.ory_identity (backfill 28 апр).
+    Fallback — public.users (Railway-local): покрывает пользователей, чей
+    ory_identity ещё не создан ETL'ом (инцидент @dianasova11, 15 июня 2026:
+    save_aisystant_link пишет в public.users всегда, а UPDATE ory_identity
+    даёт UPDATE 0 если строки нет → persona miss → цикл «привязан/не привязан»).
     """
     try:
         pool = await get_persona_pool()
@@ -36,6 +39,20 @@ async def get_aisystant_id(chat_id: int) -> str | None:
                 return row['aisystant_id']
     except Exception as e:
         logger.warning(f"[Aisystant] persona.ory_identity read failed: {e}")
+
+    # Fallback: public.users (Railway-local). save_aisystant_link всегда пишет сюда.
+    try:
+        bot_pool = await get_pool()
+        async with bot_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT aisystant_id FROM public.users WHERE telegram_id = $1 AND aisystant_id IS NOT NULL",
+                chat_id,
+            )
+            if row and row['aisystant_id']:
+                logger.info(f"[Aisystant] persona miss → fallback public.users hit for chat_id={chat_id}")
+                return str(row['aisystant_id'])
+    except Exception as e:
+        logger.warning(f"[Aisystant] public.users fallback read failed: {e}")
 
     return None
 
