@@ -21,6 +21,7 @@ from datetime import datetime, date
 from typing import Optional, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import json
 import pytest
 import pytest_asyncio
 
@@ -364,3 +365,74 @@ def all_mocks(mock_get_intern, mock_update_intern, mock_claude, mock_mcp, mock_d
         "mcp": mock_mcp,
         "db_pool": mock_db_pool,
     }
+
+
+# ─── FakeLearningConn / FakeLearningPool (WP-418 Ф5: delivered_via) ───
+
+class FakeLearningConn:
+    """Fake asyncpg connection для learning.domain_event.
+
+    Перехватывает INSERT/SELECT через fetchrow, хранит external_id → payload dict.
+    Payload ищется по признаку startswith("{"), external_id — по startswith("notification-")
+    (контракт try_insert_notification: external_id = f"notification-{idempotency_key}").
+    Без позиционных констант — устойчиво к добавлению/удалению аргументов в SQL.
+    """
+
+    def __init__(self):
+        self._store: dict = {}  # external_id → parsed payload dict
+
+    async def fetchrow(self, sql, *args):
+        sql_u = sql.strip().upper()
+        if "INSERT" in sql_u:
+            payload_str = next(
+                (a for a in args if isinstance(a, str) and a.startswith("{")),
+                None,
+            )
+            external_id = next(
+                (a for a in args if isinstance(a, str) and a.startswith("notification-")),
+                None,
+            )
+            if payload_str and external_id:
+                self._store[external_id] = json.loads(payload_str)
+            return {"id": 1}
+        if "SELECT" in sql_u and "WHERE" in sql_u:
+            key = args[-1]
+            return {"1": 1} if key in self._store else None
+        return None
+
+
+class FakeLearningPool:
+    def __init__(self, conn: "FakeLearningConn"):
+        self._conn = conn
+
+    def acquire(self):
+        conn = self._conn
+
+        class _Acq:
+            async def __aenter__(self_):
+                return conn
+
+            async def __aexit__(self_, *a):
+                return False
+
+        return _Acq()
+
+
+@pytest.fixture
+def patched_learning(monkeypatch):
+    """Изолирует learning-БД для тестов WP-418 delivered_via.
+
+    Патчит get_learning_pool и resolve_ory_id_from_chat в db.queries.notifications.
+    Возвращает FakeLearningConn — через _store проверяем JSONB-payload.
+    """
+    import db.queries.notifications as _notif_q
+
+    conn = FakeLearningConn()
+    pool = FakeLearningPool(conn)
+
+    async def _get_lp():
+        return pool
+
+    monkeypatch.setattr(_notif_q, "get_learning_pool", _get_lp)
+    monkeypatch.setattr(_notif_q, "resolve_ory_id_from_chat", AsyncMock(return_value=None))
+    return conn
