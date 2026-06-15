@@ -140,7 +140,7 @@ async def cb_feed(callback: CallbackQuery, state: FSMContext):
 async def cb_tailor_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка Tailor callback-ов (Ответить / Пропустить)."""
     from handlers import get_dispatcher
-    from engines.tailor.bot_adapter import CB_TAILOR_ANSWER, CB_TAILOR_SKIP
+    from engines.tailor.port import CB_TAILOR_ANSWER, CB_TAILOR_SKIP
 
     dispatcher = get_dispatcher()
     chat_id = callback.message.chat.id
