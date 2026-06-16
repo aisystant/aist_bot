@@ -408,6 +408,14 @@ async def callback_marathon_checkin(callback: CallbackQuery):
         except Exception as _e:
             logger.warning("[MarathonCheckin] record_active_day failed for %s: %s", user_id, _e)
 
+        # WP-7 LMS1: syncs marathon_steps_total in digital twin via development.engagement view.
+        # Fires once per unique day (is_first_checkin gate) to match legacy semantics.
+        try:
+            from db.queries.events import log_event
+            await log_event(user_id, 'marathon_step', {'day': day, 'state': state})
+        except Exception as _e:
+            logger.warning("[MarathonCheckin] log_event marathon_step failed for %s: %s", user_id, _e)
+
         if new_status == "completed":
             await update_intern(user_id, marathon_status="completed")
             is_completed = True
