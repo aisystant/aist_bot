@@ -26,6 +26,7 @@ from db.queries.marathon_newcomer import (
     resume_marathon,
 )
 from db.queries.users import moscow_now, update_intern
+from db.queries.activity import record_active_day
 from core.telegram_guard import safe_edit_message
 from config import get_logger
 
@@ -399,6 +400,13 @@ async def callback_marathon_checkin(callback: CallbackQuery):
             current_day=new_day,
             status=new_status,
         )
+
+        # WP-7 / WP-330: фиксируем учебную активность в activity_log.
+        # record_active_day идемпотентен по (chat_id, activity_date, activity_type).
+        try:
+            await record_active_day(user_id, 'marathon_checkin', mode='marathon')
+        except Exception as _e:
+            logger.warning("[MarathonCheckin] record_active_day failed for %s: %s", user_id, _e)
 
         if new_status == "completed":
             await update_intern(user_id, marathon_status="completed")
