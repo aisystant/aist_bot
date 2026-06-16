@@ -1070,6 +1070,53 @@ async def _recheck_blocked_users():
     logger.info(f"[BlockedUser] Recheck complete: {cleared}/{len(chat_ids)} cleared")
 
 
+async def _notify_cp_diagnose() -> None:
+    """WP-318 Ф9: drain platform_outbox for cp_diagnose_suggested events.
+
+    Reads unprocessed rows, resolves TG chat_id, sends suggest_for_attestator() hint,
+    marks processed. Runs daily at 05:30 UTC (after stage_evaluator at ~04:xx UTC).
+    """
+    from db.connection import get_learning_pool
+    from engines.diagnostician.background import suggest_for_attestator
+
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, user_uuid, payload
+            FROM operations.platform_outbox
+            WHERE event_type = 'cp_diagnose_suggested'
+              AND processed_at IS NULL
+            ORDER BY id
+            LIMIT 50
+            """
+        )
+        if not rows:
+            return
+
+        logger.info("[CpDiagnose] processing %d outbox rows", len(rows))
+        for row in rows:
+            account_id = str(row["user_uuid"])
+            try:
+                chat_id = await conn.fetchval(
+                    "SELECT telegram_id FROM public.users WHERE ory_id = $1",
+                    account_id,
+                )
+                if chat_id is not None:
+                    cta = await suggest_for_attestator(account_id, row["payload"].get("bh_recommended", 0))
+                    if cta:
+                        from aiogram import Bot
+                        bot = Bot(token=_bot_token)
+                        await bot.send_message(chat_id, cta)
+            except Exception as exc:
+                logger.exception("[CpDiagnose] failed for account %s: %s", account_id[:8], exc)
+            finally:
+                await conn.execute(
+                    "UPDATE operations.platform_outbox SET processed_at = now() WHERE id = $1",
+                    row["id"],
+                )
+
+
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
     """Инициализировать и вернуть планировщик.
 
@@ -1106,6 +1153,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
     _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
+    _scheduler.add_job(_notify_cp_diagnose, 'cron', hour=5, minute=30, id='notify_cp_diagnose', max_instances=1)  # WP-318 Ф9: drain cp_diagnose_suggested outbox after stage_evaluator
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
