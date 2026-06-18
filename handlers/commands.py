@@ -196,6 +196,31 @@ async def cmd_settings(message: Message, state: FSMContext):
     await _show_update_screen(message, intern, state)
 
 
+_TIER_DESCRIPTIONS = {
+    0: "T0 — аккаунт не подключён к Aisystant",
+    1: "T1 — аккаунт подключён, активной подписки нет",
+    2: "T2 — подписка «Инженерия интеллекта» активна",
+    3: "T3 — подписка + цифровой двойник подключён",
+    4: "T4 — подписка + цифровой двойник + GitHub",
+    5: "T5 — администратор платформы",
+}
+
+
+@commands_router.message(Command("tier"))
+async def cmd_tier(message: Message, state: FSMContext):
+    """Показать реальный тир пользователя (WP-7 TIR3).
+
+    Считает тир заново через detect_ui_tier (источник — Aisystant + contract),
+    а не читает устаревший кэш public.users.tier.
+    """
+    from core.tier_detector import detect_ui_tier
+
+    chat_id = message.chat.id
+    tier_num = await detect_ui_tier(chat_id)
+    description = _TIER_DESCRIPTIONS.get(tier_num, f"T{tier_num}")
+    await message.answer(f"Твой тир: {description}")
+
+
 @commands_router.message(Command("mydata"))
 async def cmd_mydata(message: Message, state: FSMContext):
     """Персональный дата-центр через Dispatcher → utility.mydata."""
