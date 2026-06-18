@@ -129,19 +129,55 @@ async def _get_aisystant_id(chat_id: int) -> str | None:
         return None
 
 
+async def _check_contract_subscription(aisystant_id: str) -> bool:
+    """Check if user has active subscription in contract table (fallback).
+
+    Queries subscription.contract when Aisystant MCP is unavailable.
+    account_id in contract table = aisystant_id (UUID).
+    """
+    try:
+        import asyncpg
+        db_url = os.getenv("SUBSCRIPTION_DATABASE_URL")
+        if not db_url:
+            return False
+
+        conn = await asyncpg.connect(db_url)
+        try:
+            result = await conn.fetchval(
+                """
+                SELECT EXISTS(
+                    SELECT 1 FROM contract
+                    WHERE account_id = $1::uuid
+                      AND status = 'active'
+                      AND valid_to > NOW()
+                )
+                """,
+                aisystant_id,
+            )
+            return bool(result)
+        finally:
+            await conn.close()
+    except Exception as e:
+        logger.warning(f"[Tier] Contract subscription check failed: {e}")
+        return False
+
+
 async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     """Check if user has active Aisystant БР subscription.
 
     WP-85, WP-210 Ф2a: только оплаченная «Инженерия интеллекта».
     Триал убран — единственный источник T2+ права = активная БР.
     TG Stars donations do NOT affect this check.
+
+    Fallback: if Aisystant MCP fails, check contract table directly (WP-392 Ф5).
     """
     try:
         from clients.aisystant import aisystant
         return await aisystant.has_active_subscription(aisystant_id)
     except Exception as e:
         logger.warning(f"[Tier] Aisystant subscription check failed: {e}")
-        return False
+        # Fallback: check contract table if Aisystant unavailable
+        return await _check_contract_subscription(aisystant_id)
 
 
 async def _is_github_connected(chat_id: int) -> bool:
