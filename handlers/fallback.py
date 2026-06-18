@@ -41,17 +41,12 @@ _TIER_QUERY_KEYWORDS = (
     "мой уровень подписки",
     "какой тир",
     "my tier",
+    "у вас тир",
+    "покажи тир",
+    "свой тир",
+    "what is my tier",
+    "show my tier",
 )
-
-_SYSTEM_TIER_LABELS = {
-    0: "T0 — аккаунт не подключён",
-    1: "T1 — аккаунт подключён, подписки нет",
-    2: "T2 — подписка «Инженерия интеллекта»",
-    3: "T3 — T2 + цифровой двойник подключён",
-    4: "T4 — T3 + GitHub (полное окружение)",
-    5: "T5 — администратор платформы",
-}
-
 
 def _is_tier_query(text: str) -> bool:
     low = text.lower()
@@ -59,8 +54,7 @@ def _is_tier_query(text: str) -> bool:
 
 
 async def _answer_tier_query(message, tier_num: int) -> None:
-    label = _SYSTEM_TIER_LABELS.get(tier_num, f"T{tier_num}")
-    await message.answer(f"Твой системный тир: {label}")
+    await message.answer(f"Твой тир: T{tier_num}")
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
@@ -192,6 +186,10 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
                     return
                 hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+                if _is_tier_query(hermes_msg):
+                    logger.info("[fallback] hermes-prefix tier query intercept for chat %s", chat_id)
+                    await _answer_tier_query(message, tier_num)
+                    return
                 session_id = _HERMES_SESSION_MAP.get(chat_id)
                 from clients.gateway_mcp import gateway_mcp
                 try:

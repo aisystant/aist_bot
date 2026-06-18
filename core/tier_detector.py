@@ -72,7 +72,9 @@ async def detect_ui_tier(chat_id: int) -> int:
     # Note: if DISABLE_BOT_TIER_SYNC=true the write is silently skipped by
     # update_user_tier — in that case re-enable the flag or set persona tier manually.
     if _DEV_CHAT_ID and str(chat_id) == _DEV_CHAT_ID:
-        asyncio.create_task(_persist_tier(chat_id, UITier.T4_CREATION))
+        await _persist_tier(chat_id, UITier.T4_CREATION)
+        _tier_cache[chat_id] = UITier.T5_ADMIN
+        _tier_cache_ts[chat_id] = time.monotonic()
         return UITier.T5_ADMIN
 
     # TTL cache: return cached tier if detected recently (avoids Aisystant HTTP on every command)
