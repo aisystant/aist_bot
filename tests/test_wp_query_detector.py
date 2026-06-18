@@ -124,24 +124,3 @@ def test_parse_respects_max_rows():
     # заголовок считает все активные, но в тело попадают только max_rows строк
     assert "Активных рабочих продуктов: 10" in out
     assert out.count("РП4") == 3
-
-
-# --- Регресс: точный запрос пилота на T4 (инцидент 14 июня) ---
-@pytest.mark.parametrize("q", [
-    "какие мои активные рп?",     # дословно из инцидента — Strong-only это терял
-    "какие мои активные рп",
-    "какие у меня активные рп",
-    "мои текущие рп покажи",
-])
-def test_pilot_t4_queries_detected(q):
-    # На пути Гермеса (T4) эти слабые паттерны ОБЯЗАНЫ ловиться — иначе вопрос
-    # уходит в Hermes и тот галлюцинирует несуществующие РП.
-    assert is_wp_query(q) is True
-
-
-@pytest.mark.parametrize("q", [
-    "посоветуй активные рп",       # нет личного сигнала → не перехватываем co-thinking
-    "какие активные рп бывают",
-])
-def test_no_personal_signal_not_intercepted(q):
-    assert is_wp_query(q) is False

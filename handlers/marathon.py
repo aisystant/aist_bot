@@ -27,7 +27,6 @@ from db.queries.marathon_newcomer import (
 )
 from db.queries.users import moscow_now, update_intern
 from db.queries.activity import record_active_day
-from core.telegram_guard import safe_edit_message
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -40,6 +39,12 @@ MARATHON_SAME_DAY_CUTOFF_HOUR = 18
 
 async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:00") -> None:
     """Запуск марафона: регистрация, заполнение очереди, первый урок. DP.SC.157."""
+    from db.queries import get_intern
+    _intern = await get_intern(user_id)
+    if (_intern or {}).get("bot_blocked"):
+        logger.warning("[Marathon] start_marathon_flow skipped for bot-blocked user %s", user_id)
+        return
+
     progress = await get_or_create_progress(user_id)
     current_status = progress.get("status", "registered")
 
@@ -407,14 +412,6 @@ async def callback_marathon_checkin(callback: CallbackQuery):
             await record_active_day(user_id, 'marathon_checkin', mode='marathon')
         except Exception as _e:
             logger.warning("[MarathonCheckin] record_active_day failed for %s: %s", user_id, _e)
-
-        # WP-7 LMS1: syncs marathon_steps_total in digital twin via development.engagement view.
-        # Fires once per unique day (is_first_checkin gate) to match legacy semantics.
-        try:
-            from db.queries.events import log_event
-            await log_event(user_id, 'marathon_step', {'day': day, 'state': state})
-        except Exception as _e:
-            logger.warning("[MarathonCheckin] log_event marathon_step failed for %s: %s", user_id, _e)
 
         if new_status == "completed":
             await update_intern(user_id, marathon_status="completed")

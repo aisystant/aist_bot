@@ -30,44 +30,6 @@ _HERMES_SESSION_MAP: dict[int, str] = {}
 
 _WP_REGISTRY_TIMEOUT_S = 5
 
-
-async def _answer_wp_registry(message: Message, chat_id: int) -> None:
-    """WP-411 Ф7: детерминированный ответ из реестра РП пользователя (без LLM).
-
-    Перечисление РП идёт из docs/WP-REGISTRY.md напрямую → модель в нём не
-    участвует → структурно ноль галлюцинаций. Три исхода различаются явно,
-    чтобы «нет активных РП» не выглядело как «нет доступа»:
-      - strategy_repo не подключён → честное «реестр не подключён»;
-      - реестр пуст (нет файла или нет активных строк) → нейтральное «активных нет»;
-      - есть активные → список + строка-приглашение продолжить в Гермесе.
-    """
-    from clients.github_oauth import github_oauth
-    from engines.shared.consultation_tools import get_wp_registry
-
-    strategy_repo = await github_oauth.get_strategy_repo(chat_id)
-    if not strategy_repo:
-        await message.answer(
-            "Реестр рабочих продуктов ещё не подключён. "
-            "Привяжи свой governance-репозиторий в настройках GitHub."
-        )
-        return
-
-    try:
-        registry = await asyncio.wait_for(
-            get_wp_registry(chat_id), timeout=_WP_REGISTRY_TIMEOUT_S
-        )
-    except Exception:
-        logger.exception("[fallback] get_wp_registry failed for chat %s", chat_id)
-        registry = ""
-
-    if registry:
-        await message.answer(
-            f"{registry}\n\nСпроси детали по конкретному РП — отвечу подробнее."
-        )
-    else:
-        await message.answer("Не нашёл активных рабочих продуктов в твоём реестре.")
-
-
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
     """Проверяет, что callback НЕ принадлежит engines/ роутерам."""
     if not callback.data:

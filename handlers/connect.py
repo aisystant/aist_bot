@@ -19,14 +19,10 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
 
-from config import GATEWAY_MCP_URL
+from config import GATEWAY_MCP_URL, ORY_CLIENT_ID
 from db.queries import get_intern
-from db.queries.external_clients import (
-    create_auth_code,
-    list_client_tokens,
-    revoke_client_token,
-)
 from helpers.dual_write import resolve_ory_id_from_chat
+from clients.ory_oauth import ory_oauth
 from i18n import t
 
 # Базовый URL бота (используется в инструкции по обмену кода)
@@ -59,10 +55,23 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
     ])
 
 
-@connect_router.message(Command("connect_external"))
-async def cmd_connect_external_direct(message: Message):
-    """Команда /connect_external — быстрый вход: сразу выдаёт одноразовый код."""
-    await _handle_connect_external(message)
+async def _build_t0_gate_message(chat_id: int) -> tuple[str | None, InlineKeyboardMarkup | None]:
+    """Возвращает (text, keyboard) если пользователь T0 (без Ory-аккаунта), иначе (None, None)."""
+    if not ORY_CLIENT_ID:
+        return None, None
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if account_id:
+        return None, None
+    auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
+    text = (
+        "Перед подключением AI-клиентов нужно создать аккаунт на платформе Aisystant.\n\n"
+        "Нажми кнопку ниже — введи email и придумай пароль. Займёт 30 секунд.\n\n"
+        "После регистрации снова открой /connect — появятся инструкции по подключению."
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Зарегистрироваться на Aisystant", url=auth_url)],
+    ])
+    return text, keyboard
 
 
 @connect_router.message(Command("connect"))
@@ -78,6 +87,11 @@ async def cmd_connect(message: Message, command: CommandObject):
         await message.answer(t('connect.need_start', lang))
         return
 
+    t0_text, t0_keyboard = await _build_t0_gate_message(message.chat.id)
+    if t0_text:
+        await message.answer(t0_text, reply_markup=t0_keyboard)
+        return
+
     lang = intern.get('language', 'ru') or 'ru'
     text = _build_menu_text(lang)
     keyboard = _build_menu_keyboard(lang)
@@ -91,8 +105,13 @@ async def on_connect_start(callback: CallbackQuery):
     intern = await get_intern(callback.from_user.id)
     if not intern:
         return
-    lang = intern.get('language', 'ru') or 'ru'
 
+    t0_text, t0_keyboard = await _build_t0_gate_message(callback.from_user.id)
+    if t0_text:
+        await callback.message.edit_text(t0_text, reply_markup=t0_keyboard)
+        return
+
+    lang = intern.get('language', 'ru') or 'ru'
     text = _build_menu_text(lang)
     keyboard = _build_menu_keyboard(lang)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")

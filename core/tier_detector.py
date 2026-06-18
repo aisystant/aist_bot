@@ -65,8 +65,14 @@ async def detect_ui_tier(chat_id: int) -> int:
     Returns:
         UITier constant (0-5)
     """
-    # T5: Platform admin (always, regardless of subscription)
+    # T5: Platform admin (always, regardless of subscription).
+    # Also persist T4 to persona so the gateway JWT-path (which only knows T0-T4)
+    # grants full access. Without this write ory_identity.traits.tier stays null,
+    # the DB check in gateway falls back to T1, and T3+ tools are blocked.
+    # Note: if DISABLE_BOT_TIER_SYNC=true the write is silently skipped by
+    # update_user_tier — in that case re-enable the flag or set persona tier manually.
     if _DEV_CHAT_ID and str(chat_id) == _DEV_CHAT_ID:
+        asyncio.create_task(_persist_tier(chat_id, UITier.T4_CREATION))
         return UITier.T5_ADMIN
 
     # TTL cache: return cached tier if detected recently (avoids Aisystant HTTP on every command)
