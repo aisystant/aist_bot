@@ -167,15 +167,23 @@ async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
     Триал убран — единственный источник T2+ права = активная БР.
     TG Stars donations do NOT affect this check.
 
-    Fallback: if Aisystant MCP fails, check contract table directly (WP-392 Ф5).
+    Contract table is a first-class source (WP-7 TIR3): many subscriptions live only
+    in subscription.contract (legacy LMS migration) and Aisystant's API does not know
+    about them. So when Aisystant returns False — not only on exception — fall through
+    to the contract table. This is why T3/T4 users were seeing T1.
     """
+    aisystant_says_active = False
     try:
         from clients.aisystant import aisystant
-        return await aisystant.has_active_subscription(aisystant_id)
+        aisystant_says_active = await aisystant.has_active_subscription(aisystant_id)
     except Exception as e:
         logger.warning(f"[Tier] Aisystant subscription check failed: {e}")
-        # Fallback: check contract table if Aisystant unavailable
-        return await _check_contract_subscription(aisystant_id)
+
+    if aisystant_says_active:
+        return True
+
+    # Aisystant said no (or errored) — check contract table as an equal source.
+    return await _check_contract_subscription(aisystant_id)
 
 
 async def _is_github_connected(chat_id: int) -> bool:
