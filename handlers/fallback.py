@@ -30,6 +30,39 @@ _HERMES_SESSION_MAP: dict[int, str] = {}
 
 _WP_REGISTRY_TIMEOUT_S = 5
 
+# Tier query detector — intercept "Какой у меня тир?" before Hermes gets it.
+# Hermes treats "тир" as learning mastery level; system tier is a deterministic fact.
+_TIER_QUERY_KEYWORDS = (
+    "какой у меня тир",
+    "мой тир",
+    "у меня тир",
+    "тир у меня",
+    "мой уровень доступа",
+    "мой уровень подписки",
+    "какой тир",
+    "my tier",
+)
+
+_SYSTEM_TIER_LABELS = {
+    0: "T0 — аккаунт не подключён",
+    1: "T1 — аккаунт подключён, подписки нет",
+    2: "T2 — подписка «Инженерия интеллекта»",
+    3: "T3 — T2 + цифровой двойник подключён",
+    4: "T4 — T3 + GitHub (полное окружение)",
+    5: "T5 — администратор платформы",
+}
+
+
+def _is_tier_query(text: str) -> bool:
+    low = text.lower()
+    return any(kw in low for kw in _TIER_QUERY_KEYWORDS)
+
+
+async def _answer_tier_query(message, tier_num: int) -> None:
+    label = _SYSTEM_TIER_LABELS.get(tier_num, f"T{tier_num}")
+    await message.answer(f"Твой системный тир: {label}")
+
+
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
     """Проверяет, что callback НЕ принадлежит engines/ роутерам."""
     if not callback.data:
@@ -120,6 +153,11 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     await state.clear()
                     await _answer_wp_registry(message, chat_id)
                     return
+                if _is_tier_query(hermes_text):
+                    logger.info("[fallback] T4-full tier query intercept for chat %s", chat_id)
+                    await state.clear()
+                    await _answer_tier_query(message, tier_num)
+                    return
                 # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
                 await state.clear()
                 session_id = _HERMES_SESSION_MAP.get(chat_id)
@@ -136,7 +174,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     logger.exception("[fallback] hermes_chat (T4-full) failed for chat %s", chat_id)
                     response = _HERMES_UNAVAILABLE_RUNTIME_MSG
                 # session_id управляется на стороне gateway/hermes по telegram_user_id
-                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG, parse_mode="Markdown")
                 return
 
         # WP-392 Ф3.1: явный вызов Hermes через префикс — ДО онбординг-интентов.
@@ -167,7 +205,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 except Exception:
                     logger.exception("[fallback] hermes_chat failed for chat %s", chat_id)
                     response = _HERMES_UNAVAILABLE_RUNTIME_MSG
-                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG, parse_mode="Markdown")
                 return
 
         # Ф22 (WP-349): текстовый роутинг онбординг-интентов.
