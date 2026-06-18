@@ -129,21 +129,46 @@ async def _get_aisystant_id(chat_id: int) -> str | None:
         return None
 
 
-async def _check_contract_subscription(aisystant_id: str) -> bool:
-    """Check if user has active subscription in contract table (fallback).
+async def _get_ory_id(chat_id: int) -> str | None:
+    """Get the user's Ory account UUID by chat_id.
 
-    Queries subscription.contract when Aisystant MCP is unavailable.
-    account_id in contract table = aisystant_id (UUID).
+    This UUID equals subscription.contract.account_id — the join key for the
+    contract fallback. NOT the same as aisystant_id (a small Aisystant suser_id).
     """
     try:
-        import asyncpg
-        db_url = os.getenv("SUBSCRIPTION_DATABASE_URL")
-        if not db_url:
-            return False
+        from db.connection import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT ory_id FROM public.users WHERE telegram_id = $1",
+                chat_id,
+            )
+            return str(row["ory_id"]) if row and row.get("ory_id") else None
+    except Exception as e:
+        logger.warning(f"[Tier] Failed to resolve ory_id for {chat_id}: {e}")
+        return None
 
+
+async def _check_contract_subscription(chat_id: int) -> bool:
+    """Check if user has an active subscription in subscription.contract (WP-7 TIR3).
+
+    Many subscriptions live only in the contract table (legacy LMS migration);
+    Aisystant's API does not know about them. The join key is the Ory account UUID
+    (contract.account_id == public.users.ory_id), NOT aisystant_id.
+    """
+    db_url = os.getenv("SUBSCRIPTION_DATABASE_URL")
+    if not db_url:
+        return False
+
+    ory_id = await _get_ory_id(chat_id)
+    if not ory_id:
+        return False
+
+    try:
+        import asyncpg
         conn = await asyncpg.connect(db_url)
         try:
-            result = await conn.fetchval(
+            return bool(await conn.fetchval(
                 """
                 SELECT EXISTS(
                     SELECT 1 FROM contract
@@ -152,13 +177,12 @@ async def _check_contract_subscription(aisystant_id: str) -> bool:
                       AND valid_to > NOW()
                 )
                 """,
-                aisystant_id,
-            )
-            return bool(result)
+                ory_id,
+            ))
         finally:
             await conn.close()
     except Exception as e:
-        logger.warning(f"[Tier] Contract subscription check failed: {e}")
+        logger.warning(f"[Tier] Contract subscription check failed for {chat_id}: {e}")
         return False
 
 
@@ -185,7 +209,7 @@ async def _has_active_subscription(chat_id: int, aisystant_id: str) -> bool:
         return True
 
     # Aisystant said no (or errored) — check contract table as an equal source.
-    return await _check_contract_subscription(aisystant_id)
+    return await _check_contract_subscription(chat_id)
 
 
 async def _is_github_connected(chat_id: int) -> bool:
