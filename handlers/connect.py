@@ -249,7 +249,7 @@ async def cmd_my_clients(message: Message):
     if not tokens:
         await message.answer(
             "Нет активных внешних подключений.\n\n"
-            "Чтобы подключить внешний клиент: /connect\\_external"
+            "Чтобы подключить внешний клиент: /connect_external"
         )
         return
 
