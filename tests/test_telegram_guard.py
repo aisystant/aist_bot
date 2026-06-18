@@ -57,3 +57,11 @@ def test_non_telegram_exception_propagates():
     edit = _FakeEdit(RuntimeError("boom"))
     with pytest.raises(RuntimeError):
         asyncio.run(safe_edit_message(edit, "текст"))
+
+
+def test_not_modified_logs_debug(caplog):
+    import logging
+    edit = _FakeEdit(_FakeBadRequest("Bad Request: message is not modified"))
+    with caplog.at_level(logging.DEBUG, logger="core.telegram_guard"):
+        asyncio.run(safe_edit_message(edit, "тот же текст"))
+    assert "double-tap" in caplog.text

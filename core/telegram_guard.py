@@ -31,5 +31,6 @@ async def safe_edit_message(edit_callable: Callable[..., Awaitable], *args, **kw
         return True
     except TelegramBadRequest as exc:
         if "message is not modified" in str(exc).lower():
+            logger.debug("double-tap no-op: message not modified, silenced")
             return False
         raise
