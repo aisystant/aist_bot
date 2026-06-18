@@ -1391,9 +1391,12 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
         "installation_id": installation_id,
         "via": used_secret,
     })
+    sender_type = (payload.get("sender") or {}).get("type", "User")
     event_types = []
-    if lesson_files:
+    if lesson_files and sender_type != "Bot":
         event_types.append("lesson_closed")
+    elif lesson_files:
+        logger.info("[WorkbookWebhook] lesson_closed skipped: sender type=Bot (renderer push)")
     if workbook_files:
         event_types.append("workbook_push")
     try:
