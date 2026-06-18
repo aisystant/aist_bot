@@ -27,6 +27,7 @@ from db.queries.marathon_newcomer import (
 )
 from db.queries.users import moscow_now, update_intern
 from db.queries.activity import record_active_day
+from core.telegram_guard import safe_edit_message
 from config import get_logger
 
 logger = get_logger(__name__)
