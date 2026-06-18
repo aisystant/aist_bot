@@ -266,7 +266,7 @@ async def get_missed_streak(user_id: int, working_days: list[int] | None = None)
                  ),
                  relevant_days AS (
                      SELECT d FROM days_series
-                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
+                     WHERE EXTRACT(DOW FROM d)::int = ANY((SELECT wd FROM working_days))
                  ),
                  activity AS (
                      SELECT activity_date FROM learning.marathon_activity
@@ -473,7 +473,7 @@ async def get_missed_checkin_users(min_days: int = 2, working_days: list[int] | 
                  ),
                  relevant_days AS (
                      SELECT user_id, d FROM days_series
-                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
+                     WHERE EXTRACT(DOW FROM d)::int = ANY((SELECT wd FROM working_days))
                  ),
                  activity AS (
                      SELECT user_id, activity_date
@@ -547,7 +547,7 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
                  ),
                  relevant_days AS (
                      SELECT user_id, d FROM days_series
-                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
+                     WHERE EXTRACT(DOW FROM d)::int = ANY((SELECT wd FROM working_days))
                  ),
                  activity AS (
                      SELECT user_id, activity_date
