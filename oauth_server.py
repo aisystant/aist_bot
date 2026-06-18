@@ -16,6 +16,7 @@ Endpoints:
 import asyncio
 import json
 import os
+import re
 import uuid
 from typing import Optional
 from aiohttp import web
@@ -1283,16 +1284,22 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
             content_type="application/json",
         )
 
-    # ── Фильтр путей: только workbook/ ──────────────────────────────────────
+    # WP-149 Ф4: detect daily lesson files alongside legacy workbook/ path.
+    # Weekly guides (lesson/YYYY-WNN.md) are NOT triggers — they are rendered,
+    # not authored by the learner.
     commits = payload.get("commits") or []
-    workbook_files = [
+    changed = [
         f for commit in commits
         for f in (commit.get("added", []) + commit.get("modified", []))
-        if f.startswith("workbook/")
     ]
-    if not workbook_files:
+    workbook_files = [f for f in changed if f.startswith("workbook/")]
+    lesson_files = [
+        f for f in changed
+        if re.match(r'^lesson/\d{4}-\d{2}-\d{2}\.md$', f)
+    ]
+    if not workbook_files and not lesson_files:
         return web.Response(
-            text='{"ok":true,"skipped":"no workbook files"}',
+            text='{"ok":true,"skipped":"no workbook or lesson files"}',
             content_type="application/json",
         )
 
@@ -1373,42 +1380,48 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
 
     commit_sha = payload.get("after", "unknown")
 
-    # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
-    # Note: external_id колонка отсутствует в текущей схеме development.user_events.
-    # Идемпотентность достигается через дедуп по (user_uuid, event_type, payload->commit_sha)
-    # на потребительской стороне (engagement view может агрегировать с DISTINCT).
+    # Activity Hub: write event(s) — no activity_hub import needed.
+    # Idempotency: dedup on (user_uuid, event_type, payload->commit_sha) at consumer.
+    # WP-149 Ф4: lesson_closed for daily lesson files; workbook_push kept for legacy path.
+    all_files = workbook_files + lesson_files
     payload_json = json.dumps({
-        "files": workbook_files,
+        "files": all_files,
         "repo": (payload.get("repository") or {}).get("full_name", ""),
         "commit_sha": commit_sha,
         "installation_id": installation_id,
         "via": used_secret,
     })
+    event_types = []
+    if lesson_files:
+        event_types.append("lesson_closed")
+    if workbook_files:
+        event_types.append("workbook_push")
     try:
         async with bot_pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO development.user_events
-                    (user_id, user_uuid, event_type, source, payload,
-                     confidence, created_at)
-                VALUES (0, $1, $2, $3, $4, $5, NOW())
-                """,
-                uuid.UUID(dt_user_id),
-                "workbook_push",
-                "iwe",
-                payload_json,
-                1.0,
-            )
-        logger.info("[WorkbookWebhook] event written to user_events: %s", commit_sha)
+            for evt in event_types:
+                await conn.execute(
+                    """
+                    INSERT INTO development.user_events
+                        (user_id, user_uuid, event_type, source, payload,
+                         confidence, created_at)
+                    VALUES (0, $1, $2, $3, $4, $5, NOW())
+                    """,
+                    uuid.UUID(dt_user_id),
+                    evt,
+                    "iwe",
+                    payload_json,
+                    1.0,
+                )
+        logger.info("[WorkbookWebhook] events written: %s sha=%s", event_types, commit_sha)
     except Exception as e:
         logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
 
-    # ── On-demand пересчёт ЦД ────────────────────────────────────────────────
+    # ── On-demand DT sync ──────────────────────────────────────────────────────
     asyncio.create_task(sync_one_user_to_dt(dt_user_id))
 
     logger.info(
-        "[WorkbookWebhook] push by chat_id=%s (dt=%s, install=%s, via=%s), files=%s, dt_sync scheduled",
-        chat_id, dt_user_id, installation_id, used_secret, workbook_files,
+        "[WorkbookWebhook] push by chat_id=%s (dt=%s, install=%s, via=%s), events=%s files=%s, dt_sync scheduled",
+        chat_id, dt_user_id, installation_id, used_secret, event_types, all_files,
     )
     return web.Response(
         text='{"ok":true}',
