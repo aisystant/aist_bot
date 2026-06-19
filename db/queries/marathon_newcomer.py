@@ -536,7 +536,7 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
                  ),
                  days_series AS (
                      SELECT user_id, generate_series(
-                         start_date,
+                         GREATEST(start_date, CURRENT_DATE - INTERVAL '30 days'),
                          CURRENT_DATE - INTERVAL '1 day',
                          '1 day'
                      )::DATE AS d

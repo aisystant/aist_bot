@@ -1101,26 +1101,39 @@ async def _notify_cp_diagnose() -> None:
             return
 
         logger.info("[CpDiagnose] processing %d outbox rows", len(rows))
-        for row in rows:
-            account_id = str(row["user_uuid"])
-            try:
-                chat_id = await conn.fetchval(
-                    "SELECT telegram_id FROM public.users WHERE ory_id = $1",
-                    account_id,
-                )
-                if chat_id is not None:
-                    cta = await suggest_for_attestator(account_id, row["payload"].get("bh_recommended", 0))
-                    if cta:
-                        from aiogram import Bot
-                        bot = Bot(token=_bot_token)
-                        await bot.send_message(chat_id, cta)
-            except Exception as exc:
-                logger.exception("[CpDiagnose] failed for account %s: %s", account_id[:8], exc)
-            finally:
-                await conn.execute(
-                    "UPDATE operations.platform_outbox SET processed_at = now() WHERE id = $1",
-                    row["id"],
-                )
+        from aiogram import Bot
+        bot = Bot(token=_bot_token)
+        try:
+            for row in rows:
+                account_id = str(row["user_uuid"])
+                try:
+                    chat_id = await conn.fetchval(
+                        "SELECT telegram_id FROM public.users WHERE ory_id = $1",
+                        account_id,
+                    )
+                    if chat_id is not None:
+                        payload = row["payload"]
+                        if isinstance(payload, str):
+                            try:
+                                payload = json.loads(payload)
+                            except json.JSONDecodeError:
+                                logger.error("[CpDiagnose] unparseable payload row %d: %r", row["id"], payload[:100])
+                                continue  # marks as processed via outer finally (no retry)
+                        if not isinstance(payload, dict):
+                            logger.error("[CpDiagnose] unexpected payload type %s row %d", type(payload), row["id"])
+                            continue  # marks as processed via outer finally (no retry)
+                        cta = await suggest_for_attestator(account_id, payload.get("bh_recommended", 0))
+                        if cta:
+                            await bot.send_message(chat_id, cta)
+                except Exception as exc:
+                    logger.exception("[CpDiagnose] failed for account %s: %s", account_id[:8], exc)
+                finally:
+                    await conn.execute(
+                        "UPDATE operations.platform_outbox SET processed_at = now() WHERE id = $1",
+                        row["id"],
+                    )
+        finally:
+            await bot.session.close()
 
 
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
@@ -1164,7 +1177,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
-    _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
+    _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0, max_instances=1)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_check_marathon_split_delivery, 'cron', hour='4,5,6', minute='5,35', id='marathon_split_watchdog', max_instances=1)  # WP-330 С5: split rollout watchdog (auto-noop вне 31.05 04:00-06:30 МСК)
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
