@@ -488,8 +488,8 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 - T0: анонимный / без профиля (UITier.T0)
 - T1: привязан к Aisystant, нет активной подписки БР (UITier.T1)
 - T2: подписка «Инженерия интеллекта» на Aisystant (UITier.T2_LEARNING)
-- T3: T2 + ЦД подключён
-- T4: T3 + GitHub подключён
+- T3: T2 + подключён любой AI-клиент (claude.ai / Claude Code / VS Code / Telegram) — WP-406 Ф13. **НЕ** «ЦД подключён»: сигнал AI-клиента бот читает через `_is_ai_client_connected` (Telegram OAuth ИЛИ persona traits `mcp_connected`/`tier>=T3`, выставляет шлюз при claude.ai OAuth)
+- T4: T3 + GitHub подключён (требует T3 — `is_github AND is_ai_client`)
 - TD1: DEVELOPER_CHAT_ID
 - TG Stars = донаты (благодарность), НЕ влияют на тир/доступ
 - Тир падает до T1 при истечении подписки БР (WP-210 Ф2a)

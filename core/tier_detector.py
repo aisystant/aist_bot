@@ -3,13 +3,16 @@ from __future__ import annotations
 """
 UI Tier detection — subscription + connections.
 
-Source-of-truth: WP-52 + WP-79 + WP-85
+Source-of-truth: WP-52 + WP-79 + WP-85 + WP-406 Ф13/Ф14 (T3 semantics)
 
 Tier model (cumulative, payment-first):
   T0 (0):  not linked to Aisystant
   T1 (1): linked, no active БР subscription
   T2: Aisystant «Инженерия интеллекта» subscription active
-  T3: T2 + Digital Twin connected
+  T3: T2 + AI client connected (any interface: claude.ai / Claude Code / VS Code / Telegram).
+      WP-406 Ф13 consensus: T3 condition is "any AI client connected", NOT "Digital Twin".
+      The platform records the signal in persona traits (tier>=T3 or mcp_connected) when a
+      user connects via claude.ai; the bot must honor it so it never downgrades such a user.
   T4: T3 + GitHub connected
   T5: platform admin (DEVELOPER_CHAT_ID)
 
@@ -87,18 +90,22 @@ async def detect_ui_tier(chat_id: int) -> int:
     if not aisystant_id:
         new_tier = UITier.T0
     else:
-        # Parallel: subscription check (Aisystant HTTP) + github (secrets pool) + dt (in-memory).
+        # Parallel: subscription check (Aisystant HTTP) + github (secrets pool) + AI-client.
         # Все три нужны только для T1+; запускаем параллельно после подтверждения aisystant_id.
-        has_sub, is_github, is_dt = await asyncio.gather(
+        has_sub, is_github, is_ai_client = await asyncio.gather(
             _has_active_subscription(chat_id, aisystant_id),
             _is_github_connected(chat_id),
-            _is_dt_connected(chat_id),
+            _is_ai_client_connected(chat_id),
         )
+        # Subscription first — its expiry always downgrades (no traits can override it).
         if not has_sub:
             new_tier = UITier.T1
-        elif is_github:
+        # DRIFT-3 fix (WP-406 Ф14): T4 requires T3 — GitHub alone never grants T4.
+        elif is_github and is_ai_client:
             new_tier = UITier.T4_CREATION
-        elif is_dt:
+        # DRIFT-1 fix (WP-406 Ф14): T3 = any AI client connected (Telegram OAuth OR
+        # claude.ai/Claude Code signal recorded in persona traits).
+        elif is_ai_client:
             new_tier = UITier.T3_PERSONALIZATION
         else:
             new_tier = UITier.T2_LEARNING
@@ -221,12 +228,59 @@ async def _is_github_connected(chat_id: int) -> bool:
         return False
 
 
-async def _is_dt_connected(chat_id: int) -> bool:
-    """Check if Digital Twin is connected (has valid Ory tokens via Gateway)."""
+async def _is_ai_client_connected(chat_id: int) -> bool:
+    """Check if the user has ANY AI client connected (T3 condition, WP-406 Ф13).
+
+    Two signal sources, unioned:
+      1. Telegram-side gateway OAuth (in-memory) — set when the user runs /connect_external.
+      2. Persona traits signal — set by the platform gateway when the user connects via
+         claude.ai / Claude Code (POST /tier/mcp-signal writes tier=T3 + mcp_connected=true).
+
+    Source 2 is why a claude.ai-only user must not be downgraded by the bot: the platform
+    already recorded the AI-client connection in persona traits.
+
+    TEMP (WP-406 Ф14): reading persona traits makes the bot (authoritative tier computer
+    per WP-392) depend on a derived store. This is a deliberate stopgap until WP-430
+    consolidates tier ownership into the platform (bot becomes a pure reader).
+    """
     try:
         from clients.gateway_mcp import gateway_mcp
-        return gateway_mcp.is_connected(chat_id)
+        if gateway_mcp.is_connected(chat_id):
+            return True
     except Exception:
+        pass
+    return await _persona_has_ai_signal(chat_id)
+
+
+async def _persona_has_ai_signal(chat_id: int) -> bool:
+    """Read persona traits to detect a platform-recorded AI-client connection.
+
+    True if traits.mcp_connected is true OR traits.tier already at T3/T4 — both are set by
+    the gateway mcp-signal on claude.ai/Claude Code OAuth. Fails closed (False) on any error.
+    """
+    try:
+        ory_id = await _get_ory_id(chat_id)
+        if not ory_id:
+            return False
+        from db.connection import get_persona_pool
+        persona_pool = await get_persona_pool()
+        async with persona_pool.acquire() as pconn:
+            row = await pconn.fetchrow(
+                """
+                SELECT traits->>'mcp_connected' AS mcp_connected,
+                       traits->>'tier'          AS tier
+                FROM public.ory_identity
+                WHERE account_id = $1::uuid
+                """,
+                ory_id,
+            )
+        if not row:
+            return False
+        if str(row["mcp_connected"]).lower() == "true":
+            return True
+        return row["tier"] in ("T3", "T4")
+    except Exception as e:
+        logger.warning(f"[Tier] persona AI-signal read failed for {chat_id}: {e}")
         return False
 
 
