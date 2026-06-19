@@ -2276,6 +2276,7 @@ async def _send_slot_daily_prompt():
             InlineKeyboardButton(text="1 ч", callback_data="slot_daily:1.0"),
             InlineKeyboardButton(text="2 ч", callback_data="slot_daily:2.0"),
         ], [
+            InlineKeyboardButton(text="Своё время", callback_data="slot_daily:custom"),
             InlineKeyboardButton(text="Не учился сегодня", callback_data="slot_daily:skip"),
         ]])
 
