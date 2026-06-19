@@ -97,7 +97,10 @@ async def on_day(message: Message) -> None:
             logger.exception("[day] hermes_chat failed for chat %s", chat_id)
             response = None
 
-    if not response:
+    if not response or response in (
+        gateway_mcp.HERMES_UNAVAILABLE_MESSAGE,
+        gateway_mcp.HERMES_TIMEOUT_MESSAGE,
+    ):
         await message.answer(rhythm_header.rstrip() + "\n\n" + _UNAVAILABLE_MSG)
         return
 
