@@ -122,4 +122,7 @@ async def on_iwe(message: Message) -> None:
                 pat.pattern, chat_id,
             )
 
-    await message.answer(response, parse_mode="Markdown")
+    try:
+        await message.answer(response, parse_mode="Markdown")
+    except Exception:
+        await message.answer(response)
