@@ -57,6 +57,11 @@ class EditTimeStates(StatesGroup):
     waiting_new_value = State()
 
 
+class SlotDailyStates(StatesGroup):
+    """Ф13c: свободный ввод времени или исправление после ежедневного prompt."""
+    waiting_hours = State()
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 _HOURS_PATTERN = re.compile(
@@ -226,7 +231,9 @@ async def _get_user_stage(user_id: int) -> Optional[int]:
     return None
 
 
-async def _send_slot_summary(message: Message, user_id: int, hours: float) -> None:
+async def _send_slot_summary(
+    message: Message, user_id: int, hours: float, event_id: Optional[int] = None
+) -> None:
     """Отправить сводку после записи слота."""
     sum_7d, _ = await _get_weekly_stats(user_id)
     stage = await _get_user_stage(user_id)
@@ -237,7 +244,13 @@ async def _send_slot_summary(message: Message, user_id: int, hours: float) -> No
     if goal and stage:
         lines.append(f"Цель на ступени {stage}: {goal} ч/нед.")
 
-    await message.answer("\n".join(lines))
+    fix_kb = None
+    if event_id:
+        fix_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Исправить", callback_data=f"slot_fix:{event_id}"),
+        ]])
+
+    await message.answer("\n".join(lines), reply_markup=fix_kb)
 
 
 # ── /slot command ──────────────────────────────────────────────────────────
@@ -311,12 +324,12 @@ async def _do_log_slot(message: Message, user_id: int, hours: float) -> None:
         return
 
     from db.queries.events import log_event
-    await log_event(
+    event_id = await log_event(
         user_id=user_id,
         event_type="slot_logged",
         payload={"hours": hours, "source": "active", "confidence": "measured"},
     )
-    await _send_slot_summary(message, user_id, hours)
+    await _send_slot_summary(message, user_id, hours, event_id=event_id)
 
 
 # ── /onboarding_time wizard ────────────────────────────────────────────────
@@ -867,19 +880,88 @@ async def on_et_new_value(message: Message, state: FSMContext) -> None:
 async def on_slot_daily_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Callback для ежедневного prompt — записать часы или пропустить (Ф13c, WP-310).
 
-    Payload: slot_daily:0.5 / slot_daily:1.0 / slot_daily:2.0 / slot_daily:skip
+    Payload: slot_daily:0.5 / slot_daily:1.0 / slot_daily:2.0 / slot_daily:custom / slot_daily:skip
     """
+    value = callback.data.split(":", 1)[1]
+
+    if value == "skip":
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await callback.answer("OK, нет проблем — запишешь позже через /slot.")
+        return
+
+    if value == "custom":
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await callback.answer()
+        await callback.message.answer("Сколько часов? Введи число (например, 1.5 или «45 мин»):")
+        await state.set_data({})
+        await state.set_state(SlotDailyStates.waiting_hours)
+        return
+
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    value = callback.data.split(":", 1)[1]
-    if value == "skip":
-        await callback.answer("OK, нет проблем — запишешь позже через /slot.")
-        return
-
     hours = float(value)
     user_id = callback.message.chat.id
     await callback.answer()
     await _do_log_slot(callback.message, user_id, hours)
+
+
+@slot_router.message(SlotDailyStates.waiting_hours)
+async def on_slot_daily_custom_hours(message: Message, state: FSMContext) -> None:
+    """Принять свободный ввод часов: из daily prompt (new) или исправление (fix)."""
+    hours = _parse_hours(message.text or "")
+    if hours is None:
+        await message.answer("Не понял. Введи число, например 1.5 или 2:")
+        return
+
+    data = await state.get_data()
+    fix_event_id = data.get("fix_event_id")
+    await state.clear()
+
+    if fix_event_id:
+        try:
+            from db.connection import get_pool
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                result = await conn.execute('''
+                    UPDATE development.user_events
+                    SET payload = jsonb_set(payload::jsonb, '{hours}', $3::text::jsonb)
+                    WHERE id = $1 AND user_id = $2
+                ''', fix_event_id, message.chat.id, str(hours))
+            if result == "UPDATE 0":
+                await message.answer("Запись не найдена. Возможно, уже изменена.")
+            else:
+                await message.answer(f"✅ Исправлено: {hours} ч.")
+        except Exception as e:
+            logger.error(f"[slot] fix event {fix_event_id} error: {e}")
+            await message.answer(f"Ошибка исправления: {e}")
+    else:
+        await _do_log_slot(message, message.chat.id, hours)
+
+
+@slot_router.callback_query(F.data.startswith("slot_fix:"))
+async def on_slot_fix_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Исправить только что записанный slot — запросить новое значение."""
+    try:
+        event_id = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка: некорректный ID записи.")
+        return
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await state.update_data(fix_event_id=event_id)
+    await state.set_state(SlotDailyStates.waiting_hours)
+    await callback.answer()
+    await callback.message.answer("Введи правильное число часов (например, 0.5 или 2):")

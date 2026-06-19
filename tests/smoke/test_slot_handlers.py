@@ -224,6 +224,24 @@ class TestSlotDailyCallback:
             hours = float(raw)
             assert 0.1 <= hours <= 24.0
 
+    def test_slot_daily_custom_value_recognized(self):
+        """slot_daily:custom — специальное значение, запускает FSM ввода."""
+        router_source = Path(_PROJECT_ROOT, "handlers", "slot.py").read_text()
+        assert "slot_daily:custom" in router_source
+        assert "SlotDailyStates" in router_source
+
+    def test_slot_daily_custom_button_in_scheduler(self):
+        """Кнопка «Своё время» присутствует в ежедневном prompt."""
+        sched_path = Path(_PROJECT_ROOT, "core", "scheduler.py")
+        content = sched_path.read_text()
+        assert "slot_daily:custom" in content
+
+    def test_slot_fix_callback_registered(self):
+        """slot_fix: callback для исправления записи зарегистрирован."""
+        router_source = Path(_PROJECT_ROOT, "handlers", "slot.py").read_text()
+        assert "slot_fix:" in router_source
+        assert "on_slot_fix_callback" in router_source
+
     def test_scheduler_daily_prompt_defined(self):
         """_send_slot_daily_prompt зарегистрирован в scheduler.py."""
         sched_path = Path(_PROJECT_ROOT, "core", "scheduler.py")
