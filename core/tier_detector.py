@@ -66,11 +66,11 @@ async def detect_ui_tier(chat_id: int) -> int:
         UITier constant (0-5)
     """
     # T5: Platform admin (always, regardless of subscription).
-    # Also persist T4 to persona so the gateway JWT-path (which only knows T0-T4)
-    # grants full access. Without this write ory_identity.traits.tier stays null,
-    # the DB check in gateway falls back to T1, and T3+ tools are blocked.
-    # Note: if DISABLE_BOT_TIER_SYNC=true the write is silently skipped by
-    # update_user_tier — in that case re-enable the flag or set persona tier manually.
+    # Persists T4 to public.users.tier only. Since WP-430 Ф3 the bot no longer
+    # writes persona.ory_identity.traits.tier — user-profile-service is the sole
+    # writer. The gateway JWT-path reads traits.tier from persona, so dev-chat
+    # full access over that path now requires connecting MCP/GitHub (which makes
+    # user-profile-service write T3/T4), not this local persist.
     if _DEV_CHAT_ID and str(chat_id) == _DEV_CHAT_ID:
         asyncio.create_task(_persist_tier(chat_id, UITier.T4_CREATION))
         return UITier.T5_ADMIN
@@ -235,12 +235,12 @@ async def _is_dt_connected(chat_id: int) -> bool:
 async def _persist_tier(chat_id: int, tier: int) -> None:
     """Persist computed tier to public.users (fire-and-forget).
 
-    Топология тира (WP-392): бот = authoritative вычислитель → пишет
-    public.users.tier (здесь, через update_user_tier) + эмитит tier_changed.
-    persona.ory_identity.traits.tier пишет WP-270 worker по tier_changed
-    (канонически) + временный дублёр в update_user_tier (флаг
-    DISABLE_BOT_TIER_SYNC). Шлюз ЧИТАЕТ тир из persona через
-    user-profile-service GET /tier (это читатель, не писатель).
+    Tier topology after WP-430 Ф3: the bot is the authoritative tier *computer* —
+    it writes public.users.tier (here, via update_user_tier) and emits tier_changed.
+    Writing persona.ory_identity.traits.tier belongs exclusively to
+    user-profile-service (DP.ROLE.078 "Tier Authority"). The WP-270 worker no
+    longer projects tier_changed into persona, and the in-bot duplicate writer was
+    removed. The gateway READS tier from persona via user-profile-service GET /tier.
     """
     try:
         from db.queries.identity import update_user_tier
