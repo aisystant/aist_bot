@@ -9,6 +9,7 @@ from __future__ import annotations
 - Сообщения с "." — исчезающие заметки
 """
 
+import asyncio
 import logging
 import time
 
@@ -433,6 +434,7 @@ async def handle_fleeting_note(message: Message):
         branch = result.get('branch', 'main')
         url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
         await message.answer(t('github.note_saved', lang, url=url))
+        asyncio.create_task(_capture_note_trace(telegram_user_id, note_text, message.message_id))
     else:
         await message.answer(t('github.note_error', lang))
 
@@ -475,6 +477,7 @@ async def handle_forwarded_message(message: Message):
                 branch = await github_oauth.get_default_branch(telegram_user_id)
                 url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
                 await message.answer(t('github.note_saved', lang, url=url))
+                asyncio.create_task(_capture_note_trace(telegram_user_id, note_text, message.message_id))
             else:
                 await message.answer(t('github.note_error', lang))
             return
@@ -511,3 +514,23 @@ def _extract_message_text(message: Message, lang: str = 'ru') -> str:
         parts.append(message.caption)
 
     return " ".join(parts).strip()
+
+
+async def _capture_note_trace(telegram_user_id: int, note_text: str, message_id: int) -> None:
+    """Record a saved fleeting note as a user trace (WP-427, additive sensor bot_note).
+
+    Best-effort and out of band: a trace failure must never break note-saving, so this runs
+    as a fire-and-forget task and only logs on failure. external_id is the telegram message id
+    so a retry of the same note dedups on the trace-accountant side (ON CONFLICT).
+    """
+    try:
+        from clients.gateway_mcp import gateway_mcp
+        await gateway_mcp.capture_trace(
+            sensor_id="bot_note",
+            event_type="note_created",
+            content={"text": note_text[:2000]},
+            telegram_user_id=telegram_user_id,
+            external_id=f"tg_note_{message_id}",
+        )
+    except Exception as e:
+        logger.warning(f"capture_trace(bot_note) failed for user {telegram_user_id}: {e}")
