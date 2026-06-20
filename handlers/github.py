@@ -517,14 +517,13 @@ def _extract_message_text(message: Message, lang: str = 'ru') -> str:
 
 
 async def _capture_note_trace(telegram_user_id: int, note_text: str, message_id: int) -> None:
-    """Record a saved fleeting note as a user trace (WP-427, additive sensor bot_note).
-
-    Best-effort and out of band: a trace failure must never break note-saving, so this runs
-    as a fire-and-forget task and only logs on failure. external_id is the telegram message id
-    so a retry of the same note dedups on the trace-accountant side (ON CONFLICT).
-    """
+    """Best-effort fire-and-forget: record saved note as a trace (WP-427, sensor bot_note)."""
     try:
         from clients.gateway_mcp import gateway_mcp
+        if not gateway_mcp.has_token(telegram_user_id):
+            # User not connected to Aisystant — skip silently to avoid a useless 401 cycle.
+            logger.info("capture_trace(bot_note) skipped: user %s not connected to Aisystant", telegram_user_id)
+            return
         await gateway_mcp.capture_trace(
             sensor_id="bot_note",
             event_type="note_created",
@@ -533,4 +532,4 @@ async def _capture_note_trace(telegram_user_id: int, note_text: str, message_id:
             external_id=f"tg_note_{message_id}",
         )
     except Exception as e:
-        logger.warning(f"capture_trace(bot_note) failed for user {telegram_user_id}: {e}")
+        logger.warning("capture_trace(bot_note) failed for user %s: %s", telegram_user_id, e)
