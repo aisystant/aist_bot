@@ -9,7 +9,6 @@ T1+: telegram_id + ory_id (заполняется при регистрации 
 
 import asyncio
 import logging
-import os
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -19,13 +18,6 @@ from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
 
-# WP-392-b1 follow-up (peer-session 2026-06-09-13): миграция на единственного
-# писателя persona.ory_identity.traits.tier = WP-270 projection-worker.
-# Флаг отключает ВРЕМЕННЫЙ прямой дублёр бота (_sync_tier_to_persona).
-# Default: дублёр ВКЛ (поведение без изменений). Установить "1"/"true"/"yes"
-# чтобы отдать запись persona.tier исключительно worker'у — только ПОСЛЕ
-# прод-верификации его курсора (см. follow-up D4 /health/deep в WP-392-b1).
-DISABLE_BOT_TIER_SYNC = os.getenv("DISABLE_BOT_TIER_SYNC", "").lower() in ("1", "true", "yes")
 
 
 async def get_or_create_user(
@@ -246,19 +238,12 @@ async def reconcile_dt_user_id(limit: int = 1000) -> dict:
 
 
 async def update_user_tier(telegram_id: int, tier: str) -> bool:
-    """Обновить тир пользователя.
+    """Update user tier in public.users and emit tier_changed event.
 
-    Бот — authoritative вычислитель тира: пишет public.users.tier (здесь) и
-    эмитит событие tier_changed. КАНОНИЧЕСКАЯ проекция tier_changed →
-    persona.ory_identity.traits.tier выполняется WP-270 projection-worker
-    (правило в reference.public.projection_rules; README worker'а, строка 34).
-
-    _sync_tier_to_persona ниже — ВРЕМЕННЫЙ прямой дублёр того же значения в
-    persona, НЕ safety-net: оба писателя выводят tier из одного события и пишут
-    одно значение. Расхождение возможно лишь в узком окне «две смены тира подряд
-    + отставший persona-курсор worker'а» (тир меняется редко, окно мало).
-    Дублёр управляется флагом DISABLE_BOT_TIER_SYNC и подлежит удалению после
-    перехода на worker как единственного писателя (WP-392-b1 follow-up #2).
+    Bot is the authoritative tier computer: reads subscription/github/DT state,
+    writes public.users.tier, and emits tier_changed.
+    Writing traits.tier in persona.ory_identity belongs exclusively to
+    user-profile-service (WP-430 Ф3).
     """
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -290,67 +275,7 @@ async def update_user_tier(telegram_id: int, tier: str) -> bool:
                 },
             ))
 
-            # WP-392 Б1: временный прямой дублёр в persona (канонический писатель —
-            # WP-270 worker по tier_changed). Гасится флагом DISABLE_BOT_TIER_SYNC.
-            # Первый attempt inline (без задержки) — устраняет race с gateway GET /tier
-            # на T4-full-path (detect_ui_tier → _persist_tier — fire-and-forget task,
-            # hermes_chat вызывается сразу). При ошибке — fallback на background retry 3×.
-            if ory_id_str and not DISABLE_BOT_TIER_SYNC:
-                try:
-                    await _sync_persona_tier_once(ory_id_str, tier)
-                    logger.info("[Identity] persona tier synced inline ory_id=%s tier=%s", ory_id_str, tier)
-                except Exception as _exc:
-                    logger.warning("[Identity] inline persona sync failed (%s), scheduling background retry", _exc)
-                    asyncio.create_task(_sync_tier_to_persona(ory_id_str, tier))
-
             return True
         return False
 
 
-_PERSONA_TIER_SQL = """
-    UPDATE public.ory_identity
-    SET traits = jsonb_set(
-        COALESCE(traits, '{}'::jsonb),
-        '{tier}',
-        to_jsonb($2::text),
-        true
-    ),
-    last_sync = NOW()
-    WHERE account_id = $1::uuid
-"""
-
-
-async def _sync_persona_tier_once(ory_id: str, tier: str) -> None:
-    """Single attempt to write tier into persona.ory_identity.traits (no delay, no retry)."""
-    from db.connection import get_persona_pool
-    persona_pool = await get_persona_pool()
-    async with persona_pool.acquire() as pconn:
-        await pconn.execute(_PERSONA_TIER_SQL, ory_id, tier)
-
-
-async def _sync_tier_to_persona(ory_id: str, tier: str) -> None:
-    """Fire-and-forget: записать tier в persona.ory_identity.traits. Retry 3× с backoff.
-
-    ВРЕМЕННЫЙ дублёр (см. update_user_tier): канонический писатель — WP-270 worker
-    по событию tier_changed. Гонка-под-лагом возможна при быстрых сменах тира;
-    удалить после миграции на worker как единственного писателя (флаг
-    DISABLE_BOT_TIER_SYNC отключает дублёр без удаления кода).
-    """
-    delays = [0, 5, 30]  # секунды перед 1-й, 2-й, 3-й попыткой
-    for attempt, delay in enumerate(delays, start=1):
-        if delay:
-            await asyncio.sleep(delay)
-        try:
-            await _sync_persona_tier_once(ory_id, tier)
-            return
-        except Exception as exc:
-            if attempt == len(delays):
-                logger.error(
-                    f"[Identity] _sync_tier_to_persona gave up after {attempt} attempts "
-                    f"for ory_id={ory_id}: {exc}"
-                )
-            else:
-                logger.warning(
-                    f"[Identity] _sync_tier_to_persona attempt {attempt} failed "
-                    f"for ory_id={ory_id}: {exc}. Retrying in {delays[attempt]}s."
-                )
