@@ -2,8 +2,13 @@
 SafeBot — transport-layer Markdown → HTML intercept.
 
 All parse_mode="Markdown" calls are automatically converted to HTML
-via md_to_html(). This eliminates TelegramBadRequest: can't parse entities
-for the ENTIRE bot — every send path goes through Bot methods.
+via enforce_iwe_style() + md_to_html(). This eliminates
+TelegramBadRequest: can't parse entities for the ENTIRE bot —
+every send path goes through Bot methods.
+
+Pipeline for parse_mode="Markdown":
+  1. enforce_iwe_style() — em-dash IWE policy (replaces forbidden —)
+  2. md_to_html()        — converts **bold**, #headers, `code` → safe HTML
 
 Coverage:
 - bot.send_message() → direct calls + message.answer() + message.reply()
@@ -17,6 +22,9 @@ from aiogram import Bot
 from aiogram.types import Message
 from typing import Union
 
+from helpers.markdown_to_html import md_to_html
+from helpers.sanitize import enforce_iwe_style
+
 
 class SafeBot(Bot):
     """Bot subclass that auto-converts Markdown → HTML at transport layer."""
@@ -28,8 +36,7 @@ class SafeBot(Bot):
         **kwargs,
     ) -> Message:
         if kwargs.get('parse_mode') == 'Markdown':
-            from helpers.markdown_to_html import md_to_html
-            text = md_to_html(text)
+            text = md_to_html(enforce_iwe_style(text))
             kwargs['parse_mode'] = 'HTML'
         return await super().send_message(chat_id, text, **kwargs)
 
@@ -39,7 +46,6 @@ class SafeBot(Bot):
         **kwargs,
     ) -> Union[Message, bool]:
         if kwargs.get('parse_mode') == 'Markdown':
-            from helpers.markdown_to_html import md_to_html
-            text = md_to_html(text)
+            text = md_to_html(enforce_iwe_style(text))
             kwargs['parse_mode'] = 'HTML'
         return await super().edit_message_text(text, **kwargs)
