@@ -1,77 +1,79 @@
-# Сценарий C-33: Day Open дайджест (/day)
+---
+family: C
+type: scenario
+commands: [/day]
+tier_access: T2-T4
+status: active
+wp: WP-428
+related_sc: DP.SC.184
+---
 
-**Класс:** Микро (Вид C)
-**РП:** WP-428 Ф3
-**Handler:** `handlers/day.py` — `on_day`
-**Команда:** `/day`
+# Scenario 03-33: Day Open Digest (`/day`)
+
+**Вид:** C (Микро) — команда без FSM-состояний, один ответ  
+**Хендлер:** `handlers/day.py` `on_day`  
+**РП:** WP-428 Ф3  
+**Service Clause:** DP.SC.184 (draft)
 
 ## Триггеры
 
-| Ввод | Роутер |
-|------|--------|
-| `/day` | `day_router` (Command filter) |
+| Триггер | Пример |
+|---------|--------|
+| Команда `/day` | `/day` |
 
-## Поведение по тирам
+## Пользователи и тиры
 
 | Тир | Поведение |
 |-----|-----------|
-| T0/T1 | CTA: "Оформи подписку: /subscribe" |
-| T2 | CTA: "Подключи IWE через /connect" |
-| T3+ | Полный дайджест: ритм + активные РП + фокус |
+| T1 (нет подписки) | «Открытие дня доступно с подпиской. Оформи: /subscribe» |
+| T2 (подписка, IWE не подключён) | Краткий анонс без персональных данных + CTA `/connect` |
+| T3+ (IWE подключён) | Полный дайджест: ритм + активные РП + фокус-задача дня |
 
-### T3+ full digest
+## Блокираторы (SkipHandler)
 
-1. Pre-fetch из rewards DB (Railway): `get_today_total(ory_id)`, `get_earned_total(ory_id)` — sequential, вне keep_typing
-2. `keep_typing(message)` стартует
-3. `gateway_mcp.hermes_chat(message=HERMES_PROMPT, telegram_user_id=chat_id)` — подгружает user context через Aisystant MCP
-4. Собирается `full_msg = rhythm_header + hermes_response`
-5. Отправляется с `parse_mode="Markdown"`, fallback — без parse_mode
+- Активная SM ждёт ответа (`_sm_is_expecting_reply`)
+- Фиксация дайджеста (`FeedDigestState.is_waiting_fixation`)
+- Онбординг не завершён → «Сейчас недоступно. Попробуй позже.»
 
-### Частичный дайджест (hermes_chat failed)
+## Данные / контекст (data-scope guard)
 
-Если hermes_chat упал — показывается только ритм-строка + "Сейчас недоступно. Попробуй позже."
+| Слой данных | T1-T2 | T3+ |
+|-------------|-------|-----|
+| Ритм (баллы сегодня / всего) | нет | из `rewards` DB через `ory_id` |
+| Активные РП | не передаются | 🔄-строки из `current/active-wp.md` GitHub-репозитория стратега, ≤800 символов |
+| Архивные / closed РП | никогда | никогда |
+| Fallback (нет `active-wp.md`) | — | Hermes отвечает без имён РП (промпт `_HERMES_PROMPT_NO_WP`) |
 
-## SM guard
+**Инвариант privacy:** WP-номера — не PII, но являются стратегическим контекстом пользователя. Они никогда не передаются на тир T1-T2. T3+: передаются только актуальные (🔄) РП через system-prompt Hermes, не возвращаются пользователю в сыром виде — только в виде синтеза Hermes.
 
-Проверяется до tier-detection:
-- `_sm_is_expecting_reply(chat_id)` — async, из `handlers/external_session`
-- `FeedDigestState.is_waiting_fixation(chat_id)` — sync, из `states.feed.digest`
-
-При активном SM → `raise SkipHandler` (передаём управление следующему роутеру).
-
-## Формат ответа (T3+)
+## Поток (T3+)
 
 ```
-📅 Открытие дня
-
-Ритм: 42 балла сегодня  •  Всего: 1 840
-
-<hermes_chat response: 3-5 строк>
-1-2 активных РП (название + что дальше)
-Одна фокус-задача на сегодня
+/day
+  └── guard: SM/feed ждут? → SkipHandler
+  └── get_intern + onboarding_completed? → unavailable если нет
+  └── detect_ui_tier → T1/T2/T3+
+  └── T1 → subscribe CTA
+  └── T2 → connect CTA
+  └── T3+:
+        ├── resolve_ory_id_from_chat
+        ├── get_today_total(ory_id) + get_earned_total(ory_id)
+        ├── github_strategy.get_active_wp(chat_id)  # 🔄 rows, ≤800 chars
+        ├── build hermes_prompt (with WPs or fallback no-wp)
+        └── gateway_mcp.hermes_chat(hermes_prompt, chat_id)
+              └── rhythm_header + hermes_response → answer
 ```
 
 ## SLA
 
-- Pre-fetch rewards DB: <100ms
-- hermes_chat: ≤60s (keep_typing активен)
-- Общий `/day` → ответ: **≤60s**
+- Keep_typing активен на время `hermes_chat`
+- T3+ ожидаемое время: 10–60с (зависит от hermes_chat latency)
 
-## Почему rewards pre-fetch нужен (не через hermes_chat)
+## Ошибки
 
-`dt_sync.sync_engagement_to_dt()` синхронизирует engagement/coding/LMS в Digital Twin,
-но НЕ синхронизирует `rewards.applied_events` (Railway rewards pool). Поэтому
-`hermes_chat.get_user_context` не видит today's points — нужен прямой запрос.
-
-## Known limitations (Ф3 MVP)
-
-- **Weekly slots** (инвестированные часы/неделю) — нет готового запроса в bot DB; defer to Ф3б
-- **Double /day** — два параллельных hermes_chat вызова при быстром двойном tap; известное ограничение, не блокер
-- **Active WPs accuracy** — зависит от hermes_chat / get_user_context; T3 (без GitHub T4) может иметь неполный список РП
-
-## Связанные артефакты
-
-- `handlers/day.py` — реализация
-- `handlers/iwe.py` — паттерны Ф2 (tier guard, keep_typing, PII guard, try/except parse_mode)
-- `inbox/WP-428/WP-428.md` — контекст РП
-- `DP.SC.154` — peer-session протокол
+| Ситуация | Поведение |
+|---------|-----------|
+| `hermes_chat` упал / timeout | Rhythm header + «Сейчас недоступно. Попробуй позже.» |
+| `active-wp.md` недоступен (GitHub 404 / нет токена) | Hermes отвечает без РП (промпт no-wp) |
+| Нет `ory_id` (GitHub connect не настроен) | Ритм показывает 0/0, остальное работает |
+| Markdown parse error | Ответ повторяется без `parse_mode="Markdown"` |
