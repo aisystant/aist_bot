@@ -450,8 +450,15 @@ class GatewayMCPClient:
             if token:
                 headers["Authorization"] = f"Bearer {token}"
             else:
-                # Требуется пользовательский контекст, но токенов нет
+                # Требуется пользовательский контекст, но токенов нет.
+                # Не делаем запрос без авторизации — gateway отобьёт 401 ещё до
+                # маршрутизации, а refresh нечего рефрешить.
                 self._last_call_error = "not_authorized"
+                logger.warning(
+                    f"Gateway: call to '{tool_name}' for user {telegram_user_id} "
+                    f"skipped — no Ory token (re-auth needed)"
+                )
+                return None
 
         # Trace correlation
         try:
