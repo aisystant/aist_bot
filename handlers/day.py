@@ -28,9 +28,18 @@ _CONNECT_MSG = (
     "Чтобы видеть активные задачи и рекомендацию — подключи IWE: /connect"
 )
 _UNAVAILABLE_MSG = "Сейчас недоступно. Попробуй позже."
-_HERMES_PROMPT = (
-    "Дай краткое открытие дня: 1-2 активных рабочих продукта (название + что дальше), "
-    "одна конкретная фокус-задача на сегодня. Всего 3-5 строк."
+_HERMES_WP_PREFIX = (
+    "Дай краткое открытие дня. "
+    "Активные рабочие продукты пилота (только их — не придумывай другие):\n"
+)
+_HERMES_WP_SUFFIX = (
+    "\n\nВыбери 1-2 наиболее актуальных, скажи что дальше. "
+    "Добавь одну конкретную фокус-задачу. Всего 3-5 строк."
+)
+_HERMES_PROMPT_NO_WP = (
+    "Дай краткое открытие дня. "
+    "Список рабочих продуктов недоступен — не придумывай названия РП. "
+    "Дай рекомендацию по ритму и одну общую фокус-задачу. Всего 3-5 строк."
 )
 
 
@@ -87,10 +96,23 @@ async def on_day(message: Message) -> None:
     )
 
     from clients.gateway_mcp import gateway_mcp
+    from clients.github_strategy import github_strategy
+
+    try:
+        active_wp = await github_strategy.get_active_wp(chat_id)
+    except Exception:
+        logger.warning("[day] get_active_wp failed for chat %s — using no-wp prompt", chat_id)
+        active_wp = None
+
+    if active_wp:
+        hermes_prompt = _HERMES_WP_PREFIX + active_wp + _HERMES_WP_SUFFIX
+    else:
+        hermes_prompt = _HERMES_PROMPT_NO_WP
+
     async with keep_typing(message):
         try:
             response = await gateway_mcp.hermes_chat(
-                message=_HERMES_PROMPT,
+                message=hermes_prompt,
                 telegram_user_id=chat_id,
             )
         except Exception:

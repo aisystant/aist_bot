@@ -30,6 +30,22 @@ MOSCOW_TZ = timezone(timedelta(hours=3))
 GITHUB_API_URL = "https://api.github.com"
 
 
+def _trim_active_wp(content: str, max_chars: int = 800) -> str:
+    """Extract in-progress (🔄) rows from active-wp.md, with table header."""
+    header = next(
+        (
+            l for l in content.splitlines()
+            if l.startswith("| #") or l.startswith("| №") or l.startswith("| **#**")
+        ),
+        "",
+    )
+    lines = [l for l in content.splitlines() if "🔄" in l]
+    if not lines:
+        return content[:max_chars]
+    body = "\n".join(lines)[:max_chars]
+    return f"{header}\n{body}" if header else body
+
+
 class GitHubStrategyClient:
     """Клиент для чтения файлов стратега из GitHub."""
 
@@ -174,6 +190,16 @@ class GitHubStrategyClient:
             return None
 
         return await self.read_file(telegram_user_id, repo, week_reports[0]["path"])
+
+    async def get_active_wp(self, telegram_user_id: int) -> Optional[str]:
+        """Returns in-progress WPs from current/active-wp.md (🔄 rows only)."""
+        access_token, repo = await self._get_auth(telegram_user_id)
+        if not access_token:
+            return None
+        content = await self.read_file(telegram_user_id, repo, "current/active-wp.md")
+        if not content:
+            return None
+        return _trim_active_wp(content)
 
     @staticmethod
     def _extract_results_section(content: str) -> Optional[str]:
