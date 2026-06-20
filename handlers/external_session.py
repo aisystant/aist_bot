@@ -697,16 +697,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _meta_content(session_id: str, tg_chat_id: int, now: str, turn_count: int = 1) -> str:
+def _meta_content(session_id: str, tg_chat_id: int, now: str,
+                  turn_count: int = 1, executor: str = "claude") -> str:
     """Сгенерировать meta SESSION-файла.
 
     WP-358 Ф10.7: target_bot указывает dispatcher'у через какой токен слать ответ.
+    WP-428 Ф5: executor указывает dispatcher'у, какой рантайм запускать
+    (claude | kimi). Отсутствует ⇒ диспетчер берёт claude по умолчанию.
     """
     return (
         f"---\n"
         f"session_id: {session_id}\n"
         f"tg_chat_id: {tg_chat_id}\n"
         f"target_bot: {_BOT_FLAVOR}\n"
+        f"executor: {executor}\n"
         f"created_at: {now}\n"
         f"last_turn_at: {now}\n"
         f"status: active\n"
@@ -723,6 +727,7 @@ def _turn_line(turn_n: int, tg_msg_id: int, now: str) -> str:
 async def _create_session(
     tg_chat_id: int, tg_msg_id: int, text: str,
     token: str, repo: str, branch: str,
+    executor: str = "claude",
 ) -> Optional[str]:
     """Create SESSION-<id>.md + SESSION-<id>-thread.md. Returns session_id or None."""
     await _ensure_sessions_folder(token, repo, branch)
@@ -734,7 +739,7 @@ async def _create_session(
 
     ok1 = await _gh_put_file(
         meta_path,
-        _meta_content(session_id, tg_chat_id, now),
+        _meta_content(session_id, tg_chat_id, now, executor=executor),
         f"session: open {session_id}",
         token, repo, branch,
     )
@@ -1222,11 +1227,14 @@ async def _get_session_data(state: FSMContext) -> Optional[dict]:
 async def _open_new_session(
     message: Message, state: FSMContext, user_text: str,
     token: str, repo: str, branch: str,
+    executor: str = "claude",
 ) -> None:
-    """Создать новую /claude сессию + установить FSM state."""
+    """Создать новую сессию + установить FSM state. executor выбирает рантайм."""
     await message.answer("⏳ Открываю сессию...")
     chat_id = message.chat.id
-    session_id = await _create_session(chat_id, message.message_id, user_text, token, repo, branch)
+    session_id = await _create_session(
+        chat_id, message.message_id, user_text, token, repo, branch, executor=executor,
+    )
     if not session_id:
         await message.answer(
             "Не удалось создать сессию. Проверь подключение GitHub в /settings.\n"
@@ -1234,8 +1242,8 @@ async def _open_new_session(
         )
         return
     await message.answer(
-        f"Сессия открыта: {session_id}\n"
-        "Claude обработает запрос и ответит здесь."
+        f"Сессия открыта: {session_id} (движок: {executor})\n"
+        "Запрос обработается, ответ придёт здесь."
     )
     # WP-7 TGSH5: захватываем message_id «⏳ Работаю...» для heartbeat-edit.
     working_msg = await message.answer("⏳ Работаю...")
@@ -1336,6 +1344,109 @@ async def cmd_claude(message: Message, state: FSMContext) -> None:
             pass
 
     await _open_new_session(message, state, user_text, token, repo, branch)
+
+
+# WP-428 Ф5: agentic runtimes reachable from the bot.
+# claude/kimi run the GitHub-dispatch path; hermes is a conversational route.
+_KNOWN_EXECUTORS = ("claude", "kimi", "hermes")
+
+
+def _parse_agent_args(raw: str) -> tuple[str, str]:
+    """Split `/agent` args into (executor, text).
+
+    The first token selects the runtime only if it is a known executor;
+    otherwise the whole string is the text and the executor defaults to claude.
+    """
+    raw = raw.strip()
+    parts = raw.split(maxsplit=1)
+    if parts and parts[0].lower() in _KNOWN_EXECUTORS:
+        text = parts[1].strip() if len(parts) > 1 else ""
+        return parts[0].lower(), text
+    return "claude", raw
+
+
+@external_session_router.message(Command("agent", ignore_case=True))
+async def cmd_agent(message: Message, state: FSMContext, command: CommandObject) -> None:
+    """/agent <executor?> <text> — open an agentic session on a chosen runtime.
+
+    executor ∈ {claude, kimi, hermes}; omitted ⇒ claude. claude/kimi run the
+    agentic GitHub-dispatch path (SESSION file → dispatcher picks the runtime
+    via the `executor` field). hermes is a conversational route to hermes_chat
+    (never touches the dispatcher) — WP-428 Ф5.
+
+    Tier handling here is a pilot stub (T4 = all runtimes); hermes reuses its
+    own tier threshold. Full Parliament-style domain scoping is a spin-off РП.
+    """
+    raw = (command.args or "").strip()
+    if not raw:
+        await message.answer(
+            "Укажите запрос: /agent <движок> <текст>\n"
+            "Движок: claude | kimi | hermes (по умолчанию claude)."
+        )
+        return
+
+    executor, user_text = _parse_agent_args(raw)
+    if not user_text:
+        await message.answer(f"Движок {executor} выбран, но текст запроса пуст.")
+        return
+
+    chat_id = message.chat.id
+    logger.info("[agent] chat=%s executor=%s len=%d", chat_id, executor, len(user_text))
+
+    # hermes = conversational route (no SESSION/dispatcher). Reuse Hermes' own
+    # tier threshold (single source) instead of hardcoding it here.
+    if executor == "hermes":
+        from core.tier_detector import detect_ui_tier
+        from handlers.hermes import _TIER_REQUIRED
+        tier = await detect_ui_tier(chat_id)
+        if tier < _TIER_REQUIRED:
+            await message.answer(
+                "Гермес-агент доступен на более высоком тарифе. "
+                "Для разговора с Проводником напишите: «Гермес, <вопрос>»."
+            )
+            return
+        from clients.gateway_mcp import gateway_mcp
+        from helpers.typing_indicator import keep_typing
+        try:
+            async with keep_typing(message):
+                response = await gateway_mcp.hermes_chat(
+                    message=user_text, telegram_user_id=chat_id,
+                )
+        except Exception:
+            logger.exception("[agent] hermes_chat failed for chat %s", chat_id)
+            await message.answer("Гермес сейчас недоступен. Попробуйте позже.")
+            return
+        await message.answer(response or "(пустой ответ)", parse_mode="Markdown")
+        return
+
+    # claude | kimi = agentic path. Continuing an active session is done via
+    # plain text (handle_session_text); /agent only opens a new one.
+    creds = await _get_github_creds(chat_id)
+    if not creds:
+        await message.answer(
+            "Для команды /agent нужно подключить GitHub и указать репо стратегии.\n"
+            "Откройте /settings → GitHub → Strategy repo."
+        )
+        return
+    token, repo, branch = creds
+
+    try:
+        current_state = await state.get_state()
+    except Exception as exc:
+        logger.error("[agent] FSM get_state failed for %s: %s", chat_id, type(exc).__name__)
+        await message.answer("Не удалось прочитать состояние сессии. Попробуйте через минуту.")
+        return
+
+    if current_state == ExternalSession.active.state:
+        data = await _get_session_data(state)
+        sid = data.get("session_id") if data else None
+        await message.answer(
+            f"У вас уже активная сессия {sid}. Продолжайте обычным текстом "
+            "или завершите её через /close, затем откройте новую через /agent."
+        )
+        return
+
+    await _open_new_session(message, state, user_text, token, repo, branch, executor=executor)
 
 
 @external_session_router.message(
