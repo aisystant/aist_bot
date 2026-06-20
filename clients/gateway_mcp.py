@@ -706,6 +706,21 @@ class GatewayMCPClient:
         )
         return self._parse_text_content(result)
 
+    async def capture_trace(self, sensor_id: str, event_type: str, content: dict,
+                            telegram_user_id: int,
+                            external_id: Optional[str] = None) -> Optional[dict]:
+        """Record a user trace via the gateway -> trace-accountant (WP-427, DP.SC.182).
+
+        Additive-consent sensors (bot_note, bot_reflection) write straight to domain_event.
+        The user is identified by the per-user Ory token the gateway forwards (the backend
+        reads `sub` from the gateway assertion), so no user_id is sent from here.
+        external_id lets retries of the same note dedup on the backend (ON CONFLICT).
+        """
+        args = {"sensor_id": sensor_id, "event_type": event_type, "content": content}
+        if external_id:
+            args["external_id"] = external_id
+        return await self._call("capture_trace", args, telegram_user_id)
+
     # =========================================================================
     # GATEWAY-LEVEL TOOLS
     # =========================================================================
