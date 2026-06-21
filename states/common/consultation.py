@@ -757,6 +757,7 @@ class ConsultationState(BaseState):
                 # Conversation history → multi-turn messages
                 history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
 
+                _t0 = time.time()
                 answer, sources = await handle_question_with_tools(
                     question=question,
                     intern=intern_dict,
@@ -770,6 +771,7 @@ class ConsultationState(BaseState):
                     ui_tier=ui_tier,
                     role_prompt_override=role_prompt,
                 )
+                logger.info("[Consultation] handle_question_with_tools done in %dms user=%s", int((time.time() - _t0) * 1000), user_chat_id)
 
                 # L1 Role Attribution: footer with role signature
                 if detected_role and role_prompt:
