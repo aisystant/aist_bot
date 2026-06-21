@@ -50,7 +50,7 @@ def _scope_label(scope_name: str, lang: str = "ru") -> str:
     return {
         "stage_evaluation": "Оценка ступени мастерства",
         "club_activity": "Активность в клубе",
-        "text_analysis": "Анализ текстов (мировоззрение)",
+        "text_analysis": "Анализ учебных текстов (тексты ответов на задания из LMS, оценка мировоззрения)",
     }.get(scope_name, scope_name)
 
 
@@ -98,8 +98,8 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
         "<b>Ваши согласия</b>\n\n"
         f"  • Трекинг активности — {status_text} (с {opted_at_short})\n"
         f"{scope_lines}\n"
-        f"  • Анализ текстов — {ta_text}\n"
-        "    <i>Точная оценка мировоззрения. Не влияет на ступень.</i>\n"
+        f"  • Анализ учебных текстов — {ta_text}\n"
+        "    <i>Хранение и анализ твоих ответов на задания из LMS для оценки мировоззрения. Не влияет на ступень.</i>\n"
     )
 
     if consent["opt_in"] and events is not None:
@@ -121,7 +121,7 @@ def _privacy_text() -> str:
         "<b>Что мы НЕ делаем:</b>\n"
         "  • Не передаём данные третьим сторонам\n"
         "  • Не используем для рекламы\n"
-        "  • Не анализируем содержимое заметок и текстов\n\n"
+        "  • Не анализируем тексты без твоего отдельного согласия (см. «Анализ учебных текстов» ниже)\n\n"
         f"Полные условия: <a href=\"{_PRIVACY_URL}\">Privacy Policy</a>\n\n"
         'Согласие можно отозвать в любой момент через <a href="https://t.me/aist_me_bot?start=consent_optout">/consent opt-out</a> '
         'или удалить запись полностью через <a href="https://t.me/aist_me_bot?start=consent_revoke">/consent revoke</a>.'
