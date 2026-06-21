@@ -12,9 +12,11 @@
 
 import logging
 import re
+import time
 
 from aiogram import Router
 from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -27,6 +29,7 @@ logger = logging.getLogger(__name__)
 hermes_router = Router(name="hermes")
 
 _HERMES_PREFIXES = ("гермес", "hermes")
+_HERMES_SESSION_KEY = "hermes_session_id"  # FSM key for per-user session override (WP-428 Ф7)
 _TIER_REQUIRED = 3
 _UNAVAILABLE_TIER_MSG = "Функция недоступна на твоём тире"
 _UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен. Попробуй позже."
@@ -69,6 +72,17 @@ def _is_hermes_message(message: Message) -> bool:
     return text.startswith(_HERMES_PREFIXES)
 
 
+@hermes_router.message(Command("hermes_reset"))
+async def on_hermes_reset(message: Message, state: FSMContext) -> None:
+    """WP-428 Ф7: reset Hermes conversation history by switching to a new session_id."""
+    if message.from_user is None:
+        return
+    user_id = message.from_user.id
+    new_sid = f"tg-{user_id}-reset-{int(time.time())}"
+    await state.update_data({_HERMES_SESSION_KEY: new_sid})
+    await message.answer("История Гермеса сброшена.")
+
+
 @hermes_router.message(_is_hermes_message)
 async def on_hermes(message: Message, state: FSMContext) -> None:
     """«Гермес, <текст>» → hermes_chat. Tier < T3 → отказ.
@@ -76,7 +90,11 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
     WP-392 Ф3.1: префикс «Гермес» имеет абсолютный приоритет.
     SkipHandler ТОЛЬКО если marathon SM ждёт ответ (не ломать марафон).
     Не-онбордированным показываем отказ tier — не пропускаем в fallback.
+    WP-428 Ф7: session_id threads conversation history through Hermes.
     """
+    if message.from_user is None:  # Hermes is per-user; skip anonymous posts
+        return
+    user_id = message.from_user.id
     chat_id = message.chat.id
     text = message.text or ""
 
@@ -127,10 +145,17 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         )
         return
 
+    state_data = await state.get_data()
+    session_id = state_data.get(_HERMES_SESSION_KEY, f"tg-{user_id}")
+
     from clients.gateway_mcp import gateway_mcp
     try:
         async with keep_typing(message):
-            response = await gateway_mcp.hermes_chat(message=hermes_msg, telegram_user_id=chat_id)
+            response = await gateway_mcp.hermes_chat(
+                message=hermes_msg,
+                telegram_user_id=chat_id,
+                session_id=session_id,
+            )
     except Exception:
         logger.exception("[hermes] hermes_chat failed for chat %s", chat_id)
         response = _UNAVAILABLE_RUNTIME_MSG
