@@ -9,31 +9,16 @@ UPSERT key: (ory_id, external_id) — one row per LMS taskanswer per user.
 
 Requires LEARNING_DATABASE_URL (learning DB, not the bot's primary DB).
 
-Projection rule SQL (run against reference DB separately):
-  INSERT INTO projection_rules (
-    event_type, target_db, target_schema, target_table,
-    upsert_key, columns, field_map
-  )
-  VALUES (
-    'lms_homework_content',
-    'learning', 'public', 'homework_content',
-    ARRAY['ory_id', 'external_id'],
-    ARRAY['ory_id', 'external_id', 'task_id', 'status', 'answer_text', 'task_text', 'ingested_at'],
-    '{
-      "_where": {
-        "ory_id":      "$.account_id",
-        "external_id": "$.payload.external_id"
-      },
-      "_set": {
-        "task_id":     "$.payload.task_id",
-        "status":      "$.payload.status",
-        "answer_text": "$.payload.answer_text",
-        "task_text":   "$.payload.task_text",
-        "ingested_at": "$.ingested_at"
-      }
-    }'::jsonb
-  )
-  ON CONFLICT (event_type) DO NOTHING;
+This migration only creates the destination TABLE. The matching projection_rules
+row (event_type 'lms_homework_content' → learning.homework_content) lives as a
+canonical seed in the neon-migrations repo and must be applied to the reference DB
+separately by an operator:
+
+  neon-migrations/mvp/269-wp427-homework-content-projection-rule.sql
+  psql "${CONN%/*}/reference?sslmode=require" -f 269-wp427-homework-content-projection-rule.sql
+
+Without that rule deployed, events flow poller → gateway → learning.domain_event
+but the projection worker finds no matching rule and writes nothing here.
 
 Manual run:
     LEARNING_DATABASE_URL=<dsn> python -m db.migrations.033_homework_content
