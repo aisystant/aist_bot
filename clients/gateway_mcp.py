@@ -1010,7 +1010,8 @@ class GatewayMCPClient:
 
         Вызывается при старте бота и как background refresh (TTL 15 мин).
         При ошибке возвращает stale-кэш (или пустой список при cold start).
-        Не требует user token — capabilities endpoint публичный.
+        Gateway требует Ory Bearer даже для discovery — используем любой
+        из загруженных токенов (результат не зависит от конкретного user).
         """
         payload = {
             "jsonrpc": "2.0",
@@ -1018,12 +1019,20 @@ class GatewayMCPClient:
             "params": {},
             "id": self._next_id()
         }
+        # Use any available user token — gateway requires auth even for discovery.
+        # Tokens are loaded from DB before list_tools() is called at startup.
+        discovery_headers: Dict[str, str] = {}
+        if self._tokens:
+            any_token = next(iter(self._tokens.values()))["access_token"]
+            discovery_headers["Authorization"] = f"Bearer {any_token}"
+
         session = await self._get_session()
         try:
             async with self._call_semaphore:
                 async with session.post(
                     self.url,
                     json=payload,
+                    headers=discovery_headers,
                     timeout=aiohttp.ClientTimeout(total=self.DEFAULT_TIMEOUT)
                 ) as resp:
                     if resp.status == 200:
