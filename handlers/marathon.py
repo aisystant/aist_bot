@@ -149,6 +149,38 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
     )
 
 
+async def reset_newcomer_marathon(user_id: int, schedule_time: str = "04:00") -> None:
+    """Reset new-engine marathon for user: wipe queue/state, re-enqueue from day 1.
+
+    Called from marathon_reset_do (mode_selector) and _reset_marathon (mydata)
+    when the user is on the new engine (learning.marathon_progress exists).
+    Unlike clear_marathon_queue, we DELETE ALL queue rows (including 'sent') so
+    enqueue_day_items inserts fresh rows instead of preserving sent status.
+    """
+    from db.connection import get_learning_pool
+    from core.marathon_content import get_day_text
+
+    now = moscow_now()
+    sched_h, sched_m = map(int, schedule_time.split(":"))
+    tomorrow_sched = datetime(now.year, now.month, now.day, sched_h, sched_m, 0, tzinfo=now.tzinfo) + timedelta(days=1)
+
+    await clear_marathon_state(user_id)
+
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM learning.marathon_queue WHERE user_id = $1", user_id)
+
+    await update_progress(user_id=user_id, current_day=1, status="active", started_at=now)
+
+    day1_time = now + timedelta(minutes=1)
+    for day in range(1, 15):
+        scheduled = day1_time if day == 1 else tomorrow_sched + timedelta(days=day - 2)
+        content_texts = {"lesson_practice": None, "checkin": get_day_text(day, "checkin")}
+        await enqueue_day_items(user_id, day, scheduled, content_texts)
+
+    logger.info("[Marathon] User %s reset newcomer marathon. Queue 1-14 re-filled.", user_id)
+
+
 # ════════════════════════════════════════════════════════════════════
 # WP-330 cutover /learn (2026-06-05): доставка урока дня в НОВОМ формате.
 # Закрывает 4 входа в старую SM (workshop.marathon.lesson): /learn, кнопка

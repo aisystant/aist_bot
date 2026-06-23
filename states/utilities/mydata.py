@@ -1030,6 +1030,14 @@ class MyDataState(BaseState):
             retry_exhausted_date=None,
         )
 
+        # Reset new-engine marathon if user is on it (learning.marathon_progress)
+        from db.queries.marathon_newcomer import is_on_newcomer_marathon
+        if await is_on_newcomer_marathon(chat_id):
+            from handlers.marathon import reset_newcomer_marathon
+            raw_user = user if isinstance(user, dict) else {}
+            sched_time = raw_user.get('schedule_time') or '04:00'
+            await reset_newcomer_marathon(chat_id, schedule_time=sched_time)
+
         await self.send(
             user, f"✅ {t('mydata.marathon_reset_done', lang, date=today.strftime('%d.%m.%Y'))}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[

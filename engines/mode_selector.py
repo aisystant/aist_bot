@@ -496,6 +496,13 @@ async def marathon_reset_do(callback: CallbackQuery):
         'trigger': 'marathon_reset',
     })
 
+    # Reset new-engine marathon if user is on it (learning.marathon_progress)
+    from db.queries.marathon_newcomer import is_on_newcomer_marathon
+    if await is_on_newcomer_marathon(chat_id):
+        from handlers.marathon import reset_newcomer_marathon
+        sched_time = (intern or {}).get('schedule_time') or '04:00'
+        await reset_newcomer_marathon(chat_id, schedule_time=sched_time)
+
     await callback.answer(t('modes.marathon_reset', lang))
 
     await callback.message.edit_text(
