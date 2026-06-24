@@ -10,6 +10,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from db.queries import get_intern, update_intern, get_topics_today
+from db.queries.users import coerce_ui_lang
 from i18n import t, detect_language
 from core.intent import detect_intent, IntentType
 from engines.shared import handle_question, ProcessingStage
@@ -121,7 +122,7 @@ async def legacy_on_unknown_message(message: Message, state: FSMContext):
     intern = await get_intern(chat_id)
 
     if not intern:
-        lang = detect_language(message.from_user.language_code if message.from_user else None)
+        lang = coerce_ui_lang(detect_language(message.from_user.language_code if message.from_user else None))  # WP-440
         await message.answer(t('fsm.new_user_start', lang))
         return
 

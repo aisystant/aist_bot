@@ -67,6 +67,7 @@ from .settings import (
 
     # Feature flags
     USE_STATE_MACHINE,
+    MULTILANG_ENABLED,
 
     # Логирование
     get_logger,
@@ -232,6 +233,7 @@ __all__ = [
     'AUTOFIX_MAX_PROPOSALS',
     'AUTOFIX_PROTECTED',
     'USE_STATE_MACHINE',
+    'MULTILANG_ENABLED',
     'get_logger',
     'MOSCOW_TZ',
     'BASE_DIR',

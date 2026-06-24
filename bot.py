@@ -24,7 +24,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeChat
 
 # Feature flags
-from config import USE_STATE_MACHINE
+from config import USE_STATE_MACHINE, MULTILANG_ENABLED
 
 # Импорты из модульных компонентов
 from clients.claude import ClaudeClient
@@ -470,62 +470,66 @@ async def main():
         BotCommand(command="status", description="Статус платформы"),
         BotCommand(command="help", description="Справка"),
     ])
-    await bot.set_my_commands([
-        BotCommand(command="learn", description="Marathon — get a lesson"),
-        BotCommand(command="train", description="Principles training"),
-        BotCommand(command="test", description="Systematicity test"),
-        BotCommand(command="marathon_start", description="Start marathon"),
-        BotCommand(command="marathon_progress", description="Marathon progress"),
-        BotCommand(command="marathon_stop", description="Stop marathon"),
-        BotCommand(command="me", description="About me — dashboard & data"),
-        BotCommand(command="points", description="Points — balance & log"),
-        BotCommand(command="reflect", description="Daily reflection to personal guide"),
-        BotCommand(command="remind", description="Reminder — /remind text [time]"),
-        BotCommand(command="consent", description="Tracking consent"),
-        BotCommand(command="features", description="Platform features"),
-        BotCommand(command="settings", description="Settings & profile"),
-        BotCommand(command="status", description="Platform status"),
-        BotCommand(command="help", description="Help"),
-    ], language_code="en")
-    await bot.set_my_commands([
-        BotCommand(command="learn", description="Maratón — obtener lección"),
-        BotCommand(command="train", description="Entrenamiento de principios"),
-        BotCommand(command="test", description="Test de sistematicidad"),
-        BotCommand(command="me", description="Sobre mí — panel y datos"),
-        BotCommand(command="points", description="Puntos — saldo y registro"),
-        BotCommand(command="reflect", description="Reflexión diaria en guía personal"),
-        BotCommand(command="consent", description="Consentimiento de seguimiento"),
-        BotCommand(command="features", description="Funciones de la plataforma"),
-        BotCommand(command="settings", description="Ajustes y perfil"),
-        BotCommand(command="status", description="Estado de la plataforma"),
-        BotCommand(command="help", description="Ayuda"),
-    ], language_code="es")
-    await bot.set_my_commands([
-        BotCommand(command="learn", description="Marathon — obtenir une leçon"),
-        BotCommand(command="train", description="Entraînement des principes"),
-        BotCommand(command="test", description="Test de systématicité"),
-        BotCommand(command="me", description="À propos de moi — tableau de bord"),
-        BotCommand(command="points", description="Points — solde et journal"),
-        BotCommand(command="reflect", description="Réflexion quotidienne — guide personnel"),
-        BotCommand(command="consent", description="Consentement au suivi"),
-        BotCommand(command="features", description="Fonctionnalités"),
-        BotCommand(command="settings", description="Paramètres et profil"),
-        BotCommand(command="status", description="Statut de la plateforme"),
-        BotCommand(command="help", description="Aide"),
-    ], language_code="fr")
-    await bot.set_my_commands([
-        BotCommand(command="learn", description="马拉松 — 获取课程"),
-        BotCommand(command="train", description="原则训练"),
-        BotCommand(command="test", description="系统性测试"),
-        BotCommand(command="me", description="关于我 — 仪表板和数据"),
-        BotCommand(command="points", description="积分 — 余额与记录"),
-        BotCommand(command="reflect", description="每日反思 — 个人指南"),
-        BotCommand(command="consent", description="发展追踪同意"),
-        BotCommand(command="features", description="平台功能"),
-        BotCommand(command="settings", description="设置与档案"),
-        BotCommand(command="status", description="平台状态"),
-        BotCommand(command="help", description="帮助"),
-    ], language_code="zh")
+    # WP-440: per-language Bot Menu commands registered only when multilingual
+    # is enabled (track A bot is Russian-only; non-ru locales fall back to the
+    # default Russian menu set above).
+    if MULTILANG_ENABLED:
+        await bot.set_my_commands([
+            BotCommand(command="learn", description="Marathon — get a lesson"),
+            BotCommand(command="train", description="Principles training"),
+            BotCommand(command="test", description="Systematicity test"),
+            BotCommand(command="marathon_start", description="Start marathon"),
+            BotCommand(command="marathon_progress", description="Marathon progress"),
+            BotCommand(command="marathon_stop", description="Stop marathon"),
+            BotCommand(command="me", description="About me — dashboard & data"),
+            BotCommand(command="points", description="Points — balance & log"),
+            BotCommand(command="reflect", description="Daily reflection to personal guide"),
+            BotCommand(command="remind", description="Reminder — /remind text [time]"),
+            BotCommand(command="consent", description="Tracking consent"),
+            BotCommand(command="features", description="Platform features"),
+            BotCommand(command="settings", description="Settings & profile"),
+            BotCommand(command="status", description="Platform status"),
+            BotCommand(command="help", description="Help"),
+        ], language_code="en")
+        await bot.set_my_commands([
+            BotCommand(command="learn", description="Maratón — obtener lección"),
+            BotCommand(command="train", description="Entrenamiento de principios"),
+            BotCommand(command="test", description="Test de sistematicidad"),
+            BotCommand(command="me", description="Sobre mí — panel y datos"),
+            BotCommand(command="points", description="Puntos — saldo y registro"),
+            BotCommand(command="reflect", description="Reflexión diaria en guía personal"),
+            BotCommand(command="consent", description="Consentimiento de seguimiento"),
+            BotCommand(command="features", description="Funciones de la plataforma"),
+            BotCommand(command="settings", description="Ajustes y perfil"),
+            BotCommand(command="status", description="Estado de la plataforma"),
+            BotCommand(command="help", description="Ayuda"),
+        ], language_code="es")
+        await bot.set_my_commands([
+            BotCommand(command="learn", description="Marathon — obtenir une leçon"),
+            BotCommand(command="train", description="Entraînement des principes"),
+            BotCommand(command="test", description="Test de systématicité"),
+            BotCommand(command="me", description="À propos de moi — tableau de bord"),
+            BotCommand(command="points", description="Points — solde et journal"),
+            BotCommand(command="reflect", description="Réflexion quotidienne — guide personnel"),
+            BotCommand(command="consent", description="Consentement au suivi"),
+            BotCommand(command="features", description="Fonctionnalités"),
+            BotCommand(command="settings", description="Paramètres et profil"),
+            BotCommand(command="status", description="Statut de la plateforme"),
+            BotCommand(command="help", description="Aide"),
+        ], language_code="fr")
+        await bot.set_my_commands([
+            BotCommand(command="learn", description="马拉松 — 获取课程"),
+            BotCommand(command="train", description="原则训练"),
+            BotCommand(command="test", description="系统性测试"),
+            BotCommand(command="me", description="关于我 — 仪表板和数据"),
+            BotCommand(command="points", description="积分 — 余额与记录"),
+            BotCommand(command="reflect", description="每日反思 — 个人指南"),
+            BotCommand(command="consent", description="发展追踪同意"),
+            BotCommand(command="features", description="平台功能"),
+            BotCommand(command="settings", description="设置与档案"),
+            BotCommand(command="status", description="平台状态"),
+            BotCommand(command="help", description="帮助"),
+        ], language_code="zh")
 
     # Команды разработчика (отдельное меню)
     dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")

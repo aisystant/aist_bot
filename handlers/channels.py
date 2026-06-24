@@ -21,7 +21,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from db.queries import get_intern
-from db.queries.users import is_onboarded
+from db.queries.users import is_onboarded, coerce_ui_lang
 from db.queries.channels import (
     get_monitors_for_channel,
     get_user_monitors,
@@ -374,7 +374,7 @@ async def _notify_reply_to_bot_user(message: Message, bot: Bot, reply_user_id: i
 
 async def _send_simple_notification(message: Message, bot: Bot, match: MentionMatch):
     """Отправить простое уведомление об упоминании."""
-    lang = match.monitor.get('language', 'ru')
+    lang = coerce_ui_lang(match.monitor.get('language'))  # WP-440: not via get_intern
     channel_title = message.chat.title or str(message.chat.id)
     author = _format_author(message.from_user)
     msg_text = (message.text or '')[:500]

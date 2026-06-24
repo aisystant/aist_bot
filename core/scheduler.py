@@ -34,7 +34,7 @@ from db.queries import get_intern, update_intern, get_all_scheduled_interns, get
 from db.queries.users import derive_mode
 from db.queries.marathon import save_marathon_content, get_marathon_content, cleanup_expired_content, cleanup_error_questions
 from db.queries.marathon_newcomer import is_on_newcomer_marathon
-from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time
+from db.queries.users import moscow_now, moscow_today, get_marathon_users_at_time, coerce_ui_lang
 from db.queries.feed import get_current_feed_week, get_feed_session, create_feed_session, expire_old_feed_sessions, update_feed_week
 from i18n import t
 from clients.claude import is_api_degraded
@@ -2208,7 +2208,7 @@ async def send_milestone_notifications():
 
             for user in users:
                 chat_id = user['chat_id']
-                lang = user.get('language', 'ru') or 'ru'
+                lang = coerce_ui_lang(user.get('language'))  # WP-440: not via get_intern
 
                 try:
                     completed = json.loads(user.get('completed_topics', '[]') or '[]')
@@ -2416,7 +2416,7 @@ async def send_engagement_nudges():
     try:
         for user in candidates:
             chat_id = user['chat_id']
-            lang = user.get('language', 'ru') or 'ru'
+            lang = coerce_ui_lang(user.get('language'))  # WP-440: not via get_intern
 
             # Skip if onboarding_controller already nudged today (WP-349 dual-cooldown fix)
             ory_uuid = user.get('ory_uuid')
@@ -2559,7 +2559,7 @@ async def send_event_notifications():
 
             for row in rows:
                 chat_id = row['chat_id']
-                lang = row.get('language', 'ru') or 'ru'
+                lang = coerce_ui_lang(row.get('language'))  # WP-440: not via get_intern
 
                 # Dedup: не отправляли ли уже C7 для этого события
                 if await was_milestone_sent(chat_id, milestone_key):

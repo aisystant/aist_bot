@@ -20,6 +20,7 @@ from core.tier_detector import detect_ui_tier
 from core.tier_config import UITier
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import update_intern
+from config import MULTILANG_ENABLED
 
 
 # Tier → i18n key suffix for tier label
@@ -191,9 +192,15 @@ class ModeSelectState(BaseState):
 
         if data == "show_language":
             await callback.answer()
+            # WP-440: picker hidden while multilingual disabled; guard stale buttons.
+            if not MULTILANG_ENABLED:
+                return None
             return await self._show_language_options(user, callback)
 
         if data.startswith("lang_"):
+            if not MULTILANG_ENABLED:
+                await callback.answer()
+                return None
             return await self._save_language(user, callback, data)
 
         # WP-151: delivery prefs из mode_select (pending после первого урока)
