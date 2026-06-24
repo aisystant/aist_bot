@@ -327,7 +327,8 @@ async def cmd_start(message: Message, state: FSMContext):
         await update_intern(message.chat.id, tg_username=message.from_user.username)
 
     # Пробуем привязать Aisystant (синхронно, чтобы знать результат)
-    linked = await _try_auto_link(message.chat.id)
+    aisystant_uuid = await _try_auto_link(message.chat.id)
+    linked = aisystant_uuid is not None
 
     # Отправляем приветствие + T0 клавиатуру
     from core.tier_ui import build_reply_keyboard, sync_menu_commands
@@ -371,10 +372,16 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # WP-151 Ф3: onboarding_completed (fast path)
     from db.queries.events import log_event
+    from db.queries.onboarding_journey import get_onboarding_state
+    cohort_id = 'R1'
+    if aisystant_uuid:
+        _state = await get_onboarding_state(aisystant_uuid)
+        cohort_id = (_state or {}).get('cohort_id', 'R1')
     await log_event(message.chat.id, 'onboarding_completed', {
         'lang': lang,
         'path': 'fast',
         'linked_aisystant': linked,
+        'cohort_id': cohort_id,
     })
 
     if linked:
@@ -688,6 +695,13 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
 
         # WP-151 Ф3: onboarding_step + onboarding_completed (FSM path)
         from db.queries.events import log_event
+        from db.queries.aisystant import get_aisystant_id
+        from db.queries.onboarding_journey import get_onboarding_state
+        _fsm_uuid = await get_aisystant_id(chat_id)
+        _fsm_cohort_id = 'R1'
+        if _fsm_uuid:
+            _fsm_state = await get_onboarding_state(_fsm_uuid)
+            _fsm_cohort_id = (_fsm_state or {}).get('cohort_id', 'R1')
         await log_event(chat_id, 'onboarding_step', {'step': 'confirm'})
         await log_event(chat_id, 'onboarding_completed', {
             'lang': lang,
@@ -695,6 +709,8 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             'duration': intern.get('study_duration'),
             'schedule_time': intern.get('schedule_time'),
             'start_date': str(intern.get('marathon_start_date')),
+            'linked_aisystant': _fsm_uuid is not None,
+            'cohort_id': _fsm_cohort_id,
         })
 
         await state.clear()
@@ -1002,10 +1018,10 @@ async def on_marathon_time_input(message: Message, state: FSMContext):
 
 # ============= WP-79: AUTO-LINK AISYSTANT =============
 
-async def _try_auto_link(chat_id: int) -> bool:
+async def _try_auto_link(chat_id: int) -> str | None:
     """Попытка автоматической привязки Aisystant аккаунта при /start.
 
-    Returns True if linked (already was or newly linked), False otherwise.
+    Returns aisystant UUID if linked (already was or newly linked), None otherwise.
     """
     try:
         from db.queries.aisystant import get_aisystant_id, save_aisystant_link
@@ -1014,15 +1030,15 @@ async def _try_auto_link(chat_id: int) -> bool:
         # Уже привязан?
         existing = await get_aisystant_id(chat_id)
         if existing:
-            return True
+            return existing
 
         # Пробуем найти
         aisystant_id = await aisystant.find_user_by_tg(chat_id)
         if aisystant_id:
             await save_aisystant_link(chat_id, aisystant_id)
             logger.info(f"[Onboarding] Auto-linked Aisystant for {chat_id}: {aisystant_id}")
-            return True
-        return False
+            return aisystant_id
+        return None
     except Exception as e:
         logger.debug(f"[Onboarding] Auto-link failed for {chat_id}: {e}")
-        return False
+        return None
