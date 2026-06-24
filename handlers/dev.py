@@ -1179,9 +1179,10 @@ async def cmd_broadcast_reconnect(message: Message):
     skipped_error = 0
     bot = message.bot
 
+    from db.queries.users import coerce_ui_lang  # WP-440: pin to ru on track A
     for c in candidates:
         chat_id = c['telegram_id']
-        lang = c['language'] if c['language'] in _RECONNECT_MESSAGE else 'ru'
+        lang = coerce_ui_lang(c['language'] if c['language'] in _RECONNECT_MESSAGE else 'ru')
         text = _RECONNECT_MESSAGE[lang]
         try:
             await bot.send_message(chat_id, text, parse_mode="HTML")

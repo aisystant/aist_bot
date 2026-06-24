@@ -16,7 +16,7 @@ import json
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 
-from config import get_logger, MOSCOW_TZ
+from config import get_logger, MOSCOW_TZ, MULTILANG_ENABLED
 from db.connection import get_pool, get_learning_pool
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
@@ -89,6 +89,21 @@ _SELECT_JOINED = '''
     LEFT JOIN development.user_state s ON s.user_id = u.id
     WHERE u.telegram_id = $1
 '''
+
+
+def coerce_ui_lang(lang: Optional[str]) -> str:
+    """Language actually surfaced to the user.
+
+    WP-440: while multilingual is disabled (track A bot), every user-facing
+    surface is pinned to Russian regardless of the stored or Telegram value,
+    so a half-translated non-ru locale never leaks. Flip MULTILANG_ENABLED to
+    restore. Apply at every source that derives a UI language WITHOUT going
+    through get_intern (onboarding from Telegram locale, scheduler direct-SQL
+    reads, legacy fallback).
+    """
+    if not MULTILANG_ENABLED:
+        return 'ru'
+    return lang or 'ru'
 
 
 async def get_intern(chat_id: int) -> dict:
@@ -223,7 +238,8 @@ def _row_to_dict(row) -> dict:
 
         # Статусы
         'onboarding_completed': safe_get('onboarding_completed', False),
-        'language': safe_get('language', 'ru'),
+        # WP-440: pin UI language to Russian while multilingual is disabled.
+        'language': coerce_ui_lang(safe_get('language', 'ru')),
 
         # IWE template update notifications (WP-90)
         'notify_template_updates': safe_get('notify_template_updates', False),

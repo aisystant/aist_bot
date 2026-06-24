@@ -161,6 +161,14 @@ def validate_env():
 # По умолчанию False для обратной совместимости
 USE_STATE_MACHINE = os.getenv("USE_STATE_MACHINE", "true").lower() == "true"
 
+# Multilingual UI: when False (default), the bot is Russian-only and the
+# language picker is hidden. WHY: this is the Russia track (track A) bot; its
+# non-Russian locales (es/fr/zh) are unreviewed machine output and ~10 code
+# paths bypass i18n, so switching off Russian shows a Russian/English/machine
+# mix. Serious multilingual belongs to the world track (track B). Flip to "1"
+# to restore the picker without touching logic. See WP-440.
+MULTILANG_ENABLED = os.getenv("MULTILANG_ENABLED", "0") == "1"
+
 # Maintenance mode: блокирует всех кроме ALLOWED_TESTERS
 # Используется для тестовых ботов, чтобы пользователи не пользовались ими как основными
 MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "false").lower() == "true"

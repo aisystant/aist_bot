@@ -9,6 +9,7 @@ from datetime import timedelta
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
+from config import MULTILANG_ENABLED
 
 
 # ============= КЛАВИАТУРЫ ОНБОРДИНГА =============
@@ -204,8 +205,10 @@ def kb_update_profile(lang: str = 'ru', typing_tracking: bool = True) -> InlineK
          InlineKeyboardButton(text="⏰ " + t('buttons.schedule', lang), callback_data="upd_schedule")],
         [InlineKeyboardButton(text="📊 " + t('buttons.difficulty', lang), callback_data="upd_bloom"),
          InlineKeyboardButton(text="📚 " + t('buttons.delivery_style', lang), callback_data="upd_delivery")],
-        [InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode"),
-         InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language")],
+        # WP-440: language picker hidden while multilingual is disabled (track A)
+        [InlineKeyboardButton(text="🤖 " + t('buttons.bot_mode', lang), callback_data="upd_mode")]
+        + ([InlineKeyboardButton(text="🌐 " + t('buttons.change_language', lang), callback_data="upd_language")]
+           if MULTILANG_ENABLED else []),
         [InlineKeyboardButton(text="🏛 Клуб", callback_data="upd_club")],
         [InlineKeyboardButton(text=f"{typing_icon} Учёт набора текста", callback_data="upd_typing")],
     ])

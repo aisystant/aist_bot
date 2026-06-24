@@ -73,7 +73,7 @@ async def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | N
 
 from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
 from db.queries import get_intern, update_intern
-from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT, is_onboarded
+from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT, is_onboarded, coerce_ui_lang
 from i18n import t, detect_language, get_language_name, SUPPORTED_LANGUAGES
 from integrations.telegram.keyboards import (
     kb_study_duration, kb_complexity_level, kb_marathon_start, kb_confirm, kb_learn, kb_language_select,
@@ -312,6 +312,7 @@ async def cmd_start(message: Message, state: FSMContext):
     lang = detect_language(message.from_user.language_code)
     if lang not in SUPPORTED_LANGUAGES:
         lang = 'en'
+    lang = coerce_ui_lang(lang)  # WP-440: pin onboarding to Russian on track A
 
     name = message.from_user.first_name or message.from_user.username or 'User'
 

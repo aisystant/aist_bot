@@ -18,7 +18,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus
+from config import STUDY_DURATIONS, MARATHON_DAYS, MarathonStatus, MULTILANG_ENABLED
 from db.queries.users import is_onboarded
 from db.queries import get_intern, update_intern
 from db.queries.users import moscow_today, get_slot_load, MAX_USERS_PER_SLOT
@@ -318,6 +318,11 @@ async def cb_help_all_commands(callback: CallbackQuery):
 @settings_router.message(Command("language"))
 async def cmd_language(message: Message, state: FSMContext):
     """Команда смены языка напрямую."""
+    if not MULTILANG_ENABLED:
+        # WP-440: track A bot is Russian-only; picker hidden.
+        await message.answer("Бот работает на русском языке.")
+        return
+
     intern = await get_intern(message.chat.id)
     lang = intern.get('language', 'ru') if intern else 'ru'
 
@@ -677,6 +682,10 @@ async def on_save_marathon_start(callback: CallbackQuery, state: FSMContext):
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_language")
 async def on_upd_language(callback: CallbackQuery, state: FSMContext):
     """Показать меню выбора языка."""
+    if not MULTILANG_ENABLED:
+        # WP-440: track A bot is Russian-only; picker hidden (guards stale buttons).
+        await callback.answer("Бот работает на русском языке.")
+        return
     intern = await get_intern(callback.message.chat.id)
     lang = intern.get('language', 'ru')
     await callback.answer()

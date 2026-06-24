@@ -24,6 +24,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from states.base import BaseState
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import get_intern, update_intern
+from config import MULTILANG_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -179,18 +180,19 @@ class SettingsState(BaseState):
             f"  {gcal_status} Календарь Google"
         )
 
+        # WP-440: language line hidden while multilingual is disabled (track A)
+        lang_line = f"🌐 Language: {get_language_name(lang)}\n\n" if MULTILANG_ENABLED else ""
         text = (
             f"⚙️ *{t('settings.title', lang)}*\n\n"
-            f"🌐 Language: {get_language_name(lang)}\n\n"
+            f"{lang_line}"
             f"🔗 {t('settings.connections_label', lang)}:\n{connections_summary}\n\n"
             f"💝 {t('donation.settings_label', lang)}: {donation_line}"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="👤 " + t('buttons.profile', lang), callback_data="go_profile"),
-                InlineKeyboardButton(text="🌐 Language", callback_data="upd_language"),
-            ],
+            [InlineKeyboardButton(text="👤 " + t('buttons.profile', lang), callback_data="go_profile")]
+            + ([InlineKeyboardButton(text="🌐 Language", callback_data="upd_language")]
+               if MULTILANG_ENABLED else []),
             [
                 InlineKeyboardButton(text="🔗 " + t('settings.connections_label', lang), callback_data="upd_connections"),
                 InlineKeyboardButton(text="💝 " + t('donation.settings_label', lang), callback_data="upd_subscription"),
@@ -240,6 +242,10 @@ class SettingsState(BaseState):
             return "profile"
 
         if data == "upd_language":
+            if not MULTILANG_ENABLED:
+                # WP-440: picker hidden; guard stale buttons.
+                await callback.answer("Бот работает на русском языке.")
+                return None
             return await self._show_language_options(user, callback)
 
         if data == "upd_schedule":
