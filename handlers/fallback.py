@@ -22,7 +22,6 @@ fallback_router = Router(name="fallback")
 
 _HERMES_PREFIXES_RE = re.compile(r"^(гермес|hermes)[,:\s]+", re.IGNORECASE)
 _HERMES_UNAVAILABLE_TIER_MSG = "Функция недоступна на твоём тире"
-_HERMES_UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен. Попробуй позже."
 
 # WP-392 Ф3.1b: session_id для hermes_chat (память диалога T4-full)
 _HERMES_SESSION_MAP: dict[int, str] = {}
@@ -111,8 +110,13 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
                 # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
                 await state.clear()
-                session_id = _HERMES_SESSION_MAP.get(chat_id)
                 from clients.gateway_mcp import gateway_mcp
+                from handlers.hermes import _send_unavailable
+                if not gateway_mcp.is_connected(chat_id):
+                    # Нет токена — не жжём 401-цикл, сразу зовём на повторный вход.
+                    await _send_unavailable(message, None, chat_id)
+                    return
+                session_id = _HERMES_SESSION_MAP.get(chat_id)
                 try:
                     from helpers.typing_indicator import keep_typing
                     async with keep_typing(message):
@@ -123,9 +127,12 @@ async def on_unknown_message(message: Message, state: FSMContext):
                         )
                 except Exception:
                     logger.exception("[fallback] hermes_chat (T4-full) failed for chat %s", chat_id)
-                    response = _HERMES_UNAVAILABLE_RUNTIME_MSG
+                    response = None
                 # session_id управляется на стороне gateway/hermes по telegram_user_id
-                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+                if response:
+                    await message.answer(response)
+                else:
+                    await _send_unavailable(message, None, chat_id)
                 return
 
         # WP-392 Ф3.1: явный вызов Hermes через префикс — ДО онбординг-интентов.
@@ -142,9 +149,13 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 if tier_num < 3:
                     await message.answer(_HERMES_UNAVAILABLE_TIER_MSG)
                     return
+                from clients.gateway_mcp import gateway_mcp
+                from handlers.hermes import _send_unavailable
+                if not gateway_mcp.is_connected(chat_id):
+                    await _send_unavailable(message, None, chat_id)
+                    return
                 hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
                 session_id = _HERMES_SESSION_MAP.get(chat_id)
-                from clients.gateway_mcp import gateway_mcp
                 try:
                     from helpers.typing_indicator import keep_typing
                     async with keep_typing(message):
@@ -155,8 +166,11 @@ async def on_unknown_message(message: Message, state: FSMContext):
                         )
                 except Exception:
                     logger.exception("[fallback] hermes_chat failed for chat %s", chat_id)
-                    response = _HERMES_UNAVAILABLE_RUNTIME_MSG
-                await message.answer(response or _HERMES_UNAVAILABLE_RUNTIME_MSG)
+                    response = None
+                if response:
+                    await message.answer(response)
+                else:
+                    await _send_unavailable(message, None, chat_id)
                 return
 
         # Ф22 (WP-349): текстовый роутинг онбординг-интентов.

@@ -1397,7 +1397,7 @@ async def cmd_agent(message: Message, state: FSMContext, command: CommandObject)
     # tier threshold (single source) instead of hardcoding it here.
     if executor == "hermes":
         from core.tier_detector import detect_ui_tier
-        from handlers.hermes import _TIER_REQUIRED
+        from handlers.hermes import _TIER_REQUIRED, _send_unavailable
         tier = await detect_ui_tier(chat_id)
         if tier < _TIER_REQUIRED:
             await message.answer(
@@ -1406,6 +1406,9 @@ async def cmd_agent(message: Message, state: FSMContext, command: CommandObject)
             )
             return
         from clients.gateway_mcp import gateway_mcp
+        if not gateway_mcp.is_connected(chat_id):
+            await _send_unavailable(message, None, chat_id)
+            return
         from helpers.typing_indicator import keep_typing
         try:
             async with keep_typing(message):
@@ -1414,9 +1417,11 @@ async def cmd_agent(message: Message, state: FSMContext, command: CommandObject)
                 )
         except Exception:
             logger.exception("[agent] hermes_chat failed for chat %s", chat_id)
-            await message.answer("Гермес сейчас недоступен. Попробуйте позже.")
-            return
-        await message.answer(response or "(пустой ответ)", parse_mode="Markdown")
+            response = None
+        if response:
+            await message.answer(response, parse_mode="Markdown")
+        else:
+            await _send_unavailable(message, None, chat_id)
         return
 
     # claude | kimi = agentic path. Continuing an active session is done via
