@@ -1136,6 +1136,22 @@ async def _notify_cp_diagnose() -> None:
             await bot.session.close()
 
 
+async def _reconcile_dt_user_id():
+    """Daily safety-net: fill public.users.dt_user_id where NULL.
+
+    Roots out the ory_id/dt_user_id divergence that breaks /points for connected
+    users whose connect path set only ory_id. See
+    db.queries.identity.reconcile_dt_user_id (peer-session 2026-06-25-09).
+    """
+    try:
+        from db.queries.identity import reconcile_dt_user_id
+        counts = await reconcile_dt_user_id()
+        if counts['from_ory'] or counts['from_persona'] or counts['conflicts']:
+            logger.info(f"[Reconcile] dt_user_id job applied: {counts}")
+    except Exception as e:
+        logger.error(f"[Reconcile] dt_user_id job failed: {e}", exc_info=True)
+
+
 def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncIOScheduler:
     """Инициализировать и вернуть планировщик.
 
@@ -1176,6 +1192,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
+    _scheduler.add_job(_reconcile_dt_user_id, 'cron', hour=4, minute=15)  # peer-2026-06-25-09: dt_user_id safety-net (ory_id divergence)
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0, max_instances=1)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
