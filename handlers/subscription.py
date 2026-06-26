@@ -26,7 +26,6 @@ from clients.aisystant import aisystant
 from helpers.dual_write import resolve_ory_id_from_chat
 from helpers.redeem_helpers import (
     build_burn_offer_keyboard,
-    format_burn_offer_text,
     prepare_burn_offer,
     reserve_for_yookassa_provisional,
 )
@@ -401,8 +400,17 @@ async def callback_sub_tariff(callback: CallbackQuery):
             await callback.message.answer(t('aisystant_sub.payment_success', lang), reply_markup=keyboard)
         return
 
-    # Eligible for bonus — show burn offer
-    text = format_burn_offer_text(burn_info, item_title="подписки")
+    # Eligible for bonus — show burn offer.
+    # Subscription payments go through Aisystant which validates amount == tariff price,
+    # so we show the full card amount and frame bonus as a points deduction (cashback model).
+    text = (
+        f"💰 На копилке {int(burn_info['copilka_pts'])} баллов.\n\n"
+        f"Спишем <b>{int(burn_info['available_pts'])} баллов</b> ({int(burn_info['discount_rub'])} ₽) "
+        f"после подтверждения оплаты.\n"
+        f"Степень: {burn_info['qualification']}\n"
+        f"Оплата картой: <b>{amount} ₽</b>\n\n"
+        f"Применить баллы для подписки?"
+    )
     keyboard = build_burn_offer_keyboard(
         apply_data=f"sub_burn_apply:{code}:{amount}",
         skip_data=f"sub_pay:{code}:{amount}",
@@ -450,10 +458,12 @@ async def callback_sub_burn_apply(callback: CallbackQuery):
         await callback.message.answer(t('aisystant_sub.payment_error', lang))
         return
 
-    # Create real payment — on failure, cancel the provisional reserve immediately
+    # Create real payment at full tariff price — Aisystant validates amount == tariff.price
+    # and rejects discounted amounts with 403. Bonus deduction happens via lazy-confirm
+    # in cmd_subscription when has_active_subscription() fires (cashback model).
     try:
         result = await aisystant.create_subscription_payment(
-            aisystant_id, code, float(burn_info["payable_rub"]),
+            aisystant_id, code, float(amount),
         )
     except Exception as e:
         logger.error(f"[Subscription] sub_burn_apply: create_payment failed, cancelling reserve: {e}")
@@ -478,10 +488,10 @@ async def callback_sub_burn_apply(callback: CallbackQuery):
         await callback.message.answer(t('aisystant_sub.payment_error', lang))
         return
 
-    discount_rub = burn_info["discount_rub"]
+    aisystant.invalidate_subscription_cache(aisystant_id)
+
     text = (
-        f"✅ Скидка <b>{discount_rub:.0f} ₽</b> применена!\n"
-        f"Спишется <b>{points_amount:.0f} баллов</b> после оплаты.\n\n"
+        f"✅ <b>{points_amount:.0f} баллов</b> спишутся после подтверждения оплаты.\n\n"
         + t('aisystant_sub.payment_success', lang)
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
