@@ -32,7 +32,6 @@ async def get_nudge_candidates() -> list[dict]:
                 u.language,
                 u.name,
                 u.id::text AS ory_uuid,
-                u.created_at AS account_created_at,
                 s.last_active_date,
                 s.active_days_total,
                 s.active_days_streak,

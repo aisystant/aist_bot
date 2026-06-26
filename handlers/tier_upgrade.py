@@ -8,7 +8,6 @@
   nudge_tier_suggest_t2        — D: ступень выросла, предложить T2
   nudge_personal_guide_cta     — F: 14+ дней + подписка → тайный гит (T2→T3)
   nudge_fullenv_cta            — G: 30+ дней + гид открыт → явный гит, VS Code (T3→T4)
-  nudge_onboarding_gap_t2      — WP-117: T2 застрял (1-13 дней), не подключил AI-клиент
 
 Callback «Позже» — ответить тостом + записать onboarding_snooze в domain_event.
 
@@ -418,59 +417,12 @@ async def nudge_fullenv_cta(
         return False
 
 
-async def nudge_onboarding_gap_t2(
-    bot,
-    chat_id: int,
-    activity_days: int,
-    lang: str = "ru",
-) -> bool:
-    """WP-117: T2 subscribed but stuck before F threshold (1-13 active days, no AI client).
-
-    Fires when user paid but hasn't connected claude.ai / VS Code yet.
-    Uses 48h CLASS_CAPPED cooldown via dedup_key.
-    Returns True if message was enqueued, False otherwise.
-    """
-    content_spec = {
-        "text": (
-            "Ты на уровне «Изучение» — но персональное руководство ещё не работает.\n\n"
-            "Оно включается за 2 минуты: открой claude.ai, подключи Aisystant → /connect"
-        ),
-        "actions": [
-            {"label": "Как подключить", "action": "tier_upgrade_show_connect_guide"},
-            {"label": "Позже", "action": "tier_upgrade_snooze:onboarding_gap"},
-        ],
-    }
-    try:
-        result = await enqueue(
-            chat_id, CLASS_CAPPED, content_spec,
-            dedup_key=f"nudge_onboarding_gap:{chat_id}",
-            journal_key=f"nudge_onboarding_gap:{chat_id}",
-            journal_type="nudge",
-        )
-        accepted = result.get("status") == "queued"
-        if accepted:
-            logger.info(
-                "[TierUpgrade] nudge_onboarding_gap_t2 (days=%d) enqueued for %d",
-                activity_days, chat_id,
-            )
-        else:
-            logger.info(
-                "[TierUpgrade] nudge_onboarding_gap_t2 suppressed for %d: %s",
-                chat_id, result.get("reason"),
-            )
-        return accepted
-    except Exception as e:
-        logger.warning("[TierUpgrade] nudge_onboarding_gap_t2 failed for %d: %s", chat_id, e)
-        return False
-
-
-# Mapping upgrade marker → specialised sender with rich CTA.
-# Used in send_engagement_nudges() (scheduler) instead of generic send_tg_nudge().
-# Contract: sender(bot, chat_id, activity_days, lang="ru") -> bool
+# Маппинг upgrade-маркер → специализированная функция-отправитель с rich CTA.
+# Используется в send_engagement_nudges() (scheduler) вместо generic send_tg_nudge().
+# Контракт: sender(bot, chat_id, activity_days, lang="ru") -> bool
 UPGRADE_NUDGE_SENDERS: dict = {
     "f": nudge_personal_guide_cta,
     "g": nudge_fullenv_cta,
-    "onboarding_gap": nudge_onboarding_gap_t2,
 }
 
 

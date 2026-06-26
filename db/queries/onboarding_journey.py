@@ -124,23 +124,13 @@ _UPGRADE_MARKER_COLS: dict[str, str] = {
     "g": "msg_g_sent_at",
 }
 
-# Markers whose cooldown is handled by CLASS_CAPPED dedup_key — no DB column needed.
-_CAPPED_ONLY_MARKERS: frozenset[str] = frozenset({"onboarding_gap"})
-
 
 async def write_upgrade_sent_at(account_id: str, marker_key: str) -> bool:
-    """Write msg_{f|g}_sent_at = NOW() and last_nudge_at = NOW() atomically.
+    """Записать msg_{f|g}_sent_at = NOW() и last_nudge_at = NOW() атомарно.
 
-    Used by scheduler after successful rich-CTA send (WP-349 Ф6/Ф7).
-    Markers in _CAPPED_ONLY_MARKERS (e.g. onboarding_gap) rely on CLASS_CAPPED
-    dedup_key for cooldown — no DB column update needed; returns True immediately.
-    Returns True if row updated (or if marker uses CLASS_CAPPED cooldown).
+    Используется scheduler'ом после успешной отправки rich-CTA (WP-349 Ф6/Ф7).
+    Возвращает True если строка обновлена.
     """
-    if marker_key in _CAPPED_ONLY_MARKERS:
-        # H1 fix: CLASS_CAPPED owns per-nudge cooldown, but dual-cooldown check
-        # (onboarding_nudged_uuids in scheduler) reads last_nudge_at — update it
-        # so onboarding_controller doesn't fire a second nudge the same day.
-        return await write_last_nudge_at(account_id)
     col = _UPGRADE_MARKER_COLS.get(marker_key)
     if col is None:
         logger.error("[Setup] write_upgrade_sent_at: unknown marker_key=%s", marker_key)
