@@ -50,6 +50,15 @@ PROGRAM_RULES: list[tuple[str, Any]] = [
 EXCLUDE_CODES = ["Urspectr"]
 
 
+class AisystantError(Exception):
+    """Non-200 response from Aisystant API. Callers use except AisystantError or except Exception."""
+
+    def __init__(self, status: int, body: str) -> None:
+        self.status = status
+        self.body = body
+        super().__init__(f"Aisystant API {status}: {body[:120]}")
+
+
 class AisystantClient:
     """HTTP-клиент для Aisystant LMS REST API."""
 
@@ -158,10 +167,12 @@ class AisystantClient:
                     text = await resp.text()
                     self._record_error(resp.status)
                     logger.error(f"Aisystant POST {path} error {resp.status}: {text[:300]} | body={body}")
-                    return None
+                    raise AisystantError(resp.status, text)
                 self._record_success()
                 text = await resp.text()
-                return json.loads(text) if text else None
+                return json.loads(text) if text else {}
+        except AisystantError:
+            raise
         except Exception as e:
             logger.error(f"Aisystant POST {path} exception: {e}")
             return None
