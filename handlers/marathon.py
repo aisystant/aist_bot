@@ -446,6 +446,16 @@ async def callback_marathon_checkin(callback: CallbackQuery):
         except Exception as _e:
             logger.warning("[MarathonCheckin] record_active_day failed for %s: %s", user_id, _e)
 
+        # Reward points for the daily check-in (peer-session 2026-06-25-09, pilot 1 pt).
+        # marathon_step ~= 1 pt in the rules; once-per-day via the is_first_checkin gate.
+        # Best-effort: a points-emit failure must not break the check-in.
+        try:
+            from db.queries.events import log_event
+            await log_event(user_id, 'marathon_step',
+                            {'day': day, 'state': state, 'source': 'marathon_checkin'})
+        except Exception as _e:
+            logger.warning("[MarathonCheckin] points log_event failed for %s: %s", user_id, _e)
+
         if new_status == "completed":
             await update_intern(user_id, marathon_status="completed")
             is_completed = True
