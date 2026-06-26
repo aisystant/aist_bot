@@ -195,10 +195,20 @@ def _format_event_compact(ev: dict) -> str:
         return f"• {ev.get('event_type', '?')}"
 
 
-def _build_points_keyboard(show_spend: bool = False) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text="📋 Правила начисления", callback_data="points_show_rules")]]
-    if show_spend:
-        rows.append([InlineKeyboardButton(text="💡 Где потратить бонусы?", callback_data="points_how_to_spend")])
+_SPEND_KEYBOARD = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🎟 Семинары и мероприятия", callback_data="showcase_main")],
+    [InlineKeyboardButton(text="💎 Подписка «Инженерия интеллекта»", callback_data="subscribe")],
+])
+
+
+def _build_points_keyboard(spend_pts=None) -> InlineKeyboardMarkup:
+    rows = []
+    if spend_pts and spend_pts > 0:
+        rows.append([InlineKeyboardButton(
+            text=f"💳 Потратить {_fmt_pts(spend_pts)} бонусов",
+            callback_data="points_spend",
+        )])
+    rows.append([InlineKeyboardButton(text="📋 Правила начисления", callback_data="points_show_rules")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -332,9 +342,8 @@ async def cmd_points(message: Message):
         for rev in redeemed:
             text += _format_redeemed_compact(rev) + "\n"
 
-    text += "\n📋 <b>/rules</b> — подробные правила начисления"
-
-    kb = _build_points_keyboard(show_spend=has_subscription and balance_num > 0)
+    spend_pts = int(balance_num) if (has_subscription and balance_num > 0) else None
+    kb = _build_points_keyboard(spend_pts=spend_pts)
     try:
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
     except Exception as e:
@@ -344,6 +353,20 @@ async def cmd_points(message: Message):
                 .replace("<i>", "").replace("</i>", ""),
             reply_markup=kb,
         )
+
+
+@points_router.callback_query(F.data == "points_spend")
+async def cb_points_spend(callback: CallbackQuery):
+    """Show spend menu: choose product to pay with bonuses."""
+    await callback.answer()
+    await callback.message.answer(
+        "💳 <b>Потратить бонусы</b>\n\n"
+        "Выбери, к чему применить скидку:\n\n"
+        "🎟 <b>Семинары</b> — скидка рассчитается автоматически по квалификации.\n"
+        "💎 <b>Подписка</b> — оформить или продлить «Инженерия интеллекта».",
+        parse_mode="HTML",
+        reply_markup=_SPEND_KEYBOARD,
+    )
 
 
 @points_router.callback_query(F.data == "points_show_rules")
