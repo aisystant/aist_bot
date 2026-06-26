@@ -215,10 +215,13 @@ def _build_delivery_kwargs(content_spec: dict) -> tuple[str, dict]:
         kwargs["parse_mode"] = "HTML"
     actions = content_spec.get("actions") or []
     if actions:
-        kwargs["reply_markup"] = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=a["label"], callback_data=a["action"])]
-            for a in actions
-        ])
+        rows = []
+        for a in actions:
+            if a.get("url"):
+                rows.append([InlineKeyboardButton(text=a["label"], url=a["url"])])
+            else:
+                rows.append([InlineKeyboardButton(text=a["label"], callback_data=a["action"])])
+        kwargs["reply_markup"] = InlineKeyboardMarkup(inline_keyboard=rows)
     return text, kwargs
 
 
