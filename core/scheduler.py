@@ -200,6 +200,7 @@ def _build_delivery_kwargs(content_spec: dict) -> tuple[str, dict]:
     format: "markdown" → md_to_html + HTML (ловушка 10.2: сырой Markdown без
     parse_mode показал бы звёздочки); "html" → HTML как есть; default plain.
     actions: [{"label", "action"}] → InlineKeyboard (callback_data = action);
+            [{"label", "url"}]    → InlineKeyboard (url-кнопка, открывает ссылку);
     при другом канале (Ф5) те же actions рендерятся ссылками — контракт не ломается.
     """
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

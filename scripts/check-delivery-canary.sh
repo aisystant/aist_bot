@@ -4,9 +4,13 @@
 # Usage: bash scripts/check-delivery-canary.sh [--days N]
 set -euo pipefail
 
-DAYS=${2:-7}
+DAYS=7
 if [[ "${1:-}" == "--days" && -n "${2:-}" ]]; then
     DAYS="$2"
+fi
+if ! [[ "$DAYS" =~ ^[0-9]+$ ]]; then
+    echo "Error: --days must be a positive integer, got: $DAYS" >&2
+    exit 1
 fi
 
 echo "=== Delivery Canary (last ${DAYS} days) ==="
