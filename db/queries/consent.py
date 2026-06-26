@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SCOPE = ["stage_evaluation", "club_activity"]
 
+# In-process cache for typing_tracking consent status.
+# Consent changes are rare (user toggles in /settings), so a simple dict is sufficient.
+# Full clear at limit — same pattern as _ory_cache in helpers/dual_write.py.
+_consent_cache: dict[str, bool] = {}
+_CONSENT_CACHE_LIMIT = 5000
+
+
+def invalidate_consent_cache(account_id: str) -> None:
+    _consent_cache.pop(account_id, None)
+
 
 class ConsentRow(TypedDict):
     account_id: str
@@ -208,6 +218,8 @@ async def set_consent_grant(
                 account_id,
                 scope,
             )
+    if scope == "typing_tracking":
+        invalidate_consent_cache(account_id)
     logger.info(
         "[consent_grant] set account_id=%s scope=%s granted=%s",
         account_id, scope, granted,
@@ -219,7 +231,12 @@ async def is_typing_tracking_disabled(account_id: str) -> bool:
 
     Default = enabled (нет строки). True только если последняя запись = revoked (granted=false).
     granted=false всегда сопровождается revoked_at IS NOT NULL (см. set_consent_grant UPDATE path).
+
+    Result is cached in-process; invalidated by set_consent_grant when scope='typing_tracking'.
     """
+    if account_id in _consent_cache:
+        return _consent_cache[account_id]
+
     from db.connection import get_learning_pool
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
@@ -230,4 +247,8 @@ async def is_typing_tracking_disabled(account_id: str) -> bool:
             "ORDER BY granted_at DESC LIMIT 1",
             account_id,
         )
-    return row is not None
+    result = row is not None
+    if len(_consent_cache) >= _CONSENT_CACHE_LIMIT:
+        _consent_cache.clear()
+    _consent_cache[account_id] = result
+    return result
