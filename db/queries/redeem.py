@@ -203,6 +203,7 @@ async def reserve_burn(
     purpose: str,
     qualification_snapshot: str,
     daily_cap_snapshot: Decimal,
+    expires_at: Optional[datetime] = None,
 ) -> bool:
     """Резерв баллов перед оплатой (status='reserved').
 
@@ -260,8 +261,8 @@ async def reserve_burn(
                 """
                 INSERT INTO public.redeemed_events
                     (payment_id, account_id, points_amount, discount_rub,
-                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'reserved')
+                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status, expires_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'reserved', $9)
                 ON CONFLICT (payment_id) DO NOTHING
                 RETURNING payment_id
                 """,
@@ -273,6 +274,7 @@ async def reserve_burn(
                 Decimal(str(daily_cap_snapshot)),
                 payment_source,
                 purpose,
+                expires_at,
             )
 
             if result is None:
@@ -295,6 +297,128 @@ async def reserve_burn(
         f"points={points_amount}, discount_rub={discount_rub}, qual={qualification_snapshot}"
     )
     return True
+
+
+async def update_reserve_payment_id(provisional_id: str, real_id: str) -> bool:
+    """Promote provisional yk_{uuid} reserve to a real YooKassa payment_id.
+
+    Sets expires_at = NOW() + 7 days so rollback_expired_reservations won't touch
+    the reserve during the subscription confirmation window.
+
+    Returns True if the row was updated, False if not found (already rolled back or
+    never existed).
+    """
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE public.redeemed_events
+            SET payment_id = $1, expires_at = now() + interval '7 days'
+            WHERE payment_id = $2 AND status = 'reserved'
+            RETURNING payment_id
+            """,
+            real_id,
+            provisional_id,
+        )
+    if row is None:
+        logger.warning(
+            f"[Redeem] update_reserve_payment_id: provisional_id={provisional_id} not found in status=reserved"
+        )
+    return row is not None
+
+
+async def cancel_pending_reserve(provisional_id: str) -> bool:
+    """Roll back a provisional reserve on payment creation error.
+
+    The AND status='reserved' guard ensures this is a no-op if the reserve was
+    already promoted via update_reserve_payment_id (payment_id changed to real_id).
+    """
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE public.redeemed_events
+            SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = 'payment_error'
+            WHERE payment_id = $1 AND status = 'reserved'
+            RETURNING payment_id
+            """,
+            provisional_id,
+        )
+    return row is not None
+
+
+async def confirm_subscription_reserves(account_id: str) -> int:
+    """Lazy-confirm reserved bonus points after subscription activation.
+
+    Called in cmd_subscription when has_active_subscription() is True.  Subscription
+    payments go through Aisystant, so the bot's YooKassa webhook never fires — this is
+    the only confirmation path for subscription reserves.
+
+    Only confirms reserves that already have a real payment_id (NOT LIKE 'yk_%'), so
+    reserves from crashed/incomplete flows are never accidentally confirmed.
+
+    Returns count of confirmed reserves (usually 0 or 1).
+    """
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(
+                """
+                UPDATE public.redeemed_events
+                SET status = 'confirmed', confirmed_at = now()
+                WHERE account_id = $1
+                  AND purpose = 'SUBSCRIPTION'
+                  AND status = 'reserved'
+                  AND payment_id NOT LIKE 'yk_%'
+                RETURNING payment_id, account_id, points_amount
+                """,
+                uuid.UUID(account_id),
+            )
+            for row in rows:
+                await conn.execute(
+                    """
+                    UPDATE public.point_balances
+                    SET points = points - $1, last_updated = now()
+                    WHERE account_id = $2
+                    """,
+                    row["points_amount"],
+                    row["account_id"],
+                )
+                logger.info(
+                    f"[Redeem] confirm_subscription_reserves: payment_id={row['payment_id']}, "
+                    f"points={row['points_amount']}, account={str(row['account_id'])[:8]}"
+                )
+
+    return len(rows)
+
+
+async def cleanup_expired_reserves_for_account(account_id: str) -> int:
+    """Roll back expired provisional yk_ reserves for a specific account.
+
+    Called (with try/except isolation) inside prepare_burn_offer so eligibility
+    checks see a clean slate after a crash or abandoned flow.
+    """
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            UPDATE public.redeemed_events
+            SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = 'provisional_expired'
+            WHERE account_id = $1
+              AND status = 'reserved'
+              AND payment_id LIKE 'yk_%'
+              AND expires_at IS NOT NULL
+              AND expires_at < now()
+            RETURNING payment_id
+            """,
+            uuid.UUID(account_id),
+        )
+    if rows:
+        logger.info(
+            f"[Redeem] cleanup_expired_reserves_for_account: rolled back {len(rows)} provisional reserve(s) "
+            f"for account={account_id[:8]}"
+        )
+    return len(rows)
 
 
 async def confirm_burn(payment_id: str) -> bool:
@@ -487,7 +611,7 @@ async def rollback_expired_reservations() -> int:
             UPDATE public.redeemed_events
             SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = 'timeout_{RESERVATION_TIMEOUT_MIN}min'
             WHERE status = 'reserved'
-              AND reserved_at < now() - interval '{RESERVATION_TIMEOUT_MIN} minutes'
+              AND COALESCE(expires_at, reserved_at + interval '{RESERVATION_TIMEOUT_MIN} minutes') < now()
             RETURNING payment_id, account_id, points_amount
             """
         )

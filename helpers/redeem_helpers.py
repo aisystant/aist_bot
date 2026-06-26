@@ -13,12 +13,19 @@ Centralizes:
 
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from db.queries.redeem import available_discount, reserve_burn
+from db.queries.redeem import (
+    available_discount,
+    cancel_pending_reserve,
+    cleanup_expired_reserves_for_account,
+    reserve_burn,
+    update_reserve_payment_id,
+)
 from helpers.dual_write import resolve_ory_id_from_chat
 
 logger = logging.getLogger(__name__)
@@ -36,6 +43,11 @@ async def prepare_burn_offer(chat_id: int, full_amount_rub: int) -> Optional[dic
         account_id = await resolve_ory_id_from_chat(chat_id)
         if not account_id:
             return None
+
+        try:
+            await cleanup_expired_reserves_for_account(account_id)
+        except Exception as cleanup_err:
+            logger.warning(f"[Redeem] cleanup_expired_reserves_for_account failed, ignoring: {cleanup_err}")
 
         info = await available_discount(account_id, Decimal(full_amount_rub))
         if info["discount_rub"] <= 0:
@@ -121,6 +133,37 @@ async def reserve_for_tg_stars(
         purpose=purpose,
         qualification_snapshot=burn_info["qualification"],
         daily_cap_snapshot=Decimal(str(burn_info["ceiling_pts"])),
+    )
+    return (provisional_id if ok else None), points_amount
+
+
+async def reserve_for_yookassa_provisional(
+    burn_info: dict,
+    purpose: str,
+) -> tuple[Optional[str], Decimal]:
+    """Reserve points using a provisional yk_{uuid} payment_id for YooKassa flows
+    where the real payment_id is not yet known (e.g. subscription via Aisystant).
+
+    The reserve gets expires_at = NOW() + 1h as crash-safety TTL. After the real
+    payment_id is obtained, call update_reserve_payment_id(provisional, real) to extend
+    expires_at to NOW() + 7 days, preventing the 30-min rollback cron from firing.
+
+    Returns:
+        (provisional_id, points_amount). provisional_id=None on reserve failure.
+    """
+    provisional_id = f"yk_{uuid.uuid4().hex}"
+    points_amount = Decimal(str(burn_info["available_pts"]))
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    ok = await reserve_burn(
+        account_id=burn_info["account_id"],
+        payment_id=provisional_id,
+        points_amount=points_amount,
+        payment_source="yookassa",
+        purpose=purpose,
+        qualification_snapshot=burn_info["qualification"],
+        daily_cap_snapshot=Decimal(str(burn_info["ceiling_pts"])),
+        expires_at=expires_at,
     )
     return (provisional_id if ok else None), points_amount
 
