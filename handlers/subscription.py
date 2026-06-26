@@ -376,7 +376,7 @@ async def callback_sub_tariff(callback: CallbackQuery):
         await callback.message.answer(t('aisystant_sub.no_account', lang))
         return
 
-    burn_info = await prepare_burn_offer(chat_id, amount)
+    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=True)
 
     if burn_info is None:
         # Not eligible — create payment directly (same as existing sub_pay flow)
@@ -404,12 +404,12 @@ async def callback_sub_tariff(callback: CallbackQuery):
     # Subscription payments go through Aisystant which validates amount == tariff price,
     # so we show the full card amount and frame bonus as a points deduction (cashback model).
     text = (
-        f"💰 На копилке {int(burn_info['copilka_pts'])} баллов.\n\n"
-        f"Спишем <b>{int(burn_info['available_pts'])} баллов</b> ({int(burn_info['discount_rub'])} ₽) "
+        f"💰 На копилке {int(burn_info['copilka_pts'])} бонусов.\n\n"
+        f"Спишем <b>{int(burn_info['available_pts'])} бонусов</b> ({int(burn_info['discount_rub'])} ₽) "
         f"после подтверждения оплаты.\n"
         f"Степень: {burn_info['qualification']}\n"
         f"Оплата картой: <b>{amount} ₽</b>\n\n"
-        f"Применить баллы для подписки?"
+        f"Применить бонусы для подписки?"
     )
     keyboard = build_burn_offer_keyboard(
         apply_data=f"sub_burn_apply:{code}:{amount}",
@@ -446,7 +446,7 @@ async def callback_sub_burn_apply(callback: CallbackQuery):
 
     # Re-validate eligibility at execution time (amount may have changed between
     # sub_tariff and sub_burn_apply if a concurrent flow ran)
-    burn_info = await prepare_burn_offer(chat_id, amount)
+    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=True)
     if burn_info is None:
         logger.warning(f"[Subscription] sub_burn_apply: burn_info gone at apply time, chat={chat_id}")
         await callback.message.answer(t('aisystant_sub.payment_error', lang))
@@ -491,7 +491,7 @@ async def callback_sub_burn_apply(callback: CallbackQuery):
     aisystant.invalidate_subscription_cache(aisystant_id)
 
     text = (
-        f"✅ <b>{points_amount:.0f} баллов</b> спишутся после подтверждения оплаты.\n\n"
+        f"✅ <b>{points_amount:.0f} бонусов</b> спишутся после подтверждения оплаты.\n\n"
         + t('aisystant_sub.payment_success', lang)
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[

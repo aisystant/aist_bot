@@ -57,17 +57,22 @@ ENABLE_HISTORIC_CAP = os.getenv("ENABLE_HISTORIC_CAP", "true").lower() == "true"
 async def available_discount(
     account_id: str,
     requested_amount_rub: Decimal,
+    skip_ceiling: bool = False,
 ) -> dict:
     """Сколько скидки доступно пилоту для покупки на requested_amount_rub.
 
     Args:
         account_id: Ory UUID пилота
         requested_amount_rub: целевая сумма покупки в рублях
+        skip_ceiling: if True — skip historic_bonus_ceiling cap; apply only balance
+            and purchase-amount bounds. Used for subscription cashback where the user
+            pays full price by card and bonuses are deducted afterwards (no per-transaction
+            daily cap makes sense in that model).
 
     Returns:
         {
             "copilka_pts": Decimal,         # текущий баланс пилота
-            "ceiling_pts": Decimal,         # daily_cap по квалификации
+            "ceiling_pts": Decimal,         # daily_cap по квалификации (or balance when skip_ceiling)
             "available_pts": Decimal,       # min(copilka, ceiling - reserved_today, requested/rate)
             "discount_rub": Decimal,        # available_pts × rate (из loyalty_pool_config)
             "qualification": str,           # 'ученик' / 'работник' / ... / 'общественный_деятель'
@@ -174,7 +179,13 @@ async def available_discount(
         # 5. Effective available = min(balance_minus_reserved, ceiling, requested/rate)
         rate = await _get_rate()
         max_by_request = requested_amount_rub / rate
-        available_pts = min(balance_minus_reserved, ceiling_pts, max_by_request)
+        if skip_ceiling:
+            # Cashback model (e.g. subscription): user pays full price by card, so no
+            # per-transaction daily cap applies — only available balance and purchase value.
+            available_pts = min(balance_minus_reserved, max_by_request)
+            ceiling_pts = balance_minus_reserved  # reflected in return dict for UI
+        else:
+            available_pts = min(balance_minus_reserved, ceiling_pts, max_by_request)
         available_pts = available_pts.quantize(Decimal("0.01"))
 
         discount_rub = (available_pts * rate).quantize(Decimal("0.01"))
