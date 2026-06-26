@@ -21,7 +21,15 @@ from aiogram.filters import Command
 
 from db.queries import get_intern
 from db.queries.aisystant import get_aisystant_id
+from db.queries.redeem import cancel_pending_reserve, confirm_subscription_reserves, update_reserve_payment_id
 from clients.aisystant import aisystant
+from helpers.dual_write import resolve_ory_id_from_chat
+from helpers.redeem_helpers import (
+    build_burn_offer_keyboard,
+    format_burn_offer_text,
+    prepare_burn_offer,
+    reserve_for_yookassa_provisional,
+)
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -117,6 +125,16 @@ async def cmd_subscription(message: Message):
     try:
         is_active = await aisystant.has_active_subscription(aisystant_id)
         if is_active:
+            # Lazy-confirm: subscription webhook never reaches the bot (payment goes via
+            # Aisystant), so pending SUBSCRIPTION reserves must be confirmed here.
+            try:
+                account_id = await resolve_ory_id_from_chat(chat_id)
+                if account_id:
+                    confirmed = await confirm_subscription_reserves(account_id)
+                    if confirmed:
+                        logger.info(f"[Subscription] lazy-confirmed {confirmed} reserve(s) for chat={chat_id}")
+            except Exception as confirm_err:
+                logger.warning(f"[Subscription] lazy-confirm failed, ignoring: {confirm_err}")
             await message.answer(t('aisystant_sub.already_active', lang))
             return
     except Exception as e:
@@ -295,3 +313,181 @@ async def callback_sub_pay_workshop(callback: CallbackQuery):
         await callback.message.answer(
             t('aisystant_sub.payment_success', lang), reply_markup=keyboard,
         )
+
+
+@subscription_router.callback_query(F.data == "subscribe_with_bonus")
+async def callback_subscribe_with_bonus(callback: CallbackQuery):
+    """Entry point from /points «💎 Подписка» — shows tariff list with per-tariff callbacks
+    instead of pre-created payment URLs so the bonus flow can intercept each tariff click.
+    """
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('aisystant_sub.no_account', lang))
+        return
+
+    try:
+        tariffs = await aisystant.get_subscription_tariffs(aisystant_id)
+    except Exception as e:
+        logger.error(f"[Subscription] subscribe_with_bonus get_tariffs error: {e}")
+        await callback.message.answer(t('aisystant_sub.error', lang))
+        return
+
+    if not tariffs:
+        await callback.message.answer(t('aisystant_sub.no_tariffs', lang))
+        return
+
+    lines = [t('aisystant_sub.title', lang), "", t('aisystant_sub.desc', lang), ""]
+    buttons = []
+    for tariff in tariffs[:5]:
+        code, name, amount, periodicity = _parse_tariff(tariff)
+        period = _period_label(periodicity, lang)
+        lines.append(f"  • {period} — {amount} ₽")
+        if amount > 0:
+            buttons.append([InlineKeyboardButton(
+                text=f"💳 {period} — {amount} ₽",
+                callback_data=f"sub_tariff:{code}:{amount}",
+            )])
+
+    lines.append(t('buy.payment_note', lang))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+
+
+@subscription_router.callback_query(F.data.startswith("sub_tariff:"))
+async def callback_sub_tariff(callback: CallbackQuery):
+    """Tariff selected from subscribe_with_bonus — check bonus eligibility and branch."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    amount = int(float(parts[2]))
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('aisystant_sub.no_account', lang))
+        return
+
+    burn_info = await prepare_burn_offer(chat_id, amount)
+
+    if burn_info is None:
+        # Not eligible — create payment directly (same as existing sub_pay flow)
+        try:
+            result = await aisystant.create_subscription_payment(aisystant_id, code, amount)
+        except Exception as e:
+            logger.error(f"[Subscription] sub_tariff direct payment error: code={code} {e}")
+            await callback.message.answer(t('aisystant_sub.payment_error', lang))
+            return
+
+        if not result or not result.get("confirmationUrl"):
+            await callback.message.answer(t('aisystant_sub.payment_error', lang))
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('aisystant_sub.btn_pay_link', lang), url=result["confirmationUrl"])],
+        ])
+        try:
+            await callback.message.edit_text(t('aisystant_sub.payment_success', lang), reply_markup=keyboard)
+        except Exception:
+            await callback.message.answer(t('aisystant_sub.payment_success', lang), reply_markup=keyboard)
+        return
+
+    # Eligible for bonus — show burn offer
+    text = format_burn_offer_text(burn_info, item_title="подписки")
+    keyboard = build_burn_offer_keyboard(
+        apply_data=f"sub_burn_apply:{code}:{amount}",
+        skip_data=f"sub_pay:{code}:{amount}",
+        full_amount_rub=amount,
+    )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@subscription_router.callback_query(F.data.startswith("sub_burn_apply:"))
+async def callback_sub_burn_apply(callback: CallbackQuery):
+    """User confirmed bonus redemption for subscription.
+
+    Flow: provisional reserve → create Aisystant payment → promote reserve to real_id → show URL.
+    On any error after reserve: cancel the provisional reserve before returning.
+    """
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    amount = int(float(parts[2]))
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('aisystant_sub.no_account', lang))
+        return
+
+    # Re-validate eligibility at execution time (amount may have changed between
+    # sub_tariff and sub_burn_apply if a concurrent flow ran)
+    burn_info = await prepare_burn_offer(chat_id, amount)
+    if burn_info is None:
+        logger.warning(f"[Subscription] sub_burn_apply: burn_info gone at apply time, chat={chat_id}")
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    provisional_id, points_amount = await reserve_for_yookassa_provisional(burn_info, purpose="SUBSCRIPTION")
+    if provisional_id is None:
+        logger.warning(f"[Subscription] sub_burn_apply: reserve failed, chat={chat_id}")
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    # Create real payment — on failure, cancel the provisional reserve immediately
+    try:
+        result = await aisystant.create_subscription_payment(
+            aisystant_id, code, float(burn_info["payable_rub"]),
+        )
+    except Exception as e:
+        logger.error(f"[Subscription] sub_burn_apply: create_payment failed, cancelling reserve: {e}")
+        await cancel_pending_reserve(provisional_id)
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    if not result or not result.get("confirmationUrl") or not result.get("id"):
+        logger.error(f"[Subscription] sub_burn_apply: bad payment response, cancelling reserve: {result}")
+        await cancel_pending_reserve(provisional_id)
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    real_id = result["id"]
+    promoted = await update_reserve_payment_id(provisional_id, real_id)
+    if not promoted:
+        logger.error(
+            f"[Subscription] sub_burn_apply: update_reserve_payment_id failed "
+            f"provisional={provisional_id} real={real_id} — cancelling reserve"
+        )
+        await cancel_pending_reserve(provisional_id)
+        await callback.message.answer(t('aisystant_sub.payment_error', lang))
+        return
+
+    discount_rub = burn_info["discount_rub"]
+    text = (
+        f"✅ Скидка <b>{discount_rub:.0f} ₽</b> применена!\n"
+        f"Спишется <b>{points_amount:.0f} баллов</b> после оплаты.\n\n"
+        + t('aisystant_sub.payment_success', lang)
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('aisystant_sub.btn_pay_link', lang), url=result["confirmationUrl"])],
+    ])
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
