@@ -322,19 +322,6 @@ async def nudge_personal_guide_cta(
 
     Returns True если сообщение отправлено, False при ошибке.
     """
-    # WP-349 Ф30: записать intent апгрейда через gateway MCP (fire-and-forget)
-    try:
-        result = await gateway_mcp.request_equipment_upgrade(
-            telegram_user_id=chat_id,
-            target_tier="T3",
-            channel="telegram",
-            trigger="nudge_f",
-        )
-        if result and result.get("success"):
-            logger.info("[TierUpgrade] T3 request recorded for %s", chat_id)
-    except Exception as exc:
-        logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
-
     guide_url = _guide_web_url()
     content_spec = {
         "text": (
@@ -359,6 +346,18 @@ async def nudge_personal_guide_cta(
         accepted = result.get("status") == "queued"
         if accepted:
             logger.info("[TierUpgrade] nudge_personal_guide_cta (days=%d) enqueued for %d", activity_days, chat_id)
+            # WP-349 Ф30: gateway intent only when message is actually queued (H1 fix)
+            try:
+                gw = await gateway_mcp.request_equipment_upgrade(
+                    telegram_user_id=chat_id,
+                    target_tier="T3",
+                    channel="telegram",
+                    trigger="nudge_f",
+                )
+                if gw and gw.get("success"):
+                    logger.info("[TierUpgrade] T3 request recorded for %s", chat_id)
+            except Exception as exc:
+                logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
         else:
             logger.info("[TierUpgrade] nudge_personal_guide_cta suppressed for %d: %s", chat_id, result.get("reason"))
         return accepted
@@ -377,19 +376,6 @@ async def nudge_fullenv_cta(
 
     Returns True если сообщение отправлено, False при ошибке.
     """
-    # WP-349 Ф30: записать intent апгрейда через gateway MCP (fire-and-forget)
-    try:
-        result = await gateway_mcp.request_equipment_upgrade(
-            telegram_user_id=chat_id,
-            target_tier="T4",
-            channel="telegram",
-            trigger="nudge_g",
-        )
-        if result and result.get("success"):
-            logger.info("[TierUpgrade] T4 request recorded for %s", chat_id)
-    except Exception as exc:
-        logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
-
     content_spec = {
         "text": (
             f"Вы занимаетесь уже {activity_days} дней и ваша база знаний растёт. "
@@ -411,6 +397,18 @@ async def nudge_fullenv_cta(
         accepted = result.get("status") == "queued"
         if accepted:
             logger.info("[TierUpgrade] nudge_fullenv_cta (days=%d) enqueued for %d", activity_days, chat_id)
+            # WP-349 Ф30: gateway intent only when message is actually queued (H1 fix)
+            try:
+                gw = await gateway_mcp.request_equipment_upgrade(
+                    telegram_user_id=chat_id,
+                    target_tier="T4",
+                    channel="telegram",
+                    trigger="nudge_g",
+                )
+                if gw and gw.get("success"):
+                    logger.info("[TierUpgrade] T4 request recorded for %s", chat_id)
+            except Exception as exc:
+                logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
         else:
             logger.info("[TierUpgrade] nudge_fullenv_cta suppressed for %d: %s", chat_id, result.get("reason"))
         return accepted
