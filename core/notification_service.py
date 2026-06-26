@@ -103,11 +103,15 @@ async def enqueue(
     # Валидация actions на входе: KeyError в drain случился бы ПОСЛЕ status=sent —
     # сообщение терялось бы молча. Громкая ошибка на стороне отправителя дешевле.
     for action in (content_spec or {}).get("actions") or []:
-        if not action.get("label") or not action.get("action"):
-            raise ValueError("content_spec.actions: label and action are required")
-        if len(str(action["action"]).encode()) > 64:
+        if not action.get("label"):
+            raise ValueError("content_spec.actions: label is required")
+        cb = action.get("action")
+        url = action.get("url")
+        if not cb and not url:
+            raise ValueError("content_spec.actions: each action requires 'action' (callback_data) or 'url'")
+        if cb and len(str(cb).encode()) > 64:
             raise ValueError(
-                f"content_spec.actions: callback_data >64 bytes (Telegram limit): {action['action']!r}"
+                f"content_spec.actions: callback_data >64 bytes (Telegram limit): {cb!r}"
             )
     if priority is None:
         priority = policy.priority

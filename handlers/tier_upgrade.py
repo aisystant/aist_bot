@@ -36,6 +36,7 @@ from db.queries import get_intern
 from db.queries.events import log_event
 from i18n import t
 from clients.gateway_mcp import gateway_mcp
+from core.notification_service import enqueue, CLASS_CAPPED
 
 logger = logging.getLogger(__name__)
 
@@ -335,21 +336,32 @@ async def nudge_personal_guide_cta(
         logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
 
     guide_url = _guide_web_url()
-    text = (
-        f"Вы занимаетесь уже {activity_days} дней — самое время создать личную базу знаний.\n\n"
-        "🤖 Платформа ведёт (проще — ничего не настраивать):\n"
-        f"{guide_url}/start\n\n"
-        "🔧 Вы ведёте сами (полный контроль): /personal-guide-start\n\n"
-        "Можно начать с платформы и перейти на ручное управление позже."
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Начать с платформой", url=f"{guide_url}/start"),
-        InlineKeyboardButton(text="Позже", callback_data="tier_upgrade_snooze:personal_guide"),
-    ]])
+    content_spec = {
+        "text": (
+            f"Вы занимаетесь уже {activity_days} дней — самое время создать личную базу знаний.\n\n"
+            "🤖 Платформа ведёт (проще — ничего не настраивать):\n"
+            f"{guide_url}/start\n\n"
+            "🔧 Вы ведёте сами (полный контроль): /personal-guide-start\n\n"
+            "Можно начать с платформой и перейти на ручное управление позже."
+        ),
+        "actions": [
+            {"label": "Начать с платформой", "url": f"{guide_url}/start"},
+            {"label": "Позже", "action": "tier_upgrade_snooze:personal_guide"},
+        ],
+    }
     try:
-        await bot.send_message(chat_id, text, reply_markup=keyboard)
-        logger.info("[TierUpgrade] nudge_personal_guide_cta (days=%d) sent to %d", activity_days, chat_id)
-        return True
+        result = await enqueue(
+            chat_id, CLASS_CAPPED, content_spec,
+            dedup_key=f"nudge_f:{chat_id}",
+            journal_key=f"nudge_f:{chat_id}",
+            journal_type="nudge",
+        )
+        accepted = result.get("status") == "queued"
+        if accepted:
+            logger.info("[TierUpgrade] nudge_personal_guide_cta (days=%d) enqueued for %d", activity_days, chat_id)
+        else:
+            logger.info("[TierUpgrade] nudge_personal_guide_cta suppressed for %d: %s", chat_id, result.get("reason"))
+        return accepted
     except Exception as e:
         logger.warning("[TierUpgrade] nudge_personal_guide_cta failed for %d: %s", chat_id, e)
         return False
@@ -378,19 +390,30 @@ async def nudge_fullenv_cta(
     except Exception as exc:
         logger.warning("[TierUpgrade] gateway request_equipment_upgrade failed: %s", exc)
 
-    text = (
-        f"Вы занимаетесь уже {activity_days} дней и ваша база знаний растёт. "
-        "Следующий уровень — полное окружение IWE.\n\n"
-        "Подключите VS Code для глубокой работы: выполните /connect и следуйте инструкции."
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Подключить VS Code", callback_data="tier_upgrade_fullenv_start"),
-        InlineKeyboardButton(text="Позже", callback_data="tier_upgrade_snooze:fullenv"),
-    ]])
+    content_spec = {
+        "text": (
+            f"Вы занимаетесь уже {activity_days} дней и ваша база знаний растёт. "
+            "Следующий уровень — полное окружение IWE.\n\n"
+            "Подключите VS Code для глубокой работы: выполните /connect и следуйте инструкции."
+        ),
+        "actions": [
+            {"label": "Подключить VS Code", "action": "tier_upgrade_fullenv_start"},
+            {"label": "Позже", "action": "tier_upgrade_snooze:fullenv"},
+        ],
+    }
     try:
-        await bot.send_message(chat_id, text, reply_markup=keyboard)
-        logger.info("[TierUpgrade] nudge_fullenv_cta (days=%d) sent to %d", activity_days, chat_id)
-        return True
+        result = await enqueue(
+            chat_id, CLASS_CAPPED, content_spec,
+            dedup_key=f"nudge_g:{chat_id}",
+            journal_key=f"nudge_g:{chat_id}",
+            journal_type="nudge",
+        )
+        accepted = result.get("status") == "queued"
+        if accepted:
+            logger.info("[TierUpgrade] nudge_fullenv_cta (days=%d) enqueued for %d", activity_days, chat_id)
+        else:
+            logger.info("[TierUpgrade] nudge_fullenv_cta suppressed for %d: %s", chat_id, result.get("reason"))
+        return accepted
     except Exception as e:
         logger.warning("[TierUpgrade] nudge_fullenv_cta failed for %d: %s", chat_id, e)
         return False
