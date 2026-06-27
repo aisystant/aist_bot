@@ -50,7 +50,7 @@ def _scope_label(scope_name: str, lang: str = "ru") -> str:
     return {
         "stage_evaluation": "Оценка ступени мастерства",
         "club_activity": "Активность в клубе",
-        "text_analysis": "Анализ текстов (мировоззрение)",
+        "text_analysis": "Анализ учебных текстов (тексты ответов на задания из LMS, посты в клубе, оценка мировоззрения)",
     }.get(scope_name, scope_name)
 
 
@@ -98,8 +98,8 @@ def _format_status(consent, events: dict[str, int] | None = None, lang: str = "r
         "<b>Ваши согласия</b>\n\n"
         f"  • Трекинг активности — {status_text} (с {opted_at_short})\n"
         f"{scope_lines}\n"
-        f"  • Анализ текстов — {ta_text}\n"
-        "    <i>Точная оценка мировоззрения. Не влияет на ступень.</i>\n"
+        f"  • Анализ учебных текстов — {ta_text}\n"
+        "    <i>Хранение и анализ твоих ответов на задания из LMS и постов в клубе для оценки мировоззрения. Не влияет на ступень.</i>\n"
     )
 
     if consent["opt_in"] and events is not None:
