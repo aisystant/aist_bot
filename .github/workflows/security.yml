@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pip-audit
-      - name: pip audit (high+critical)
-        run: pip-audit -r requirements.txt --severity high
+      - name: pip audit
+        run: pip-audit -r requirements.txt
 
   bandit:
     name: Bandit SAST (B5.2)
