@@ -215,6 +215,7 @@ async def reserve_burn(
     qualification_snapshot: str,
     daily_cap_snapshot: Decimal,
     expires_at: Optional[datetime] = None,
+    product_code: Optional[str] = None,
 ) -> bool:
     """Резерв баллов перед оплатой (status='reserved').
 
@@ -225,9 +226,10 @@ async def reserve_burn(
         payment_id: ЮКасса payment.id ИЛИ TG провизорный UUID ИЛИ "zero_{uuid}" для 100% скидки
         points_amount: сколько баллов резервируется (positive Decimal)
         payment_source: 'yookassa' / 'tg_stars' / 'stripe' / 'manual' / 'zero_payment'
-        purpose: 'SEMINAR' / 'SUBSCRIPTION' / 'EVENT'
+        purpose: 'SEMINAR' / 'SUBSCRIPTION' / 'EVENT' / 'COURSE'
         qualification_snapshot: степень МИМ на момент резерва
         daily_cap_snapshot: daily_cap на момент резерва (для replay)
+        product_code: код курса/продукта (для COURSE резервов — скопирован в confirm_course_reserves)
 
     Returns:
         True — резерв создан, False — payment_id уже использован (idempotent) или недостаточно баллов.
@@ -272,8 +274,9 @@ async def reserve_burn(
                 """
                 INSERT INTO public.redeemed_events
                     (payment_id, account_id, points_amount, discount_rub,
-                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status, expires_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'reserved', $9)
+                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status,
+                     expires_at, product_code)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'reserved', $9, $10)
                 ON CONFLICT (payment_id) DO NOTHING
                 RETURNING payment_id
                 """,
@@ -286,6 +289,7 @@ async def reserve_burn(
                 payment_source,
                 purpose,
                 expires_at,
+                product_code,
             )
 
             if result is None:
@@ -398,6 +402,57 @@ async def confirm_subscription_reserves(account_id: str) -> int:
                 logger.info(
                     f"[Redeem] confirm_subscription_reserves: payment_id={row['payment_id']}, "
                     f"points={row['points_amount']}, account={str(row['account_id'])[:8]}"
+                )
+
+    return len(rows)
+
+
+async def confirm_course_reserves(account_id: str, course_codes: list[str]) -> int:
+    """Lazy-confirm reserved bonus points after course access is detected.
+
+    Called in callback_my_courses when get_user_courses() returns courses with active access.
+    Course payments go through Aisystant, so the bot's YooKassa webhook never fires — this
+    is the only confirmation path for COURSE reserves.
+
+    Filters by product_code = ANY(course_codes) so a reserve for course A is never confirmed
+    when the user gains access to course B via a different path.
+
+    Returns count of confirmed reserves (usually 0 or 1 per course).
+    """
+    if not course_codes:
+        return 0
+
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(
+                """
+                UPDATE public.redeemed_events
+                SET status = 'confirmed', confirmed_at = now()
+                WHERE account_id = $1
+                  AND purpose = 'COURSE'
+                  AND status = 'reserved'
+                  AND payment_id NOT LIKE 'yk_%'
+                  AND product_code = ANY($2::text[])
+                RETURNING payment_id, account_id, points_amount, product_code
+                """,
+                uuid.UUID(account_id),
+                course_codes,
+            )
+            for row in rows:
+                await conn.execute(
+                    """
+                    UPDATE public.point_balances
+                    SET points = points - $1, last_updated = now()
+                    WHERE account_id = $2
+                    """,
+                    row["points_amount"],
+                    row["account_id"],
+                )
+                logger.info(
+                    f"[Redeem] confirm_course_reserves: payment_id={row['payment_id']}, "
+                    f"product_code={row['product_code']}, points={row['points_amount']}, "
+                    f"account={str(row['account_id'])[:8]}"
                 )
 
     return len(rows)

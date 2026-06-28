@@ -18,6 +18,9 @@ Callbacks:
 - schedule_pay:{code}:{amount} — создание платежа (полная оплата)
 - sched_pay_inst:{code}:{amount} — создание платежа в рассрочку (35%, paymentIndex=0)
 - sub_pay_ws:{code}:{amount}   — платёж за мастерскую
+- sched_pay_courses            — каталог курсов для бонусного меню (entry point из /points)
+- sched_pay_burn:{code}:{amount} — предложение бонусного кешбэка за курс
+- sched_burn_apply:{code}:{amount} — подтверждение бонусного резерва для курса
 """
 
 import asyncio
@@ -35,7 +38,9 @@ from aiogram.filters import Command
 
 from db.queries import get_intern
 from db.queries.aisystant import get_aisystant_id
+from db.queries.redeem import cancel_pending_reserve, confirm_course_reserves, update_reserve_payment_id
 from clients.aisystant import aisystant
+from helpers.redeem_helpers import build_burn_offer_keyboard, prepare_burn_offer, reserve_for_yookassa_provisional
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -289,6 +294,19 @@ async def callback_my_courses(callback: CallbackQuery):
         logger.error(f"[Schedule] get_user_courses error: {e}")
         await callback.message.answer(t('schedule.error', lang))
         return
+
+    # Lazy-confirm: if user has course access, a pending bonus reserve (from sched_burn_apply)
+    # may be waiting for confirmation. Isolated from the listing so a DB error never hides courses.
+    if courses:
+        account_id = intern.get("dt_user_id") if intern else None
+        if account_id:
+            course_codes = [p["potok"]["code"] for p in courses if p.get("potok", {}).get("code")]
+            try:
+                confirmed = await confirm_course_reserves(account_id, course_codes)
+                if confirmed:
+                    logger.info(f"[Schedule] lazy-confirm: {confirmed} course reserve(s) confirmed, chat={chat_id}")
+            except Exception as confirm_err:
+                logger.warning(f"[Schedule] lazy-confirm failed (non-fatal): {confirm_err}")
 
     if not courses:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -552,3 +570,203 @@ async def callback_pay(callback: CallbackQuery):
     except Exception:
         await callback.message.answer(msg, parse_mode="Markdown",
                                        disable_web_page_preview=True)
+
+
+# ── Bonus path: courses ─────────────────────────────────
+
+@schedule_router.callback_query(F.data == "sched_pay_courses")
+async def callback_sched_pay_courses(callback: CallbackQuery):
+    """Entry point from /points 🎓 — list of paid courses available for bonus cashback."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    await callback.answer()
+
+    try:
+        courses = await aisystant.get_available_courses()
+    except Exception as e:
+        logger.error(f"[Schedule] sched_pay_courses get_available_courses error: {e}")
+        await callback.message.answer(t('schedule.error', lang))
+        return
+
+    paid = []
+    for c in courses:
+        raw_price = c.get("price")
+        if not raw_price:
+            continue
+        try:
+            paid.append((c.get("code", ""), c.get("courseName", c.get("code", "?")), int(float(raw_price))))
+        except (TypeError, ValueError):
+            logger.warning(f"[Schedule] sched_pay_courses: unparseable price={raw_price!r} for code={c.get('code')}")
+
+    if not paid:
+        await callback.message.answer(t('schedule.catalog_empty', lang))
+        return
+
+    buttons = []
+    for code, name, amount in paid:
+        btn_name = name if len(name) <= 30 else name[:27] + "..."
+        cb_apply = f"sched_burn_apply:{code}:{amount}"
+        if len(cb_apply.encode()) > 64:
+            # Rare: very long course code — fall back to direct payment, skip bonus path
+            logger.warning(f"[Schedule] sched_pay_courses: callback overflow for code={code}, using direct pay")
+            buttons.append([InlineKeyboardButton(
+                text=f"💳 {btn_name} — {amount} ₽",
+                callback_data=f"schedule_pay:{code}:{amount}",
+            )])
+        else:
+            buttons.append([InlineKeyboardButton(
+                text=f"🎓 {btn_name} — {amount} ₽",
+                callback_data=f"sched_pay_burn:{code}:{amount}",
+            )])
+
+    buttons.append([InlineKeyboardButton(text=t('schedule.btn_back', lang), callback_data="points_spend")])
+    lines = ["*🎓 Курсы с наставником*", "", "Выберите курс для оплаты бонусами:"]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.answer("\n".join(lines), parse_mode="Markdown", reply_markup=keyboard)
+
+
+@schedule_router.callback_query(F.data.startswith("sched_pay_burn:"))
+async def callback_sched_pay_burn(callback: CallbackQuery):
+    """Course selected from bonus menu — check eligibility and show cashback offer or direct pay."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    amount = int(parts[2])
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('schedule.no_account', lang))
+        return
+
+    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=False)
+
+    if burn_info is None:
+        # Not eligible for bonus — create direct payment (same as callback_pay)
+        try:
+            result = await aisystant.create_internship_payment(aisystant_id, code, float(amount))
+        except Exception as e:
+            logger.error(f"[Schedule] sched_pay_burn direct fallback error: code={code} {e}")
+            await callback.message.answer(t('schedule.payment_error', lang))
+            return
+
+        if not result or not result.get("confirmationUrl"):
+            await callback.message.answer(t('schedule.payment_error', lang))
+            return
+
+        url = result["confirmationUrl"]
+        msg = t('schedule.payment_direct', lang, url=url)
+        try:
+            await callback.message.edit_text(msg, parse_mode="Markdown",
+                                              reply_markup=None, disable_web_page_preview=True)
+        except Exception:
+            await callback.message.answer(msg, parse_mode="Markdown", disable_web_page_preview=True)
+        return
+
+    # Eligible — show cashback offer (full card price, bonuses deducted after confirmation)
+    text = (
+        f"💰 На копилке {int(burn_info['copilka_pts'])} бонусов.\n\n"
+        f"Спишем <b>{int(burn_info['available_pts'])} бонусов</b> ({int(burn_info['discount_rub'])} ₽) "
+        f"после подтверждения оплаты.\n"
+        f"Степень: {burn_info['qualification']}\n"
+        f"Оплата картой: <b>{amount} ₽</b>\n\n"
+        f"Применить бонусы для курса?"
+    )
+    keyboard = build_burn_offer_keyboard(
+        apply_data=f"sched_burn_apply:{code}:{amount}",
+        skip_data=f"schedule_pay:{code}:{amount}",
+        full_amount_rub=amount,
+    )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@schedule_router.callback_query(F.data.startswith("sched_burn_apply:"))
+async def callback_sched_burn_apply(callback: CallbackQuery):
+    """User confirmed bonus cashback for course.
+
+    Flow: provisional reserve → create Aisystant payment → promote reserve to real_id → show URL.
+    On any error after reserve: cancel the provisional reserve before returning.
+    """
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    parts = callback.data.split(":")
+    code = parts[1]
+    amount = int(float(parts[2]))
+
+    await callback.answer()
+
+    aisystant_id = await get_aisystant_id(chat_id)
+    if not aisystant_id:
+        await callback.message.answer(t('schedule.no_account', lang))
+        return
+
+    # Re-validate eligibility at execution time (balance may have changed since sched_pay_burn)
+    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=False)
+    if burn_info is None:
+        logger.warning(f"[Schedule] sched_burn_apply: burn_info gone at apply time, chat={chat_id}")
+        await callback.message.answer(t('schedule.payment_error', lang))
+        return
+
+    provisional_id, points_amount = await reserve_for_yookassa_provisional(
+        burn_info, purpose="COURSE", product_code=code,
+    )
+    if provisional_id is None:
+        logger.warning(f"[Schedule] sched_burn_apply: reserve failed, chat={chat_id}, code={code}")
+        await callback.message.answer(t('schedule.payment_error', lang))
+        return
+
+    try:
+        result = await aisystant.create_internship_payment(aisystant_id, code, float(amount))
+    except Exception as e:
+        logger.error(f"[Schedule] sched_burn_apply: create_payment failed, cancelling reserve: {e}")
+        await cancel_pending_reserve(provisional_id)
+        await callback.message.answer(t('schedule.payment_error', lang))
+        return
+
+    if not result or not result.get("confirmationUrl") or not result.get("id"):
+        logger.error(f"[Schedule] sched_burn_apply: bad payment response, cancelling reserve: {result}")
+        await cancel_pending_reserve(provisional_id)
+        await callback.message.answer(t('schedule.payment_error', lang))
+        return
+
+    real_id = result["id"]
+    promoted = await update_reserve_payment_id(provisional_id, real_id)
+    if not promoted:
+        # Provisional reserve expired (TTL 1h) between reserve and promote.
+        # Payment was already created — give user the URL so they can complete payment.
+        # Bonus reserve will self-expire via rollback_expired_reservations.
+        logger.error(
+            f"[Schedule] sched_burn_apply: update_reserve_payment_id failed "
+            f"provisional={provisional_id} real={real_id} — reserve expired, showing URL without bonus"
+        )
+        url = result["confirmationUrl"]
+        msg = t('schedule.payment_direct', lang, url=url)
+        try:
+            await callback.message.edit_text(msg, parse_mode="Markdown",
+                                              reply_markup=None, disable_web_page_preview=True)
+        except Exception:
+            await callback.message.answer(msg, parse_mode="Markdown", disable_web_page_preview=True)
+        return
+
+    text = (
+        f"✅ <b>{points_amount:.0f} бонусов</b> спишутся после подтверждения оплаты.\n\n"
+        + t('schedule.payment_success', lang)
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t('schedule.btn_pay_link', lang), url=result["confirmationUrl"])],
+    ])
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
