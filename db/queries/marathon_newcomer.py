@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from db.connection import get_learning_pool
+from db.sql_helpers import update as _update_sql
 from config import get_logger
 
 logger = get_logger(__name__)
@@ -188,7 +189,13 @@ async def update_progress(
         return
 
     values.append(user_id)
-    sql = f"UPDATE learning.marathon_progress SET {', '.join(fields)}, updated_at = NOW() WHERE user_id = ${idx}"
+    # fields形如 "current_day = $1"; strip assignment to get column names
+    columns = [f.split(" = ", 1)[0] for f in fields]
+    sql = _update_sql(
+        'learning.marathon_progress', columns,
+        'user_id = $' + str(idx),
+        extra_set=["updated_at = NOW()"],
+    )
     async with pool.acquire() as conn:
         await conn.execute(sql, *values)
 

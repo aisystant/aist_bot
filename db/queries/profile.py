@@ -10,6 +10,7 @@ from typing import Optional
 
 from db.connection import get_pool, get_learning_pool, get_journal_pool, get_health_pool
 from config import get_logger
+from db.sql_helpers import delete_from as _delete_from_sql
 
 logger = get_logger(__name__)
 
@@ -116,7 +117,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             ]
             for table in tables_chat_id:
                 deleted = await conn.execute(
-                    f'DELETE FROM {table} WHERE chat_id = $1', chat_id
+                    _delete_from_sql(table, 'chat_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
 
@@ -124,7 +125,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             tables_user_id = ['service_usage']
             for table in tables_user_id:
                 deleted = await conn.execute(
-                    f'DELETE FROM {table} WHERE user_id = $1', chat_id
+                    _delete_from_sql(table, 'user_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
             # Legacy bot_data.request_traces — historical, будет DROPPED после soak.
@@ -243,7 +244,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             result['feed_sessions'] = _parse_delete_count(deleted)
             for table in ('feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments'):
                 deleted = await lconn.execute(
-                    f'DELETE FROM {table} WHERE chat_id = $1', chat_id
+                    _delete_from_sql('learning.' + table, 'chat_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:
@@ -343,7 +344,7 @@ async def reset_learning_data(chat_id: int) -> dict:
             result['feed_sessions'] = _parse_delete_count(deleted)
             for table in ('feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments'):
                 deleted = await lconn.execute(
-                    f'DELETE FROM {table} WHERE chat_id = $1', chat_id
+                    _delete_from_sql('learning.' + table, 'chat_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:

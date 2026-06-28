@@ -8,6 +8,7 @@ from typing import List
 
 from config import get_logger
 from db.connection import get_pool, get_journal_pool, get_learning_pool, get_health_pool
+from db.sql_helpers import select_count_from
 
 logger = get_logger(__name__)
 
@@ -181,7 +182,7 @@ async def get_table_sizes() -> List[dict]:
             'marathon_content',
         ]:
             try:
-                row = await conn.fetchrow(f'SELECT COUNT(*) AS cnt FROM {table}')
+                row = await conn.fetchrow(select_count_from(table))
                 results.append({'table': table, 'count': row['cnt']})
             except Exception:
                 results.append({'table': table, 'count': -1})
@@ -191,7 +192,7 @@ async def get_table_sizes() -> List[dict]:
     async with learning_pool.acquire() as lc:
         for table in ['answers', 'activity_log', 'assessments']:
             try:
-                row = await lc.fetchrow(f'SELECT COUNT(*) AS cnt FROM {table}')
+                row = await lc.fetchrow(select_count_from('learning.' + table))
                 results.append({'table': f'learning.{table}', 'count': row['cnt']})
             except Exception:
                 results.append({'table': f'learning.{table}', 'count': -1})
@@ -201,7 +202,7 @@ async def get_table_sizes() -> List[dict]:
     async with health_pool.acquire() as hc:
         for table in ['error_logs', 'user_sessions', 'pending_fixes']:
             try:
-                row = await hc.fetchrow(f'SELECT COUNT(*) AS cnt FROM {table}')
+                row = await hc.fetchrow(select_count_from('health.' + table))
                 results.append({'table': f'health.{table}', 'count': row['cnt']})
             except Exception:
                 results.append({'table': f'health.{table}', 'count': -1})

@@ -326,7 +326,7 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
         if _ory:
             _ext_id = f"dt-oauth-completed-{_ory}"
         else:
-            _chat_hash = _hashlib.sha1(str(telegram_user_id).encode()).hexdigest()[:12]
+            _chat_hash = _hashlib.sha256(str(telegram_user_id).encode()).hexdigest()[:12]
             _ext_id = f"dt-oauth-completed-anon-{_chat_hash}"
         _asyncio.create_task(_post_event(
             source="aist-bot",
@@ -2329,7 +2329,7 @@ async def start_oauth_server():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    site = web.TCPSite(runner, "0.0.0.0", OAUTH_SERVER_PORT)
+    site = web.TCPSite(runner, "0.0.0.0", OAUTH_SERVER_PORT)  # nosec B104 (Railway container)
     await site.start()
 
     logger.info(f"OAuth server started on port {OAUTH_SERVER_PORT}")

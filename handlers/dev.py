@@ -1104,15 +1104,16 @@ async def _get_reconnect_candidates():
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            f"""
+            """
             SELECT u.telegram_id, COALESCE(u.language, 'ru') AS language, u.name,
                    u.dt_connected_at, ot.updated_at AS ory_updated_at
             FROM public.users u
             LEFT JOIN public.ory_tokens ot ON ot.chat_id = u.telegram_id
             WHERE u.dt_connected_at IS NOT NULL
-              AND (ot.updated_at IS NULL OR ot.updated_at <= '{_INCIDENT_CUTOFF_UTC}'::timestamp)
+              AND (ot.updated_at IS NULL OR ot.updated_at <= $1::timestamp)
             ORDER BY u.telegram_id
-            """
+            """,
+            _INCIDENT_CUTOFF_UTC,
         )
         return [dict(r) for r in rows]
 

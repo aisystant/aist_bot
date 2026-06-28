@@ -25,8 +25,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional
-from urllib.request import urlopen, Request
-from urllib.error import URLError
+import httpx
 
 import yaml
 
@@ -93,12 +92,12 @@ def _fetch_content() -> Optional[str]:
 
     # 2. GitHub raw URL (prod)
     try:
-        req = Request(_GITHUB_RAW_URL, headers={"User-Agent": "AIST-Bot"})
-        with urlopen(req, timeout=10) as resp:
-            content = resp.read().decode("utf-8")
+        resp = httpx.get(_GITHUB_RAW_URL, headers={"User-Agent": "AIST-Bot"}, timeout=10)
+        resp.raise_for_status()
+        content = resp.text
         logger.info(f"Self-knowledge: loaded from GitHub ({len(content)} chars)")
         return content
-    except (URLError, OSError) as e:
+    except (httpx.HTTPError, OSError) as e:
         logger.error(f"Failed to fetch Pack from GitHub: {e}")
 
     return None

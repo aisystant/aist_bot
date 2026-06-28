@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from db.connection import get_learning_pool
+from db.sql_helpers import update as _update_sql
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +140,12 @@ async def write_upgrade_sent_at(account_id: str, marker_key: str) -> bool:
         pool = await get_learning_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(
-                f"""UPDATE learning.onboarding_state
-                   SET {col} = NOW(), last_nudge_at = NOW()
-                   WHERE account_id = $1::uuid""",
+                _update_sql(
+                    'learning.onboarding_state',
+                    [],
+                    'account_id = $1::uuid',
+                    extra_set=[f"{col} = NOW()", "last_nudge_at = NOW()"],
+                ),
                 account_id,
             )
         updated = result.split()[-1] if result else "0"

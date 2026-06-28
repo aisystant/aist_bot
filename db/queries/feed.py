@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from config import get_logger, FeedWeekStatus
 from db.connection import get_learning_pool
+from db.sql_helpers import update as _update_sql
 
 logger = get_logger(__name__)
 
@@ -79,16 +80,27 @@ async def get_current_feed_week(chat_id: int) -> Optional[dict]:
         return None
 
 
+_FEED_WEEK_COLS = frozenset({
+    'status', 'current_day', 'suggested_topics', 'accepted_topics',
+    'topic_title', 'focus_area', 'week_start',
+})
+_FEED_SESSION_COLS = frozenset({
+    'status', 'day_number', 'topic_title', 'content', 'session_date',
+})
+
+
 async def update_feed_week(week_id: int, updates: dict):
     """Обновить неделю Ленты"""
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         for key, value in updates.items():
-            if key in ['suggested_topics', 'accepted_topics']:
+            if key not in _FEED_WEEK_COLS:
+                raise ValueError(f"Invalid feed_week column: {key!r}")
+            if key in ('suggested_topics', 'accepted_topics'):
                 value = json.dumps(value) if not isinstance(value, str) else value
 
             await conn.execute(
-                f'UPDATE feed_weeks SET {key} = $1 WHERE id = $2',
+                _update_sql('feed_weeks', [key], 'id = $2'),
                 value, week_id
             )
 
@@ -142,11 +154,13 @@ async def update_feed_session(session_id: int, updates: dict):
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         for key, value in updates.items():
+            if key not in _FEED_SESSION_COLS:
+                raise ValueError(f"Invalid feed_session column: {key!r}")
             if key == 'content':
                 value = json.dumps(value) if not isinstance(value, str) else value
 
             await conn.execute(
-                f'UPDATE feed_sessions SET {key} = $1 WHERE id = $2',
+                _update_sql('feed_sessions', [key], 'id = $2'),
                 value, session_id
             )
 

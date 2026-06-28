@@ -104,7 +104,7 @@ class RetrievalResult:
         """Хеш для сравнения похожести"""
         # Нормализуем текст для сравнения
         normalized = re.sub(r'\s+', ' ', self.text.lower().strip())
-        return hashlib.md5(normalized[:500].encode()).hexdigest()
+        return hashlib.sha256(normalized[:500].encode()).hexdigest()
 
     @property
     def key_phrases(self) -> Set[str]:
