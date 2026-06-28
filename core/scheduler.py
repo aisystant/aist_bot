@@ -956,13 +956,13 @@ async def _check_marathon_split_delivery():
     try:
         await bot.send_message(
             MENTOR_CHANNEL_ID,
-            f"🚨 *WP-330 С5 watchdog*\n\n"
+            "🚨 *WP-330 С5 watchdog*\n\n"  # nosec B608 (message text, not executed SQL)
             f"Окно `{now.strftime('%H:%M')}` МСК 31 мая: с 04:00 МСК сегодня 0 split-доставок "
             f"(legacy={legacy}). Migration не сработала или cron спит. Проверь:\n"
-            f"• `git log -1 --oneline new-architecture` — С2 (c5820ea) на проде?\n"
-            f"• `SELECT count(*) FROM learning.marathon_queue WHERE status='pending' "
-            f"AND content_text IS NULL AND content_type='lesson_practice'` ≥ 1?\n"
-            f"• Railway logs `[MarathonQueue]` за последний час",
+            "• `git log -1 --oneline new-architecture` — С2 (c5820ea) на проде?\n"
+            "• `SELECT count(*) FROM learning.marathon_queue WHERE status='pending' "
+            "AND content_text IS NULL AND content_type='lesson_practice'` ≥ 1?\n"
+            "• Railway logs `[MarathonQueue]` за последний час",
             parse_mode="Markdown",
         )
         logger.warning(f"[MarathonSplitWatchdog] Alert sent: 0 split deliveries in last 60 min (legacy={legacy})")

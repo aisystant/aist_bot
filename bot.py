@@ -587,7 +587,7 @@ async def main():
         # Start web server FIRST so Railway health check passes immediately
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        site = web.TCPSite(runner, "0.0.0.0", PORT)  # nosec B104
         await site.start()
         logger.info(f"✅ Web server listening on port {PORT}")
 

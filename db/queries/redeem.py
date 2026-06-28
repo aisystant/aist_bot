@@ -618,13 +618,15 @@ async def rollback_expired_reservations() -> int:
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            f"""
-            UPDATE public.redeemed_events
-            SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = 'timeout_{RESERVATION_TIMEOUT_MIN}min'
-            WHERE status = 'reserved'
-              AND COALESCE(expires_at, reserved_at + interval '{RESERVATION_TIMEOUT_MIN} minutes') < now()
-            RETURNING payment_id, account_id, points_amount
             """
+            UPDATE public.redeemed_events
+            SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = $1
+            WHERE status = 'reserved'
+              AND COALESCE(expires_at, reserved_at + $2 * INTERVAL '1 minute') < now()
+            RETURNING payment_id, account_id, points_amount
+            """,
+            f"timeout_{RESERVATION_TIMEOUT_MIN}min",
+            RESERVATION_TIMEOUT_MIN,
         )
 
     for row in rows:

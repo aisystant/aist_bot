@@ -1092,7 +1092,7 @@ class ClaudeClient:
         if result is None and model is not None and model != CLAUDE_MODEL_SONNET and not is_api_degraded():
             logger.warning(
                 f"[generate_content] {model} returned None (truncated?), "
-                f"retrying with Sonnet for chat_id_hash={hashlib.md5(str(chat_id).encode()).hexdigest()[:6]}"
+                f"retrying with Sonnet for chat_id_hash={hashlib.sha256(str(chat_id).encode()).hexdigest()[:6]}"
             )
             result = await self.generate(
                 system_prompt, user_prompt, max_tokens=max_tokens,

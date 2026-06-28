@@ -9,6 +9,8 @@ finance_payments остаётся в Railway /bot_data до G3.
 import asyncpg
 import logging
 
+from db.sql_helpers import insert_into as _insert_into_sql, select_from as _select_from_sql
+
 logger = logging.getLogger(__name__)
 
 _COMMON_COLS = (
@@ -62,8 +64,7 @@ async def migrate_products_if_needed(
         else:
             select_parts.append("'{}'::jsonb AS metadata")
 
-        query = f"SELECT {', '.join(select_parts)} FROM products"
-        rows = await src_conn.fetch(query)
+        rows = await src_conn.fetch(_select_from_sql('products', select_parts))
 
     if not rows:
         logger.warning("[migrate_products] Railway products пуст — нечего копировать")
@@ -72,19 +73,20 @@ async def migrate_products_if_needed(
     # Определить какие колонки реально попали в результат
     result_cols = list(rows[0].keys())
     placeholders = ", ".join(f"${i + 1}" for i in range(len(result_cols)))
-    insert_cols = ", ".join(result_cols)
 
     async with reference_pool.acquire() as ref_conn:
         async with ref_conn.transaction():
             copied = 0
             for row in rows:
                 values = [row[c] for c in result_cols]
-                await ref_conn.execute(
-                    f"INSERT INTO product ({insert_cols}, source) "
-                    f"VALUES ({placeholders}, 'bot_data_migration') "
-                    f"ON CONFLICT (code) DO NOTHING",
-                    *values,
+                query = _insert_into_sql(
+                    'product',
+                    result_cols,
+                    placeholders,
+                    'source',
+                    "ON CONFLICT (code) DO NOTHING",
                 )
+                await ref_conn.execute(query, *values)
                 copied += 1
 
     logger.info(f"[migrate_products] ✅ Скопировано {copied} строк в reference.product")

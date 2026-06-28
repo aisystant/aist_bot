@@ -36,8 +36,8 @@ DUAL_KEY_PAIRS = [
 ]
 
 
-def _file_md5(path: Path) -> str:
-    return hashlib.md5(path.read_bytes()).hexdigest()
+def _file_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -93,8 +93,8 @@ def main() -> int:
 
     print(f"BOT: {bot_stats}")
     print(f"MIRROR: {mirror_stats}")
-    print(f"BOT md5: {_file_md5(BOT_JSON)}")
-    print(f"MIRROR md5: {_file_md5(MIRROR_JSON)}")
+    print(f"BOT hash: {_file_hash(BOT_JSON)}")
+    print(f"MIRROR hash: {_file_hash(MIRROR_JSON)}")
 
     with BOT_JSON.open(encoding="utf-8") as f:
         bot_after = json.load(f)

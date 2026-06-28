@@ -35,7 +35,7 @@ logger = get_logger(__name__)
 
 def _hash_chat_id(chat_id) -> str:
     """Детерминированный 6-hex хеш chat_id для логов (PII-safe, cross-session)."""
-    return hashlib.md5(str(chat_id).encode()).hexdigest()[:6]
+    return hashlib.sha256(str(chat_id).encode()).hexdigest()[:6]
 
 
 # Маппинг complexity_level → стиль ответа

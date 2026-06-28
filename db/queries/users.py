@@ -18,6 +18,7 @@ from typing import Optional, List
 
 from config import get_logger, MOSCOW_TZ, MULTILANG_ENABLED
 from db.connection import get_pool, get_learning_pool
+from db.sql_helpers import update as _update_sql
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
 
 logger = get_logger(__name__)
@@ -398,8 +399,11 @@ async def update_intern(chat_id: int, **kwargs):
             for i, (col, val) in enumerate(profile_updates.items(), start=2):
                 set_parts.append(f"{col} = ${i}")
                 params.append(val)
-            set_parts.append("updated_at = (NOW() AT TIME ZONE 'utc')")
-            query = f"UPDATE public.users SET {', '.join(set_parts)} WHERE telegram_id = $1"
+            columns = [sp.split(" = ", 1)[0] for sp in set_parts]
+            query = _update_sql(
+                'public.users', columns, 'telegram_id = $1',
+                extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
+            )
             await conn.execute(query, *params)
 
         if state_updates:
@@ -408,8 +412,11 @@ async def update_intern(chat_id: int, **kwargs):
             for i, (col, val) in enumerate(state_updates.items(), start=2):
                 set_parts.append(f"{col} = ${i}")
                 params.append(val)
-            set_parts.append("updated_at = (NOW() AT TIME ZONE 'utc')")
-            query = f"UPDATE development.user_state SET {', '.join(set_parts)} WHERE chat_id = $1"
+            columns = [sp.split(" = ", 1)[0] for sp in set_parts]
+            query = _update_sql(
+                'development.user_state', columns, 'chat_id = $1',
+                extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
+            )
             await conn.execute(query, *params)
 
     # Инкрементальный sync в ЦД (fire-and-forget)
@@ -431,7 +438,7 @@ async def update_intern(chat_id: int, **kwargs):
         now = datetime.utcnow()
         affected_fields = sorted(columns.keys())
         ory_id = await resolve_ory_id_from_chat(chat_id)
-        fields_hash = hashlib.sha1(
+        fields_hash = hashlib.sha256(
             f"{chat_id}:{','.join(affected_fields)}".encode()
         ).hexdigest()[:12]
         asyncio.create_task(post_event(
@@ -468,7 +475,7 @@ async def update_tg_username(chat_id: int, username: str) -> None:
     if result and result != "UPDATE 0":
         now = datetime.utcnow()
         ory_id = await resolve_ory_id_from_chat(chat_id)
-        username_hash = hashlib.sha1(
+        username_hash = hashlib.sha256(
             f"{chat_id}:{username or ''}".encode()
         ).hexdigest()[:12]
         asyncio.create_task(post_event(

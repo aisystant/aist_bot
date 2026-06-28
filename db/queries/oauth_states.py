@@ -43,9 +43,9 @@ async def validate_oauth_state(state: str) -> Optional[int]:
         row = await conn.fetchrow(
             '''DELETE FROM oauth_pending_state
                WHERE state = $1
-                 AND created_at > NOW() - INTERVAL '%s seconds'
-               RETURNING telegram_user_id''' % STATE_TTL_SECONDS,
-            state
+                 AND created_at > NOW() - $2 * INTERVAL '1 second'
+               RETURNING telegram_user_id''',
+            state, STATE_TTL_SECONDS
         )
     if row:
         return row['telegram_user_id']
@@ -58,7 +58,8 @@ async def cleanup_expired_oauth_states() -> int:
     async with pool.acquire() as conn:
         result = await conn.execute(
             '''DELETE FROM oauth_pending_state
-               WHERE created_at < NOW() - INTERVAL '%s seconds' ''' % STATE_TTL_SECONDS
+               WHERE created_at < NOW() - $1 * INTERVAL '1 second' ''',
+            STATE_TTL_SECONDS
         )
     count = int(result.split()[-1]) if result else 0
     if count > 0:

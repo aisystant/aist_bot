@@ -182,24 +182,26 @@ async def _sample(conn: asyncpg.Connection, limit: int = 10) -> list:
 
 async def _create_backup(conn: asyncpg.Connection) -> int:
     # IF NOT EXISTS → идемпотентность повторных запусков в один день.
-    await conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {BACKUP_TABLE} (
-            id           bigint PRIMARY KEY,
-            content_text text,
-            backed_up_at timestamptz NOT NULL DEFAULT NOW()
-        )
-    """)
-    result = await conn.execute(f"""
-        INSERT INTO {BACKUP_TABLE} (id, content_text)
-        SELECT q.id, q.content_text
-          FROM learning.marathon_queue q
-          JOIN learning.marathon_progress p ON p.user_id = q.user_id
-         WHERE p.status = 'active'
-           AND q.status = 'pending'
-           AND q.content_type = 'lesson_practice'
-           AND q.day_number > p.current_day
-        ON CONFLICT (id) DO NOTHING
-    """)
+    create_backup_sql = (  # nosec B608 (backup table name is a date-qualified constant)
+        "CREATE TABLE IF NOT EXISTS " + BACKUP_TABLE + " (\n"  # nosec B608 (backup table name is a date-qualified constant)
+        "    id           bigint PRIMARY KEY,\n"
+        "    content_text text,\n"
+        "    backed_up_at timestamptz NOT NULL DEFAULT NOW()\n"
+        ")"
+    )
+    await conn.execute(create_backup_sql)
+    backup_insert_sql = (  # nosec B608 (backup table name is a date-qualified constant)
+        "INSERT INTO " + BACKUP_TABLE + " (id, content_text)\n"  # nosec B608 (backup table name is a date-qualified constant)
+        "SELECT q.id, q.content_text\n"
+        "  FROM learning.marathon_queue q\n"
+        "  JOIN learning.marathon_progress p ON p.user_id = q.user_id\n"
+        " WHERE p.status = 'active'\n"
+        "   AND q.status = 'pending'\n"
+        "   AND q.content_type = 'lesson_practice'\n"
+        "   AND q.day_number > p.current_day\n"
+        "ON CONFLICT (id) DO NOTHING"
+    )
+    result = await conn.execute(backup_insert_sql)
     # asyncpg возвращает «INSERT 0 N»
     return int(result.split()[-1])
 
@@ -235,18 +237,18 @@ async def _verify(conn: asyncpg.Connection) -> dict:
 
 
 def _rollback_sql() -> str:
-    return f"""
-    BEGIN;
-    SELECT pg_advisory_xact_lock({ADVISORY_LOCK_KEY});
-    UPDATE learning.marathon_queue AS q
-       SET content_text = b.content_text, updated_at = NOW()
-      FROM {BACKUP_TABLE} AS b
-     WHERE q.id = b.id
-       AND q.content_text IS NULL
-       AND q.status = 'pending';  -- не трогаем уже отправленные split-сообщения
-    -- check affected count, затем COMMIT (или ROLLBACK)
-    COMMIT;
-    """.rstrip()
+    return (
+        "BEGIN;\n"
+        f"    SELECT pg_advisory_xact_lock({ADVISORY_LOCK_KEY});\n"
+        "    UPDATE learning.marathon_queue AS q\n"
+        "       SET content_text = b.content_text, updated_at = NOW()\n"
+        "      FROM " + BACKUP_TABLE + " AS b\n"  # nosec B608 (backup table name is a date-qualified constant)
+        "     WHERE q.id = b.id\n"
+        "       AND q.content_text IS NULL\n"
+        "       AND q.status = 'pending';  -- не трогаем уже отправленные split-сообщения\n"
+        "    -- check affected count, затем COMMIT (или ROLLBACK)\n"
+        "COMMIT;"
+    )
 
 
 if __name__ == "__main__":
