@@ -168,6 +168,17 @@ async def _bootstrap_learning_schema() -> None:
     except Exception as _e:
         logger.warning(f"⚠️ Migration 024 skipped: {_e}")
 
+    # WP-427 Ф6.1: learning.homework_content — LMS homework answer texts (consent-gated).
+    try:
+        _m033 = _il.import_module("db.migrations.033_homework_content")
+        _lpool = await get_learning_pool()
+        if await _m033.migrate_if_needed(_lpool):
+            logger.info("✅ Migration 033: homework_content created in learning DB")
+        else:
+            logger.info("✅ Migration 033: homework_content already exists")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 033 (homework_content) skipped: {_e}")
+
 
 async def main():
     global state_machine
