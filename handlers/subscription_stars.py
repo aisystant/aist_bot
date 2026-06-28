@@ -113,7 +113,7 @@ async def cb_stars_sub_select(callback: CallbackQuery):
 
     try:
         link = await callback.bot.create_invoice_link(
-            title=f"Подписка БР — {tariff['label']}",
+            title="Подписка «Инженерия интеллекта»",
             description=(
                 f"«Инженерия интеллекта» на {tariff['months']} мес. "
                 "Доступ к полному курсу, Ленте, ЦД и Aisystant MCP."
