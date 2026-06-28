@@ -8,9 +8,18 @@ WP-428 Ф7: session_id threads Hermes history; /hermes_reset generates a new ses
 
 import re
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from handlers.hermes import _is_hermes_message, _HERMES_SESSION_KEY, on_hermes_reset
+from handlers.hermes import (
+    _is_hermes_message,
+    _HERMES_SESSION_KEY,
+    on_hermes_reset,
+    _send_unavailable,
+    _SERVICE_DOWN_MSG,
+    _RECONNECT_MSG,
+    _RECONNECT_BTN,
+    _UNAVAILABLE_TIER_MSG,
+)
 from tests.smoke.factories import text_message
 
 
@@ -66,3 +75,42 @@ async def test_hermes_reset_writes_new_session_id():
 def test_session_key_constant_stable():
     """FSM key name must stay stable (other components may depend on it)."""
     assert _HERMES_SESSION_KEY == "hermes_session_id"
+
+
+# ─── РП7 BOT-HERMES1: name-free unavailable messages ───
+
+def test_user_messages_never_name_the_runtime():
+    """Регрессия: внутреннее имя рантайма не попадает в сообщения пользователю."""
+    for msg in (_SERVICE_DOWN_MSG, _RECONNECT_MSG, _RECONNECT_BTN, _UNAVAILABLE_TIER_MSG):
+        assert "hermes" not in msg.lower(), f"runtime name leaked: {msg!r}"
+
+
+@pytest.mark.asyncio
+async def test_send_unavailable_not_connected_prompts_reauth():
+    """Нет Ory-токена → кнопка повторного входа, не «попробуй позже»."""
+    message = MagicMock()
+    message.chat.id = 7
+    message.answer = AsyncMock()
+    with patch("clients.gateway_mcp.gateway_mcp") as gw, \
+         patch("clients.ory_oauth.ory_oauth") as oauth:
+        gw.is_connected.return_value = False
+        oauth.get_authorization_url = AsyncMock(
+            return_value=("https://auth.example/login", "state")
+        )
+        await _send_unavailable(message, None, 7)
+    message.answer.assert_awaited_once()
+    args, kwargs = message.answer.call_args
+    assert args[0] == _RECONNECT_MSG
+    assert kwargs.get("reply_markup") is not None  # кнопка переподключения присутствует
+
+
+@pytest.mark.asyncio
+async def test_send_unavailable_connected_says_try_later():
+    """Токен есть, рантайм упал → нейтральное сообщение без кнопки."""
+    message = MagicMock()
+    message.chat.id = 7
+    message.answer = AsyncMock()
+    with patch("clients.gateway_mcp.gateway_mcp") as gw:
+        gw.is_connected.return_value = True
+        await _send_unavailable(message, None, 7)
+    message.answer.assert_awaited_once_with(_SERVICE_DOWN_MSG)

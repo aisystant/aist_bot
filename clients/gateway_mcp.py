@@ -361,8 +361,6 @@ class GatewayMCPClient:
         "Запрос обрабатывался слишком долго (лимит 25 секунд). "
         "Попробуй упростить вопрос или разбить на части."
     )
-    HERMES_UNAVAILABLE_MESSAGE = "Hermes временно недоступен. Попробуй позже."
-
     # WP-392: hermes_chat требует отдельного таймаута — Railway Hermes может работать до 60с
     # (ASCII-арт, HTML, диаграммы). Глобальный GATEWAY_MCP_TIMEOUT=35 — временная заглушка
     # в Railway env; здесь — постоянный per-tool override.
@@ -373,8 +371,15 @@ class GatewayMCPClient:
         message: str,
         telegram_user_id: int,
         session_id: Optional[str] = None,
-    ) -> str:
-        """Вызов hermes_chat через gateway-mcp. Возвращает текст ответа Hermes."""
+    ) -> Optional[str]:
+        """Вызов hermes_chat через gateway-mcp.
+
+        Возвращает текст ответа (или информативное сообщение о таймауте — его
+        показываем пользователю), либо None если рантайм недоступен. На None
+        вызывающий сам решает, что показать: переподключение (нет токена) или
+        нейтральное «попробуй позже». Имя рантайма наружу не утекает (РП7
+        BOT-HERMES1).
+        """
         args: dict = {"message": message}
         if session_id:
             args["session_id"] = session_id
@@ -384,7 +389,7 @@ class GatewayMCPClient:
             timeout=self.HERMES_CALL_TIMEOUT,
         )
         if result is None:
-            return self.HERMES_UNAVAILABLE_MESSAGE
+            return None
         # Gateway возвращает { content: [{ type: "text", text: "..." }], isError?: bool }
         content = result.get("content", [])
         raw_text = content[0].get("text", "") if content else ""
@@ -396,12 +401,12 @@ class GatewayMCPClient:
                 if parsed.get("error") == "timeout":
                     return parsed.get("message", self.HERMES_TIMEOUT_MESSAGE)
                 if parsed.get("error"):
-                    return self.HERMES_UNAVAILABLE_MESSAGE
+                    return None
                 if "response" in parsed:
                     return str(parsed["response"])
         except (ValueError, TypeError):
             pass
-        return raw_text or self.HERMES_UNAVAILABLE_MESSAGE
+        return raw_text or None
 
     async def _call(self, tool_name: str, arguments: dict,
                     telegram_user_id: Optional[int] = None,

@@ -19,7 +19,7 @@ from aiogram import Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config.settings import CLAUDE_MODEL_HAIKU
 from db.queries import get_intern
@@ -33,7 +33,15 @@ _HERMES_PREFIXES = ("гермес", "hermes")
 _HERMES_SESSION_KEY = "hermes_session_id"  # FSM key for per-user session override (WP-428 Ф7)
 _TIER_REQUIRED = 3
 _UNAVAILABLE_TIER_MSG = "Функция недоступна на твоём тире"
-_UNAVAILABLE_RUNTIME_MSG = "Hermes временно недоступен. Попробуй позже."
+# РП7 BOT-HERMES1: имя рантайма наружу не показываем. Два разных отказа —
+# «нет токена» (нужен повторный вход, ждать бесполезно) и «рантайм упал»
+# (нейтральное «попробуй позже»).
+_SERVICE_DOWN_MSG = "Помощник сейчас недоступен. Попробуй позже."
+_RECONNECT_MSG = (
+    "Похоже, доступ к платформе прервался: сессия входа истекла. "
+    "Нажми кнопку ниже и снова войди в аккаунт Aisystant, потом повтори сообщение."
+)
+_RECONNECT_BTN = "🔗 Войти заново"
 _CONDUCTOR_UNAVAILABLE_MSG = "Проводник временно недоступен. Напиши /setup — там весь путь."
 _CONDUCTOR_MAX_TOKENS = 500
 
@@ -147,6 +155,39 @@ async def _hermes_reply(message: Message, placeholder: Message, response: str) -
             await message.answer(response)
 
 
+async def _send_reconnect_prompt(message: Message) -> None:
+    """Сессия входа истекла (нет Ory-токена) → предложить повторный вход.
+
+    Ждать бесполезно: пропавший токен сам не вернётся. Шлём deep-link
+    повторной авторизации Aisystant с кнопкой — тем же приёмом, что twin.py /
+    guide.py. Имя рантайма пользователю не показываем.
+    """
+    from clients.ory_oauth import ory_oauth
+    auth_url, _state = await ory_oauth.get_authorization_url(message.chat.id)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=_RECONNECT_BTN, url=auth_url)],
+    ])
+    await message.answer(_RECONNECT_MSG, reply_markup=keyboard)
+
+
+async def _send_unavailable(message: Message, placeholder: Message | None, chat_id: int) -> None:
+    """Объяснить, почему помощник не ответил, не называя рантайм.
+
+    Нет Ory-токена (вход отвалился) → предложить повторный вход (ждать
+    бесполезно). Токен есть, но рантайм/шлюз упал → нейтральное «попробуй позже».
+    """
+    if placeholder is not None:
+        try:
+            await placeholder.delete()
+        except Exception:
+            logger.debug("[hermes] placeholder delete failed for chat %s", chat_id)
+    from clients.gateway_mcp import gateway_mcp
+    if not gateway_mcp.is_connected(chat_id):
+        await _send_reconnect_prompt(message)
+    else:
+        await message.answer(_SERVICE_DOWN_MSG)
+
+
 @hermes_router.message(Command("hermes_reset"))
 async def on_hermes_reset(message: Message, state: FSMContext) -> None:
     """WP-428 Ф7: reset Hermes conversation history by switching to a new session_id."""
@@ -223,10 +264,15 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         await _maybe_offer_onboarder_after_conductor(message, chat_id, hermes_msg)
         return
 
+    from clients.gateway_mcp import gateway_mcp
+    if not gateway_mcp.is_connected(chat_id):
+        # Нет токена — вызов рантайма всё равно упёрся бы в 401. Предлагаем вход.
+        await _send_unavailable(message, None, chat_id)
+        return
+
     state_data = await state.get_data()
     session_id = state_data.get(_HERMES_SESSION_KEY, f"tg-{user_id}")
 
-    from clients.gateway_mcp import gateway_mcp
     placeholder = await message.answer("⌛ Гермес думает…")
     try:
         response = await gateway_mcp.hermes_chat(
@@ -238,7 +284,10 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
         logger.exception("[hermes] hermes_chat failed for chat %s", chat_id)
         response = None
 
-    await _hermes_reply(message, placeholder, response or _UNAVAILABLE_RUNTIME_MSG)
+    if response:
+        await _hermes_reply(message, placeholder, response)
+    else:
+        await _send_unavailable(message, placeholder, chat_id)
 
 
 async def _maybe_offer_onboarder_after_conductor(message: Message, chat_id: int, query: str) -> None:
@@ -312,10 +361,14 @@ async def on_hermes_document(message: Message, state: FSMContext) -> None:
     filename = (message.document.file_name or "document") if message.document else "document"
     hermes_msg = f"[File: {filename}]\n\n{doc_text}\n\n{hermes_msg}".strip()
 
+    from clients.gateway_mcp import gateway_mcp
+    if not gateway_mcp.is_connected(chat_id):
+        await _send_unavailable(message, None, chat_id)
+        return
+
     state_data = await state.get_data()
     session_id = state_data.get(_HERMES_SESSION_KEY, f"tg-{user_id}")
 
-    from clients.gateway_mcp import gateway_mcp
     placeholder = await message.answer("⌛ Гермес думает…")
     try:
         response = await gateway_mcp.hermes_chat(
@@ -327,4 +380,7 @@ async def on_hermes_document(message: Message, state: FSMContext) -> None:
         logger.exception("[hermes:doc] hermes_chat failed for chat %s", chat_id)
         response = None
 
-    await _hermes_reply(message, placeholder, response or _UNAVAILABLE_RUNTIME_MSG)
+    if response:
+        await _hermes_reply(message, placeholder, response)
+    else:
+        await _send_unavailable(message, placeholder, chat_id)
