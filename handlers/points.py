@@ -198,6 +198,7 @@ def _format_event_compact(ev: dict) -> str:
 _SPEND_KEYBOARD = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🎟 Семинары и мероприятия", callback_data="showcase_main")],
     [InlineKeyboardButton(text="💎 Подписка «Инженерия интеллекта»", callback_data="subscribe_with_bonus")],
+    [InlineKeyboardButton(text="🎓 Курсы с наставником", callback_data="sched_pay_courses")],
 ])
 
 

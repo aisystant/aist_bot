@@ -148,13 +148,17 @@ async def reserve_for_tg_stars(
 async def reserve_for_yookassa_provisional(
     burn_info: dict,
     purpose: str,
+    product_code: Optional[str] = None,
 ) -> tuple[Optional[str], Decimal]:
     """Reserve points using a provisional yk_{uuid} payment_id for YooKassa flows
-    where the real payment_id is not yet known (e.g. subscription via Aisystant).
+    where the real payment_id is not yet known (e.g. subscription or course via Aisystant).
 
     The reserve gets expires_at = NOW() + 1h as crash-safety TTL. After the real
     payment_id is obtained, call update_reserve_payment_id(provisional, real) to extend
     expires_at to NOW() + 7 days, preventing the 30-min rollback cron from firing.
+
+    Args:
+        product_code: course/product code for COURSE reserves; None for SUBSCRIPTION.
 
     Returns:
         (provisional_id, points_amount). provisional_id=None on reserve failure.
@@ -172,6 +176,7 @@ async def reserve_for_yookassa_provisional(
         qualification_snapshot=burn_info["qualification"],
         daily_cap_snapshot=Decimal(str(burn_info["ceiling_pts"])),
         expires_at=expires_at,
+        product_code=product_code,
     )
     return (provisional_id if ok else None), points_amount
 
