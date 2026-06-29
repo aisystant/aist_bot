@@ -184,27 +184,53 @@ async def schedule_publication(
     schedule_time: datetime,
     tags: str = "[]",
     source_file: str | None = None,
-) -> int:
-    """Запланировать публикацию."""
+) -> int | None:
+    """Запланировать публикацию.
+
+    Возвращает id новой записи либо id существующей pending/publishing записи
+    с тем же source_file (защита от race condition между scan'ами).
+    """
     # Safeguard: scheduled_post.schedule_time — TIMESTAMP (naive).
     # asyncpg не может записать aware datetime в naive колонку → DataError.
     # См. CLAUDE.md § 10.5, error_logs #449.
     if schedule_time.tzinfo is not None:
         schedule_time = schedule_time.replace(tzinfo=None)
     pool = await get_publication_pool()
-    row = await pool.fetchrow(
-        """
-        INSERT INTO scheduled_post (chat_id, title, raw, category_id, schedule_time, tags, source_file)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-        """,
-        chat_id, title, raw, category_id, schedule_time, tags, source_file,
-    )
-    return row["id"]
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO scheduled_post (chat_id, title, raw, category_id, schedule_time, tags, source_file)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (chat_id, source_file)
+                WHERE status IN ('pending', 'publishing') AND source_file IS NOT NULL
+                DO NOTHING
+            RETURNING id
+            """,
+            chat_id, title, raw, category_id, schedule_time, tags, source_file,
+        )
+        if row:
+            return row["id"]
+        # Conflict: return existing pending/publishing id for this source_file.
+        if source_file:
+            existing = await conn.fetchrow(
+                """
+                SELECT id FROM scheduled_post
+                WHERE chat_id = $1 AND source_file = $2 AND status IN ('pending', 'publishing')
+                ORDER BY schedule_time
+                LIMIT 1
+                """,
+                chat_id, source_file,
+            )
+            if existing:
+                return existing["id"]
+    return None
 
 
 async def get_pending_publications() -> list[dict]:
     """Получить публикации, готовые к отправке.
+
+    DEPRECATED для публикации: используй get_and_claim_pending_publication,
+    чтобы атомарно захватить строку. Оставлено для read-only операций.
 
     NOTE (WP-253 lift-and-shift): JOIN с club_account через cross-DB не работает
     из одного pool. Делаем отдельный запрос и enrich в Python.
@@ -234,13 +260,75 @@ async def get_pending_publications() -> list[dict]:
     return pubs
 
 
+async def get_and_claim_pending_publication() -> dict | None:
+    """Атомарно захватить одну pending публикацию и перевести её в 'publishing'.
+
+    Использует SELECT ... FOR UPDATE SKIP LOCKED внутри транзакции.
+    Возвращает строку с discourse_username или None, если очередь пуста.
+    """
+    pool = await get_publication_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                SELECT sp.*
+                FROM scheduled_post sp
+                WHERE sp.status = 'pending' AND sp.schedule_time <= NOW()
+                ORDER BY sp.schedule_time
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+                """
+            )
+            if not row:
+                return None
+            await conn.execute(
+                """
+                UPDATE scheduled_post
+                SET status = 'publishing', updated_at = NOW()
+                WHERE id = $1
+                """,
+                row["id"],
+            )
+
+    pub = dict(row)
+    com_pool = await get_community_pool()
+    acc = await com_pool.fetchrow(
+        "SELECT discourse_username FROM club_account WHERE chat_id = $1",
+        pub["chat_id"],
+    )
+    pub["discourse_username"] = acc["discourse_username"] if acc else None
+    return pub
+
+
+async def reset_stale_publishing(max_age_minutes: int = 10) -> int:
+    """Сбросить зависшие 'publishing' строки обратно в 'pending'.
+
+    Защита от ситуации, когда процесс упал после UPDATE status='publishing'
+    и до mark_publication_done/failed.
+    """
+    pool = await get_publication_pool()
+    result = await pool.execute(
+        """
+        UPDATE scheduled_post
+        SET status = 'pending', updated_at = NOW()
+        WHERE status = 'publishing'
+          AND updated_at < NOW() - ($1 || ' minutes')::interval
+        """,
+        max_age_minutes,
+    )
+    try:
+        return int(result.split()[-1])
+    except (ValueError, IndexError):
+        return 0
+
+
 async def mark_publication_done(pub_id: int, discourse_topic_id: int) -> None:
     """Пометить публикацию как выполненную."""
     pool = await get_publication_pool()
     await pool.execute(
         """
         UPDATE scheduled_post
-        SET status = 'published', discourse_topic_id = $2
+        SET status = 'published', discourse_topic_id = $2, updated_at = NOW()
         WHERE id = $1
         """,
         pub_id, discourse_topic_id,
@@ -251,7 +339,7 @@ async def mark_publication_failed(pub_id: int) -> None:
     """Пометить публикацию как неудачную."""
     pool = await get_publication_pool()
     await pool.execute(
-        "UPDATE scheduled_post SET status = 'failed' WHERE id = $1",
+        "UPDATE scheduled_post SET status = 'failed', updated_at = NOW() WHERE id = $1",
         pub_id,
     )
 
@@ -280,12 +368,14 @@ async def get_all_published_titles_lower(chat_id: int) -> set[str]:
 
 
 async def get_all_scheduled_source_files(chat_id: int) -> set[str]:
-    """Множество source_file запланированных постов (для reconciliation)."""
+    """Множество source_file запланированных/публикуемых постов (для reconciliation)."""
     pool = await get_publication_pool()
     rows = await pool.fetch(
         """
         SELECT sp.source_file FROM scheduled_post sp
-        WHERE sp.chat_id = $1 AND sp.status = 'pending' AND sp.source_file IS NOT NULL
+        WHERE sp.chat_id = $1
+          AND sp.status IN ('pending', 'publishing')
+          AND sp.source_file IS NOT NULL
         """,
         chat_id,
     )
@@ -293,10 +383,13 @@ async def get_all_scheduled_source_files(chat_id: int) -> set[str]:
 
 
 async def get_all_scheduled_titles_lower(chat_id: int) -> set[str]:
-    """Множество title (lowercase) запланированных постов (для reconciliation по title)."""
+    """Множество title (lowercase) запланированных/публикуемых постов (для reconciliation по title)."""
     pool = await get_publication_pool()
     rows = await pool.fetch(
-        "SELECT lower(title) as t FROM scheduled_post WHERE chat_id = $1 AND status = 'pending'",
+        """
+        SELECT lower(title) as t FROM scheduled_post
+        WHERE chat_id = $1 AND status IN ('pending', 'publishing')
+        """,
         chat_id,
     )
     return {r["t"] for r in rows}

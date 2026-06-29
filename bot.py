@@ -225,6 +225,17 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 032 (notification_queue) skipped: {_e}", exc_info=True)
 
+    # Миграция 037: scheduled_post — дедупликация + atomic publish lock (WP-167).
+    # Индекс + статус 'publishing' защищают от дублей при публикации в клуб.
+    try:
+        _m037 = _il.import_module("db.migrations.037_scheduled_post_dedup_lock")
+        from db.connection import get_publication_pool as _get_publication_pool
+        if await _m037.migrate_if_needed(await _get_publication_pool()):
+            logger.info("✅ Migration 037: scheduled_post dedup lock applied")
+        else:
+            logger.info("✅ Migration 037: scheduled_post dedup lock already applied")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 037 (scheduled_post dedup lock) skipped: {_e}", exc_info=True)
 
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
