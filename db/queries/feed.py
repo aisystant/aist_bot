@@ -232,6 +232,7 @@ async def get_incomplete_feed_session(week_id: int, today_only: bool = True) -> 
         today_only: если True (default), ищет только сегодняшние active сессии.
             Вчерашние active авто-экспайрятся scheduler'ом / cleanup'ом.
     """
+    from .users import moscow_today
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         if today_only:
