@@ -179,6 +179,18 @@ async def _bootstrap_learning_schema() -> None:
     except Exception as _e:
         logger.warning(f"⚠️ Migration 033 (homework_content) skipped: {_e}")
 
+    # Fix stuck marathon_progress after IndeterminateDatatypeError in update_progress
+    # (bug fixed 2026-06-29, commit 72df544). Idempotent — no-op when no stuck users.
+    try:
+        _m036 = _il.import_module("db.migrations.036_fix_stuck_marathon_progress")
+        _lpool = await get_learning_pool()
+        if await _m036.migrate_if_needed(_lpool):
+            logger.info("✅ Migration 036: stuck marathon_progress fixed")
+        else:
+            logger.info("✅ Migration 036: no stuck marathon users")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 036 skipped: {_e}")
+
 
 async def main():
     global state_machine
