@@ -128,7 +128,7 @@ async def cmd_github(message: Message):
                 ]
             )
 
-        if target_repo and knowledge_repo:
+        if target_repo:
             status_lines.append(f"\n{t('github.note_instruction', lang)}")
             status_lines.append(t('github.note_example', lang))
 
