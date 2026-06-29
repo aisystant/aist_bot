@@ -100,8 +100,8 @@ async def update_feed_week(week_id: int, updates: dict):
                 value = json.dumps(value) if not isinstance(value, str) else value
 
             await conn.execute(
-                _update_sql('feed_weeks', [key], 'id = $2'),
-                value, week_id
+                _update_sql('feed_weeks', [key], 'id = $1'),
+                week_id, value
             )
 
 
@@ -160,8 +160,8 @@ async def update_feed_session(session_id: int, updates: dict):
                 value = json.dumps(value) if not isinstance(value, str) else value
 
             await conn.execute(
-                _update_sql('feed_sessions', [key], 'id = $2'),
-                value, session_id
+                _update_sql('feed_sessions', [key], 'id = $1'),
+                session_id, value
             )
 
 
