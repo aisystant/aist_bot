@@ -188,16 +188,15 @@ async def update_progress(
     if not fields:
         return
 
-    values.append(user_id)
-    # fields形如 "current_day = $1"; strip assignment to get column names
+    # _update_sql numbers columns starting at $2; $1 is always the WHERE key (user_id).
     columns = [f.split(" = ", 1)[0] for f in fields]
     sql = _update_sql(
         'learning.marathon_progress', columns,
-        'user_id = $' + str(idx),
+        'user_id = $1',
         extra_set=["updated_at = NOW()"],
     )
     async with pool.acquire() as conn:
-        await conn.execute(sql, *values)
+        await conn.execute(sql, user_id, *values)
 
 
 async def save_checkin(user_id: int, day: int, state: str, notes: Optional[str] = None) -> bool:
