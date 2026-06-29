@@ -1006,6 +1006,9 @@ class SettingsState(BaseState):
             if target_repo:
                 lines.append(f"{t('settings.github_repo', lang)}: `{target_repo}`")
                 lines.append(f"{t('settings.github_path', lang)}: `{notes_path}`")
+                lines.append("")
+                lines.append(t('github.note_instruction', lang))
+                lines.append(t('github.note_example', lang))
                 buttons.append([InlineKeyboardButton(
                     text=t('settings.github_change_repo', lang),
                     callback_data="github_select_repo",
@@ -1134,6 +1137,8 @@ class SettingsState(BaseState):
         await callback.message.edit_text(
             f"✅ {t('settings.github_repo', lang)}: `{repo_full_name}`\n"
             f"{t('settings.github_path', lang)}: `{notes_path}`\n\n"
+            f"{t('github.note_instruction', lang)}\n"
+            f"{t('github.note_example', lang)}\n\n"
             f"Также можно выбрать репо для публикаций в Клуб — нажмите Назад.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1207,6 +1212,9 @@ class SettingsState(BaseState):
             lines.append(f"*GitHub настроен:*")
             lines.append(f"📝 Заметки: `{target_repo}` (`{notes_path}`)")
             lines.append(f"📖 Публикации: `{repo_full_name}`")
+            lines.append("")
+            lines.append(t('github.note_instruction', lang))
+            lines.append(t('github.note_example', lang))
         else:
             lines.append("")
             lines.append("Также можно выбрать репо для заметок — нажмите Назад.")
