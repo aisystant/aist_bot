@@ -364,7 +364,7 @@ class ProgressState(BaseState):
         text += f"📅 {t('progress.activity_line', lang)}: {total_active} {t('progress.total_word', lang)} | {week_active}/7 {t('progress.this_week', lang)}\n"
         text += f"🎯 {t('progress.complexity_line', lang)}: {complexity}\n"
         if points is not None:
-            text += f"🏆 Бонусы: {int(points)}\n"
+            text += f"🏆 Бонусы: {int(float(points))}\n"
         text += f"📆 {t('progress.since', lang)}: {reg_date}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
