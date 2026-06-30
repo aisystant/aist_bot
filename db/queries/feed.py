@@ -86,6 +86,7 @@ _FEED_WEEK_COLS = frozenset({
 })
 _FEED_SESSION_COLS = frozenset({
     'status', 'day_number', 'topic_title', 'content', 'session_date',
+    'fixation_text', 'completed_at',
 })
 
 
