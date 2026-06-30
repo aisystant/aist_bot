@@ -1095,7 +1095,12 @@ async def template_update_handler(request: web.Request) -> web.Response:
 
         if rewritten_body:
             rewritten_body = rewritten_body.strip()
-            logger.info("[TemplateUpdate] LLM rewrite successful (%d chars)", len(rewritten_body))
+            # Detect if LLM returned raw Markdown instead of HTML (headers, bold, tables)
+            if re.search(r'(^#{1,6}\s|\*\*.+\*\*|\|[-| :]+\|)', rewritten_body, re.MULTILINE):
+                logger.warning("[TemplateUpdate] LLM returned Markdown instead of HTML, falling back to regex")
+                rewritten_body = None
+            else:
+                logger.info("[TemplateUpdate] LLM rewrite successful (%d chars)", len(rewritten_body))
         else:
             logger.warning("[TemplateUpdate] LLM returned empty, falling back to regex")
 
@@ -1117,16 +1122,19 @@ async def template_update_handler(request: web.Request) -> web.Response:
             f'<a href="{repo_url}">Репозиторий шаблона</a>'
         )
     else:
-        # Fallback: regex-очистка (прежнее поведение)
-        import re
+        # Fallback: regex cleanup
         clean_changelog = changelog
         section_map = {
             'Added': 'Добавлено', 'Fixed': 'Исправлено', 'Changed': 'Изменено',
             'Removed': 'Удалено', 'Deprecated': 'Устарело', 'Security': 'Безопасность',
         }
         for en, ru in section_map.items():
-            clean_changelog = re.sub(rf'^#{{1,3}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
-        clean_changelog = re.sub(r'^#{1,3}\s*', '', clean_changelog, flags=re.MULTILINE)
+            clean_changelog = re.sub(rf'^#{{1,6}}\s*{en}\b', f'\n<b>{ru}</b>', clean_changelog, flags=re.MULTILINE)
+        # Strip remaining markdown headers
+        clean_changelog = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', clean_changelog, flags=re.MULTILINE)
+        # Strip markdown tables: separator rows removed, data rows flattened to bullet points
+        clean_changelog = re.sub(r'^\|[-| :]+\|\s*$', '', clean_changelog, flags=re.MULTILINE)
+        clean_changelog = re.sub(r'^\|(.+)\|$', lambda m: '• ' + ' — '.join(c.strip() for c in m.group(1).split('|') if c.strip()), clean_changelog, flags=re.MULTILINE)
         clean_changelog = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_changelog)
         clean_changelog = re.sub(r'`(.+?)`', r'\1', clean_changelog)
         from helpers.message_split import sanitize_file_extensions
