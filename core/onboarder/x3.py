@@ -118,19 +118,19 @@ async def _show_x3_offer(
     )
 
     if from_bridge:
-        # После Диагноста — пользователь только что прошёл вопросы, незачем снова предлагать.
+        # After Diagnostician — third field :1 encodes diagnostic_done=True for x3_completed event
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="✅ Да, начинаю",
-                callback_data=f"x3_confirm:{recommended_stream}",
+                callback_data=f"x3_confirm:{recommended_stream}:1",
             ),
         ]])
     else:
-        # Fast path — оба варианта, кнопка уточнения сама записывает return_to перед редиректом.
+        # Fast path — third field :0 encodes diagnostic_done=False for x3_completed event
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="✅ Да, начинаю",
-                callback_data=f"x3_confirm:{recommended_stream}",
+                callback_data=f"x3_confirm:{recommended_stream}:0",
             ),
             InlineKeyboardButton(
                 text="🔍 Уточнить через диагностику",

@@ -86,6 +86,29 @@ async def handle(intern: dict, message) -> None:
     проверка здесь — защита от прямого вызова.
     """
     chat_id = intern.get("chat_id") or message.chat.id
+
+    # WP-406 Ф17 PR-2: onboarding_started — fire once on first entry; guard = started_fired in ctx
+    _ctx = await storage.get_onboarding_context(chat_id)
+    if not _ctx.get("started_fired"):
+        from db.queries.events import log_event
+        from db.queries.aisystant import get_aisystant_id
+        from db.queries.onboarding_journey import get_onboarding_state
+        _uuid = await get_aisystant_id(chat_id)
+        _cohort = "R1"
+        if _uuid:
+            _ostate = await get_onboarding_state(_uuid)
+            _cohort = (_ostate or {}).get("cohort_id", "R1")
+        _entry_type = intern.get("entry_type", "direct")
+        await log_event(chat_id, "onboarding_started", {
+            "entry_type": _entry_type,
+            "lang": intern.get("language", "ru") or "ru",
+            "cohort_id": _cohort,
+        })
+        await storage.save_onboarding_context(chat_id, {
+            "started_fired": True,
+            "entry_type": _entry_type,
+        })
+
     status = await storage.get_status(chat_id)
     if not status["x2_done"]:
         await x2.run_step(intern, message)
