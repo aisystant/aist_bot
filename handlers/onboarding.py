@@ -832,12 +832,25 @@ async def on_x3_confirm(callback: CallbackQuery):
     await callback.answer()
     chat_id = callback.from_user.id
     try:
-        parts = callback.data.split(":", 1)
+        # Format: x3_confirm:<stream>:<diagnostic_flag> where flag "1"=bridge, "0"=direct, absent=legacy
+        parts = callback.data.split(":", 2)
         chosen_stream = parts[1] if len(parts) > 1 else ""
-        from core.onboarder.storage import mark_x3_done, save_onboarding_context
+        diagnostic_done = (parts[2] == "1") if len(parts) > 2 else False
+        from core.onboarder.storage import mark_x3_done, save_onboarding_context, get_onboarding_context
         await mark_x3_done(chat_id)
         if chosen_stream:
             await save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
+        # WP-406 Ф17 PR-2: x3_completed event (fire after mark; diagnostic_done from callback flag)
+        from db.queries.events import log_event
+        _onb_ctx = await get_onboarding_context(chat_id)
+        _intern = await get_intern(chat_id)
+        _lang = (_intern.get("language", "ru") or "ru") if _intern else "ru"
+        await log_event(chat_id, "x3_completed", {
+            "entry_type": _onb_ctx.get("entry_type", "direct"),
+            "lang": _lang,
+            "diagnostic_done": diagnostic_done,
+            "stream": chosen_stream,
+        })
         await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу.")
     except Exception as e:
         logger.error("[onboarder_x3] mark_x3_done failed for %s: %s", chat_id, e)

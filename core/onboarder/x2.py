@@ -176,6 +176,19 @@ async def _finish_x2(bot, chat_id: int) -> None:
     if (await storage.get_status(chat_id))["x2_done"]:
         return
     await storage.mark_x2_done(chat_id)
+
+    # WP-406 Ф17 PR-2: x2_completed event (fire after mark to ensure DB write succeeded)
+    from db.queries.events import log_event
+    from db.queries.users import get_intern as _get_intern
+    _intern = await _get_intern(chat_id)
+    _lang = (_intern.get("language", "ru") or "ru") if _intern else "ru"
+    _onb_ctx = await storage.get_onboarding_context(chat_id)
+    await log_event(chat_id, "x2_completed", {
+        "entry_type": _onb_ctx.get("entry_type", "direct"),
+        "lang": _lang,
+        "path": "confirm",
+    })
+
     status = await storage.get_status(chat_id)
     text = (
         "🎉 <b>Отлично! Теперь ты понимаешь, как устроено сообщество.</b>\n"
