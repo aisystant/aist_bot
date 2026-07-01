@@ -8,7 +8,7 @@
 
 ## Обзор
 
-**39 таблиц + 3 VIEW** распределены по двум схемам:
+**39 таблиц + 4 VIEW** распределены по двум схемам:
 
 | Схема | Назначение | Таблицы |
 |-------|-----------|---------|
@@ -838,6 +838,18 @@
 **Источник:** `development.user_state` + `public.users` + подзапросы на `answers`, `qa_history`, `feed_sessions`.
 
 **Колонки:** 29 — identity, learning state, профиль, агрегированные counts. Используется некоторыми queries как оптимизированный view.
+
+### 10.4. `development.onboarding_funnel` (WP-406 Ф17 SQL-C1)
+
+> Дневной срез воронки онбординга. Убирает класс ошибки «нет готового среза → ручной SQL → неверный счёт» (misread 23 июня «0 участников»). Миграция `037_onboarding_funnel_view.py`.
+
+**Источник:** `development.user_events` по событиям `onboarding_started` / `x2_completed` / `x3_completed` / `onboarding_completed` (Ф17 PR-2).
+
+**Колонки:** `day`, `entry_type`, `lang`, `started`, `x2_completed`, `x3_completed`, `completed`.
+
+**Группировка:** `day + entry_type + lang` (эти ключи есть в payload started/x2/x3). `cohort_id` живёт только в started/completed — в группировку не входит, добавить когда x2/x3 тоже понесут cohort_id. Срез «за период» = SUM по строкам дней в диапазоне.
+
+**Правило DROP + CREATE (§10.22):** view пересоздаётся, данные не теряются (stateless).
 
 ---
 
