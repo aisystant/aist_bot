@@ -78,6 +78,14 @@ YK `create_payment` создаёт pending-платёж (не списывает
 
 - Source-of-truth контракт: [DP.SC.141](../../../../PACK-digital-platform/pack/digital-platform/08-service-clauses/DP.SC.141-points-redemption.md)
 - Роль исполнителя: [DP.ROLE.051](../../../../PACK-digital-platform/pack/digital-platform/02-domain-entities/DP.ROLE.051-points-redeemer.md)
+
+---
+
+## 8. Курсовые резервы: проактивное подтверждение (WP-446 Ф3b)
+
+Курсовые оплаты (`purpose='COURSE'`) идут через Aisystant, а не через YK webhook этого бота — раздел «Confirm-точки» (§3) к ним не относится. Их подтверждает `db/queries/redeem.confirm_course_reserves` (lazy, при входе в «Мои программы») и, с 2026-07-02, дополнительно `core/scheduler._confirm_pending_course_payments` (cron каждые 10 мин): опрашивает `clients.aisystant.check_payment` для резервов, уже промоутнутых к реальному `payment_id`, и подтверждает только на `SUCCEEDED` (`FAILED`/`IN_PROGRESS` — no-op, окончательную очистку делает §5).
+
+**Связь с §5:** `rollback_expired_reservations` (§5) и `confirm_reserve_by_payment_id` (новая) сериализованы через `pg_advisory_xact_lock(hashtext('burn_reserve:' || payment_id))` — иначе TTL-откат мог бы откатить резерв в момент, когда Aisystant уже сообщил `SUCCEEDED` (доступ к курсу выдан, бонусы не списаны).
 - Миграция схемы: `DS-IT-systems/neon-migrations/mvp/226-wp327-rewards-redeemed-events.sql`
 - Курс конвертации: `0.10 ₽/бонус` из `reference.loyalty_pool_config` (читает `get_loyalty_rate()`; migration 244, WP-327 v4.4)
 
