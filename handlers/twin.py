@@ -915,7 +915,12 @@ async def cmd_me(message: Message):
                     await show_consent_optin(message)
                     return
         except Exception as e:
-            logger.warning(f"[/me] consent-gap check failed for {telegram_user_id}: {e}")
+            # Fail-open осознан и прошёл Security Gate B7.3 §Б (commit 7f08bd2, WP-406 Ф20,
+            # 2026-07-01): новых PII-логов нет, переиспользован провалидированный consent-flow.
+            # error, не warning: get_user_uuid/get_consent возвращают None на штатных случаях
+            # (нет строки), исключение здесь означает реальный инфраструктурный сбой — должен
+            # быть виден в error_logs/RUNBOOK (core/error_handler.py ловит только ERROR+).
+            logger.error(f"[/me] consent-gap check failed for {telegram_user_id}: {e}")
 
         dt_profile = None
         engagement = None
