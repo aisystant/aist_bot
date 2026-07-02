@@ -458,6 +458,70 @@ async def confirm_course_reserves(account_id: str, course_codes: list[str]) -> i
     return len(rows)
 
 
+async def get_pending_course_reserves() -> list[dict]:
+    """Course reserves awaiting confirmation, promoted to a real Aisystant payment_id.
+
+    Used by the scheduler's proactive confirm-job (WP-446 Ф3b) so a course purchase
+    can be confirmed without waiting for the user to reopen "Мои программы" (lazy-confirm).
+    """
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT payment_id, account_id
+            FROM public.redeemed_events
+            WHERE purpose = 'COURSE'
+              AND status = 'reserved'
+              AND payment_id NOT LIKE 'yk_%'
+            """
+        )
+    return [{"payment_id": r["payment_id"], "account_id": str(r["account_id"])} for r in rows]
+
+
+async def confirm_reserve_by_payment_id(payment_id: str) -> Optional[Decimal]:
+    """Confirm a single reserve once Aisystant reports the payment as SUCCEEDED.
+
+    pg_advisory_xact_lock serializes this against rollback_expired_reservations' matching
+    pg_try_advisory_xact_lock (same hashtext key) — without it, a reserve confirmed here
+    right as its TTL rollback fires elsewhere could lose the points deduction while
+    Aisystant has already granted course access (WP-446 Ф3b, peer-session 2026-07-02-15).
+
+    Returns points_amount deducted, or None if the row was already confirmed/rolled back.
+    """
+    pool = await get_rewards_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))",
+                f"burn_reserve:{payment_id}",
+            )
+            row = await conn.fetchrow(
+                """
+                UPDATE public.redeemed_events
+                SET status = 'confirmed', confirmed_at = now()
+                WHERE payment_id = $1 AND status = 'reserved'
+                RETURNING account_id, points_amount
+                """,
+                payment_id,
+            )
+            if row is None:
+                return None
+            await conn.execute(
+                """
+                UPDATE public.point_balances
+                SET points = points - $1, last_updated = now()
+                WHERE account_id = $2
+                """,
+                row["points_amount"],
+                row["account_id"],
+            )
+    logger.info(
+        f"[Redeem] confirm_reserve_by_payment_id: payment_id={payment_id}, "
+        f"points={row['points_amount']}, account={str(row['account_id'])[:8]}"
+    )
+    return row["points_amount"]
+
+
 async def cleanup_expired_reserves_for_account(account_id: str) -> int:
     """Roll back expired provisional yk_ reserves for a specific account.
 
@@ -664,7 +728,14 @@ async def rollback_burn(payment_id: str, reason: str = "manual") -> bool:
 
 
 async def rollback_expired_reservations() -> int:
-    """Cron-задача: откатывает резервы старше RESERVATION_TIMEOUT_MIN минут.
+    """Cron-задача: откатывает резервы старше RESERVATION_TIMEOUT_MIN минут (или собственного
+    expires_at — так же покрывает 7-дневные резервы курсов/подписки после промоушена к
+    реальному payment_id, см. update_reserve_payment_id).
+
+    pg_try_advisory_xact_lock (тот же hashtext-ключ, что confirm_reserve_by_payment_id) —
+    защита от отката резерва, который в этот момент подтверждается конкурентно (WP-446 Ф3b,
+    peer-session 2026-07-02-15): если лок занят — строка просто не попадает в выборку,
+    откат повторится в следующем цикле.
 
     Returns:
         Количество откаченных резервов.
@@ -678,6 +749,7 @@ async def rollback_expired_reservations() -> int:
             SET status = 'rolled_back', rolled_back_at = now(), rollback_reason = $1
             WHERE status = 'reserved'
               AND COALESCE(expires_at, reserved_at + $2 * INTERVAL '1 minute') < now()
+              AND pg_try_advisory_xact_lock(hashtext('burn_reserve:' || payment_id))
             RETURNING payment_id, account_id, points_amount
             """,
             f"timeout_{RESERVATION_TIMEOUT_MIN}min",

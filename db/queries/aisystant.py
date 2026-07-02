@@ -9,6 +9,7 @@ lms_mapping_added) + legacy UPDATE для backward-совместимости (p
 """
 
 import asyncio
+import uuid
 from datetime import datetime
 
 from db.connection import get_pool, get_persona_pool
@@ -53,6 +54,28 @@ async def get_aisystant_id(chat_id: int) -> str | None:
                 return str(row['aisystant_id'])
     except Exception as e:
         logger.warning(f"[Aisystant] public.users fallback read failed: {e}")
+
+    return None
+
+
+async def get_aisystant_id_by_account(account_id: str) -> str | None:
+    """Получить aisystant_id по account_id (Ory UUID). None если не найден.
+
+    Обратный путь к get_aisystant_id (тот ищет по telegram_id): нужен там, где
+    известен только account_id (например, строки rewards.redeemed_events).
+    """
+    try:
+        pool = await get_persona_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT COALESCE(traits->>'aisystant_suser_id', traits->>'aisystant_id')
+                   AS aisystant_id FROM ory_identity WHERE account_id = $1""",
+                uuid.UUID(account_id),
+            )
+            if row and row['aisystant_id']:
+                return row['aisystant_id']
+    except Exception as e:
+        logger.warning(f"[Aisystant] get_aisystant_id_by_account failed: account={account_id[:8]} {e}")
 
     return None
 
