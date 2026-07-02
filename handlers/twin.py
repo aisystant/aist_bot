@@ -898,6 +898,25 @@ async def cmd_me(message: Message):
     # WP-218 Ф2: единая точка чтения — Gateway MCP (→ dt-mcp → Neon по ory_id).
     # T3+ path: полный ЦД-dashboard
     if tier >= UITier.T3_PERSONALIZATION:
+        # WP-406 Ф20: consent gap. A user can reach T3 by connecting an AI client via
+        # claude.ai OAuth or /test — paths that never prompt tracking consent (it lives
+        # in the /link onboarding flow). Without opt-in the profiler skips their events,
+        # so the profile stays empty. Detect the gap and route to the existing,
+        # idempotent consent opt-in screen instead of showing an empty dashboard.
+        # Fail-open: on any lookup error, fall through to the normal dashboard.
+        try:
+            from db.queries.consent import get_consent
+            from db.queries.identity import get_user_uuid
+            _uuid = await get_user_uuid(telegram_user_id)
+            if _uuid:
+                _consent = await get_consent(str(_uuid))
+                if not _consent or not _consent["opt_in"]:
+                    from handlers.consent import show_consent_optin
+                    await show_consent_optin(message)
+                    return
+        except Exception as e:
+            logger.warning(f"[/me] consent-gap check failed for {telegram_user_id}: {e}")
+
         dt_profile = None
         engagement = None
         try:

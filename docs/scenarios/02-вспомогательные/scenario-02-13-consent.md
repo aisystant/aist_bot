@@ -63,6 +63,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 | `consent_link_now` | Запуск `/link` flow, если LMS не привязан | `handlers/consent.py:344` |
 | `consent_from_onboarding` | Точка входа из onboarding (после `/start` / `/link`) | `handlers/consent.py:414` |
 | `consent_retry_status` | Повторный показ status (refresh после ETL) | `handlers/consent.py:450` |
+| `/me` (T3+ без согласия) | Consent-gap detect: T3 достигнут вне /link (claude.ai OAuth / `/test`) → показ opt-in вместо пустого дашборда (WP-406 Ф20). Fail-open. | `handlers/twin.py:900` |
 
 ---
 
