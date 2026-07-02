@@ -1142,6 +1142,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_check_marathon_split_delivery, 'cron', hour='4,5,6', minute='5,35', id='marathon_split_watchdog', max_instances=1)  # WP-330 С5: split rollout watchdog (auto-noop вне 31.05 04:00-06:30 МСК)
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
     _scheduler.add_job(_rollback_expired_burn_reservations, 'cron', minute='*/5')  # WP-327: откат «зависших» резервов баллов (>30 мин)
+    _scheduler.add_job(_confirm_pending_course_payments, 'cron', minute='*/10', max_instances=1)  # WP-446 Ф3b: проактивное подтверждение курсовых резервов
 
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=3, minute=30)   # WP-327 Phase 3б: Discourse typing collection 03:30 UTC
     _scheduler.add_job(_discourse_typing_collect, 'cron', hour=17, minute=0)  # WP-327 Phase 3б: второй запуск 20:00 МСК
@@ -2128,6 +2129,48 @@ async def _rollback_expired_burn_reservations():
             logger.info(f"[Scheduler] WP-327: rolled back {count} expired burn reservations")
     except Exception as e:
         logger.warning(f"[Scheduler] rollback_expired_burn_reservations failed: {e}")
+
+
+async def _confirm_pending_course_payments():
+    """WP-446 Ф3b: проактивное подтверждение курсовых резервов через check_payment.
+
+    Без этого списание бонусов ждёт, пока пользователь сам зайдёт в «Мои программы»
+    (confirm_course_reserves) — если он этого не сделает, резерв висит до 7-дневного
+    отката (rollback_expired_reservations). check_payment спрашивает Aisystant напрямую,
+    поэтому подтверждение происходит без участия пользователя.
+
+    FAILED/IN_PROGRESS сознательно не откатываются здесь: check_payment.FAILED из
+    Aisystant не всегда финален (см. report.md сессии) — окончательную очистку
+    просроченных резервов делает rollback_expired_reservations по TTL.
+    """
+    try:
+        from clients.aisystant import aisystant
+        from db.queries.aisystant import get_aisystant_id_by_account
+        from db.queries.redeem import confirm_reserve_by_payment_id, get_pending_course_reserves
+
+        pending = await get_pending_course_reserves()
+        confirmed = 0
+        for row in pending:
+            payment_id, account_id = row["payment_id"], row["account_id"]
+            try:
+                aisystant_id = await get_aisystant_id_by_account(account_id)
+                if not aisystant_id:
+                    logger.warning(f"[Scheduler] WP-446: no aisystant_id for account={account_id[:8]}, skip payment_id={payment_id}")
+                    continue
+                result = await aisystant.check_payment(payment_id, aisystant_id)
+                status = (result or {}).get("paymentCheckResult")
+                if status == "SUCCEEDED":
+                    points = await confirm_reserve_by_payment_id(payment_id)
+                    if points is not None:
+                        confirmed += 1
+                        logger.info(f"[Scheduler] WP-446: confirmed payment_id={payment_id}, points={points}")
+                # IN_PROGRESS / FAILED / нет ответа — no-op, см. docstring
+            except Exception as row_err:
+                logger.warning(f"[Scheduler] WP-446: check_payment failed for payment_id={payment_id}: {row_err}")
+        if confirmed:
+            logger.info(f"[Scheduler] WP-446: confirmed {confirmed}/{len(pending)} pending course reserve(s)")
+    except Exception as e:
+        logger.warning(f"[Scheduler] confirm_pending_course_payments failed: {e}")
 
 
 async def _better_stack_heartbeat():
