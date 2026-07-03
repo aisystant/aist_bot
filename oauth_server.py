@@ -987,6 +987,16 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
         return web.Response(text='{"ok":false,"error":"unauthorized"}',
                             content_type="application/json", status=403)
 
+    # Interim monitoring (WP-458 КР-1): X-Forwarded-For is client-controlled and is the
+    # trust source for sender_ip — a mismatch with the real TCP peer isn't blocked here
+    # (full fix = server-side verify via YooKassa GET /payments/{id}, tracked as child WP),
+    # but it's logged for later audit.
+    if forwarded and peer and forwarded != peer:
+        logger.warning(
+            f"[YooKassa Webhook] accepted via X-Forwarded-For={forwarded}, "
+            f"differs from TCP peer={peer} — interim audit trail (КР-1, full fix pending)"
+        )
+
     try:
         data = await request.json()
     except Exception:
