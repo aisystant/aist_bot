@@ -643,7 +643,7 @@ async def callback_sched_pay_burn(callback: CallbackQuery):
         await callback.message.answer(t('schedule.no_account', lang))
         return
 
-    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=False)
+    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=True)
 
     if burn_info is None:
         # Not eligible for bonus — create direct payment (same as callback_pay)
@@ -710,7 +710,7 @@ async def callback_sched_burn_apply(callback: CallbackQuery):
         return
 
     # Re-validate eligibility at execution time (balance may have changed since sched_pay_burn)
-    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=False)
+    burn_info = await prepare_burn_offer(chat_id, amount, skip_ceiling=True)
     if burn_info is None:
         logger.warning(f"[Schedule] sched_burn_apply: burn_info gone at apply time, chat={chat_id}")
         await callback.message.answer(t('schedule.payment_error', lang))
