@@ -334,7 +334,7 @@ async def callback_pay_rub(callback: CallbackQuery):
         await callback.message.answer(t('showcase.not_found', lang))
         return
 
-    burn = await prepare_burn_offer(chat_id, seminar["price_rub"])
+    burn = await prepare_burn_offer(chat_id, seminar["price_rub"], skip_ceiling=True)
     if burn is not None:
         text = format_burn_offer_text(burn, item_title=f"«{seminar['title']}»")
         kb = build_burn_offer_keyboard(
@@ -391,7 +391,7 @@ async def _pay_yookassa_seminar(
 
     code = seminar["code"]
     full_amount = seminar["price_rub"]
-    burn = await prepare_burn_offer(chat_id, full_amount) if apply_burn else None
+    burn = await prepare_burn_offer(chat_id, full_amount, skip_ceiling=True) if apply_burn else None
     payable_rub = int(burn["payable_rub"]) if burn else full_amount
 
     metadata = {"telegram_id": str(chat_id), "purpose": "SEMINAR", "product_code": code}
@@ -460,7 +460,7 @@ async def callback_pay_stars(callback: CallbackQuery):
         await callback.message.answer(t('showcase.not_found', lang))
         return
 
-    burn = await prepare_burn_offer(chat_id, seminar["price_rub"])
+    burn = await prepare_burn_offer(chat_id, seminar["price_rub"], skip_ceiling=True)
     if burn is not None:
         text = format_burn_offer_text(burn, item_title=f"«{seminar['title']}» (Stars)")
         kb = build_burn_offer_keyboard(
@@ -508,7 +508,7 @@ async def _pay_stars_seminar(
 ):
     """Унифицированный flow Stars-оплаты семинара витрины."""
     code = seminar["code"]
-    burn = await prepare_burn_offer(chat_id, seminar["price_rub"]) if apply_burn else None
+    burn = await prepare_burn_offer(chat_id, seminar["price_rub"], skip_ceiling=True) if apply_burn else None
     provisional_id = None
     payable_stars = seminar["price_stars"]
     applied_discount_rub = 0
