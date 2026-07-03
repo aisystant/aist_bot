@@ -16,7 +16,6 @@ Endpoints:
 import asyncio
 import json
 import os
-import re
 import uuid
 from typing import Optional
 from aiohttp import web
@@ -686,7 +685,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
         )
 
     email = tokens.get("email", "")
-    logger.info(f"User {telegram_user_id} connected to Google Calendar ({email})")
+    logger.info(f"User {telegram_user_id} connected to Google Calendar")
 
     if _bot_instance:
         try:
@@ -927,14 +926,16 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
     """
     import json
 
-    # Аутентификация: секрет в заголовке (аналогично template_update_handler)
+    # Аутентификация: секрет в заголовке (fail-closed, аналогично template_update_handler)
     expected_secret = os.getenv("WORKSHOP_WEBHOOK_SECRET", "")
-    if expected_secret:
-        provided = request.headers.get("X-Webhook-Secret", "")
-        if provided != expected_secret:
-            logger.warning("[WorkshopWebhook] invalid secret")
-            return web.Response(text='{"ok":false,"error":"unauthorized"}',
-                                content_type="application/json", status=403)
+    provided = request.headers.get("X-Webhook-Secret", "")
+    if not expected_secret or provided != expected_secret:
+        logger.warning(
+            "[WorkshopWebhook] invalid secret" if expected_secret
+            else "[WorkshopWebhook] WORKSHOP_WEBHOOK_SECRET not configured — rejecting"
+        )
+        return web.Response(text='{"ok":false,"error":"unauthorized"}',
+                            content_type="application/json", status=403)
 
     try:
         data = await request.json()
@@ -960,7 +961,9 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
             result = await process_workshop_webhook(data, _bot_instance)
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
-        logger.exception(f"[WorkshopWebhook] error: {e}")
+        logger.error(f"[WorkshopWebhook] error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 
@@ -1009,7 +1012,7 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
 
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
-        logger.exception(f"[YooKassa Webhook] error: {e}")
+        logger.error(f"[YooKassa Webhook] error: {type(e).__name__}: {str(e)[:200]}")
         return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 
@@ -1292,22 +1295,16 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
             content_type="application/json",
         )
 
-    # WP-149 Ф4: detect daily lesson files alongside legacy workbook/ path.
-    # Weekly guides (lesson/YYYY-WNN.md) are NOT triggers — they are rendered,
-    # not authored by the learner.
+    # ── Фильтр путей: только workbook/ ──────────────────────────────────────
     commits = payload.get("commits") or []
-    changed = [
+    workbook_files = [
         f for commit in commits
         for f in (commit.get("added", []) + commit.get("modified", []))
+        if f.startswith("workbook/")
     ]
-    workbook_files = [f for f in changed if f.startswith("workbook/")]
-    lesson_files = [
-        f for f in changed
-        if re.match(r'^lesson/\d{4}-\d{2}-\d{2}\.md$', f)
-    ]
-    if not workbook_files and not lesson_files:
+    if not workbook_files:
         return web.Response(
-            text='{"ok":true,"skipped":"no workbook or lesson files"}',
+            text='{"ok":true,"skipped":"no workbook files"}',
             content_type="application/json",
         )
 
@@ -1388,51 +1385,42 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
 
     commit_sha = payload.get("after", "unknown")
 
-    # Activity Hub: write event(s) — no activity_hub import needed.
-    # Idempotency: dedup on (user_uuid, event_type, payload->commit_sha) at consumer.
-    # WP-149 Ф4: lesson_closed for daily lesson files; workbook_push kept for legacy path.
-    all_files = workbook_files + lesson_files
+    # ── Activity Hub: записать событие (lightweight, без импорта activity_hub) ─
+    # Note: external_id колонка отсутствует в текущей схеме development.user_events.
+    # Идемпотентность достигается через дедуп по (user_uuid, event_type, payload->commit_sha)
+    # на потребительской стороне (engagement view может агрегировать с DISTINCT).
     payload_json = json.dumps({
-        "files": all_files,
+        "files": workbook_files,
         "repo": (payload.get("repository") or {}).get("full_name", ""),
         "commit_sha": commit_sha,
         "installation_id": installation_id,
         "via": used_secret,
     })
-    sender_type = (payload.get("sender") or {}).get("type", "User")
-    event_types = []
-    if lesson_files and sender_type != "Bot":
-        event_types.append("lesson_closed")
-    elif lesson_files:
-        logger.info("[WorkbookWebhook] lesson_closed skipped: sender type=Bot (renderer push)")
-    if workbook_files:
-        event_types.append("workbook_push")
     try:
         async with bot_pool.acquire() as conn:
-            for evt in event_types:
-                await conn.execute(
-                    """
-                    INSERT INTO development.user_events
-                        (user_id, user_uuid, event_type, source, payload,
-                         confidence, created_at)
-                    VALUES (0, $1, $2, $3, $4, $5, NOW())
-                    """,
-                    uuid.UUID(dt_user_id),
-                    evt,
-                    "iwe",
-                    payload_json,
-                    1.0,
-                )
-        logger.info("[WorkbookWebhook] events written: %s sha=%s", event_types, commit_sha)
+            await conn.execute(
+                """
+                INSERT INTO development.user_events
+                    (user_id, user_uuid, event_type, source, payload,
+                     confidence, created_at)
+                VALUES (0, $1, $2, $3, $4, $5, NOW())
+                """,
+                uuid.UUID(dt_user_id),
+                "workbook_push",
+                "iwe",
+                payload_json,
+                1.0,
+            )
+        logger.info("[WorkbookWebhook] event written to user_events: %s", commit_sha)
     except Exception as e:
         logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
 
-    # ── On-demand DT sync ──────────────────────────────────────────────────────
+    # ── On-demand пересчёт ЦД ────────────────────────────────────────────────
     asyncio.create_task(sync_one_user_to_dt(dt_user_id))
 
     logger.info(
-        "[WorkbookWebhook] push by chat_id=%s (dt=%s, install=%s, via=%s), events=%s files=%s, dt_sync scheduled",
-        chat_id, dt_user_id, installation_id, used_secret, event_types, all_files,
+        "[WorkbookWebhook] push by chat_id=%s (dt=%s, install=%s, via=%s), files=%s, dt_sync scheduled",
+        chat_id, dt_user_id, installation_id, used_secret, workbook_files,
     )
     return web.Response(
         text='{"ok":true}',
@@ -2283,185 +2271,6 @@ async def typing_delta_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
-_TIER_INT_TO_STR = {0: "T1", 1: "T1", 2: "T2", 3: "T3", 4: "T4", 5: "T4"}
-
-
-async def external_auth_exchange_handler(request: web.Request) -> web.Response:
-    """WP-411 Ф2/Ф4: обмен одноразового кода на пару access+refresh токенов.
-
-    POST /internal/auth/exchange
-    Body JSON: {"code": "<uuid>"}
-    Response: {"access_token": "ict_...", "refresh_token": "irt_...", "scope": "full"}
-    Errors: 400 missing code | 404 code not found/expired | 500 internal
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid json"}, status=400)
-
-    code = body.get("code", "").strip()
-    if not code:
-        return web.json_response({"error": "code required"}, status=400)
-
-    from db.queries.external_clients import exchange_code_and_store_tokens, peek_auth_code_chat_id
-    from clients.external_auth import generate_access_token, generate_refresh_token
-    from core.tier_detector import detect_ui_tier
-
-    # Peek chat_id to compute tier before consuming the code.
-    chat_id = await peek_auth_code_chat_id(code)
-    if chat_id is None:
-        return web.json_response({"error": "code not found or expired"}, status=404)
-
-    try:
-        tier_int = await detect_ui_tier(chat_id)
-    except Exception:
-        logger.warning("[ExternalAuth] exchange: detect_ui_tier failed for chat_id=%s, defaulting T1", chat_id)
-        tier_int = 1
-    computed_tier = _TIER_INT_TO_STR.get(tier_int, "T1")
-
-    try:
-        at_plain, at_hash = generate_access_token()
-        rt_plain, rt_hash = generate_refresh_token()
-    except RuntimeError as e:
-        logger.error("[ExternalAuth] exchange: EXTERNAL_AUTH_KEY not configured: %s", e)
-        return web.json_response({"error": "server misconfigured"}, status=500)
-
-    try:
-        result = await exchange_code_and_store_tokens(
-            code=code,
-            access_hash=at_hash,
-            refresh_hash=rt_hash,
-            computed_tier=computed_tier,
-        )
-    except Exception:
-        logger.exception("[ExternalAuth] exchange: exchange_code_and_store_tokens failed")
-        return web.json_response({"error": "internal error"}, status=500)
-
-    if result is None:
-        logger.warning("[ExternalAuth] exchange: code not found or expired")
-        return web.json_response({"error": "code not found or expired"}, status=404)
-
-    logger.info("[ExternalAuth] exchange: issued token tier=%s for account %s", computed_tier, result["account_id"])
-    return web.json_response({
-        "access_token": at_plain,
-        "refresh_token": rt_plain,
-        "scope": result["scope"],
-    })
-
-
-async def external_auth_introspect_handler(request: web.Request) -> web.Response:
-    """WP-411 Ф2: gateway-mcp → проверка access-токена, возврат account_id.
-
-    POST /internal/auth/introspect
-    Headers: X-Introspect-Secret: <secret>
-    Body JSON: {"access_token": "ict_..."}
-    Response: {"account_id": "uuid", "scope": "full"}
-    Errors: 401 bad secret | 400 missing token | 404 token not found/revoked
-    """
-    from clients.external_auth import verify_introspect_secret, hash_token
-    from db.queries.external_clients import lookup_client_token, touch_client_token
-    import asyncio
-
-    provided = request.headers.get("X-Introspect-Secret", "")
-    if not verify_introspect_secret(provided):
-        logger.warning("[ExternalAuth] introspect: bad secret from %s", request.remote)
-        return web.json_response({"error": "unauthorized"}, status=401)
-
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid json"}, status=400)
-
-    token = body.get("access_token", "").strip()
-    if not token:
-        return web.json_response({"error": "access_token required"}, status=400)
-
-    token_hash = hash_token(token)
-    row = await lookup_client_token(token_hash)
-    if row is None:
-        return web.json_response({"error": "token not found"}, status=404)
-
-    # fire-and-forget last_used update
-    asyncio.ensure_future(touch_client_token(row["id"]))
-
-    return web.json_response({
-        "account_id": row["account_id"],
-        "scope": row["scope"],
-        "tier": row["computed_tier"],
-    })
-
-
-async def external_auth_refresh_handler(request: web.Request) -> web.Response:
-    """WP-411 Ф4: refresh irt_ token → new ict_+irt_ pair with recomputed tier.
-
-    POST /internal/auth/refresh
-    Headers: X-Introspect-Secret: <secret>
-    Body JSON: {"refresh_token": "irt_..."}
-    Response: {"access_token": "ict_...", "refresh_token": "irt_..."}
-    Errors: 401 bad secret | 400 missing token | 404 not found/revoked | 500 internal
-    """
-    from clients.external_auth import (
-        verify_introspect_secret, hash_token,
-        generate_access_token, generate_refresh_token,
-    )
-    from db.queries.external_clients import lookup_refresh_token, refresh_client_token
-    from core.tier_detector import detect_ui_tier
-    import asyncio as _asyncio
-
-    provided = request.headers.get("X-Introspect-Secret", "")
-    if not verify_introspect_secret(provided):
-        logger.warning("[ExternalAuth] refresh: bad secret from %s", request.remote)
-        return web.json_response({"error": "unauthorized"}, status=401)
-
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid json"}, status=400)
-
-    rt_plain = body.get("refresh_token", "").strip()
-    if not rt_plain:
-        return web.json_response({"error": "refresh_token required"}, status=400)
-
-    rt_hash = hash_token(rt_plain)
-    old = await lookup_refresh_token(rt_hash)
-    if old is None:
-        return web.json_response({"error": "refresh token not found"}, status=404)
-
-    chat_id = old.get("chat_id")
-    if chat_id:
-        try:
-            tier_int = await detect_ui_tier(chat_id)
-        except Exception:
-            logger.warning("[ExternalAuth] refresh: detect_ui_tier failed for chat_id=%s", chat_id)
-            tier_int = 1
-        computed_tier = _TIER_INT_TO_STR.get(tier_int, "T1")
-    else:
-        computed_tier = "T1"
-        logger.warning("[ExternalAuth] refresh: no chat_id on token %s, tier defaulting T1", old["id"])
-
-    try:
-        at_plain, at_hash = generate_access_token()
-        new_rt_plain, new_rt_hash = generate_refresh_token()
-    except RuntimeError as e:
-        logger.error("[ExternalAuth] refresh: EXTERNAL_AUTH_KEY not configured: %s", e)
-        return web.json_response({"error": "server misconfigured"}, status=500)
-
-    ok = await refresh_client_token(
-        old_refresh_hash=rt_hash,
-        new_access_hash=at_hash,
-        new_refresh_hash=new_rt_hash,
-        computed_tier=computed_tier,
-    )
-    if not ok:
-        return web.json_response({"error": "refresh token already revoked"}, status=404)
-
-    logger.info("[ExternalAuth] refresh: re-issued token tier=%s for account %s", computed_tier, old["account_id"])
-    return web.json_response({
-        "access_token": at_plain,
-        "refresh_token": new_rt_plain,
-    })
-
-
 def create_oauth_app(dp=None, bot=None) -> web.Application:
     """Создаёт aiohttp приложение для OAuth + опционально Telegram webhook.
 
@@ -2499,9 +2308,6 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
-    app.router.add_post("/internal/auth/exchange", external_auth_exchange_handler)    # WP-411 Ф2
-    app.router.add_post("/internal/auth/introspect", external_auth_introspect_handler)  # WP-411 Ф2
-    app.router.add_post("/internal/auth/refresh", external_auth_refresh_handler)       # WP-411 Ф4
     app.router.add_post("/webhook/chatwoot", chatwoot_webhook_handler)   # WP-341 Этап 2
     app.router.add_post("/webhook/discourse", discourse_webhook_handler) # WP-327 Этап 23
     app.router.add_post("/api/typing_delta", typing_delta_handler)       # WP-327 Phase 4: Browser Extension heartbeat
