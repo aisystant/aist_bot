@@ -685,7 +685,7 @@ async def google_calendar_callback_handler(request: web.Request) -> web.Response
         )
 
     email = tokens.get("email", "")
-    logger.info(f"User {telegram_user_id} connected to Google Calendar ({email})")
+    logger.info(f"User {telegram_user_id} connected to Google Calendar")
 
     if _bot_instance:
         try:
@@ -926,14 +926,16 @@ async def workshop_payment_handler(request: web.Request) -> web.Response:
     """
     import json
 
-    # Аутентификация: секрет в заголовке (аналогично template_update_handler)
+    # Аутентификация: секрет в заголовке (fail-closed, аналогично template_update_handler)
     expected_secret = os.getenv("WORKSHOP_WEBHOOK_SECRET", "")
-    if expected_secret:
-        provided = request.headers.get("X-Webhook-Secret", "")
-        if provided != expected_secret:
-            logger.warning("[WorkshopWebhook] invalid secret")
-            return web.Response(text='{"ok":false,"error":"unauthorized"}',
-                                content_type="application/json", status=403)
+    provided = request.headers.get("X-Webhook-Secret", "")
+    if not expected_secret or provided != expected_secret:
+        logger.warning(
+            "[WorkshopWebhook] invalid secret" if expected_secret
+            else "[WorkshopWebhook] WORKSHOP_WEBHOOK_SECRET not configured — rejecting"
+        )
+        return web.Response(text='{"ok":false,"error":"unauthorized"}',
+                            content_type="application/json", status=403)
 
     try:
         data = await request.json()
@@ -1010,9 +1012,7 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
 
         return web.Response(text=json.dumps(result), content_type="application/json")
     except Exception as e:
-        logger.error(f"[YooKassa Webhook] error: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"[YooKassa Webhook] error: {type(e).__name__}: {str(e)[:200]}")
         return web.Response(text=json.dumps({"ok": False, "error": "internal server error"}),
                             content_type="application/json", status=500)
 

@@ -204,7 +204,7 @@ class GoogleCalendarOAuthClient:
                         )
 
                         logger.info(
-                            f"Successfully exchanged Google Calendar code for user {telegram_user_id} ({email})"
+                            f"Successfully exchanged Google Calendar code for user {telegram_user_id}"
                         )
                         return self._cache[telegram_user_id]
                     else:
