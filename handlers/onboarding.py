@@ -371,14 +371,16 @@ async def cmd_start(message: Message, state: FSMContext):
 
     await sync_menu_commands(message.bot, message.chat.id, tier, lang)
 
-    # WP-151 Ф3: onboarding_completed (fast path)
+    # WP-151 Ф3 / WP-406 Ф18: registration_completed (fast path).
+    # Renamed from 'onboarding_completed' — that name is now reserved for the
+    # moment both Х2 and Х3 close (see core/onboarder/x2.py, on_x3_confirm below).
     from db.queries.events import log_event
     from db.queries.onboarding_journey import get_onboarding_state
     cohort_id = 'R1'
     if aisystant_uuid:
         _state = await get_onboarding_state(aisystant_uuid)
         cohort_id = (_state or {}).get('cohort_id', 'R1')
-    await log_event(message.chat.id, 'onboarding_completed', {
+    await log_event(message.chat.id, 'registration_completed', {
         'lang': lang,
         'path': 'fast',
         'linked_aisystant': linked,
@@ -694,7 +696,8 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             reply_markup=nav_kb,
         )
 
-        # WP-151 Ф3: onboarding_step + onboarding_completed (FSM path)
+        # WP-151 Ф3 / WP-406 Ф18: onboarding_step + registration_completed (FSM path).
+        # Renamed from 'onboarding_completed' — see rationale at the fast-path call above.
         from db.queries.events import log_event
         from db.queries.aisystant import get_aisystant_id
         from db.queries.onboarding_journey import get_onboarding_state
@@ -704,7 +707,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             _fsm_state = await get_onboarding_state(_fsm_uuid)
             _fsm_cohort_id = (_fsm_state or {}).get('cohort_id', 'R1')
         await log_event(chat_id, 'onboarding_step', {'step': 'confirm'})
-        await log_event(chat_id, 'onboarding_completed', {
+        await log_event(chat_id, 'registration_completed', {
             'lang': lang,
             'path': 'fsm',
             'duration': intern.get('study_duration'),
@@ -836,21 +839,32 @@ async def on_x3_confirm(callback: CallbackQuery):
         parts = callback.data.split(":", 2)
         chosen_stream = parts[1] if len(parts) > 1 else ""
         diagnostic_done = (parts[2] == "1") if len(parts) > 2 else False
-        from core.onboarder.storage import mark_x3_done, save_onboarding_context, get_onboarding_context
-        await mark_x3_done(chat_id)
+        from core.onboarder import storage
+        _x2_done_before = (await storage.get_status(chat_id))["x2_done"]
+        await storage.mark_x3_done(chat_id)
         if chosen_stream:
-            await save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
+            await storage.save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
         # WP-406 Ф17 PR-2: x3_completed event (fire after mark; diagnostic_done from callback flag)
         from db.queries.events import log_event
-        _onb_ctx = await get_onboarding_context(chat_id)
+        _onb_ctx = await storage.get_onboarding_context(chat_id)
         _intern = await get_intern(chat_id)
         _lang = (_intern.get("language", "ru") or "ru") if _intern else "ru"
+        _entry_type = _onb_ctx.get("entry_type", "direct")
         await log_event(chat_id, "x3_completed", {
-            "entry_type": _onb_ctx.get("entry_type", "direct"),
+            "entry_type": _entry_type,
             "lang": _lang,
             "diagnostic_done": diagnostic_done,
             "stream": chosen_stream,
         })
+        # WP-406 Ф18: Первокурсник достигнут = Х2 и Х3 оба закрыты. Х3 закрывается здесь;
+        # если Х2 был закрыт раньше — это последний из двух разрывов, событие логируется тут.
+        # Симметричный лог для обратного порядка — core/onboarder/x2.py:_finish_x2.
+        if _x2_done_before:
+            await log_event(chat_id, "onboarding_completed", {
+                "entry_type": _entry_type,
+                "lang": _lang,
+                "closed_by": "x3",
+            })
         await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу.")
     except Exception as e:
         logger.error("[onboarder_x3] mark_x3_done failed for %s: %s", chat_id, e)
