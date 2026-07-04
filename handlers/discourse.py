@@ -1450,6 +1450,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
     knowledge_repo = await github_oauth.get_knowledge_repo(chat_id)
     if not token or not knowledge_repo:
         await callback.message.answer("GitHub не настроен. Настройки → GitHub → Выбрать индекс знаний.")
+        await state.clear()
         return
 
     client = create_content_client(token, knowledge_repo)
