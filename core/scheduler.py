@@ -1126,7 +1126,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # дренаж выключен» (плюс «drain падает»). Fail-open внутри.
     _scheduler.add_job(_watch_delivery_queue, 'cron', minute='*/10', max_instances=1)
     _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
-    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37')  # Discourse: scheduled posts (offset from :00/:30)
+    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37', max_instances=1)  # Discourse: scheduled posts (offset from :00/:30)
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
     _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
     # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
@@ -2733,23 +2733,37 @@ async def send_feedback_weekly_digest(dev_chat_id: int):
 # ═══════════════════════════════════════════════════════════
 
 async def _discourse_scheduled_publish():
-    """Публиковать запланированные посты (каждые ~30 мин, в :07 и :37)."""
+    """Публиковать запланированные посты (каждые ~30 мин, в :07 и :37).
+
+    Атомарно захватывает одну pending строку за раз через
+    get_and_claim_pending_publication() (status='publishing' + FOR UPDATE
+    SKIP LOCKED), чтобы исключить race condition между репликами и
+    перекрывающимися запусками APScheduler.
+    """
     from clients.discourse import discourse
     if not discourse:
         return
 
     from db.queries.discourse import (
-        get_pending_publications, mark_publication_done, mark_publication_failed,
-        save_published_post,
+        get_and_claim_pending_publication, mark_publication_done,
+        mark_publication_failed, reset_stale_publishing, save_published_post,
     )
 
-    pubs = await get_pending_publications()
-    if not pubs:
-        return
+    # Защита от зависших строк, оставшихся в 'publishing' после краша.
+    try:
+        recovered = await reset_stale_publishing(max_age_minutes=10)
+        if recovered:
+            logger.warning(f"[Publisher] Reset {recovered} stale 'publishing' row(s) to pending")
+    except Exception as e:
+        logger.error(f"[Publisher] reset_stale_publishing failed: {e}")
 
     bot = Bot(token=_bot_token)
     try:
-        for pub in pubs:
+        while True:
+            pub = await get_and_claim_pending_publication()
+            if not pub:
+                break
+
             try:
                 raw = pub["raw"]
                 source_file = pub.get("source_file")
@@ -3028,12 +3042,22 @@ async def _smart_publisher_scan(*, notify: bool = True):
 
                 scheduled_posts = []
 
+                def _next_discourse_slot_utc(now: datetime) -> datetime:
+                    """Ближайший слот публикации :07 или :37 UTC."""
+                    if now.minute < 7:
+                        return now.replace(minute=7, second=0, microsecond=0)
+                    if now.minute < 37:
+                        return now.replace(minute=37, second=0, microsecond=0)
+                    nxt = now + timedelta(hours=1)
+                    return nxt.replace(minute=7, second=0, microsecond=0)
+
                 # Weekly reviews → публикация сразу (ближайший цикл :07/:37)
+                now_utc = datetime.utcnow()
                 for wr in weekly_reviews:
-                    slot_time = datetime.utcnow() + timedelta(minutes=1)  # Ближайший цикл подхватит
+                    slot_time = _next_discourse_slot_utc(now_utc)
                     raw = strip_frontmatter(wr["content"])
                     tags_json = json.dumps(wr["tags"]) if isinstance(wr["tags"], list) else "[]"
-                    await schedule_publication(
+                    pub_id = await schedule_publication(
                         chat_id=chat_id,
                         title=wr["title"],
                         raw=raw,
@@ -3042,8 +3066,11 @@ async def _smart_publisher_scan(*, notify: bool = True):
                         tags=tags_json,
                         source_file=wr["path"],
                     )
-                    scheduled_posts.append((wr["title"], slot_time))
-                    logger.info(f"[Publisher] Auto-scheduled weekly review: {wr['title']!r} → {slot_time}")
+                    if pub_id:
+                        scheduled_posts.append((wr["title"], slot_time))
+                        logger.info(f"[Publisher] Auto-scheduled weekly review: {wr['title']!r} → {slot_time}")
+                    else:
+                        logger.info(f"[Publisher] Weekly review already scheduled (duplicate skipped): {wr['title']!r}")
 
                 # Regular → Вт-Вс (исключить Пн=0 из каденции)
                 regular_pub_days = [d for d in pub_days if d != 0]
@@ -3071,7 +3098,7 @@ async def _smart_publisher_scan(*, notify: bool = True):
                 for post, slot in zip(regular, slots):
                     raw = strip_frontmatter(post["content"])
                     tags_json = json.dumps(post["tags"]) if isinstance(post["tags"], list) else "[]"
-                    await schedule_publication(
+                    pub_id = await schedule_publication(
                         chat_id=chat_id,
                         title=post["title"],
                         raw=raw,
@@ -3080,8 +3107,11 @@ async def _smart_publisher_scan(*, notify: bool = True):
                         tags=tags_json,
                         source_file=post["path"],
                     )
-                    scheduled_posts.append((post["title"], slot))
-                    logger.info(f"[Publisher] Auto-scheduled: {post['title']!r} → {slot}")
+                    if pub_id:
+                        scheduled_posts.append((post["title"], slot))
+                        logger.info(f"[Publisher] Auto-scheduled: {post['title']!r} → {slot}")
+                    else:
+                        logger.info(f"[Publisher] Regular post already scheduled (duplicate skipped): {post['title']!r}")
 
                 # Уведомить
                 if scheduled_posts:
