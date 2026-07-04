@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import logging
 from datetime import datetime, timedelta
@@ -64,6 +65,13 @@ def _lang(intern) -> str:
     if not intern:
         return 'ru'
     return intern.get('language', 'ru') or 'ru'
+
+
+def _publisher_disabled() -> bool:
+    """DISABLE_DISCOURSE_PUBLISHER=true — инстанс подключён к общей с прод-ботом базе
+    publication/community (напр. пилотный бот) и не должен публиковать в клуб вообще,
+    ни по крону (core/scheduler.py), ни вручную через эти обработчики."""
+    return os.getenv("DISABLE_DISCOURSE_PUBLISHER", "false").lower() == "true"
 
 
 # ── Helpers ───────────────────────────────────────────────
@@ -610,6 +618,10 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
     from clients.discourse import discourse
 
     await callback.answer()
+    if _publisher_disabled():
+        await state.clear()
+        await callback.message.answer("Публикация в клуб отключена на этом боте (тестовый инстанс).")
+        return
     data = await state.get_data()
     title = data.get("post_title", "")
     content = data.get("post_content", "")
@@ -632,6 +644,13 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
             "Блог не указан. Переподключись:\n"
             "/club → Отвязать → /club → Подключить"
         )
+        return
+
+    # Свежая проверка прямо перед публикацией: между вводом заголовка (где дедуп уже
+    # проверялся) и этим подтверждением прошло минимум два шага произвольной длины —
+    # тот же заголовок мог быть опубликован за это время откуда-то ещё.
+    if await is_title_published(callback.from_user.id, title):
+        await callback.message.answer(f"«{title}» уже опубликован — публикация отменена, чтобы не задвоить.")
         return
 
     logger.info(f"Publishing to category={category_id}, user={username}")
@@ -844,6 +863,10 @@ async def on_schedule_publish_now(callback: CallbackQuery):
     from clients.discourse import discourse
 
     await callback.answer()
+
+    if _publisher_disabled():
+        await callback.message.answer("Публикация в клуб отключена на этом боте (тестовый инстанс).")
+        return
 
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -1325,6 +1348,11 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
+    if _publisher_disabled():
+        await state.clear()
+        await callback.message.answer("Публикация в клуб отключена на этом боте (тестовый инстанс).")
+        return
+
     # Убираем кнопки из списка постов → предотвращаем повторные нажатия
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -1400,6 +1428,20 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         claimed = await claim_specific_publication(scheduled_id)
         if not claimed:
             await callback.message.answer("Публикация не найдена или уже опубликована.")
+            await state.clear()
+            return
+    else:
+        # Пост никогда не попадал в scheduled_post (ready/draft из индекса) — атомарного
+        # claim нет, поэтому список кандидатов мог устареть за время между показом кнопок
+        # и нажатием (напр. дневной автоскан уже опубликовал/поставил в график этот же файл).
+        # Свежая проверка прямо перед публикацией сужает окно гонки до минимума.
+        title_lower = post["title"].lower()
+        already_published = await is_title_published(chat_id, post["title"])
+        already_scheduled = title_lower in await get_all_scheduled_titles_lower(chat_id)
+        if already_published or already_scheduled:
+            await callback.message.answer(
+                f"«{post['title']}» уже опубликован или стоит в графике — публикация отменена, чтобы не задвоить."
+            )
             await state.clear()
             return
 
