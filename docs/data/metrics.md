@@ -92,7 +92,7 @@
 
 | Метрика в VIEW | Event type | Описание |
 |----------------|-----------|----------|
-| `onboarding_completed_total` | `onboarding_completed` | Сколько раз завершал онбординг |
+| `onboarding_completed_total` | `onboarding_completed` | Достиг статуса «Первокурсник» (Х2+Х3 оба закрыты, WP-406 Ф18). До Ф18 (2026-07-04) это же имя означало «регистрация завершена» — сейчас это `registration_completed`. |
 | `mode_changes_total` | `mode_changed` | Переключений между режимами |
 | `settings_changes_total` | `settings_changed` | Изменений настроек |
 | `reminders_delivered_total` | `reminder_delivered` | Доставленных reminders |
