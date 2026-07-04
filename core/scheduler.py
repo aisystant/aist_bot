@@ -1186,11 +1186,18 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # дренаж выключен» (плюс «drain падает»). Fail-open внутри.
     _scheduler.add_job(_watch_delivery_queue, 'cron', minute='*/10', max_instances=1)
     _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
-    _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37', max_instances=1)  # Discourse: scheduled posts (offset from :00/:30)
+    # DISABLE_DISCOURSE_PUBLISHER=true — отключает автопубликацию в клуб (systemsworld.club),
+    # оставляя остальной scheduler активным. Нужно для инстансов, подключённых к общей с прод
+    # базе publication/community (напр. пилотный бот) — иначе два бота публикуют один и тот же
+    # пост параллельно (инцидент: дубли постов в клубе, май-июль 2026).
+    if os.getenv("DISABLE_DISCOURSE_PUBLISHER", "false").lower() == "true":
+        logger.info("[Scheduler] DISABLE_DISCOURSE_PUBLISHER=true — автопубликация в клуб отключена")
+    else:
+        _scheduler.add_job(_discourse_scheduled_publish, 'cron', minute='7,37', max_instances=1)  # Discourse: scheduled posts (offset from :00/:30)
+        _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
+        # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
+        _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
-    _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
-    # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
-    _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
     _scheduler.add_job(_notify_cp_diagnose, 'cron', hour=5, minute=30, id='notify_cp_diagnose', max_instances=1)  # WP-318 Ф9: drain cp_diagnose_suggested outbox after stage_evaluator
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь

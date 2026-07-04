@@ -323,13 +323,17 @@ async def reset_stale_publishing(max_age_minutes: int = 10) -> int:
 
 
 async def mark_publication_done(pub_id: int, discourse_topic_id: int) -> None:
-    """Пометить публикацию как выполненную."""
+    """Пометить публикацию как выполненную.
+
+    WHERE status='publishing' — защита от повторной записи, если строку
+    успели захватить и опубликовать дважды (см. claim_specific_publication).
+    """
     pool = await get_publication_pool()
     await pool.execute(
         """
         UPDATE scheduled_post
         SET status = 'published', discourse_topic_id = $2, updated_at = NOW()
-        WHERE id = $1
+        WHERE id = $1 AND status = 'publishing'
         """,
         pub_id, discourse_topic_id,
     )
@@ -339,7 +343,7 @@ async def mark_publication_failed(pub_id: int) -> None:
     """Пометить публикацию как неудачную."""
     pool = await get_publication_pool()
     await pool.execute(
-        "UPDATE scheduled_post SET status = 'failed', updated_at = NOW() WHERE id = $1",
+        "UPDATE scheduled_post SET status = 'failed', updated_at = NOW() WHERE id = $1 AND status = 'publishing'",
         pub_id,
     )
 
@@ -454,6 +458,35 @@ async def get_scheduled_publication(pub_id: int) -> dict | None:
         SELECT sp.*
         FROM scheduled_post sp
         WHERE sp.id = $1 AND sp.status = 'pending'
+        """,
+        pub_id,
+    )
+    if not row:
+        return None
+    pub = dict(row)
+    com_pool = await get_community_pool()
+    acc = await com_pool.fetchrow(
+        "SELECT discourse_username FROM club_account WHERE chat_id = $1",
+        pub["chat_id"],
+    )
+    pub["discourse_username"] = acc["discourse_username"] if acc else None
+    return pub
+
+
+async def claim_specific_publication(pub_id: int) -> dict | None:
+    """Атомарно захватить конкретную публикацию по ID перед ручной отправкой.
+
+    UPDATE ... WHERE status='pending' RETURNING * — атомарный claim, без гонки
+    с cron-планировщиком (get_and_claim_pending_publication), который может
+    захватить ту же строку параллельно. None, если строка уже занята/опубликована.
+    """
+    pub_pool = await get_publication_pool()
+    row = await pub_pool.fetchrow(
+        """
+        UPDATE scheduled_post
+        SET status = 'publishing', updated_at = NOW()
+        WHERE id = $1 AND status = 'pending'
+        RETURNING *
         """,
         pub_id,
     )

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import logging
 from datetime import datetime, timedelta
@@ -42,6 +43,7 @@ from db.queries.discourse import (
     get_upcoming_schedule,
     get_scheduled_count,
     get_scheduled_publication,
+    claim_specific_publication,
     cancel_scheduled_publication,
     reschedule_publication,
     schedule_publication,
@@ -51,6 +53,7 @@ from db.queries.discourse import (
     get_all_scheduled_titles_lower,
     reschedule_all_pending,
     mark_publication_done,
+    mark_publication_failed,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +65,13 @@ def _lang(intern) -> str:
     if not intern:
         return 'ru'
     return intern.get('language', 'ru') or 'ru'
+
+
+def _publisher_disabled() -> bool:
+    """DISABLE_DISCOURSE_PUBLISHER=true — инстанс подключён к общей с прод-ботом базе
+    publication/community (напр. пилотный бот) и не должен публиковать в клуб вообще,
+    ни по крону (core/scheduler.py), ни вручную через эти обработчики."""
+    return os.getenv("DISABLE_DISCOURSE_PUBLISHER", "false").lower() == "true"
 
 
 # ── Helpers ───────────────────────────────────────────────
@@ -608,6 +618,10 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
     from clients.discourse import discourse
 
     await callback.answer()
+    if _publisher_disabled():
+        await state.clear()
+        await callback.message.answer("Публикация в клуб отключена на этом боте (тестовый инстанс).")
+        return
     data = await state.get_data()
     title = data.get("post_title", "")
     content = data.get("post_content", "")
@@ -630,6 +644,13 @@ async def on_publish_confirm(callback: CallbackQuery, state: FSMContext):
             "Блог не указан. Переподключись:\n"
             "/club → Отвязать → /club → Подключить"
         )
+        return
+
+    # Свежая проверка прямо перед публикацией: между вводом заголовка (где дедуп уже
+    # проверялся) и этим подтверждением прошло минимум два шага произвольной длины —
+    # тот же заголовок мог быть опубликован за это время откуда-то ещё.
+    if await is_title_published(callback.from_user.id, title):
+        await callback.message.answer(f"«{title}» уже опубликован — публикация отменена, чтобы не задвоить.")
         return
 
     logger.info(f"Publishing to category={category_id}, user={username}")
@@ -843,6 +864,10 @@ async def on_schedule_publish_now(callback: CallbackQuery):
 
     await callback.answer()
 
+    if _publisher_disabled():
+        await callback.message.answer("Публикация в клуб отключена на этом боте (тестовый инстанс).")
+        return
+
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -853,7 +878,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         return
 
     pub_id = int(callback.data.split(":")[1])
-    pub = await get_scheduled_publication(pub_id)
+    pub = await claim_specific_publication(pub_id)
     if not pub:
         await callback.message.answer("Публикация не найдена или уже опубликована.")
         return
@@ -968,6 +993,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         await callback.message.answer("\n".join(lines))
     except Exception as e:
         logger.error(f"Publish now error: {e}")
+        await mark_publication_failed(pub_id)
         await callback.message.answer(f"Ошибка публикации: {e}")
 
 
@@ -1322,6 +1348,11 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
+    if _publisher_disabled():
+        await state.clear()
+        await callback.message.answer("Публикация в клуб отключена на этом боте (тестовый инстанс).")
+        return
+
     # Убираем кнопки из списка постов → предотвращаем повторные нажатия
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -1353,7 +1384,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
     # Scheduled-пост без source_file → публикуем raw из DB
     if scheduled_id and not post.get("path"):
-        pub = await get_scheduled_publication(scheduled_id)
+        pub = await claim_specific_publication(scheduled_id)
         if not pub:
             await callback.message.answer("Публикация не найдена или уже опубликована.")
             return
@@ -1385,9 +1416,34 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
             )
         except Exception as e:
             logger.error(f"Smart publish (scheduled no-file) error: {e}")
+            await mark_publication_failed(scheduled_id)
             await callback.message.answer(f"Ошибка публикации: {e}")
         await state.clear()
         return
+
+    # Пост был в графике (scheduled_id есть), но публикуем свежим содержимым из GitHub —
+    # всё равно захватываем строку атомарно, иначе она может быть опубликована и cron'ом
+    # параллельно (тот же источник дублей, что и в ветке выше).
+    if scheduled_id:
+        claimed = await claim_specific_publication(scheduled_id)
+        if not claimed:
+            await callback.message.answer("Публикация не найдена или уже опубликована.")
+            await state.clear()
+            return
+    else:
+        # Пост никогда не попадал в scheduled_post (ready/draft из индекса) — атомарного
+        # claim нет, поэтому список кандидатов мог устареть за время между показом кнопок
+        # и нажатием (напр. дневной автоскан уже опубликовал/поставил в график этот же файл).
+        # Свежая проверка прямо перед публикацией сужает окно гонки до минимума.
+        title_lower = post["title"].lower()
+        already_published = await is_title_published(chat_id, post["title"])
+        already_scheduled = title_lower in await get_all_scheduled_titles_lower(chat_id)
+        if already_published or already_scheduled:
+            await callback.message.answer(
+                f"«{post['title']}» уже опубликован или стоит в графике — публикация отменена, чтобы не задвоить."
+            )
+            await state.clear()
+            return
 
     # Прочитать контент из GitHub (per-user OAuth)
     token = await github_oauth.get_access_token(chat_id)
@@ -1431,10 +1487,12 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         post_id_discourse = result.get("id")
         slug = result.get("topic_slug", "")
 
-        # Если пост был scheduled → удалить из расписания ПОСЛЕ успешной публикации
+        # Если пост был scheduled → закрыть запись (уже захвачена claim_specific_publication выше,
+        # поэтому mark_publication_done, а не cancel_scheduled_publication — строка сейчас
+        # в статусе 'publishing', а не 'pending')
         if scheduled_id:
-            await cancel_scheduled_publication(scheduled_id)
-            logger.info(f"Cancelled scheduled publication {scheduled_id} after manual publish")
+            await mark_publication_done(scheduled_id, topic_id)
+            logger.info(f"Scheduled publication {scheduled_id} marked done after manual publish")
 
         # Сохранить в БД
         await save_published_post(
@@ -1472,6 +1530,8 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         logger.error(f"Smart publish error: {e}")
+        if scheduled_id:
+            await mark_publication_failed(scheduled_id)
         await callback.message.answer(f"Ошибка публикации: {e}")
     finally:
         await client.close()
