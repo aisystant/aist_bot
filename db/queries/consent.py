@@ -12,7 +12,9 @@ explicit SQL фильтр обязателен. Все запросы здесь
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Optional, TypedDict
 
@@ -224,6 +226,24 @@ async def set_consent_grant(
         "[consent_grant] set account_id=%s scope=%s granted=%s",
         account_id, scope, granted,
     )
+
+    # WP-457 Ф10 (consent write-path fix): единственный writer этого scope обязан
+    # оставить отпечаток перехода в журнале (public.domain_event) — иначе grant/revoke
+    # происходит без аудируемого следа. Fire-and-forget, тот же паттерн, что и
+    # db/queries/events.py:log_event (legacy path не блокируется сбоем dual-write).
+    try:
+        from helpers.dual_write import post_event
+        asyncio.create_task(post_event(
+            source="aist-bot",
+            external_id=f"consent-{account_id}-{scope}-{time.time_ns()}",
+            event_type="consent_granted",
+            schema_version="v1",
+            occurred_at=datetime.utcnow(),
+            account_id=account_id,
+            payload={"scope": scope, "granted": granted, "consent_version": consent_version},
+        ))
+    except Exception as exc:
+        logger.warning(f"[consent_grant] dual-write task schedule failed: {exc}")
 
 
 async def is_typing_tracking_disabled(account_id: str) -> bool:

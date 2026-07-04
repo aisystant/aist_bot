@@ -485,24 +485,27 @@ async def on_consent_accept(callback: CallbackQuery):
         await callback.answer("Аккаунт не привязан", show_alert=True)
         return
 
-    # WP-349 Ф30: запись consent через gateway MCP (cross-channel)
+    # WP-349 Ф30 + WP-457 Ф10 (consent write-path fix): data_analysis — единственный
+    # писатель learning-context-service через шлюз; text_analysis — единственный
+    # писатель бот напрямую (set_consent_grant). Было: оба scope одним вызовом шлюза
+    # с ошибочными scope из чужой константы DEFAULT_SCOPE (stage_evaluation/club_activity —
+    # легаси-механизм /consent, не имеет отношения к data_analysis/text_analysis).
+    # Локальный фолбэк на сбой шлюза убран: gateway-mcp уже делает retry+backoff
+    # (WP-457 Ф12, K3-митигация) — тихая запись в другую таблицу под видом успеха
+    # хуже честного отказа для юридически значимого согласия.
     try:
         result = await gateway_mcp.grant_consent(
             telegram_user_id=user_id,
             agreed=True,
-            scopes=list(DEFAULT_SCOPE) if DEFAULT_SCOPE else ["data_analysis", "text_analysis"],
+            scopes=["data_analysis"],
         )
-        if result is None:
-            logger.warning("[consent_accept] gateway grant_consent returned None for %s", user_id)
-            # Fallback: прямая запись в БД
-            consent = await set_consent(account_id, opt_in=True, scope=DEFAULT_SCOPE)
-        elif not result.get("success"):
-            logger.error("[consent_accept] gateway grant_consent failed: %s", result)
+        if result is None or not result.get("success"):
+            logger.error("[consent_accept] gateway grant_consent failed for %s: %s", user_id, result)
             await callback.answer("Ошибка записи. Попробуй позже.", show_alert=True)
             return
-        else:
-            # Читаем обратно из БД для UI (gateway пишет в БД, но не возвращает row)
-            consent = await get_consent(account_id)
+        await set_consent_grant(account_id, "text_analysis", granted=True)
+        # Читаем обратно из БД для UI (клавиатура старого /consent, см. _status_keyboard)
+        consent = await get_consent(account_id)
     except Exception as exc:
         logger.error("[consent_accept] account_id=%s: %s", account_id, exc)
         await callback.answer("Ошибка записи. Попробуй позже.", show_alert=True)

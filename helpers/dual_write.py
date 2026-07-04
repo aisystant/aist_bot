@@ -84,7 +84,9 @@ async def post_event(
 
     Args:
         source: Канал-источник, для бота всегда "aist-bot".
-        external_id: Идемпотентный ID события (стабильный для retry).
+        external_id: Идемпотентный ID события — стабильный внутри ОДНОГО вызова
+            (защищает именно от повторной доставки этого конкретного HTTP-запроса,
+            не от повторных бизнес-событий: два разных grant/revoke — два разных id).
         event_type: Тип события (`user_registered`, `tier_changed`, …).
         schema_version: Версия схемы payload, например "v1".
         occurred_at: Когда событие произошло (naive UTC OK).
