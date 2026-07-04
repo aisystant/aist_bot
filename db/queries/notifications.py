@@ -219,6 +219,59 @@ async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: i
         return row is not None
 
 
+async def fetch_recent_nudges_by_type(
+    user_ids: list[int],
+    nudge_type_cooldowns: dict[str, int],
+) -> dict[int, list[dict]]:
+    """Низкоуровневый примитив за публичным core.nudge_delivery.get_recent_nudges_batch
+    (WP-117 Ф-decouple §2.2).
+
+    nudge_type_cooldowns — {nudge_type: cooldown_days}; lookback для каждого типа
+    берётся из nudge_type_config.cooldown_days (владелец — WP-418, contract §2.2),
+    поэтому один SQL-запрос на тип (не на пользователя — типов << пользователей,
+    N+1 здесь означало бы N+1 по user_ids, не по типам).
+
+    Формат idempotency_key для нуджей — nudge:{chat_id}:{date}:{nudge_type} (тот же
+    контракт, что was_nudge_sent_recently). external_id = f"notification-{key}".
+
+    Returns: {user_id: [{"nudge_type": str, "sent_at": datetime, "status": "delivered"}, ...]}
+    """
+    if not user_ids or not nudge_type_cooldowns:
+        return {}
+
+    result: dict[int, list[dict]] = {uid: [] for uid in user_ids}
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        for nudge_type, cooldown_days in nudge_type_cooldowns.items():
+            patterns = [f"notification-nudge:{uid}:%:{nudge_type}" for uid in user_ids]
+            rows = await conn.fetch(
+                """SELECT external_id, ingested_at
+                   FROM domain_event
+                   WHERE source = 'aist-bot'
+                     AND event_type = 'notification_sent'
+                     AND ingested_at >= NOW() - INTERVAL '1 day' * $1
+                     AND external_id LIKE ANY($2::text[])""",
+                cooldown_days, patterns,
+            )
+            for row in rows:
+                # external_id = notification-nudge:{chat_id}:{date}:{nudge_type}
+                parts = row["external_id"].split(":")
+                if len(parts) < 4:
+                    continue
+                try:
+                    chat_id = int(parts[1])
+                except ValueError:
+                    continue
+                if chat_id not in result:
+                    continue
+                result[chat_id].append({
+                    "nudge_type": nudge_type,
+                    "sent_at": row["ingested_at"],
+                    "status": "delivered",
+                })
+    return result
+
+
 async def get_notification_stats(chat_id: int, days: int = 30) -> dict:
     """Статистика уведомлений пользователя за N дней (WP-253 B-port).
 
