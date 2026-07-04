@@ -97,3 +97,20 @@ Readers журнала (`was_nudge_sent_recently` — cooldown нудж-прав
 
 `tests/smoke/test_notification_service.py` — потолок подавляет третий `capped`, `critical` обходит лимит, дедуп подавляет, очередь принимает, дренаж доставляет и помечает sent; журнал — семантический ключ/тип + fallback.
 `tests/smoke/test_delivery_wave1.py` — рендер markdown→HTML/plain/actions; сторож fail-open; инвариант «в мигрированных функциях нет прямых `bot.send_*`, есть `enqueue`».
+
+## Второй движок — nudge-политика для WP-117 (Ф-decouple, 2026-07-04)
+
+> **Код:** `core/nudge_delivery.py`. **РП:** WP-418 (deliverables) + WP-117 Ф-decouple (contract `DS-my-strategy/inbox/WP-117/f-decouple-contract.md`).
+
+WP-117 переходит от бот-планировщика к платформенному producer'у нуджей (`NudgeCandidate`). Для него — **отдельный, самостоятельный движок политики**, не обёртка над `enqueue()`/`CLASS_POLICY`: у нового producer'а политика ключуется по `nudge_type` (`NUDGE_TYPE_CONFIG`), а не по 5-классовой модели — прогон через `enqueue(klass=...)` применил бы ЧУЖОЙ cooldown/cap для этого типа, дав тихий policy-конфликт (peer-session 2026-07-04-11).
+
+**Разделяет с основным движком:** таблицу `notification_queue` и — для типов с `class_cap=capped` — тот же бакет `notification_class='capped'` и **тот же buквальный advisory-lock ключ** `deliver:{chat_id}:{day}`, что `enqueue()` (иначе движки не видят гонку друг друга — найдено и исправлено при code review этой сессии). Единый честный счётчик DP.SC.177 остаётся один на все 65+N отправителей.
+
+**Интерфейсы (§2.2 контракта):**
+- `NUDGE_TYPE_CONFIG: dict[str, NudgeTypeConfig]` — пусто, наполняется WP-117 по мере переноса правил.
+- `select_and_enqueue(candidates) -> list[EnqueueResult]` — cooldown (dedup_key в очереди) → class_cap (`capped` делит бакет с legacy; `any` независим; `exclusive` преемптит остальных кандидатов пользователя в батче) → opt-out (чокпоинт-заглушка, как у `enqueue()`) → INSERT.
+- `get_recent_nudges_batch(user_ids, nudge_types)` — история для state-predicate producer'а, один SQL-запрос на тип (`db.queries.notifications.fetch_recent_nudges_by_type`).
+
+**Тесты:** `tests/smoke/test_nudge_delivery.py` — 10 сценариев (unknown_type, cap, cooldown, exclusive-preemption, batch-группировка, get_recent_nudges_batch фильтрация/reshape).
+
+**Статус:** контракт реализован, `NUDGE_TYPE_CONFIG` пуст — реального трафика через этот путь нет, пока WP-117 не подключит producer.
