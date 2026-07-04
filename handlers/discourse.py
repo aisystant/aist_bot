@@ -42,6 +42,7 @@ from db.queries.discourse import (
     get_upcoming_schedule,
     get_scheduled_count,
     get_scheduled_publication,
+    claim_specific_publication,
     cancel_scheduled_publication,
     reschedule_publication,
     schedule_publication,
@@ -51,6 +52,7 @@ from db.queries.discourse import (
     get_all_scheduled_titles_lower,
     reschedule_all_pending,
     mark_publication_done,
+    mark_publication_failed,
 )
 
 logger = logging.getLogger(__name__)
@@ -853,7 +855,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         return
 
     pub_id = int(callback.data.split(":")[1])
-    pub = await get_scheduled_publication(pub_id)
+    pub = await claim_specific_publication(pub_id)
     if not pub:
         await callback.message.answer("Публикация не найдена или уже опубликована.")
         return
@@ -968,6 +970,7 @@ async def on_schedule_publish_now(callback: CallbackQuery):
         await callback.message.answer("\n".join(lines))
     except Exception as e:
         logger.error(f"Publish now error: {e}")
+        await mark_publication_failed(pub_id)
         await callback.message.answer(f"Ошибка публикации: {e}")
 
 
@@ -1353,7 +1356,7 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
 
     # Scheduled-пост без source_file → публикуем raw из DB
     if scheduled_id and not post.get("path"):
-        pub = await get_scheduled_publication(scheduled_id)
+        pub = await claim_specific_publication(scheduled_id)
         if not pub:
             await callback.message.answer("Публикация не найдена или уже опубликована.")
             return
@@ -1385,9 +1388,20 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
             )
         except Exception as e:
             logger.error(f"Smart publish (scheduled no-file) error: {e}")
+            await mark_publication_failed(scheduled_id)
             await callback.message.answer(f"Ошибка публикации: {e}")
         await state.clear()
         return
+
+    # Пост был в графике (scheduled_id есть), но публикуем свежим содержимым из GitHub —
+    # всё равно захватываем строку атомарно, иначе она может быть опубликована и cron'ом
+    # параллельно (тот же источник дублей, что и в ветке выше).
+    if scheduled_id:
+        claimed = await claim_specific_publication(scheduled_id)
+        if not claimed:
+            await callback.message.answer("Публикация не найдена или уже опубликована.")
+            await state.clear()
+            return
 
     # Прочитать контент из GitHub (per-user OAuth)
     token = await github_oauth.get_access_token(chat_id)
@@ -1431,10 +1445,12 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         post_id_discourse = result.get("id")
         slug = result.get("topic_slug", "")
 
-        # Если пост был scheduled → удалить из расписания ПОСЛЕ успешной публикации
+        # Если пост был scheduled → закрыть запись (уже захвачена claim_specific_publication выше,
+        # поэтому mark_publication_done, а не cancel_scheduled_publication — строка сейчас
+        # в статусе 'publishing', а не 'pending')
         if scheduled_id:
-            await cancel_scheduled_publication(scheduled_id)
-            logger.info(f"Cancelled scheduled publication {scheduled_id} after manual publish")
+            await mark_publication_done(scheduled_id, topic_id)
+            logger.info(f"Scheduled publication {scheduled_id} marked done after manual publish")
 
         # Сохранить в БД
         await save_published_post(
@@ -1472,6 +1488,8 @@ async def on_smart_publish_select(callback: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         logger.error(f"Smart publish error: {e}")
+        if scheduled_id:
+            await mark_publication_failed(scheduled_id)
         await callback.message.answer(f"Ошибка публикации: {e}")
     finally:
         await client.close()
