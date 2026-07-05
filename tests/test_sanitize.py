@@ -72,3 +72,32 @@ def test_text_with_no_forbidden_dashes_unchanged():
     result = enforce_iwe_style(text)
     assert "\x00" not in result
     assert "—" in result  # the allowed ones survive
+
+
+def test_double_space_before_em_dash_allowed():
+    """"X  —  это Y" нормализуется до "X — это Y"."""
+    assert enforce_iwe_style("Бот  —  это тонкий клиент") == "Бот — это тонкий клиент"
+
+
+def test_no_space_before_em_dash_allowed():
+    """"X—это Y" нормализуется до "X — это Y"."""
+    assert enforce_iwe_style("Бот—это тонкий клиент") == "Бот — это тонкий клиент"
+
+
+def test_double_space_forbidden_em_dash_replaced():
+    """"X  —  Y" (не "это") заменяется на " - "."""
+    assert enforce_iwe_style("Результат  —  хороший") == "Результат - хороший"
+
+
+def test_placeholder_not_leaking_in_output_multibyte():
+    """Многобайтовый плейсхолдер не должен просачиваться в вывод."""
+    result = enforce_iwe_style("Бот — это клиент, цель — победить")
+    assert "\x00EMDASH\x00" not in result
+
+
+def test_newline_before_em_dash_not_allowed():
+    """Newline перед em-dash разрывает allowed-конструкцию → em-dash заменяется."""
+    result = enforce_iwe_style("Бот\n— это клиент")
+    assert "\n" in result
+    assert "Бот\n - это" in result
+    assert "Бот\n— это" not in result
