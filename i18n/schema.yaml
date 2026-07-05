@@ -5139,6 +5139,27 @@ nudges:
     ru: "🔕 Мы отправляем много уведомлений, а активность невысокая. Снижаем частоту — качество важнее количества. Зайдите, когда будет удобно."
     en: "🔕 We've been sending many notifications, but activity is low. Reducing frequency — quality over quantity. Come back when you're ready."
 
+  # Diagnost bottleneck nudges (WP-117 Ф-roles): фокус на слоте с наименьшей оценкой из cp-профиля (DP.ROLE.042 §2)
+  nudge_bottleneck_cp_rhy:
+    ru: "📆 Диагност отметил: ваше слабое место сейчас — ритм. Попробуйте закрепить регулярный слот для занятий."
+    en: "📆 The Diagnostician flagged your current focus area: rhythm. Try locking in a regular study slot."
+
+  nudge_bottleneck_cp_wld:
+    ru: "🧭 Диагност отметил: ваше слабое место сейчас — мировоззрение. Попробуйте принять одно решение сегодня через явные ценности, а не интуитивно."
+    en: "🧭 The Diagnostician flagged your current focus area: worldview. Try making one decision today through explicit values, not intuition."
+
+  nudge_bottleneck_cp_skl:
+    ru: "🛠 Диагност отметил: ваше слабое место сейчас — навык. Попробуйте довести один рабочий продукт до конца сегодня."
+    en: "🛠 The Diagnostician flagged your current focus area: skill. Try finishing one work product today."
+
+  nudge_bottleneck_cp_int:
+    ru: "🧩 Диагност отметил: ваше слабое место сейчас — интеграция знаний. Попробуйте применить одно системное различение к реальной ситуации."
+    en: "🧩 The Diagnostician flagged your current focus area: knowledge integration. Try applying one systemic distinction to a real situation."
+
+  nudge_bottleneck_cp_agt:
+    ru: "🚀 Диагност отметил: ваше слабое место сейчас — агентность. Попробуйте сегодня сделать один шаг по своей инициативе, не дожидаясь напоминания."
+    en: "🚀 The Diagnostician flagged your current focus area: agency. Try taking one self-initiated step today, without waiting for a reminder."
+
   settings_nudges_button:
     ru: "Подбадривание"
     en: "Nudges"

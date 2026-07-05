@@ -14,7 +14,14 @@ WP-85 Phase 5C (MVP) + WP-117 Ф2/Ф3 (расширение).
 import logging
 from datetime import datetime, timezone
 
+from config import MOSCOW_TZ
+
 logger = logging.getLogger(__name__)
+
+
+def _moscow_today():
+    """«Сегодня» в МСК-календаре — тот же календарь, в котором пишутся last_active_date/last_slot_at."""
+    return datetime.now(MOSCOW_TZ).date()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -44,14 +51,18 @@ def check_slot_missing_3d(engagement, user_meta):
         return None  # никогда не логировал — не нудить
 
     if hasattr(last_slot, 'date'):
-        last_slot = last_slot.date()
+        # last_slot_at — TIMESTAMPTZ (UTC). Переводим в МСК-дату перед сравнением,
+        # иначе активность около полуночи МСК считается «вчера» (WP-117 Ф-roles, off-by-one).
+        if last_slot.tzinfo is None:
+            last_slot = last_slot.replace(tzinfo=timezone.utc)
+        last_slot = last_slot.astimezone(MOSCOW_TZ).date()
     elif isinstance(last_slot, str):
         try:
             last_slot = datetime.fromisoformat(last_slot).date()
         except ValueError:
             return None
 
-    days_since = (datetime.now(timezone.utc).date() - last_slot).days
+    days_since = (_moscow_today() - last_slot).days
     if days_since >= 3:
         return "nudge_slot_missing_3d"
     return None
@@ -70,7 +81,7 @@ def check_inactivity_3d(engagement, user_meta):
         except ValueError:
             return None
 
-    days_inactive = (datetime.now(timezone.utc).date() - last_active).days
+    days_inactive = (_moscow_today() - last_active).days
     if days_inactive >= 3:
         return "nudge_inactivity"
     return None
@@ -115,7 +126,10 @@ def check_marathon_stalled(engagement, user_meta):
         except ValueError:
             return None
 
-    days_inactive = (datetime.now(timezone.utc).date() - last_active).days
+    # last_active_date пишется через moscow_today() (МСК-календарь) — сравниваем
+    # с МСК-«сегодня», иначе окно 00:00-03:00 МСК даёт off-by-one (WP-117 Ф-roles,
+    # инцидент 21 апр: активность в 00:06 МСК ошибочно считалась «вчера» по UTC).
+    days_inactive = (_moscow_today() - last_active).days
     if days_inactive >= 3:
         return "nudge_marathon_stalled"
     return None
@@ -248,6 +262,27 @@ def check_notification_fatigue(engagement, user_meta, derived):
     if notif_30d > 20 and events_30d < 5:
         return "nudge_reduce_frequency"
     return None
+
+
+@derived_rule("diagnost_bottleneck", cooldown_days=14)
+def check_diagnost_bottleneck(engagement, user_meta, derived):
+    """Узкое место из cp-профиля Диагноста — фокус-нудж на конкретный слот (WP-117 Ф-roles).
+
+    derived['_cp_profile'] — transitional shim (не штатная ЦД-проекция): cp-профиль
+    считается Диагностом и хранится в learning.cp_assessments, а не в 3_derived.
+    Ключ с подчёркиванием — маркер, что scheduler кладёт его отдельно от digital_twins.
+    """
+    cp_profile = derived.get('_cp_profile') or {}
+    bottleneck = cp_profile.get('bottleneck_slot')
+
+    if not bottleneck or bottleneck == 'none':
+        return None
+
+    return {
+        "nudge_type": f"nudge_bottleneck_{bottleneck.replace('.', '_')}",
+        "bottleneck_slot": bottleneck,
+        "recommended_stream": cp_profile.get('recommended_stream'),
+    }
 
 
 # ═══════════════════════════════════════════════════════════

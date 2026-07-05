@@ -2564,6 +2564,7 @@ async def send_engagement_nudges():
     # if it nudged this pilot today, the bot should not send an additional nudge.
     onboarding_nudged_uuids: set[str] = set()
     upgrade_state_map: dict[str, dict] = {}  # ory_uuid → onboarding_state fields for F/G
+    cp_profile_map: dict[str, dict] = {}  # ory_uuid → cp-профиль (WP-117 Ф-roles diagnost_bottleneck)
     ory_uuids = [u['ory_uuid'] for u in candidates if u.get('ory_uuid')]
     if ory_uuids:
         try:
@@ -2587,6 +2588,18 @@ async def send_engagement_nudges():
                     ory_uuids,
                 )
                 upgrade_state_map = {r['account_id']: dict(r) for r in upgrade_rows}
+                # WP-117 Ф-roles: последний валидный cp-профиль на пользователя, одним запросом
+                # (learning.cp_assessments — отдельная БД от development, correlated subquery невозможен).
+                cp_rows = await lconn.fetch(
+                    "SELECT DISTINCT ON (account_id) account_id::text, stage, "
+                    "bottleneck_slot, recommended_stream "
+                    "FROM learning.cp_assessments "
+                    "WHERE account_id = ANY($1::uuid[]) "
+                    "AND (valid_until IS NULL OR valid_until > NOW()) "
+                    "ORDER BY account_id, assessed_at DESC",
+                    ory_uuids,
+                )
+                cp_profile_map = {r['account_id']: dict(r) for r in cp_rows}
             if onboarding_nudged_uuids:
                 logger.info(f"[Nudge] Onboarding cooldown: skipping {len(onboarding_nudged_uuids)} pilots nudged today by controller")
         except Exception as e:
@@ -2638,6 +2651,11 @@ async def send_engagement_nudges():
                 except (json.JSONDecodeError, TypeError):
                     derived = {}
             derived = derived or {}
+
+            # WP-117 Ф-roles: cp-профиль Диагноста — transitional shim (не штатная
+            # ЦД-проекция), см. engagement_analyzer.check_diagnost_bottleneck.
+            if ory_uuid and ory_uuid in cp_profile_map:
+                derived = {**derived, '_cp_profile': cp_profile_map[ory_uuid]}
 
             # User meta for analyzer
             user_meta = {
