@@ -138,20 +138,39 @@ async def count_practice_events_30d(account_id: str) -> dict[str, int]:
 
 
 async def revoke_consent(account_id: str) -> bool:
-    """GDPR right to erasure — полное удаление row.
+    """GDPR right to erasure — обновить consent_grant (новая таблица) и tracking_consent (legacy).
+
+    WP-457 Ф10: обе таблицы должны отражать отзыв согласия. RLS-политики читают consent_grant.
 
     Returns:
-        True, если row была удалена. False, если row не было.
+        True, если хотя бы одна таблица обновлена. False, если ничего не изменилось.
     """
     pool = await get_consent_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
+        # Обновить новую таблицу consent_grant (WP-316 Ф9): все scope для этого user
+        updated_grant = await conn.execute(
+            """UPDATE learning.consent_grant
+               SET granted = FALSE, revoked_at = NOW()
+               WHERE account_id = $1::uuid AND granted = TRUE""",
+            account_id,
+        )
+        # Удалить legacy tracking_consent для совместимости (старый код может его проверять)
+        deleted_legacy = await conn.execute(
             "DELETE FROM learning.tracking_consent WHERE account_id = $1::uuid",
             account_id,
         )
-    deleted = result.endswith(" 1")
-    logger.info("[consent] revoke account_id=%s deleted=%s", account_id, deleted)
-    return deleted
+
+    # asyncpg execute() возвращает строку "UPDATE N" или "DELETE M"
+    # Последний токен = количество затронутых строк
+    updated_rows = int(updated_grant.split()[-1])
+    deleted_rows = int(deleted_legacy.split()[-1])
+    success = updated_rows > 0 or deleted_rows > 0
+
+    logger.info(
+        "[consent] revoke account_id=%s consent_grant_rows=%d tracking_consent_rows=%d",
+        account_id, updated_rows, deleted_rows
+    )
+    return success
 
 
 # WP-316 Ф9: versioned consent_grant (learning.consent_grant)
