@@ -65,6 +65,12 @@ def moscow_today() -> date:
 
 # ─── SQL для JOIN users + user_state ───
 
+# IDCOL1 (WP-7, 2026-07-06), этап 1 из 2: intern['dt_user_id'] теперь читает
+# u.ory_id (канонический, uuid) вместо физической колонки u.dt_user_id (text).
+# Физическая колонка, at-source sync (link_ory) и daily reconcile-job
+# намеренно НЕ тронуты — страховка на период наблюдения. Явный ::text cast,
+# т.к. потребители (points.py, referral.py и др.) ожидают str, не UUID.
+# Удаление колонки dt_user_id — отдельное решение после ≥7 дней наблюдения.
 _SELECT_JOINED = '''
     SELECT
         u.id AS user_id, u.telegram_id AS chat_id,
@@ -73,7 +79,7 @@ _SELECT_JOINED = '''
         u.difficulty_preference, u.learning_style, u.study_duration,
         u.current_problems, u.desires, u.tg_username,
         u.aisystant_id, u.aisystant_linked_at, u.dt_connected_at,
-        u.dt_user_id, u.tier, u.email, u.timezone, u.created_at,
+        u.ory_id::text AS dt_user_id, u.tier, u.email, u.timezone, u.created_at,
         s.mode, s.current_context, s.current_state, s.topic_order,
         s.schedule_time, s.schedule_time_2, s.feed_schedule_time,
         s.marathon_status, s.marathon_start_date, s.marathon_paused_at,
