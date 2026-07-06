@@ -168,6 +168,18 @@ class TestCalcWords(unittest.TestCase):
     def test_none_bloom_defaults_to_1(self):
         self.assertEqual(calc_words(15, None), 900)
 
+    def test_depth_2_multiplies_by_1_2(self):
+        self.assertEqual(calc_words(15, 1, 2), 1080)  # 900 * 1.2
+
+    def test_depth_3_multiplies_by_1_5(self):
+        self.assertEqual(calc_words(15, 1, 3), 1350)  # 900 * 1.5
+
+    def test_depth_defaults_to_1_when_omitted(self):
+        self.assertEqual(calc_words(15, 1), calc_words(15, 1, 1))
+
+    def test_depth_none_defaults_to_1(self):
+        self.assertEqual(calc_words(15, 1, None), 900)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -202,6 +202,14 @@ class FeedDigestState(BaseState):
                 timeout=CONTENT_GENERATION_TIMEOUT
             )
 
+            if content is None:
+                # generate_multi_topic_digest возвращает None при провале генерации
+                # (Ф-Bot-Digest-MaxTokens, WP-7, 2026-07-06) — без этой проверки ниже
+                # создавалась бы сессия с пустым контентом вместо retry-сообщения.
+                logger.error(f"[Feed] Multi-topic digest returned None for user {chat_id}")
+                await self.send(user, t('errors.generation_timeout', lang))
+                return None
+
             # Создаём сессию
             topics_title = ", ".join(topics)
             session = await create_feed_session(

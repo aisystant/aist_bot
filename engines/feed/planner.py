@@ -517,11 +517,11 @@ async def generate_multi_topic_digest(
             "depth_level": depth_level,
         }
 
-    # Content Budget Model (DP.D.027): words = time × WPM_BASE × BLOOM_MULTIPLIER
-    from config import calc_words, BLOOM_INSTRUCTION
+    # Content Budget Model (DP.D.027): words = time × WPM_BASE × BLOOM_MULTIPLIER × DEPTH_MULTIPLIER
+    from config import calc_words, BLOOM_INSTRUCTION, MAX_OUTPUT_TOKENS_BY_MODEL, CLAUDE_MODEL_SONNET
     time_per_topic = duration // topics_count
     bloom_level = intern.get('complexity_level', 1) or intern.get('bloom_level', 1) or 1
-    words_per_topic = calc_words(time_per_topic, bloom_level)
+    words_per_topic = calc_words(time_per_topic, bloom_level, depth_level)
     bloom_instr = BLOOM_INSTRUCTION.get(min(bloom_level, 3), BLOOM_INSTRUCTION[1])
 
     # Получаем контекст из MCP для всех тем — ПАРАЛЛЕЛЬНО
@@ -643,17 +643,34 @@ async def generate_multi_topic_digest(
         'zh': f"主题：{topics_str}\n深度级别：{depth_level}"
     }.get(lang, f"Темы: {topics_str}\nУровень глубины: {depth_level}")
 
-    response = await claude.generate(system_prompt, user_prompt)
+    # Adaptive max_tokens (Ф-Bot-Digest-MaxTokens, WP-7, 2026-07-06): бюджет = сумма слов
+    # по темам (detail) + intro/reflection_prompt (~130 слов) + JSON-обвязка (×5.2), cap по
+    # модели. Дефолт 4000 не масштабировался под topics_count/depth_level → Claude обрывал
+    # ответ (stop_reason=max_tokens, allow_partial=False) → бесконечный retry storm для
+    # одного и того же набора читателей (2026-07-06, ~11-12 chat_id часами).
+    total_words = words_per_topic * topics_count + 130
+    cap = MAX_OUTPUT_TOKENS_BY_MODEL.get(CLAUDE_MODEL_SONNET, 8192)
+    adaptive_max_tokens = min(int(total_words * 5.2), cap)
+    if adaptive_max_tokens >= cap - 200:
+        logger.warning(
+            f"[FeedDigest] budget {total_words}w near model cap "
+            f"({adaptive_max_tokens}/{cap}) for {topics_count} topics, "
+            f"depth={depth_level}, bloom={bloom_level}"
+        )
+
+    response = await claude.generate(system_prompt, user_prompt, max_tokens=adaptive_max_tokens)
 
     if not response:
-        return {
-            "intro": f"Сегодняшний дайджест: {topics_str}",
-            "main_content": "Контент не удалось сгенерировать. Попробуйте позже.",
-            "topics_detail": [],
-            "topics_list": topics,
-            "reflection_prompt": "Какие мысли вызвали эти темы?",
-            "depth_level": depth_level,
-        }
+        # При провале генерации возвращаем None, НЕ заглушку. Заглушка с непустым
+        # main_content проходила guard в вызывающем коде (scheduler/digest) и
+        # сохранялась как «готовый» дайджест → пользователь видел «Контент не
+        # удалось сгенерировать» вместо авто-повтора (инцидент 10-11 июня 2026:
+        # 401 на LLM-прокси → все дайджесты доставлены заглушкой).
+        logger.error(
+            f"Multi-topic digest generation failed (Claude returned empty) "
+            f"for topics={topics_str}, depth={depth_level}"
+        )
+        return None
 
     # Парсим JSON
     try:

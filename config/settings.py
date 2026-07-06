@@ -309,11 +309,16 @@ STUDY_DURATIONS = {
 
 # ============= CONTENT BUDGET MODEL (DP.D.027) =============
 # Три оси: Длина (время × WPM) | Глубина (bloom instruction) | Персонализация (tier context)
-# words = duration_minutes × WPM_BASE × BLOOM_MULTIPLIER[bloom]
+# words = duration_minutes × WPM_BASE × BLOOM_MULTIPLIER[bloom] × DEPTH_MULTIPLIER[depth]
 
 WPM_BASE = 60  # слов/мин — базовая скорость чтения учебного текста
 
 BLOOM_MULTIPLIER = {1: 1.0, 2: 1.3, 3: 1.7}
+
+# Ф-Bot-Digest-MaxTokens (WP-7, 2026-07-06): depth_level (день-к-дню прогрессия темы в
+# Ленте) раньше влиял только на текст инструкции стиля, не на бюджет слов — расходилось
+# с докстрингом generate_multi_topic_digest ("с каждым днём... раскрываются глубже").
+DEPTH_MULTIPLIER = {1: 1.0, 2: 1.2, 3: 1.5}
 
 BLOOM_INSTRUCTION = {
     1: "Объясни доступно, без терминов. Примеры из повседневной жизни.",
@@ -321,12 +326,21 @@ BLOOM_INSTRUCTION = {
     3: "Экспертный уровень. Критический анализ, неочевидные аспекты, ссылки на источники.",
 }
 
+# Output limit по модели — источник для adaptive max_tokens в generate_multi_topic_digest.
+# Сверить перед сменой модели: молчаливое занижение здесь вернёт truncation обратно.
+MAX_OUTPUT_TOKENS_BY_MODEL = {
+    CLAUDE_MODEL_SONNET: 8192,
+    CLAUDE_MODEL_HAIKU: 8192,
+}
 
-def calc_words(duration_minutes, bloom_level: int = 1) -> int:
+
+def calc_words(duration_minutes, bloom_level: int = 1, depth_level: int = 1) -> int:
     """Рассчитать целевое количество слов по Content Budget Model.
 
     Безопасна к str / range / None: нормализует duration_minutes перед расчётом.
     Принимает int 15, str '15', legacy range '5-10' (берёт первое число), None/'' (→ 15).
+    depth_level — опционален (дефолт 1 = множитель 1.0), существующие вызовы без
+    этого аргумента не меняют поведение.
     """
     if duration_minutes is None or duration_minutes == "":
         duration_int = 15
@@ -342,7 +356,16 @@ def calc_words(duration_minutes, bloom_level: int = 1) -> int:
     except (ValueError, TypeError):
         bl_int = 1
     bl = max(1, min(bl_int, 3))
-    return int(duration_int * WPM_BASE * BLOOM_MULTIPLIER.get(bl, 1.0))
+
+    try:
+        dl_int = int(depth_level) if depth_level is not None else 1
+    except (ValueError, TypeError):
+        dl_int = 1
+    dl = max(1, min(dl_int, 3))
+
+    return int(
+        duration_int * WPM_BASE * BLOOM_MULTIPLIER.get(bl, 1.0) * DEPTH_MULTIPLIER.get(dl, 1.0)
+    )
 
 
 # Telegram Markdown v1 formatting rules for Claude prompts
