@@ -28,12 +28,14 @@ async def main() -> None:
 
     pool = await asyncpg.create_pool(db_url, statement_cache_size=0)
     async with pool.acquire() as conn:
+        # T0-пользователи (никогда не подключавшие Ory/ЦД) законно имеют оба
+        # поля NULL — это не расхождение. Флагуем только случаи, где хотя бы
+        # одно поле заполнено, а второе отстаёт (не задано или не совпадает).
         divergent = await conn.fetch(
             """SELECT telegram_id, ory_id, dt_user_id
                FROM public.users
-               WHERE ory_id IS NULL
-                  OR dt_user_id IS NULL
-                  OR ory_id::text != dt_user_id"""
+               WHERE (ory_id IS NOT NULL OR dt_user_id IS NOT NULL)
+                 AND ory_id::text IS DISTINCT FROM dt_user_id"""
         )
 
     if not divergent:
