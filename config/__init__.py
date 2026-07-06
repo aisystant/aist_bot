@@ -95,7 +95,9 @@ from .settings import (
     # Content Budget Model (DP.D.027)
     WPM_BASE,
     BLOOM_MULTIPLIER,
+    DEPTH_MULTIPLIER,
     BLOOM_INSTRUCTION,
+    MAX_OUTPUT_TOKENS_BY_MODEL,
     calc_words,
 
     # Сложность (бывш. Bloom)
@@ -249,7 +251,9 @@ __all__ = [
     'STUDY_DURATIONS',
     'WPM_BASE',
     'BLOOM_MULTIPLIER',
+    'DEPTH_MULTIPLIER',
     'BLOOM_INSTRUCTION',
+    'MAX_OUTPUT_TOKENS_BY_MODEL',
     'calc_words',
     'COMPLEXITY_LEVELS',
     'BLOOM_LEVELS',
