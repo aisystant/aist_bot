@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.health_check import RailwayAuthError, _get_latest_deployment_id
+from core.health_check import RailwayAuthError, _get_latest_deployment_id, _restart_deployment
 
 
 def _mock_session(status: int, payload: dict):
@@ -72,6 +72,20 @@ async def test_uses_project_access_token_header():
     with patch("core.health_check.aiohttp.ClientSession", return_value=session_cm):
         await _get_latest_deployment_id("proj-token", "svc-id", "env-id")
 
+    _, kwargs = session_cm.session.post.call_args
+    assert kwargs["headers"]["Project-Access-Token"] == "proj-token"
+    assert "Authorization" not in kwargs["headers"]
+
+
+@pytest.mark.asyncio
+async def test_restart_uses_project_access_token_header():
+    """Same header requirement applies to the deploymentRestart mutation call site,
+    which builds its own headers dict independently of _get_latest_deployment_id."""
+    session_cm = _mock_session(200, {"data": {"deploymentRestart": True}})
+    with patch("core.health_check.aiohttp.ClientSession", return_value=session_cm):
+        success = await _restart_deployment("proj-token", "dep-123")
+
+    assert success is True
     _, kwargs = session_cm.session.post.call_args
     assert kwargs["headers"]["Project-Access-Token"] == "proj-token"
     assert "Authorization" not in kwargs["headers"]
