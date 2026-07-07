@@ -33,6 +33,11 @@ L3_CASCADE_THRESHOLD = 10  # unique error_keys in 5 min
 L3_COOLDOWN_MINUTES = 30
 
 
+class RailwayAuthError(Exception):
+    """Railway API rejected the request (GraphQL errors) - token invalid/unauthorized,
+    distinct from a genuinely empty deployments list."""
+
+
 async def _count_cascade_errors(minutes: int = 5) -> int:
     """Count unique error_keys in last N minutes."""
     async with (await get_health_pool()).acquire() as conn:
@@ -94,10 +99,16 @@ async def _get_latest_deployment_id(
                 return None
             data = await resp.json()
 
+    # Any GraphQL error is treated as fatal auth failure, even if `edges` also came
+    # back non-empty - safer default for a restart-trigger path than guessing intent.
+    if data.get("errors"):
+        logger.error(f"[L3] Railway API rejected request (invalid/unauthorized token): {data['errors']}")
+        raise RailwayAuthError(str(data["errors"]))
+
     logger.debug(f"[L3] deployments response: {json.dumps(data)[:500]}")
     edges = (data.get("data") or {}).get("deployments", {}).get("edges", [])
     if not edges:
-        logger.error(f"[L3] No deployments found. Full response: {json.dumps(data)[:300]}")
+        logger.error(f"[L3] No deployments found (empty list, token accepted). Full response: {json.dumps(data)[:300]}")
         return None
     node = edges[0]["node"]
     logger.debug(f"[L3] Latest deployment: id={node['id']} status={node.get('status')}")
@@ -186,14 +197,29 @@ async def run_l3_health_check(bot: Bot, dev_chat_id: str) -> bool:
         logger.error(f"[L3] TG notification failed: {e}")
 
     # Get deployment and restart
-    deployment_id = await _get_latest_deployment_id(
-        railway_token, service_id, environment_id
-    )
+    try:
+        deployment_id = await _get_latest_deployment_id(
+            railway_token, service_id, environment_id
+        )
+    except RailwayAuthError:
+        try:
+            await bot.send_message(
+                int(dev_chat_id),
+                "\u274c <b>L3</b>: Railway API отклонил токен (не авторизован)\n"
+                "Нужно перевыпустить <code>RAILWAY_API_TOKEN</code> в переменных окружения.\n"
+                "Перезапустить вручную:\n"
+                "<code>railway redeploy --service aist_bot_newarchitecture</code>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        return False
+
     if not deployment_id:
         try:
             await bot.send_message(
                 int(dev_chat_id),
-                "\u274c <b>L3</b>: не удалось получить deployment ID\n"
+                "\u274c <b>L3</b>: нет активных деплоев для сервиса\n"
                 "Перезапустить вручную:\n"
                 "<code>railway redeploy --service aist_bot_newarchitecture</code>",
                 parse_mode="HTML",
