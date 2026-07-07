@@ -758,3 +758,19 @@ Telegram Markdown v1 парсит `_` как маркер курсива. Три
 - Добавить `try/except` с fallback без parse_mode в каждый handler, отправляющий статический контент
 
 **SoT контента:** `DS-marathon-v2-tseren/materials/participants/marathon-content.json` → sync → `data/marathon-content.json` (bot runtime). Dockerfile не включает DS-marathon-v2-tseren → fallback path в prod недоступен.
+
+### 10.39. T4-full тестировать нельзя через тир-специфичный код консультации
+
+`handlers/fallback.py:100` — T4-аккаунты (`tier_num >= 4`) при обычном сообщении уходят целиком в Hermes (`gateway_mcp.hermes_chat()`), минуя `handle_question_with_tools()`/`consultation.py`. Живой E2E-прогон фич, завязанных на консультацию (tool_use, discovery), через T4-аккаунт технически не проверяет их — трафик идёт другим кодом.
+
+**Источник (2026-07-07, WP-5):** попытка живого прогона generic MCP tool discovery через реальный аккаунт пилота (T4) не дошла до кода, который проверялась.
+
+**Правило:** для E2E теста consultation-специфичных фич нужен онбордированный тестовый аккаунт тира T1-T3, не T4.
+
+### 10.40. `gateway_mcp.list_tools()` берёт произвольный токен без retry-on-401
+
+`clients/gateway_mcp.py::list_tools()` для discovery-запроса (`tools/list`) использует `next(iter(self._tokens.values()))` — первый попавшийся из всех загруженных Ory-токенов, без проверки срока годности. При 401 нет повторной попытки с другим токеном — весь discovery молча возвращает stale/пустой кэш до следующего успешного вызова (TTL 15 мин или следующий рестарт).
+
+**Источник (2026-07-07, WP-5):** на пилотном боте при старте 08:19 UTC (после деплоя `f7ddb12`) — `Gateway: tools/list HTTP 401` → 0 discovered tools, без последующих попыток в логах.
+
+**Правило:** при диагностике «бот не видит новый MCP-инструмент» — сначала проверить лог строки `Gateway: discovery loaded`/`✅ Gateway MCP: discovery N tools` при старте, не сам код фильтрации инструментов.
