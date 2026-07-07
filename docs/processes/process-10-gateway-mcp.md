@@ -331,6 +331,14 @@ gateway_mcp = GatewayMCPClient(url=GATEWAY_MCP_URL)
 
 **Добавление в tool prefix table** (§2): все пять инструментов — без prefix (public tools, как `get_instructions`). Backend: onboarding-service. `telegram_user_id` опционален (T0 не требует токена).
 
+### 11.7. Tool discovery (DP.SC.129, DP.ROLE.038)
+
+- `list_tools()` — загружает `tools/list` с Gateway, кэш 15 мин (`TOOLS_CACHE_TTL`), fallback на stale-кэш при ошибке. Bootstrap-вызов в `bot.py` при старте процесса.
+- `get_discovered_tools()` / `is_tools_cache_fresh()` — читатели кэша, используются `consultation_tools.get_tools_for_tier()` для объединения захардкоженных tool с найденными.
+- **Б.x tool-descriptor validation** (ArchGate 2026-07-07): `_mcp_to_anthropic_tool()` отбрасывает (не санитизирует) tool целиком, если description содержит role-break/delimiter маркер (bilingual, ru+en) или превышает 1024 символа. Fail-secure — компрометированное описание значит остальной descriptor тоже не доверяем.
+- **Л2.2 tool-call audit** (ArchGate 2026-07-07): `db.queries.traces.log_tool_call_audit()` пишет в `domain_event` (`event_type='tool_call_audit'`) query + снапшот доступных tool + выбранный tool + результат при каждом вызове через `tool_executor` (`question_handler.py`), fire-and-forget. Разблокирует расследование регресса точности выбора tool — discovery убирает единственный раньше существовавший сигнал (deploy-корреляция).
+- Источник решения: `DS-my-strategy/sessions/2026-07/2026-07-07-09-archgate-mcp-tool-discovery/report.md` (охват ArchGate) + `2026-07-07-13-mcp-tool-discovery-impl/report.md` (реализация).
+
 ---
 
 ## 12. Антипаттерны

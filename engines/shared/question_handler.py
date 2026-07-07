@@ -23,6 +23,7 @@ from clients import claude
 from clients.gateway_mcp import gateway_mcp
 from db.queries.qa import save_qa, get_qa_history
 from db.queries.events import log_event
+from db.queries.traces import log_tool_call_audit
 from .retrieval import enhanced_search, get_retrieval
 from .context import (
     build_dynamic_context,
@@ -36,6 +37,25 @@ logger = get_logger(__name__)
 def _hash_chat_id(chat_id) -> str:
     """Детерминированный 6-hex хеш chat_id для логов (PII-safe, cross-session)."""
     return hashlib.sha256(str(chat_id).encode()).hexdigest()[:6]
+
+
+_bg_audit_tasks: set = set()
+
+
+def _fire_and_forget_audit(*args, **kwargs) -> None:
+    """Log a tool-call audit event (Л2.2, DP.SC.129) without blocking the response.
+
+    add_done_callback + t.exception() prevents "Task exception was never retrieved"
+    if the DB insert fails — the failure is logged but never surfaces to the user.
+    The module-level set holds a strong reference so asyncio can't GC the task
+    mid-flight (a well-known create_task pitfall for fire-and-forget calls).
+    """
+    task = asyncio.create_task(log_tool_call_audit(*args, **kwargs))
+    _bg_audit_tasks.add(task)
+    task.add_done_callback(_bg_audit_tasks.discard)
+    task.add_done_callback(
+        lambda t: t.exception() and logger.warning(f"tool_call_audit task failed: {t.exception()}")
+    )
 
 
 # Маппинг complexity_level → стиль ответа
@@ -675,21 +695,26 @@ async def handle_question_with_tools(
         async with span(f"tool.{tool_name}"):
             if not _is_cancel_safe(tool_name):
                 # без wait_for: нельзя отменять потенциально мутирующую операцию
-                return await execute_tool(tool_name, tool_input, telegram_user_id)
-            try:
-                return await asyncio.wait_for(
-                    execute_tool(tool_name, tool_input, telegram_user_id),
-                    timeout=PER_TOOL_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"[Consultation] tool '{tool_name}' превысил {PER_TOOL_TIMEOUT}с — "
-                    f"возвращаю пустой результат, Claude продолжит цикл"
-                )
-                return (
-                    f"Инструмент {tool_name} не ответил за {PER_TOOL_TIMEOUT}с. "
-                    f"Ответь на основе уже доступного контекста, не вызывай этот инструмент повторно."
-                )
+                result = await execute_tool(tool_name, tool_input, telegram_user_id)
+            else:
+                try:
+                    result = await asyncio.wait_for(
+                        execute_tool(tool_name, tool_input, telegram_user_id),
+                        timeout=PER_TOOL_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"[Consultation] tool '{tool_name}' превысил {PER_TOOL_TIMEOUT}с — "
+                        f"возвращаю пустой результат, Claude продолжит цикл"
+                    )
+                    return (
+                        f"Инструмент {tool_name} не ответил за {PER_TOOL_TIMEOUT}с. "
+                        f"Ответь на основе уже доступного контекста, не вызывай этот инструмент повторно."
+                    )
+            _fire_and_forget_audit(
+                telegram_user_id, question, [t["name"] for t in tools], tool_name, tool_input, result,
+            )
+            return result
 
     await report_progress(ProcessingStage.ANALYZING, 20)
 
