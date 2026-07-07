@@ -62,6 +62,17 @@ class GatewayMCPClient:
 
     TOOLS_CACHE_TTL = 15 * 60  # 15 min (DP.SC.129)
 
+    # Б.x tool-descriptor validation (ArchGate 2026-07-07, DP.SC.129).
+    # Bilingual role-break + delimiter markers — a discovered tool whose description
+    # contains any of these is dropped entirely (fail-secure), not sanitized in place:
+    # if the description is compromised, the rest of the descriptor cannot be trusted either.
+    _ROLE_BREAK_MARKERS = (
+        "игнорируй", "забудь", "новая инструкция", "новая роль", "теперь ты",
+        "ignore previous", "disregard", "you are now", "new instructions",
+    )
+    _DELIMITER_MARKERS = ("---", "###", "system instruction", "<system>", "[system]")
+    _MAX_DESCRIPTION_LEN = 1024
+
     def __init__(self, url: str):
         self.url = url
         self._request_id = 0
@@ -1043,7 +1054,8 @@ class GatewayMCPClient:
                     if resp.status == 200:
                         data = await resp.json()
                         mcp_tools = data.get("result", {}).get("tools", [])
-                        tools = [self._mcp_to_anthropic_tool(t) for t in mcp_tools]
+                        converted = (self._mcp_to_anthropic_tool(t) for t in mcp_tools)
+                        tools = [t for t in converted if t is not None]
                         self._tools_cache = tools
                         self._tools_cache_ts = time.time()
                         logger.info(f"Gateway: discovery loaded {len(tools)} tools")
@@ -1053,17 +1065,29 @@ class GatewayMCPClient:
             logger.warning(f"Gateway: list_tools failed: {e}")
         return list(self._tools_cache)
 
-    def _mcp_to_anthropic_tool(self, mcp_tool: Dict) -> Dict:
-        """MCP tool format → Anthropic API format (inputSchema → input_schema)."""
-        return {
-            "name": mcp_tool.get("name", ""),
-            "description": mcp_tool.get("description", ""),
-            "input_schema": mcp_tool.get("inputSchema", {
-                "type": "object",
-                "properties": {},
-                "required": []
-            })
-        }
+    def _mcp_to_anthropic_tool(self, mcp_tool: Dict) -> Optional[Dict]:
+        """MCP tool format → Anthropic API format (inputSchema → input_schema).
+
+        Returns None (drop) if the description fails Б.x validation (ArchGate
+        2026-07-07, DP.SC.129) — fail-secure: a compromised description means the
+        rest of the descriptor can't be trusted either, so the tool is excluded
+        entirely rather than sanitized in place.
+        """
+        name = mcp_tool.get("name", "")
+        description = mcp_tool.get("description") or ""
+        if not isinstance(description, str):
+            description = ""
+        lowered = description.lower()
+        if any(m in lowered for m in self._ROLE_BREAK_MARKERS + self._DELIMITER_MARKERS):
+            logger.warning(f"Gateway: tool '{name}' description flagged (prompt-injection marker), dropped")
+            return None
+        if len(description) > self._MAX_DESCRIPTION_LEN:
+            logger.warning(f"Gateway: tool '{name}' description exceeds {self._MAX_DESCRIPTION_LEN} chars, dropped")
+            return None
+        input_schema = mcp_tool.get("inputSchema", {})
+        if not isinstance(input_schema, dict) or "type" not in input_schema:
+            input_schema = {"type": "object", "properties": {}, "required": []}
+        return {"name": name, "description": description, "input_schema": input_schema}
 
     def get_discovered_tools(self) -> List[Dict]:
         """Список инструментов из последнего tools/list (может быть stale)."""
