@@ -82,9 +82,13 @@ async def _get_latest_deployment_id(
             "environmentId": environment_id,
         },
     }
+    # Project tokens (Project Settings -> Tokens - the type provisioned for this bot)
+    # authenticate via Project-Access-Token, NOT Authorization: Bearer (that header
+    # is only for account/workspace/OAuth tokens). Using the wrong header returns
+    # a GraphQL "Not Authorized" error even for a valid, correctly-scoped token.
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
+        "Project-Access-Token": token,
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -122,9 +126,13 @@ async def _restart_deployment(token: str, deployment_id: str) -> bool:
             deploymentRestart(id: $id)
         }
     """
+    # Project tokens (Project Settings -> Tokens - the type provisioned for this bot)
+    # authenticate via Project-Access-Token, NOT Authorization: Bearer (that header
+    # is only for account/workspace/OAuth tokens). Using the wrong header returns
+    # a GraphQL "Not Authorized" error even for a valid, correctly-scoped token.
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
+        "Project-Access-Token": token,
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(

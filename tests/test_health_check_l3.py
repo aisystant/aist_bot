@@ -24,6 +24,7 @@ def _mock_session(status: int, payload: dict):
     session_cm = MagicMock()
     session_cm.__aenter__ = AsyncMock(return_value=session)
     session_cm.__aexit__ = AsyncMock(return_value=False)
+    session_cm.session = session  # exposed for header assertions
     return session_cm
 
 
@@ -59,3 +60,18 @@ async def test_non_200_status_returns_none_without_raising():
     with patch("core.health_check.aiohttp.ClientSession", return_value=_mock_session(502, {})):
         result = await _get_latest_deployment_id("token", "svc-id", "env-id")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_uses_project_access_token_header():
+    """Project tokens (the type provisioned for this bot) authenticate via
+    Project-Access-Token, not Authorization: Bearer - regression test for the
+    incident where both bot services got "Not Authorized" despite a valid token."""
+    payload = {"data": {"deployments": {"edges": [{"node": {"id": "dep-1", "status": "SUCCESS"}}]}}}
+    session_cm = _mock_session(200, payload)
+    with patch("core.health_check.aiohttp.ClientSession", return_value=session_cm):
+        await _get_latest_deployment_id("proj-token", "svc-id", "env-id")
+
+    _, kwargs = session_cm.session.post.call_args
+    assert kwargs["headers"]["Project-Access-Token"] == "proj-token"
+    assert "Authorization" not in kwargs["headers"]
