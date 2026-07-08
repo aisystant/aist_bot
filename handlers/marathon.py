@@ -80,7 +80,8 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
     if current_status == "completed":
         await reply_msg.answer(
             "✅ Ты уже завершил марафон!\n\n"
-            "Если хочешь пройти снова — напиши в поддержку /support."
+            "Хочешь пройти снова? Открой /settings → «Мои данные» → "
+            "«Управление данными» → «🔄 Сбросить марафон»."
         )
         return
 
@@ -324,7 +325,8 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, de
     if status == 'completed':
         await target.answer(
             "✅ Ты уже завершил марафон!\n\n"
-            "Если хочешь пройти снова — напиши в поддержку /support."
+            "Хочешь пройти снова? Открой /settings → «Мои данные» → "
+            "«Управление данными» → «🔄 Сбросить марафон»."
         )
         return True
 
