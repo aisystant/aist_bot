@@ -203,6 +203,7 @@ async def migrate():
                 sent_at      TIMESTAMPTZ,
                 attempts     INTEGER    NOT NULL DEFAULT 0 CHECK (attempts >= 0),
                 error        TEXT,
+                bot_id       TEXT       DEFAULT NULL,
                 created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE (user_id, day_number, content_type)
@@ -216,7 +217,15 @@ async def migrate():
             "CREATE INDEX IF NOT EXISTS idx_marathon_queue_user "
             "ON learning.marathon_queue (user_id, status)"
         )
-        print("  learning.marathon_queue — OK")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_marathon_queue_pending_bot "
+            "ON learning.marathon_queue (bot_id, scheduled_at) WHERE status = 'pending'"
+        )
+        await conn.execute("""
+            COMMENT ON COLUMN learning.marathon_queue.bot_id IS
+            'Bot identifier for isolation (pilot vs prod). NULL = legacy rows, visible to all bots. WP-7 MAR5.'
+        """)
+        print("  learning.marathon_queue — OK (incl. bot_id, WP-7 MAR5)")
 
         # ═══════════════════════════════════════════════════════════════════
         # 8. learning.marathon_progress
@@ -435,28 +444,90 @@ async def migrate():
 
         # ═══════════════════════════════════════════════════════════════════
         # 16. learning.onboarding_state
+        #     WP-117 Ф-onboarding-gap (2026-07-08): kept 1:1 with canonical
+        #     neon-migrations/mvp/233-wp346-onboarding-state.sql — this table
+        #     drifted from it once already (16 cols vs 29), fixed live via
+        #     migration 038. Keep both in sync when either changes.
         # ═══════════════════════════════════════════════════════════════════
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS learning.onboarding_state (
-                account_id    UUID       PRIMARY KEY,
-                cohort_id     TEXT       NOT NULL DEFAULT 'R1',
-                level         SMALLINT   NOT NULL DEFAULT 1 CHECK (level BETWEEN 1 AND 4),
-                msg_0_sent_at  TIMESTAMPTZ,
-                msg_1_sent_at  TIMESTAMPTZ,
-                msg_2_sent_at  TIMESTAMPTZ,
-                msg_3_sent_at  TIMESTAMPTZ,
-                msg_4_sent_at  TIMESTAMPTZ,
-                msg_5_sent_at  TIMESTAMPTZ,
-                msg_6_sent_at  TIMESTAMPTZ,
-                msg_7_sent_at  TIMESTAMPTZ,
-                msg_8_sent_at  TIMESTAMPTZ,
-                msg_9_sent_at  TIMESTAMPTZ,
-                msg_10_sent_at TIMESTAMPTZ,
-                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                account_id              UUID        PRIMARY KEY,
+                cohort_id               TEXT        NOT NULL DEFAULT 'R1',
+
+                level                   SMALLINT    NOT NULL DEFAULT 1
+                                        CHECK (level BETWEEN 1 AND 4),
+
+                msg_0_sent_at           TIMESTAMPTZ,
+                msg_1_sent_at           TIMESTAMPTZ,
+                msg_2_sent_at           TIMESTAMPTZ,
+                msg_3_sent_at           TIMESTAMPTZ,
+                msg_4_sent_at           TIMESTAMPTZ,
+                msg_5_sent_at           TIMESTAMPTZ,
+                msg_6_sent_at           TIMESTAMPTZ,
+                msg_7_sent_at           TIMESTAMPTZ,
+                msg_8_sent_at           TIMESTAMPTZ,
+                msg_9_sent_at           TIMESTAMPTZ,
+                msg_10_sent_at          TIMESTAMPTZ,
+
+                slot_count              INT         NOT NULL DEFAULT 0,
+                activity_days_count     INT         NOT NULL DEFAULT 0,
+                last_slot_at            TIMESTAMPTZ,
+                consecutive_silence_days INT        NOT NULL DEFAULT 0,
+
+                first_use_consent       BOOLEAN     NOT NULL DEFAULT FALSE,
+                first_use_slot          BOOLEAN     NOT NULL DEFAULT FALSE,
+                first_use_points        BOOLEAN     NOT NULL DEFAULT FALSE,
+                first_use_connect_browser BOOLEAN   NOT NULL DEFAULT FALSE,
+                first_use_guide_render  BOOLEAN     NOT NULL DEFAULT FALSE,
+                first_use_space_open    BOOLEAN     NOT NULL DEFAULT FALSE,
+                first_use_connect_full  BOOLEAN     NOT NULL DEFAULT FALSE,
+
+                has_subscription        BOOLEAN     NOT NULL DEFAULT FALSE,
+                last_nudge_at           TIMESTAMPTZ,
+
+                consent_at              TIMESTAMPTZ,
+                updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
-        print("  learning.onboarding_state — OK")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_onboarding_state_cohort "
+            "ON learning.onboarding_state (cohort_id)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_onboarding_state_level "
+            "ON learning.onboarding_state (level)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_onboarding_state_slot_count "
+            "ON learning.onboarding_state (slot_count) WHERE msg_5_sent_at IS NULL"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_onboarding_state_updated "
+            "ON learning.onboarding_state (updated_at DESC)"
+        )
+        await conn.execute("ALTER TABLE learning.onboarding_state ENABLE ROW LEVEL SECURITY")
+        await conn.execute("""
+            CREATE OR REPLACE FUNCTION learning.onboarding_state_update_ts()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                NEW.updated_at = NOW();
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+        """)
+        await conn.execute("DROP TRIGGER IF EXISTS trg_onboarding_state_updated_at ON learning.onboarding_state")
+        await conn.execute("""
+            CREATE TRIGGER trg_onboarding_state_updated_at
+                BEFORE UPDATE ON learning.onboarding_state
+                FOR EACH ROW EXECUTE FUNCTION learning.onboarding_state_update_ts()
+        """)
+        await conn.execute("""
+            COMMENT ON TABLE learning.onboarding_state IS
+            'WP-346 Ф1 + WP-117 Ф-onboarding-gap: состояние пилота в онбординговом пути. '
+            'Writer = onboarding-controller.py. account_id = косвенно PII -> RLS (default-deny, '
+            'no permissive policy — only postgres/BYPASSRLS roles read this table today).'
+        """)
+        print("  learning.onboarding_state — OK (29 cols, canonical 233, RLS + trigger)")
 
         print("\n✅ Миграция 025 завершена — learning-схема на Railway Postgres готова")
 
