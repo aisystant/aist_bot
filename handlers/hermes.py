@@ -23,6 +23,7 @@ from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboar
 
 from config.settings import CLAUDE_MODEL_HAIKU
 from db.queries import get_intern
+from helpers.message_split import prepare_html_parts, truncate_safe
 from helpers.typing_indicator import keep_typing
 
 logger = logging.getLogger(__name__)
@@ -141,18 +142,26 @@ async def _hermes_reply(message: Message, placeholder: Message, response: str) -
         await message.answer_document(artifact, caption="Гермес: ответ в файле")
         return
     try:
-        await placeholder.edit_text(response, parse_mode="Markdown")
+        parts = prepare_html_parts(response)
+        for i, part in enumerate(parts):
+            if i == 0:
+                await placeholder.edit_text(part, parse_mode="HTML")
+            else:
+                await message.answer(part, parse_mode="HTML")
     except Exception:
-        logger.exception("[hermes] edit_text (Markdown) failed for chat %s", message.chat.id)
+        logger.exception("[hermes] HTML send failed for chat %s", message.chat.id)
         try:
-            await placeholder.edit_text(response)
+            await placeholder.edit_text(truncate_safe(response))
         except Exception:
             logger.exception("[hermes] edit_text (plain) failed for chat %s", message.chat.id)
             try:
                 await placeholder.delete()
             except Exception:
                 pass  # best-effort
-            await message.answer(response)
+            try:
+                await message.answer(truncate_safe(response))
+            except Exception:
+                logger.exception("[hermes] final fallback answer failed for chat %s", message.chat.id)
 
 
 async def _send_reconnect_prompt(message: Message) -> None:
