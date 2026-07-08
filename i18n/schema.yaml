@@ -5471,8 +5471,8 @@ link:
     en: "📋 *What to do next:*\n\n1️⃣ Get «Intelligence Engineering» subscription (system-school.ru/open-endedness) — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
 
   next_steps_with_sub:
-    ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни обучение"
-    en: "📋 *What to do next:*\n\n1️⃣ Connect your AI assistant (claude.ai or Claude Code) to the platform — tap the button below\n2️⃣ Choose a program in LMS and start learning"
+    ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — тогда я смогу использовать твои данные из Aisystant при ответах. Нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни обучение"
+    en: "📋 *What to do next:*\n\n1️⃣ Connect your AI assistant (claude.ai or Claude Code) to the platform — then I can use your Aisystant data when answering. Tap the button below\n2️⃣ Choose a program in LMS and start learning"
 
   btn_connect_ai:
     ru: "🌐 Подключить AI-ассистент"

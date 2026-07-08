@@ -39,6 +39,14 @@ X2_TOPICS = (
 )
 
 _CONFIRMED_KEY = "x2_confirmed"
+_INTRO_SHOWN_KEY = "x2_intro_shown"
+
+# WP-406 Ф19: вступление перед первым топиком (порядок «зачем→что»).
+# Показывается один раз за прохождение, отдельным сообщением перед первым топиком.
+_INTRO_TEXT = (
+    "Сейчас 4 коротких пункта — быстрая ориентация по сообществу. Без оценок: "
+    "если что-то непонятно, нажми «Подробнее». После — перейдём к выбору направления."
+)
 
 # Короткая ориентация по пункту (показывается первой).
 _TOPIC_TEXT = {
@@ -135,6 +143,11 @@ async def run_step(intern: dict, message) -> None:
     if topic is None:
         await _finish_x2(message.bot, chat_id)
         return
+    if not confirmed and not ctx.get(_INTRO_SHOWN_KEY):
+        # Флаг сохраняется ДО отправки: при сбое после save пользователь просто
+        # не увидит интро один раз, а не увидит его дважды при повторном run_step.
+        await storage.save_onboarding_context(chat_id, {_INTRO_SHOWN_KEY: True})
+        await message.bot.send_message(chat_id, _INTRO_TEXT)
     await _show_topic(message.bot, chat_id, topic, more=False)
 
 
