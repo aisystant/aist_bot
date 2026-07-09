@@ -35,6 +35,8 @@ from db.queries.consent import (
     DEFAULT_SCOPE,
 )
 from clients.gateway_mcp import gateway_mcp
+from clients.ory_oauth import ory_oauth
+from config import ORY_CLIENT_ID
 from helpers.dual_write import resolve_ory_id_from_chat
 from i18n import t
 
@@ -199,7 +201,7 @@ async def show_consent_optout(message: Message) -> None:
             await message.answer(
                 _LINKED_BUT_SYNCING_TEXT,
                 parse_mode="HTML",
-                reply_markup=_retry_keyboard(),
+                reply_markup=await _retry_keyboard(chat_id),
             )
         else:
             await message.answer(
@@ -237,7 +239,7 @@ async def show_consent_revoke(message: Message) -> None:
             await message.answer(
                 _LINKED_BUT_SYNCING_TEXT,
                 parse_mode="HTML",
-                reply_markup=_retry_keyboard(),
+                reply_markup=await _retry_keyboard(chat_id),
             )
         else:
             await message.answer(
@@ -269,10 +271,21 @@ def _link_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def _retry_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Попробовать снова", callback_data="consent_retry_status")],
-    ])
+async def _retry_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура экрана «синхронизация»: реальный вход через Ory + retry.
+
+    Кнопка входа показывается только если Ory OAuth настроен (ORY_CLIENT_ID) и
+    удалось получить auth_url — иначе graceful fallback на старую кнопку retry.
+    """
+    buttons = []
+    if ORY_CLIENT_ID:
+        try:
+            auth_url, _ = await ory_oauth.get_authorization_url(chat_id)
+            buttons.append([InlineKeyboardButton(text="🔑 Войти через Aisystant", url=auth_url)])
+        except Exception as exc:
+            logger.warning("[_retry_keyboard] get_authorization_url(%s) failed: %s", chat_id, exc)
+    buttons.append([InlineKeyboardButton(text="🔄 Попробовать снова", callback_data="consent_retry_status")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 _NOT_LINKED_TEXT = (
@@ -286,8 +299,8 @@ _NOT_LINKED_TEXT = (
 
 _LINKED_BUT_SYNCING_TEXT = (
     "⏳ <b>Аккаунт привязан, идёт синхронизация</b>\n\n"
-    "Системе нужно 1–2 минуты, чтобы связать твой Telegram с профилем Aisystant. "
-    "Нажми «🔄 Попробовать снова» через минуту. Если не получится — напиши Tseren."
+    "Иногда синхронизация не завершается сама — если ты ещё не входил через "
+    "Aisystant (Ory), это самый быстрый способ. Уже входил? Нажми «🔄 Попробовать снова»."
 )
 
 
@@ -309,7 +322,7 @@ async def show_consent_optin(message: Message) -> None:
         from db.queries.aisystant import get_aisystant_id
         aisystant_id = await get_aisystant_id(chat_id)
         if aisystant_id:
-            await message.answer(_LINKED_BUT_SYNCING_TEXT, parse_mode="HTML", reply_markup=_retry_keyboard())
+            await message.answer(_LINKED_BUT_SYNCING_TEXT, parse_mode="HTML", reply_markup=await _retry_keyboard(chat_id))
         else:
             await message.answer(_NOT_LINKED_TEXT, parse_mode="HTML", reply_markup=_link_keyboard())
         return
@@ -330,7 +343,8 @@ async def show_consent_optin(message: Message) -> None:
 @consent_router.message(Command("consent"))
 async def cmd_consent(message: Message, command: CommandObject):
     """Управление consent. Подкоманды: status (default), opt-in, opt-out, revoke."""
-    intern, account_id = await _resolve_account(message.from_user.id if message.from_user else message.chat.id)
+    chat_id = message.chat.id
+    intern, account_id = await _resolve_account(message.from_user.id if message.from_user else chat_id)
     lang = (intern.get("language") if intern else "ru") or "ru"
 
     if not intern:
@@ -341,12 +355,12 @@ async def cmd_consent(message: Message, command: CommandObject):
         # Различить два сценария: (1) вообще не привязан Aisystant, (2) привязан, но Ory UUID
         # ещё не появился в persona.ory_identity (sync-задержка / не было OAuth-входа).
         from db.queries.aisystant import get_aisystant_id
-        aisystant_id = await get_aisystant_id(message.chat.id)
+        aisystant_id = await get_aisystant_id(chat_id)
         if aisystant_id:
             await message.answer(
                 _LINKED_BUT_SYNCING_TEXT,
                 parse_mode="HTML",
-                reply_markup=_retry_keyboard(),
+                reply_markup=await _retry_keyboard(chat_id),
             )
         else:
             await message.answer(
@@ -640,7 +654,7 @@ async def on_consent_link_now(callback: CallbackQuery):
         await callback.message.answer(
             _LINKED_BUT_SYNCING_TEXT,
             parse_mode="HTML",
-            reply_markup=_retry_keyboard(),
+            reply_markup=await _retry_keyboard(chat_id),
         )
         return
 
@@ -774,7 +788,7 @@ async def on_consent_from_onboarding(callback: CallbackQuery):
         await callback.message.answer(
             _LINKED_BUT_SYNCING_TEXT,
             parse_mode="HTML",
-            reply_markup=_retry_keyboard(),
+            reply_markup=await _retry_keyboard(chat_id),
         )
         return
 
@@ -811,8 +825,9 @@ async def on_consent_retry_status(callback: CallbackQuery):
     account_id = await resolve_ory_id_from_chat(chat_id)
     if not account_id:
         await callback.message.answer(
-            "⏳ Идентификатор пока не появился. Попробуй ещё через минуту или напиши Tseren.",
-            reply_markup=_retry_keyboard(),
+            _LINKED_BUT_SYNCING_TEXT,
+            parse_mode="HTML",
+            reply_markup=await _retry_keyboard(chat_id),
         )
         return
 
