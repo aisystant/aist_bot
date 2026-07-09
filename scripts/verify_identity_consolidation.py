@@ -26,17 +26,17 @@ async def main() -> None:
         print("ERROR: DATABASE_URL is required", file=sys.stderr)
         sys.exit(1)
 
-    pool = await asyncpg.create_pool(db_url, statement_cache_size=0)
-    async with pool.acquire() as conn:
-        # T0-пользователи (никогда не подключавшие Ory/ЦД) законно имеют оба
-        # поля NULL — это не расхождение. Флагуем только случаи, где хотя бы
-        # одно поле заполнено, а второе отстаёт (не задано или не совпадает).
-        divergent = await conn.fetch(
-            """SELECT telegram_id, ory_id, dt_user_id
-               FROM public.users
-               WHERE (ory_id IS NOT NULL OR dt_user_id IS NOT NULL)
-                 AND ory_id::text IS DISTINCT FROM dt_user_id"""
-        )
+    async with asyncpg.create_pool(db_url, statement_cache_size=0) as pool:
+        async with pool.acquire() as conn:
+            # T0-пользователи (никогда не подключавшие Ory/ЦД) законно имеют оба
+            # поля NULL — это не расхождение. Флагуем только случаи, где хотя бы
+            # одно поле заполнено, а второе отстаёт (не задано или не совпадает).
+            divergent = await conn.fetch(
+                """SELECT telegram_id, ory_id, dt_user_id
+                   FROM public.users
+                   WHERE (ory_id IS NOT NULL OR dt_user_id IS NOT NULL)
+                     AND ory_id::text IS DISTINCT FROM dt_user_id"""
+            )
 
     if not divergent:
         print("OK: 0 divergent rows — safe to switch read-path to ory_id")
