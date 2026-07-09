@@ -62,7 +62,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 | `consent_decline` | UPSERT с opt_in=FALSE | `handlers/consent.py:308` |
 | `consent_link_now` | Запуск `/link` flow, если LMS не привязан | `handlers/consent.py:344` |
 | `consent_from_onboarding` | Точка входа из onboarding (после `/start` / `/link`) | `handlers/consent.py:414` |
-| `consent_retry_status` | Повторный показ status (refresh после ETL) | `handlers/consent.py:450` |
+| `consent_retry_status` | Повторный показ status (refresh после ETL). Экран «привязан, идёт синхронизация» (нет Ory-идентичности при наличии Aisystant-аккаунта) показывает кнопку «🔑 Войти через Aisystant» (реальный OAuth-вход через Ory вместо ожидания батч-переноса раз в 4 часа) + «🔄 Попробовать снова» | `handlers/consent.py:450` |
 | `/me` (T3+ без согласия) | Consent-gap detect: T3 достигнут вне /link (claude.ai OAuth / `/test`) → показ opt-in вместо пустого дашборда (WP-406 Ф20). Fail-open. | `handlers/twin.py:900` |
 
 ---
@@ -137,6 +137,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-07-09 | WP-7 ORY-RT1: экран «идёт синхронизация» (нет Ory-идентичности, есть Aisystant) получил кнопку «🔑 Войти через Aisystant» (переиспользует `ory_register`/`clients/ory_oauth.py` — реальный OAuth-вход вместо ожидания 4-часового батча). Убрано вводящее в заблуждение «1-2 минуты» + личный контакт в тексте. `_retry_keyboard()` стала `async def` (генерирует `auth_url`), все 7 вызовов обновлены на `await`. |
 | 2026-05-23 | WP-349: После `consent_accept` нудж теперь ведёт на `/setup` (не `/diagnose`). |
 | 2026-05-12 | WP-188 Ф17 — реализация `/consent`, writer-pool, GDPR fixes, activity-summary, /link follow-up |
 | 2026-05-12 | WP-253 Блок 2 — пароли ролей (stage_evaluator, consent_writer, w_reflection_writer) rotated; `CONSENT_URL` Railway обновлён; smoke-test PASS |
