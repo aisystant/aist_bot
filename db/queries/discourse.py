@@ -312,7 +312,7 @@ async def reset_stale_publishing(max_age_minutes: int = 10) -> int:
         UPDATE scheduled_post
         SET status = 'pending', updated_at = NOW()
         WHERE status = 'publishing'
-          AND updated_at < NOW() - ($1 || ' minutes')::interval
+          AND updated_at < NOW() - (make_interval(mins => $1))
         """,
         max_age_minutes,
     )
