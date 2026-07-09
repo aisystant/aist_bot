@@ -4,9 +4,9 @@
   - describe_stream: маппинг recommended_stream → человекочитаемое имя (5 кейсов)
   - X3 constants: _RETURN_TO_X3, _RETURN_TO_TTL_SECONDS (инварианты bridge-пути)
   - check_x3_return_to_bridge: существует и принимает правильные аргументы
-  - X2_TOPICS: контракт 4 пунктов понимания сообщества
+  - X2_TOPICS: контракт 3 пунктов понимания сообщества (WP-406 Ф21 — «norms» снят)
   - x2._next_topic: выбор следующего неподтверждённого пункта (чистая логика)
-  - x2 контент: ориентация и расширение покрывают все 4 пункта
+  - x2 контент: ориентация и расширение покрывают все пункты X2_TOPICS
   - handle / run_step / confirm_topic / show_more: реализованы как корутины
 """
 
@@ -44,13 +44,13 @@ class TestDescribeStream(unittest.TestCase):
 
 
 class TestX2Topics(unittest.TestCase):
-    """x2.X2_TOPICS: контракт четырёх пунктов (карточка WP-406, строка 122)."""
+    """x2.X2_TOPICS: контракт трёх пунктов (WP-406 Ф21 — «norms» снят как непользующий)."""
 
-    def test_four_topics(self):
-        self.assertEqual(len(x2.X2_TOPICS), 4)
+    def test_three_topics(self):
+        self.assertEqual(len(x2.X2_TOPICS), 3)
 
     def test_topics_unique(self):
-        self.assertEqual(len(set(x2.X2_TOPICS)), 4)
+        self.assertEqual(len(set(x2.X2_TOPICS)), 3)
 
     def test_topics_cover_community_and_where_to_ask(self):
         self.assertIn("community", x2.X2_TOPICS)
@@ -94,7 +94,7 @@ class TestX2NextTopic(unittest.TestCase):
 
 
 class TestX2Content(unittest.TestCase):
-    """Контент Х2 покрывает все 4 пункта — иначе шаг покажет KeyError."""
+    """Контент Х2 покрывает все пункты X2_TOPICS — иначе шаг покажет KeyError."""
 
     def test_topic_text_covers_all_topics(self):
         self.assertEqual(set(x2._TOPIC_TEXT.keys()), set(x2.X2_TOPICS))
