@@ -31,6 +31,13 @@ _CANARY_THRESHOLD = 3
 _CANARY_WINDOW_SEC = 900   # 15 min
 _PAUSE_DURATION_SEC = 900  # 15 min
 
+# 403 (key revoked/invalid) is a separate signal from 5xx/rate-limit: not transient,
+# retrying or pausing pre-gen won't fix it — only a human replacing the key does.
+# Same window convention as the canary above (WP-7 H3, peer-session 2026-07-09-03).
+_openrouter_403_timestamps: deque = deque(maxlen=20)
+_OPENROUTER_403_THRESHOLD = 3
+_OPENROUTER_403_WINDOW_SEC = 900  # 15 min
+
 # Pool reference set at bot startup for canary state persistence across deploys.
 _canary_pool = None
 
@@ -110,6 +117,62 @@ def record_api_degradation(is_rate_limit: bool = False) -> None:
                 )
             except RuntimeError:
                 pass
+
+
+_last_openrouter_403_alert_attempt: float = float("-inf")  # 0.0 collides with a fresh process's monotonic clock
+
+
+def _record_openrouter_403() -> int:
+    """Sync bookkeeping — safe to call inline while the HTTP response context is still open.
+
+    Returns the recent-failure count if the alert should fire (threshold crossed AND not
+    already attempted this window), else 0. Local throttle avoids hammering the DB with a
+    fresh enqueue()/advisory-lock attempt on every single 403 during a sustained outage —
+    notification_service's own dedup (1h) would eventually suppress duplicates anyway, but
+    only after paying for a pool-acquire + transaction each time.
+    """
+    global _last_openrouter_403_alert_attempt
+    now = _time.monotonic()
+    _openrouter_403_timestamps.append(now)
+    recent = sum(1 for t in _openrouter_403_timestamps if now - t <= _OPENROUTER_403_WINDOW_SEC)
+    if recent < _OPENROUTER_403_THRESHOLD:
+        return 0
+    if now - _last_openrouter_403_alert_attempt < _OPENROUTER_403_WINDOW_SEC:
+        return 0
+    _last_openrouter_403_alert_attempt = now
+    return recent
+
+
+async def _send_openrouter_403_alert(recent: int) -> None:
+    """Slow path (DB insert via notification_service.enqueue) — WP-7 H3.
+
+    Must run via asyncio.create_task(), never awaited inline from _api_call: enqueue()
+    takes a pool connection + advisory lock, which can outlast the caller's aiohttp
+    ClientTimeout and swallow a CancelledError inside the open response context otherwise.
+    """
+    import logging
+    dev_chat_id = os.getenv("DEVELOPER_CHAT_ID")
+    if not dev_chat_id:
+        logging.getLogger(__name__).error(
+            f"[OpenRouter403] threshold hit ({recent}/15min) but DEVELOPER_CHAT_ID not set — alert lost"
+        )
+        return
+
+    from core.notification_service import enqueue, CLASS_OPS_ALERT
+    try:
+        await enqueue(
+            chat_id=int(dev_chat_id),
+            klass=CLASS_OPS_ALERT,
+            content_spec={
+                "text": f"🔑 <b>OpenRouter 403</b>: {recent} отказов за 15 мин — похоже, ключ отозван или невалиден.",
+                "format": "html",
+            },
+            dedup_key="openrouter_403_alert",
+            journal_key="openrouter-403-alert",
+            journal_type="ops_alert",
+        )
+    except Exception as e:
+        logging.getLogger(__name__).error(f"[OpenRouter403] alert enqueue failed: {e}")
 
 
 def is_api_degraded() -> bool:
@@ -267,6 +330,13 @@ class ClaudeClient:
                         if attempt == 0:
                             await asyncio.sleep(2 ** (attempt + 1))
                             continue
+                        return None
+                    elif resp.status == 403:
+                        # Key revoked/invalid — not transient, retry won't help (WP-7 H3).
+                        recent = _record_openrouter_403()
+                        if recent:
+                            asyncio.create_task(_send_openrouter_403_alert(recent))
+                        logger.error("Claude API forbidden (403) — key likely revoked/invalid")
                         return None
                     else:
                         error = await resp.text()
