@@ -284,11 +284,12 @@ async def on_hermes(message: Message, state: FSMContext) -> None:
 
     placeholder = await message.answer("⌛ Гермес думает…")
     try:
-        response = await gateway_mcp.hermes_chat(
-            message=hermes_msg,
-            telegram_user_id=chat_id,
-            session_id=session_id,
-        )
+        async with keep_typing(message):
+            response = await gateway_mcp.hermes_chat(
+                message=hermes_msg,
+                telegram_user_id=chat_id,
+                session_id=session_id,
+            )
     except Exception:
         logger.exception("[hermes] hermes_chat failed for chat %s", chat_id)
         response = None

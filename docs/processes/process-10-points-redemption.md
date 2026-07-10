@@ -87,11 +87,11 @@ YK `create_payment` создаёт pending-платёж (не списывает
 
 **Связь с §5:** `rollback_expired_reservations` (§5) и `confirm_reserve_by_payment_id` (новая) сериализованы через `pg_advisory_xact_lock(hashtext('burn_reserve:' || payment_id))` — иначе TTL-откат мог бы откатить резерв в момент, когда Aisystant уже сообщил `SUCCEEDED` (доступ к курсу выдан, бонусы не списаны).
 - Миграция схемы: `DS-IT-systems/neon-migrations/mvp/226-wp327-rewards-redeemed-events.sql`
-- Курс конвертации: `POINTS_TO_RUB_RATE = 0.875 ₽/балл` в `db/queries/redeem.py` (источник: DP.SC.105 = `$0.01 × курс USD/RUB`)
+- Курс конвертации: `0.10 ₽/бонус` из `reference.loyalty_pool_config` (читает `get_loyalty_rate()`; migration 244, WP-327 v4.4)
 
 ---
 
-## 9. `skip_ceiling` — какие покупки его используют (WP-446, обновлено 2026-07-03)
+## 8. `skip_ceiling` — какие покупки его используют (WP-446, обновлено 2026-07-03)
 
 `available_discount(..., skip_ceiling=...)` (§ выше, «5. Effective available») — если `False`, доступная сумма ограничена `historic_bonus_ceiling` (Σ дневных потолков по квалификации), не полным балансом. Это исторически защита от мгновенного обналичивания годами копившихся бонусов одной покупкой.
 

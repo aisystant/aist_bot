@@ -17,7 +17,7 @@ from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, In
 from states.base import BaseState
 from i18n import t
 from helpers.message_split import prepare_html_parts
-from db.queries import update_intern, save_answer
+from db.queries import update_intern, save_answer, record_active_day
 from clients.claude import claude
 from core.knowledge import get_topic
 
@@ -211,6 +211,12 @@ class MarathonBonusState(BaseState):
                     answer_type="bonus_answer",
                     complexity_level=self._get_bloom_level(user)
                 )
+
+                # Записываем активный день
+                try:
+                    await record_active_day(chat_id, 'bonus_answer', mode='marathon')
+                except Exception as e:
+                    logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
 
             # FIX: Удаляем Reply Keyboard при переходе к практике
             await self.send(

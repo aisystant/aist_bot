@@ -76,9 +76,7 @@ async def cb_donate_pay(callback: CallbackQuery):
         )
 
     except Exception as e:
-        logger.error(f"[Payments] Error creating one-time donation invoice: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(f"[Payments] Error creating one-time donation invoice: {e}")
         await callback.message.answer(t('errors.try_again', lang))
 
 
@@ -118,9 +116,7 @@ async def cb_donate_recurring(callback: CallbackQuery):
         )
 
     except Exception as e:
-        logger.error(f"[Payments] Error creating recurring donation invoice: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(f"[Payments] Error creating recurring donation invoice: {e}")
         await callback.message.answer(t('errors.try_again', lang))
 
 
@@ -234,7 +230,5 @@ async def on_successful_payment(message: Message):
         )
 
     except Exception as e:
-        logger.error(f"[Payments] Error saving recurring donation: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(f"[Payments] Error saving recurring donation: {e}")
         await message.answer(t('donation.recurring_success', lang))

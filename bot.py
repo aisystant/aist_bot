@@ -331,6 +331,25 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 019 skipped: {_e}")
 
+    # External auth tables in secrets DB (WP-411 Ф2): external_auth_codes + ory_client_tokens
+    try:
+        from db.connection import get_secrets_pool as _get_secrets_pool
+        _m029 = _il.import_module("db.migrations.029_external_auth_tables")
+        _created = await _m029.migrate_if_needed(await _get_secrets_pool())
+        if _created:
+            logger.info("✅ Migration 029: external_auth_codes + ory_client_tokens created in secrets DB")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 029 skipped: {_e}")
+
+    # WP-411 Ф4: computed_tier + chat_id columns for ory_client_tokens
+    try:
+        _m030 = _il.import_module("db.migrations.030_computed_tier")
+        _created = await _m030.migrate_if_needed(await _get_secrets_pool())
+        if _created:
+            logger.info("✅ Migration 030: computed_tier + chat_id added to ory_client_tokens")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 030 skipped: {_e}")
+
     # Learning-pool migrations (016, 025, 023, 024) moved to _bootstrap_learning_schema()
     # which runs as asyncio.create_task after the web server is up, so Railway healthcheck
     # is not blocked by the first-run table creation (migration 025 creates ~15 tables).
@@ -490,6 +509,8 @@ async def main():
         BotCommand(command="features", description="Возможности платформы"),
         BotCommand(command="settings", description="Настройки и профиль"),
         BotCommand(command="support", description="Поддержка — открыть тикет"),
+        BotCommand(command="connect_external", description="Подключить внешний AI-клиент (Claude Code и др.)"),
+        BotCommand(command="my_clients", description="Активные внешние подключения"),
         BotCommand(command="status", description="Статус платформы"),
         BotCommand(command="help", description="Справка"),
     ])
@@ -511,6 +532,8 @@ async def main():
             BotCommand(command="consent", description="Tracking consent"),
             BotCommand(command="features", description="Platform features"),
             BotCommand(command="settings", description="Settings & profile"),
+            BotCommand(command="connect_external", description="Connect external AI client (Claude Code etc.)"),
+            BotCommand(command="my_clients", description="Active external connections"),
             BotCommand(command="status", description="Platform status"),
             BotCommand(command="help", description="Help"),
         ], language_code="en")

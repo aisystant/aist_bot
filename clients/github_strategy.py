@@ -31,7 +31,7 @@ GITHUB_API_URL = "https://api.github.com"
 
 
 def _trim_active_wp(content: str, max_chars: int = 800) -> str:
-    # Extract in-progress (🔄) rows from active-wp.md, with table header.
+    """Extract in-progress (🔄) rows from active-wp.md, with table header."""
     header = next(
         (
             l for l in content.splitlines()
@@ -192,7 +192,7 @@ class GitHubStrategyClient:
         return await self.read_file(telegram_user_id, repo, week_reports[0]["path"])
 
     async def get_active_wp(self, telegram_user_id: int) -> Optional[str]:
-        # Returns in-progress WPs from current/active-wp.md (🔄 rows only).
+        """Returns in-progress WPs from current/active-wp.md (🔄 rows only)."""
         access_token, repo = await self._get_auth(telegram_user_id)
         if not access_token:
             return None

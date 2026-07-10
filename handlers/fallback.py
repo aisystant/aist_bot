@@ -5,6 +5,7 @@ Fallback хендлеры — обработка неизвестных сооб
 Иначе — показывает подсказку.
 """
 
+import asyncio
 import logging
 import re
 
@@ -25,6 +26,34 @@ _HERMES_UNAVAILABLE_TIER_MSG = "Функция недоступна на тво�
 
 # WP-392 Ф3.1b: session_id для hermes_chat (память диалога T4-full)
 _HERMES_SESSION_MAP: dict[int, str] = {}
+
+_WP_REGISTRY_TIMEOUT_S = 5
+
+# Tier query detector — intercept "Какой у меня тир?" before Hermes gets it.
+# Hermes treats "тир" as learning mastery level; system tier is a deterministic fact.
+_TIER_QUERY_KEYWORDS = (
+    "какой у меня тир",
+    "мой тир",
+    "у меня тир",
+    "тир у меня",
+    "мой уровень доступа",
+    "мой уровень подписки",
+    "какой тир",
+    "my tier",
+    "у вас тир",
+    "покажи тир",
+    "свой тир",
+    "what is my tier",
+    "show my tier",
+)
+
+def _is_tier_query(text: str) -> bool:
+    low = text.lower()
+    return any(kw in low for kw in _TIER_QUERY_KEYWORDS)
+
+
+async def _answer_tier_query(message, tier_num: int) -> None:
+    await message.answer(f"Твой тир: T{tier_num}")
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
@@ -68,9 +97,7 @@ async def on_unknown_callback(callback: CallbackQuery, state: FSMContext):
                 if handled:
                     return
         except Exception as e:
-            logger.error(f"[SM] Error routing callback: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(f"[SM] Error routing callback: {e}")
 
     # SM не обработала или не активна — показываем "кнопка устарела"
     logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
@@ -108,6 +135,22 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
                 # но если написал, Hermes не должен видеть служебный токен.
                 hermes_text = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+                # WP-411 Ф7: «мои РП» → детерминированный ответ из реестра, не Гермес.
+                # Полный детектор (Strong+Weak): реальный запрос пилота «какие мои
+                # активные рп» — слабый паттерн. Strong-only его терял (инцидент
+                # 14 июня). От ложного перехвата co-thinking защищает требование
+                # личного сигнала в Weak («посоветуй активные рп» → не ловится).
+                from engines.shared.wp_query_detector import is_wp_query
+                if is_wp_query(hermes_text):
+                    logger.info("[fallback] T4-full WP-registry intercept for chat %s", chat_id)
+                    await state.clear()
+                    await _answer_wp_registry(message, chat_id)
+                    return
+                if _is_tier_query(hermes_text):
+                    logger.info("[fallback] T4-full tier query intercept for chat %s", chat_id)
+                    await state.clear()
+                    await _answer_tier_query(message, tier_num)
+                    return
                 # Б2: сбросить FSM-стейт (напр. Settings) чтобы follow-up не попал в SM
                 await state.clear()
                 from clients.gateway_mcp import gateway_mcp
@@ -155,6 +198,10 @@ async def on_unknown_message(message: Message, state: FSMContext):
                     await _send_unavailable(message, None, chat_id)
                     return
                 hermes_msg = _HERMES_PREFIXES_RE.sub("", text).strip() or text
+                if _is_tier_query(hermes_msg):
+                    logger.info("[fallback] hermes-prefix tier query intercept for chat %s", chat_id)
+                    await _answer_tier_query(message, tier_num)
+                    return
                 session_id = _HERMES_SESSION_MAP.get(chat_id)
                 try:
                     from helpers.typing_indicator import keep_typing
@@ -197,9 +244,7 @@ async def on_unknown_message(message: Message, state: FSMContext):
                 await dispatcher.sm.start({'telegram_id': chat_id}, context={'message': message})
                 return
         except Exception as e:
-            logger.error(f"[SM] Error in SM: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(f"[SM] Error in SM: {e}")
             lang = intern.get('language', 'ru') if intern else 'ru'
             await message.answer(
                 f"⚠️ {t('errors.processing_error', lang)}\n\n"

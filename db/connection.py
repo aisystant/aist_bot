@@ -314,7 +314,7 @@ async def get_reference_pool() -> asyncpg.Pool:
     global _reference_pool
     if _reference_pool is None:
         _reference_pool = await asyncpg.create_pool(
-            REFERENCE_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
+            REFERENCE_URL, statement_cache_size=100, min_size=1, max_size=10, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Reference пул соединений создан")
     return _reference_pool

@@ -398,9 +398,7 @@ class StateMachine:
         try:
             event = await current_state.handle_callback(user, callback)
         except Exception as e:
-            logger.error(f"Ошибка в handle_callback стейта {current_state_name}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(f"Ошибка в handle_callback стейта {current_state_name}: {e}")
             event = None
 
         # Если есть событие — переходим

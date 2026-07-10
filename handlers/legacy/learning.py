@@ -21,6 +21,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from db.queries import get_intern, update_intern, get_topics_today
 from db.queries.answers import save_answer
+from db.queries.activity import record_active_day
 from db.queries.users import moscow_today, derive_mode
 from config import MARATHON_DAYS, MAX_TOPICS_PER_DAY, MarathonStatus
 from i18n import t
@@ -128,6 +129,12 @@ async def on_answer(message: Message, state: FSMContext, bot=None):
 
     # Сохраняем ответ
     await save_answer(message.chat.id, intern['current_topic_index'], text.strip())
+
+    # Записываем активный день
+    try:
+        await record_active_day(message.chat.id, 'theory_answer', mode='marathon')
+    except Exception as e:
+        logger.warning(f"Не удалось записать активность для {message.chat.id}: {e}")
 
     # Обновляем прогресс и счётчик тем на текущем уровне Блума
     completed = intern['completed_topics'] + [intern['current_topic_index']]
@@ -269,8 +276,7 @@ async def on_bonus_yes(callback: CallbackQuery, state: FSMContext):
         logger.info(f"[BONUS] Состояние после отправки сообщения: {final_state}")
     except Exception as e:
         logger.error(f"Ошибка генерации бонусного вопроса: {e}")
-        import traceback
-        logger.error(f"[BONUS] Traceback: {traceback.format_exc()}")
+        logger.exception("[BONUS] ошибка начисления бонуса")
         await callback.message.answer(
             f"Не удалось сгенерировать бонусный вопрос. Попробуйте позже.\n\n"
             f"{next_command or t('marathon.next_command', lang)}"
@@ -363,6 +369,12 @@ async def on_bonus_answer(message: Message, state: FSMContext, bot=None):
 
     try:
         await save_answer(chat_id, topic_index, f"[BONUS] {text.strip()}")
+
+        # Записываем активный день
+        try:
+            await record_active_day(chat_id, 'bonus_answer', mode='marathon')
+        except Exception as e:
+            logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
 
         bloom_level = intern['bloom_level'] if intern else 1
 
@@ -466,6 +478,12 @@ async def on_work_product(message: Message, state: FSMContext):
         topic_index,
         f"[РП] {text.strip()}"
     )
+
+    # Записываем активный день
+    try:
+        await record_active_day(message.chat.id, 'work_product', mode='marathon')
+    except Exception as e:
+        logger.warning(f"Не удалось записать активность для {message.chat.id}: {e}")
 
     topic = b['get_topic'](topic_index)
     topic_day = topic['day'] if topic else b['get_marathon_day'](intern)

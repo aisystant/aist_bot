@@ -477,7 +477,7 @@ async def generate_multi_topic_digest(
     intern: dict,
     duration: int = 10,
     depth_level: int = 1
-) -> Dict:
+) -> Optional[Dict]:
     """Генерирует дайджест по всем темам.
 
     Новая модель:

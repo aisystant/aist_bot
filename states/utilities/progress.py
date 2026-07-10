@@ -323,9 +323,7 @@ class ProgressState(BaseState):
         try:
             cache = await self._prefetch(chat_id)
         except Exception as e:
-            logger.error(f"[Progress] Prefetch error: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(f"[Progress] Prefetch error: {e}")
             await self.send(user, t('progress.full_report_error', lang))
             return
 

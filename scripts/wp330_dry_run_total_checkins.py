@@ -1,16 +1,19 @@
 """
-Dry-run: сравнение marathon_progress.total_checkins (колонка)
-с COUNT(DISTINCT day) FROM marathon_state (derived).
+Проверка расхождений marathon_progress.total_checkins (колонка) vs
+COUNT(DISTINCT day) FROM marathon_state (derived).
 
-WP-330 P1: перед деплоем ca52eb4/b64ff16 проверяем, есть ли
-backfill-расхождения у активных пользователей.
+WP-330 P1 followup: диагностика до/после migration 026.
+После запуска migration 026 расхождений быть не должно — триггер
+auto-sync держит колонку актуальной при каждом INSERT/UPDATE/DELETE
+в marathon_state.
 
 Запуск:
-    python -m scripts.wp330_dry_run_total_checkins
+    python -m scripts.wp330_dry_run_total_checkins          # только диагностика
+    python -m scripts.wp330_dry_run_total_checkins --apply  # backfill без триггера
 
 Выход:
-    - Список user_id с расхождением
-    - Итоговая статистика
+    - Список всех пользователей с расхождением (все статусы)
+    - Итоговая статистика (затронутые / всего активных)
     - Код возврата 1 если есть расхождения, 0 если всё совпадает
 """
 
@@ -24,54 +27,83 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import LEARNING_URL
 
 
-DRY_RUN_SQL = """
+# Проверяем все статусы — у completed/dropped пользователей данные тоже могут расходиться.
+CHECK_SQL = """
 SELECT mp.user_id,
+       mp.status,
        mp.current_day,
-       mp.total_checkins AS column_value,
-       COUNT(DISTINCT ms.day) AS derived_value,
+       mp.total_checkins                AS column_value,
+       COUNT(DISTINCT ms.day)           AS derived_value,
        mp.total_checkins - COUNT(DISTINCT ms.day) AS diff
 FROM learning.marathon_progress mp
 LEFT JOIN learning.marathon_state ms ON ms.user_id = mp.user_id
-WHERE mp.status = 'active'
-GROUP BY mp.user_id
-HAVING mp.total_checkins != COUNT(DISTINCT ms.day)
-   OR (mp.total_checkins IS NULL AND COUNT(DISTINCT ms.day) > 0)
-ORDER BY ABS(mp.total_checkins - COUNT(DISTINCT ms.day)) DESC
+GROUP BY mp.user_id, mp.status, mp.current_day, mp.total_checkins
+HAVING mp.total_checkins IS DISTINCT FROM COUNT(DISTINCT ms.day)
+ORDER BY ABS(mp.total_checkins - COUNT(DISTINCT ms.day)) DESC, mp.status
+"""
+
+ACTIVE_TOTAL_SQL = """
+SELECT COUNT(*) FROM learning.marathon_progress WHERE status = 'active'
+"""
+
+# Используется только при --apply (без триггера).
+APPLY_SQL = """
+UPDATE learning.marathon_progress mp
+SET    total_checkins = subq.cnt,
+       updated_at     = NOW()
+FROM (
+    SELECT mp2.user_id,
+           COUNT(DISTINCT ms.day) AS cnt
+    FROM   learning.marathon_progress mp2
+    LEFT JOIN learning.marathon_state ms ON ms.user_id = mp2.user_id
+    GROUP BY mp2.user_id
+) subq
+WHERE mp.user_id = subq.user_id
+  AND mp.total_checkins IS DISTINCT FROM subq.cnt
 """
 
 
-REMEDIATION_SQL = """UPDATE learning.marathon_progress mp
-SET total_checkins = (
-    SELECT COUNT(DISTINCT day)
-    FROM learning.marathon_state ms
-    WHERE ms.user_id = mp.user_id
-)
-WHERE mp.status = 'active';"""
-
-
-async def dry_run():
+async def run(apply: bool = False) -> int:
     conn = await asyncpg.connect(LEARNING_URL, statement_cache_size=0)
     try:
-        rows = await conn.fetch(DRY_RUN_SQL)
+        rows = await conn.fetch(CHECK_SQL)
+        active_total = await conn.fetchval(ACTIVE_TOTAL_SQL)
+
         if not rows:
-            print("✅ Расхождений не найдено. Колонка total_checkins совпадает с derived count для всех активных пользователей.")
+            print("✅ Расхождений нет. total_checkins совпадает с derived count у всех пользователей.")
             return 0
 
-        print(f"⚠️  Найдено {len(rows)} активных пользователей с расхождением:\n")
-        print(f"{'user_id':>12} | {'current_day':>11} | {'column':>8} | {'derived':>8} | {'diff':>6}")
-        print("-" * 60)
+        active_mismatch = sum(1 for r in rows if r["status"] == "active")
+        zero_count = sum(1 for r in rows if (r["column_value"] or 0) == 0 and r["derived_value"] > 0)
+
+        print(f"⚠️  Найдено {len(rows)} пользователей с расхождением "
+              f"(активных: {active_mismatch}/{active_total}, total_checkins=0: {zero_count}):\n")
+        print(f"{'user_id':>12} | {'status':>10} | {'day':>4} | {'column':>7} | {'derived':>8} | {'diff':>6}")
+        print("-" * 65)
         for r in rows:
-            print(f"{r['user_id']:>12} | {r['current_day']:>11} | {r['column_value'] or 0:>8} | {r['derived_value']:>8} | {r['diff'] or 0:>6}")
+            col = r["column_value"] if r["column_value"] is not None else "NULL"
+            diff = r["diff"] if r["diff"] is not None else "NULL"
+            print(f"{r['user_id']:>12} | {r['status']:>10} | {r['current_day']:>4} | "
+                  f"{col!s:>7} | {r['derived_value']:>8} | {diff!s:>6}")
 
         print(f"\n📊 Итог: {len(rows)} пользователей нуждаются в коррекции.")
-        print("\n🛠  Remediation SQL (выполнить вручную ДО рестарта, если нужен sync колонки с derived):")
-        print(REMEDIATION_SQL)
-        print("\nЛибо принять «прыжок» — после деплоя WP-330 P1 колонка не читается, derived = истина.")
+
+        if apply:
+            result = await conn.execute(APPLY_SQL)
+            updated = int(result.split()[-1])
+            print(f"\n✅ Применено: обновлено {updated} строк.")
+            print("Триггер не создан — запустите migration 026 для защиты от повторения:")
+            print("    python -m db.migrations.026_sync_total_checkins_trigger")
+        else:
+            print("\nДля исправления:")
+            print("  python -m db.migrations.026_sync_total_checkins_trigger  (backfill + триггер)")
+
         return 1
     finally:
         await conn.close()
 
 
 if __name__ == "__main__":
-    code = asyncio.run(dry_run())
+    apply_mode = "--apply" in sys.argv
+    code = asyncio.run(run(apply=apply_mode))
     sys.exit(code)

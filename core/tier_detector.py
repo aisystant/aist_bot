@@ -72,7 +72,9 @@ async def detect_ui_tier(chat_id: int) -> int:
     # full access over that path now requires connecting MCP/GitHub (which makes
     # user-profile-service write T3/T4), not this local persist.
     if _DEV_CHAT_ID and str(chat_id) == _DEV_CHAT_ID:
-        asyncio.create_task(_persist_tier(chat_id, UITier.T4_CREATION))
+        await _persist_tier(chat_id, UITier.T4_CREATION)
+        _tier_cache[chat_id] = UITier.T5_ADMIN
+        _tier_cache_ts[chat_id] = time.monotonic()
         return UITier.T5_ADMIN
 
     # TTL cache: return cached tier if detected recently (avoids Aisystant HTTP on every command)

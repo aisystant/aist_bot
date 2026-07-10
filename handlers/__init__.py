@@ -72,7 +72,9 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .setup import setup_router
     from .tier_upgrade import tier_upgrade_router
     from .referral import referral_router
+    from .day import day_router
     from .external_session import external_session_router
+    from .iwe import iwe_router
     from .hermes import hermes_router
     from .byok import byok_router
 
@@ -119,6 +121,9 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(setup_router)
     dp.include_router(tier_upgrade_router)
     dp.include_router(referral_router)
+    # WP-428: day_router, iwe_router ДО hermes_router.
+    dp.include_router(day_router)
+    dp.include_router(iwe_router)
     # WP-392: hermes_router ДО external_session — «Гермес» адресует Hermes-рантайм,
     # а не активную Claude-сессию (которая иначе перехватила бы текст первой).
     dp.include_router(hermes_router)

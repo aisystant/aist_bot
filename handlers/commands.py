@@ -7,7 +7,6 @@
 
 import asyncio
 import logging
-import traceback
 
 from aiogram import Router
 from aiogram.types import Message
@@ -34,8 +33,7 @@ async def _safe_route(message: Message, state: FSMContext, intern: dict, route_c
         await state.clear()
         await route_coro
     except Exception as e:
-        logger.error(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
-        logger.error(traceback.format_exc())
+        logger.exception(f"[CMD] SM routing error for chat_id={message.chat.id}: {e}")
         await message.answer(t('errors.processing_error', lang))
 
         # WP-151 Ф3: error_shown

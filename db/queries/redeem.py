@@ -33,7 +33,7 @@ from helpers.dual_write import post_event
 logger = logging.getLogger(__name__)
 
 # Курс конвертации читается из loyalty_pool_config (WP-327 v4.1)
-# Fallback 0.05 ₽/бонус при недоступности БД
+# Fallback 0.10 ₽/бонус при недоступности БД (migration 244, WP-327 v4.4)
 
 
 async def _get_rate() -> Decimal:
@@ -74,7 +74,7 @@ async def available_discount(
             "copilka_pts": Decimal,         # текущий баланс пилота
             "ceiling_pts": Decimal,         # daily_cap по квалификации (or balance when skip_ceiling)
             "available_pts": Decimal,       # min(copilka, ceiling - reserved_today, requested/rate)
-            "discount_rub": Decimal,        # available_pts × POINTS_TO_RUB_RATE
+            "discount_rub": Decimal,        # available_pts × rate (из loyalty_pool_config)
             "qualification": str,           # 'ученик' / 'работник' / ... / 'общественный_деятель'
             "payable_rub": Decimal,         # requested - discount_rub
         }

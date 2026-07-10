@@ -729,6 +729,20 @@ class ConsultationState(BaseState):
                     del session_ctx['force_role']
                 else:
                     detected_role = _detect_role(question) if not is_refinement else None
+                # WP-318 Ф9: фоновый Диагност подсказывает Навигатору,
+                # если cp-профиль отсутствует или устарел.
+                if detected_role == 'navigator' and user_chat_id:
+                    try:
+                        from engines.diagnostician import suggest_for_navigator
+                        from helpers.dual_write import resolve_ory_id_from_chat
+                        account_id = await resolve_ory_id_from_chat(user_chat_id)
+                        if account_id:
+                            cp_hint = await suggest_for_navigator(account_id, question)
+                            if cp_hint:
+                                bot_context += f"\n\n[Фоновый Диагност] {cp_hint}"
+                    except Exception as e:
+                        logger.warning(f"[Consultation] navigator cp hint failed: {e}")
+
                 role_prompt = None
                 if detected_role:
                     role_prompt = load_role_prompt(detected_role)
