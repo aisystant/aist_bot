@@ -115,10 +115,16 @@ def _build_keyboard(topic: str, more: bool):
 
 async def _show_topic(bot, chat_id: int, topic: str, more: bool = False) -> None:
     """Показать ориентацию по пункту (или расширение по «Подробнее»)."""
+    if topic not in X2_TOPICS:
+        logger.warning("[x2] _show_topic called with unknown topic %r", topic)
+        return
     idx = X2_TOPICS.index(topic) + 1
     body = _TOPIC_MORE[topic] if more else _TOPIC_TEXT[topic]
     text = f"({idx}/{len(X2_TOPICS)}) {body}"
-    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=_build_keyboard(topic, more))
+    try:
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=_build_keyboard(topic, more))
+    except Exception as e:
+        logger.error("[x2] failed to send topic %r: %s", topic, e)
 
 
 async def run_step(intern: dict, message) -> None:
@@ -138,8 +144,12 @@ async def run_step(intern: dict, message) -> None:
     if not confirmed and not ctx.get(_INTRO_SHOWN_KEY):
         # Флаг сохраняется ДО отправки: при сбое после save пользователь просто
         # не увидит интро один раз, а не увидит его дважды при повторном run_step.
+        # КРИТИЧЕСКИ: сохраняем ВСЕГДА, даже если send_message упадёт, чтобы избежать дубликатов
         await storage.save_onboarding_context(chat_id, {_INTRO_SHOWN_KEY: True})
-        await message.bot.send_message(chat_id, _INTRO_TEXT)
+        try:
+            await message.bot.send_message(chat_id, _INTRO_TEXT)
+        except Exception as e:
+            logger.warning("[x2] failed to send intro text: %s", e)
     await _show_topic(message.bot, chat_id, topic, more=False)
 
 
