@@ -104,7 +104,9 @@ async def cmd_feedback(message: Message, state: FSMContext):
                 logger.warning(f"[Feedback] /{cmd} not resolved in registry, direct go_to utility.feedback")
                 await dispatcher.go_to(intern, 'utility.feedback')
         except Exception as e:
-            logger.exception(f"[Feedback] Error routing /{cmd}: {e}")
+            logger.error(f"[Feedback] Error routing /{cmd}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             lang = intern.get('language', 'ru') or 'ru'
             await message.answer(t('errors.processing_error', lang))
         return

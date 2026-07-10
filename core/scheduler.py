@@ -1080,66 +1080,6 @@ async def _recheck_blocked_users():
     logger.info(f"[BlockedUser] Recheck complete: {cleared}/{len(chat_ids)} cleared")
 
 
-async def _notify_cp_diagnose() -> None:
-    """WP-318 Ф9: drain platform_outbox for cp_diagnose_suggested events.
-
-    Reads unprocessed rows, resolves TG chat_id, sends suggest_for_attestator() hint,
-    marks processed. Runs daily at 05:30 UTC (after stage_evaluator at ~04:xx UTC).
-    """
-    from db.connection import get_learning_pool
-    from engines.diagnostician.background import suggest_for_attestator
-
-    pool = await get_learning_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, user_uuid, payload
-            FROM operations.platform_outbox
-            WHERE event_type = 'cp_diagnose_suggested'
-              AND processed_at IS NULL
-            ORDER BY id
-            LIMIT 50
-            """
-        )
-        if not rows:
-            return
-
-        logger.info("[CpDiagnose] processing %d outbox rows", len(rows))
-        from aiogram import Bot
-        bot = Bot(token=_bot_token)
-        try:
-            for row in rows:
-                account_id = str(row["user_uuid"])
-                try:
-                    chat_id = await conn.fetchval(
-                        "SELECT telegram_id FROM public.users WHERE ory_id = $1",
-                        account_id,
-                    )
-                    if chat_id is not None:
-                        payload = row["payload"]
-                        if isinstance(payload, str):
-                            try:
-                                payload = json.loads(payload)
-                            except json.JSONDecodeError:
-                                logger.error("[CpDiagnose] unparseable payload row %d: %r", row["id"], payload[:100])
-                                continue  # marks as processed via outer finally (no retry)
-                        if not isinstance(payload, dict):
-                            logger.error("[CpDiagnose] unexpected payload type %s row %d", type(payload), row["id"])
-                            continue  # marks as processed via outer finally (no retry)
-                        cta = await suggest_for_attestator(account_id, payload.get("bh_recommended", 0))
-                        if cta:
-                            await bot.send_message(chat_id, cta)
-                except Exception as exc:
-                    logger.exception("[CpDiagnose] failed for account %s: %s", account_id[:8], exc)
-                finally:
-                    await conn.execute(
-                        "UPDATE operations.platform_outbox SET processed_at = now() WHERE id = $1",
-                        row["id"],
-                    )
-        finally:
-            await bot.session.close()
-
-
 async def _reconcile_dt_user_id():
     """Daily safety-net: fill public.users.dt_user_id where NULL.
 
@@ -1199,13 +1139,12 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
         _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
-    _scheduler.add_job(_notify_cp_diagnose, 'cron', hour=5, minute=30, id='notify_cp_diagnose', max_instances=1)  # WP-318 Ф9: drain cp_diagnose_suggested outbox after stage_evaluator
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
     _scheduler.add_job(_reconcile_dt_user_id, 'cron', hour=4, minute=15)  # peer-2026-06-25-09: dt_user_id safety-net (ory_id divergence)
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
-    _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0, max_instances=1)  # WP-330 P2: nudge при пропуске
+    _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
     _scheduler.add_job(_check_marathon_split_delivery, 'cron', hour='4,5,6', minute='5,35', id='marathon_split_watchdog', max_instances=1)  # WP-330 С5: split rollout watchdog (auto-noop вне 31.05 04:00-06:30 МСК)
     _scheduler.add_job(_recheck_blocked_users, 'cron', hour=6, minute=0)  # BFS2: recheck blocked users daily 06:00
@@ -2144,57 +2083,6 @@ async def _check_schedule_integrity(now) -> Optional[str]:
                           f"marathon_status={r['marathon_status']} but "
                           f"start_date={r['marathon_start_date']}, topic_index={r['current_topic_index']}")
 
-        # 3. Cross-DB sync: Railway marathon_status vs Neon marathon_progress.status
-        try:
-            from db.connection import get_learning_pool
-            _NEON_TO_RAILWAY = {
-                "registered": "not_started",
-                "active":     "active",
-                "paused":     "paused",
-                "completed":  "completed",
-                "dropped":    "not_started",
-            }
-            neon_pool = await get_learning_pool()
-            async with neon_pool.acquire() as neon_conn:
-                neon_rows = await neon_conn.fetch(
-                    "SELECT user_id, status FROM learning.marathon_progress"
-                )
-            neon_map = {r["user_id"]: r["status"] for r in neon_rows}
-
-            rw_rows = await conn.fetch(
-                "SELECT chat_id, marathon_status FROM development.user_state "
-                "WHERE marathon_status IS NOT NULL"
-            )
-            rw_map = {r["chat_id"]: r["marathon_status"] for r in rw_rows}
-
-            drift_ids: dict[str, list[int]] = {}  # target_status → [user_ids]
-            for user_id, neon_status in neon_map.items():
-                target = _NEON_TO_RAILWAY.get(neon_status)
-                if target is None or user_id not in rw_map:
-                    continue
-                if rw_map[user_id] != target:
-                    drift_ids.setdefault(target, []).append(user_id)
-
-            total_drift = sum(len(v) for v in drift_ids.values())
-            if drift_ids:
-                for target, ids in drift_ids.items():
-                    await conn.execute(
-                        "UPDATE development.user_state SET marathon_status = $1 "
-                        "WHERE chat_id = ANY($2::bigint[])",
-                        target, ids,
-                    )
-                issues.append(
-                    f"🔄 Railway↔Neon marathon_status: авто-исправлено {total_drift} расхождений "
-                    f"(Neon — источник истины)"
-                )
-                if total_drift > 5:
-                    issues.append(
-                        f"⚠️ Drift {total_drift} > 5 — возможен баг в коде синхронизации. "
-                        f"Проверить: python -m scripts.wp330_sync_marathon_status"
-                    )
-        except Exception as e:
-            logger.warning(f"[Integrity] cross-DB marathon_status sync failed: {e}")
-
     if not issues:
         return None
 
@@ -2370,6 +2258,7 @@ async def _send_slot_daily_prompt():
             await bot.session.close()
     except Exception as e:
         logger.exception(f"[SlotPrompt] Error in _send_slot_daily_prompt: {e}")
+
 
 async def send_milestone_notifications():
     """Отправить milestone-уведомления (C3): 7/14/30/60/90 дней."""

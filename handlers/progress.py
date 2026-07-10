@@ -287,7 +287,9 @@ async def show_full_progress(callback: CallbackQuery):
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
-        logger.exception(f"Ошибка в show_full_progress: {e}")
+        logger.error(f"Ошибка в show_full_progress: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         try:
             intern = await get_intern(callback.message.chat.id)
             lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'

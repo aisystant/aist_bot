@@ -256,7 +256,8 @@ async def get_missed_streak(user_id: int, working_days: list[int] | None = None)
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''WITH user_progress AS (
+            '''WITH working_days AS (SELECT $2::int[] AS wd),
+                 user_progress AS (
                      SELECT COALESCE(started_at, created_at)::DATE AS start_date
                      FROM learning.marathon_progress
                      WHERE user_id = $1
@@ -271,7 +272,7 @@ async def get_missed_streak(user_id: int, working_days: list[int] | None = None)
                  ),
                  relevant_days AS (
                      SELECT d FROM days_series
-                     WHERE EXTRACT(DOW FROM d)::int = ANY($2::int[])
+                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
                  ),
                  activity AS (
                      SELECT activity_date FROM learning.marathon_activity
@@ -460,7 +461,8 @@ async def get_missed_checkin_users(min_days: int = 2, working_days: list[int] | 
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''WITH active_users AS (
+            '''WITH working_days AS (SELECT $2::int[] AS wd),
+                 active_users AS (
                      SELECT user_id,
                             COALESCE(started_at, created_at)::DATE AS start_date,
                             current_day
@@ -477,7 +479,7 @@ async def get_missed_checkin_users(min_days: int = 2, working_days: list[int] | 
                  ),
                  relevant_days AS (
                      SELECT user_id, d FROM days_series
-                     WHERE EXTRACT(DOW FROM d)::int = ANY($2::int[])
+                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
                  ),
                  activity AS (
                      SELECT user_id, activity_date
@@ -533,7 +535,8 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''WITH active_users AS (
+            '''WITH working_days AS (SELECT $2::int[] AS wd),
+                 active_users AS (
                      SELECT user_id,
                             COALESCE(started_at, created_at)::DATE AS start_date,
                             current_day
@@ -542,7 +545,7 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
                  ),
                  days_series AS (
                      SELECT user_id, generate_series(
-                         GREATEST(start_date, CURRENT_DATE - INTERVAL '30 days'),
+                         start_date,
                          CURRENT_DATE - INTERVAL '1 day',
                          '1 day'
                      )::DATE AS d
@@ -550,7 +553,7 @@ async def get_users_for_nudge(limit: int = 100, working_days: list[int] | None =
                  ),
                  relevant_days AS (
                      SELECT user_id, d FROM days_series
-                     WHERE EXTRACT(DOW FROM d)::int = ANY($2::int[])
+                     WHERE EXTRACT(DOW FROM d) = ANY((SELECT wd FROM working_days))
                  ),
                  activity AS (
                      SELECT user_id, activity_date

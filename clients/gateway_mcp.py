@@ -839,8 +839,7 @@ class GatewayMCPClient:
 
     async def list_llm_keys(self, telegram_user_id: int) -> Optional[list]:
         """Список BYOK LLM-ключей пользователя (маскированные)."""
-        # WP-410 Ф4б: инструмент переехал в Mode A (user-profile-service), шлюз отдаёт с префиксом user_profile_
-        result = await self._call("user_profile_list_llm_keys", {}, telegram_user_id=telegram_user_id)
+        result = await self._call("list_llm_keys", {}, telegram_user_id=telegram_user_id)
         parsed = self._parse_text_content(result)
         if isinstance(parsed, dict):
             return parsed.get("keys", [])
@@ -854,16 +853,16 @@ class GatewayMCPClient:
         label: Optional[str] = None,
         is_default: bool = False,
     ) -> Optional[dict]:
-        """Сохранить LLM API-ключ (шифрование в user-profile-service)."""
+        """Сохранить LLM API-ключ (зашифровывается в gateway)."""
         args: dict = {"provider": provider, "api_key": api_key, "is_default": is_default}
         if label:
             args["label"] = label
-        result = await self._call("user_profile_grant_llm_key", args, telegram_user_id=telegram_user_id)
+        result = await self._call("grant_llm_key", args, telegram_user_id=telegram_user_id)
         return self._parse_text_content(result)
 
     async def revoke_llm_key(self, telegram_user_id: int, key_id: str) -> Optional[dict]:
         """Отозвать LLM API-ключ по UUID."""
-        result = await self._call("user_profile_revoke_llm_key", {"key_id": key_id}, telegram_user_id=telegram_user_id)
+        result = await self._call("revoke_llm_key", {"key_id": key_id}, telegram_user_id=telegram_user_id)
         return self._parse_text_content(result)
 
     # =========================================================================

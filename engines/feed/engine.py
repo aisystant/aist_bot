@@ -238,9 +238,11 @@ class FeedEngine:
             depth_level=depth_level,
         )
 
-        # Провал генерации → не сохраняем заглушку как дайджест
-        if not content or not content.get('main_content'):
-            return None, t('errors.try_again', lang)
+        if content is None:
+            # generate_multi_topic_digest возвращает None при провале генерации
+            # (Ф-Bot-Digest-MaxTokens, WP-7, 2026-07-06) — без этой проверки
+            # content.get() ниже упал бы с AttributeError вместо retry-сообщения.
+            return None, t('errors.generation_timeout', lang)
 
         # Создаём сессию (topic_title = все темы через запятую)
         topics_title = ", ".join(topics)

@@ -81,12 +81,6 @@ PATTERNS: list[dict] = [
     {"category": "claude_api", "severity": "L2",
      "pattern": r"(?i)invalid.*response.*claude|json.*decode.*anthropic",
      "action": "PR: fix response parsing"},
-    # 401/403/422 — НЕ transient (BDR1): auth/permission/validation. Раньше падали в
-    # общую ветку «Claude API error {status}» → logger-hint метил claude_api/L1 (тихо).
-    # Теперь L3 (infra) → check_escalation эскалирует в течение часа.
-    {"category": "claude_api", "severity": "L3",
-     "pattern": r"(?i)Claude API auth/proxy error|authentication_error|permission_error|Claude API error (?:401|403|422)|status.?code.*(?:401|403|422)",
-     "action": "Infra: проверь PROXY_SHARED_SECRET / прокси-аутентификацию (НЕ transient, retry бесполезен)"},
 
     # --- Telegram API (§ 3.4) ---
     {"category": "telegram_api", "severity": "L1",
