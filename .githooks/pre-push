@@ -63,6 +63,23 @@ while read local_ref local_sha remote_ref remote_sha; do
             exit 1
         fi
         echo "⚠️  FORCE_PROD=1 — push в ${PROTECTED_BRANCH} разрешён."
+
+        # ─── PRODSYNC2: видимость обратного разрыва (backport drift) ───
+        # Принцип (пир-сессия 2026-07-09-18): backport хотфикса в pilot — критерий
+        # закрытия хотфикса, не отложенный шаг. Хук не блокирует push (инцидент
+        # нельзя тормозить), но громко показывает счётчик после каждого прод-пуша,
+        # чтобы разрыв не рос молча неделями (см. PRODSYNC1: 24 → 43 → 105+ коммитов).
+        if git show-ref --verify --quiet refs/heads/pilot; then
+            drift_count=$(git cherry pilot "$local_sha" 2>/dev/null | grep -c '^+')
+            if [ "$drift_count" -gt 10 ]; then
+                echo ""
+                echo "🔶 BACKPORT DRIFT: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
+                echo "    в pilot (git cherry, по содержимому патча). Порог 10 превышен."
+                echo "    → Запланируй раунд синхронизации (пир-сессия DP.SC.154, по образцу"
+                echo "      PRODSYNC1/PRODSYNC2), не откладывай — разрыв растёт молча."
+                echo ""
+            fi
+        fi
     fi
 done
 
