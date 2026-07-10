@@ -135,6 +135,8 @@ async def main() -> None:
     parser.add_argument("--chat-id", type=int, required=True, help="Telegram chat_id")
     parser.add_argument("--email", required=True, help="Aisystant email to link")
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen, don't write")
+    parser.add_argument("--force-relink", action="store_true",
+                         help="Allow relinking an email already linked to a DIFFERENT chat_id")
     args = parser.parse_args()
 
     db_url = os.environ.get("DATABASE_URL")
@@ -184,14 +186,29 @@ async def main() -> None:
             await bot_pool.close()
             await persona_pool.close()
             sys.exit(1)
+        email_telegram_id = persona_by_email.get('telegram_id')
+        email_linked_here = email_telegram_id == args.chat_id
         print(f"  account_id    : {persona_by_email.get('account_id')}")
-        print(f"  telegram_id   : {persona_by_email.get('telegram_id')} {'✅ already linked' if persona_by_email.get('telegram_id') else '❌ NULL'}")
+        if email_telegram_id is None:
+            print(f"  telegram_id   : None ❌ NULL")
+        elif email_linked_here:
+            print(f"  telegram_id   : {email_telegram_id} ✅ already linked to this chat_id")
+        else:
+            print(f"  telegram_id   : {email_telegram_id} ⚠️ ALREADY LINKED TO A DIFFERENT chat_id={email_telegram_id}")
         print(f"  aisystant_id  : {persona_by_email.get('aisystant_id')} {'✅' if persona_by_email.get('aisystant_id') else '❌ NULL in traits'}")
 
         aisystant_id = persona_by_email.get('aisystant_id')
         if not aisystant_id:
             print("\n  ERROR: No aisystant_id in traits for this email")
             print("  → Aisystant account may not be fully set up")
+            await bot_pool.close()
+            await persona_pool.close()
+            sys.exit(1)
+
+        if email_telegram_id is not None and not email_linked_here and not args.force_relink:
+            print(f"\n  ERROR: email {args.email} is already linked to a DIFFERENT chat_id={email_telegram_id}")
+            print(f"  → Relinking to chat_id={args.chat_id} would strand the other account's telegram_id.")
+            print(f"  → Re-run with --force-relink to proceed anyway (manual verification required).")
             await bot_pool.close()
             await persona_pool.close()
             sys.exit(1)
