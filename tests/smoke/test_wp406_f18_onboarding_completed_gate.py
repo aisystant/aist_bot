@@ -10,6 +10,10 @@ WP-406 Ф18: onboarding_completed логируется только когда �
   test_x3_closes_first_no_event    Х2 ещё не закрыт -> Х3 не логирует onboarding_completed
   test_x2_closes_second_after_x3   Х3 уже закрыт -> Х2 логирует onboarding_completed
   test_x2_closes_first_no_event    Х3 ещё не закрыт -> Х2 не логирует onboarding_completed
+
+Backlog-guard (найдено 2026-07-11 живым дублем в проде, user_id=801926288 —
+три onboarding_completed за 11 секунд от повторного тапа):
+  test_x3_confirm_double_tap_no_duplicate_event   Х3 уже закрыт -> повторный тап молчит
 """
 
 import uuid
@@ -121,3 +125,26 @@ async def test_x2_closes_first_no_event():
     logged_events = [call.args[1] for call in mock_log.await_args_list]
     assert "onboarding_completed" not in logged_events
     assert "x2_completed" in logged_events
+
+
+@pytest.mark.asyncio
+async def test_x3_confirm_double_tap_no_duplicate_event():
+    """Х3 уже закрыт (повторный тап по устаревшей кнопке) -> ни x3_completed,
+    ни onboarding_completed не логируются повторно (WP-406 Ф18 backlog-guard)."""
+    callback = _mock_callback("x3_confirm:marathon:0")
+
+    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
+               return_value={"x2_done": True, "x3_done": True}), \
+         patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock) as mock_mark, \
+         patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock), \
+         patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
+               return_value={"entry_type": "direct"}), \
+         patch("handlers.onboarding.get_intern", new_callable=AsyncMock,
+               return_value={"language": "ru"}), \
+         patch("db.queries.events.log_event", new_callable=AsyncMock) as mock_log:
+        from handlers.onboarding import on_x3_confirm
+        await on_x3_confirm(callback)
+
+    mock_mark.assert_not_awaited()
+    mock_log.assert_not_awaited()
+    callback.message.answer.assert_not_awaited()
