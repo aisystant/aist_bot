@@ -180,6 +180,7 @@ def _vscode_install_link() -> str:
 @connect_router.callback_query(F.data == "iwe_vscode")
 async def on_vscode(callback: CallbackQuery):
     """Инструкция подключения VS Code — one-click диплинк (DP.SC.190 SC3)."""
+    logger.info(f"[on_vscode] Callback triggered for user {callback.from_user.id}")
     await callback.answer()
     intern = await get_intern(callback.from_user.id)
     lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
@@ -189,6 +190,7 @@ async def on_vscode(callback: CallbackQuery):
         [InlineKeyboardButton(text="Добавить в VS Code", url=_vscode_install_link())],
         *_back_button(lang),
     ])
+    logger.info(f"[on_vscode] Sending instruction with keyboard, {len(keyboard.inline_keyboard)} rows")
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
