@@ -301,16 +301,15 @@ async def cmd_points(message: Message):
     if has_subscription:
         text += f"Всего бонусов: <b>{_fmt_pts(int(balance_num))}</b>\n"
         text += f"Начислено за сегодня: {today_bonus_line}\n"
-        if balance_num > 0:
-            discount_rub = int(balance_num * float(rate))
-            text += f"Доступная скидка: <b>~{_fmt_pts(discount_rub)} ₽</b>\n"
         text += f"\nКурс: <b>{float(rate):.2f} ₽/бонус</b>"
-        # WP-327 v4.4: hint про целевой курс 0.20 пока курс ниже него
-        if 0 < float(rate) < 0.20:
+        # WP-327 v4.4: hint про целевой курс 0.20 если стартовый в диапазоне (0, 0.10]
+        if 0 < float(rate) <= 0.10:
             text += " (целевой — 0.20, бонусы дорожают)"
-        text += ".\n"
-        if balance_num == 0:
-            text += "Развивайся систематично — бонусы растут с квалификацией.\n"
+        text += ". "
+        text += (
+            "Бонусы можно использовать при оплате. "
+            "Чтобы увеличить бонусы — повышай квалификацию, работай и развивайся систематично.\n"
+        )
     else:
         sub_url = PLATFORM_URLS.get("subscription", "https://system-school.ru/open-endedness")
         text += "💎 <b>Бонусы:</b> доступны по подписке «Инженерия интеллекта»\n"
@@ -375,22 +374,6 @@ async def cb_points_show_rules(callback: CallbackQuery):
     """Inline-кнопка «Правила начисления» → отправляет /rules ответом."""
     await callback.answer()
     await cmd_rules(callback.message)
-
-
-@points_router.callback_query(F.data == "points_how_to_spend")
-async def cb_points_how_to_spend(callback: CallbackQuery):
-    """Inline-кнопка «Где потратить бонусы?»."""
-    await callback.answer()
-    text = (
-        "💡 <b>Как потратить бонусы</b>\n\n"
-        "Бонусы применяются при оплате:\n"
-        "• <b>Семинара</b> — выбери семинар, нажми «Оплатить»; "
-        "если в копилке есть бонусы, система предложит скидку автоматически\n"
-        "• <b>Подписки «Инженерия интеллекта»</b> — аналогично при продлении\n\n"
-        "<i>Скидка рассчитывается по курсу в момент оплаты. "
-        "Чем выше квалификация — тем больше суточный потолок бонусов.</i>"
-    )
-    await callback.message.answer(text, parse_mode="HTML")
 
 
 # WP-311 Ф7 (DP.SC.136): команда /rules — правила игры

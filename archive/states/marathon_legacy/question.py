@@ -14,7 +14,7 @@ from aiogram.types import Message, ReplyKeyboardMarkup, ReplyKeyboardRemove, Key
 from states.base import BaseState
 from i18n import t
 from helpers.message_split import prepare_html_parts
-from db.queries import update_intern, save_answer, record_active_day
+from db.queries import update_intern, save_answer
 from db.queries.events import log_event
 from db.queries.answers import get_theory_count_at_level
 from db.queries.marathon import get_marathon_content, save_marathon_content
@@ -286,12 +286,6 @@ class MarathonQuestionState(BaseState):
                 complexity_level=bloom_level,
                 topics_at_current_complexity=topics_at_bloom
             )
-
-            # Записываем активный день
-            try:
-                await record_active_day(chat_id, 'theory_answer', mode='marathon')
-            except Exception as e:
-                logger.warning(f"Не удалось записать активность для {chat_id}: {e}")
 
         # Подтверждение + кнопка навигации (убираем reply keyboard)
         await self.send(user, f"✅ *{t('marathon.topic_completed', lang)}*", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())

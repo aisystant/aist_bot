@@ -2359,6 +2359,19 @@ async def external_auth_exchange_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "code not found or expired"}, status=404)
 
     logger.info("[ExternalAuth] exchange: issued token tier=%s for account %s", computed_tier, result["account_id"])
+
+    # DP.SC.190 Q2: аудит-лог выдачи внешнего пропуска (кто и когда получил доступ).
+    try:
+        from db.queries.events import log_event
+        await log_event(
+            chat_id,
+            "external_client_token_issued",
+            payload={"account_id": result["account_id"], "tier": computed_tier, "scope": result["scope"]},
+            source="bot",
+        )
+    except Exception:
+        logger.warning("[ExternalAuth] exchange: audit log_event failed for chat_id=%s", chat_id)
+
     return web.json_response({
         "access_token": at_plain,
         "refresh_token": rt_plain,

@@ -128,7 +128,8 @@ async def select_marathon(callback: CallbackQuery):
         await callback.answer()
 
     except Exception as e:
-        logger.exception(f"Ошибка в select_marathon: {e}")
+        import traceback
+        logger.error(f"Ошибка в select_marathon: {e}\n{traceback.format_exc()}")
         await callback.answer(t('modes.error_occurred', 'ru'), show_alert=True)
 
 
@@ -457,7 +458,8 @@ async def marathon_reset_confirm(callback: CallbackQuery):
         await callback.answer()
 
     except Exception as e:
-        logger.exception(f"Ошибка в marathon_reset_confirm: {e}")
+        import traceback
+        logger.error(f"Ошибка в marathon_reset_confirm: {e}\n{traceback.format_exc()}")
         await callback.answer(t('modes.error_occurred', lang if 'lang' in dir() else 'ru'), show_alert=True)
 
 
@@ -869,7 +871,8 @@ async def select_training(callback: CallbackQuery, state: FSMContext):
         await show_dashboard(callback.message, engine, state, edit=True)
 
     except Exception as e:
-        logger.exception(f"Ошибка в select_training: {e}")
+        import traceback
+        logger.error(f"Ошибка в select_training: {e}\n{traceback.format_exc()}")
         await callback.answer(t('modes.error_occurred', 'ru'), show_alert=True)
 
 
@@ -953,7 +956,8 @@ async def select_feed(callback: CallbackQuery):
         await callback.answer()
 
     except Exception as e:
-        logger.exception(f"Ошибка в select_feed: {e}")
+        import traceback
+        logger.error(f"Ошибка в select_feed: {e}\n{traceback.format_exc()}")
         await callback.answer(t('errors.try_again', 'ru'), show_alert=True)
 
 

@@ -72,9 +72,7 @@ async def detect_ui_tier(chat_id: int) -> int:
     # full access over that path now requires connecting MCP/GitHub (which makes
     # user-profile-service write T3/T4), not this local persist.
     if _DEV_CHAT_ID and str(chat_id) == _DEV_CHAT_ID:
-        await _persist_tier(chat_id, UITier.T4_CREATION)
-        _tier_cache[chat_id] = UITier.T5_ADMIN
-        _tier_cache_ts[chat_id] = time.monotonic()
+        asyncio.create_task(_persist_tier(chat_id, UITier.T4_CREATION))
         return UITier.T5_ADMIN
 
     # TTL cache: return cached tier if detected recently (avoids Aisystant HTTP on every command)
@@ -111,6 +109,12 @@ async def detect_ui_tier(chat_id: int) -> int:
         asyncio.create_task(_persist_tier(chat_id, new_tier))
         if new_tier < prev_tier:
             asyncio.create_task(_notify_downgrade(chat_id, prev_tier, new_tier))
+            # DP.SC.190 Q1: fail-secure revoke of external-client (ict_) tokens on drop below T3.
+            if new_tier < UITier.T3_PERSONALIZATION <= prev_tier:
+                asyncio.create_task(_revoke_external_client_tokens(chat_id))
+        elif prev_tier < UITier.T3_PERSONALIZATION <= new_tier:
+            # DP.SC.190 SC1: push-предложение подключения внешних AI-клиентов при первом достижении T3/T4.
+            asyncio.create_task(_notify_external_client_available(chat_id))
     elif prev_tier is None:
         # First detection after deploy — persist current tier
         asyncio.create_task(_persist_tier(chat_id, new_tier))
@@ -320,3 +324,51 @@ async def _notify_downgrade(chat_id: int, from_tier: int, to_tier: int) -> None:
             await bot.session.close()
     except Exception as e:
         logger.error(f"[Tier] Failed to send downgrade notification: {e}")
+
+
+async def _notify_external_client_available(chat_id: int) -> None:
+    """Push-предложение подключить claude.ai/VS Code при первом достижении T3/T4 (DP.SC.190 SC1)."""
+    try:
+        from db.queries.external_clients import list_client_tokens
+        from helpers.dual_write import resolve_ory_id_from_chat
+
+        account_id = await resolve_ory_id_from_chat(chat_id)
+        if account_id and await list_client_tokens(account_id):
+            return  # уже подключён — не дублировать предложение
+
+        bot_token = os.getenv("BOT_TOKEN")
+        if not bot_token:
+            return
+
+        from aiogram import Bot
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        bot = Bot(token=bot_token)
+        try:
+            await bot.send_message(
+                chat_id,
+                "Твои знания теперь доступны не только в боте — можно подключить claude.ai или VS Code.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="Подключить", callback_data="iwe_connect_start"),
+                ]]),
+            )
+        finally:
+            await bot.session.close()
+    except Exception as e:
+        logger.error(f"[Tier] Failed to send external-client push for {chat_id}: {e}")
+
+
+async def _revoke_external_client_tokens(chat_id: int) -> None:
+    """Отзыв внешних (ict_) пропусков при падении тира ниже T3 (DP.SC.190 Q1, fail-secure)."""
+    try:
+        from db.queries.external_clients import revoke_all_client_tokens
+        from helpers.dual_write import resolve_ory_id_from_chat
+
+        account_id = await resolve_ory_id_from_chat(chat_id)
+        if not account_id:
+            return
+        revoked = await revoke_all_client_tokens(account_id)
+        if revoked:
+            logger.info(f"[Tier] Revoked {revoked} external client token(s) for {chat_id} (dropped below T3)")
+    except Exception as e:
+        logger.error(f"[Tier] Failed to revoke external client tokens for {chat_id}: {e}")

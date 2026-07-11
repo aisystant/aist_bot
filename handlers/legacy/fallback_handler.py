@@ -77,7 +77,9 @@ async def legacy_on_unknown_message(message: Message, state: FSMContext):
                 await on_bonus_answer(message, state, message.bot)
                 return
         except Exception as e:
-            logger.exception(f"[UNKNOWN] Error routing to handler: {e}")
+            logger.error(f"[UNKNOWN] Error routing to handler: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             await message.answer(t('fsm.error_try_learn', lang))
             return
 

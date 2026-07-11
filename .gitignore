@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.env.test
 .secrets
 .venv/
 _backups/
+tests/test-telegram/*.session
+tests/test-telegram/*.session-journal

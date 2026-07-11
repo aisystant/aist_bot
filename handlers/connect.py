@@ -12,8 +12,10 @@ Settings = управление подключениями БОТА (Gateway, Gi
 кнопка «Подключить IWE» вызовет этот wizard.
 """
 
+import json
 import logging
 import os
+import urllib.parse
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -21,6 +23,7 @@ from aiogram.filters import Command, CommandObject
 
 from config import GATEWAY_MCP_URL, ORY_CLIENT_ID
 from db.queries import get_intern
+from db.queries.external_clients import create_auth_code, list_client_tokens, revoke_client_token
 from helpers.dual_write import resolve_ory_id_from_chat
 from clients.ory_oauth import ory_oauth
 from i18n import t
@@ -49,6 +52,7 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 Claude (claude.ai)", callback_data="iwe_claude")],
         [InlineKeyboardButton(text="⌨️ Cursor / Windsurf / Cline", callback_data="iwe_cursor")],
+        [InlineKeyboardButton(text="🖥 VS Code", callback_data="iwe_vscode")],
         [InlineKeyboardButton(text="💬 ChatGPT", callback_data="iwe_chatgpt")],
         [InlineKeyboardButton(text="🖥 Claude Code (полный IWE)", callback_data="iwe_claude_code")],
         [InlineKeyboardButton(text=t('connect.done', lang), callback_data="iwe_close")],
@@ -72,6 +76,12 @@ async def _build_t0_gate_message(chat_id: int) -> tuple[str | None, InlineKeyboa
         [InlineKeyboardButton(text="Зарегистрироваться на Aisystant", url=auth_url)],
     ])
     return text, keyboard
+
+
+@connect_router.message(Command("connect_external"))
+async def cmd_connect_external(message: Message):
+    """Команда /connect_external — алиас на подключение внешнего клиента, для пункта меню бота."""
+    await _handle_connect_external(message)
 
 
 @connect_router.message(Command("connect"))
@@ -119,8 +129,8 @@ async def on_connect_start(callback: CallbackQuery):
 
 # ============= CLIENT INSTRUCTIONS =============
 
-def _back_button(lang: str) -> list:
-    return [InlineKeyboardButton(text=t('connect.back_to_list', lang), callback_data="iwe_back")]
+def _back_button(lang: str) -> list[list]:
+    return [[InlineKeyboardButton(text=t('connect.back_to_list', lang), callback_data="iwe_back")]]
 
 
 @connect_router.callback_query(F.data == "iwe_claude")
@@ -136,7 +146,7 @@ async def on_claude(callback: CallbackQuery):
             text=t('connect.open_claude', lang),
             url="https://claude.ai/customize/connectors",
         )],
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -150,8 +160,37 @@ async def on_cursor(callback: CallbackQuery):
 
     text = t('connect.cursor_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        _back_button(lang),
+        *_back_button(lang),
     ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+def _vscode_install_link() -> str:
+    """Диплинк VS Code для one-click добавления MCP-сервера (DP.SC.190 SC3).
+
+    Без токена: OAuth проходит нативно в VS Code при первом обращении к
+    GATEWAY_MCP_URL (тот же Ory-аккаунт, что и claude.ai Connector) — в
+    отличие от ict_-пути (/connect_external), рассчитанного на CLI-клиенты
+    без браузера.
+    """
+    cfg = {"name": "Aisystant MCP", "type": "http", "url": GATEWAY_MCP_URL}
+    return "vscode:mcp/install?" + urllib.parse.quote(json.dumps(cfg))
+
+
+@connect_router.callback_query(F.data == "iwe_vscode")
+async def on_vscode(callback: CallbackQuery):
+    """Инструкция подключения VS Code — one-click диплинк (DP.SC.190 SC3)."""
+    logger.info(f"[on_vscode] Callback triggered for user {callback.from_user.id}")
+    await callback.answer()
+    intern = await get_intern(callback.from_user.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    text = t('connect.vscode_instructions', lang, gateway_url=GATEWAY_MCP_URL)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Добавить в VS Code", url=_vscode_install_link())],
+        *_back_button(lang),
+    ])
+    logger.info(f"[on_vscode] Sending instruction with keyboard, {len(keyboard.inline_keyboard)} rows")
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
@@ -164,7 +203,7 @@ async def on_chatgpt(callback: CallbackQuery):
 
     text = t('connect.chatgpt_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -178,7 +217,7 @@ async def on_claude_code(callback: CallbackQuery):
 
     text = t('connect.claude_code_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -214,10 +253,7 @@ async def _handle_connect_external(message: Message):
     logger.info(f"[ConnectExternal] START chat_id={chat_id}")
 
     account_id = await resolve_ory_id_from_chat(chat_id)
-    logger.info(f"[ConnectExternal] account_id={account_id!r} for chat_id={chat_id}")
-
     if not account_id:
-        logger.info(f"[ConnectExternal] no account_id — sending warning to {chat_id}")
         await message.answer(
             "⚠️ Твой аккаунт ещё не связан с платформой. "
             "Пройди онбординг и попробуй снова."
@@ -226,13 +262,10 @@ async def _handle_connect_external(message: Message):
 
     try:
         code = await create_auth_code(chat_id, account_id)
-        logger.info(f"[ConnectExternal] code created for chat_id={chat_id}")
     except Exception as exc:
         logger.error(f"[ConnectExternal] create_auth_code failed for chat_id={chat_id}: {exc}", exc_info=True)
         await message.answer("⚠️ Ошибка создания кода, попробуй позже.")
         return
-
-    exchange_url = f"{_BOT_AUTH_BASE}/internal/auth/exchange" if _BOT_AUTH_BASE else "<BOT_URL>/internal/auth/exchange"
 
     text = (
         "🔑 *Код подключения внешнего клиента*\n\n"
@@ -245,10 +278,8 @@ async def _handle_connect_external(message: Message):
         "Увидишь галочки — всё работает и токен сохранён.\n\n"
         "Активные подключения: /my\\_clients"
     )
-    logger.info(f"[ConnectExternal] sending code message to chat_id={chat_id}")
     try:
         await message.answer(text, parse_mode="Markdown")
-        logger.info(f"[ConnectExternal] message sent OK to chat_id={chat_id}")
     except Exception as exc:
         logger.error(f"[ConnectExternal] message.answer failed for chat_id={chat_id}: {exc}", exc_info=True)
         await message.answer(f"Код: `{code}` (5 мин)", parse_mode="Markdown")
@@ -268,7 +299,7 @@ async def cmd_my_clients(message: Message):
     if not tokens:
         await message.answer(
             "Нет активных внешних подключений.\n\n"
-            "Чтобы подключить внешний клиент: /connect_external"
+            "Чтобы подключить внешний клиент: /connect external"
         )
         return
 

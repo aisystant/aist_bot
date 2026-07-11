@@ -2,16 +2,14 @@
 Абстракция канала доставки занятий Портного (WP-149, SC.020).
 
 TailorPort — канало-независимый интерфейс.
+Реализации: BotTailorAdapter (Telegram), IWETailorAdapter (Claude Code, Ф3+).
+
 Принцип (DP.D.042): engine.py = логика (канало-независимая),
-port.py = интерфейс + callback-константы канала.
+port.py = интерфейс канала, *_adapter.py = реализация канала.
 """
 
 from abc import ABC, abstractmethod
 from typing import Optional
-
-# Callback-prefixes для inline-кнопок занятия
-CB_TAILOR_ANSWER = "tailor_answer"
-CB_TAILOR_SKIP = "tailor_skip"
 
 
 class LessonDeliveryResult:

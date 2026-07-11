@@ -538,6 +538,41 @@ connect:
 
       Restart the editor. First call will prompt browser auth.
 
+  # --- VS Code (native MCP, one-click) ---
+  vscode_instructions:
+    ru: |
+      *VS Code*
+
+      Нажми кнопку «Добавить в VS Code» ниже — сервер добавится сам, без ручной правки файлов.
+      При первом обращении откроется браузер для входа (тот же аккаунт, что и в боте).
+
+      Если кнопка не сработала — добавь вручную в `.vscode/mcp.json`:
+
+      ```
+      "servers": {{
+        "Aisystant MCP": {{
+          "type": "http",
+          "url": "{gateway_url}"
+        }}
+      }}
+      ```
+    en: |
+      *VS Code*
+
+      Tap "Add to VS Code" below — the server is added automatically, no manual file editing.
+      On first use, a browser will open for sign-in (same account as the bot).
+
+      If the button doesn't work — add manually to `.vscode/mcp.json`:
+
+      ```
+      "servers": {{
+        "Aisystant MCP": {{
+          "type": "http",
+          "url": "{gateway_url}"
+        }}
+      }}
+      ```
+
   # --- ChatGPT ---
   chatgpt_instructions:
     ru: |
@@ -2389,8 +2424,8 @@ profile:
     en: "Active day = answer a lesson, task, digest, or question"
 
   select_field_hint:
-    ru: "Вы в разделе редактирования профиля. Нажмите одну из кнопок выше, чтобы изменить нужное поле, или «Назад», чтобы выйти."
-    en: "You're in profile editing. Tap a button above to edit a field, or «Back» to exit."
+    ru: "Нажмите кнопку выше, чтобы выбрать поле для редактирования"
+    en: "Tap a button above to select a field to edit"
 
   your_profile:
     ru: "Ваш профиль"

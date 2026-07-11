@@ -140,7 +140,7 @@ async def cb_feed(callback: CallbackQuery, state: FSMContext):
 async def cb_tailor_actions(callback: CallbackQuery, state: FSMContext):
     """Обработка Tailor callback-ов (Ответить / Пропустить)."""
     from handlers import get_dispatcher
-    from engines.tailor.port import CB_TAILOR_ANSWER, CB_TAILOR_SKIP
+    from engines.tailor.bot_adapter import CB_TAILOR_ANSWER, CB_TAILOR_SKIP
 
     dispatcher = get_dispatcher()
     chat_id = callback.message.chat.id
@@ -320,7 +320,9 @@ async def cb_marathon_actions(callback: CallbackQuery, state: FSMContext):
             await dispatcher.route_callback(intern, callback)
 
     except Exception as e:
-        logger.exception(f"[CB] Error handling marathon callback: {e}")
+        logger.error(f"[CB] Error handling marathon callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
 
@@ -383,7 +385,9 @@ async def cb_feed_actions(callback: CallbackQuery, state: FSMContext):
             await dispatcher.go_to(intern, "feed.digest")
 
     except Exception as e:
-        logger.exception(f"[CB] Error handling feed callback: {e}")
+        logger.error(f"[CB] Error handling feed callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
@@ -450,7 +454,9 @@ async def cb_settings_actions(callback: CallbackQuery, state: FSMContext, intern
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.exception(f"[CB] Error handling profile/settings callback: {e}")
+        logger.error(f"[CB] Error handling profile/settings callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
@@ -556,7 +562,9 @@ async def cb_mydata_actions(callback: CallbackQuery, state: FSMContext, intern: 
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.exception(f"[CB] Error handling mydata callback: {e}")
+        logger.error(f"[CB] Error handling mydata callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
@@ -612,7 +620,9 @@ async def cb_progress_actions(callback: CallbackQuery, state: FSMContext, intern
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.exception(f"[CB] Error handling progress callback: {e}")
+        logger.error(f"[CB] Error handling progress callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
@@ -646,7 +656,9 @@ async def cb_plans_actions(callback: CallbackQuery, state: FSMContext, intern: d
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.exception(f"[CB] Error handling plans callback: {e}")
+        logger.error(f"[CB] Error handling plans callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
@@ -680,7 +692,9 @@ async def cb_assessment_actions(callback: CallbackQuery, state: FSMContext, inte
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.exception(f"[CB] Error handling assessment callback: {e}")
+        logger.error(f"[CB] Error handling assessment callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))
@@ -835,7 +849,9 @@ async def cb_qa_feedback(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
 
     except Exception as e:
-        logger.exception(f"[CB] Error handling qa feedback: {e}")
+        logger.error(f"[CB] Error handling qa feedback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
 
 
@@ -869,7 +885,9 @@ async def cb_feedback_actions(callback: CallbackQuery, state: FSMContext, intern
     try:
         await dispatcher.route_callback(intern, callback)
     except Exception as e:
-        logger.exception(f"[CB] Error handling feedback callback: {e}")
+        logger.error(f"[CB] Error handling feedback callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await callback.answer()
         lang = intern.get('language', 'ru') or 'ru'
         await callback.message.answer(t('errors.try_again', lang))

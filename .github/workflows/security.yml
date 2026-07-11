@@ -17,8 +17,6 @@ jobs:
           python-version: "3.11"
       - run: pip install pip-audit
       - name: pip audit
-        # pip-audit has no --severity flag; the prior `--severity high` was parsed
-        # as a positional project_path and crashed every run (B5.3 red on all PRs).
         run: pip-audit -r requirements.txt
 
   bandit:
