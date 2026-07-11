@@ -4,6 +4,7 @@ Middleware для aiogram.
 LoggingMiddleware — логирование входящих сообщений.
 TracingMiddleware — request-scoped трейсинг с записью в Neon.
 RateLimitMiddleware — per-user rate limiting (sliding window, in-memory).
+UpdateDedupMiddleware — отбрасывает повторную доставку одного update_id (webhook retry).
 """
 
 import asyncio
@@ -24,6 +25,49 @@ from config.settings import (
 from core.tracing import start_trace, finish_trace
 
 logger = logging.getLogger(__name__)
+
+
+class UpdateDedupMiddleware(BaseMiddleware):
+    """Отбрасывает повторно доставленный update (webhook retry при медленном ответе).
+
+    Bot работает в webhook-режиме (aiogram SimpleRequestHandler): апдейт
+    обрабатывается синхронно внутри HTTP-запроса. Если обработка занимает
+    долго (holodный старт после деплоя, несколько DB round-trip подряд —
+    например core/onboarder/x2.py: get_status + get_context + 2×save +
+    log_event), Telegram считает доставку неуспешной и повторяет ОДИН И ТОТ
+    ЖЕ update. aiogram/SimpleRequestHandler не дедуплицирует update_id из
+    коробки → повторная доставка запускает тот же handler заново → дубли
+    сообщений (инцидент 2026-07-10: X2-приветствие повторялось 3-5 раз).
+
+    In-memory TTL-set: bot — единственный процесс на update_id (single
+    Railway instance), Redis не нужен. TTL 120с покрывает Telegram's
+    retry window с запасом.
+    """
+
+    def __init__(self, ttl_seconds: int = 120, max_size: int = 2000):
+        self._ttl = ttl_seconds
+        self._max_size = max_size
+        self._seen: "collections.OrderedDict[int, float]" = collections.OrderedDict()
+
+    def _is_duplicate(self, update_id: int) -> bool:
+        now = time.monotonic()
+        # Периодическая чистка устаревших записей (амортизированно, не на каждый вызов)
+        while self._seen and next(iter(self._seen.values())) < now - self._ttl:
+            self._seen.popitem(last=False)
+        if update_id in self._seen:
+            return True
+        self._seen[update_id] = now
+        if len(self._seen) > self._max_size:
+            self._seen.popitem(last=False)
+        return False
+
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        update_id = data.get("event_update", {})
+        update_id = getattr(update_id, "update_id", None)
+        if update_id is not None and self._is_duplicate(update_id):
+            logger.warning("[UpdateDedup] Discarding duplicate update_id=%s (webhook retry)", update_id)
+            return None
+        return await handler(event, data)
 
 
 class RateLimitMiddleware(BaseMiddleware):
