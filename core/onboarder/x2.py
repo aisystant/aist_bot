@@ -28,6 +28,7 @@ handlers/onboarding.py и core/onboarder/x3.py). Вынос в i18n — follow-u
 """
 
 import logging
+import time
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,13 @@ X2_TOPICS = (
 
 _CONFIRMED_KEY = "x2_confirmed"
 _INTRO_SHOWN_KEY = "x2_intro_shown"
+
+# Guard против повторного показа ТОГО ЖЕ топика при повторном тапе по
+# stale-кнопке «Освоиться» (WP-7, инцидент 2026-07-10). Проверка и запись —
+# без await между ними, поэтому атомарны при конкурентных вызовах run_step
+# (см. tests/smoke/test_x2_message_loop_regression.py).
+_RESHOW_GUARD_SECONDS = 5
+_last_shown: dict[int, tuple[str, float]] = {}
 
 # WP-406 Ф19: вступление перед первым топиком (порядок «зачем→что»).
 # Показывается один раз за прохождение, отдельным сообщением перед первым топиком.
@@ -141,10 +149,18 @@ async def run_step(intern: dict, message) -> None:
     if topic is None:
         await _finish_x2(message.bot, chat_id)
         return
+
+    # Синхронный check-and-set (без await между ними) — атомарен относительно
+    # конкурентных вызовов run_step под кооперативным event loop'ом.
+    last_topic, last_at = _last_shown.get(chat_id, (None, 0.0))
+    if last_topic == topic and time.monotonic() - last_at < _RESHOW_GUARD_SECONDS:
+        logger.info("[x2] skip re-show of %r for chat_id=%s (reshow guard)", topic, chat_id)
+        return
+    _last_shown[chat_id] = (topic, time.monotonic())
+
     if not confirmed and not ctx.get(_INTRO_SHOWN_KEY):
         # Флаг сохраняется ДО отправки: при сбое после save пользователь просто
         # не увидит интро один раз, а не увидит его дважды при повторном run_step.
-        # КРИТИЧЕСКИ: сохраняем ВСЕГДА, даже если send_message упадёт, чтобы избежать дубликатов
         await storage.save_onboarding_context(chat_id, {_INTRO_SHOWN_KEY: True})
         try:
             await message.bot.send_message(chat_id, _INTRO_TEXT)

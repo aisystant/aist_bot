@@ -933,6 +933,12 @@ async def on_onboarder_start(callback: CallbackQuery):
     """WP-406 Ф5: единый вход Онбордера — довести первый открытый разрыв (Х2 → Х3)."""
     await callback.answer()
     chat_id = callback.from_user.id
+    # Гасим кнопку сразу: повторный тап по тому же сообщению не должен
+    # запускать handle() заново (инцидент 2026-07-10/11 — см. core/onboarder/x2.py).
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception as e:
+        logger.debug("[onboarder] could not clear offer button for %s: %s", chat_id, e)
     intern = await get_intern(chat_id)
     if not intern:
         return
