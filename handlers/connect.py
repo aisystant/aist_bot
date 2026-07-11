@@ -129,8 +129,8 @@ async def on_connect_start(callback: CallbackQuery):
 
 # ============= CLIENT INSTRUCTIONS =============
 
-def _back_button(lang: str) -> list:
-    return [InlineKeyboardButton(text=t('connect.back_to_list', lang), callback_data="iwe_back")]
+def _back_button(lang: str) -> list[list]:
+    return [[InlineKeyboardButton(text=t('connect.back_to_list', lang), callback_data="iwe_back")]]
 
 
 @connect_router.callback_query(F.data == "iwe_claude")
@@ -146,7 +146,7 @@ async def on_claude(callback: CallbackQuery):
             text=t('connect.open_claude', lang),
             url="https://claude.ai/customize/connectors",
         )],
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -160,7 +160,7 @@ async def on_cursor(callback: CallbackQuery):
 
     text = t('connect.cursor_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -187,7 +187,7 @@ async def on_vscode(callback: CallbackQuery):
     text = t('connect.vscode_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Добавить в VS Code", url=_vscode_install_link())],
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -201,7 +201,7 @@ async def on_chatgpt(callback: CallbackQuery):
 
     text = t('connect.chatgpt_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
@@ -215,7 +215,7 @@ async def on_claude_code(callback: CallbackQuery):
 
     text = t('connect.claude_code_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        _back_button(lang),
+        *_back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
