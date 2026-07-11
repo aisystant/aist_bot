@@ -28,10 +28,10 @@ _HERMES_SESSION_MAP: dict[int, str] = {}
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
-    """Проверяет, что callback НЕ принадлежит engines/ роутерам."""
+    """Проверяет, что callback НЕ принадлежит engines/ или connect/ роутерам."""
     if not callback.data:
         return True
-    excluded_prefixes = ('mode_', 'feed_', 'marathon_')
+    excluded_prefixes = ('mode_', 'feed_', 'marathon_', 'iwe_')
     return not callback.data.startswith(excluded_prefixes)
 
 
