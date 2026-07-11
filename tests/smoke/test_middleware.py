@@ -76,6 +76,10 @@ class TestMiddlewareImports:
         from core.middleware import ConsultationPassthroughMiddleware
         assert ConsultationPassthroughMiddleware is not None
 
+    def test_import_update_dedup(self):
+        from core.middleware import UpdateDedupMiddleware
+        assert UpdateDedupMiddleware is not None
+
     def test_config_imports(self):
         """Все константы из config.settings, используемые в middleware, существуют."""
         from config.settings import (
@@ -227,3 +231,51 @@ class TestMiddlewareCall:
         await mw(handler, msg, {})  # должен быть заблокирован
 
         assert len(call_count) == 2, "После лимита handler не должен вызываться"
+
+    async def test_update_dedup_call_does_not_crash(self):
+        """UpdateDedupMiddleware пропускает событие без краша, если event_update отсутствует в data."""
+        from core.middleware import UpdateDedupMiddleware
+        mw = UpdateDedupMiddleware()
+        msg = _make_fake_message(user_id=42)
+        handler_called = []
+
+        async def handler(event, data):
+            handler_called.append(True)
+
+        await mw(handler, msg, {})
+        assert handler_called, "Без event_update в data — handler должен вызываться (fail-open)"
+
+    async def test_update_dedup_blocks_repeated_update_id(self):
+        """Повторная доставка того же update_id (webhook retry) отбрасывается."""
+        from core.middleware import UpdateDedupMiddleware
+        mw = UpdateDedupMiddleware()
+        msg = _make_fake_message(user_id=42)
+        fake_update = MagicMock()
+        fake_update.update_id = 555
+        data = {"event_update": fake_update}
+        call_count = []
+
+        async def handler(event, data):
+            call_count.append(True)
+
+        await mw(handler, msg, data)
+        await mw(handler, msg, data)  # тот же update_id — webhook retry
+
+        assert len(call_count) == 1, "Повторный update_id не должен вызывать handler дважды"
+
+    async def test_update_dedup_allows_different_update_ids(self):
+        """Разные update_id не считаются дублями."""
+        from core.middleware import UpdateDedupMiddleware
+        mw = UpdateDedupMiddleware()
+        msg = _make_fake_message(user_id=42)
+        call_count = []
+
+        async def handler(event, data):
+            call_count.append(True)
+
+        for uid in (1, 2, 3):
+            fake_update = MagicMock()
+            fake_update.update_id = uid
+            await mw(handler, msg, {"event_update": fake_update})
+
+        assert len(call_count) == 3, "Разные update_id должны проходить все"

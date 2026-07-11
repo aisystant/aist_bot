@@ -110,11 +110,9 @@ async def handle(intern: dict, message) -> None:
         })
 
     status = await storage.get_status(chat_id)
-    # EMERGENCY FIX: Temporarily disable X2 to diagnose message loop root cause
-    # if not status["x2_done"]:
-    #     await x2.run_step(intern, message)
-    # elif not status["x3_done"]:
-    if not status["x3_done"]:
+    if not status["x2_done"]:
+        await x2.run_step(intern, message)
+    elif not status["x3_done"]:
         await x3.run_x3(intern, message)
     else:
         logger.debug("[onboarder] handle called with no open gap for chat_id=%s", chat_id)

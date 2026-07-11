@@ -79,7 +79,7 @@ from core.topics import (
 
 # ============= ИНФРАСТРУКТУРА (из core/) =============
 from core.storage import PostgresStorage
-from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware
+from core.middleware import MaintenanceMiddleware, LoggingMiddleware, ConsultationPassthroughMiddleware, TracingMiddleware, RateLimitMiddleware, UpdateDedupMiddleware
 
 # ============= СОСТОЯНИЯ FSM (re-exports для обратной совместимости) =============
 from handlers.onboarding import OnboardingStates
@@ -112,6 +112,7 @@ async def _validate_middleware():
         LoggingMiddleware,
         TracingMiddleware,
         ConsultationPassthroughMiddleware,
+        UpdateDedupMiddleware,
     )
     from config.settings import DEVELOPER_CHAT_ID, MAINTENANCE_MODE, ALLOWED_TESTERS, MAINTENANCE_REDIRECT_BOT
     logger.info("✅ Middleware validation passed")
@@ -446,7 +447,12 @@ async def main():
             return True  # handled
         return False  # propagate
 
-    # Регистрируем middleware (порядок важен: Maintenance → RateLimit → Logging → Passthrough → Tracing)
+    # Регистрируем middleware (порядок важен: Dedup → Maintenance → RateLimit → Logging → Passthrough → Tracing)
+    # Dedup ПЕРВЫМ: webhook-retry (WP-7 incident 2026-07-10) должен отсекаться
+    # до любой другой логики, иначе повторный update всё равно тратит DB round-trip.
+    update_dedup = UpdateDedupMiddleware()
+    dp.message.middleware(update_dedup)
+    dp.callback_query.middleware(update_dedup)
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
     rate_limiter = RateLimitMiddleware(max_messages=20, window_seconds=60)
