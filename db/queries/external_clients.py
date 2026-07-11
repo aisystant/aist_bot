@@ -199,6 +199,20 @@ async def revoke_client_token(token_id: str, account_id: str) -> bool:
     return result == "UPDATE 1"
 
 
+async def revoke_all_client_tokens(account_id: str) -> int:
+    """Revokes all active tokens for an account (DP.SC.190 Q1 — fail-secure on tier drop below T3).
+
+    Returns count of tokens revoked.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE ory_client_tokens SET revoked_at = NOW() WHERE account_id = $1::uuid AND revoked_at IS NULL",
+            account_id,
+        )
+    return int(result.split(" ")[-1])
+
+
 async def list_client_tokens(account_id: str) -> list:
     """Returns active (non-revoked) tokens for an account, newest first."""
     pool = await get_pool()

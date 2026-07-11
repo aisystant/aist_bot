@@ -12,8 +12,10 @@ Settings = управление подключениями БОТА (Gateway, Gi
 кнопка «Подключить IWE» вызовет этот wizard.
 """
 
+import json
 import logging
 import os
+import urllib.parse
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -50,6 +52,7 @@ def _build_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 Claude (claude.ai)", callback_data="iwe_claude")],
         [InlineKeyboardButton(text="⌨️ Cursor / Windsurf / Cline", callback_data="iwe_cursor")],
+        [InlineKeyboardButton(text="🖥 VS Code", callback_data="iwe_vscode")],
         [InlineKeyboardButton(text="💬 ChatGPT", callback_data="iwe_chatgpt")],
         [InlineKeyboardButton(text="🖥 Claude Code (полный IWE)", callback_data="iwe_claude_code")],
         [InlineKeyboardButton(text=t('connect.done', lang), callback_data="iwe_close")],
@@ -157,6 +160,33 @@ async def on_cursor(callback: CallbackQuery):
 
     text = t('connect.cursor_instructions', lang, gateway_url=GATEWAY_MCP_URL)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        _back_button(lang),
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+def _vscode_install_link() -> str:
+    """Диплинк VS Code для one-click добавления MCP-сервера (DP.SC.190 SC3).
+
+    Без токена: OAuth проходит нативно в VS Code при первом обращении к
+    GATEWAY_MCP_URL (тот же Ory-аккаунт, что и claude.ai Connector) — в
+    отличие от ict_-пути (/connect_external), рассчитанного на CLI-клиенты
+    без браузера.
+    """
+    cfg = {"name": "Aisystant MCP", "type": "http", "url": GATEWAY_MCP_URL}
+    return "vscode:mcp/install?" + urllib.parse.quote(json.dumps(cfg))
+
+
+@connect_router.callback_query(F.data == "iwe_vscode")
+async def on_vscode(callback: CallbackQuery):
+    """Инструкция подключения VS Code — one-click диплинк (DP.SC.190 SC3)."""
+    await callback.answer()
+    intern = await get_intern(callback.from_user.id)
+    lang = intern.get('language', 'ru') or 'ru' if intern else 'ru'
+
+    text = t('connect.vscode_instructions', lang, gateway_url=GATEWAY_MCP_URL)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Добавить в VS Code", url=_vscode_install_link())],
         _back_button(lang),
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
