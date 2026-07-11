@@ -831,7 +831,12 @@ async def on_start_onboarder_x3(callback: CallbackQuery):
 
 @onboarding_router.callback_query(F.data.startswith("x3_confirm:"))
 async def on_x3_confirm(callback: CallbackQuery):
-    """WP-406 Ф5: Пользователь подтвердил выбор курса — закрыть Х3."""
+    """WP-406 Ф5: Пользователь подтвердил выбор курса — закрыть Х3.
+
+    Защита от повторного клика по устаревшей кнопке (WP-406 Ф18 backlog,
+    найдено 2026-07-11 живым дублем в проде): если Х3 уже закрыт — событие
+    не логируем повторно, симметрично _finish_x2 в core/onboarder/x2.py.
+    """
     await callback.answer()
     chat_id = callback.from_user.id
     try:
@@ -840,7 +845,10 @@ async def on_x3_confirm(callback: CallbackQuery):
         chosen_stream = parts[1] if len(parts) > 1 else ""
         diagnostic_done = (parts[2] == "1") if len(parts) > 2 else False
         from core.onboarder import storage
-        _x2_done_before = (await storage.get_status(chat_id))["x2_done"]
+        status = await storage.get_status(chat_id)
+        if status["x3_done"]:
+            return
+        _x2_done_before = status["x2_done"]
         await storage.mark_x3_done(chat_id)
         if chosen_stream:
             await storage.save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
