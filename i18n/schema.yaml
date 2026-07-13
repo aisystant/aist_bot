@@ -1469,7 +1469,7 @@ progress:
     en: "Active days (Marathon+Feed)"
 
   lessons:
-    ru: "Уроков"
+    ru: "Занятий"
     en: "Lessons"
 
   tasks:
@@ -1485,7 +1485,7 @@ progress:
     en: "WP"
 
   lesson_short:
-    ru: "Урок"
+    ru: "Занятие"
     en: "Lesson"
 
   task_short:
@@ -2926,7 +2926,7 @@ marathon:
     en: "Next — Task"
 
   next_lesson:
-    ru: "Дальше — Урок"
+    ru: "Дальше — Занятие"
     en: "Next — Lesson"
 
   want_harder:

@@ -207,7 +207,7 @@ async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict 
     # WP-330 С9a: routing по профилю (4 версии); fallback на legacy-ключ.
     lesson = get_day_text(day, 'lesson', intern=intern) or get_day_text(day, 'lesson')
     if not lesson:
-        await target.answer("Урок для этого дня недоступен. Загляни в /support.")
+        await target.answer("Занятие для этого дня недоступно. Загляни в /support.")
         logger.warning(f"[Learn] No lesson content for day {day} (user {user_id})")
         return
 
