@@ -381,7 +381,7 @@ onboarding:
     en: "What do you do?"
 
   ask_occupation_hint:
-    ru: "_Например: разработчик, маркетолог, студент_"
+    ru: "_Например: разработчик, маркетолог, предприниматель_"
     en: "_For example: developer, marketer, student_"
 
   ask_interests:
@@ -955,11 +955,11 @@ buttons:
 # -----------------------------------------------------------------------------
 experience:
   student:
-    ru: "Студент"
+    ru: "Начинающий"
     en: "Student"
 
   student_desc:
-    ru: "Учусь или недавно закончил"
+    ru: "Только начинаю профессиональный путь"
     en: "Studying or recently graduated"
 
   junior:

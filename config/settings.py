@@ -292,7 +292,7 @@ LEARNING_STYLES = {
 }
 
 EXPERIENCE_LEVELS = {
-    "student": {"emoji": "🎓", "name": "Студент", "desc": "Учусь или недавно закончил"},
+    "student": {"emoji": "🚀", "name": "Начинающий", "desc": "Только начинаю профессиональный путь"},
     "junior": {"emoji": "🌱", "name": "Junior", "desc": "0-2 года опыта"},
     "middle": {"emoji": "💼", "name": "Middle", "desc": "2-5 лет опыта"},
     "senior": {"emoji": "⭐", "name": "Senior", "desc": "5+ лет опыта"},
