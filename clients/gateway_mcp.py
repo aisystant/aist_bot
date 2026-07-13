@@ -248,6 +248,10 @@ class GatewayMCPClient:
                     f"Gateway: token cache miss for user {telegram_user_id} — "
                     f"attempting DB reload"
                 )
+                # WP-7 GTW6: this warning alone never reaches any sink Grafana can
+                # query (error_logs captures ERROR+ only) — record a metric row so
+                # cache-miss spikes are actually observable/alertable.
+                asyncio.ensure_future(self._record_token_cache_miss_metric())
                 from db.queries.ory_tokens import load_one_ory_token
                 row = await load_one_ory_token(telegram_user_id)
                 if row is None:
@@ -333,6 +337,18 @@ class GatewayMCPClient:
         # NB: _refresh_locks НЕ удаляется при invalid_grant — lock остаётся в setdefault-словаре
         # до restart процесса. Это benign: при re-auth user_id получит свежий setdefault.
         # Удалять lock под `async with lock` самим owner'ом — race с параллельной setdefault.
+
+    async def _record_token_cache_miss_metric(self) -> None:
+        """Fire-and-forget write to health.internal_metrics (WP-7 GTW6).
+
+        Best-effort: a failure here must not affect the OAuth refresh path, so
+        errors are logged and swallowed (same shape as _delete_ory_tokens_from_db).
+        """
+        try:
+            from db.queries.internal_metrics import record_internal_metric
+            await record_internal_metric("gateway_token_cache_miss", "aist-bot", 1.0)
+        except Exception as e:
+            logger.error(f"Gateway: failed to record token_cache_miss metric: {e}")
 
     # =========================================================================
     # CIRCUIT BREAKER
