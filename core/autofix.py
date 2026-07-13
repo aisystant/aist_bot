@@ -186,15 +186,14 @@ Analyze this error and propose a minimal fix. Return JSON only."""
         "messages": [{"role": "user", "content": user_prompt}],
     }
 
+    from clients.claude import resolve_proxy_endpoint
+    base_url, headers = resolve_proxy_endpoint(ANTHROPIC_API_KEY)
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "content-type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                },
+                base_url,
+                headers=headers,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:

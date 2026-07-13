@@ -87,21 +87,19 @@ async def _classify_with_haiku(
     )
 
     from config import CLAUDE_MODEL_HAIKU
+    from clients.claude import resolve_proxy_endpoint
     payload = {
         "model": CLAUDE_MODEL_HAIKU,
         "max_tokens": 200,
         "messages": [{"role": "user", "content": prompt}],
     }
+    base_url, headers = resolve_proxy_endpoint(api_key)
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
+                base_url,
+                headers=headers,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
