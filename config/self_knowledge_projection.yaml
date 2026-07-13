@@ -7,8 +7,8 @@ _meta:
   description: "Бот-наставник для систематического обучения"
   source_pack: "PACK-digital-platform"
   source_entity: "pack/digital-platform/02-domain-entities/DP.AISYS.014-aist-bot.md"
-  source_hash: "81c41d2b203ec027bf49520758035a04e01c79b0f1feba7cf97f4768e3b96097"
-  synced_at: "2026-05-07T08:55:49Z"
+  source_hash: "3ddc09b9a4ac83ad51ff1bb4620b3c669ddd19bb0f88ec6bd93bb6f18e7f678f"
+  synced_at: "2026-07-13T13:36:51Z"
   generator: "DS-ai-systems/synchronizer/scripts/pack-project.sh"
 
 identity: |
@@ -17,7 +17,7 @@ identity: |
   
   **Назначение (ru):** Бот-наставник для систематического развития. Помогает изучать системное мышление через структурированные программы, отвечает на вопросы, ведёт заметки и отслеживает прогресс.
   
-  **Назначение (en):** Mentor bot for systematic learning and personal development. Helps study systems thinking through structured programs, answers questions, keeps notes, and tracks progress.
+  **Назначение (en):** Mentor bot for systematic development. Helps study systems thinking through structured programs, answers questions, keeps notes, and tracks progress.
   
   **Как задать вопрос (ru):** Начни сообщение с `?` чтобы задать вопрос консультанту в любой момент.
   
@@ -36,7 +36,7 @@ scenarios: |
   | 5 | Тест систематичности | `/test` (`/assessment`) | ✅ | Data-driven тест: 12 вопросов → состояние (Хаос/Тупик/Поворот) → адаптация контента Марафона и Ленты через DP.M.004 (стиль, bloom_level, тематика) | Data-driven assessment: 12 questions → state (Chaos/Deadlock/Turning Point) → content adaptation for Marathon and Feed via DP.M.004 (style, bloom_level, topics) |
   | 6 | Консультация | `?вопрос` | ✅ | Задать вопрос консультанту из любого места в боте. Persistent session: после первого ответа можно задавать follow-up вопросы без «?». Claude получает историю диалога (до 5 пар). Выход: кнопка «Завершить» / таймаут 5 мин / глобальная команда. Ответ на основе базы знаний и MCP | Ask the consultant a question from anywhere in the bot. Persistent session: after the first answer you can ask follow-up questions without `?`. Claude receives conversation history (up to 5 pairs). Exit: "End session" button / 5 min timeout / global command. Answer based on knowledge base and MCP |
   | 7 | Заметки | `.текст` | ✅ | Четыре способа: 1) `.текст` — прямая заметка; 2) `.` (или `. комментарий`) + reply — объединить с сообщением, на которое отвечаешь; 3) `. комментарий` → forward — написать комментарий, потом переслать: комментарий станет заголовком; 4) forward → `.` (или `. комментарий`) — сначала переслать, потом добавить точку. Бот ждёт вторую часть 10 сек и объединяет. | Four ways: 1) `.text` — direct note; 2) `.` (or `.comment`) + reply — merge with the replied message; 3) `.comment` → forward — write a comment, then forward: comment becomes the title; 4) forward → `.` (or `.comment`) — forward first, then add dot. Bot waits 10 sec for the second part and merges. |
-  | 8 | Прогресс | `/progress` | ✅ | Статистика обучения: пройденные темы, текущий день марафона, выполненные задания | Learning stats: completed topics, current marathon day, completed tasks |
+  | 8 | Прогресс | `/progress` | ✅ | Статистика активности: пройденные темы, текущий день марафона, выполненные задания | Progress stats: completed topics, current marathon day, completed tasks |
   | 9 | Планы (Стратег) | `/rp`, `/plan`, `/report` | ✅ | Интеграция со Стратегом: список рабочих продуктов, план на неделю, отчёт | Strategist integration: work products list, weekly plan, report |
   | 10 | Настройки | `/settings` (`/update`) | ✅ | Язык, подключения, сброс марафона/статистики | Language, connections, marathon/stats reset |
   | 11 | Профиль | `/profile` | ✅ | Персональные данные: имя, профессия, интересы, цели, оценка систематичности | Personal data: name, occupation, interests, goals, systematicity assessment |
@@ -55,22 +55,21 @@ faq: |
   
   | # | Вопрос (ru) | Вопрос (en) | Ключевые слова | Ответ (ru) | Ответ (en) |
   |---|-------------|-------------|----------------|------------|------------|
-  | 1 | Как начать обучение? | How to start learning? | начать, старт, start, begin | Используй `/learn`. Если ещё не выбран режим — бот предложит выбрать Марафон или Ленту через `/mode`. | Use `/learn`. If no mode is selected yet, the bot will offer to choose Marathon or Feed via `/mode`. |
-  | 2 | Как работает Марафон? | How does the Marathon work? | марафон, marathon, 14 дн | Марафон — 14-дневная программа. Каждый день: теоретический урок + практическое задание. Прогресс сохраняется, можно продолжить с того места, где остановился. | Marathon is a 14-day program. Each day: theory lesson + practical task. Progress is saved, you can continue where you left off. |
-  | 3 | Как работает Лента? | How does the Feed work? | лент, feed, дайджест | Лента — гибкий режим обучения. Выбираешь до 3 интересных тем, получаешь ежедневные дайджесты с постепенным углублением. | Feed is a flexible learning mode. Choose up to 3 topics, receive daily digests with gradual deepening. |
+  | 1 | Как начать работу? | How to start? | начать, старт, start, begin | Используй `/learn`. Если ещё не выбран режим — бот предложит выбрать Марафон или Ленту через `/mode`. | Use `/learn`. If no mode is selected yet, the bot will offer to choose Marathon or Feed via `/mode`. |
+  | 2 | Как работает Марафон? | How does the Marathon work? | марафон, marathon, 14 дн | Марафон — 14-дневная программа. Каждый день: теоретический материал + практическое задание. Прогресс сохраняется, можно продолжить с того места, где остановился. | Marathon is a 14-day program. Each day: theory material + practical task. Progress is saved, you can continue where you left off. |
+  | 3 | Как работает Лента? | How does the Feed work? | лент, feed, дайджест | Лента — гибкий формат развития. Выбираешь до 3 интересных тем, получаешь ежедневные дайджесты с постепенным углублением. | Feed is a flexible development format. Choose up to 3 topics, receive daily digests with gradual deepening. |
   | 4 | Как сменить язык? | How to change the language? | язык, language, english | Открой `/settings` и выбери нужный язык. Доступны: русский, английский, испанский, французский. | Open `/settings` and select the desired language. Available: Russian, English, Spanish, French. |
   | 5 | Как создать заметку? | How to create a note? | замет, note, запис | Четыре способа: 1) `.текст` — точка и текст сразу. 2) Ответь на сообщение с `.` или `. комментарий` — бот объединит. 3) `. комментарий` и потом перешли сообщение — комментарий станет заголовком заметки. 4) Перешли сообщение и потом отправь `.` или `. комментарий`. Бот ждёт 10 сек и объединяет оба. | Four ways: 1) `.text` — dot and text at once. 2) Reply to a message with `.` or `.comment` — bot merges them. 3) Write `.comment` then forward a message — comment becomes the note title. 4) Forward a message then send `.` or `.comment`. Bot waits 10 sec and merges both. |
-  | 6 | Как пройти тест? | How to take the test? | тест, оценк, assessment, уров, влия | Используй `/test` — 12 вопросов определят твоё состояние (Хаос, Тупик или Поворот). После теста бот адаптирует контент: стиль уроков, сложность вопросов и темы Ленты подстраиваются под твоё состояние. Повторный тест через 2-4 недели покажет прогресс. | Use `/test` — 12 questions identify your state (Chaos, Deadlock, or Turning Point). After the test, the bot adapts content: lesson style, question difficulty, and Feed topics adjust to your state. Retake after 2-4 weeks to see progress. |
+  | 6 | Как пройти тест? | How to take the test? | тест, оценк, assessment, уров, влия | Используй `/test` — 12 вопросов определят твоё состояние (Хаос, Тупик или Поворот). После теста бот адаптирует контент: стиль занятий, сложность вопросов и темы Ленты подстраиваются под твоё состояние. Повторный тест через 2-4 недели покажет прогресс. | Use `/test` — 12 questions identify your state (Chaos, Deadlock, or Turning Point). After the test, the bot adapts content: session style, question difficulty, and Feed topics adjust to your state. Retake after 2-4 weeks to see progress. |
   | 7 | Как задать вопрос? | How to ask a question? | помощ, помог, help, вопрос, сесси, session | Начни сообщение с `?` и напиши вопрос. Например: `?Что такое системное мышление?` После ответа ты останешься в режиме консультации — можно задавать уточняющие вопросы без `?`. Консультант помнит контекст (до 5 вопросов). Для выхода нажми «Завершить» или подожди 5 минут. | Start with `?` and type your question. Example: `?What is systems thinking?` After the answer you stay in consultation mode — you can ask follow-up questions without `?`. The consultant remembers context (up to 5 questions). To exit, tap "End session" or wait 5 minutes. |
   | 8 | Как работать с планами? | How to work with plans? | план, рп, plan, report | Используй `/rp` для списка рабочих продуктов, `/plan` для плана на неделю, `/report` для отчёта. Интегрировано со Стратегом. | Use `/rp` for work products, `/plan` for weekly plan, `/report` for a report. Integrated with the Strategist. |
-  | 9 | Кто ты? | Who are you? | кто ты, кто вы, who are you, what are you | Я — AIST Bot (@aist_me_bot), бот-наставник в экосистеме развития интеллекта.\n\nЭкосистема — это среда, где люди развивают мышление и становятся созидателями. В ней три компонента: Мастерская (практикумы, семинары), Сообщество 13 000+ инженеров-менеджеров (systemsworld.club) и ИИ-платформа — интеллектуальная рабочая среда (IWE).\n\nЯ — часть IWE. Через меня ты получаешь персонализированные уроки, тренируешь принципы, задаёшь вопросы ИИ-консультанту (по базе ~5 300 документов), ведёшь заметки, отслеживаешь прогресс и управляешь обучением.\n\nС чего начать: `/mode` — выбрать режим, `/about` — подробнее о нас. | I'm AIST Bot (@aist_me_bot), a mentor bot in the Ecosystem for Intelligence Development.\n\nThe ecosystem is an environment where people develop thinking and become creators. It has three components: Workshop (practicums, seminars), Community of 13,000+ engineers-managers (systemsworld.club), and AI Platform — Intellectual Work Environment (IWE).\n\nI'm part of IWE. Through me you get personalized lessons, train principles, ask the AI consultant questions (powered by ~5,300 documents), keep notes, track progress, and manage your learning.\n\nWhere to start: `/mode` — choose a mode, `/about` — more about us. |
-  | 10 | Что ты умеешь? | What can you do? | умеешь, можешь, умеет, capabilities, what can | Обучение:\n• Марафон (`/learn`) — бесплатная 14-дневная программа с персонализированными уроками и заданиями\n• Лента (`/feed`) — ежедневные дайджесты по выбранным темам с углублением\n• Тренировка (`/train`) — интерактивная отработка принципов с ИИ-обратной связью\n• Тест (`/test`) — 12 вопросов, определяющих состояние и адаптирующих контент\n\nИИ-консультант:\n• `?вопрос` — ответы на основе базы знаний, с сохранением контекста диалога\n\nОрганизация:\n• `.текст` — заметки (4 способа: прямая, reply, forward, комбо)\n• `/progress` — статистика и серии активных дней\n• `/rp` `/plan` `/report` — планы через интеграцию со Стратегом\n\nНастройки: `/mode` (режим), `/settings` (язык, профиль, подключения), `/profile` (персонализация). | Learning:\n• Marathon (`/learn`) — free 14-day program with personalized lessons and tasks\n• Feed (`/feed`) — daily digests on chosen topics with increasing depth\n• Training (`/train`) — interactive principle practice with AI feedback\n• Test (`/test`) — 12 questions that identify your state and adapt content\n\nAI Consultant:\n• `?question` — answers from knowledge base, with conversation context\n\nOrganization:\n• `.text` — notes (4 ways: direct, reply, forward, combo)\n• `/progress` — stats and activity streaks\n• `/rp` `/plan` `/report` — plans via Strategist integration\n\nSettings: `/mode` (mode), `/settings` (language, profile, connections), `/profile` (personalization). |
+  | 9 | Кто ты? | Who are you? | кто ты, кто вы, who are you, what are you | Я — AIST Bot (@aist_me_bot), бот-наставник в экосистеме развития интеллекта.\n\nЭкосистема — это среда, где люди развивают мышление и становятся созидателями. В ней три компонента: Мастерская (практикумы, семинары), Сообщество 13 000+ инженеров-менеджеров (systemsworld.club) и ИИ-платформа — интеллектуальная рабочая среда (IWE).\n\nЯ — часть IWE. Через меня ты получаешь персонализированные материалы, тренируешь принципы, задаёшь вопросы ИИ-консультанту (по базе ~5 300 документов), ведёшь заметки, отслеживаешь прогресс и управляешь развитием.\n\nС чего начать: `/mode` — выбрать режим, `/about` — подробнее о нас. | I'm AIST Bot (@aist_me_bot), a mentor bot in the Ecosystem for Intelligence Development.\n\nThe ecosystem is an environment where people develop thinking and become creators. It has three components: Workshop (practicums, seminars), Community of 13,000+ engineers-managers (systemsworld.club), and AI Platform — Intellectual Work Environment (IWE).\n\nI'm part of IWE. Through me you get personalized materials, train principles, ask the AI consultant questions (powered by ~5,300 documents), keep notes, track progress, and manage your development.\n\nWhere to start: `/mode` — choose a mode, `/about` — more about us. |
+  | 10 | Что ты умеешь? | What can you do? | умеешь, можешь, умеет, capabilities, what can | Развитие:\n• Марафон (`/learn`) — бесплатная 14-дневная программа с персонализированными материалами и заданиями\n• Лента (`/feed`) — ежедневные дайджесты по выбранным темам с углублением\n• Тренировка (`/train`) — интерактивная отработка принципов с ИИ-обратной связью\n• Тест (`/test`) — 12 вопросов, определяющих состояние и адаптирующих контент\n\nИИ-консультант:\n• `?вопрос` — ответы на основе базы знаний, с сохранением контекста диалога\n\nОрганизация:\n• `.текст` — заметки (4 способа: прямая, reply, forward, комбо)\n• `/progress` — статистика и серии активных дней\n• `/rp` `/plan` `/report` — планы через интеграцию со Стратегом\n\nНастройки: `/mode` (режим), `/settings` (язык, профиль, подключения), `/profile` (персонализация). | Development:\n• Marathon (`/learn`) — free 14-day program with personalized materials and tasks\n• Feed (`/feed`) — daily digests on chosen topics with increasing depth\n• Training (`/train`) — interactive principle practice with AI feedback\n• Test (`/test`) — 12 questions that identify your state and adapt content\n\nAI Consultant:\n• `?question` — answers from knowledge base, with conversation context\n\nOrganization:\n• `.text` — notes (4 ways: direct, reply, forward, combo)\n• `/progress` — stats and activity streaks\n• `/rp` `/plan` `/report` — plans via Strategist integration\n\nSettings: `/mode` (mode), `/settings` (language, profile, connections), `/profile` (personalization). |
   | 11 | Как сбросить марафон? | How to reset the marathon? | сброс, сбросить, reset, обнулить, заново, restart | Открой `/settings` → кнопка «Сброс» → «Сбросить марафон» → подтверди. Прогресс обнулится, марафон начнётся с 1-го дня. Также можно сбросить через `/profile`. | Open `/settings` → "Reset" button → "Reset marathon" → confirm. Progress resets, marathon starts from day 1. You can also reset via `/profile`. |
   | 12 | Как сбросить статистику? | How to reset statistics? | сброс стат, статистик, reset stats, обнулить стат | Открой `/settings` → кнопка «Сброс» → «Сбросить статистику» → подтверди. Сбрасываются серии активных дней. Ответы и прогресс сохраняются. | Open `/settings` → "Reset" button → "Reset statistics" → confirm. Active day streaks are reset. Answers and progress are preserved. |
-  | 13 | Как работает персонализация? | How does personalization work? | персонал, адапт, подстра, adapt, personaliz, customize | Бот хранит твой профиль в одном месте (БД бота) и использует его при генерации контента.\n\nПрофиль (/profile) — имя, профессия, интересы, цели. Бот подстраивает примеры, стиль и контент.\n\nТест систематичности (/test) — определяет состояние (Хаос/Тупик/Поворот) и адаптирует стиль уроков, сложность и темы Ленты.\n\nОпционально: Цифровой двойник — при подключении профиль экспортируется в ЦД для построения индивидуальной траектории. Это однонаправленный экспорт (бот → ЦД), не отдельный «уровень» хранения. | The bot stores your profile in one place (bot DB) and uses it when generating content.\n\nProfile (/profile) — name, occupation, interests, goals. The bot tailors examples, style, and content.\n\nSystematicity test (/test) — determines your state (Chaos/Deadlock/Turning Point) and adapts lesson style, difficulty, and Feed topics.\n\nOptionally: Digital twin — when connected, the profile is exported to the DT for building an individual trajectory. This is a one-way export (bot → DT), not a separate storage "level". |
+  | 13 | Как работает персонализация? | How does personalization work? | персонал, адапт, подстра, adapt, personaliz, customize | Бот хранит твой профиль в одном месте (БД бота) и использует его при генерации контента.\n\nПрофиль (/profile) — имя, профессия, интересы, цели. Бот подстраивает примеры, стиль и контент.\n\nТест систематичности (/test) — определяет состояние (Хаос/Тупик/Поворот) и адаптирует стиль занятий, сложность и темы Ленты.\n\nОпционально: Цифровой двойник — при подключении профиль экспортируется в ЦД для построения индивидуальной траектории. Это однонаправленный экспорт (бот → ЦД), не отдельный «уровень» хранения. | The bot stores your profile in one place (bot DB) and uses it when generating content.\n\nProfile (/profile) — name, occupation, interests, goals. The bot tailors examples, style, and content.\n\nSystematicity test (/test) — determines your state (Chaos/Deadlock/Turning Point) and adapts session style, difficulty, and Feed topics.\n\nOptionally: Digital twin — when connected, the profile is exported to the DT for building an individual trajectory. This is a one-way export (bot → DT), not a separate storage "level". |
   | 14 | Что делает бот в составе IWE? | What does the bot do in IWE? | бот, iwe, роль, зачем, что делает, purpose, role, what does | @aist_me_bot — платформенный сервис (L2), общий для всех. Не нужно разворачивать своего. Бот делает: Марафон (14-дневная программа), Лента (дайджесты по выбранным темам), Консультации (ответы по базе ~5300 документов), Заметки (быстрые мысли, которые потом обрабатывает Стратег), Планы (дневной/недельный план через GitHub strategy-репо), Прогресс (streak, сложность), Тест систематичности, Цифровой двойник, интеграции (GitHub, WakaTime). Бот — один из интерфейсов платформы, не центр. Центр — экзокортекс и агенты. Бот, Claude Code, веб — разные окна в одну среду. | @aist_me_bot is a platform service (L2), shared by all users. No need to deploy your own. The bot provides: Marathon (14-day program), Feed (digests on chosen topics), Consultations (answers from ~5300 docs), Notes (quick thoughts processed by Strategist), Plans (daily/weekly via GitHub strategy repo), Progress (streak, complexity), Systematicity Test, Digital Twin, integrations (GitHub, WakaTime). The bot is one of the platform's interfaces, not the center. The center is the exocortex and agents. Bot, Claude Code, web — different windows into one environment. |
   | 15 | Нужен ли мне свой бот? | Do I need my own bot? | свой бот, own bot, развернуть, deploy, разработать, build | Зависит от цели. Если хочешь пользоваться марафоном, лентой, консультациями — @aist_me_bot уже работает, свой не нужен. Если хочешь Стратега с планами — это работает через IWE-шаблон (экзокортекс + Claude Code), бот подтягивает результат. Если хочешь разрабатывать свою платформу — тогда свой бот имеет смысл, но это другая задача. | Depends on your goal. If you want to use marathon, feed, consultations — @aist_me_bot already works, no need for your own. If you want a Strategist with plans — that works through the IWE template (exocortex + Claude Code), the bot pulls the result. If you want to develop your own platform — then your own bot makes sense, but that's a different task. |
-  | 16 | Как изменить время урока? | How to change the lesson time? | время, урок, расписание, изменить время, когда урок, когда получу | Открой `/settings` → нажми кнопку «Расписание» → выбери удобное время или введи вручную в формате ЧЧ:ММ. Время указывается по Москве (МСК). После выбора бот будет присылать уроки в выбранное время. Если слот перегружен — бот предложит свободные соседние интервалы. | Open `/settings` → tap "Schedule" button → choose a convenient time or enter it manually in HH:MM format. Time is in Moscow timezone (MSK). After selecting, the bot will send lessons at the chosen time. If the slot is busy, the bot will suggest nearby free slots. |
 
 platform: |
   
@@ -81,7 +80,7 @@ platform: |
   **🟢 T0/T1 — Старт** (бесплатно):
   - Марафон 14 дней (/learn) — бесплатно навсегда
   - Тест систематичности (/test) — определяет состояние и адаптирует контент
-  - Прогресс (/progress) — статистика обучения
+  - Прогресс (/progress) — статистика активности
   - Профиль (/profile) и Настройки (/settings)
   - Лента, консультации, заметки, планы — только по подписке БР
   
@@ -91,17 +90,18 @@ platform: |
   - Заметки (.текст) — сохранение мыслей и идей
   - Планы (/rp /plan /report) — интеграция со Стратегом
   
-  **Подписка:** «Инженерия интеллекта» (БР) на system-school.ru — единственная подписка. TG Stars — опциональные донаты, не подписка.
+  **Подписка:** «Бесконечное развитие» (БР) на system-school.ru — единственная подписка. TG Stars — опциональные донаты, не подписка.
   
-  **🧬 T3 — Персонализация** (подключён Цифровой двойник):
-  - Персональные рекомендации на основе целей, проблем и интересов
-  - Полный профиль с проекцией в ЦД (10 полей)
+  **🧬 T3 — Персонализация** (подключён любой AI-клиент):
+  - Персональное руководство под твои цели, ступень и активные РП
+  - Гермес знает твою историю (Память.Derived)
   - Усиленная адаптация контента
   
-  Как перейти на T3:
-  - Заполни профиль (/profile) — бот подстроит контент под тебя
-  - Пройди тест (/test) — бот адаптирует стиль и сложность
-  - Подключи Цифровой двойник (/settings → Подключения) — бот учтёт твои цели, проблемы и интересы
+  Как перейти на T3 (нужна активная подписка + подключить любой AI-клиент — WP-406 Ф13):
+  - В боте: /connect_external — подключить через Telegram
+  - Или в claude.ai: Connect → Aisystant MCP (OAuth)
+  - Или Claude Code / VS Code с Aisystant MCP
+  - Профиль (/profile) и тест (/test) повышают качество персонализации, но T3 открывает именно подключённый AI-клиент
   
   **🚀 T4 — Созидание** (локальный экзокортекс):
   - Claude Code + агенты (Стратег, Экстрактор, Синхронизатор)
@@ -115,7 +115,7 @@ platform: |
   
   **Цифровой двойник:** персональное хранилище целей, проблем, интересов и самооценки. Позволяет боту давать индивидуальные рекомендации.
   
-  **Программы обучения на платформе:**
+  **Программы развития на платформе:**
   - Личное развитие (ЛР) — вводная, подходит всем
   - Рабочее развитие (РР) — для менеджеров и инженеров
   - Исследовательское развитие (ИР) — для исследователей
@@ -131,27 +131,28 @@ platform: |
   **🟢 T0/T1 — Start** (free):
   - 14-day Marathon (/learn) — free forever
   - Systematicity Test (/test) — identifies state and adapts content
-  - Progress (/progress) — learning statistics
+  - Progress (/progress) — activity statistics
   - Profile (/profile) and Settings (/settings)
   - Feed, consultations, notes, plans — subscription only
   
-  **📘 T2 — Learning** (БР subscription):
+  **📘 T2 — Study** (БР subscription):
   - Feed (/feed) — personal daily digests on chosen topics
   - Consultant (?question) — knowledge-base answers with extended context
   - Notes (.text) — saving thoughts and ideas
   - Plans (/rp /plan /report) — Strategist integration
   
-  **Subscription:** «Инженерия интеллекта» (БР) on system-school.ru — the only subscription. TG Stars are optional donations, not a subscription.
+  **Subscription:** «Бесконечное развитие» (БР) on system-school.ru — the only subscription. TG Stars are optional donations, not a subscription.
   
-  **🧬 T3 — Personalization** (Digital Twin connected):
-  - Personal recommendations based on goals, problems and interests
-  - Full profile with DT projection (10 fields)
+  **🧬 T3 — Personalization** (any AI client connected):
+  - Personal guide tailored to your goals, mastery stage and active work products
+  - Hermes knows your history (Memory.Derived)
   - Enhanced content adaptation
   
-  How to reach T3:
-  - Fill your profile (/profile) — bot tailors content for you
-  - Take the test (/test) — bot adapts style and difficulty
-  - Connect Digital Twin (/settings → Connections) — bot considers your goals, problems and interests
+  How to reach T3 (active subscription + connect any AI client — WP-406 Ф13):
+  - In the bot: /connect_external — connect via Telegram
+  - Or in claude.ai: Connect → Aisystant MCP (OAuth)
+  - Or Claude Code / VS Code with Aisystant MCP
+  - Profile (/profile) and test (/test) improve personalization quality, but T3 is unlocked by a connected AI client
   
   **🚀 T4 — Creation** (local exocortex):
   - Claude Code + agents (Strategist, Extractor, Synchronizer)
@@ -165,7 +166,7 @@ platform: |
   
   **Digital Twin:** personal storage for goals, problems, interests, and self-assessment. Enables the bot to give individual recommendations.
   
-  **Learning programs on the platform:**
+  **Development programs on the platform:**
   - Personal Development (ЛР) — introductory, fits everyone
   - Professional Development (РР) — for managers and engineers
   - Research Development (ИР) — for researchers
