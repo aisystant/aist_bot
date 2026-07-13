@@ -10,6 +10,7 @@ from __future__ import annotations
 """
 
 import asyncio
+import json
 import logging
 import time
 
@@ -434,7 +435,13 @@ async def handle_fleeting_note(message: Message):
         branch = result.get('branch', 'main')
         url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
         await message.answer(t('github.note_saved', lang, url=url))
-        asyncio.create_task(_capture_note_trace(telegram_user_id, note_text, message.message_id))
+        asyncio.create_task(
+            _capture_note_trace(
+                telegram_user_id, note_text,
+                message.message_id,
+                source_ref=result,
+            )
+        )
     else:
         await message.answer(t('github.note_error', lang))
 
@@ -473,11 +480,16 @@ async def handle_forwarded_message(message: Message):
             result = await github_notes.append_note(telegram_user_id, note_text)
 
             if result:
-                from clients.github_oauth import github_oauth
-                branch = await github_oauth.get_default_branch(telegram_user_id)
+                branch = result.get('branch', 'main')
                 url = f"https://github.com/{result['repo']}/blob/{branch}/{result['path']}"
                 await message.answer(t('github.note_saved', lang, url=url))
-                asyncio.create_task(_capture_note_trace(telegram_user_id, note_text, message.message_id))
+                asyncio.create_task(
+                    _capture_note_trace(
+                        telegram_user_id, note_text,
+                        message.message_id,
+                        source_ref=result,
+                    )
+                )
             else:
                 await message.answer(t('github.note_error', lang))
             return
@@ -516,20 +528,80 @@ def _extract_message_text(message: Message, lang: str = 'ru') -> str:
     return " ".join(parts).strip()
 
 
-async def _capture_note_trace(telegram_user_id: int, note_text: str, message_id: int) -> None:
-    """Best-effort fire-and-forget: record saved note as a trace (WP-427, sensor bot_note)."""
+async def _capture_note_trace(
+    telegram_user_id: int,
+    note_text: str,
+    message_id: int,
+    *,
+    source_ref: dict | None = None,
+) -> None:
+    """Best-effort fire-and-forget: record saved note as a trace (WP-427, sensor bot_note).
+
+    Strategy (pilot decision, F6.3):
+    1. Try full text + source_ref.
+    2. If payload exceeds 64 KiB, drop text and emit reference-only.
+    3. source_ref is enriched with line_start from github_api.append_note.
+    """
     try:
         from clients.gateway_mcp import gateway_mcp
-        if not gateway_mcp.has_token(telegram_user_id):
-            # User not connected to Aisystant — skip silently to avoid a useless 401 cycle.
-            logger.info("capture_trace(bot_note) skipped: user %s not connected to Aisystant", telegram_user_id)
+        if not gateway_mcp.is_connected(telegram_user_id):
+            logger.info(
+                "capture_trace(bot_note) skipped: user %s not connected to Aisystant",
+                telegram_user_id,
+            )
             return
+
+        payload = _build_note_payload(note_text, source_ref)
+
         await gateway_mcp.capture_trace(
             sensor_id="bot_note",
             event_type="note_created",
-            content={"text": note_text[:2000]},
+            content=payload,
             telegram_user_id=telegram_user_id,
             external_id=f"tg_note_{message_id}",
         )
     except Exception as e:
-        logger.warning("capture_trace(bot_note) failed for user %s: %s", telegram_user_id, e)
+        logger.warning(
+            "capture_trace(bot_note) failed for user %s: %s",
+            telegram_user_id,
+            e,
+        )
+
+
+def _payload_size(payload: dict) -> int:
+    """UTF-8 byte length of JSON — what actually goes over the wire."""
+    return len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def _build_note_payload(
+    note_text: str, source_ref: dict | None
+) -> dict:
+    """Build payload respecting the 64 KiB trace limit.
+
+    Returns full-text+ref if under limit; reference-only otherwise.
+    """
+    base = {}
+    if source_ref:
+        base["source_ref"] = {
+            "type": "github_blob",
+            "repo": source_ref.get("repo"),
+            "path": source_ref.get("path"),
+            "sha": source_ref.get("sha"),
+            "branch": source_ref.get("branch"),
+            "line_start": source_ref.get("line_start"),
+        }
+
+    candidate = {**base, "text": note_text}
+    if _payload_size(candidate) <= 65_536:
+        return candidate
+
+    # Oversized: reference-only fallback
+    ref_only = {**base, "text": None}
+    logger.info(
+        "bot_note payload oversized (%d bytes); falling back to reference-only for note",
+        _payload_size(candidate),
+    )
+    return ref_only
+
+
+# ─── end WP-427 F6.3 enrichment ───

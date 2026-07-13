@@ -193,6 +193,8 @@ class GitHubNotesClient:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
+        line_start: int | None = None  # 1-based line number of first inserted note line
+
         for attempt in range(max_retries):
             try:
                 async with aiohttp.ClientSession() as session:
@@ -213,6 +215,8 @@ class GitHubNotesClient:
                             lines = current_content.split("\n")
                             insert_pos = self._find_insert_position(lines)
 
+                            line_start = insert_pos + 1  # 1-based line number of first note line
+
                             for j, note_line in enumerate(note_lines):
                                 lines.insert(insert_pos + j, note_line)
 
@@ -220,12 +224,19 @@ class GitHubNotesClient:
                         elif resp.status == 404:
                             current_sha = None
                             now_str = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d")
-                            header = (
-                                f"---\ntype: inbox\nstatus: active\n"
-                                f"updated: {now_str}\n---\n\n"
-                                f"# Fleeting Notes\n\n"
-                            )
-                            updated_content = header + "\n".join(note_lines)
+                            header_lines = [
+                                "---",
+                                "type: inbox",
+                                "status: active",
+                                f"updated: {now_str}",
+                                "---",
+                                "",
+                                "# Fleeting Notes",
+                                "",
+                            ]
+                            header_str = "\n".join(header_lines) + "\n"
+                            updated_content = header_str + "\n".join(note_lines)
+                            line_start = header_str.count("\n") + 1  # 1-based
                         elif resp.status in (500, 502, 503, 504) and attempt < max_retries - 1:
                             logger.warning(
                                 f"GitHub GET {path}: {resp.status} transient, "
@@ -265,9 +276,8 @@ class GitHubNotesClient:
                                 "repo": repo,
                                 "path": path,
                                 "branch": branch,
-                                "sha": result.get("content", {}).get(
-                                    "sha", ""
-                                ),
+                                "sha": result.get("content", {}).get("sha", ""),
+                                "line_start": line_start,
                             }
                         elif resp.status == 409 and attempt < max_retries - 1:
                             logger.warning(
