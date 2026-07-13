@@ -377,7 +377,7 @@ def get_self_knowledge(lang: str = 'ru') -> str:
     from config.settings import PLATFORM_URLS
 
     if is_ru:
-        lines.append("\n## Программы обучения")
+        lines.append("\n## Программы развития")
         lines.append(
             "Если пользователь спрашивает «что дальше», «как продолжить», "
             "«хочу углубиться» или завершил марафон — рекомендуй программы:\n"

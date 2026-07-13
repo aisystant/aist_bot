@@ -280,7 +280,7 @@ async def generate_child_assignment_text(
 - {_LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS['ru'])}
 - Длина: 5-10 предложений
 
-ФОРМАТ ЗАНЯТИЯ (из учебной программы):
+ФОРМАТ ЗАНЯТИЯ (из программы):
 {form_text}
 
 ШАБЛОН (transfer_test):

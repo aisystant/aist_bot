@@ -1220,7 +1220,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         agency = derived.get('3_1_agency', {})
         data_summary += (
             f"\n[DERIVED INDICATORS (calculated by engine v{derived.get('engine_version', '?')})]\n"
-            f"Student stage: {qualification.get('stage', '?')}/4 "
+            f"Development stage: {qualification.get('stage', '?')}/4 "
             f"({qualification.get('stage_name_ru', 'N/A')}, "
             f"path={qualification.get('path', 'learner')})\n"
             f"Agency index: {integral.get('index', 0)}/100 "
@@ -1282,7 +1282,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "- 'WPs' = Work Products (managed deliverables with deadlines)\n"
         "- 'Exocortex uptime' = number of days with recorded scheduler activity (NOT 'launched N days ago'). "
         "Example: uptime=8 means scheduler ran on 8 different days, not that system was set up 8 days ago\n"
-        "- 'Student stage' (0-4) = calculated learning maturity: 0=Random, 1=Practicing, 2=Systematic, "
+        "- 'Development stage' (0-4) = calculated development maturity: 0=Random, 1=Practicing, 2=Systematic, "
         "3=Disciplined, 4=Proactive. Based on regularity, sessions, training\n"
         "- 'Agency index' (0-100) = weighted aggregate: regularity(30%), activity(25%), learning(25%), "
         "notifications(10%), longevity(10%)\n"

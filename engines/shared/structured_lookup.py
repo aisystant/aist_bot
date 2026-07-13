@@ -229,11 +229,11 @@ def format_structured_context(hit: StructuredHit, lang: str = 'ru') -> str:
             if day != current_day:
                 current_day = day
                 lines.append(f"День {day}:")
-            topic_type = "📖 Урок" if topic.get('type') == 'theory' else "✏️ Задание"
+            topic_type = "📖 Занятие" if topic.get('type') == 'theory' else "✏️ Задание"
             title = get_topic_title(topic, lang)
             lines.append(f"  {topic_type}: {title}")
         lines.append("")
-        lines.append(f"Итого: 14 дней, {len(hit.topics)} тем (уроки + задания)")
+        lines.append(f"Итого: 14 дней, {len(hit.topics)} тем (занятия + задания)")
 
     elif hit.pattern in ("day", "week"):
         lines.append("")

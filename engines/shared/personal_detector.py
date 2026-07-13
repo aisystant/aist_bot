@@ -30,7 +30,7 @@ PERSONAL_PATTERNS: Dict[str, Dict[str, Any]] = {
             "my goals", "my goal", "learning goals", "what i want to achieve",
         ],
         'paths': ["1_declarative/1_2_goals/09_Цели обучения"],
-        'label': "Цели обучения",
+        'label': "Цели",
     },
     'problems': {
         'patterns': [
@@ -101,7 +101,7 @@ PERSONAL_PATTERNS: Dict[str, Dict[str, Any]] = {
             "marathon progress",
         ],
         'paths': ["2_collected/2_2_courses/01_Прогресс обучения"],
-        'label': "Прогресс обучения",
+        'label': "Прогресс",
     },
     'full_profile': {
         'patterns': [
