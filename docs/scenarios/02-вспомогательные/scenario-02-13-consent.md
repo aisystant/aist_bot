@@ -116,7 +116,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 | Privacy текст | B8.0 v1.0 (`DS-ecosystem-development/.../legal/privacy.md`), URL https://system-school.ru/iwe/privacy |
 | Алгоритм stage_evaluator | PD.FORM.089 §5 + WP-253 Блок 2 design (`DS-my-strategy/inbox/WP-253-block2-stage-evaluator-design.md`) |
 | Worker | `DS-IT-systems/activity-hub/activity_hub/workers/stage_evaluator.py` + systemd `iwe-stage-evaluator.timer` (tsekh-1, 04:35 МСК) |
-| Service Clause | DP.SC.020 (event-ingest) + DP.SC.012 (stage-evaluator), `PACK-digital-platform/.../08-service-clauses/` |
+| Service Clause | DP.SC.044 (event-ingest) + DP.SC.012 (stage-evaluator), `PACK-digital-platform/.../08-service-clauses/` |
 | Role | DP.ROLE.032 event-ingester, DP.ROLE.028 stage-evaluator |
 
 ---
