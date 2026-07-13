@@ -1,23 +1,27 @@
 """
 Langfuse integration — L5 Observability (WP-179 Ф3).
 
-Dual-write: каждый trace/span отправляется и в Neon (existing), и в Langfuse.
-Graceful: если LANGFUSE_SECRET_KEY не задан или Langfuse недоступен — всё работает как раньше.
+Dual-write: each trace/generation is sent to both Neon (existing) and Langfuse.
+Graceful: if LANGFUSE_SECRET_KEY is unset or Langfuse is unreachable — everything
+works as before.
 
-Использование:
-    from core.langfuse_client import langfuse_trace, langfuse_span, langfuse_generation
+SDK targeted: langfuse>=4 (OTEL-based client). The legacy .trace()/.span()/
+.generation()/.score() methods were removed upstream in the v3 rewrite; this
+module uses start_observation()/.update()/.score()/.end() instead.
 
-    # В TracingMiddleware:
-    lf_trace = langfuse_trace(user_id=123, name="/learn", metadata={...})
+Usage:
+    from core.langfuse_client import langfuse_trace, langfuse_generation
 
-    # В claude.py:
+    # In TracingMiddleware:
+    lf_span = langfuse_trace(user_id=123, name="/learn", metadata={...})
+
+    # In claude.py:
     langfuse_generation(
-        trace=lf_trace,
         name="generate_content",
         model="claude-sonnet-4-20250514",
         input=prompt,
         output=result,
-        usage={"input": 500, "output": 1200},
+        usage_details={"input": 500, "output": 1200},
     )
 """
 
@@ -28,8 +32,8 @@ from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
 
-# Langfuse trace для текущего запроса (request-scoped)
-_current_lf_trace: ContextVar[Optional[Any]] = ContextVar('_current_lf_trace', default=None)
+# (root span, propagate_attributes context manager) для текущего запроса
+_current_lf_span: ContextVar[Optional[tuple]] = ContextVar('_current_lf_span', default=None)
 
 # Singleton Langfuse client
 _langfuse = None
@@ -74,33 +78,47 @@ def langfuse_trace(
     metadata: Optional[dict] = None,
     session_id: Optional[str] = None,
 ) -> Optional[Any]:
-    """Создать Langfuse trace для текущего запроса.
+    """Создать корневой Langfuse span (= trace) для текущего запроса.
 
     Вызывается из TracingMiddleware при начале обработки сообщения.
-    Возвращает trace object или None если Langfuse не настроен.
+    Возвращает span object или None если Langfuse не настроен.
     """
     lf = _get_langfuse()
     if not lf:
         return None
 
     try:
-        trace = lf.trace(
-            id=trace_id,
-            name=name,
+        from langfuse import propagate_attributes
+        from langfuse.types import TraceContext
+
+        # Langfuse trace_id — 32-символьный hex; наш Neon trace_id короче,
+        # поэтому используем его как seed для детерминированной привязки.
+        lf_trace_id = lf.create_trace_id(seed=trace_id) if trace_id else None
+
+        attr_ctx = propagate_attributes(
             user_id=str(user_id),
             session_id=session_id or str(user_id),
+            trace_name=name,
             metadata=metadata or {},
         )
-        _current_lf_trace.set(trace)
-        return trace
+        attr_ctx.__enter__()
+
+        span = lf.start_observation(
+            name=name,
+            as_type="span",
+            trace_context=TraceContext(trace_id=lf_trace_id) if lf_trace_id else None,
+        )
+        _current_lf_span.set((span, attr_ctx))
+        return span
     except Exception as e:
         logger.debug(f"[Langfuse] trace error: {e}")
         return None
 
 
 def get_current_lf_trace() -> Optional[Any]:
-    """Получить текущий Langfuse trace."""
-    return _current_lf_trace.get()
+    """Получить текущий корневой Langfuse span."""
+    current = _current_lf_span.get()
+    return current[0] if current else None
 
 
 def langfuse_span(
@@ -108,17 +126,18 @@ def langfuse_span(
     trace: Optional[Any] = None,
     metadata: Optional[dict] = None,
 ) -> Optional[Any]:
-    """Создать span внутри текущего trace.
+    """Создать дочерний span внутри текущего trace.
 
-    Если trace не передан — берёт из ContextVar.
+    Если trace не передан — берёт корневой span из ContextVar.
     """
-    t = trace or _current_lf_trace.get()
+    t = trace or get_current_lf_trace()
     if not t:
         return None
 
     try:
-        return t.span(
+        return t.start_observation(
             name=name,
+            as_type="span",
             metadata=metadata or {},
         )
     except Exception as e:
@@ -131,7 +150,7 @@ def langfuse_generation(
     model: str,
     input: Any = None,
     output: Any = None,
-    usage: Optional[dict] = None,
+    usage_details: Optional[dict] = None,
     trace: Optional[Any] = None,
     metadata: Optional[dict] = None,
 ) -> Optional[Any]:
@@ -139,17 +158,18 @@ def langfuse_generation(
 
     Вызывается из clients/claude.py после завершения API вызова.
     """
-    t = trace or _current_lf_trace.get()
+    t = trace or get_current_lf_trace()
     if not t:
         return None
 
     try:
-        return t.generation(
+        return t.start_observation(
             name=name,
+            as_type="generation",
             model=model,
             input=input,
             output=output,
-            usage=usage or {},
+            usage_details=usage_details or {},
             metadata=metadata or {},
         )
     except Exception as e:
@@ -164,7 +184,7 @@ def langfuse_score(
     comment: Optional[str] = None,
 ) -> None:
     """Записать оценку качества в Langfuse (для L3 AI Quality feedback loop)."""
-    t = trace or _current_lf_trace.get()
+    t = trace or get_current_lf_trace()
     if not t:
         return
 
@@ -180,16 +200,22 @@ def langfuse_score(
 
 def langfuse_end_trace() -> None:
     """Завершить текущий Langfuse trace. Вызывается из TracingMiddleware."""
-    trace = _current_lf_trace.get()
-    _current_lf_trace.set(None)
+    current = _current_lf_span.get()
+    _current_lf_span.set(None)
 
-    if not trace:
+    if not current:
         return
 
+    span, attr_ctx = current
     try:
-        trace.update(status_message="completed")
+        span.end()
     except Exception as e:
         logger.debug(f"[Langfuse] end trace error: {e}")
+    finally:
+        try:
+            attr_ctx.__exit__(None, None, None)
+        except Exception as e:
+            logger.debug(f"[Langfuse] attribute context exit error: {e}")
 
 
 def init_langfuse() -> None:
@@ -203,5 +229,5 @@ def langfuse_flush() -> None:
     if lf:
         try:
             lf.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[Langfuse] flush error: {e}")
