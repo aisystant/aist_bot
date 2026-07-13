@@ -47,7 +47,7 @@ GUIDE_TOPIC_CATALOG: List[Dict] = [
         "chaos": 0, "deadlock": 1, "turning_point": 3,
     },
     {
-        "title": "Обучение и знания",
+        "title": "Развитие и знания",
         "guide": "1-1-self-development",
         "section": "02-training-and-time",
         "keywords": ["обучение", "знания", "мировоззрение"],

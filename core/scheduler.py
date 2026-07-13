@@ -506,7 +506,7 @@ async def _process_marathon_queue():
                                             await bot.send_message(
                                                 MENTOR_CHANNEL_ID,
                                                 f"🚨 *Алерт марафона*\n\n"
-                                                f"Не удалось отправить урок участнику `{chat_id}`\n"
+                                                f"Не удалось отправить занятие участнику `{chat_id}`\n"
                                                 f"День {day}, split lesson\n"
                                                 f"Ошибка: `{error_msg[:200]}`",
                                                 parse_mode="Markdown",
@@ -794,13 +794,13 @@ async def _send_practice_nudges():
         if minutes_elapsed >= 150:
             nudge_slot = '150m'
             text = (
-                f"⏰ Урок Дня {day} пришёл несколько часов назад, практику ещё не открыли.\n\n"
+                f"⏰ Занятие Дня {day} пришло несколько часов назад, практику ещё не открыли.\n\n"
                 "Последний шанс сегодня — нажмите кнопку ниже:"
             )
         else:
             nudge_slot = '30m'
             text = (
-                f"📚 Урок Дня {day} уже ждёт вас. Осталось только перейти к практике!\n\n"
+                f"📚 Занятие Дня {day} уже ждёт вас. Осталось только перейти к практике!\n\n"
                 "Нажмите кнопку ниже:"
             )
 
@@ -984,7 +984,7 @@ def _build_marathon_message(content_type: str, day: int, content_ref: str | None
     # WP-330 Ф10.B + С9a: routing по профилю → long_complex/short_simple/etc.
     from core.marathon_content import get_day_text
     templates = {
-        'lesson_practice': f"📚 *День {day}*\n\nСегодняшний урок и практика готовы!",
+        'lesson_practice': f"📚 *День {day}*\n\nСегодняшнее занятие и практика готовы!",
         'checkin': f"🌙 *День {day} — Вечерний чек-ин*\n\nКак прошёл день? Нажми 😵 / 🧱 / 🔁",
     }
     if content_type == 'lesson_practice':

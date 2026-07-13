@@ -27,11 +27,11 @@ welcome:
     description: "Первое сообщение при входе в бота"
 
   intro:
-    ru: "Я — бот для систематического обучения. Помогу освоить навыки самообучения за 14 дней."
+    ru: "Я — бот для систематического развития. Помогу освоить навыки саморазвития за 14 дней."
     en: "I'm a systematic learning bot. I'll help you master self-learning skills in 14 days."
 
   intro_marathon:
-    ru: "🏃 *Марафон (14 дней)*\n• 2 темы в день: урок + практика\n• Пропустил? Можно догнать, но только 1 день\n• Тест систематичности определит твой стиль — бот адаптирует контент\n• Это первый уровень — фундамент"
+    ru: "🏃 *Марафон (14 дней)*\n• 2 темы в день: занятие + практика\n• Пропустил? Можно догнать, но только 1 день\n• Тест систематичности определит твой стиль — бот адаптирует контент\n• Это первый уровень — фундамент"
     en: "🏃 *Marathon (14 days)*\n• 2 topics per day: theory + practice\n• Missed a day? You can catch up, but only 1 day\n• Systematicity test determines your style — the bot adapts content\n• This is Level 1 — the foundation"
 
   intro_tiers:
@@ -39,7 +39,7 @@ welcome:
     en: "📈 *What's next?*\nThe bot is part of an Intellectual Work Environment (IWE) — like an IDE, but for developing thinking. After the marathon you'll unlock:\n• Personalized feed and AI consultant\n• Digital Twin — the bot learns your context\n• Connection with systemsworld.club\n• Knowledge creation and AI agent workflows"
 
   intro_start:
-    ru: "📚 *Марафон* — пошаговые уроки за 14 дней\n📖 *Лента* — свободный темп, выбирайте темы сами (переключить в ⚙️ Настройках)\n\nНажмите кнопку ниже, чтобы начать."
+    ru: "📚 *Марафон* — пошаговые занятия за 14 дней\n📖 *Лента* — свободный темп, выбирайте темы сами (переключить в ⚙️ Настройках)\n\nНажмите кнопку ниже, чтобы начать."
     en: "📚 *Marathon* — step-by-step lessons over 14 days\n📖 *Feed* — free pace, choose topics yourself (switch in ⚙️ Settings)\n\nPress a button below to start."
 
   marathon_welcome:
@@ -51,7 +51,7 @@ welcome:
     en: "14 days from casual learner to systematic practitioner."
 
   marathon_days_info:
-    ru: "{days} дней — по 2 темы в день (урок + задание)"
+    ru: "{days} дней — по 2 темы в день (занятие + задание)"
     en: "{days} days — 2 topics per day (theory + practice)"
 
   marathon_duration_info:
@@ -63,7 +63,7 @@ welcome:
     en: "Daily reminders at {time}"
 
   marathon_personalize_hint:
-    ru: "💡 _Хочешь персональные уроки? Расскажи о себе через /profile — и контент будет адаптирован под тебя._"
+    ru: "💡 _Хочешь персональные занятия? Расскажи о себе через /profile — и контент будет адаптирован под тебя._"
     en: "💡 _Want personalized lessons? Tell me about yourself via /profile — and content will be tailored to you._"
 
   ask_name:
@@ -146,7 +146,7 @@ welcome:
       ru: "📋 Все возможности открыты! /plan — план, /rp — рабочие продукты"
       en: "📋 All features unlocked! /plan — plan, /rp — work products"
     t4_1:
-      ru: "📊 Посмотри аналитику своего обучения → /mydata"
+      ru: "📊 Посмотри аналитику своего развития → /mydata"
       en: "📊 Check your learning analytics → /mydata"
 
   current_mode:
@@ -269,7 +269,7 @@ commands:
     ru: "/contacts — контактная информация"
     en: "/contacts — contact information"
   guide:
-    ru: "/guide — персональный гид обучения"
+    ru: "/guide — персональный гид развития"
     en: "/guide — personal learning guide"
   buy:
     ru: "/buy — витрина покупок (подписка + программы)"
@@ -417,7 +417,7 @@ onboarding:
     en: "How many minutes per topic?"
 
   ask_complexity:
-    ru: "На каком языке писать урок?"
+    ru: "На каком языке писать занятие?"
     en: "What language style for lessons?"
 
   ask_complexity_hint:
@@ -736,7 +736,7 @@ buttons:
     max_length: 20
 
   continue_learning:
-    ru: "Продолжить обучение"
+    ru: "Продолжить развитие"
     en: "Continue learning"
     max_length: 25
 
@@ -827,7 +827,7 @@ buttons:
     max_length: 25
 
   get_lesson:
-    ru: "Получить урок"
+    ru: "Получить занятие"
     en: "Get lesson"
     max_length: 25
 
@@ -1027,9 +1027,9 @@ difficulty:
 # -----------------------------------------------------------------------------
 delivery:
   ask_format:
-    ru: "Что для вас важнее в уроке?"
+    ru: "Что для вас важнее в занятии?"
     en: "What matters most in a lesson?"
-    description: "Вопрос после первого урока"
+    description: "Вопрос после первого занятия"
 
   ask_detail:
     ru: "Насколько подробно объяснять?"
@@ -1181,11 +1181,11 @@ settings:
     en: "Aisystant Connection"
 
   aisystant_connected_info:
-    ru: "✅ *Аккаунт Aisystant подключён*\n\nВам доступны:\n• 📋 Расписание занятий\n• 📚 Программы обучения\n• 💳 Оплата и подписка\n• 📊 Прогресс обучения"
+    ru: "✅ *Аккаунт Aisystant подключён*\n\nВам доступны:\n• 📋 Расписание занятий\n• 📚 Программы развития\n• 💳 Оплата и подписка\n• 📊 Прогресс развития"
     en: "✅ *Aisystant account connected*\n\nYou have access to:\n• 📋 Class schedule\n• 📚 Learning programs\n• 💳 Payments and subscriptions\n• 📊 Learning progress"
 
   aisystant_not_connected_info:
-    ru: "🔗 *Подключение к Aisystant*\n\nAisystant — образовательная платформа, к которой привязан этот бот.\n\nПосле подключения вам станут доступны:\n• 📋 Расписание занятий\n• 📚 Программы обучения\n• 💳 Оплата и подписка\n• 📊 Прогресс обучения\n\nНажмите кнопку ниже, чтобы привязать аккаунт."
+    ru: "🔗 *Подключение к Aisystant*\n\nAisystant — платформа развития, к которой привязан этот бот.\n\nПосле подключения вам станут доступны:\n• 📋 Расписание занятий\n• 📚 Программы развития\n• 💳 Оплата и подписка\n• 📊 Прогресс развития\n\nНажмите кнопку ниже, чтобы привязать аккаунт."
     en: "🔗 *Connect to Aisystant*\n\nAisystant is the learning platform this bot is linked to.\n\nAfter connecting you'll get access to:\n• 📋 Class schedule\n• 📚 Learning programs\n• 💳 Payments and subscriptions\n• 📊 Learning progress\n\nClick the button below to link your account."
 
   connections_label:
@@ -1525,7 +1525,7 @@ progress:
     en: "Failed to load full report. Please try again later."
 
   continue_learning:
-    ru: "Продолжить обучение"
+    ru: "Продолжить развитие"
     en: "Continue learning"
 
   get_digest:
@@ -1540,7 +1540,7 @@ progress:
     max_length: 20
 
   continue_learning_btn:
-    ru: "📚 Продолжить обучение"
+    ru: "📚 Продолжить развитие"
     en: "📚 Continue learning"
     description: "Кнопка для продолжения марафона"
     max_length: 25
@@ -1788,7 +1788,7 @@ modes:
 
   # Расширенные ключи для /mode
   select_mode_title:
-    ru: "🎯 *Выберите режим обучения*"
+    ru: "🎯 *Выберите режим развития*"
     en: "🎯 *Select learning mode*"
 
   current_mode_label:
@@ -2025,11 +2025,11 @@ modes:
     en: "New start date"
 
   use_learn_start:
-    ru: "Используйте /learn для начала обучения."
+    ru: "Используйте /learn для начала развития."
     en: "Use /learn to start learning."
 
   use_learn:
-    ru: "Используйте /learn для продолжения обучения."
+    ru: "Используйте /learn для продолжения развития."
     en: "Use /learn to continue learning."
 
   marathon_mode:
@@ -2320,7 +2320,7 @@ reminders:
     en: "Day {day} hasn't started yet."
 
   two_topics_today:
-    ru: "Всего 2 темы на сегодня: урок и задание."
+    ru: "Всего 2 темы на сегодня: занятие и задание."
     en: "2 topics today: lesson and task."
 
   regularity_tip:
@@ -2344,7 +2344,7 @@ reminders:
     en: "Press the button to read it."
 
   marathon_lesson_ready:
-    ru: "📚 Ваш урок на сегодня готов!"
+    ru: "📚 Ваше занятие на сегодня готово!"
     en: "📚 Your lesson for today is ready!"
 
   marathon_lesson_cta:
@@ -2352,7 +2352,7 @@ reminders:
     en: "Press the button to start."
 
   marathon_catchup_ready:
-    ru: "📚 У вас есть непройденный урок с прошлого дня!"
+    ru: "📚 У вас есть непройденное занятие с прошлого дня!"
     en: "📚 You have an unfinished lesson from yesterday!"
 
   marathon_catchup_cta:
@@ -2360,11 +2360,11 @@ reminders:
     en: "Complete it today to stay on track."
 
   marathon_catchup_offer:
-    ru: "Хотите получить ещё и сегодняшний урок? Нагнать можно только 1 день."
+    ru: "Хотите получить ещё и сегодняшнее занятие? Нагнать можно только 1 день."
     en: "Want to also get today's lesson? You can catch up by 1 day max."
 
   marathon_catchup_btn:
-    ru: "Да, получить сегодняшний урок"
+    ru: "Да, получить сегодняшнее занятие"
     en: "Yes, get today's lesson"
 
   marathon_catchup_skip:
@@ -2372,7 +2372,7 @@ reminders:
     en: "No, enough for today"
 
   marathon_catchup_generating:
-    ru: "Генерирую сегодняшний урок..."
+    ru: "Генерирую сегодняшнее занятие..."
     en: "Generating today's lesson..."
 
 # -----------------------------------------------------------------------------
@@ -2420,7 +2420,7 @@ profile:
     en: "days in a row"
 
   active_day_hint:
-    ru: "Активный день = ответ на урок, задание, дайджест или вопрос"
+    ru: "Активный день = ответ на занятие, задание, дайджест или вопрос"
     en: "Active day = answer a lesson, task, digest, or question"
 
   select_field_hint:
@@ -2596,7 +2596,7 @@ update:
     en: "day after tomorrow"
 
   continue_learning_hint:
-    ru: "/learn — продолжить обучение"
+    ru: "/learn — продолжить развитие"
     en: "/learn — continue learning"
 
   update_more:
@@ -2643,7 +2643,7 @@ update:
     ru: "Марафон уже идёт — дату не изменить"
     en: "Marathon is in progress — date cannot be changed"
   marathon_active_block_text:
-    ru: "Пока марафон активен, менять дату старта нельзя: это сбросит расписание уроков. Дождитесь завершения марафона или обратитесь к куратору."
+    ru: "Пока марафон активен, менять дату старта нельзя: это сбросит расписание занятий. Дождитесь завершения марафона или обратитесь к куратору."
     en: "You cannot change the start date while the marathon is active — it would reset your lesson schedule. Wait for the marathon to finish or contact your mentor."
   not_set:
     ru: "не задана"
@@ -2658,7 +2658,7 @@ help:
     en: "📖 Help"
 
   intro:
-    ru: "Бот — часть интеллектуальной рабочей среды для развития мышления.\nЕжедневные уроки, тренировки, ИИ-консультант и цифровой двойник — всё в одном месте."
+    ru: "Бот — часть интеллектуальной рабочей среды для развития мышления.\nЕжедневные занятия, тренировки, ИИ-консультант и цифровой двойник — всё в одном месте."
     en: "The bot is part of an Intellectual Work Environment for developing thinking.\nDaily lessons, training, AI consultant and digital twin — all in one place."
 
   getting_started:
@@ -2670,7 +2670,7 @@ help:
     en: "Choose a mode via /mode:"
 
   modes_title:
-    ru: "Режимы обучения"
+    ru: "Режимы развития"
     en: "Learning modes"
 
   marathon:
@@ -2682,7 +2682,7 @@ help:
     en: "📚 *Marathon* — ready-made 14-day program (recommended to start)"
 
   marathon_desc:
-    ru: "14-дневная структурированная программа. Каждый день — урок (теория + вопрос) и задание с рабочим продуктом. Темы идут последовательно."
+    ru: "14-дневная структурированная программа. Каждый день — занятие (теория + вопрос) и задание с рабочим продуктом. Темы идут последовательно."
     en: "14-day structured program. Each day — a lesson (theory + question) and a task with deliverable. Topics go sequentially."
 
   feed:
@@ -2698,7 +2698,7 @@ help:
     en: "Flexible mode for those who want to study topics at their own pace without deadline restrictions. You choose up to 3 topics and receive daily digests. After each digest — a fixation (your personal takeaway)."
 
   about_marathon:
-    ru: "📚 Режимы обучения:"
+    ru: "📚 Режимы развития:"
     en: "📚 Learning modes:"
 
   ai_hint:
@@ -2942,7 +2942,7 @@ marathon:
     en: "/learn — continue to task"
 
   continue_to_lesson:
-    ru: "/learn — перейти к уроку"
+    ru: "/learn — перейти к занятию"
     en: "/learn — continue to lesson"
 
   generating_harder:
@@ -3237,7 +3237,7 @@ marathon:
     en: "🎉 Congratulations! Marathon completed! Use /feed for Feed mode."
 
   completed_hint:
-    ru: "Вы можете продолжить обучение в режиме Лента или перейти к полным программам."
+    ru: "Вы можете продолжить развитие в режиме Лента или перейти к полным программам."
     en: "You can continue learning in Feed mode or move to full programs."
 
   completed_next_step:
@@ -3262,7 +3262,7 @@ marathon:
     en: "Come back tomorrow for new topics!"
 
   question_ready:
-    ru: "Вопрос по уроку готов."
+    ru: "Вопрос по занятию готов."
     en: "Lesson question is ready."
 
   practice_ready:
@@ -3895,7 +3895,7 @@ mydata:
     ru: "Профиль"
     en: "Profile"
   cat_learning:
-    ru: "Обучение"
+    ru: "Развитие"
     en: "Learning"
   cat_activity:
     ru: "Активность"
@@ -3946,7 +3946,7 @@ mydata:
 
   # ── How it works ──
   how_intro:
-    ru: "Твои данные используются только для персонализации обучения. Вот что попадает в контекст Claude при генерации контента:"
+    ru: "Твои данные используются только для персонализации развития. Вот что попадает в контекст Claude при генерации контента:"
     en: "Your data is used only to personalize learning. Here's what goes into Claude's context when generating content:"
   how_prompt_title:
     ru: "Что получает Claude:"
@@ -4061,7 +4061,7 @@ mydata:
     ru: "🔄 Сбросить марафон"
     en: "🔄 Reset marathon"
   btn_reset_learning:
-    ru: "📚 Сбросить всё обучение (марафон + лента + ответы)"
+    ru: "📚 Сбросить весь прогресс (марафон + лента + ответы)"
     en: "📚 Reset all learning (marathon + feed + answers)"
   btn_clear_notes:
     ru: "📝 Очистить заметки GitHub"
@@ -4115,7 +4115,7 @@ mydata:
     ru: "Файл fleeting-notes.md в GitHub-репозитории будет очищен. Подключение GitHub сохранится."
     en: "The fleeting-notes.md file in your GitHub repository will be cleared. GitHub connection will be preserved."
   confirm_reset_learning:
-    ru: "Сбросить всё обучение?"
+    ru: "Сбросить весь прогресс?"
     en: "Reset all learning?"
   confirm_reset_learning_detail:
     ru: |
@@ -4151,7 +4151,7 @@ mydata:
     ru: "История Q&A очищена."
     en: "Q&A history cleared."
   learning_reset_done:
-    ru: "Прогресс обучения сброшен. Профиль сохранён."
+    ru: "Прогресс развития сброшен. Профиль сохранён."
     en: "Learning progress reset. Profile preserved."
   github_disconnected:
     ru: "GitHub отключён."
@@ -4358,7 +4358,7 @@ plans:
 # -----------------------------------------------------------------------------
 mode:
   select_mode:
-    ru: "Выберите режим обучения"
+    ru: "Выберите режим развития"
     en: "Select learning mode"
 
 # -----------------------------------------------------------------------------
@@ -5047,7 +5047,7 @@ milestones:
     en: "Great start — keep up the pace!"
 
   day_7_inactive:
-    ru: "Попробуйте открыть первый урок — это займёт всего пару минут!"
+    ru: "Попробуйте открыть первое занятие — это займёт всего пару минут!"
     en: "Try opening your first lesson — it only takes a couple of minutes!"
 
   day_7_trial:
@@ -5055,7 +5055,7 @@ milestones:
     en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Инженерия интеллекта» subscription."
 
   day_14:
-    ru: "🏃 *Две недели обучения!*\n\n{marathon_status}\n\nВы входите в число самых активных учеников."
+    ru: "🏃 *Две недели развития!*\n\n{marathon_status}\n\nВы входите в число самых активных участников."
     en: "🏃 *Two weeks of learning!*\n\n{marathon_status}\n\nYou're among our most active learners."
 
   day_14_marathon_done:
@@ -5071,7 +5071,7 @@ milestones:
     en: "📅 *One month with us!*\n\n{active_days} active days, {topics} topics studied, streak: {streak} days in a row.\n\nFor deeper mastery, we recommend the full *Personal Development* program."
 
   day_60:
-    ru: "🌟 *Два месяца обучения!*\n\nВы изучили {topics} тем на уровне сложности {bloom}.\n\nСледующий шаг для роста — заполните «Цифровой двойник» (/twin), чтобы получить персонализированные рекомендации."
+    ru: "🌟 *Два месяца развития!*\n\nВы изучили {topics} тем на уровне сложности {bloom}.\n\nСледующий шаг для роста — заполните «Цифровой двойник» (/twin), чтобы получить персонализированные рекомендации."
     en: "🌟 *Two months of learning!*\n\nYou've studied {topics} topics at complexity level {bloom}.\n\nNext growth step — fill in your Digital Twin (/twin) for personalized recommendations."
 
   day_90:
@@ -5106,7 +5106,7 @@ nudges:
     en: "👋 Hi there! We noticed you haven't been around for a few days. How are things? Come back — your progress is waiting."
 
   nudge_streak_drop:
-    ru: "🔥 Ваш рекорд серии — {streak} дней подряд. Сейчас серия прервана. Один урок сегодня — и вы снова в деле!"
+    ru: "🔥 Ваш рекорд серии — {streak} дней подряд. Сейчас серия прервана. Одно занятие сегодня — и вы снова в деле!"
     en: "🔥 Your best streak was {streak} days in a row. It's currently broken. One lesson today and you're back on track!"
 
   nudge_low_engagement:
@@ -5114,7 +5114,7 @@ nudges:
     en: "📊 Activity was low this past week. Even 5 minutes with one digest helps maintain your rhythm."
 
   nudge_marathon_stalled:
-    ru: "🏃 Ваш марафон ждёт продолжения! Следующий урок готов — нажмите /learn."
+    ru: "🏃 Ваш марафон ждёт продолжения! Следующее занятие готово — нажмите /learn."
     en: "🏃 Your marathon is waiting! The next lesson is ready — tap /learn."
 
   nudge_sessions_10:
@@ -5142,7 +5142,7 @@ nudges:
     en: "📅 14 active days — two weeks of practice. Skills are starting to stick!"
 
   nudge_active_days_30:
-    ru: "🎯 30 активных дней! Месяц систематичного обучения — это уже привычка."
+    ru: "🎯 30 активных дней! Месяц систематичного развития — это уже привычка."
     en: "🎯 30 active days! A month of systematic learning — it's a habit now."
 
   # Derived-aware nudges (WP-117 Ф3, dep: WP-151 Ф4)
@@ -5200,7 +5200,7 @@ nudges:
     en: "Nudges"
 
   settings_nudges_description:
-    ru: "Бот подбадривает вас на основе вашей активности: поздравляет с достижениями, напоминает о незавершённых уроках и помогает не терять темп обучения."
+    ru: "Бот подбадривает вас на основе вашей активности: поздравляет с достижениями, напоминает о незавершённых занятиях и помогает не терять темп развития."
     en: "Bot encourages you based on your activity: celebrates achievements, reminds about incomplete lessons, and helps maintain your learning pace."
 
   settings_nudges_enable:
@@ -5319,10 +5319,10 @@ twin:
     ru: "Нажмите кнопку ниже, чтобы авторизоваться.\nПосле авторизации вы сможете просматривать и редактировать свой профиль."
     en: "Press the button below to authorize.\nAfter authorization, you can view and edit your profile."
   saving_objective:
-    ru: "Сохраняю цель обучения..."
+    ru: "Сохраняю цель развития..."
     en: "Saving learning objective..."
   objective_updated:
-    ru: "Цель обучения обновлена:\n*{objective}*"
+    ru: "Цель развития обновлена:\n*{objective}*"
     en: "Learning objective updated:\n*{objective}*"
   objective_error:
     ru: "Не удалось сохранить цель. Цифровой двойник недоступен."
@@ -5447,7 +5447,7 @@ twin:
 # -----------------------------------------------------------------------------
 reset:
   old_data_detected:
-    ru: "👋 У вас есть учебный прогресс ({completed} пройденных тем).\n\nЧтобы сбросить прогресс, перейдите в «Мои данные» и выберите нужный сброс."
+    ru: "👋 У вас есть прогресс развития ({completed} пройденных тем).\n\nЧтобы сбросить прогресс, перейдите в «Мои данные» и выберите нужный сброс."
     en: "👋 You have learning progress ({completed} completed topics).\n\nTo reset your progress, go to «My Data» and choose the reset you need."
 
   fresh_start_btn:
@@ -5506,7 +5506,7 @@ link:
     en: "📋 *What to do next:*\n\n1️⃣ Get «Intelligence Engineering» subscription (system-school.ru/open-endedness) — unlocks all programs and AI assistant\n2️⃣ Or start the free marathon now → tap «Learn» on the keyboard"
 
   next_steps_with_sub:
-    ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — тогда я смогу использовать твои данные из Aisystant при ответах. Нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни обучение"
+    ru: "📋 *Что делать дальше:*\n\n1️⃣ Подключи AI-ассистент (claude.ai или Claude Code) к платформе — тогда я смогу использовать твои данные из Aisystant при ответах. Нажми кнопку ниже\n2️⃣ Выбери программу в LMS и начни развитие"
     en: "📋 *What to do next:*\n\n1️⃣ Connect your AI assistant (claude.ai or Claude Code) to the platform — then I can use your Aisystant data when answering. Tap the button below\n2️⃣ Choose a program in LMS and start learning"
 
   btn_connect_ai:
@@ -5518,7 +5518,7 @@ link:
     en: "💎 Get subscription"
 
   btn_programs:
-    ru: "📅 Программы обучения"
+    ru: "📅 Программы развития"
     en: "📅 Learning programs"
 
   unlinked:
@@ -5754,7 +5754,7 @@ guide:
     en: "🧭 *Guide*"
 
   desc_t2:
-    ru: "Гид — ваш персональный помощник в обучении.\n\nПодключите Цифровой двойник, чтобы получить:\n• Персональный профиль с целями\n• Рекомендации по программам\n• Отслеживание прогресса"
+    ru: "Гид — ваш персональный помощник в развитии.\n\nПодключите Цифровой двойник, чтобы получить:\n• Персональный профиль с целями\n• Рекомендации по программам\n• Отслеживание прогресса"
     en: "Guide is your personal learning assistant.\n\nConnect your Digital Twin to get:\n• Personal profile with goals\n• Program recommendations\n• Progress tracking"
 
   btn_connect_dt:
@@ -5912,22 +5912,22 @@ buy:
 info:
   # --- /about ---
   about_text:
-    ru: "ℹ️ *О нас*\n\n*Экосистема развития интеллекта* — среда, в которой люди развивают мышление и становятся созидателями: себя, команд, сообществ и общества.\n\n*Что мы даём:*\n• *Мастерская* — практикумы, резидентуры, семинары и разборы для бесконечного развития\n• *Сообщество* — более 13 000 инженеров-менеджеров (systemsworld.club)\n• *ИИ-платформа* — персональный путь, ИИ-консультант, цифровой двойник (ЦД) — интеллектуальная рабочая среда (IWE)\n\n*Бот* — часть IWE. Через него вы получаете уроки, тренируете принципы, задаёте вопросы ИИ-консультанту, отслеживаете прогресс, управляете расписанием и оплатой, а также получаете доступ к ЦД и программам обучения. Подробнее: /help\n\n*С чего начать?*"
+    ru: "ℹ️ *О нас*\n\n*Экосистема развития интеллекта* — среда, в которой люди развивают мышление и становятся созидателями: себя, команд, сообществ и общества.\n\n*Что мы даём:*\n• *Мастерская* — практикумы, резидентуры, семинары и разборы для бесконечного развития\n• *Сообщество* — более 13 000 инженеров-менеджеров (systemsworld.club)\n• *ИИ-платформа* — персональный путь, ИИ-консультант, цифровой двойник (ЦД) — интеллектуальная рабочая среда (IWE)\n\n*Бот* — часть IWE. Через него вы получаете занятия, тренируете принципы, задаёте вопросы ИИ-консультанту, отслеживаете прогресс, управляете расписанием и оплатой, а также получаете доступ к ЦД и программам развития. Подробнее: /help\n\n*С чего начать?*"
     en: "ℹ️ *About us*\n\n*Ecosystem for Intelligence Development* — an environment where people develop thinking and become creators: of themselves, teams, communities and society.\n\n*What we offer:*\n• *Workshop* — practicums, residencies, seminars and reviews for infinite development\n• *Community* — over 13,000 engineers-managers (systemsworld.club)\n• *AI platform* — personal path, AI consultant, digital twin (DT) — Intellectual Work Environment (IWE)\n\n*The bot* is part of IWE. Through it you receive lessons, train principles, ask AI consultant questions, track progress, manage schedule and payments, and access your DT and learning programs. More: /help\n\n*Where to start?*"
 
   # --- /marathon_info ---
   marathon_text:
-    ru: "📚 *Марафон*\n\n*Что это?*\nПерсонализированная 14-дневная программа обучения методам саморазвития. Контент адаптируется под вас — бот учитывает ваш профиль, интересы и цели.\n\n*Зачем?*\nЗа 14 дней вы пройдёте путь от случайного обучения к систематическому. Каждый день — урок (теория + вопрос на осмысление) и задание с рабочим продуктом.\n\n*Для кого?*\nДля всех, кто хочет начать. Подписка не нужна — марафон бесплатный.\n\n*Как это работает?*\n1. Бот присылает урок в установленное время\n2. Вы изучаете тему (5-25 мин)\n3. Отвечаете на вопрос\n4. Получаете обратную связь от ИИ\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения уроков, длительность и сложность — и программа станет по-настоящему вашей."
+    ru: "📚 *Марафон*\n\n*Что это?*\nПерсонализированная 14-дневная программа саморазвития. Контент адаптируется под вас — бот учитывает ваш профиль, интересы и цели.\n\n*Зачем?*\nЗа 14 дней вы пройдёте путь от случайного развития к систематическому. Каждый день — занятие (теория + вопрос на осмысление) и задание с рабочим продуктом.\n\n*Для кого?*\nДля всех, кто хочет начать. Подписка не нужна — марафон бесплатный.\n\n*Как это работает?*\n1. Бот присылает занятие в установленное время\n2. Вы изучаете тему (5-25 мин)\n3. Отвечаете на вопрос\n4. Получаете обратную связь от ИИ\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения занятий, длительность и сложность — и программа станет по-настоящему вашей."
     en: "📚 *Marathon*\n\n*What is it?*\nA personalized 14-day self-development learning program. Content adapts to you — the bot considers your profile, interests and goals.\n\n*Why?*\nIn 14 days you'll go from casual learning to systematic practice. Each day — a lesson (theory + reflection question) and a task with deliverable.\n\n*For whom?*\nFor everyone who wants to start. No subscription needed — the marathon is free.\n\n*How does it work?*\n1. The bot sends a lesson at your scheduled time\n2. You study the topic (5-25 min)\n3. Answer the question\n4. Get AI feedback\n\n*Customize it:*\nDescribe yourself in your profile, set lesson delivery time, duration and difficulty — and the program becomes truly yours."
 
   # --- /feed_info ---
   feed_text:
-    ru: "📖 *Лента*\n\n*Что это?*\nПерсонализированный режим обучения — вы выбираете до 3 тем и получаете ежедневные дайджесты, адаптированные под ваш профиль и цели.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить развитие в своём ритме. Глубже изучайте интересные темы, получайте контент, созданный для вас.\n\n*Для кого?*\nДля пользователей с подпиской «Инженерия интеллекта».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения дайджестов и сложность — и контент будет максимально релевантным."
+    ru: "📖 *Лента*\n\n*Что это?*\nПерсонализированный режим развития — вы выбираете до 3 тем и получаете ежедневные дайджесты, адаптированные под ваш профиль и цели.\n\n*Зачем?*\nДля тех, кто прошёл марафон и хочет продолжить развитие в своём ритме. Глубже изучайте интересные темы, получайте контент, созданный для вас.\n\n*Для кого?*\nДля пользователей с подпиской «Инженерия интеллекта».\n\n*Как это работает?*\n1. Выбираете темы из каталога\n2. Бот присылает дайджест в установленное время\n3. Изучаете материал (5-25 мин)\n4. Пишете фиксацию — ваш личный вывод\n\n*Настройте под себя:*\nОпишите себя в профиле, укажите время получения дайджестов и сложность — и контент будет максимально релевантным."
     en: "📖 *Feed*\n\n*What is it?*\nA personalized learning mode — choose up to 3 topics and receive daily digests adapted to your profile and goals.\n\n*Why?*\nFor those who completed the marathon and want to continue development at their own pace. Explore topics deeper, get content created for you.\n\n*For whom?*\nFor users with an «Intelligence Engineering» subscription.\n\n*How does it work?*\n1. Choose topics from the catalog\n2. The bot sends a digest at your scheduled time\n3. Study the material (5-25 min)\n4. Write a fixation — your personal takeaway\n\n*Customize it:*\nDescribe yourself in your profile, set digest delivery time and difficulty — and content will be maximally relevant."
 
   # --- /train_info ---
   train_text:
-    ru: "🧠 *Тренировка*\n\n*Что это?*\nИнтерактивная тренировка принципов системного мышления. Вопросы адаптируются под ваш уровень и прогресс.\n\n*Зачем?*\nЧтобы принципы из уроков стали частью мышления. Тренировка проверяет понимание, а не запоминание — вы учитесь применять знания к реальным ситуациям.\n\n*Для кого?*\nДля пользователей с подпиской «Инженерия интеллекта».\n\n*Как это работает?*\n1. Бот задаёт вопрос по изученным принципам\n2. Вы отвечаете своими словами\n3. ИИ оценивает понимание и даёт обратную связь\n4. После 2 неудачных попыток — показывает пример ответа\n\n*Настройте под себя:*\nОпишите себя в профиле и укажите сложность — тренировка адаптируется под ваш уровень."
+    ru: "🧠 *Тренировка*\n\n*Что это?*\nИнтерактивная тренировка принципов системного мышления. Вопросы адаптируются под ваш уровень и прогресс.\n\n*Зачем?*\nЧтобы принципы из занятий стали частью мышления. Тренировка проверяет понимание, а не запоминание — вы учитесь применять знания к реальным ситуациям.\n\n*Для кого?*\nДля пользователей с подпиской «Инженерия интеллекта».\n\n*Как это работает?*\n1. Бот задаёт вопрос по изученным принципам\n2. Вы отвечаете своими словами\n3. ИИ оценивает понимание и даёт обратную связь\n4. После 2 неудачных попыток — показывает пример ответа\n\n*Настройте под себя:*\nОпишите себя в профиле и укажите сложность — тренировка адаптируется под ваш уровень."
     en: "🧠 *Training*\n\n*What is it?*\nInteractive training on systems thinking principles. Questions adapt to your level and progress.\n\n*Why?*\nSo that principles from lessons become part of your thinking. Training checks understanding, not memorization — you learn to apply knowledge to real situations.\n\n*For whom?*\nFor users with an «Intelligence Engineering» subscription.\n\n*How does it work?*\n1. The bot asks a question about studied principles\n2. You answer in your own words\n3. AI evaluates understanding and gives feedback\n4. After 2 failed attempts — shows an example answer\n\n*Customize it:*\nDescribe yourself in your profile and set difficulty — training adapts to your level."
 
   # --- Кнопки ---
@@ -5960,7 +5960,7 @@ info:
     en: "▶️ Start marathon"
     max_length: 25
   btn_get_lesson:
-    ru: "📚 Получить урок"
+    ru: "📚 Получить занятие"
     en: "📚 Get a lesson"
     max_length: 25
   btn_get_digest:
@@ -5993,7 +5993,7 @@ info:
 
   # --- Fallback команды ---
   use_learn:
-    ru: "Используйте /learn для получения урока."
+    ru: "Используйте /learn для получения занятия."
     en: "Use /learn to get a lesson."
   use_feed:
     ru: "Используйте /feed для получения дайджеста."
@@ -6031,7 +6031,7 @@ features:
     en: "Your tier: T{tier}"
 
   cat_learning:
-    ru: "Обучение"
+    ru: "Развитие"
     en: "Learning"
   cat_productivity:
     ru: "Продуктивность"
@@ -6081,7 +6081,7 @@ features:
       ru: "Марафон"
       en: "Marathon"
     desc:
-      ru: "14-дневная программа обучения"
+      ru: "14-дневная программа развития"
       en: "14-day learning program"
   feed:
     name:
@@ -6109,7 +6109,7 @@ features:
       ru: "Прогресс"
       en: "Progress"
     desc:
-      ru: "Статистика обучения"
+      ru: "Статистика развития"
       en: "Learning statistics"
   plans:
     name:
@@ -6123,14 +6123,14 @@ features:
       ru: "Расписание"
       en: "Schedule"
     desc:
-      ru: "Время доставки уроков"
+      ru: "Время доставки занятий"
       en: "Lesson delivery time"
   aisystant:
     name:
       ru: "Aisystant"
       en: "Aisystant"
     desc:
-      ru: "Платформа обучения"
+      ru: "Платформа развития"
       en: "Learning platform"
   digital_twin:
     name:
@@ -6464,7 +6464,7 @@ showcase:
 # -----------------------------------------------------------------------------
 scheduler:
   retry_exhausted_marathon:
-    ru: "Сегодня не получилось подготовить урок — вернитесь завтра или нажмите /marathon_progress."
+    ru: "Сегодня не получилось подготовить занятие — вернитесь завтра или нажмите /marathon_progress."
     en: "Could not prepare today's lesson — come back tomorrow or check /marathon_progress."
     description: "Уведомление пользователю когда все попытки retry пре-генерации марафона исчерпаны"
 

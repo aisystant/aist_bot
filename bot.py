@@ -482,7 +482,7 @@ async def main():
     # Global fallback commands (T1 level — per-user tier menus set via sync_menu_commands)
     # WP-52: Global = minimal T1 fallback; per-user BotCommandScopeChat overrides this
     await bot.set_my_commands([
-        BotCommand(command="learn", description="Марафон — получить урок"),
+        BotCommand(command="learn", description="Марафон — получить занятие"),
         BotCommand(command="train", description="Тренировка принципов"),
         BotCommand(command="test", description="Тест систематичности"),
         BotCommand(command="marathon_start", description="Начать марафон"),
@@ -576,7 +576,7 @@ async def main():
                 BotCommand(command="latency", description="Латентность (светофор)"),
                 BotCommand(command="errors", description="Ошибки (24h)"),
                 BotCommand(command="analytics", description="Сводная аналитика"),
-                BotCommand(command="delivery", description="Доставка уроков марафона"),
+                BotCommand(command="delivery", description="Доставка занятий марафона"),
                 BotCommand(command="reports", description="Баг-репорты"),
                 BotCommand(command="tailor", description="Занятие Портного (WP-149)"),
                 BotCommand(command="dt_sync", description="Sync engagement → digital twins"),

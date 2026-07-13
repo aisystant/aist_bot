@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 
 twin_router = Router(name="twin")
 
+# WP-478: отображаемые названия степеней — LMS ещё отдаёт старое имя,
+# пользователь видит актуальное (DP.D.132: Первокурсник → Стажёр).
+_DEGREE_DISPLAY_MAP = {
+    "Первокурсник": "Стажёр",
+}
+
+
+def _display_degree(degree):
+    """Подменяет устаревшие названия степеней из LMS на актуальные."""
+    if isinstance(degree, str):
+        return _DEGREE_DISPLAY_MAP.get(degree, degree)
+    return degree
+
 
 def _format_degrees(raw: str) -> str:
     """Конвертирует markdown-таблицу степеней в читаемый формат для Telegram."""
@@ -119,7 +132,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     components = agency.get("components") or {}
     comp_parts = []
     for key, label in [("regularity", "регулярность"), ("activity", "активность"),
-                       ("learning", "обучение"), ("notifications", "уведомления"),
+                       ("learning", "развитие"), ("notifications", "уведомления"),
                        ("longevity", "длительность")]:
         val = components.get(key)
         if val is not None:
@@ -206,12 +219,12 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     if name:
         lines[0] = f"📋 *{name} — {t('twin.profile_title', lang)}*"
     lines.append("")
-    lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}")
+    lines.append(f"🎓 {t('twin.degree_label', lang)}: {_display_degree(degree)}")
     lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
     lines.append(f"🎯 Агентность: {agency_text}")
     lines.append("")
     lines.append(f"📊 Активность: {ev_7d} событий/7д  |  {ev_30d}/30д  |  {active_days} активных дней")
-    lines.append(f"📚 Обучение: {lessons} уроков  |  {digests} дайджестов  |  {training} тренировок")
+    lines.append(f"📚 Развитие: {lessons} занятий  |  {digests} дайджестов  |  {training} тренировок")
     lines.append("")
 
     # ── v2.0 Profiler metrics (9 new indicators) ──
@@ -568,6 +581,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
             qual = dt_courses.get('qualification_level') or {}
             degree = qual.get('level')
     if degree:
+        degree = _display_degree(degree)
         lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}")
 
     # Stage
@@ -597,7 +611,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     marathon = courses.get('marathon_steps_total', 0) or 0
     feed = courses.get('feed_completed_total', 0) or 0
     training = practice.get('training_passed_total', 0) or 0
-    lines.append(f"📚 Обучение: {marathon} уроков  |  {feed} дайджестов  |  {training} тренировок")
+    lines.append(f"📚 Развитие: {marathon} занятий  |  {feed} дайджестов  |  {training} тренировок")
 
     # Coding (WakaTime)
     if coding and coding.get('coding_seconds_7d', 0):
@@ -689,7 +703,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     if components:
         comp_parts = []
         for key, label in [("regularity", "регулярность"), ("activity", "активность"),
-                           ("learning", "обучение"), ("notifications", "уведомления"),
+                           ("learning", "развитие"), ("notifications", "уведомления"),
                            ("longevity", "стаж")]:
             val = components.get(key)
             if val is not None:
@@ -847,12 +861,12 @@ def _build_me_t2_dashboard(intern: dict, activity: dict, learning: dict) -> str:
     if lessons or tasks or digests:
         parts = []
         if lessons:
-            parts.append(f"{lessons} уроков")
+            parts.append(f"{lessons} занятий")
         if digests:
             parts.append(f"{digests} дайджестов")
         if tasks:
             parts.append(f"{tasks} заданий")
-        lines.append(f"\n📚 *Обучение:* {' | '.join(parts)}")
+        lines.append(f"\n📚 *Развитие:* {' | '.join(parts)}")
 
     return '\n'.join(lines)
 
