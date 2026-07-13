@@ -239,7 +239,7 @@ def format_structured_context(hit: StructuredHit, lang: str = 'ru') -> str:
         lines.append("")
         for topic in hit.topics:
             title = get_topic_title(topic, lang)
-            topic_type = "📖 Урок" if topic.get('type') == 'theory' else "✏️ Задание"
+            topic_type = "📖 Занятие" if topic.get('type') == 'theory' else "✏️ Задание"
             main_concept = topic.get('main_concept', '')
             key_insight = topic.get('key_insight', '')
             related = topic.get('related_concepts', [])
@@ -270,7 +270,7 @@ def format_structured_context(hit: StructuredHit, lang: str = 'ru') -> str:
         lines.append("")
         for topic in hit.topics:
             title = get_topic_title(topic, lang)
-            topic_type = "📖 Урок" if topic.get('type') == 'theory' else "✏️ Задание"
+            topic_type = "📖 Занятие" if topic.get('type') == 'theory' else "✏️ Задание"
             main_concept = topic.get('main_concept', '')
             key_insight = topic.get('key_insight', '')
             related = topic.get('related_concepts', [])

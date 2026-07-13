@@ -1308,9 +1308,9 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
     )
 
     user_prompt = (
-        f"Student: {name}\n"
+        f"Participant: {name}\n"
         f"{'Occupation: ' + occupation if occupation else ''}\n"
-        f"{'Learning goals: ' + goals if goals else ''}\n\n"
+        f"{'Development goals: ' + goals if goals else ''}\n\n"
         f"Engagement data:\n{data_summary}\n\n"
         "Analyze this data and provide:\n"
         f"1. Brief activity summary (title it '## Анализ активности {name}'). "
@@ -1483,13 +1483,13 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
     )
 
     user_prompt = (
-        f"Student: {name}\n"
+        f"Participant: {name}\n"
         f"{'Occupation: ' + occupation if occupation else ''}\n"
-        f"{'Learning goals: ' + goals if goals else ''}\n\n"
+        f"{'Development goals: ' + goals if goals else ''}\n\n"
         f"Engagement data:\n{data_summary}\n\n"
         "Provide a DETAILED analysis with:\n"
         f"1. Title: '## Детальный анализ активности {name}'\n"
-        "2. Separate subsection for each data group (### Бот, ### Обучение, ### Кодирование, ### IWE экосистема)\n"
+        "2. Separate subsection for each data group (### Бот, ### Развитие, ### Кодирование, ### IWE экосистема)\n"
         "3. For each group: key numbers, trends, interpretation\n"
         "4. Overall assessment: balance between theory and practice\n"
         "5. 2-3 specific recommendations with concrete next steps"
