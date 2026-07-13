@@ -166,7 +166,7 @@ if row:
 
 **Что возвращает:** `{chat_id, access_token, refresh_token, expires_at, ory_id}` или `None` (пользователь не подключён к Gateway).
 
-**Мониторинг:** `WARNING "Gateway: token cache miss"` в логах — нормально при единичных событиях. >10/час = аномалия (см. GTW6 в WP-7).
+**Мониторинг (WP-7 GTW6, реализовано 2026-07-13):** `WARNING "Gateway: token cache miss"` в логах сам по себе никуда не долетает — `error_logs` слушает только ERROR+, и в этом Grafana-инстансе нет датасорса с сырыми логами бота. Поэтому каждый cache miss дополнительно (fire-and-forget, `_record_token_cache_miss_metric` в `clients/gateway_mcp.py`) пишет строку в `health.internal_metrics` (`metric_name='gateway_token_cache_miss', worker='aist-bot'`, БД `learning` — `db/queries/internal_metrics.py`). Grafana-алерт «Gateway Token Cache Miss Spike» (folder `aist-bot-alerts`) считает `COUNT(*)` за последний час и алертит при >10.
 
 ---
 

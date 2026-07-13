@@ -215,7 +215,7 @@ async def cmd_health(message: Message):
             f" | \U0001f7e1 Средне: {feedback.get('yellow_count', 0)}"
             f" | \U0001f7e2 Хорошо: {feedback.get('green_count', 0)}\n\n"
             f"<b>Процессы</b> ({sched_status}, {job_count} jobs)\n"
-            f"  Доставка уроков: каждую мин\n"
+            f"  Доставка занятий: каждую мин\n"
             f"  Пре-генерация: каждую мин (3ч ahead)\n"
             f"  Публикатор: :07,:37 + скан 05:07\n"
             f"  Discourse comments: :03,:18,:33,:48\n"
@@ -591,14 +591,14 @@ async def cmd_marathon_diag(message: Message):
                 f"д{q['day_number']} {q['content_type']} | {q['status']} | {due} | {when} | поп.{q['attempts']}"
             )
     else:
-        lines.append("\nОчередь уроков пуста (нет записей).")
+        lines.append("\nОчередь занятий пуста (нет записей).")
 
     # 3. Вердикт
     pending_due = [q for q in queue if q['status'] == 'pending' and q['due_now']]
     if blocked and pending_due:
         lines.append("\n💡 <b>Причина:</b> бот помечен как заблокированный → планировщик пропускает доставку. Если человек НЕ блокировал — снять флаг: /unblock " + str(chat_id))
     elif pending_due:
-        lines.append("\n💡 Есть просроченные уроки, блокировки нет → доставятся на ближайшем тике (≤10 мин) или смотри логи.")
+        lines.append("\n💡 Есть просроченные занятия, блокировки нет → доставятся на ближайшем тике (≤10 мин) или смотри логи.")
     elif progress and not queue:
         lines.append("\n💡 На новом движке, но очередь пуста → enqueue не сработал при старте.")
 
@@ -621,7 +621,7 @@ async def cmd_unblock(message: Message):
     await clear_bot_blocked(chat_id)
     await message.answer(
         f"✅ Снял флаг блокировки для <code>{chat_id}</code>.\n"
-        f"Просроченные уроки доставятся на ближайшем тике (≤10 мин).\n"
+        f"Просроченные занятия доставятся на ближайшем тике (≤10 мин).\n"
         f"⚠️ Если человек реально заблокировал бота — флаг вернётся при первой ошибке отправки.",
         parse_mode="HTML",
     )
@@ -720,7 +720,7 @@ async def cmd_delivery(message: Message):
         f"<b>Доставка марафона</b> ({report_date}, {_msk_now()})\n{sep}\n\n"
         f"<b>Сводка</b>\n"
         f"  Активных: {s['active']}\n"
-        f"  \U0001f7e2 Отправлено: {s['sent']} (открыт урок: {s['sent_read']})\n"
+        f"  \U0001f7e2 Отправлено: {s['sent']} (открыто занятие: {s['sent_read']})\n"
         f"  \u23f3 Время не наступило: {s['not_yet']}\n"
         f"  \U0001f534 Не доставлено: {s['missed']}\n\n"
         f"<b>Пользователи</b>\n{user_lines}"

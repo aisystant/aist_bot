@@ -604,7 +604,7 @@ async def send_topic(chat_id: int, state: Optional[FSMContext], bot):
             await bot.send_message(
                 chat_id,
                 "⚠️ *Технические неполадки*\n\n"
-                "Структура обучения временно недоступна.",
+                "Структура развития временно недоступна.",
                 parse_mode="Markdown"
             )
             return

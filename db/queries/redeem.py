@@ -10,7 +10,7 @@ Burn-эмиттер баллов (WP-327 Ф1+Ф2, see DP.SC.141, DP.ROLE.051).
 
 Не writer point_balances — пишет только в rewards.redeemed_events.
 События эмитируются ЧЕРЕЗ event-gateway (helpers.dual_write.post_event), НЕ direct INSERT
-в learning.domain_event — соответствие DP.SC.020 OwnerIntegrity (single writer = DP.ROLE.032).
+в learning.domain_event — соответствие DP.SC.044 OwnerIntegrity (single writer = DP.ROLE.032).
 
 Идемпотентность: PK на payment_id, INSERT ... ON CONFLICT DO NOTHING.
 Late-webhook handling: confirm_burn после rollback'а → alert event 'points_redeem_late_webhook'.

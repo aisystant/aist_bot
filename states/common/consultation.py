@@ -142,13 +142,13 @@ _META_PATTERNS = {
         ],
         'answer_ru': (
             "*Что я умею:*\n\n"
-            "*Обучение*\n"
+            "*Развитие*\n"
             "  /learn — Марафон (14 дней) или Лента (гибкие темы)\n"
             "  /test — тест систематичности (адаптирует контент)\n"
             "  ?вопрос — консультант по системному мышлению\n\n"
             "*Организация*\n"
             "  .текст — сохранить заметку\n"
-            "  /progress — статистика обучения\n"
+            "  /progress — статистика развития\n"
             "  /rp /plan /report — рабочие продукты и планы\n\n"
             "*Настройки*\n"
             "  /mode — переключить режим\n"
@@ -184,14 +184,14 @@ _META_PATTERNS = {
         ],
         'answer_ru': (
             "*Я — AIST Bot* (@aist\\_me\\_bot)\n\n"
-            "Твой личный наставник в систематическом обучении и развитии. "
+            "Твой личный наставник в систематическом развитии. "
             "Помогаю разобраться в системном мышлении, выстроить привычку учиться "
             "и отслеживать прогресс — всё в одном боте.\n\n"
             "*Что я умею:*\n"
             "  /learn — Марафон (14 дней) или Лента (дайджесты по темам)\n"
             "  /test — Тест систематичности — определит твоё состояние\n"
             "  `?` — Задай вопрос консультанту (например: `?Что такое системное мышление?`)\n"
-            "  /progress — Статистика обучения\n"
+            "  /progress — Статистика развития\n"
             "  /profile — Твой профиль и цели\n"
             "  /rp /plan /report — Планы и рабочие продукты\n\n"
             "*Уровни доступа:*\n"
@@ -513,7 +513,7 @@ class ConsultationState(BaseState):
                     await self.send(user, greeting, parse_mode="Markdown")
                 role_hint = {
                     'navigator': {
-                        'ru': "Задай вопрос, и я помогу выбрать путь обучения. Например:\n• _С чего начать?_\n• _Какую программу выбрать?_\n• _Как спланировать неделю?_",
+                        'ru': "Задай вопрос, и я помогу выбрать путь развития. Например:\n• _С чего начать?_\n• _Какую программу выбрать?_\n• _Как спланировать неделю?_",
                         'en': "Ask a question and I'll help you choose a learning path. For example:\n• _Where to start?_\n• _Which program to choose?_\n• _How to plan my week?_",
                     },
                     'diagnostician': {
@@ -701,7 +701,7 @@ class ConsultationState(BaseState):
                         pname = PROGRAM_NAMES[matched_program].get(lang, PROGRAM_NAMES[matched_program]["ru"])
                         purl = PLATFORM_URLS[matched_program]
                         goal_hint = {
-                            'ru': f"\n\nПЕРСОНАЛЬНАЯ РЕКОМЕНДАЦИЯ: На основе целей пользователя лучше всего подходит программа «{pname}»: {purl}. Упомяни это, если вопрос про развитие, обучение или «что дальше».",
+                            'ru': f"\n\nПЕРСОНАЛЬНАЯ РЕКОМЕНДАЦИЯ: На основе целей пользователя лучше всего подходит программа «{pname}»: {purl}. Упомяни это, если вопрос про развитие или «что дальше».",
                             'en': f"\n\nPERSONAL RECOMMENDATION: Based on user goals, the best-fit program is «{pname}»: {purl}. Mention this if the question is about development, learning, or 'what's next'.",
                         }.get(lang, '')
                         if goal_hint:

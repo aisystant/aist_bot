@@ -213,6 +213,22 @@ from i18n.prompts import (
 logger = get_logger(__name__)
 
 
+def resolve_proxy_endpoint(api_key: str) -> tuple[str, dict]:
+    """Base URL + headers for a raw aiohttp call to Claude, routed through the
+    proxy when configured. For call sites that need a one-off request outside
+    ClaudeClient (error_classifier, feedback_triage, autofix)."""
+    base_url = os.getenv("IWE_LLM_PROXY_URL", "https://api.anthropic.com/v1/messages")
+    proxy_secret = os.getenv("PROXY_SHARED_SECRET", "")
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    if proxy_secret:
+        headers["x-iwe-internal-secret"] = proxy_secret
+    return base_url, headers
+
+
 class ClaudeClient:
     """Клиент для работы с Claude API
 

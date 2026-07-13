@@ -68,7 +68,7 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
             await reply_msg.answer(
                 "▶️ Возвращаю тебя в марафон!\n\n"
                 f"📅 Ты на дне {progress.get('current_day', 0)} / 14. "
-                f"Оставшиеся уроки придут по одному в день в {schedule_time} МСК, начиная с завтра.\n\n"
+                f"Оставшиеся занятия придут по одному в день в {schedule_time} МСК, начиная с завтра.\n\n"
                 "📋 /marathon_progress — прогресс | /marathon_pause — снова пауза"
             )
             logger.info("[Marathon] user_id=%s resumed from pause", user_id)
@@ -130,9 +130,9 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
     logger.info("[Marathon] user_id=%s started. Queue 1-14 filled. immediate=%s", user_id, first_lesson_today)
 
     first_lesson_note = (
-        f"Первый урок придёт через минуту — приготовься!\nСо дня 2 уроки приходят ежедневно в {schedule_time} МСК."
+        f"Первое занятие придёт через минуту — приготовься!\nСо дня 2 занятия приходят ежедневно в {schedule_time} МСК."
         if first_lesson_today
-        else f"Первый урок и все последующие приходят ежедневно в {schedule_time} МСК."
+        else f"Первое занятие и все последующие приходят ежедневно в {schedule_time} МСК."
     )
     await reply_msg.answer(
         "🚀 Добро пожаловать в марафон «Первые шаги в IWE»!\n\n"
@@ -140,7 +140,7 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
         "Утром — теория и практика (один конкретный шаг), вечером — чек-ин.\n\n"
         f"📅 {first_lesson_note}\n\n"
         "📋 Команды:\n"
-        "• /learn — получить урок\n"
+        "• /learn — получить занятие\n"
         "• /marathon_progress — прогресс\n"
         "• /marathon_pause — пауза (прогресс сохранится)\n"
         "• /marathon_stop — выйти из марафона\n"
@@ -207,7 +207,7 @@ async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict 
     # WP-330 С9a: routing по профилю (4 версии); fallback на legacy-ключ.
     lesson = get_day_text(day, 'lesson', intern=intern) or get_day_text(day, 'lesson')
     if not lesson:
-        await target.answer("Урок для этого дня недоступен. Загляни в /support.")
+        await target.answer("Занятие для этого дня недоступно. Загляни в /support.")
         logger.warning(f"[Learn] No lesson content for day {day} (user {user_id})")
         return
 
@@ -311,11 +311,11 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, de
         if await has_recent_lesson_practice_sent(user_id, within_minutes=dedup_minutes):
             display_day = progress.get('current_day', 1) if progress.get('current_day', 0) > 0 else 1
             await target.answer(
-                f"📚 Урок дня уже отправлен.\n\n"
+                f"📚 Занятие дня уже отправлено.\n\n"
                 f"📅 День марафона: {display_day} / 14\n"
                 f"🌙 Чек-ин придёт вечером.\n\n"
                 "Если хочешь повторить практику — нажми кнопку «✏️ Перейти к практике» "
-                "в уроке или используй /marathon_progress."
+                "в занятии или используй /marathon_progress."
             )
             return True
         await _deliver_marathon_lesson(user_id, target, progress.get('current_day', 1), intern)
@@ -332,7 +332,7 @@ async def try_deliver_new_marathon(user_id: int, target, intern: dict = None, de
     # registered / dropped / не стартовал — подсказка, НЕ авто-старт (WP-330 cutover design)
     await target.answer(
         "🚀 Марафон ещё не запущен.\n\n"
-        "Начни командой /marathon_start — придёт первый урок."
+        "Начни командой /marathon_start — придёт первое занятие."
     )
     return True
 
@@ -565,7 +565,7 @@ async def callback_marathon_practice(callback: CallbackQuery):
         # UX-audit Day 1 №2: после практики сообщаем, что день завершён.
         # Формулировка без призыва «записаться в марафон» — пользователь уже в нём.
         next_day_msg = (
-            f"\n\n📅 День {day + 1} начнётся завтра утром — урок придёт автоматически в запланированное время."
+            f"\n\n📅 День {day + 1} начнётся завтра утром — занятие придёт автоматически в запланированное время."
             if day < 14 else
             "\n\n🎉 Это был последний день марафона!"
         )

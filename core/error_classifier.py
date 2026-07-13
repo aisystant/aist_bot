@@ -280,10 +280,12 @@ async def _classify_with_haiku(logger_name: str, message: str, traceback_text: s
     import os
     import json
     import aiohttp
+    from clients.claude import resolve_proxy_endpoint
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return None
+    base_url, headers = resolve_proxy_endpoint(api_key)
 
     traceback_tail = ""
     if traceback_text:
@@ -300,12 +302,8 @@ async def _classify_with_haiku(logger_name: str, message: str, traceback_text: s
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
+                base_url,
+                headers=headers,
                 json={
                     "model": CLAUDE_MODEL_HAIKU,
                     "max_tokens": 100,

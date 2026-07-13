@@ -380,7 +380,7 @@ async def on_ot_hours_callback(callback: CallbackQuery, state: FSMContext) -> No
     await callback.message.answer(
         f"Понял: {hours} ч/нед инвестировано.\n\n"
         "Сколько в среднем часов в неделю ты осознанно работаешь и учишься?\n"
-        "(рабочее время, проекты, обучение — всё вместе, включая инвестированное)",
+        "(рабочее время, проекты, развитие — всё вместе, включая инвестированное)",
         reply_markup=_total_hours_inline_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_total_hours)
@@ -398,7 +398,7 @@ async def on_ot_hours_text(message: Message, state: FSMContext) -> None:
     await message.answer(
         f"Понял: {hours} ч/нед инвестировано.\n\n"
         "Сколько в среднем часов в неделю ты осознанно работаешь и учишься?\n"
-        "(рабочее время, проекты, обучение — всё вместе, включая инвестированное)",
+        "(рабочее время, проекты, развитие — всё вместе, включая инвестированное)",
         reply_markup=_total_hours_inline_keyboard(),
     )
     await state.set_state(OnboardingTimeStates.waiting_total_hours)

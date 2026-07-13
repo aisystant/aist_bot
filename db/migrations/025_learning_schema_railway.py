@@ -44,7 +44,7 @@ async def migrate():
         print("  CREATE SCHEMA IF NOT EXISTS learning — OK")
 
         # ═══════════════════════════════════════════════════════════════════
-        # 1. public: domain_event (единый канал событий — DP.SC.020)
+        # 1. public: domain_event (единый канал событий — DP.SC.044)
         # ═══════════════════════════════════════════════════════════════════
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS domain_event (

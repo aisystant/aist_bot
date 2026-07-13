@@ -27,11 +27,11 @@
 
 | Термин | Что это |
 |--------|---------|
-| **Ученик** | Пользователь Марафона |
+| **Участник** | Пользователь Марафона |
 | **Читатель** | Пользователь Ленты |
 | **Марафон** | 14-дневная программа |
-| **Лента** | Гибкое обучение по дайджестам |
-| **Урок** | Теория в Марафоне |
+| **Лента** | Гибкое развитие по дайджестам |
+| **Занятие** | Теория в Марафоне |
 | **Задание** | Практика в Марафоне |
 | **Дайджест** | Ежедневный материал в Ленте |
 | **Фиксация** | Личный вывод Читателя |
@@ -40,7 +40,7 @@
 
 | Термин | В коде сейчас | Целевое имя |
 |--------|---------------|-------------|
-| Урок | `theory` | `lesson` |
+| Занятие | `theory` | `lesson` |
 | Задание | `practice` | `task` |
 | Дайджест | `feed_session` | `digest` |
 
@@ -230,10 +230,10 @@ Slash-команды делятся на 4 вида. Вид определяет
 | Неправильно | Правильно |
 |-------------|-----------|
 | "контент" (в Ленте) | Дайджест |
-| "тема" | Урок / Задание / Дайджест |
+| "тема" | Занятие / Задание / Дайджест |
 | "сессия" | Дайджест / День |
 | "рефлексия" | Фиксация |
-| "пользователь" | Ученик / Читатель |
+| "пользователь" | Участник / Читатель |
 
 ### Anti-hallucination в промптах консультанта
 
@@ -389,7 +389,7 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 | Модель | Когда | Почему |
 |--------|-------|--------|
 | **Haiku** | feed «why» (planner.py), /mydata объяснения | Структурированный вывод, latency <3с, стоимость ×10 ниже |
-| **Sonnet** | Уроки, практика, консультации (L3 + tool_use), /twin insights | Креативный/сложный вывод, нужен reasoning, следование FORBIDDEN-правилам |
+| **Sonnet** | Занятия, практика, консультации (L3 + tool_use), /twin insights | Креативный/сложный вывод, нужен reasoning, следование FORBIDDEN-правилам |
 
 > **Unified L3 (2026-02-28):** L2 bot-question path удалён. Все вопросы идут через единый L3 путь (tool_use). LLM сам выбирает tool: `search_knowledge`, `search_guides`, `get_bot_info`. Keyword classifier `_BOT_KEYWORDS` удалён — вызывал ложные срабатывания на доменных вопросах.
 
@@ -410,7 +410,7 @@ SM states **ОБЯЗАНЫ** использовать `core.topics.get_marathon_
 
 ### 10.16. Slot suggestion при перегрузке (≥50 users)
 
-`MAX_USERS_PER_SLOT = 50` (db/queries/users.py). При выборе времени обучения (onboarding + settings):
+`MAX_USERS_PER_SLOT = 50` (db/queries/users.py). При выборе времени доставки (onboarding + settings):
 1. `get_slot_load(time)` → считает пользователей в окне ±5 мин (11 слотов)
 2. Если count ≥ 50 → `kb_slot_suggestions()` показывает до 3 🟢 свободных слотов + 🟡 «оставить как есть»
 3. Это **мягкое** ограничение — пользователь может настоять на перегруженном слоте
@@ -427,7 +427,7 @@ apscheduler INFO-логи (`Running job`, `executed successfully`) подавл�
 
 ### 10.19. Look-Ahead Pre-Gen
 
-После доставки урока/практики `_pregen_next_topic_bg()` генерирует следующую тему в фоне (`asyncio.create_task`, fire-and-forget). Покрывает случай: пользователь пришёл до scheduled delivery.
+После доставки занятия/практики `_pregen_next_topic_bg()` генерирует следующую тему в фоне (`asyncio.create_task`, fire-and-forget). Покрывает случай: пользователь пришёл до scheduled delivery.
 
 ### 10.20. Haiku On-The-Fly Fallback
 
@@ -500,7 +500,7 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 - TD1 menu = dev-commands (stats, usage, qa, ...) — set в bot.py, НЕ в tier_config
 - Menu ☰ per-user через `BotCommandScopeChat`
 - Все команды работают на любом тире (видимость ≠ доступность)
-- Paywall text НЕ должен обещать функциональность, которой нет у целевой команды (урок: `/start` не показывает тир-инфо)
+- Paywall text НЕ должен обещать функциональность, которой нет у целевой команды (прецедент: `/start` не показывает тир-инфо)
 - **Tier в хэндлерах:** использовать `detect_ui_tier(chat_id)`, НЕ `get_intern().tier`. Поле `public.users.tier` — кэш, обновляется только при вызове `detect_ui_tier()`; если тир менялся (подключили GitHub/ЦД) между деплоями и `detect_ui_tier()` не вызывался — поле устарело (инцидент 2026-06-09: Hermes отказывал T4-пользователям, видел T2 из DB).
 
 ---
@@ -511,7 +511,7 @@ TD1: = T{N} keyboard + dev-commands в menu (bot.py)
 
 **Принцип:** Бот пишет события в `development.user_events` → SQL View `development.engagement` агрегирует 15 метрик → `sync_engagement_to_dt()` записывает в `digital_twins` JSONB (INSERT ON CONFLICT, deep merge) → DT MCP читает при запросе.
 
-**5 групп в `2_collected/`:** `2_1_account` (сессии), `2_2_courses` (обучение), `2_3_practice` (практика), `2_4_time` (ритм), `2_5_notifications` (уведомления, WP-152 Ф4).
+**5 групп в `2_collected/`:** `2_1_account` (сессии), `2_2_courses` (развитие), `2_3_practice` (практика), `2_4_time` (ритм), `2_5_notifications` (уведомления, WP-152 Ф4).
 
 **Notification engagement (WP-152 Ф4):** SQL View `development.notification_engagement` агрегирует `notification_log` (JOIN `users` по `telegram_id`). `sync_engagement_to_dt()` preload-ит view в `notif_map` и merge-ит в `2_5_notifications` при наличии данных. Graceful fallback: если view не существует — warning в лог, sync продолжается без notifications.
 
@@ -564,7 +564,7 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 | DB поле | Значение | Кто ставит |
 |---------|---------|-----------|
 | `status = 'pending'` | Контент сгенерирован, пользователь **не открыл** | pre-gen (insert) |
-| `status = 'delivered'` | Пользователь **открыл** урок | `mark_content_delivered()` в lesson.py |
+| `status = 'delivered'` | Пользователь **открыл** занятие | `mark_content_delivered()` в lesson.py |
 | `notification_sent_at` | Когда уведомление отправлено пользователю | `mark_notification_sent()` в scheduler.py (log-before-send) |
 
 **Idempotency:** `notification_sent_at` — guard против повторной отправки. Scheduler проверяет `notification_sent_at >= today` ДО отправки. Catch-up (`_catch_up_missed_deliveries`) ищет пользователей без `notification_sent_at` за сегодня (не `created_at` — контент может быть пре-генерирован заранее).
@@ -585,15 +585,15 @@ Scheduler сравнивает `schedule_time = f"{hour:02d}:{minute:02d}"` (exa
 
 **Почему важно:** 9 июня 2026 sync (коммит `138a760`) перезаписал правильные правки бота (`db243c0`: IWE→ИИ-помощник) незакоммиченным авторским файлом. Незакоммиченный авторский файл = undefined state при sync.
 
-### Catch-up (нагонять пропущенный урок)
+### Catch-up (нагонять пропущенное занятие)
 
 - Если `topic['day'] < marathon_day` → catch-up notification (вместо обычного).
-- После прохождения пропущенного → предложить сегодняшний урок (генерация на лету по кнопке).
+- После прохождения пропущенного → предложить сегодняшнее занятие (генерация на лету по кнопке).
 - Ограничение: **max 1 день** catch-up. `MAX_TOPICS_PER_DAY = 4` (2 yesterday + 2 today).
 
 ### Cutover legacy ↔ новый движок марафона (Block MAR, 6 июня)
 
-> **Инвариант:** для пользователя на новом движке (есть строка `learning.marathon_progress`) ОБА legacy-пути обязаны молчать. Иначе два движка шлют параллельно: уроки «День 2» новым + напоминания «День 1 не начат» старым (два независимых счётчика дня).
+> **Инвариант:** для пользователя на новом движке (есть строка `learning.marathon_progress`) ОБА legacy-пути обязаны молчать. Иначе два движка шлют параллельно: занятия «День 2» новым + напоминания «День 1 не начат» старым (два независимых счётчика дня).
 
 **Единый предикат:** `db.queries.marathon_newcomer.is_on_newcomer_marathon(user_id)` — наличие строки в `learning.marathon_progress`. Гейтит:
 1. **Доставку** — `get_all_scheduled_interns` (`db/queries/users.py`) исключает таких из legacy-рассылки (cutover `34dcb6f`).

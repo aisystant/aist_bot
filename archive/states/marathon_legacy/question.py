@@ -38,7 +38,7 @@ class MarathonQuestionState(BaseState):
     """
 
     name = "workshop.marathon.question"
-    display_name = {"ru": "Вопрос урока", "en": "Lesson Question", "es": "Pregunta de lección", "fr": "Question de leçon"}
+    display_name = {"ru": "Вопрос занятия", "en": "Lesson Question", "es": "Pregunta de lección", "fr": "Question de leçon"}
     allow_global = ["consultation", "notes"]
     keyboard_type = "reply"
 

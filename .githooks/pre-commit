@@ -61,6 +61,32 @@ while IFS= read -r file; do
     esac
 done <<< "$staged_files"
 
+# ─── WP-478: стоп-лист лексики «образования» в user-facing текстах (warning-only) ───
+# Источник: WP-478 (Развитие ≠ Образование, DP.D.132/D.182).
+# Проверяет только ДОБАВЛЕННЫЕ строки в user-facing файлах. Не блокирует commit:
+# домен-термины (методы обучения, kids-контент) и keyword-листы роутинга — осознанные исключения.
+# ВАЖНО: секция стоит ДО early-exit — i18n/schema.yaml и config/prompts не входят в code-категории.
+lexicon_report=""
+while IFS= read -r file; do
+    case "$file" in
+        i18n/schema.yaml|bot.py|handlers/*.py|core/onboarder/*.py|core/scheduler.py|core/tier_config.py|states/*.py|states/**/*.py|config/prompts/*.md|engines/feed/planner.py)
+            hits=$(git diff --cached -U0 -- "$file" | grep '^+' | grep -v '^+++' | grep -iE "урок|обучени|учебн|студент|первокурсник" || true)
+            if [ -n "$hits" ]; then
+                lexicon_report="$lexicon_report\n  $file:\n$(echo "$hits" | head -5 | sed 's/^/    /')"
+            fi
+            ;;
+    esac
+done <<< "$staged_files"
+
+if [ -n "$lexicon_report" ]; then
+    echo ""
+    echo "⚠️  WP-478 lexicon stop-list (warning-only): лексика «образования» в user-facing файлах:"
+    echo -e "$lexicon_report"
+    echo "   Замени: урок→занятие, обучение→развитие, студент/ученик→участник/стажёр."
+    echo "   Домен-термины (методы обучения, kids-контент) и keyword-листы — проигнорируй."
+    echo ""
+fi
+
 # ─── Если ничего не затронуто — выходим ───
 total_touched=$((touched_handlers + touched_core + touched_models + touched_migrations + touched_engines + touched_queries + touched_states + touched_dev + touched_admin))
 if [ $total_touched -eq 0 ]; then

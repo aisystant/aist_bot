@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 
 twin_router = Router(name="twin")
 
+# WP-478: отображаемые названия степеней — LMS ещё отдаёт старое имя,
+# пользователь видит актуальное (DP.D.132: Первокурсник → Стажёр).
+_DEGREE_DISPLAY_MAP = {
+    "Первокурсник": "Стажёр",
+}
+
+
+def _display_degree(degree):
+    """Подменяет устаревшие названия степеней из LMS на актуальные."""
+    if isinstance(degree, str):
+        return _DEGREE_DISPLAY_MAP.get(degree, degree)
+    return degree
+
 
 def _format_degrees(raw: str) -> str:
     """Конвертирует markdown-таблицу степеней в читаемый формат для Telegram."""
@@ -119,7 +132,7 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     components = agency.get("components") or {}
     comp_parts = []
     for key, label in [("regularity", "регулярность"), ("activity", "активность"),
-                       ("learning", "обучение"), ("notifications", "уведомления"),
+                       ("learning", "развитие"), ("notifications", "уведомления"),
                        ("longevity", "длительность")]:
         val = components.get(key)
         if val is not None:
@@ -206,12 +219,12 @@ def _profile_text(profile: dict, lang: str, intern: dict = None) -> str:
     if name:
         lines[0] = f"📋 *{name} — {t('twin.profile_title', lang)}*"
     lines.append("")
-    lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}")
+    lines.append(f"🎓 {t('twin.degree_label', lang)}: {_display_degree(degree)}")
     lines.append(f"⚡ {t('twin.stage_label', lang)}: {stage}")
     lines.append(f"🎯 Агентность: {agency_text}")
     lines.append("")
     lines.append(f"📊 Активность: {ev_7d} событий/7д  |  {ev_30d}/30д  |  {active_days} активных дней")
-    lines.append(f"📚 Обучение: {lessons} уроков  |  {digests} дайджестов  |  {training} тренировок")
+    lines.append(f"📚 Развитие: {lessons} занятий  |  {digests} дайджестов  |  {training} тренировок")
     lines.append("")
 
     # ── v2.0 Profiler metrics (9 new indicators) ──
@@ -568,6 +581,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
             qual = dt_courses.get('qualification_level') or {}
             degree = qual.get('level')
     if degree:
+        degree = _display_degree(degree)
         lines.append(f"🎓 {t('twin.degree_label', lang)}: {degree}")
 
     # Stage
@@ -597,7 +611,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     marathon = courses.get('marathon_steps_total', 0) or 0
     feed = courses.get('feed_completed_total', 0) or 0
     training = practice.get('training_passed_total', 0) or 0
-    lines.append(f"📚 Обучение: {marathon} уроков  |  {feed} дайджестов  |  {training} тренировок")
+    lines.append(f"📚 Развитие: {marathon} занятий  |  {feed} дайджестов  |  {training} тренировок")
 
     # Coding (WakaTime)
     if coding and coding.get('coding_seconds_7d', 0):
@@ -689,7 +703,7 @@ def _build_me_dashboard(engagement: dict, intern: dict, lang: str,
     if components:
         comp_parts = []
         for key, label in [("regularity", "регулярность"), ("activity", "активность"),
-                           ("learning", "обучение"), ("notifications", "уведомления"),
+                           ("learning", "развитие"), ("notifications", "уведомления"),
                            ("longevity", "стаж")]:
             val = components.get(key)
             if val is not None:
@@ -847,12 +861,12 @@ def _build_me_t2_dashboard(intern: dict, activity: dict, learning: dict) -> str:
     if lessons or tasks or digests:
         parts = []
         if lessons:
-            parts.append(f"{lessons} уроков")
+            parts.append(f"{lessons} занятий")
         if digests:
             parts.append(f"{digests} дайджестов")
         if tasks:
             parts.append(f"{tasks} заданий")
-        lines.append(f"\n📚 *Обучение:* {' | '.join(parts)}")
+        lines.append(f"\n📚 *Развитие:* {' | '.join(parts)}")
 
     return '\n'.join(lines)
 
@@ -1206,7 +1220,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         agency = derived.get('3_1_agency', {})
         data_summary += (
             f"\n[DERIVED INDICATORS (calculated by engine v{derived.get('engine_version', '?')})]\n"
-            f"Student stage: {qualification.get('stage', '?')}/4 "
+            f"Development stage: {qualification.get('stage', '?')}/4 "
             f"({qualification.get('stage_name_ru', 'N/A')}, "
             f"path={qualification.get('path', 'learner')})\n"
             f"Agency index: {integral.get('index', 0)}/100 "
@@ -1268,7 +1282,7 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
         "- 'WPs' = Work Products (managed deliverables with deadlines)\n"
         "- 'Exocortex uptime' = number of days with recorded scheduler activity (NOT 'launched N days ago'). "
         "Example: uptime=8 means scheduler ran on 8 different days, not that system was set up 8 days ago\n"
-        "- 'Student stage' (0-4) = calculated learning maturity: 0=Random, 1=Practicing, 2=Systematic, "
+        "- 'Development stage' (0-4) = calculated development maturity: 0=Random, 1=Practicing, 2=Systematic, "
         "3=Disciplined, 4=Proactive. Based on regularity, sessions, training\n"
         "- 'Agency index' (0-100) = weighted aggregate: regularity(30%), activity(25%), learning(25%), "
         "notifications(10%), longevity(10%)\n"
@@ -1294,9 +1308,9 @@ async def _handle_insights(message: Message, intern: dict, lang: str):
     )
 
     user_prompt = (
-        f"Student: {name}\n"
+        f"Participant: {name}\n"
         f"{'Occupation: ' + occupation if occupation else ''}\n"
-        f"{'Learning goals: ' + goals if goals else ''}\n\n"
+        f"{'Development goals: ' + goals if goals else ''}\n\n"
         f"Engagement data:\n{data_summary}\n\n"
         "Analyze this data and provide:\n"
         f"1. Brief activity summary (title it '## Анализ активности {name}'). "
@@ -1469,13 +1483,13 @@ async def _handle_insights_detailed(message: Message, intern: dict, lang: str):
     )
 
     user_prompt = (
-        f"Student: {name}\n"
+        f"Participant: {name}\n"
         f"{'Occupation: ' + occupation if occupation else ''}\n"
-        f"{'Learning goals: ' + goals if goals else ''}\n\n"
+        f"{'Development goals: ' + goals if goals else ''}\n\n"
         f"Engagement data:\n{data_summary}\n\n"
         "Provide a DETAILED analysis with:\n"
         f"1. Title: '## Детальный анализ активности {name}'\n"
-        "2. Separate subsection for each data group (### Бот, ### Обучение, ### Кодирование, ### IWE экосистема)\n"
+        "2. Separate subsection for each data group (### Бот, ### Развитие, ### Кодирование, ### IWE экосистема)\n"
         "3. For each group: key numbers, trends, interpretation\n"
         "4. Overall assessment: balance between theory and practice\n"
         "5. 2-3 specific recommendations with concrete next steps"

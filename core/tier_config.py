@@ -139,7 +139,7 @@ TIER_MENU_COMMANDS = {
 # Command descriptions per language (for setMyCommands)
 COMMAND_DESCRIPTIONS = {
     'me':        {'ru': 'Обо мне — дашборд и данные',  'en': 'About me — dashboard & data', 'es': 'Sobre mí — panel y datos', 'fr': 'À propos de moi — tableau de bord', 'zh': '关于我 — 仪表板和数据'},
-    'learn':     {'ru': 'Марафон — получить урок',     'en': 'Marathon — get a lesson',   'es': 'Maratón — obtener lección',  'fr': 'Marathon — obtenir une leçon', 'zh': '马拉松 — 获取课程'},
+    'learn':     {'ru': 'Марафон — получить занятие',     'en': 'Marathon — get a lesson',   'es': 'Maratón — obtener lección',  'fr': 'Marathon — obtenir une leçon', 'zh': '马拉松 — 获取课程'},
     'feed':      {'ru': 'Лента — получить дайджест',   'en': 'Feed — get a digest',       'es': 'Feed — obtener resumen',     'fr': 'Fil — obtenir un résumé',      'zh': '信息流 — 获取摘要'},
     'train':     {'ru': 'Тренировка принципов',         'en': 'Principles training',       'es': 'Entrenamiento de principios','fr': 'Entraînement des principes',   'zh': '原则训练'},
     'test':      {'ru': 'Тест систематичности',         'en': 'Systematicity test',        'es': 'Test de sistematicidad',     'fr': 'Test de systématicité',        'zh': '系统性测试'},
