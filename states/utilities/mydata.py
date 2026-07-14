@@ -26,11 +26,21 @@ logger = logging.getLogger(__name__)
 # ─── Tier detection helpers ────────────────────────────────────────────────
 
 TIER_NAMES = {
-    'ru': {0: 'T0', 1: '🎯 Т1 «Старт»', 2: '🌱 Т2 «Изучение»', 3: '📚 Т3 «Персонализация»', 4: '🚀 Т4 «Созидание»', 5: 'T5 — Админ'},
+    'ru': {0: 'T0', 1: 'Т1 «Старт»', 2: 'Т2 «Изучение»', 3: 'Т3 «Персонализация»', 4: 'Т4 «Созидание»', 5: 'T5 — Админ'},
     'en': {0: 'T0', 1: 'T1 — Start', 2: 'T2 — Learning', 3: 'T3 — Personalization', 4: 'T4 — Creation', 5: 'T5 — Admin'},
 }
 
 TIER_EMOJI = {0: '⚪', 1: '🟢', 2: '📘', 3: '🧬', 4: '🚀', 5: '⚡'}
+
+
+def tier_display_name(tier: int, lang: str) -> str:
+    """Emoji + localized tier name — single composition point.
+
+    Names live in TIER_NAMES (text only), emojis in TIER_EMOJI.
+    Compose them only here to avoid double-emoji rendering.
+    """
+    name = TIER_NAMES.get(lang, TIER_NAMES['en']).get(tier, f'T{tier}')
+    return f"{TIER_EMOJI.get(tier, '⚪')} {name}"
 
 # ─── Categories by tier ────────────────────────────────────────────────────
 
@@ -745,7 +755,7 @@ class MyDataState(BaseState):
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         tier = await self._detect_tier(chat_id)
-        tier_name = TIER_NAMES.get(lang, TIER_NAMES['en']).get(tier, f'T{tier}')
+        tier_name = tier_display_name(tier, lang)
 
         text = f"*🔒 {t('mydata.sec_privacy', lang)}*\n\n"
         text += t('mydata.privacy_your_tier', lang, tier=tier_name) + "\n"
