@@ -9,6 +9,10 @@ from .settings import (
     # Токены
     BOT_TOKEN,
     ANTHROPIC_API_KEY,
+    STT_API_KEY,
+    STT_BASE_URL,
+    STT_MODEL,
+    VOICE_MAX_DURATION_SEC,
     CLAUDE_MODEL_OPUS,
     CLAUDE_MODEL_SONNET,
     CLAUDE_MODEL_HAIKU,
@@ -213,6 +217,7 @@ from .settings import (
 from .onboarding_intents import ONBOARDING_INTENT_MAP, NEGATIVE_PATTERNS  # WP-349 Ф22
 
 __all__ = [
+    'STT_API_KEY', 'STT_BASE_URL', 'STT_MODEL', 'VOICE_MAX_DURATION_SEC',
     'BOT_TOKEN',
     'ANTHROPIC_API_KEY',
     'CLAUDE_MODEL_OPUS',
