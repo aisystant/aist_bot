@@ -28,7 +28,7 @@ async def test_consent_gap_no_consent_row():
 
     with patch("handlers.twin.get_intern", new_callable=AsyncMock, return_value=None), \
          patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
-         patch("db.queries.identity.get_user_uuid", new_callable=AsyncMock, return_value=account_id), \
+         patch("helpers.dual_write.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value=str(account_id)), \
          patch("db.queries.consent.get_consent", new_callable=AsyncMock, return_value=None), \
          patch("handlers.consent.show_consent_optin", new_callable=AsyncMock) as mock_optin:
         from handlers.twin import cmd_me
@@ -45,7 +45,7 @@ async def test_consent_gap_opt_in_false():
 
     with patch("handlers.twin.get_intern", new_callable=AsyncMock, return_value=None), \
          patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
-         patch("db.queries.identity.get_user_uuid", new_callable=AsyncMock, return_value=account_id), \
+         patch("helpers.dual_write.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value=str(account_id)), \
          patch("db.queries.consent.get_consent", new_callable=AsyncMock,
                return_value={"opt_in": False}), \
          patch("handlers.consent.show_consent_optin", new_callable=AsyncMock) as mock_optin:
@@ -68,7 +68,7 @@ async def test_consent_gap_opt_in_true_no_gate():
 
     with patch("handlers.twin.get_intern", new_callable=AsyncMock, return_value=None), \
          patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
-         patch("db.queries.identity.get_user_uuid", new_callable=AsyncMock, return_value=account_id), \
+         patch("helpers.dual_write.resolve_ory_id_from_chat", new_callable=AsyncMock, return_value=str(account_id)), \
          patch("db.queries.consent.get_consent", new_callable=AsyncMock,
                return_value={"opt_in": True}), \
          patch("handlers.consent.show_consent_optin", new_callable=AsyncMock) as mock_optin, \

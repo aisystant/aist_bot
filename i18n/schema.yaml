@@ -5785,6 +5785,10 @@ guide:
     ru: "Гид временно недоступен. Попробуйте позже."
     en: "Guide is temporarily unavailable. Please try again later."
 
+  collecting:
+    ru: "🧭 Профиль подключён, данные собираются.\n\nПервые цифры появятся после ночного пересчёта — загляните завтра."
+    en: "🧭 Profile connected, data is being collected.\n\nFirst numbers will appear after the nightly recalc — check back tomorrow."
+
 # ═══════════════════════════════════════════════════════════
 # Contextual paywall — per-service descriptions (П2)
 # ═══════════════════════════════════════════════════════════

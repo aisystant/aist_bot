@@ -920,10 +920,12 @@ async def cmd_me(message: Message):
         # Fail-open: on any lookup error, fall through to the normal dashboard.
         try:
             from db.queries.consent import get_consent
-            from db.queries.identity import get_user_uuid
-            _uuid = await get_user_uuid(telegram_user_id)
-            if _uuid:
-                _consent = await get_consent(str(_uuid))
+            from helpers.dual_write import resolve_ory_id_from_chat
+            # Ory id, не public.users.id: consent пишется по Ory id (WP-7
+            # Ф-DT-Consent-Pipeline — старый lookup по local uuid всегда давал None).
+            _ory_id = await resolve_ory_id_from_chat(telegram_user_id)
+            if _ory_id:
+                _consent = await get_consent(_ory_id)
                 if not _consent or not _consent["opt_in"]:
                     from handlers.consent import show_consent_optin
                     await show_consent_optin(message)
@@ -1054,7 +1056,23 @@ async def callback_twin_profile(callback: CallbackQuery):
     lang = _lang(intern)
 
     await callback.answer()
-    profile = await gateway_mcp.get_user_profile(telegram_user_id)
+
+    # Consent gate (WP-7 Ф-DT-Consent-Pipeline): без opt-in двойник не наполняется.
+    # Fail-open: сбой проверки не блокирует показ профиля.
+    try:
+        from db.queries.consent import get_consent
+        from helpers.dual_write import resolve_ory_id_from_chat
+        ory_id = await resolve_ory_id_from_chat(telegram_user_id)
+        if ory_id:
+            consent = await get_consent(ory_id)
+            if not consent or not consent["opt_in"]:
+                from handlers.consent import show_consent_optin
+                await show_consent_optin(callback.message, chat_id=telegram_user_id)
+                return
+    except Exception as e:
+        logger.error(f"[twin_profile cb] consent-gap check failed for {telegram_user_id}: {e}")
+
+    profile, reason = await gateway_mcp.get_user_profile_ex(telegram_user_id)
     if profile:
         text = _profile_text(profile, lang, intern=intern)
         try:
@@ -1063,7 +1081,8 @@ async def callback_twin_profile(callback: CallbackQuery):
             logger.warning(f"[twin_profile cb] Markdown parse failed for {telegram_user_id}: {e}; fallback plain")
             await callback.message.answer(text)
     else:
-        await callback.message.answer("⚠️ Профиль ЦД недоступен.")
+        key = 'guide.collecting' if reason == 'empty' else 'guide.unavailable'
+        await callback.message.answer(t(key, lang))
 
 
 # Shared IWE platform context for insights prompts

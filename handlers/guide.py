@@ -117,11 +117,30 @@ async def _show_profile(message: Message, chat_id: int, lang: str):
         )
         return
 
+    # Consent gate (WP-7 Ф-DT-Consent-Pipeline): без opt-in сборщик не наполняет
+    # двойника — вместо вечно пустой карточки ведём на экран согласия.
+    # Fail-open: сбой проверки не блокирует показ профиля.
+    try:
+        from db.queries.consent import get_consent
+        from helpers.dual_write import resolve_ory_id_from_chat
+        ory_id = await resolve_ory_id_from_chat(chat_id)
+        if ory_id:
+            consent = await get_consent(ory_id)
+            if not consent or not consent["opt_in"]:
+                from handlers.consent import show_consent_optin
+                await show_consent_optin(message, chat_id=chat_id)
+                return
+    except Exception as e:
+        logger.error(f"[guide] consent-gap check failed for {chat_id}: {e}")
+
     await message.answer(t('guide.loading', lang))
     async with keep_typing(message):
-        profile = await gateway_mcp.get_user_profile(chat_id)
+        profile, reason = await gateway_mcp.get_user_profile_ex(chat_id)
     if profile is None:
-        await message.answer(t('guide.unavailable', lang))
+        # Согласие есть, но двойник ещё не собран (наполнится ночным сборщиком) —
+        # это не сбой, отличаем от реальной недоступности шлюза.
+        key = 'guide.collecting' if reason == 'empty' else 'guide.unavailable'
+        await message.answer(t(key, lang))
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
