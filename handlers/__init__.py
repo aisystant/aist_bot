@@ -74,6 +74,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     from .referral import referral_router
     from .external_session import external_session_router
     from .hermes import hermes_router
+    from .voice import voice_router
     from .byok import byok_router
 
     dp.include_router(onboarding_router)
@@ -122,6 +123,7 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     # WP-392: hermes_router ДО external_session — «Гермес» адресует Hermes-рантайм,
     # а не активную Claude-сессию (которая иначе перехватила бы текст первой).
     dp.include_router(hermes_router)
+    dp.include_router(voice_router)
     dp.include_router(byok_router)
     dp.include_router(external_session_router)
 

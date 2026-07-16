@@ -14,6 +14,11 @@ from pathlib import Path
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
+# WP-384 Ф2: OpenAI Whisper для голосового ввода (DP.SC.178)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "whisper-1")
+VOICE_MAX_DURATION_SEC = int(os.getenv("VOICE_MAX_DURATION_SEC", "60"))
+
 # Claude models: Sonnet для сложных задач, Haiku для простых
 CLAUDE_MODEL_OPUS = "claude-sonnet-4-6"
 CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
