@@ -304,13 +304,17 @@ _LINKED_BUT_SYNCING_TEXT = (
 )
 
 
-async def show_consent_optin(message: Message) -> None:
+async def show_consent_optin(message: Message, chat_id: int | None = None) -> None:
     """Show consent opt-in privacy screen. Called from deep links (e.g. ?start=consent).
 
     WP-188 Ф17: handles all states — not linked / syncing / already opted-in / fresh.
     see: scenario-02-13-consent.md §5 п.3
+
+    chat_id — обязателен при вызове с callback.message: там from_user = бот,
+    и авторезолв уводит на аккаунт бота.
     """
-    chat_id = message.from_user.id if message.from_user else message.chat.id
+    if chat_id is None:
+        chat_id = message.from_user.id if message.from_user else message.chat.id
     intern, account_id = await _resolve_account(chat_id)
     lang = (intern.get("language") if intern else "ru") or "ru"
 
