@@ -1122,7 +1122,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
     _scheduler.add_job(scheduled_check, 'cron', minute='*', max_instances=2)
     _scheduler.add_job(pre_generate_upcoming, 'cron', minute='*', max_instances=2)  # Pre-gen за 3ч до доставки
-    _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/4')  # Keep-alive каждые 4 мин
+    _scheduler.add_job(_neon_keep_alive, 'cron', minute='*/2')  # Keep-alive каждые 2 мин (WP-7: 4 мин оставлял окно для cold-start алертов на /start и cb:slot_daily)
     if DELIVERY_LAYER_ENABLED:
         _scheduler.add_job(_drain_delivery_queue, 'cron', minute='*', max_instances=1)  # WP-418 Ф3: дренаж очереди Доставщика
         logger.info("[Scheduler] Delivery layer (WP-418) drain enabled")

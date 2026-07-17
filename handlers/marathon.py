@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 
 from db.queries.marathon_newcomer import (
     get_or_create_progress,
@@ -484,10 +485,15 @@ async def callback_marathon_checkin(callback: CallbackQuery):
     # Убираем кнопки и показываем выбор
     original_text = callback.message.text or callback.message.caption or ""
     footer = "" if is_completed else "\n\n📋 /marathon_progress — прогресс | /marathon_pause — пауза | /marathon_stop — выход"
-    await callback.message.edit_text(
-        f"{original_text}\n\n✅ Твой выбор: {label}{footer}",
-        reply_markup=None,
-    )
+    try:
+        await callback.message.edit_text(
+            f"{original_text}\n\n✅ Твой выбор: {label}{footer}",
+            reply_markup=None,
+        )
+    except TelegramBadRequest as exc:
+        # Double-tap on the same checkin state re-sends identical content (no-op edit).
+        if "message is not modified" not in str(exc).lower():
+            raise
 
     if is_completed:
         await callback.message.answer(
