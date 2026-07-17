@@ -63,8 +63,8 @@ if [[ -z "$SERVICE" ]]; then
     echo "Error: --service must not be empty" >&2
     exit 1
 fi
-if [[ -z "$SCHEMA" ]]; then
-    echo "Error: --schema must not be empty" >&2
+if ! [[ "$SCHEMA" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    echo "Error: --schema must be a valid identifier (letters/digits/underscore), got: $SCHEMA" >&2
     exit 1
 fi
 
