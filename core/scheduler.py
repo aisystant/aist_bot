@@ -2394,6 +2394,12 @@ async def _try_send_upgrade_nudge(
 
     days = state.get("activity_days_count") or 0
 
+    account_created_at = state.get("account_created_at")
+    days_registered = (
+        (datetime.utcnow() - account_created_at).days
+        if account_created_at else 0
+    )
+
     # dict в insertion order — первый сработавший маркер отправляется (F приоритетнее G)
     markers: list[tuple[str, bool]] = [
         (
@@ -2416,6 +2422,19 @@ async def _try_send_upgrade_nudge(
                 days >= 30 and
                 not state.get("first_use_connect_full") and
                 state.get("msg_g_sent_at") is None
+            ),
+        ),
+        (
+            # WP-117: T2 user with subscription who got stuck before reaching F threshold.
+            # Fires when: subscribed, never connected AI client, registered 7+ days ago,
+            # at least 1 active day (real user, not abandoned), below F threshold (< 14 days).
+            "onboarding_gap",
+            bool(
+                state.get("has_subscription") and
+                not state.get("first_use_connect_full") and
+                days_registered >= 7 and
+                1 <= days < 14 and
+                state.get("msg_f_sent_at") is None
             ),
         ),
     ]
@@ -2513,6 +2532,10 @@ async def send_engagement_nudges():
                 ustate = upgrade_state_map.get(ory_uuid)
                 if ustate:
                     try:
+                        # Augment learning-pool state with created_at from public.users
+                        # (needed for onboarding_gap rule: days_since_registered).
+                        ustate = dict(ustate)
+                        ustate["account_created_at"] = user.get("account_created_at")
                         upgrade_sent = await _try_send_upgrade_nudge(bot, chat_id, ory_uuid, ustate, lang)
                         if upgrade_sent:
                             total_sent += 1
