@@ -444,10 +444,11 @@ async def migrate():
 
         # ═══════════════════════════════════════════════════════════════════
         # 16. learning.onboarding_state
-        #     WP-117 Ф-onboarding-gap (2026-07-08): kept 1:1 with canonical
-        #     neon-migrations/mvp/233-wp346-onboarding-state.sql — this table
-        #     drifted from it once already (16 cols vs 29), fixed live via
-        #     migration 038. Keep both in sync when either changes.
+        #     WP-117 Ф-onboarding-gap (2026-07-08, доп. 2026-07-17): kept 1:1
+        #     with canonical neon-migrations/mvp/233 + 236 + 238 — this table
+        #     drifted from them dважды (16/29 cols, потом 29/38), фиксы live
+        #     через миграции 038 (233) и напрямую 236+238 (17.07). Keep all
+        #     three canonical files and this bootstrap in sync when any changes.
         # ═══════════════════════════════════════════════════════════════════
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS learning.onboarding_state (
@@ -485,6 +486,19 @@ async def migrate():
                 has_subscription        BOOLEAN     NOT NULL DEFAULT FALSE,
                 last_nudge_at           TIMESTAMPTZ,
 
+                -- WP-349 Ф1 upgrade-маркеры T1→T4 (миграция 236)
+                cp_stage                SMALLINT,
+                has_diagnosis           BOOLEAN     NOT NULL DEFAULT FALSE,
+                msg_b_low_sent_at       TIMESTAMPTZ,
+                msg_b_high_sent_at      TIMESTAMPTZ,
+                msg_c_sent_at           TIMESTAMPTZ,
+                msg_e_sent_at           TIMESTAMPTZ,
+                msg_f_sent_at           TIMESTAMPTZ,
+                msg_g_sent_at           TIMESTAMPTZ,
+
+                -- WP-349 Ф20 referral (миграция 238)
+                referral_source         TEXT,
+
                 consent_at              TIMESTAMPTZ,
                 updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
@@ -504,6 +518,10 @@ async def migrate():
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_onboarding_state_updated "
             "ON learning.onboarding_state (updated_at DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_onboarding_state_referral_source "
+            "ON learning.onboarding_state (referral_source) WHERE referral_source IS NOT NULL"
         )
         await conn.execute("ALTER TABLE learning.onboarding_state ENABLE ROW LEVEL SECURITY")
         await conn.execute("""
