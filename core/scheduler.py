@@ -41,6 +41,12 @@ from clients.claude import is_api_degraded
 
 logger = logging.getLogger(__name__)
 
+# WP-117 Ф-roles: register all nudge types in the WP-418 policy engine.
+# Called at module import time so NUDGE_TYPE_CONFIG is populated before
+# any 13:00 run, whether the legacy enqueue path or select_and_enqueue is used.
+from core.nudge_type_registry import register_types
+register_types()
+
 # --- Module state ---
 _scheduler: Optional[AsyncIOScheduler] = None
 _aiogram_dispatcher = None  # aiogram Dispatcher (for FSM storage access)
