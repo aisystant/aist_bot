@@ -290,6 +290,47 @@ async def test_sync_cp_stage_to_onboarding_state_insert_and_update():
 
 
 @pytest.mark.asyncio
+async def test_setup_cmd_uses_detect_ui_tier_directly():
+    """cmd_setup берёт tier только из detect_ui_tier — regression guard WP-5 (2026-07-18).
+
+    До фикса cmd_setup сначала спрашивал gateway MCP (_get_journey_from_gateway),
+    который мог вернуть валидный, но неверный T2 (устаревший persona-кэш), и локальный
+    detect_ui_tier (верно видящий T4) при этом не вызывался. Мокаем detect_ui_tier=T4 —
+    если тир в ответе не T4, значит tier снова определяется не из detect_ui_tier.
+    """
+    sent_texts = []
+    mock_message = AsyncMock()
+    mock_message.chat = MagicMock(id=555)
+    mock_message.from_user = MagicMock(id=555)
+    mock_message.answer = AsyncMock(side_effect=lambda text, **kw: sent_texts.append(text))
+
+    with patch("handlers.setup.resolve_ory_id_from_chat", new_callable=AsyncMock,
+               return_value="uuid-555"), \
+         patch("handlers.setup.detect_ui_tier", new_callable=AsyncMock,
+               return_value=4), \
+         patch("handlers.setup.get_latest_cp_assessment", new_callable=AsyncMock,
+               return_value=None), \
+         patch("handlers.setup.get_onboarding_state", new_callable=AsyncMock,
+               return_value=None), \
+         patch("handlers.setup.get_intern", new_callable=AsyncMock,
+               return_value=None):
+        from handlers.setup import cmd_setup
+        await cmd_setup(mock_message)
+
+    assert len(sent_texts) == 1
+    assert "Т4 «Созидание»" in sent_texts[0], "tier должен браться из detect_ui_tier напрямую"
+
+
+def test_setup_module_has_no_gateway_dependency():
+    """Regression guard WP-5 (2026-07-18): setup.py не должен обращаться к gateway MCP за tier."""
+    import handlers.setup as setup_module
+
+    assert not hasattr(setup_module, "gateway_mcp")
+    assert not hasattr(setup_module, "_get_journey_from_gateway")
+    assert not hasattr(setup_module, "_tier_from_gateway")
+
+
+@pytest.mark.asyncio
 async def test_sync_cp_stage_to_onboarding_state_fail_safe():
     """Сбой mini-sync возвращает False, не кидает исключение наружу."""
     from db.queries.onboarding_journey import sync_cp_stage_to_onboarding_state
