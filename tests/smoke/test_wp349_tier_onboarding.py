@@ -348,3 +348,23 @@ async def test_sync_cp_stage_to_onboarding_state_fail_safe():
                return_value=BrokenPool()):
         result = await sync_cp_stage_to_onboarding_state("00000000-0000-0000-0000-000000000001", 2)
         assert result is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WP-117: onboarding_gap marker coverage guard (M2)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_upgrade_nudge_senders_all_have_cooldown_coverage():
+    """Every key in UPGRADE_NUDGE_SENDERS must be in _UPGRADE_MARKER_COLS or _CAPPED_ONLY_MARKERS.
+
+    Prevents silent daily-repeat nudges when a new marker has no cooldown tracking.
+    """
+    from handlers.tier_upgrade import UPGRADE_NUDGE_SENDERS
+    from db.queries.onboarding_journey import _UPGRADE_MARKER_COLS, _CAPPED_ONLY_MARKERS
+
+    covered = set(_UPGRADE_MARKER_COLS) | _CAPPED_ONLY_MARKERS
+    uncovered = set(UPGRADE_NUDGE_SENDERS) - covered
+    assert not uncovered, (
+        f"Markers in UPGRADE_NUDGE_SENDERS with no cooldown tracking: {uncovered}. "
+        "Add to _UPGRADE_MARKER_COLS (DB column) or _CAPPED_ONLY_MARKERS (CLASS_CAPPED dedup)."
+    )

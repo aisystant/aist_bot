@@ -6,5 +6,4 @@ asyncpg==0.29.0
 pyyaml==6.0.1
 langfuse>=4.0.0
 PyJWT[crypto]>=2.10.0
-openai>=1.0.0
 anthropic==0.117.0  # transitive dep of wheels/activity_hub (Requires-Dist: anthropic>=0.30.0, no upper bound) — pin explicitly so pip-compile locks it and its own deps (docstring-parser) instead of leaving them to float on rebuild
