@@ -333,7 +333,7 @@ gateway_mcp = GatewayMCPClient(url=GATEWAY_MCP_URL)
 
 ### 11.7. Tool discovery (DP.SC.129, DP.ROLE.038)
 
-- `list_tools()` — загружает `tools/list` с Gateway, кэш 15 мин (`TOOLS_CACHE_TTL`), fallback на stale-кэш при ошибке. Bootstrap-вызов в `bot.py` при старте процесса.
+- `list_tools()` — загружает `tools/list` с Gateway, кэш 15 мин (`TOOLS_CACHE_TTL`), fallback на stale-кэш при ошибке. Bootstrap-вызов в `bot.py` при старте процесса. Авторизация — токеном непросроченного пользователя (`_pick_discovery_user()`); при 401 обновляет токен этого же пользователя и повторяет один раз (тот же паттерн, что `_call` — не перебор чужих токенов). Фикс регрессии 2026-07-07 (§10.40 CLAUDE.md): раньше брался произвольный токен без проверки срока и без retry, discovery молча грузило 0 инструментов.
 - `get_discovered_tools()` / `is_tools_cache_fresh()` — читатели кэша, используются `consultation_tools.get_tools_for_tier()` для объединения захардкоженных tool с найденными.
 - **Б.x tool-descriptor validation** (ArchGate 2026-07-07): `_mcp_to_anthropic_tool()` отбрасывает (не санитизирует) tool целиком, если description содержит role-break/delimiter маркер (bilingual, ru+en) или превышает 1024 символа. Fail-secure — компрометированное описание значит остальной descriptor тоже не доверяем.
 - **Л2.2 tool-call audit** (ArchGate 2026-07-07): `db.queries.traces.log_tool_call_audit()` пишет в `domain_event` (`event_type='tool_call_audit'`) query + снапшот доступных tool + выбранный tool + результат при каждом вызове через `tool_executor` (`question_handler.py`), fire-and-forget. Разблокирует расследование регресса точности выбора tool — discovery убирает единственный раньше существовавший сигнал (deploy-корреляция).

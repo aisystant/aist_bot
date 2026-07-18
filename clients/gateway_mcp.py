@@ -1037,13 +1037,31 @@ class GatewayMCPClient:
     # TOOL DISCOVERY (DP.SC.129, DP.ROLE.038)
     # =========================================================================
 
+    def _pick_discovery_user(self) -> Optional[int]:
+        """Выбрать непросроченный токен для discovery; иначе первый — как кандидат на refresh-retry."""
+        now = datetime.utcnow()
+        fallback: Optional[int] = None
+        for user_id, data in self._tokens.items():
+            if fallback is None:
+                fallback = user_id
+            expires_at = data.get("expires_at")
+            if isinstance(expires_at, datetime):
+                if expires_at.tzinfo is not None:
+                    expires_at = expires_at.replace(tzinfo=None)
+                if expires_at > now:
+                    return user_id
+        return fallback
+
     async def list_tools(self) -> List[Dict]:
         """Загрузить список tool из Gateway MCP (tools/list) и обновить кэш.
 
         Вызывается при старте бота и как background refresh (TTL 15 мин).
         При ошибке возвращает stale-кэш (или пустой список при cold start).
-        Gateway требует Ory Bearer даже для discovery — используем любой
-        из загруженных токенов (результат не зависит от конкретного user).
+        Gateway требует Ory Bearer даже для discovery — используем токен
+        одного из загруженных пользователей (результат не зависит от того,
+        чей именно). При 401 обновляем токен ЭТОГО пользователя и повторяем
+        один раз — тот же паттерн, что и в `_do_call` (не перебор чужих
+        токенов: рефреш чужого пользователя не чинит и не имеет смысла).
         """
         payload = {
             "jsonrpc": "2.0",
@@ -1051,32 +1069,41 @@ class GatewayMCPClient:
             "params": {},
             "id": self._next_id()
         }
-        # Use any available user token — gateway requires auth even for discovery.
-        # Tokens are loaded from DB before list_tools() is called at startup.
+        discovery_user_id = self._pick_discovery_user()
         discovery_headers: Dict[str, str] = {}
-        if self._tokens:
-            any_token = next(iter(self._tokens.values()))["access_token"]
-            discovery_headers["Authorization"] = f"Bearer {any_token}"
+        if discovery_user_id is not None:
+            token = self._get_access_token(discovery_user_id)
+            if token:
+                discovery_headers["Authorization"] = f"Bearer {token}"
 
         session = await self._get_session()
         try:
             async with self._call_semaphore:
-                async with session.post(
-                    self.url,
-                    json=payload,
-                    headers=discovery_headers,
-                    timeout=aiohttp.ClientTimeout(total=self.DEFAULT_TIMEOUT)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        mcp_tools = data.get("result", {}).get("tools", [])
-                        converted = (self._mcp_to_anthropic_tool(t) for t in mcp_tools)
-                        tools = [t for t in converted if t is not None]
-                        self._tools_cache = tools
-                        self._tools_cache_ts = time.time()
-                        logger.info(f"Gateway: discovery loaded {len(tools)} tools")
-                        return tools
-                    logger.warning(f"Gateway: tools/list HTTP {resp.status}")
+                for attempt in range(2):
+                    async with session.post(
+                        self.url,
+                        json=payload,
+                        headers=discovery_headers,
+                        timeout=aiohttp.ClientTimeout(total=self.DEFAULT_TIMEOUT)
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            mcp_tools = data.get("result", {}).get("tools", [])
+                            converted = (self._mcp_to_anthropic_tool(t) for t in mcp_tools)
+                            tools = [t for t in converted if t is not None]
+                            self._tools_cache = tools
+                            self._tools_cache_ts = time.time()
+                            logger.info(f"Gateway: discovery loaded {len(tools)} tools")
+                            return tools
+                        if resp.status == 401 and discovery_user_id is not None and attempt == 0:
+                            logger.info(f"Gateway: discovery 401 for user {discovery_user_id}, attempting refresh")
+                            if await self._refresh_single_token(discovery_user_id):
+                                new_token = self._get_access_token(discovery_user_id)
+                                if new_token:
+                                    discovery_headers["Authorization"] = f"Bearer {new_token}"
+                                continue
+                        logger.warning(f"Gateway: tools/list HTTP {resp.status}")
+                        break
         except Exception as e:
             logger.warning(f"Gateway: list_tools failed: {e}")
         return list(self._tools_cache)
