@@ -6,12 +6,10 @@ Update factories — строители Telegram Update объектов для 
 
 from datetime import datetime
 
-from aiogram.enums import ContentType
 from aiogram.types import (
     Update, Message, CallbackQuery,
     Chat, User as TgUser,
     InlineKeyboardMarkup, InlineKeyboardButton,
-    Voice,
 )
 
 
@@ -174,49 +172,3 @@ def language_callback(lang: str = "ru", chat_id: int = 12345) -> Update:
 def duration_callback(duration: str = "15", chat_id: int = 12345) -> Update:
     """Выбор длительности при онбординге."""
     return make_callback_update(data=f"duration_{duration}", chat_id=chat_id, user_id=chat_id)
-
-
-# ─── Voice Updates (WP-384) ───
-
-def make_voice_message(
-    duration: int = 10,
-    chat_id: int = 12345,
-    user_id: int = 12345,
-    file_id: str = "voice_file_id",
-    file_unique_id: str = "voice_unique_id",
-    message_id: int = 1,
-) -> Message:
-    """Создаёт Message с голосовым сообщением."""
-    voice = Voice(
-        file_id=file_id,
-        file_unique_id=file_unique_id,
-        duration=duration,
-    )
-    return Message(
-        message_id=message_id,
-        date=datetime.now(),
-        chat=make_chat(chat_id),
-        from_user=make_user(user_id=user_id),
-        voice=voice,
-        content_type=ContentType.VOICE,
-    )
-
-
-def make_voice_update(
-    duration: int = 10,
-    chat_id: int = 12345,
-    user_id: int = 12345,
-    file_id: str = "voice_file_id",
-    file_unique_id: str = "voice_unique_id",
-) -> Update:
-    """Создаёт Update с голосовым сообщением."""
-    return Update(
-        update_id=_next_update_id(),
-        message=make_voice_message(
-            duration=duration,
-            chat_id=chat_id,
-            user_id=user_id,
-            file_id=file_id,
-            file_unique_id=file_unique_id,
-        ),
-    )

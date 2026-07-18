@@ -9,9 +9,6 @@ from .settings import (
     # Токены
     BOT_TOKEN,
     ANTHROPIC_API_KEY,
-    OPENAI_API_KEY,
-    WHISPER_MODEL,
-    VOICE_MAX_DURATION_SEC,
     CLAUDE_MODEL_OPUS,
     CLAUDE_MODEL_SONNET,
     CLAUDE_MODEL_HAIKU,
