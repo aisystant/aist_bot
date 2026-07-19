@@ -74,7 +74,11 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
             )
             logger.info("[Marathon] user_id=%s resumed from pause", user_id)
         else:
-            await reply_msg.answer("Не получилось возобновить. Загляни в /support.")
+            await reply_msg.answer(
+                "Не получилось возобновить. Попробуй сбросить марафон:\n"
+                "/settings → «Мои данные» → «Управление данными» → «🔄 Сбросить марафон».\n"
+                "Если не поможет — напиши /support."
+            )
         return
 
     if current_status == "completed":
@@ -612,7 +616,11 @@ async def cmd_marathon_pause(message: Message):
 
     paused = await pause_marathon(chat_id)
     if not paused:
-        await message.answer("Не получилось поставить на паузу. Загляни в /support.")
+        await message.answer(
+            "Не получилось поставить на паузу. Попробуй сбросить марафон:\n"
+            "/settings → «Мои данные» → «Управление данными» → «🔄 Сбросить марафон».\n"
+            "Если не поможет — напиши /support."
+        )
         return
     await update_intern(chat_id, marathon_status="paused")
 
