@@ -64,20 +64,44 @@ while read local_ref local_sha remote_ref remote_sha; do
         fi
         echo "⚠️  FORCE_PROD=1 — push в ${PROTECTED_BRANCH} разрешён."
 
-        # ─── PRODSYNC2: видимость обратного разрыва (backport drift) ───
-        # Принцип (пир-сессия 2026-07-09-18): backport хотфикса в pilot — критерий
-        # закрытия хотфикса, не отложенный шаг. Хук не блокирует push (инцидент
-        # нельзя тормозить), но громко показывает счётчик после каждого прод-пуша,
-        # чтобы разрыв не рос молча неделями (см. PRODSYNC1: 24 → 43 → 105+ коммитов).
+        # ─── PRODSYNC3: жёсткий блок routine cherry-pick при drift>10 ───
+        # (review_date: 2026-10-19, пересмотреть порог/механику если мешает или молчит)
+        # PRODSYNC2 (2026-07-10, пир-сессия 2026-07-09-18) только печатала счётчик —
+        # разрыв всё равно вырос 0→31 за 9 дней, т.к. предупреждение теряется в
+        # консоли конкретного push и не переживает конец сессии агента (см. PRODSYNC1:
+        # 24 → 43 → 105+ коммитов — тот же паттерн повторился трижды).
+        # Правило: [incident-ok] (незапланированный hotfix) ПРОБИВАЕТ блок всегда —
+        # инцидент нельзя тормозить порогом. [cherry-pick-ok] (плановый перенос) —
+        # НЕ пробивает при drift>10: если разрыв уже большой, плановый cherry-pick
+        # обязан подождать раунда синхронизации, а не откладывать его дальше.
         if git show-ref --verify --quiet refs/heads/pilot; then
             drift_count=$(git cherry pilot "$local_sha" 2>/dev/null | grep -c '^+')
             if [ "$drift_count" -gt 10 ]; then
-                echo ""
-                echo "🔶 BACKPORT DRIFT: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
-                echo "    в pilot (git cherry, по содержимому патча). Порог 10 превышен."
-                echo "    → Запланируй раунд синхронизации (пир-сессия DP.SC.154, по образцу"
-                echo "      PRODSYNC1/PRODSYNC2), не откладывай — разрыв растёт молча."
-                echo ""
+                has_incident_hatch=false
+                if [ "$remote_sha" != "0000000000000000000000000000000000000000" ]; then
+                    if git log --format="%s %b" "${remote_sha}..${local_sha}" 2>/dev/null | grep -qE '\[incident-ok\]'; then
+                        has_incident_hatch=true
+                    fi
+                fi
+                if [ "$has_incident_hatch" = true ]; then
+                    echo ""
+                    echo "🔶 BACKPORT DRIFT: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
+                    echo "    в pilot. Порог 10 превышен, но [incident-ok] пробивает блок."
+                    echo "    → Backport этого хотфикса в pilot остаётся критерием закрытия"
+                    echo "      инцидента (не отложенный шаг)."
+                    echo ""
+                else
+                    echo ""
+                    echo "⛔ PUSH BLOCKED: ${drift_count} правок на ${PROTECTED_BRANCH} отсутствуют"
+                    echo "    в pilot (git cherry, по содержимому патча). Порог 10 превышен."
+                    echo "    Плановый cherry-pick ([cherry-pick-ok]) заблокирован, пока разрыв"
+                    echo "    не разобран — раунд синхронизации (пир-сессия DP.SC.154, по"
+                    echo "    образцу PRODSYNC1/PRODSYNC2) идёт впереди новых переносов."
+                    echo "    Если это осознанный инцидент, не плановый перенос: используй"
+                    echo "    [incident-ok] вместо [cherry-pick-ok] в сообщении коммита."
+                    echo ""
+                    exit 1
+                fi
             fi
         fi
     fi
