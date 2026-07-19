@@ -2,7 +2,7 @@
 Рефлексия — коммит дневной рефлексии в personal-guide (WP-309 Ф3).
 
 Команды:
-- /reflect — создать history/YYYY-MM-DD-reflection.md с шаблоном
+- /reflect — создать history/YYYY-MM/YYYY-MM-DD-reflection.md с шаблоном
 - /reflect <текст> — создать файл с указанным текстом
 
 Записывает через GitHub App installation token (clients.github_app).
@@ -146,7 +146,7 @@ async def cmd_reflect(message: Message):
         date_str = _moscow_today()
         content = arg.strip()
 
-    path = f"history/{date_str}-reflection.md"
+    path = f"history/{date_str[:7]}/{date_str}-reflection.md"
 
     # 3. Формируем содержимое
     if content:
