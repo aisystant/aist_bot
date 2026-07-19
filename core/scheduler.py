@@ -2461,21 +2461,33 @@ async def _try_send_upgrade_nudge(
 
 
 async def send_engagement_nudges():
-    """Проанализировать engagement-данные T3+ и отправить nudge-уведомления."""
+    """Проанализировать engagement-данные T3+ и отправить nudge-уведомления.
+
+    WP-117 Ф-decouple: producing (analyze + NudgeProducer.produce) is decoupled
+    from delivery (core.nudge_delivery.select_and_enqueue) per f-decouple-contract.md.
+    This function stays a thin cron-adapter: build context, call produce(), enqueue.
+    """
     import json
     from core.engagement_analyzer import (
         analyze,
         generate_derived_nudge_text,
         is_ai_personalizable,
     )
-    from core.notification_service import enqueue, CLASS_CAPPED
+    from core.nudge_delivery import get_recent_nudges_batch, select_and_enqueue
+    from core.nudge_producer import produce as produce_nudges
     from db.queries.nudges import get_nudge_candidates
-    from db.queries.notifications import was_nudge_sent_recently
     from i18n import t
 
     candidates = await get_nudge_candidates()
     if not candidates:
         return
+
+    chat_ids = [u['chat_id'] for u in candidates]
+    recent_nudges_by_user = await get_recent_nudges_batch(chat_ids)
+    recently_sent_types = {
+        uid: {r.nudge_type for r in records}
+        for uid, records in recent_nudges_by_user.items()
+    }
 
     # WP-349: batch-check onboarding_controller cooldown to prevent dual nudges.
     # onboarding_controller marks last_nudge_at in learning.onboarding_state;
@@ -2525,6 +2537,7 @@ async def send_engagement_nudges():
 
     bot = Bot(token=_bot_token)
     total_sent = 0
+    engagement_candidates = []  # NudgeCandidate list, built per-user, enqueued as one batch
 
     try:
         for user in candidates:
@@ -2538,23 +2551,22 @@ async def send_engagement_nudges():
                 continue
 
             # WP-349 Ф6/Ф7: upgrade nudge (F/G rich CTA) takes priority over engagement nudge
-            if ory_uuid:
-                ustate = upgrade_state_map.get(ory_uuid)
-                if ustate:
-                    try:
-                        # Augment learning-pool state with created_at from public.users
-                        # (needed for onboarding_gap rule: days_since_registered).
-                        ustate = dict(ustate)
-                        ustate["account_created_at"] = user.get("account_created_at")
-                        upgrade_sent = await _try_send_upgrade_nudge(bot, chat_id, ory_uuid, ustate, lang)
-                        if upgrade_sent:
-                            total_sent += 1
-                            continue  # one nudge per user per day
-                    except Exception as e:
-                        if _is_user_unavailable(e):
-                            await _handle_unavailable_user(chat_id, "upgrade_nudge")
-                            continue
-                        logger.error(f"[Nudge] Upgrade nudge error for {chat_id}: {e}")
+            ustate = upgrade_state_map.get(ory_uuid) if ory_uuid else None
+            if ustate:
+                try:
+                    # Augment learning-pool state with created_at from public.users
+                    # (needed for onboarding_gap rule: days_since_registered).
+                    ustate = dict(ustate)
+                    ustate["account_created_at"] = user.get("account_created_at")
+                    upgrade_sent = await _try_send_upgrade_nudge(bot, chat_id, ory_uuid, ustate, lang)
+                    if upgrade_sent:
+                        total_sent += 1
+                        continue  # one nudge per user per day
+                except Exception as e:
+                    if _is_user_unavailable(e):
+                        await _handle_unavailable_user(chat_id, "upgrade_nudge")
+                        continue
+                    logger.error(f"[Nudge] Upgrade nudge error for {chat_id}: {e}")
 
             # Parse engagement JSONB
             engagement = user.get('engagement')
@@ -2594,57 +2606,58 @@ async def send_engagement_nudges():
             if not nudges:
                 continue
 
-            # Pick first applicable (respecting cooldown)
-            for nudge in nudges:
-                rule_id = nudge['rule_id']
-                nudge_key = nudge['nudge_key']
-                cooldown = nudge['cooldown_days']
+            # Drop nudge_types already sent within their cooldown window
+            # (batch-fetched above via get_recent_nudges_batch — replaces the
+            # old per-candidate was_nudge_sent_recently() lookup).
+            already_sent = recently_sent_types.get(chat_id, set())
+            nudges = [n for n in nudges if n['nudge_key'] not in already_sent]
+            if not nudges:
+                continue
 
-                if await was_nudge_sent_recently(chat_id, nudge_key, cooldown):
-                    continue
+            # Build message text for the first applicable nudge only — one
+            # nudge per user per day, so there is no point paying for Haiku
+            # personalization (is_ai_personalizable) on candidates that will
+            # never be sent.
+            nudge = nudges[0]
+            nudge_key = nudge['nudge_key']
+            i18n_key = f'nudges.{nudge_key}'
+            text = t(i18n_key, lang,
+                     name=user.get('name', ''),
+                     active_days=user_meta.get('active_days_total', 0),
+                     streak=user_meta.get('longest_streak', 0))
 
-                # Build message
-                i18n_key = f'nudges.{nudge_key}'
-                text = t(i18n_key, lang,
-                         name=user.get('name', ''),
-                         active_days=user_meta.get('active_days_total', 0),
-                         streak=user_meta.get('longest_streak', 0))
+            # Skip if i18n key missing (returns raw key)
+            if text == i18n_key or nudge_key in text:
+                logger.warning(f"[Nudge] Missing i18n key: {i18n_key}")
+                continue
 
-                # Skip if i18n key missing (returns raw key)
-                if text == i18n_key or nudge_key in text:
-                    logger.warning(f"[Nudge] Missing i18n key: {i18n_key}")
-                    continue
+            # WP-117 Ф-roles: derived-aware nudges get a Haiku-personalized
+            # rewrite of the static text; falls back to static on any failure.
+            if is_ai_personalizable(nudge_key):
+                text = await generate_derived_nudge_text(
+                    nudge_key, text, user_meta, derived, lang,
+                )
 
-                # WP-117 Ф-roles: derived-aware nudges get a Haiku-personalized
-                # rewrite of the static text; falls back to static on any failure.
-                if is_ai_personalizable(nudge_key):
-                    text = await generate_derived_nudge_text(
-                        nudge_key, text, user_meta, derived, lang,
-                    )
+            last_active = user_meta.get('last_active_date')
+            active_today = bool(last_active) and last_active == moscow_now().date()
+            first_use_connect_full = bool((ustate or {}).get('first_use_connect_full'))
 
-                try:
-                    today_str = moscow_now().strftime('%Y-%m-%d')
-                    notif_key = f"nudge:{chat_id}:{today_str}:{nudge_key}"
-                    # WP-418 Ф4 волна 1: дневной дедуп и потолок ≤2/день — у
-                    # Доставщика (dedup_key); журнал с прежним type='nudge'
-                    # пишет drain — контракт was_nudge_sent_recently сохранён.
-                    res = await enqueue(
-                        chat_id, CLASS_CAPPED,
-                        {"text": text, "format": "markdown"},
-                        dedup_key=notif_key, journal_key=notif_key,
-                        journal_type='nudge',
-                    )
-                    if res["status"] != "queued":
-                        # Дубль дня или потолок — Доставщик подавил
-                        continue
-                    total_sent += 1
-                    logger.info(f"[Nudge] Queued {nudge_key} for {chat_id}")
-                    break  # One nudge per user per day
-                except Exception as e:
-                    logger.error(f"[Nudge] Error for {chat_id}: {e}")
-                    break  # Don't retry other nudges for this user
+            engagement_candidates.extend(produce_nudges(
+                [nudge], chat_id, {nudge_key: text},
+                active_today=active_today,
+                first_use_connect_full=first_use_connect_full,
+            ))
     finally:
         await bot.session.close()
+
+    if engagement_candidates:
+        results = await select_and_enqueue(engagement_candidates)
+        for res in results:
+            if res.enqueued:
+                total_sent += 1
+                logger.info(f"[Nudge] Queued {res.nudge_type} for {res.user_id}")
+            else:
+                logger.debug(f"[Nudge] {res.nudge_type} for {res.user_id} suppressed: {res.reason}")
 
     if total_sent > 0:
         logger.info(f"[Nudge] Total sent: {total_sent}")
