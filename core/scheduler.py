@@ -2463,7 +2463,11 @@ async def _try_send_upgrade_nudge(
 async def send_engagement_nudges():
     """Проанализировать engagement-данные T3+ и отправить nudge-уведомления."""
     import json
-    from core.engagement_analyzer import analyze
+    from core.engagement_analyzer import (
+        analyze,
+        generate_derived_nudge_text,
+        is_ai_personalizable,
+    )
     from core.notification_service import enqueue, CLASS_CAPPED
     from db.queries.nudges import get_nudge_candidates
     from db.queries.notifications import was_nudge_sent_recently
@@ -2610,6 +2614,13 @@ async def send_engagement_nudges():
                 if text == i18n_key or nudge_key in text:
                     logger.warning(f"[Nudge] Missing i18n key: {i18n_key}")
                     continue
+
+                # WP-117 Ф-roles: derived-aware nudges get a Haiku-personalized
+                # rewrite of the static text; falls back to static on any failure.
+                if is_ai_personalizable(nudge_key):
+                    text = await generate_derived_nudge_text(
+                        nudge_key, text, user_meta, derived, lang,
+                    )
 
                 try:
                     today_str = moscow_now().strftime('%Y-%m-%d')
