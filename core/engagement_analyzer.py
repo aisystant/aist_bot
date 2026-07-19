@@ -286,6 +286,105 @@ def check_diagnost_bottleneck(engagement, user_meta, derived):
 
 
 # ═══════════════════════════════════════════════════════════
+# AI TEXT GENERATION (WP-117 Ф-roles)
+# ═══════════════════════════════════════════════════════════
+
+# Nudge types produced only by DERIVED_RULES/diagnost_bottleneck — eligible for
+# AI-personalized text. Basic threshold/achievement rules keep static i18n text.
+AI_PERSONALIZABLE_PREFIXES = (
+    "nudge_stage_reached_",
+    "nudge_agency_",
+    "nudge_low_regularity",
+    "nudge_reduce_frequency",
+    "nudge_bottleneck_",
+)
+
+
+def is_ai_personalizable(nudge_key: str) -> bool:
+    """Derived-aware nudge type eligible for Haiku-generated text (vs. static i18n)."""
+    return nudge_key.startswith(AI_PERSONALIZABLE_PREFIXES)
+
+
+_LANG_INSTRUCTION = {
+    'ru': "ВАЖНО: Пиши ВСЁ на русском языке.",
+    'en': "IMPORTANT: Write EVERYTHING in English.",
+    'es': "IMPORTANTE: Escribe TODO en español.",
+    'fr': "IMPORTANT: Écris TOUT en français.",
+    'zh': "重要：请用中文书写所有内容。",
+}
+
+
+async def generate_derived_nudge_text(
+    nudge_key: str,
+    static_text: str,
+    user_meta: dict,
+    derived: dict,
+    lang: str = 'ru',
+) -> str:
+    """Персонализировать текст derived-aware nudge через Haiku (WP-117 Ф-roles).
+
+    Не решает, СЛАТЬ ли nudge (это работа check_fn/analyze) — только переписывает
+    уже готовый static_text под конкретный ЦД-профиль пользователя. Fallback на
+    static_text при любой ошибке/пустом ответе Claude — нудж не должен зависеть
+    от доступности LLM (DP.RUNBOOK.001: graceful degradation).
+
+    Args:
+        nudge_key: конкретный ключ нуджа (например nudge_stage_reached_2)
+        static_text: исходный i18n-текст — эталон смысла и длины для промпта
+        user_meta: last_active_date, active_days_streak, marathon_status, ...
+        derived: 3_derived JSONB (+ transitional _cp_profile)
+        lang: язык ответа
+
+    Returns:
+        Персонализированный текст, либо static_text при сбое генерации.
+    """
+    from clients import claude
+    from config import CLAUDE_MODEL_HAIKU
+
+    qualification = derived.get('3_4_qualification') or {}
+    integral = derived.get('3_10_integral') or {}
+    agency = derived.get('3_1_agency') or {}
+
+    profile_lines = [
+        f"- Ступень: {qualification.get('stage', 'не определена')}",
+        f"- Индекс агентности: {integral.get('index', 'нет данных')}",
+        f"- Активных дней подряд: {user_meta.get('active_days_streak', 0)}",
+        f"- Дней в неделю с занятиями: {agency.get('slot_days_per_week', 'нет данных')}",
+    ]
+
+    lang_instruction = _LANG_INSTRUCTION.get(lang, _LANG_INSTRUCTION['en'])
+
+    system_prompt = f"""Ты — наставник, который пишет короткие подбадривающие уведомления.
+{lang_instruction}
+
+ЗАДАЧА: Перепиши сообщение ниже под профиль конкретного ученика — тот же смысл
+и тон, но с опорой на его реальные данные. Не выдумывай факты, которых нет в профиле.
+Сохрани длину исходного сообщения (1-2 предложения) и эмодзи в начале.
+
+ИСХОДНОЕ СООБЩЕНИЕ:
+{static_text}
+
+ПРОФИЛЬ УЧЕНИКА:
+{chr(10).join(profile_lines)}
+
+Верни ТОЛЬКО текст сообщения, без пояснений и кавычек."""
+
+    try:
+        text = await claude.generate(
+            system_prompt, "Персонализируй сообщение.",
+            max_tokens=200, model=CLAUDE_MODEL_HAIKU,
+        )
+    except Exception as e:
+        logger.warning(f"[Nudge] AI text generation failed for {nudge_key}: {e}")
+        return static_text
+
+    text = (text or "").strip()
+    if not text:
+        return static_text
+    return text
+
+
+# ═══════════════════════════════════════════════════════════
 # ANALYZER
 # ═══════════════════════════════════════════════════════════
 
