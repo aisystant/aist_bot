@@ -177,9 +177,17 @@ async def reset_newcomer_marathon(user_id: int, schedule_time: str = "04:00") ->
 
     await update_progress(user_id=user_id, current_day=1, status="active", started_at=now)
 
-    day1_time = now + timedelta(minutes=1)
+    # DP.SC.157: <18:00 МСК → день 1 немедленно; ≥18:00 → завтра (иначе checkin
+    # дня 1 (+14ч от сброса) может уйти позже занятия дня 2 при позднем сбросе).
+    if now.hour < MARATHON_SAME_DAY_CUTOFF_HOUR:
+        day1_time = now + timedelta(minutes=1)
+        next_day_base = tomorrow_sched
+    else:
+        day1_time = tomorrow_sched
+        next_day_base = tomorrow_sched + timedelta(days=1)
+
     for day in range(1, 15):
-        scheduled = day1_time if day == 1 else tomorrow_sched + timedelta(days=day - 2)
+        scheduled = day1_time if day == 1 else next_day_base + timedelta(days=day - 2)
         content_texts = {"lesson_practice": None, "checkin": get_day_text(day, "checkin")}
         await enqueue_day_items(user_id, day, scheduled, content_texts)
 
