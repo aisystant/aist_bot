@@ -2603,6 +2603,10 @@ async def send_engagement_nudges():
                 'longest_streak': user.get('longest_streak'),
                 'marathon_status': user.get('marathon_status'),
                 'last_slot_date': user.get('last_slot_at'),  # WP-117 Этап 1: slot_missing_3d
+                # WP-117 Ф-roles: onboarder_gap (WP-406 Х2/Х3 отметки)
+                'x2_done': user.get('x2_completed_at') is not None,
+                'x3_done': user.get('x3_completed_at') is not None,
+                'account_created_at': user.get('account_created_at'),
             }
 
             # Run rules (basic + derived-aware)

@@ -60,6 +60,19 @@ def test_onboarding_category_suppressed_when_ai_client_connected():
         del np._RULE_CATEGORY["onboarding_gap"]
 
 
+def test_onboarder_gap_category_not_suppressed_by_ai_client_connected():
+    """onboarder_gap (WP-406 Х2/Х3) — независимая категория от "onboarding"
+    (T2→T3 AI-клиент). first_use_connect_full не должен её гасить: разрыв в
+    понимании сообщества/выборе траектории не закрывается подключением ИИ."""
+    nudges = [_analyze_result("onboarder_gap", "nudge_onboarder_gap_x2")]
+    result = np.produce(
+        nudges, user_id=1, text_by_nudge_key={"nudge_onboarder_gap_x2": "Освоиться"},
+        active_today=False, first_use_connect_full=True,
+    )
+    assert len(result) == 1
+    assert result[0].nudge_type == "nudge_onboarder_gap_x2"
+
+
 def test_missing_text_drops_candidate_without_inventing_content():
     nudges = [_analyze_result("inactivity_3d", "nudge_inactivity")]
     result = np.produce(

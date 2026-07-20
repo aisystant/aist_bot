@@ -5195,6 +5195,14 @@ nudges:
     ru: "🚀 Диагност отметил: ваше слабое место сейчас — агентность. Попробуйте сегодня сделать один шаг по своей инициативе, не дожидаясь напоминания."
     en: "🚀 The Diagnostician flagged your current focus area: agency. Try taking one self-initiated step today, without waiting for a reminder."
 
+  nudge_onboarder_gap_x2:
+    ru: "🧭 Вы ещё не разобрались, как устроено сообщество. Нажмите «Освоиться» — это займёт пару минут и снимет ощущение «куда я попал»."
+    en: "🧭 You haven't yet gotten oriented in the community. Tap «Get oriented» — it takes a couple of minutes and clears up the «where am I» feeling."
+
+  nudge_onboarder_gap_x3:
+    ru: "🧭 Вы поняли сообщество, но ещё не выбрали, с чего начать развитие. Нажмите «Освоиться» — Диагност поможет за пару минут выбрать первый шаг."
+    en: "🧭 You understand the community, but haven't picked where to start. Tap «Get oriented» — the Diagnostician will help you choose a first step in a couple of minutes."
+
   settings_nudges_button:
     ru: "Подбадривание"
     en: "Nudges"

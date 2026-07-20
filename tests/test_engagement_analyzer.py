@@ -22,11 +22,13 @@ from core.engagement_analyzer import (
     check_inactivity_3d,
     check_marathon_stalled,
     check_diagnost_bottleneck,
+    check_onboarder_gap,
 )
 
 
 def _meta(last_slot_date=None, last_active_date=None, streak=0, longest_streak=0,
-          marathon_status=None, active_days_total=0, active_days_streak=0):
+          marathon_status=None, active_days_total=0, active_days_streak=0,
+          x2_done=None, x3_done=None, account_created_at=None):
     return {
         'last_slot_date': last_slot_date,
         'last_active_date': last_active_date,
@@ -34,6 +36,9 @@ def _meta(last_slot_date=None, last_active_date=None, streak=0, longest_streak=0
         'longest_streak': longest_streak,
         'marathon_status': marathon_status,
         'active_days_total': active_days_total,
+        'x2_done': x2_done,
+        'x3_done': x3_done,
+        'account_created_at': account_created_at,
     }
 
 
@@ -161,6 +166,56 @@ def test_diagnost_bottleneck_none_without_cp_profile():
     assert result is None, f"Expected None without _cp_profile, got {result}"
 
 
+# ─────────────────────────────────────────────────────────────
+# WP-406/WP-117 Ф-roles: onboarder_gap
+# ─────────────────────────────────────────────────────────────
+
+def test_onboarder_gap_fires_for_x2_after_3_days():
+    meta = _meta(x2_done=False, x3_done=False,
+                  account_created_at=datetime.utcnow() - timedelta(days=4))
+    result = check_onboarder_gap({}, meta, {})
+    assert isinstance(result, dict), f"Expected dict payload, got {result}"
+    assert result['nudge_type'] == 'nudge_onboarder_gap_x2'
+    assert result['gap'] == 'x2'
+
+
+def test_onboarder_gap_fires_for_x3_when_x2_done():
+    meta = _meta(x2_done=True, x3_done=False,
+                  account_created_at=datetime.utcnow() - timedelta(days=4))
+    result = check_onboarder_gap({}, meta, {})
+    assert result['nudge_type'] == 'nudge_onboarder_gap_x3'
+    assert result['gap'] == 'x3'
+
+
+def test_onboarder_gap_none_when_both_closed():
+    """Первокурсник достигнут (Х2+Х3 закрыты) — Онбордеру нечего напоминать."""
+    meta = _meta(x2_done=True, x3_done=True,
+                  account_created_at=datetime.utcnow() - timedelta(days=10))
+    result = check_onboarder_gap({}, meta, {})
+    assert result is None, f"Expected None when both gaps closed, got {result}"
+
+
+def test_onboarder_gap_none_before_3_days():
+    """Не застрял — ещё не прошло 3 дня с регистрации, рано нудить."""
+    meta = _meta(x2_done=False, x3_done=False,
+                  account_created_at=datetime.utcnow() - timedelta(days=1))
+    result = check_onboarder_gap({}, meta, {})
+    assert result is None, f"Expected None before 3-day threshold, got {result}"
+
+
+def test_onboarder_gap_fires_exactly_3_days():
+    meta = _meta(x2_done=False, x3_done=False,
+                  account_created_at=datetime.utcnow() - timedelta(days=3))
+    result = check_onboarder_gap({}, meta, {})
+    assert result is not None, "Expected fire at exactly 3-day threshold"
+
+
+def test_onboarder_gap_none_without_account_created_at():
+    meta = _meta(x2_done=False, x3_done=False, account_created_at=None)
+    result = check_onboarder_gap({}, meta, {})
+    assert result is None, f"Expected None without account_created_at, got {result}"
+
+
 if __name__ == '__main__':
     tests = [
         test_slot_missing_3d_fires_after_3_days,
@@ -178,6 +233,12 @@ if __name__ == '__main__':
         test_diagnost_bottleneck_fires_with_cp_profile,
         test_diagnost_bottleneck_none_when_no_bottleneck,
         test_diagnost_bottleneck_none_without_cp_profile,
+        test_onboarder_gap_fires_for_x2_after_3_days,
+        test_onboarder_gap_fires_for_x3_when_x2_done,
+        test_onboarder_gap_none_when_both_closed,
+        test_onboarder_gap_none_before_3_days,
+        test_onboarder_gap_fires_exactly_3_days,
+        test_onboarder_gap_none_without_account_created_at,
     ]
     passed = failed = 0
     for t in tests:

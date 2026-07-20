@@ -118,6 +118,17 @@ _REGISTERED: dict[str, NudgeTypeConfig] = {
         cooldown_days=30,
         class_cap=ClassCap.CLASS_CAPPED,
     ),
+    # Onboarder gap (WP-406 Х2/Х3 не закрыты)
+    "nudge_onboarder_gap_x2": NudgeTypeConfig(
+        nudge_type="nudge_onboarder_gap_x2",
+        cooldown_days=7,
+        class_cap=ClassCap.CLASS_CAPPED,
+    ),
+    "nudge_onboarder_gap_x3": NudgeTypeConfig(
+        nudge_type="nudge_onboarder_gap_x3",
+        cooldown_days=7,
+        class_cap=ClassCap.CLASS_CAPPED,
+    ),
     # Diagnost bottleneck slots (cp-profile)
     "nudge_bottleneck_cp_rhy": NudgeTypeConfig(
         nudge_type="nudge_bottleneck_cp_rhy",
