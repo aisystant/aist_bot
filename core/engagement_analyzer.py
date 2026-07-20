@@ -264,6 +264,36 @@ def check_notification_fatigue(engagement, user_meta, derived):
     return None
 
 
+@derived_rule("onboarder_gap", cooldown_days=7)
+def check_onboarder_gap(engagement, user_meta, derived):
+    """Разрыв Онбордера (Х2/Х3) не закрыт 3+ дня — вернуть в поток «Освоиться» (WP-406/WP-117 Ф-roles).
+
+    x2_done/x3_done — отметки WP-406 (development.user_state.x2_completed_at/
+    x3_completed_at), прокинуты в user_meta вместе с остальным batch-fetch
+    get_nudge_candidates() (симметрично cp_profile_map для diagnost_bottleneck —
+    без отдельного запроса per-user). Порог 3 дня — по образцу marathon_stalled/
+    inactivity_3d (решение пилота 2026-07-20).
+    """
+    x2_done = user_meta.get('x2_done')
+    x3_done = user_meta.get('x3_done')
+    if x2_done and x3_done:
+        return None  # Первокурсник достигнут — Онбордеру нечего напоминать
+
+    account_created_at = user_meta.get('account_created_at')
+    if not account_created_at:
+        return None
+
+    days_registered = (datetime.utcnow() - account_created_at).days
+    if days_registered < 3:
+        return None  # не застрял — ещё не прошло 3 дня с регистрации
+
+    gap = "x2" if not x2_done else "x3"
+    return {
+        "nudge_type": f"nudge_onboarder_gap_{gap}",
+        "gap": gap,
+    }
+
+
 @derived_rule("diagnost_bottleneck", cooldown_days=14)
 def check_diagnost_bottleneck(engagement, user_meta, derived):
     """Узкое место из cp-профиля Диагноста — фокус-нудж на конкретный слот (WP-117 Ф-roles).

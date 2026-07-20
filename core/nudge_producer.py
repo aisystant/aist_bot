@@ -47,6 +47,7 @@ _RULE_CATEGORY: dict[str, str] = {
     "agency_growing": "trajectory",
     "agency_high": "trajectory",
     "diagnost_bottleneck": "trajectory",
+    "onboarder_gap": "onboarder",
 }
 _DEFAULT_CATEGORY = "engagement"
 

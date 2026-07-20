@@ -20,6 +20,8 @@ async def get_nudge_candidates() -> list[dict]:
     WP-117 Ф2+: расширено с T3+ до T1+ (все с привязанным аккаунтом).
     Добавлен 3_derived для stage-aware nudges.
     WP-117 Этап 1: добавлен last_slot_at для правила slot_missing_3d.
+    WP-117 Ф-roles: добавлены x2_completed_at/x3_completed_at (WP-406 Онбордер)
+    для правила onboarder_gap.
 
     Returns:
         List of dicts with user_meta + engagement + derived data.
@@ -40,6 +42,8 @@ async def get_nudge_candidates() -> list[dict]:
                 s.marathon_status,
                 s.bot_blocked,
                 s.notify_nudges,
+                s.x2_completed_at,
+                s.x3_completed_at,
                 u.tier,
                 dt.data->'2_collected' AS engagement,
                 dt.data->'3_derived' AS derived,

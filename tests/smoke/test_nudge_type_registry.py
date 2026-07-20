@@ -31,6 +31,9 @@ EXPECTED_TYPES = {
     ("nudge_agency_high", 30, nd.ClassCap.CLASS_CAPPED),
     ("nudge_low_regularity", 14, nd.ClassCap.CLASS_CAPPED),
     ("nudge_reduce_frequency", 30, nd.ClassCap.CLASS_CAPPED),
+    # Onboarder gap (WP-406 Х2/Х3)
+    ("nudge_onboarder_gap_x2", 7, nd.ClassCap.CLASS_CAPPED),
+    ("nudge_onboarder_gap_x3", 7, nd.ClassCap.CLASS_CAPPED),
     # Diagnost bottleneck slots
     ("nudge_bottleneck_cp_rhy", 14, nd.ClassCap.CLASS_CAPPED),
     ("nudge_bottleneck_cp_wld", 14, nd.ClassCap.CLASS_CAPPED),
