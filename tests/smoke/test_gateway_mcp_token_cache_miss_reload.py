@@ -151,3 +151,28 @@ async def test_do_call_retries_refresh_after_negative_cache_ttl_expires():
     mock_refresh.assert_called_once_with(user_id)
     assert result == {"ok": True}
     assert user_id not in client._no_token_users
+
+
+@pytest.mark.asyncio
+async def test_negative_cache_timestamp_does_not_slide_within_ttl():
+    """Found by independent code-review verification (2026-07-23): a naive
+    implementation overwrites no_token_since on every falsy-token call,
+    including the cache-hit-skip branch — turning the fixed 60s window into
+    a sliding one that never expires under continuous traffic from one user.
+    A call still inside the TTL must not touch the stored timestamp at all,
+    and must not attempt _refresh_single_token again."""
+    client = GatewayMCPClient(url="http://gateway.test")
+    user_id = 222333444
+    first_failure_ts = time.time() - 10  # 10s into the 60s window
+    client._no_token_users[user_id] = first_failure_ts
+
+    session = MagicMock()
+    session.post = MagicMock()
+
+    with patch.object(client, "_get_session", new=AsyncMock(return_value=session)), \
+         patch.object(client, "_refresh_single_token", new=AsyncMock(return_value=False)) as mock_refresh:
+        result = await client._do_call("knowledge_search", {}, telegram_user_id=user_id)
+
+    assert result is None
+    mock_refresh.assert_not_called()
+    assert client._no_token_users[user_id] == first_failure_ts

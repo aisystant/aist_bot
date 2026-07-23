@@ -505,15 +505,23 @@ class GatewayMCPClient:
                 # load_one_ory_token() и спамит cache-miss метрику (см.
                 # NO_TOKEN_CACHE_TTL выше).
                 no_token_since = self._no_token_users.get(telegram_user_id)
-                if no_token_since is not None and time.time() - no_token_since < self.NO_TOKEN_CACHE_TTL:
+                within_negative_ttl = (
+                    no_token_since is not None
+                    and time.time() - no_token_since < self.NO_TOKEN_CACHE_TTL
+                )
+                if within_negative_ttl:
                     token = None
-                elif await self._refresh_single_token(telegram_user_id):
-                    token = self._get_access_token(telegram_user_id)
-
-                if token:
-                    self._no_token_users.pop(telegram_user_id, None)
                 else:
-                    self._no_token_users[telegram_user_id] = time.time()
+                    # Таймстамп трогаем ТОЛЬКО когда реально сходили в _refresh_single_token —
+                    # иначе непрерывный трафик от одного user'а (интервал < TTL) на каждом вызове
+                    # переписывает no_token_since вперёд → окно подавления никогда не истекает
+                    # (найдено независимой code-review проверкой, 2026-07-23).
+                    if await self._refresh_single_token(telegram_user_id):
+                        token = self._get_access_token(telegram_user_id)
+                    if token:
+                        self._no_token_users.pop(telegram_user_id, None)
+                    else:
+                        self._no_token_users[telegram_user_id] = time.time()
             if token:
                 headers["Authorization"] = f"Bearer {token}"
             else:
