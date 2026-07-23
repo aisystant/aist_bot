@@ -168,6 +168,16 @@ if row:
 
 **Мониторинг (WP-7 GTW6, реализовано 2026-07-13):** `WARNING "Gateway: token cache miss"` в логах сам по себе никуда не долетает — `error_logs` слушает только ERROR+, и в этом Grafana-инстансе нет датасорса с сырыми логами бота. Поэтому каждый cache miss дополнительно (fire-and-forget, `_record_token_cache_miss_metric` в `clients/gateway_mcp.py`) пишет строку в `health.internal_metrics` (`metric_name='gateway_token_cache_miss', worker='aist-bot'`, БД `learning` — `db/queries/internal_metrics.py`). Grafana-алерт «Gateway Token Cache Miss Spike» (folder `aist-bot-alerts`) считает `COUNT(*)` за последний час и алертит при >10.
 
+### 5.5. Eager reload на первом обращении + негативный TTL-кэш (2026-07-23)
+
+**Инцидент:** 2026-07-22 20:53 UTC — `grant_consent` вернул `None` x4 за 1.4с для реального пользователя. Причина: до этой правки defensive reload (§5.4) срабатывал **только реактивно**, внутри `_refresh_single_token` после HTTP 401. Но `_do_call` до похода в Gateway сам проверяет `_get_access_token()` (чистый in-memory lookup) — и при промахе кэша сразу возвращал `None` (`not_authorized`), НЕ доходя до `_refresh_single_token` вообще, то есть до Ory/БД дело даже не доходило.
+
+**Фикс:** `_do_call` теперь при промахе `_get_access_token()` сам вызывает `_refresh_single_token` (ту же функцию §5.4) ДО первой попытки запроса, не дожидаясь 401.
+
+**Побочный эффект и его фикс:** это сделало defensive reload частым путём и для T0/непривязанных пользователей (структурно не имеющих токена в БД — например, `collect_pre_search` дёргает Gateway с `telegram_user_id` на каждый вопрос, включая неподключённых). Без ограничения — DB round-trip на `secrets`-пуле (`max_size=5`) и запись в `gateway_token_cache_miss` на КАЖДЫЙ такой запрос, рискуя топить алерт «Gateway Token Cache Miss Spike» (см. выше) ложными срабатываниями рутинного трафика. Добавлен `NO_TOKEN_CACHE_TTL=60s` + `self._no_token_users: Dict[int, float]` — после первого «в БД тоже нет» повторная попытка для того же `telegram_user_id` не раньше чем через TTL секунд. Таймстамп обновляется только при реальной попытке reload (не на каждом falsy-вызове) — иначе непрерывный трафик от одного пользователя держал бы окно открытым бесконечно (sliding window вместо fixed).
+
+**Коммиты:** `16ac4a63`, `dc752899`, `030be1a9`.
+
 ---
 
 ## 6. Cloudflare 429 rate limiting (WP-209 Ф4)
