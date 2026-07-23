@@ -308,7 +308,8 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
 
     # WP-268 Phase 2 dual-write: DT OAuth callback завершён
     # Высокоуровневое событие — фактически "пользователь подключил DT через OAuth UI"
-    # update_user_dt() ниже отдельно эмитит dt_linked.v1 (низкоуровневая привязка id).
+    # (низкоуровневая привязка id) — блок ниже эмитит dt_linked.v1 отдельно,
+    # если этот путь впервые синкает ory_id (IDCOL1 Ф2, 2026-07-23).
     # Audit fix (Phase 2): (1) PII — убран raw chat_id из payload, account_id =
     # ory_id через resolve_ory_id_from_chat; (2) external_id — стабильный (один на
     # OAuth flow для пользователя), без epoch_ns, чтобы retry не дублировал событие.
@@ -378,6 +379,20 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
                 )
             if res != 'UPDATE 0':
                 logger.info(f"DT: synced ory_id={dt_uid} to users for {telegram_user_id}")
+                # WP-268 Phase 2 dual-write: dt_linked (сохранён после IDCOL1 Ф2 —
+                # downstream-дашборды могут опираться на этот event_type; account_id
+                # теперь = ory_id напрямую, не производный dt_user_id)
+                from datetime import datetime as _dt2
+                from helpers.dual_write import post_event as _post_event2
+                asyncio.create_task(_post_event2(
+                    source="aist-bot",
+                    external_id=f"dt-linked-{dt_uid}",
+                    event_type="dt_linked",
+                    schema_version="v1",
+                    occurred_at=_dt2.utcnow(),
+                    account_id=str(dt_uid),
+                    payload={},
+                ))
     except Exception as e:
         logger.warning(f"Failed to persist ory_id for {telegram_user_id}: {e}")
 

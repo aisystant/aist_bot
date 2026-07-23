@@ -170,6 +170,18 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                     )
                 if res != 'UPDATE 0':
                     logger.info(f"[Aisystant] synced ory_id={ory_uuid} for chat_id={chat_id}")
+                    # WP-268 Phase 2 dual-write: dt_linked (сохранён после IDCOL1 Ф2 —
+                    # downstream-дашборды могут опираться на этот event_type; account_id
+                    # теперь = ory_id напрямую, не производный dt_user_id)
+                    asyncio.create_task(post_event(
+                        source="aist-bot",
+                        external_id=f"dt-linked-{ory_uuid}",
+                        event_type="dt_linked",
+                        schema_version="v1",
+                        occurred_at=datetime.utcnow(),
+                        account_id=str(ory_uuid),
+                        payload={},
+                    ))
     except Exception as exc:
         # Не блокируем /link — лучше успешная привязка с задержкой ory-моста,
         # чем падение /link целиком. Без telegram_id в persona /consent выведет

@@ -110,7 +110,9 @@ async def do_link(bot_conn, pconn, chat_id: int, aisystant_id: str, dry_run: boo
         )
         print(f"  persona.ory_identity UPDATE telegram_id: {persona_result}")
 
-        # Sync ory_id from persona lookup (collision-safe: don't clobber an existing value)
+        # Sync ory_id from persona lookup (collision-safe: don't clobber an existing
+        # value AND don't create a duplicate ory_id on a second row — NOT EXISTS
+        # guard mirrors identity._sync_dt_user_id_from_uuid / db/queries/aisystant.py)
         ory_uuid = await pconn.fetchval(
             """SELECT account_id FROM public.ory_identity
                WHERE (traits->>'aisystant_suser_id' = $1 OR traits->>'aisystant_id' = $1)
@@ -121,7 +123,8 @@ async def do_link(bot_conn, pconn, chat_id: int, aisystant_id: str, dry_run: boo
         if ory_uuid:
             ory_result = await bot_conn.execute(
                 """UPDATE public.users SET ory_id = $2, updated_at = NOW()
-                   WHERE telegram_id = $1 AND ory_id IS NULL""",
+                   WHERE telegram_id = $1 AND ory_id IS NULL
+                     AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2)""",
                 chat_id, str(ory_uuid),
             )
             print(f"  public.users.ory_id sync: {ory_result} (ory_uuid={ory_uuid})")
