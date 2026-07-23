@@ -479,6 +479,15 @@ class GatewayMCPClient:
         headers: Dict[str, str] = {}
         if telegram_user_id:
             token = self._get_access_token(telegram_user_id)
+            if not token:
+                # In-memory cache miss (restart / race with OAuth callback) не
+                # значит «токена нет» — _refresh_single_token() уже умеет
+                # подгружать его из БД (WP-200), но раньше эта подгрузка
+                # срабатывала только реактивно, после 401. Без неё запрос
+                # с валидным токеном в БД отбивался здесь мгновенно и молча
+                # (инцидент 2026-07-22 20:53 UTC: grant_consent → None x4).
+                if await self._refresh_single_token(telegram_user_id):
+                    token = self._get_access_token(telegram_user_id)
             if token:
                 headers["Authorization"] = f"Bearer {token}"
             else:
