@@ -30,7 +30,7 @@ PROFILE_FIELDS = frozenset({
     'language', 'experience_level', 'difficulty_preference', 'learning_style',
     'delivery_format', 'detail_level',
     'study_duration', 'current_problems', 'desires', 'tg_username',
-    'aisystant_id', 'aisystant_linked_at', 'dt_connected_at', 'dt_user_id',
+    'aisystant_id', 'aisystant_linked_at', 'dt_connected_at',
     'tier', 'email', 'timezone',
 })
 
@@ -65,12 +65,11 @@ def moscow_today() -> date:
 
 # ─── SQL для JOIN users + user_state ───
 
-# IDCOL1 (WP-7, 2026-07-06), этап 1 из 2: intern['dt_user_id'] теперь читает
-# u.ory_id (канонический, uuid) вместо физической колонки u.dt_user_id (text).
-# Физическая колонка, at-source sync (link_ory) и daily reconcile-job
-# намеренно НЕ тронуты — страховка на период наблюдения. Явный ::text cast,
-# т.к. потребители (points.py, referral.py и др.) ожидают str, не UUID.
-# Удаление колонки dt_user_id — отдельное решение после ≥7 дней наблюдения.
+# IDCOL1 (WP-7, 2026-07-06/23): intern['dt_user_id'] — исторический ключ, теперь
+# читает канонический u.ory_id (uuid). Этап 2 (2026-07-23) удалил физическую
+# колонку dt_user_id, at-source sync и daily reconcile-job — единственный
+# источник identity теперь ory_id. Явный ::text cast, т.к. потребители
+# (points.py, referral.py и др.) ожидают str, не UUID.
 _SELECT_JOINED = '''
     SELECT
         u.id AS user_id, u.telegram_id AS chat_id,

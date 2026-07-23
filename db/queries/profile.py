@@ -3,7 +3,8 @@ from __future__ import annotations
 """
 Агрегированный профиль знаний пользователя.
 
-Использует VIEW user_knowledge_profile (db/models.py).
+Собственный JOIN (не через VIEW user_knowledge_profile — та не используется
+ни одним потребителем, см. db/models.py).
 """
 
 from typing import Optional
@@ -36,7 +37,7 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
                 s.assessment_state, s.assessment_date,
                 s.active_days_total, s.active_days_streak, s.longest_streak,
                 s.last_active_date,
-                u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id
+                u.created_at, u.updated_at, u.dt_connected_at, u.ory_id::text AS dt_user_id
             FROM development.user_state s
             JOIN public.users u ON u.id = s.user_id
             WHERE s.chat_id = $1

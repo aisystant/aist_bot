@@ -147,8 +147,11 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
             )
             logger.info(f"[Aisystant] persona.ory_identity UPDATE: {persona_result} for chat_id={chat_id} aisystant={aisystant_id}")
 
-            # WP-327 fix: sync Ory UUID → public.users.dt_user_id so /points and 6 other
-            # handlers work immediately after /link without a separate DT OAuth flow.
+            # WP-327 fix (WP-7 IDCOL1 Stage 2, 2026-07-23): sync Ory UUID → public.users.ory_id
+            # so /points and other ory_id-reading handlers work immediately after /link
+            # without a separate DT OAuth flow. This path (aisystant_id linking) never
+            # goes through identity.link_ory(), so it's the only writer of ory_id here —
+            # collision-safe guard (NOT EXISTS) mirrors identity._sync_dt_user_id_from_uuid.
             ory_uuid = await pconn.fetchval(
                 """SELECT account_id FROM public.ory_identity
                    WHERE (traits->>'aisystant_suser_id' = $1 OR traits->>'aisystant_id' = $1)
@@ -157,9 +160,16 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                 str(aisystant_id),
             )
             if ory_uuid:
-                from db.queries.identity import update_user_dt
-                await update_user_dt(chat_id, str(ory_uuid))
-                logger.info(f"[Aisystant] synced dt_user_id={ory_uuid} for chat_id={chat_id}")
+                bot_pool = await get_pool()
+                async with bot_pool.acquire() as bconn:
+                    res = await bconn.execute(
+                        '''UPDATE public.users SET ory_id = $2, updated_at = NOW()
+                           WHERE telegram_id = $1 AND ory_id IS NULL
+                             AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2)''',
+                        chat_id, str(ory_uuid),
+                    )
+                if res != 'UPDATE 0':
+                    logger.info(f"[Aisystant] synced ory_id={ory_uuid} for chat_id={chat_id}")
     except Exception as exc:
         # Не блокируем /link — лучше успешная привязка с задержкой ory-моста,
         # чем падение /link целиком. Без telegram_id в persona /consent выведет

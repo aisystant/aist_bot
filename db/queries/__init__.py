@@ -132,7 +132,6 @@ from .identity import (
     get_user_by_telegram,
     get_user_uuid,
     link_ory,
-    update_user_dt,
     update_user_tier,
 )
 
@@ -241,6 +240,5 @@ __all__ = [
     'get_user_by_telegram',
     'get_user_uuid',
     'link_ory',
-    'update_user_dt',
     'update_user_tier',
 ]
