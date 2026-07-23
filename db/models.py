@@ -30,15 +30,15 @@ async def create_tables(pool: asyncpg.Pool):
 
         # ═══════════════════════════════════════════════════════════
         # ЕДИНАЯ ТАБЛИЦА ИДЕНТИЧНОСТИ + ПРОФИЛЬ (WP-82 Phase 3)
-        # Identity + Profile: telegram_id → ory_id → dt_user_id
-        # T0 без Ory, T1+ с ory_id.
+        # Identity + Profile: telegram_id → ory_id.
+        # T0 без Ory, T1+ с ory_id. (IDCOL1 Ф2, WP-7, 2026-07-23: физическая
+        # колонка dt_user_id удалена — единственный источник identity = ory_id.)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS public.users (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 ory_id UUID UNIQUE,
                 telegram_id BIGINT UNIQUE NOT NULL,
-                dt_user_id TEXT UNIQUE,
                 email TEXT,
 
                 -- Профиль
@@ -749,50 +749,13 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         # ═══════════════════════════════════════════════════════════
-        # АГРЕГИРОВАННЫЙ ПРОФИЛЬ ЗНАНИЙ (VIEW)
-        # PG не позволяет менять порядок/имена колонок через REPLACE →
-        # всегда DROP + CREATE (view stateless, данные не теряются)
-        # WP-82 Phase 3: JOIN users + user_state
+        # АГРЕГИРОВАННЫЙ ПРОФИЛЬ ЗНАНИЙ — VIEW удалён (IDCOL1 Ф2, WP-7, 2026-07-23)
+        # Не имел ни одного живого потребителя (db/queries/profile.py делает
+        # собственный JOIN, комментарий там был устаревшим) и блокировал
+        # ALTER TABLE public.users DROP COLUMN dt_user_id (зависимость по колонке).
+        # Один раз снимает view с прод-БД, где он создавался каждым стартом ранее.
         # ═══════════════════════════════════════════════════════════
         await conn.execute('DROP VIEW IF EXISTS user_knowledge_profile')
-        await conn.execute('''
-            CREATE VIEW user_knowledge_profile AS
-            SELECT
-                s.chat_id,
-                u.name, u.occupation, u.role, u.domain,
-                u.interests, u.goals, u.motivation,
-                u.language, u.experience_level,
-                -- Learning state
-                s.mode, s.marathon_status, s.feed_status,
-                s.current_topic_index, s.complexity_level,
-                s.assessment_state, s.assessment_date,
-                -- Systematicity
-                s.active_days_total, s.active_days_streak, s.longest_streak,
-                s.last_active_date,
-                -- Timestamps / DT
-                u.created_at, u.updated_at, u.dt_connected_at, u.dt_user_id,
-                -- Aggregates: answers — мигрированы в learning BD (WP-268 Phase 5 G5)
-                0::bigint AS theory_answers_count,
-                0::bigint AS work_products_count,
-                -- Aggregates: QA — мигрированы в journal BD (WP-268 Phase 3 Block 2)
-                0::bigint AS qa_count,
-                -- Aggregates: Feed
-                (SELECT COUNT(*) FROM feed_sessions fs
-                 JOIN feed_weeks fw ON fs.week_id = fw.id
-                 WHERE fw.chat_id = s.chat_id)
-                    AS total_digests,
-                (SELECT COUNT(*) FROM feed_sessions fs
-                 JOIN feed_weeks fw ON fs.week_id = fw.id
-                 WHERE fw.chat_id = s.chat_id AND fs.status = 'completed')
-                    AS total_fixations,
-                -- Current feed topics
-                (SELECT fw2.accepted_topics FROM feed_weeks fw2
-                 WHERE fw2.chat_id = s.chat_id AND fw2.status = 'active'
-                 ORDER BY fw2.created_at DESC LIMIT 1)
-                    AS current_feed_topics
-            FROM development.user_state s
-            JOIN public.users u ON u.id = s.user_id
-        ''')
 
         # ═══════════════════════════════════════════════════════════
         # ТРЕЙСИНГ ЗАПРОСОВ (для Grafana)
@@ -1404,20 +1367,6 @@ async def create_tables(pool: asyncpg.Pool):
                 logger.info("[Migration] Dropped interns table")
             except Exception as e:
                 logger.warning(f"[Migration] Failed to drop interns: {e}")
-
-        # Backfill: dt_user_id из dt_tokens → users (WP-82)
-        try:
-            updated = await conn.execute('''
-                UPDATE public.users SET dt_user_id = dt_tokens.dt_user_id
-                FROM dt_tokens
-                WHERE public.users.telegram_id = dt_tokens.chat_id
-                  AND dt_tokens.dt_user_id IS NOT NULL
-                  AND public.users.dt_user_id IS NULL
-            ''')
-            if updated and updated != 'UPDATE 0':
-                logger.info(f"[Migration] Backfill dt_user_id: {updated}")
-        except Exception as e:
-            logger.warning(f"[Migration] Backfill dt_user_id skipped: {e}")
 
         # ═══════════════════════════════════════════════════════════
         # МОНИТОРИНГ КАНАЛОВ (SC.118)

@@ -42,7 +42,7 @@ async def find_aisystant_id_in_persona(pconn, email: str) -> dict | None:
 async def get_user_state(bot_conn, chat_id: int) -> dict | None:
     """Read current user state from public.users."""
     row = await bot_conn.fetchrow(
-        """SELECT telegram_id, username, aisystant_id, dt_user_id, ory_id,
+        """SELECT telegram_id, username, aisystant_id, ory_id,
                   aisystant_linked_at, created_at
            FROM public.users
            WHERE telegram_id = $1""",
@@ -110,7 +110,7 @@ async def do_link(bot_conn, pconn, chat_id: int, aisystant_id: str, dry_run: boo
         )
         print(f"  persona.ory_identity UPDATE telegram_id: {persona_result}")
 
-        # Sync dt_user_id → Ory UUID
+        # Sync ory_id from persona lookup (collision-safe: don't clobber an existing value)
         ory_uuid = await pconn.fetchval(
             """SELECT account_id FROM public.ory_identity
                WHERE (traits->>'aisystant_suser_id' = $1 OR traits->>'aisystant_id' = $1)
@@ -119,13 +119,14 @@ async def do_link(bot_conn, pconn, chat_id: int, aisystant_id: str, dry_run: boo
             str(aisystant_id),
         )
         if ory_uuid:
-            dt_result = await bot_conn.execute(
-                "UPDATE public.users SET dt_user_id = $2, updated_at = NOW() WHERE telegram_id = $1",
+            ory_result = await bot_conn.execute(
+                """UPDATE public.users SET ory_id = $2, updated_at = NOW()
+                   WHERE telegram_id = $1 AND ory_id IS NULL""",
                 chat_id, str(ory_uuid),
             )
-            print(f"  public.users.dt_user_id sync: {dt_result} (ory_uuid={ory_uuid})")
+            print(f"  public.users.ory_id sync: {ory_result} (ory_uuid={ory_uuid})")
         else:
-            print("  WARNING: No Ory UUID found — dt_user_id not synced")
+            print("  WARNING: No Ory UUID found — ory_id not synced")
     else:
         print("  [dry-run] Would UPDATE public.users SET aisystant_id + persona.ory_identity SET telegram_id")
 
@@ -161,8 +162,7 @@ async def main() -> None:
             sys.exit(1)
         print(f"  username      : {user.get('username')}")
         print(f"  aisystant_id  : {user.get('aisystant_id')} {'✅' if user.get('aisystant_id') else '❌ NULL'}")
-        print(f"  dt_user_id    : {user.get('dt_user_id')} {'✅' if user.get('dt_user_id') else '❌ NULL'}")
-        print(f"  ory_id        : {user.get('ory_id')}")
+        print(f"  ory_id        : {user.get('ory_id')} {'✅' if user.get('ory_id') else '❌ NULL'}")
         print(f"  linked_at     : {user.get('aisystant_linked_at')}")
 
         # ── 2. Persona: check by telegram_id (already linked via Ory OAuth?) ─

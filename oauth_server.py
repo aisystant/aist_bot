@@ -359,16 +359,27 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     except Exception as e:
         logger.error(f"DT initial sync failed for user {telegram_user_id}: {e}")
 
-    # Persist dt_user_id in public.users (WP-82)
+    # Persist Ory UUID (extracted via DT write response, see digital_twin.py sync_profile)
+    # into public.users.ory_id (WP-82; WP-7 IDCOL1 Stage 2, 2026-07-23). digital_twins.user_id
+    # = Ory UUID (CLAUDE.md §12b) — this is a third independent discovery channel for the
+    # same canonical identity, collision-safe guard mirrors identity._sync_dt_user_id_from_uuid.
     try:
         from db.queries.dt_tokens import get_dt_user_id
+        from db.connection import get_pool
         dt_uid = await get_dt_user_id(telegram_user_id)
         if dt_uid:
-            from db.queries.identity import update_user_dt
-            await update_user_dt(telegram_user_id, dt_uid)
-            logger.info(f"DT: saved dt_user_id={dt_uid} to users for {telegram_user_id}")
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                res = await conn.execute(
+                    '''UPDATE public.users SET ory_id = $2, updated_at = NOW()
+                       WHERE telegram_id = $1 AND ory_id IS NULL
+                         AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2)''',
+                    telegram_user_id, dt_uid,
+                )
+            if res != 'UPDATE 0':
+                logger.info(f"DT: synced ory_id={dt_uid} to users for {telegram_user_id}")
     except Exception as e:
-        logger.warning(f"Failed to persist dt_user_id for {telegram_user_id}: {e}")
+        logger.warning(f"Failed to persist ory_id for {telegram_user_id}: {e}")
 
     if _bot_instance:
         try:

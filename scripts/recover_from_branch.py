@@ -8,7 +8,7 @@ Usage:
 The script:
 1. Connects to recovery branch → reads interns table
 2. Connects to production (DATABASE_URL env) → inserts into public.users + development.user_state
-3. Backfills user_events.user_uuid and dt_user_id
+3. Backfills user_events.user_uuid and public.users.ory_id
 """
 
 import asyncio
@@ -217,14 +217,17 @@ async def main():
         """)
         print(f"  {result}")
 
-        # Step 5: Backfill dt_user_id from dt_tokens
-        print("\n=== Step 5: Backfilling dt_user_id from dt_tokens ===")
+        # Step 5: Backfill ory_id from dt_tokens (IDCOL1 Ф2, WP-7, 2026-07-23:
+        # dt_tokens.dt_user_id holds the same Ory UUID discovered via DT MCP,
+        # see CLAUDE.md §12b — this recovers the canonical column, not the
+        # removed public.users.dt_user_id)
+        print("\n=== Step 5: Backfilling ory_id from dt_tokens ===")
         result = await prod_conn.execute("""
-            UPDATE public.users SET dt_user_id = dt_tokens.dt_user_id
+            UPDATE public.users SET ory_id = dt_tokens.dt_user_id::uuid
             FROM dt_tokens
             WHERE public.users.telegram_id = dt_tokens.chat_id
               AND dt_tokens.dt_user_id IS NOT NULL
-              AND public.users.dt_user_id IS NULL
+              AND public.users.ory_id IS NULL
         """)
         print(f"  {result}")
 
