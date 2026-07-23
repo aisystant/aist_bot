@@ -29,9 +29,8 @@
 | Поле | Тип | Default | Описание |
 |------|-----|---------|----------|
 | `id` | UUID | `gen_random_uuid()` | **PK**, универсальный user ID |
-| `ory_id` | UUID | — | UNIQUE, Ory auth identity (T1+) |
+| `ory_id` | UUID | — | UNIQUE, Ory auth identity (T1+) — единственный источник identity после IDCOL1 |
 | `telegram_id` | BIGINT | — | UNIQUE NOT NULL, Telegram chat ID (T0+) |
-| `dt_user_id` | TEXT | — | UNIQUE, физическая колонка (backfilled по WP-82). С IDCOL1 (WP-7, 2026-07-06) `intern['dt_user_id']` в коде читается из `ory_id` — см. правило ниже |
 | `email` | TEXT | — | опционально |
 | `name` | TEXT | `''` | Имя пользователя |
 | `occupation` | TEXT | `''` | Род деятельности |
@@ -55,11 +54,11 @@
 | `tier` | TEXT | `'T0'` | UITier (T0-T4, см. CLAUDE.md §12) |
 | `created_at`, `updated_at` | TIMESTAMP | `NOW()` | UTC, naive |
 
-**Constraints:** PK(id), UNIQUE(ory_id), UNIQUE(telegram_id), UNIQUE(dt_user_id)
+**Constraints:** PK(id), UNIQUE(ory_id), UNIQUE(telegram_id)
 
-**Правило identity (HD #29):** `telegram_id` — основной ключ для T0 (анонимных). При OAuth через Ory → появляется `ory_id`, становится стабильным ключом для T1+. `dt_user_id` = Ory UUID при T1+ (backfill в WP-82).
+**Правило identity (HD #29):** `telegram_id` — основной ключ для T0 (анонимных). При OAuth через Ory → появляется `ory_id`, становится стабильным ключом для T1+ — единственный источник identity, ничего больше не дублирует.
 
-**IDCOL1 — консолидация колонок (WP-7, начата 2026-07-06, этап 1 из 2).** `ory_id` (uuid) и `dt_user_id` (text) исторически хранили один и тот же Ory UUID в двух местах — дублирование источника истины, устранённое ранее durable-фиксом (at-source sync + daily reconcile, коммит `0235687`, 25 июня). Этап 1: `db/queries/users.py` `_SELECT_JOINED` теперь читает `u.ory_id::text AS dt_user_id` — весь код (`points.py`, `referral.py`, `progress.py`, `simulator.py`, `diagnose.py`, `schedule.py` и др.) получает канонический `ory_id` через прежний ключ словаря `intern['dt_user_id']`, без правки каждого потребителя. Физическая колонка `dt_user_id`, `link_ory`/`_sync_dt_user_id_from_uuid`/`reconcile_dt_user_id` — намеренно не тронуты (страховка на период наблюдения). Перед промоцией из `pilot` в `new-architecture` — обязательно прогнать `scripts/verify_identity_consolidation.py` против прод-БД (0 расходящихся строк). Этап 2 (удаление колонки `dt_user_id` + sync/reconcile) — отдельное решение не раньше 2026-07-13 (≥7 дней наблюдения).
+**IDCOL1 — консолидация колонок (WP-7, 2026-07-06 → 2026-07-23, завершена).** `ory_id` (uuid) и `dt_user_id` (text) исторически хранили один и тот же Ory UUID в двух местах — дублирование источника истины, устранённое ранее durable-фиксом (at-source sync + daily reconcile, коммит `0235687`, 25 июня). Этап 1 (06.07-09.07, на проде 14+ дней без регресса): `db/queries/users.py` `_SELECT_JOINED` переключён на `u.ory_id::text AS dt_user_id` — весь код (`points.py`, `referral.py`, `progress.py`, `simulator.py`, `diagnose.py`, `schedule.py` и др.) получил канонический `ory_id` через прежний ключ словаря `intern['dt_user_id']`, без правки каждого потребителя. Этап 2 (23.07): физическая колонка `dt_user_id`, `link_ory`/`_sync_dt_user_id_from_uuid`/`reconcile_dt_user_id`, `scripts/verify_identity_consolidation.py`/`scripts/backfill_dt_user_id.py` удалены; два независимых писателя (`aisystant.py`, `oauth_server.py`), раньше синкавших найденный Ory UUID только в `dt_user_id`, переключены на `ory_id`. Код задеплоен на `pilot`; сама миграция `ALTER TABLE ... DROP COLUMN` (`db/migrations/039_idcol1_drop_dt_user_id.py`) на момент этой правки документации **ещё не выполнена** — физическая колонка на диске может отставать от этой таблицы до её запуска.
 
 ### 1.2. `development.user_state` (bot state, прогресс)
 
@@ -942,7 +941,7 @@ channel_mentions_log — standalone (по channel_id + message_id)
 ### 12.2. Идентичность
 
 - T0: только `telegram_id` → `public.users.id` UUID, `ory_id = NULL`
-- T1+: есть `ory_id` = Ory UUID, `dt_user_id` backfilled
+- T1+: есть `ory_id` = Ory UUID (единственный источник identity после IDCOL1, WP-7)
 - Правило: всегда писать через `ensure_user_exists(telegram_id)` — создаёт запись если нет, возвращает `user_id`
 
 ### 12.3. VIEW pattern
