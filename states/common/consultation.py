@@ -754,6 +754,7 @@ class ConsultationState(BaseState):
                 else:
                     detected_role = _detect_role(question) if not is_refinement else None
                 role_prompt = None
+                role_context_extra = None
                 if detected_role:
                     role_prompt = load_role_prompt(detected_role)
                     if role_prompt:
@@ -763,6 +764,18 @@ class ConsultationState(BaseState):
                         if transition_msg:
                             await self.send(user, transition_msg, parse_mode="Markdown")
                         logger.info(f"Consultation: role switch → {detected_role} for user {user_chat_id}")
+
+                        # WP-498 Ф5.1 (DP.M.386): mentor context-sufficiency gate,
+                        # шаг 1 — детерминированный RAG-поиск PD.METHOD.* ДО
+                        # генерации. Результат идёт ВНУТРЬ диспетчер-промпта
+                        # (role_context_extra), не проверяется post-hoc.
+                        if detected_role == "mentor":
+                            from engines.shared.mentor_grounding import (
+                                mentor_grounding_search,
+                                format_grounding_section,
+                            )
+                            grounding = await mentor_grounding_search(question, user_chat_id)
+                            role_context_extra = format_grounding_section(grounding, lang)
 
                 # Conversation history → multi-turn messages
                 history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
@@ -780,6 +793,7 @@ class ConsultationState(BaseState):
                     conversation_messages=history_messages,
                     ui_tier=ui_tier,
                     role_prompt_override=role_prompt,
+                    role_context_extra=role_context_extra,
                 )
                 logger.info("[Consultation] handle_question_with_tools done in %dms user=%s", int((time.time() - _t0) * 1000), user_chat_id)
 

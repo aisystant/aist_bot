@@ -497,6 +497,7 @@ async def handle_question_with_tools(
     conversation_messages: Optional[List[Dict]] = None,
     ui_tier: int = -1,
     role_prompt_override: Optional[str] = None,
+    role_context_extra: Optional[str] = None,
 ) -> Tuple[str, List[str]]:
     """Обрабатывает вопрос через Claude tool_use (все тиры T1-T4).
 
@@ -520,6 +521,12 @@ async def handle_question_with_tools(
         tier: тир обслуживания (1-4, default 1)
         conversation_messages: multi-turn conversation history
             (list of {role, content} dicts from persistent session)
+        role_prompt_override: role-специфичный system prompt (DP.D.044)
+        role_context_extra: доп. блок, добавляемый ПОСЛЕ заполнения
+            role_prompt_override (WP-498 Ф5.1: mentor grounding-гейт, DP.M.386
+            — результат RAG-поиска PD.METHOD.*, вычисленный до вызова этой
+            функции). Не участвует в fill_tier_prompt({placeholders}),
+            добавляется как готовый текст.
 
     Returns:
         Tuple[answer, sources] - ответ и список источников
@@ -614,6 +621,12 @@ async def handle_question_with_tools(
         format_rules=_TG_FORMAT_RULES,
         **sections,
     )
+
+    # WP-498 Ф5.1 (DP.M.386): результат детерминированного grounding-гейта
+    # (RAG-поиск PD.METHOD.* ДО генерации, посчитан в consultation.py) —
+    # добавляется как часть диспетчер-промпта, не проверяется post-hoc.
+    if role_context_extra:
+        system_prompt += role_context_extra
 
     logger.info(f"Consultation T{tier}: prompt {len(system_prompt)} chars for user_hash={_hash_chat_id(telegram_user_id)}")
 
