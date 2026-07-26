@@ -426,6 +426,66 @@ async def _get_github_creds(chat_id: int) -> Optional[tuple[str, str, str]]:
     return None
 
 
+async def find_active_bridge_session_for_chat(
+    chat_id: int,
+) -> Optional[tuple[str, int, str, str, str]]:
+    """Find the most recent active session for chat_id, regardless of who created it.
+
+    WP-501 (2026-07-26): sessions created by scripts/vscode-session-handoff.py (the
+    VS Code → headless bridge) don't set this bot's own FSM state (that only happens
+    inside _open_new_session/cmd_claude), so a plain-text reply from the pilot would
+    otherwise miss handle_session_text's StateFilter and fall through to fallback.py's
+    generic SM/onboarding path. This lets fallback.py check GitHub directly as a
+    secondary path — used ONLY when the FSM-based path did not already claim the
+    message (see fallback.py call site).
+
+    Returns (session_id, next_turn_n, token, repo, branch) or None if no active
+    session exists for this chat. If multiple exist (bridge + bot-created in
+    parallel), picks the most recent by created_at and logs a warning — this is not
+    expected to be common but is possible since the bridge runs independently of
+    the bot's own session bookkeeping.
+    """
+    creds = await _get_github_creds(chat_id)
+    if creds is None:
+        return None
+    token, repo, branch = creds
+
+    entries = await _gh_list_dir(_SESSIONS_PATH, token, repo, branch)
+    candidates: list[tuple[str, str, int]] = []  # (created_at, session_id, turn_count)
+    for entry in entries:
+        name = entry.get("name", "")
+        if not name.startswith("SESSION-") or not name.endswith(".md") or "-thread" in name:
+            continue
+        session_id = name[:-len(".md")]
+        meta_text, _ = await _gh_get_file(f"{_SESSIONS_PATH}/{name}", token, repo, branch)
+        if meta_text is None:
+            continue
+        chat_match = re.search(r"tg_chat_id:\s*(-?\d+)", meta_text)
+        status_match = re.search(r'status:\s*"?(\w+)"?', meta_text)
+        if not chat_match or not status_match:
+            continue
+        if int(chat_match.group(1)) != chat_id or status_match.group(1) != "active":
+            continue
+        created_match = re.search(r'created_at:\s*"?([^"\n]+)"?', meta_text)
+        turn_match = re.search(r"turn_count:\s*(\d+)", meta_text)
+        candidates.append((
+            created_match.group(1) if created_match else "",
+            session_id,
+            int(turn_match.group(1)) if turn_match else 1,
+        ))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0])
+    if len(candidates) > 1:
+        logger.warning(
+            "[session] multiple active sessions for chat_id=%s: %s — using most recent (%s)",
+            chat_id, [c[1] for c in candidates], candidates[-1][1],
+        )
+    _created_at, session_id, turn_count = candidates[-1]
+    return session_id, turn_count + 1, token, repo, branch
+
+
 # ── GitHub API helpers ────────────────────────────────────────────────────────
 
 def _gh_headers(token: str) -> dict:
