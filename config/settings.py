@@ -623,14 +623,6 @@ SM_EXPECTING_REPLY_STATES: dict[str, int] = {
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
 
-# ============= ПОРТНОЙ / TAILOR ENGINE ROUTER (WP-262 В1.1) =============
-
-# "local" — сборка внутри бота (BotTailorAdapter)
-# "platform" — Railway FastAPI tailor-service (PlatformTailorAdapter)
-TAILOR_ROUTE: str = os.getenv("TAILOR_ROUTE", "local")
-TAILOR_SERVICE_URL: str = os.getenv("TAILOR_SERVICE_URL", "")
-TAILOR_SHARED_SECRET: str = os.getenv("TAILOR_SHARED_SECRET", "")
-
 WORK_PRODUCT_CATEGORIES = {
     'diagnosis': 'диагностика',
     'tracker': 'трекер',
