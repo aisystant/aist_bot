@@ -41,6 +41,7 @@ from db.queries.training import (
     advance_child_principle_depth,
     save_child_training_attempt,
 )
+from .port import TrainingPlannerPort, default_training_planner_port
 
 logger = get_logger(__name__)
 
@@ -48,11 +49,15 @@ logger = get_logger(__name__)
 class TrainingEngine:
     """Движок режима Тренировка."""
 
-    def __init__(self, chat_id: int):
+    def __init__(self, chat_id: int, planner_port: Optional[TrainingPlannerPort] = None):
         self.chat_id = chat_id
         self._intern = None
         self._settings = None
         self._progress_map = None
+        # Seam (WP-262 В1, Ф1): AI-генерация заданий идёт через порт, не напрямую
+        # через planner.py. По умолчанию — локальная реализация (planner.py без
+        # изменения поведения). Параметр — для тестов/будущей платформенной Ф2/Ф4.
+        self._planner_port = planner_port or default_training_planner_port
 
     # === User context ===
 
@@ -237,7 +242,7 @@ class TrainingEngine:
             logger.info(f"[Training] {principle_id} fully completed (depth={current_depth})")
             return None  # Принцип полностью пройден
 
-        from .planner import load_zp_cells, generate_assignment_text, get_principle_name
+        from .planner import load_zp_cells, get_principle_name
         cells = load_zp_cells()
         principle_data = cells.get(principle_id)
         if not principle_data:
@@ -253,7 +258,7 @@ class TrainingEngine:
         intern = await self.get_intern()
         p_name = get_principle_name(principle_id)
 
-        assignment_text = await generate_assignment_text(
+        assignment_text = await self._planner_port.generate_assignment_text(
             depth_data, cognitive_level, intern,
             p_name, target_depth
         )
@@ -431,7 +436,7 @@ class TrainingEngine:
         if target_depth > KID_MAX_DEPTH:
             return None
 
-        from .planner import load_kids_cells, generate_child_assignment_text, get_kid_principle_name
+        from .planner import load_kids_cells, get_kid_principle_name
         cells = load_kids_cells()
         principle_data = cells.get(principle_id)
         if not principle_data:
@@ -446,7 +451,7 @@ class TrainingEngine:
 
         intern = await self.get_intern()
         lang = intern.get('language', 'ru') if intern else 'ru'
-        assignment_text = await generate_child_assignment_text(
+        assignment_text = await self._planner_port.generate_child_assignment_text(
             depth_data, cognitive_level, child['name'],
             p_name, target_depth, lang=lang
         )
