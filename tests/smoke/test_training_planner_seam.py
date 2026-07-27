@@ -60,11 +60,13 @@ async def test_local_planner_delegates_generate_child_assignment_text():
         mock_planner_fn.return_value = "карточка занятия"
 
         result = await port.generate_child_assignment_text(
-            cell_data, "concrete_operational", "Ваня", "Структура", 1, lang="ru"
+            cell_data, "concrete_operational", "Ваня", "Структура", 1,
+            lang="ru", account_id="ory-uuid-789",
         )
 
         mock_planner_fn.assert_awaited_once_with(
-            cell_data, "concrete_operational", "Ваня", "Структура", 1, lang="ru"
+            cell_data, "concrete_operational", "Ваня", "Структура", 1,
+            lang="ru", account_id="ory-uuid-789",
         )
         assert result == "карточка занятия"
 
@@ -88,8 +90,8 @@ class _FakePlannerPort(TrainingPlannerPort):
         self.assignment_calls.append((cell_data, cognitive_level, intern, principle_name, depth))
         return "FAKE:assignment"
 
-    async def generate_child_assignment_text(self, cell_data, cognitive_level, child_name, principle_name, depth, lang='ru'):
-        self.child_calls.append((cell_data, cognitive_level, child_name, principle_name, depth, lang))
+    async def generate_child_assignment_text(self, cell_data, cognitive_level, child_name, principle_name, depth, lang='ru', account_id=None):
+        self.child_calls.append((cell_data, cognitive_level, child_name, principle_name, depth, lang, account_id))
         return "FAKE:child_assignment"
 
 
@@ -109,13 +111,16 @@ async def test_engine_generate_assignment_uses_injected_port():
          patch("clients.claude.ClaudeClient.generate", new_callable=AsyncMock) as mock_claude_generate:
         mock_settings.return_value = {"enabled_principles": ["ZP.1"], "cognitive_level": "postformal"}
         mock_depth.return_value = 0  # target_depth = 1
-        mock_intern.return_value = {"language": "ru", "name": "Тест"}
+        mock_intern.return_value = {"language": "ru", "name": "Тест", "dt_user_id": "ory-uuid-123"}
 
         result = await engine.generate_assignment("ZP.1")
 
         assert result is not None
         assert result["assignment_text"] == "FAKE:assignment"
         assert len(fake_port.assignment_calls) == 1
+        # account_id (dt_user_id из intern) дошёл до порта — атрибуция llm-proxy (AR.218, WP-262 Ф2)
+        _, _, intern_arg, _, _ = fake_port.assignment_calls[0]
+        assert intern_arg["dt_user_id"] == "ory-uuid-123"
         # Реальный Claude-клиент НЕ вызван — вызов ушёл строго через порт
         mock_claude_generate.assert_not_awaited()
 

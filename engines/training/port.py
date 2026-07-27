@@ -51,6 +51,7 @@ class TrainingPlannerPort(ABC):
         principle_name: str,
         depth: int,
         lang: str = 'ru',
+        account_id: Optional[str] = None,
     ) -> str:
         """Тот же контракт, что planner.generate_child_assignment_text()."""
 
@@ -83,10 +84,12 @@ class LocalTrainingPlanner(TrainingPlannerPort):
         principle_name: str,
         depth: int,
         lang: str = 'ru',
+        account_id: Optional[str] = None,
     ) -> str:
         logger.info("training planner via seam: generate_child_assignment_text")
         return await planner.generate_child_assignment_text(
-            cell_data, cognitive_level, child_name, principle_name, depth, lang=lang,
+            cell_data, cognitive_level, child_name, principle_name, depth,
+            lang=lang, account_id=account_id,
         )
 
 

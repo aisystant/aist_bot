@@ -172,6 +172,7 @@ async def generate_assignment_text(
     name = ''
     occupation = ''
     interests = ''
+    account_id = intern.get('dt_user_id') if intern else None
     if intern:
         lang = intern.get('language', 'ru') or 'ru'
         name = intern.get('name', '')
@@ -223,6 +224,7 @@ async def generate_assignment_text(
     response = await claude.generate(
         system_prompt, user_prompt,
         max_tokens=500, model=CLAUDE_MODEL_HAIKU,
+        account_id=account_id,
     )
 
     if not response:
@@ -246,6 +248,7 @@ async def generate_child_assignment_text(
     principle_name: str,
     depth: int,
     lang: str = 'ru',
+    account_id: Optional[str] = None,
 ) -> str:
     """Сгенерировать карточку занятия для взрослого, который тренирует ребёнка.
 
@@ -255,6 +258,8 @@ async def generate_child_assignment_text(
         child_name: имя ребёнка
         principle_name: название принципа
         depth: номер глубины (1-5)
+        account_id: ory_id взрослого (не ребёнка — у детского профиля своего
+            ory_id нет) для атрибуции стоимости в llm-proxy (AR.218)
     """
     forms = cell_data.get('forms', {})
     form_text = forms.get(cognitive_level, forms.get('concrete_operational', ''))
@@ -301,6 +306,7 @@ async def generate_child_assignment_text(
     response = await claude.generate(
         system_prompt, user_prompt,
         max_tokens=600, model=CLAUDE_MODEL_HAIKU,
+        account_id=account_id,
     )
 
     if not response:

@@ -267,25 +267,33 @@ class ClaudeClient:
             await cls._session.close()
             cls._session = None
 
-    def _request_headers(self) -> dict:
-        """Build request headers with trace_id for cross-service correlation (WP-45 Ф3)."""
+    def _request_headers(self, account_id: Optional[str] = None) -> dict:
+        """Build request headers with trace_id for cross-service correlation (WP-45 Ф3).
+
+        account_id (ory_id): attribution for proxy cost dashboard (AR.218) —
+        only meaningful when self._proxy_secret is set (routed through llm-proxy).
+        """
         from core.tracing import get_current_trace
         headers = {"x-api-key": self.api_key}
         if self._proxy_secret:
             headers["x-iwe-internal-secret"] = self._proxy_secret
+            if account_id:
+                headers["X-User-ID"] = account_id
         trace = get_current_trace()
         if trace:
             headers["x-trace-id"] = trace.trace_id
         return headers
 
-    async def _api_call(self, payload: dict, timeout: float = 45) -> Optional[dict]:
+    async def _api_call(
+        self, payload: dict, timeout: float = 45, account_id: Optional[str] = None
+    ) -> Optional[dict]:
         """Non-streaming API call (used by generate_with_tools).
 
         For text generation prefer _api_call_streaming() which uses
         inactivity timeout instead of total timeout.
         """
         session = await self.get_session()
-        headers = self._request_headers()
+        headers = self._request_headers(account_id)
 
         for attempt in range(2):
             try:
@@ -379,7 +387,8 @@ class ClaudeClient:
         return None
 
     async def _api_call_streaming(
-        self, payload: dict, inactivity_timeout: float = 15, allow_partial: bool = True
+        self, payload: dict, inactivity_timeout: float = 15, allow_partial: bool = True,
+        account_id: Optional[str] = None,
     ) -> Optional[str]:
         """Streaming API call with inactivity timeout.
 
@@ -397,7 +406,7 @@ class ClaudeClient:
         """
         # Proxy doesn't support SSE passthrough — fall back to non-streaming call
         if self._proxy_secret:
-            resp = await self._api_call(payload, timeout=120)
+            resp = await self._api_call(payload, timeout=120, account_id=account_id)
             if not resp:
                 return None
             if resp.get("stop_reason") == "max_tokens" and not allow_partial:
@@ -773,6 +782,7 @@ class ClaudeClient:
         max_tokens: int = 4000,
         model: str = None,
         allow_partial: bool = True,
+        account_id: Optional[str] = None,
     ) -> Optional[str]:
         """Базовый метод генерации текста через Claude API (streaming).
 
@@ -787,6 +797,9 @@ class ClaudeClient:
             allow_partial: если False — при timeout вернёт None вместо
                 обрезанного текста. Для pre-gen контента (уроки) ставить False,
                 для real-time (консультант) — True.
+            account_id: ory_id пользователя для атрибуции стоимости в
+                llm-proxy dashboard (AR.218, X-User-ID). None → вызов
+                логируется прокси как internal (текущее поведение).
 
         Returns:
             Сгенерированный текст или None при ошибке
@@ -812,6 +825,7 @@ class ClaudeClient:
                     payload,
                     inactivity_timeout=inactivity_timeout,
                     allow_partial=allow_partial,
+                    account_id=account_id,
                 )
 
                 # Langfuse generation (graceful, fire-and-forget)

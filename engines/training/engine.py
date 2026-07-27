@@ -451,9 +451,10 @@ class TrainingEngine:
 
         intern = await self.get_intern()
         lang = intern.get('language', 'ru') if intern else 'ru'
+        account_id = intern.get('dt_user_id') if intern else None
         assignment_text = await self._planner_port.generate_child_assignment_text(
             depth_data, cognitive_level, child['name'],
-            p_name, target_depth, lang=lang
+            p_name, target_depth, lang=lang, account_id=account_id,
         )
 
         return {
