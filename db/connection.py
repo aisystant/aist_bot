@@ -266,7 +266,7 @@ async def get_secrets_pool() -> asyncpg.Pool:
     if _secrets_pool is None:
         _secrets_pool = await asyncpg.create_pool(
             SECRETS_URL,
-            statement_cache_size=100,
+            statement_cache_size=0,  # Neon pooled endpoint: prepared stmt cache вызывает UndefinedTableError (search_path сбрасывается на переиспользуемых pgbouncer-соединениях)
             min_size=1,
             max_size=5,
             command_timeout=30,
@@ -314,7 +314,9 @@ async def get_reference_pool() -> asyncpg.Pool:
     global _reference_pool
     if _reference_pool is None:
         _reference_pool = await asyncpg.create_pool(
-            REFERENCE_URL, statement_cache_size=100, min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
+            REFERENCE_URL,
+            statement_cache_size=0,  # Neon pooled endpoint: prepared stmt cache вызывает UndefinedTableError (search_path сбрасывается на переиспользуемых pgbouncer-соединениях)
+            min_size=1, max_size=5, command_timeout=30, max_inactive_connection_lifetime=60,
         )
         logger.info("✅ Reference пул соединений создан")
     return _reference_pool
