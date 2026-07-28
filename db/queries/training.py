@@ -5,7 +5,7 @@ DB-запросы для режима Тренировка (WP-55).
 
 WP-253 lift-and-shift (8 мая 2026): таблицы вынесены из bot_data в Neon.
 - learning БД: training_progress, training_attempt
-- reference БД: training_setting, training_child
+- reference БД: training_settings, training_child
 """
 
 import json
@@ -24,7 +24,7 @@ async def get_training_settings(chat_id: int) -> Optional[dict]:
     pool = await get_reference_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT * FROM training_setting WHERE chat_id = $1',
+            'SELECT * FROM training_settings WHERE chat_id = $1',
             chat_id
         )
         if not row:
@@ -45,7 +45,7 @@ async def save_training_settings(
     pool = await get_reference_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
-            INSERT INTO training_setting
+            INSERT INTO training_settings
                 (chat_id, cognitive_level, enabled_principles, training_mode, single_principle)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (chat_id) DO UPDATE SET
@@ -68,22 +68,22 @@ async def update_training_settings(chat_id: int, **kwargs) -> None:
     async with pool.acquire() as conn:
         if 'cognitive_level' in kwargs:
             await conn.execute(
-                'UPDATE training_setting SET cognitive_level = $2, updated_at = NOW() WHERE chat_id = $1',
+                'UPDATE training_settings SET cognitive_level = $2, updated_at = NOW() WHERE chat_id = $1',
                 chat_id, kwargs['cognitive_level']
             )
         if 'enabled_principles' in kwargs:
             await conn.execute(
-                'UPDATE training_setting SET enabled_principles = $2, updated_at = NOW() WHERE chat_id = $1',
+                'UPDATE training_settings SET enabled_principles = $2, updated_at = NOW() WHERE chat_id = $1',
                 chat_id, json.dumps(kwargs['enabled_principles'])
             )
         if 'training_mode' in kwargs:
             await conn.execute(
-                'UPDATE training_setting SET training_mode = $2, updated_at = NOW() WHERE chat_id = $1',
+                'UPDATE training_settings SET training_mode = $2, updated_at = NOW() WHERE chat_id = $1',
                 chat_id, kwargs['training_mode']
             )
         if 'single_principle' in kwargs:
             await conn.execute(
-                'UPDATE training_setting SET single_principle = $2, updated_at = NOW() WHERE chat_id = $1',
+                'UPDATE training_settings SET single_principle = $2, updated_at = NOW() WHERE chat_id = $1',
                 chat_id, kwargs['single_principle']
             )
 
@@ -93,7 +93,7 @@ async def update_training_settings(chat_id: int, **kwargs) -> None:
 async def get_settings_and_progress(chat_id: int) -> Optional[tuple[dict, dict]]:
     """Получить настройки И прогресс двумя round-trip.
 
-    WP-253 lift-and-shift: training_setting → reference БД, training_progress → learning БД.
+    WP-253 lift-and-shift: training_settings → reference БД, training_progress → learning БД.
     Cross-DB JOIN невозможен; поэтому два независимых запроса.
 
     Returns (settings_dict, progress_map) или None если настроек нет.
@@ -104,7 +104,7 @@ async def get_settings_and_progress(chat_id: int) -> Optional[tuple[dict, dict]]
     async with ref_pool.acquire() as conn:
         settings_row = await conn.fetchrow('''
             SELECT cognitive_level, training_mode, single_principle, enabled_principles
-            FROM training_setting
+            FROM training_settings
             WHERE chat_id = $1
         ''', chat_id)
 
