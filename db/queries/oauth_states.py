@@ -9,7 +9,7 @@ State переживает редеплой Railway и рестарт проце
 TTL: 10 минут (600 секунд). Cleanup через scheduler.
 
 WP-253 lift-and-shift (8 мая): хранилище перенесено из bot_data в Neon secrets БД,
-таблица переименована oauth_pending_state → oauth_pending_states.
+таблица переименована oauth_pending_state → oauth_pending_state.
 """
 
 from datetime import datetime, timedelta
@@ -28,7 +28,7 @@ async def save_oauth_state(state: str, provider: str, telegram_user_id: int) -> 
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO oauth_pending_states (state, provider, telegram_user_id, created_at)
+            '''INSERT INTO oauth_pending_state (state, provider, telegram_user_id, created_at)
                VALUES ($1, $2, $3, NOW())
                ON CONFLICT (state) DO UPDATE SET
                    provider = $2, telegram_user_id = $3, created_at = NOW()''',
@@ -41,7 +41,7 @@ async def validate_oauth_state(state: str) -> Optional[int]:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''DELETE FROM oauth_pending_states
+            '''DELETE FROM oauth_pending_state
                WHERE state = $1
                  AND created_at > NOW() - $2 * INTERVAL '1 second'
                RETURNING telegram_user_id''',
@@ -57,7 +57,7 @@ async def cleanup_expired_oauth_states() -> int:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            '''DELETE FROM oauth_pending_states
+            '''DELETE FROM oauth_pending_state
                WHERE created_at < NOW() - $1 * INTERVAL '1 second' ''',
             STATE_TTL_SECONDS
         )
