@@ -73,6 +73,19 @@ def test_onboarder_gap_category_not_suppressed_by_ai_client_connected():
     assert result[0].nudge_type == "nudge_onboarder_gap_x2"
 
 
+def test_onboarder_gap_payload_carries_offer_button():
+    """Текст нуджа обещает кнопку «Освоиться» (i18n schema.yaml nudge_onboarder_gap_x2/x3)
+    — payload обязан нести actions, иначе _build_delivery_kwargs (core/scheduler.py)
+    не построит reply_markup и кнопка не появится в сообщении (баг, найден 2026-07-29)."""
+    nudges = [_analyze_result("onboarder_gap", "nudge_onboarder_gap_x2")]
+    result = np.produce(
+        nudges, user_id=1, text_by_nudge_key={"nudge_onboarder_gap_x2": "Освоиться"},
+        active_today=False, first_use_connect_full=False,
+    )
+    assert len(result) == 1
+    assert result[0].payload["actions"] == [{"label": "🎓 Освоиться", "action": "onboarder_start"}]
+
+
 def test_missing_text_drops_candidate_without_inventing_content():
     nudges = [_analyze_result("inactivity_3d", "nudge_inactivity")]
     result = np.produce(

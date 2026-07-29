@@ -27,6 +27,7 @@ onboarding nudges once the AI client is connected.
 import logging
 
 from core.nudge_delivery import NudgeCandidate
+from core.onboarder.offer import offer_payload
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +91,16 @@ def produce(
             logger.warning(f"[NudgeProducer] No text for {nudge_key}, dropping candidate")
             continue
 
+        payload: dict = {"text": text, "format": "markdown"}
+        if category == "onboarder":
+            offer = offer_payload()
+            payload["actions"] = [{"label": offer["button_text"], "action": offer["callback_data"]}]
+
         out.append(
             NudgeCandidate(
                 user_id=user_id,
                 nudge_type=nudge_key,
-                payload={"text": text, "format": "markdown"},
+                payload=payload,
                 dedup_key=f"nudge:{user_id}:{nudge_key}",
                 priority=4,
             )
