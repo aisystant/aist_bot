@@ -104,8 +104,8 @@ async def cmd_reflect(message: Message):
     if not installation:
         await message.answer(
             "📚 *Личное руководство ещё не подключено*\n\n"
-            "Нажми кнопку «Подключи личное руководство» в настройках (/settings), "
-            "чтобы создать репо и получить возможность писать рефлексии.",
+            "Набери команду /connect_guide, чтобы создать репо "
+            "и получить возможность писать рефлексии.",
             parse_mode="Markdown",
         )
         return
