@@ -50,14 +50,18 @@ DT MCP worker ◄──READ (по запросу пользователя)      
 
 ---
 
-## 2. Расписание
+## 2. Расписание (актуальное состояние на 01.08.2026)
 
-| Триггер | Момент срабатывания | Функция | Что делает |
-|---------|---------------------|---------|-----------|
-| APScheduler cron | ежедневно 04:30 MSK | `sync_engagement_to_dt()` | Полный collector-проход по всем пользователям с `user_uuid`. |
-| scheduler loop | в начале каждого часа (`minute == 0`) | `_sync_dt_connected_users()` | Retry для подключённых через OAuth (`dt_tokens`), у кого свежая ошибка. |
+| Триггер | Момент срабатывания | Функция | Что делает | Статус |
+|---------|---------------------|---------|-----------|--------|
+| APScheduler cron | ежедневно 04:30 MSK (закомментировано) | `sync_engagement_to_dt()` | Полный collector-проход по всем пользователям с `user_uuid`. | **Отключено** в `core/scheduler.py` (WP-268 Phase 4+): collector читает старые `development.*` views, отсутствующие в Railway Postgres `bot_data`. |
+| scheduler loop | в начале каждого часа (`minute == 0`) | `_sync_dt_connected_users()` | Retry для подключённых через OAuth (`dt_tokens`). | **Не обнаружен** в текущем `core/scheduler.py`; ранее документированный hourly retry не активен. |
+| Telegram-команда (developer-only) | по запросу разработчика | `sync_engagement_to_dt()` | Ручной запуск полного collector. | Активно: `/dt_sync` в `handlers/dev.py`. |
+| GitHub webhook | после push в `workbook/` | `sync_one_user_to_dt(user_id)` | On-demand collector для одного пользователя. | Активно: `oauth_server.py` (`github_workbook_webhook_handler`). |
 
-Регистрация: `core/scheduler.py` — `_scheduler.add_job(_dt_sync_engagement, 'cron', hour=4, minute=30)` и условие `if now.minute == 0` в maintenance loop.
+**Целевая архитектура (WP-270):** projection-worker → `indicators.calculated_profile` (Neon). Старый collector (`digital_twins.data['2_collected']`) сохраняется как реализованный код, но daily batch-trigger отключён до миграции/решения о замене.
+
+Регистрация cron: `core/scheduler.py` — строка `_scheduler.add_job(_dt_sync_engagement, ...)` закомментирована (`# WP-268 Phase 4+ ...`).
 
 ---
 
@@ -221,7 +225,7 @@ Collector продолжает работу при отказе любого о�
 | Функция | Роль |
 |---------|------|
 | `sync_engagement_to_dt()` | Основной entry point, полный проход по всем пользователям (batch) |
-| `sync_one_user_to_dt(user_id)` | Одиночная синхронизация (используется в OAuth callback, hourly retry) |
+| `sync_one_user_to_dt(user_id)` | Одиночная синхронизация (используется в webhook после push в `workbook/`; ранее упоминался в OAuth/hourly retry, сейчас не активен) |
 | `_preload_lms_qualifications(lms_user_ids)` | Прямое подключение к LMS DB, batch fetch квалификаций |
 | `_ts(val)` | Сериализация datetime → ISO 8601 |
 
@@ -231,16 +235,17 @@ Collector продолжает работу при отказе любого о�
 
 - **WP-218 Ф2** — архитектурное решение вынести calculator из бота (контекст в `DS-my-strategy/inbox/WP-218-canonical-metric-chain.md`)
 - **WP-227** — unified user_id + отдельная БД для digital_twins (в работе)
+- **WP-268** — полный перелив Aisystant Neon БД в новую архитектуру; в рамках него отключён daily cron P-07
+- **WP-270** — projection-workers для cut-over Neon; целевая замена старого batch-collector → `indicators.calculated_profile`
 - **ADR-009** — Personal Knowledge MCP → Activity Hub напрямую (источник `source='iwe'`)
 - **P-06 Observability** — ошибки dt_sync попадают в `error_logs` с категорией `dt`
 - **P-09 Notification idempotency** — источник `notification_engagement`, которую потребляет P-07
-
----
 
 ## История изменений
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-08-01 | WP-502 A2.19: повторный триаж — актуализировано расписание (cron отключён, manual/webhook triggers), добавлены WP-268/WP-270, уточнена роль `sync_one_user_to_dt` |
 | 2026-04-11 | Создан документ (WP-7 DOC1.A-2) |
 | 2026-04-10 | WP-109 Ф7: decision weight aggregation → 2_8_decisions (0ffd1ef) |
 | 2026-04-08 | WP-151 fix: qualification_level из LMS DB (d0c8bf3) |
