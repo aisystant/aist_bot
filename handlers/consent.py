@@ -24,7 +24,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 
-from db.queries import get_intern
+from db.queries import get_intern, update_intern
 from db.queries.consent import (
     get_consent,
     set_consent,
@@ -556,6 +556,20 @@ async def on_consent_accept(callback: CallbackQuery):
                 logger.warning("[Ф20] referral_source not written (already set?) user_id=%s", user_id)
     except Exception as exc:
         logger.warning("[Ф20] referral_source write failed: %s", exc)
+
+    # WP-266 Ф6: новый пользователь активирует сохранённый guest token только
+    # после появления account_id и фиксации согласия.
+    try:
+        guest_token = (intern.get("current_context") or {}).get("guest_pass_token") if intern else None
+        if guest_token:
+            from handlers.referral import activate_guest_pass_for_user
+            activated = await activate_guest_pass_for_user(callback.message, account_id, guest_token)
+            if activated:
+                current_context = dict(intern.get("current_context") or {})
+                current_context.pop("guest_pass_token", None)
+                await update_intern(user_id, current_context=current_context)
+    except Exception as exc:
+        logger.warning("[guest-pass] post-consent activation failed user_id=%s: %s", user_id, exc)
 
     # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б)
     try:
