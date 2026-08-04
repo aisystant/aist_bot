@@ -21,6 +21,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, REPO_ROOT)
 
 import db.queries.redeem as redeem  # noqa: E402
+import db.queries.rewards as rewards  # noqa: E402
 
 ACCOUNT_ID = "2f95ffde-a9cf-4992-8cc3-f438a5284f05"
 PAYMENT_ID = "aisys-payment-123"
@@ -79,6 +80,30 @@ def _patch_pool(monkeypatch, conn):
     async def _get_rewards_pool():
         return pool
     monkeypatch.setattr(redeem, "get_rewards_pool", _get_rewards_pool)
+
+
+def _patch_reference_pool(monkeypatch, conn):
+    pool = FakePool(conn)
+
+    async def _get_reference_pool():
+        return pool
+    monkeypatch.setattr(rewards, "get_reference_pool", _get_reference_pool)
+
+
+@pytest.mark.asyncio
+async def test_loyalty_rate_uses_configured_value(monkeypatch):
+    conn = FakeConn(fetchrow_result={"rate": Decimal("0.10")})
+    _patch_reference_pool(monkeypatch, conn)
+
+    assert await rewards.get_loyalty_rate() == Decimal("0.10")
+
+
+@pytest.mark.asyncio
+async def test_loyalty_rate_falls_back_to_current_rate(monkeypatch):
+    conn = FakeConn(fetchrow_result=None)
+    _patch_reference_pool(monkeypatch, conn)
+
+    assert await rewards.get_loyalty_rate() == Decimal("0.10")
 
 
 # ─────────────────────── confirm_reserve_by_payment_id ───────────────────────
