@@ -18,6 +18,7 @@ import ssl
 import sys
 import urllib.request
 import urllib.error
+import urllib.parse
 import json
 
 BOT_URL = os.getenv("BOT_BASE_URL", "https://aistmebot-production.up.railway.app")
@@ -51,10 +52,18 @@ def _parse_json(raw: bytes) -> dict:
         return {}
 
 
+def _https_url(url: str) -> str:
+    """Reject local files and custom schemes before urllib opens the URL."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("only absolute HTTPS URLs are allowed")
+    return url
+
+
 def get(url: str, headers: dict | None = None) -> tuple[int, dict]:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA, **(headers or {})})
+    req = urllib.request.Request(_https_url(url), headers={"User-Agent": _UA, **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as r:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as r:  # nosec B310
             return r.status, _parse_json(r.read())
     except urllib.error.HTTPError as e:
         return e.code, {}
@@ -65,13 +74,13 @@ def get(url: str, headers: dict | None = None) -> tuple[int, dict]:
 def post(url: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
     data = json.dumps(body).encode()
     req = urllib.request.Request(
-        url,
+        _https_url(url),
         data=data,
         headers={"Content-Type": "application/json", "User-Agent": _UA, **(headers or {})},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as r:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as r:  # nosec B310
             return r.status, _parse_json(r.read())
     except urllib.error.HTTPError as e:
         return e.code, _parse_json(e.read())
