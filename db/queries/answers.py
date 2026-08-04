@@ -398,12 +398,13 @@ async def get_theory_count_at_level(chat_id: int, complexity_level: int) -> int:
 
 async def reset_user_stats(chat_id: int) -> None:
     """
-    Сбросить статистику пользователя.
+    Сбросить статистику пользователя (ветка /progress).
     Сохраняет active_days_total (общее количество активных дней).
     Сбрасывает: streak, longest_streak, last_active_date.
     Устанавливает stats_reset_date = сегодня.
     """
     from .users import update_intern, moscow_today
+    from db.connection import get_pool
 
     today = moscow_today()
     await update_intern(chat_id,
@@ -412,3 +413,18 @@ async def reset_user_stats(chat_id: int) -> None:
         longest_streak=0,
         last_active_date=None,
     )
+
+    # WP-7 Ф48: без этого пользователь, уже проявивший активность сегодня, не
+    # засчитается заново до завтра — ON CONFLICT в record_active_day() молча
+    # откажет во вставке маркера за сегодня (тот же фикс, что и в параллельной
+    # ветке /mydata — states/utilities/mydata.py::_reset_stats()). Отдельным
+    # вызовом, не в одной транзакции с update_intern() (не принимает внешнее
+    # соединение) — узкое окно между двумя вызовами не хуже статус-кво:
+    # затронутая одним событием активности гонка самоисцеляется на следующем
+    # вызове record_active_day().
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''DELETE FROM development.daily_activity_marker WHERE chat_id = $1''',
+            chat_id,
+        )

@@ -993,16 +993,30 @@ class MyDataState(BaseState):
         """Сбросить streak и active_days."""
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
+        from db.queries.users import moscow_today
         from db import get_pool
         pool = await get_pool()
+        today = moscow_today()
+        # Порядок блокировок — user_state, потом daily_activity_marker — тот же,
+        # что record_active_day() (db/queries/activity.py), иначе конкурентный
+        # reset и запись активности для одного chat_id могут дедлокнуться (WP-7 Ф48).
         async with pool.acquire() as conn:
-            await conn.execute(
-                '''UPDATE development.user_state SET
-                    active_days_total = 0, active_days_streak = 0,
-                    longest_streak = 0, last_active_date = NULL
-                   WHERE chat_id = $1''',
-                chat_id,
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    '''UPDATE development.user_state SET
+                        active_days_total = 0, active_days_streak = 0,
+                        longest_streak = 0, last_active_date = NULL,
+                        stats_reset_date = $2
+                       WHERE chat_id = $1''',
+                    chat_id, today,
+                )
+                # Без этого пользователь, уже проявивший активность сегодня, не
+                # засчитается заново до завтра — ON CONFLICT в record_active_day()
+                # молча откажет во вставке маркера за сегодня.
+                await conn.execute(
+                    '''DELETE FROM development.daily_activity_marker WHERE chat_id = $1''',
+                    chat_id,
+                )
         await self.send(
             user, f"✅ {t('mydata.stats_reset_done', lang)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
