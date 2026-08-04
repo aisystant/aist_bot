@@ -87,7 +87,7 @@ YK `create_payment` создаёт pending-платёж (не списывает
 
 **Связь с §5:** `rollback_expired_reservations` (§5) и `confirm_reserve_by_payment_id` (новая) сериализованы через `pg_advisory_xact_lock(hashtext('burn_reserve:' || payment_id))` — иначе TTL-откат мог бы откатить резерв в момент, когда Aisystant уже сообщил `SUCCEEDED` (доступ к курсу выдан, бонусы не списаны).
 - Миграция схемы: `DS-IT-systems/neon-migrations/mvp/226-wp327-rewards-redeemed-events.sql`
-- Курс конвертации: `POINTS_TO_RUB_RATE = 0.875 ₽/балл` в `db/queries/redeem.py` (источник: DP.SC.105 = `$0.01 × курс USD/RUB`)
+- Курс конвертации: `0,10 ₽/бонус`; источник истины — активная запись `reference.loyalty_pool_config.rate`, fallback бота совпадает с ней.
 
 ---
 

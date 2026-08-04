@@ -33,7 +33,7 @@ from helpers.dual_write import post_event
 logger = logging.getLogger(__name__)
 
 # Курс конвертации читается из loyalty_pool_config (WP-327 v4.1)
-# Fallback 0.05 ₽/бонус при недоступности БД
+# Fallback 0.10 ₽/бонус при недоступности БД
 
 
 async def _get_rate() -> Decimal:
