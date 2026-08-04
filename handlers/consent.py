@@ -557,19 +557,18 @@ async def on_consent_accept(callback: CallbackQuery):
     except Exception as exc:
         logger.warning("[Ф20] referral_source write failed: %s", exc)
 
-    # WP-266 Ф6: новый пользователь активирует сохранённый guest token только
-    # после появления account_id и фиксации согласия.
+    # WP-266: новый пользователь фиксирует приглашение после появления account_id.
     try:
-        guest_token = (intern.get("current_context") or {}).get("guest_pass_token") if intern else None
-        if guest_token:
-            from handlers.referral import activate_guest_pass_for_user
-            activated = await activate_guest_pass_for_user(callback.message, account_id, guest_token)
+        invite_code = (intern.get("current_context") or {}).get("invite_code") if intern else None
+        if invite_code:
+            from handlers.referral import activate_invite_for_user
+            activated = await activate_invite_for_user(callback.message, account_id, invite_code)
             if activated:
                 current_context = dict(intern.get("current_context") or {})
-                current_context.pop("guest_pass_token", None)
+                current_context.pop("invite_code", None)
                 await update_intern(user_id, current_context=current_context)
     except Exception as exc:
-        logger.warning("[guest-pass] post-consent activation failed user_id=%s: %s", user_id, exc)
+        logger.warning("[invite] post-consent attribution failed user_id=%s: %s", user_id, exc)
 
     # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б)
     try:

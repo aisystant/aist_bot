@@ -64,17 +64,23 @@ async def mark_x3_done(chat_id: int) -> None:
 
 
 async def _mark_done(chat_id: int, column: str) -> None:
-    # column — из фиксированного набора (mark_x2_done/mark_x3_done), не из ввода.
+    queries = {
+        "x2_completed_at": """
+            UPDATE development.user_state
+            SET x2_completed_at = COALESCE(x2_completed_at, (NOW() AT TIME ZONE 'utc'))
+            WHERE chat_id = $1
+        """,
+        "x3_completed_at": """
+            UPDATE development.user_state
+            SET x3_completed_at = COALESCE(x3_completed_at, (NOW() AT TIME ZONE 'utc'))
+            WHERE chat_id = $1
+        """,
+    }
+    if column not in queries:
+        raise ValueError(f"unsupported onboarding marker: {column}")
     pool = await get_pool()
     async with pool.acquire() as conn:
-        status = await conn.execute(
-            f"""
-            UPDATE development.user_state
-            SET {column} = COALESCE({column}, (NOW() AT TIME ZONE 'utc'))
-            WHERE chat_id = $1
-            """,
-            chat_id,
-        )
+        status = await conn.execute(queries[column], chat_id)
     # "UPDATE 0" = строки user_state ещё нет: отметка не поставлена. В живом flow
     # get_intern лениво создаёт строку, поэтому это сигнал ошибки вызова, не норма.
     if status == "UPDATE 0":

@@ -165,21 +165,21 @@ async def cmd_start(message: Message, state: FSMContext):
 
     _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 
-    # Deep link: /start guest_<opaque_token> → Guest Pass WP-266.
-    if len(args) > 1 and args[1].startswith("guest_"):
-        guest_token = args[1][6:]
+    # Deep link: /start invite_<code> → постоянная реферальная ссылка WP-266.
+    if len(args) > 1 and args[1].startswith("invite_"):
+        invite_code = args[1][7:]
         if intern and intern.get("dt_user_id"):
-            from handlers.referral import activate_guest_pass_for_user
-            await activate_guest_pass_for_user(message, intern["dt_user_id"], guest_token)
+            from handlers.referral import activate_invite_for_user
+            await activate_invite_for_user(message, intern["dt_user_id"], invite_code)
             return
-        if guest_token and len(guest_token) <= 48:
+        if invite_code and len(invite_code) <= 64:
             await message.answer(
-                "👋 <b>Тебе подарили 14 дней полного доступа к Aisystant.</b>\n\n"
-                "Пройди короткую регистрацию — пропуск активируется после подтверждения согласия.",
+                "👋 <b>Тебя пригласили в Aisystant.</b>\n\n"
+                "Пройди короткую регистрацию. Тексты руководств останутся доступны навсегда.",
                 parse_mode="HTML",
             )
             ctx = (intern or {}).get("current_context", {}) or {}
-            ctx["guest_pass_token"] = guest_token
+            ctx["invite_code"] = invite_code
             await update_intern(_uid, current_context=ctx)
 
     # Deep link: /start ref_<ory_uuid> → реферальный онбординг (Ф20, WP-349)
