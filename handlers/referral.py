@@ -56,7 +56,7 @@ async def activate_invite_for_user(message: Message, account_id: str, code: str)
 
     await message.answer(
         "✅ <b>Приглашение учтено</b>\n\n"
-        "Тексты руководств останутся доступны навсегда. "
+        "Тексты руководств и марафон останутся доступны бесплатно и навсегда. "
         "Платные функции с ИИ-генерацией подключаются отдельно.\n\n"
         "Начать работу: /start",
         parse_mode="HTML",
@@ -65,7 +65,6 @@ async def activate_invite_for_user(message: Message, account_id: str, code: str)
 
 
 @referral_router.message(Command("invite"))
-@referral_router.message(Command("referral"))
 async def cmd_invite(message: Message):
     intern = await get_intern(message.chat.id)
     account_id = intern.get("dt_user_id") if intern else None
@@ -87,12 +86,10 @@ async def cmd_invite(message: Message):
         "🔗 <b>Твоя постоянная ссылка</b>\n\n"
         f"<code>{_invite_url(link.code)}</code>\n\n"
         "Отправляй её тем, кому могут быть полезны руководства и бот. "
-        "Тексты руководств останутся доступны навсегда.\n\n"
-        "Если приглашённый впервые успешно оплатит продукт, тебе начислят "
-        "<b>3000 бонусов</b>.\n\n"
-        "<b>Команды:</b>\n"
-        "/invite и /referral — показать эту же ссылку ещё раз (работают одинаково)\n"
-        "/invites — посмотреть статистику: сколько перешло и сколько бонусов начислено",
+        "Тексты руководств и марафон останутся доступны бесплатно и навсегда.\n\n"
+        "Если приглашённый впервые оплатит подписку «Инженерия интеллекта», "
+        "семинар или Марафон с наставником — тебе начислят <b>3000 бонусов</b>.\n\n"
+        "Статистика приглашений: /invites",
         parse_mode="HTML",
     )
 
@@ -118,8 +115,6 @@ async def cmd_invites(message: Message):
         f"Совершили первую оплату: <b>{stats['paid']}</b>\n"
         f"Начислений по 3000: <b>{stats['rewards_count']}</b>\n"
         f"Всего начислено: <b>{stats['bonuses']:,.0f}</b> бонусов\n\n"
-        "<b>Команды:</b>\n"
-        "/invite — получить свою постоянную ссылку приглашения\n"
-        "/referral — то же самое, что /invite (два имени одной команды)",
+        "Получить свою ссылку: /invite",
         parse_mode="HTML",
     )
