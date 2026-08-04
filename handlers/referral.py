@@ -38,6 +38,10 @@ async def activate_invite_for_user(message: Message, account_id: str, code: str)
     except InviteError as exc:
         await message.answer(_ERROR_TEXT.get(exc.code, "Не удалось учесть приглашение."))
         return False
+    except Exception:
+        logger.error("[invite] activate_invite failed code=%s account_id=%s", code, account_id, exc_info=True)
+        await message.answer("Не удалось учесть приглашение — уже разбираемся.")
+        return False
 
     from db.queries.onboarding_journey import write_referral_source
 
@@ -74,6 +78,10 @@ async def cmd_invite(message: Message):
     except InviteError as exc:
         await message.answer(_ERROR_TEXT.get(exc.code, "Не удалось получить ссылку."))
         return
+    except Exception:
+        logger.error("[invite] get_or_create_invite failed account_id=%s", account_id, exc_info=True)
+        await message.answer("Не удалось получить ссылку — уже разбираемся. Попробуй чуть позже.")
+        return
 
     await message.answer(
         "🔗 <b>Твоя постоянная ссылка</b>\n\n"
@@ -82,7 +90,9 @@ async def cmd_invite(message: Message):
         "Тексты руководств останутся доступны навсегда.\n\n"
         "Если приглашённый впервые успешно оплатит продукт, тебе начислят "
         "<b>3000 бонусов</b>.\n\n"
-        "Статистика приглашений: /invites",
+        "<b>Команды:</b>\n"
+        "/invite и /referral — показать эту же ссылку ещё раз (работают одинаково)\n"
+        "/invites — посмотреть статистику: сколько перешло и сколько бонусов начислено",
         parse_mode="HTML",
     )
 
@@ -95,13 +105,21 @@ async def cmd_invites(message: Message):
         await message.answer("Сначала подключи аккаунт Aisystant через /ory_register.")
         return
 
-    stats = await get_invite_stats(account_id)
+    try:
+        stats = await get_invite_stats(account_id)
+    except Exception:
+        logger.error("[invite] get_invite_stats failed account_id=%s", account_id, exc_info=True)
+        await message.answer("Не удалось получить статистику — уже разбираемся. Попробуй чуть позже.")
+        return
+
     await message.answer(
         "📊 <b>Мои приглашения</b>\n\n"
         f"Приглашение учтено: <b>{stats['invited']}</b>\n"
         f"Совершили первую оплату: <b>{stats['paid']}</b>\n"
         f"Начислений по 3000: <b>{stats['rewards_count']}</b>\n"
         f"Всего начислено: <b>{stats['bonuses']:,.0f}</b> бонусов\n\n"
-        "Пригласить ещё: /invite",
+        "<b>Команды:</b>\n"
+        "/invite — получить свою постоянную ссылку приглашения\n"
+        "/referral — то же самое, что /invite (два имени одной команды)",
         parse_mode="HTML",
     )
