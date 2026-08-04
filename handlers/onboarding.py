@@ -165,6 +165,23 @@ async def cmd_start(message: Message, state: FSMContext):
 
     _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 
+    # Deep link: /start guest_<opaque_token> → Guest Pass WP-266.
+    if len(args) > 1 and args[1].startswith("guest_"):
+        guest_token = args[1][6:]
+        if intern and intern.get("dt_user_id"):
+            from handlers.referral import activate_guest_pass_for_user
+            await activate_guest_pass_for_user(message, intern["dt_user_id"], guest_token)
+            return
+        if guest_token and len(guest_token) <= 48:
+            await message.answer(
+                "👋 <b>Тебе подарили 14 дней полного доступа к Aisystant.</b>\n\n"
+                "Пройди короткую регистрацию — пропуск активируется после подтверждения согласия.",
+                parse_mode="HTML",
+            )
+            ctx = (intern or {}).get("current_context", {}) or {}
+            ctx["guest_pass_token"] = guest_token
+            await update_intern(_uid, current_context=ctx)
+
     # Deep link: /start ref_<ory_uuid> → реферальный онбординг (Ф20, WP-349)
     if len(args) > 1 and args[1].startswith("ref_"):
         ref_uuid = args[1][4:]  # убираем "ref_" prefix
