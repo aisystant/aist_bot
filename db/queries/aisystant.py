@@ -19,6 +19,22 @@ from helpers.dual_write import post_event
 logger = get_logger(__name__)
 
 
+async def _enqueue_ory_provisioning(pconn, suser_id: str, telegram_id: int) -> None:
+    """Queue an idempotent Ory provisioning request without storing email."""
+    await pconn.execute(
+        """INSERT INTO public.ory_identity_provisioning_queue
+               (suser_id, telegram_id)
+           VALUES ($1, $2)
+           ON CONFLICT (suser_id) DO UPDATE
+           SET telegram_id = EXCLUDED.telegram_id,
+               requested_at = LEAST(
+                   public.ory_identity_provisioning_queue.requested_at,
+                   EXCLUDED.requested_at
+               )""",
+        int(suser_id), telegram_id,
+    )
+
+
 async def get_aisystant_id(chat_id: int) -> str | None:
     """Получить aisystant_id по chat_id. None если не привязан.
 
@@ -182,6 +198,9 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
                         account_id=str(ory_uuid),
                         payload={},
                     ))
+            else:
+                await _enqueue_ory_provisioning(pconn, str(aisystant_id), chat_id)
+                logger.info("[Aisystant] Ory provisioning request queued")
     except Exception as exc:
         # Не блокируем /link — лучше успешная привязка с задержкой ory-моста,
         # чем падение /link целиком. Без telegram_id в persona /consent выведет

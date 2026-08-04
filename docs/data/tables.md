@@ -451,6 +451,24 @@
 
 **VIEW:** `learning.marathon_stats` тоже вычисляет значение через COUNT — это корректно, но первичный источник для внешних читателей (Metabase, MCP) — колонка в `marathon_progress`, которую триггер держит актуальной.
 
+### 4.9. `ory_identity_provisioning_queue` (WP-7 ORY-RT1)
+
+> Рабочая очередь в БД `persona`. Миграция `303-wp7-ory-identity-provisioning-queue.sql`; постановка: `db/queries/aisystant.py`.
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `id` | BIGSERIAL | — | PK |
+| `suser_id` | BIGINT | — | Уникальный идентификатор пользователя Aisystant |
+| `telegram_id` | BIGINT | — | Нужен для завершения связи; запрещён в логах |
+| `requested_at` | TIMESTAMPTZ | `NOW()` | Первая постановка заявки |
+| `available_at` | TIMESTAMPTZ | `NOW()` | Не обрабатывать раньше этого времени |
+| `attempt_count` | INT | `0` | Число неуспешных попыток, максимум 3 |
+| `last_error_code` | TEXT | — | Только ограниченный машинный код, без тела ответа и PII |
+
+Очередь намеренно не хранит email. Worker читает актуальный адрес из LMS непосредственно перед lookup/create в Ory. `UNIQUE(suser_id)` делает постановку идемпотентной; конкурентные worker-процессы используют `FOR UPDATE SKIP LOCKED`. Успех или атомарный перенос в DLQ удаляет рабочую строку.
+
+**Разбор DLQ:** оператор берёт `suser_id` из `ory_identity_provisioning_dlq`, запрашивает актуальный email в LMS через защищённый административный канал и после устранения причины повторяет привязку. Email намеренно не дублируется в DLQ realtime-контура.
+
 ---
 
 ## 5. Наблюдаемость и ошибки

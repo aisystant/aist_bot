@@ -62,7 +62,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 | `consent_decline` | UPSERT с opt_in=FALSE | `handlers/consent.py:308` |
 | `consent_link_now` | Запуск `/link` flow, если LMS не привязан | `handlers/consent.py:344` |
 | `consent_from_onboarding` | Точка входа из onboarding (после `/start` / `/link`) | `handlers/consent.py:414` |
-| `consent_retry_status` | Повторный показ status (refresh после ETL). Экран «привязан, идёт синхронизация» (нет Ory-идентичности при наличии Aisystant-аккаунта) показывает кнопку «🔑 Войти через Aisystant» (реальный OAuth-вход через Ory вместо ожидания батч-переноса раз в 4 часа) + «🔄 Попробовать снова» | `handlers/consent.py:450` |
+| `consent_retry_status` | Повторный показ status. При отсутствии Ory-идентичности бот сообщает только подтверждённый факт: запрос на создание записи входа по email Aisystant поставлен в очередь. SLA «обычно меньше минуты» явно условен работающей автоматической обработкой; бот не получает пароль и не просит пересылать коды/письма. Пока realtime-worker не включён отдельным production gate, остаются кнопки «🔑 Войти через Aisystant» и «🔄 Попробовать снова» | `handlers/consent.py:450` |
 | `/me` (T3+ без согласия) | Consent-gap detect: T3 достигнут вне /link (claude.ai OAuth / `/test`) → показ opt-in вместо пустого дашборда (WP-406 Ф20). Fail-open. | `handlers/twin.py:900` |
 
 ---
