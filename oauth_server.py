@@ -977,27 +977,6 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
     """
     import json
 
-    # Проверка IP-адреса отправителя (ЮКасса рекомендует)
-    from clients.yookassa import YooKassaClient
-    peer = request.remote or ""
-    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    sender_ip = forwarded or peer
-
-    if not YooKassaClient.verify_notification(b"", sender_ip):
-        logger.warning(f"[YooKassa Webhook] rejected: unknown IP {sender_ip}")
-        return web.Response(text='{"ok":false,"error":"unauthorized"}',
-                            content_type="application/json", status=403)
-
-    # Interim monitoring (WP-458 КР-1): X-Forwarded-For is client-controlled and is the
-    # trust source for sender_ip — a mismatch with the real TCP peer isn't blocked here
-    # (full fix = server-side verify via YooKassa GET /payments/{id}, tracked as child WP),
-    # but it's logged for later audit.
-    if forwarded and peer and forwarded != peer:
-        logger.warning(
-            f"[YooKassa Webhook] accepted via X-Forwarded-For={forwarded}, "
-            f"differs from TCP peer={peer} — interim audit trail (КР-1, full fix pending)"
-        )
-
     try:
         data = await request.json()
     except Exception:
@@ -1008,6 +987,52 @@ async def yookassa_webhook_handler(request: web.Request) -> web.Response:
         logger.error("[YooKassa Webhook] bot instance not set")
         return web.Response(text='{"ok":false,"error":"bot not ready"}',
                             content_type="application/json", status=503)
+
+    event_type = data.get("event", "")
+    notification_payment = data.get("object") or {}
+    payment_id = notification_payment.get("id", "")
+    if event_type != "payment.succeeded":
+        return web.Response(
+            text=json.dumps({"ok": True, "skipped": event_type}),
+            content_type="application/json",
+        )
+    if not payment_id:
+        return web.Response(text='{"ok":false,"error":"missing payment id"}',
+                            content_type="application/json", status=400)
+
+    # WP-458 КР-1: ни IP, ни тело уведомления не являются источником решения.
+    # Статус, сумма и metadata перечитываются с YooKassa API по учётным данным магазина.
+    from clients.yookassa import YooKassaClient
+    from config import YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY
+
+    if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
+        logger.error("[YooKassa Webhook] API credentials are not configured")
+        return web.Response(text='{"ok":false,"error":"verification unavailable"}',
+                            content_type="application/json", status=503)
+
+    try:
+        canonical_payment = await YooKassaClient(
+            YOOKASSA_SHOP_ID,
+            YOOKASSA_SECRET_KEY,
+        ).get_payment(payment_id)
+    except Exception as exc:
+        logger.warning(
+            "[YooKassa Webhook] authoritative verification failed: %s",
+            type(exc).__name__,
+        )
+        return web.Response(text='{"ok":false,"error":"verification unavailable"}',
+                            content_type="application/json", status=503)
+
+    if canonical_payment.get("status") != "succeeded":
+        logger.warning("[YooKassa Webhook] authoritative status is not succeeded")
+        return web.Response(text='{"ok":false,"error":"payment not succeeded"}',
+                            content_type="application/json", status=403)
+
+    data = {
+        "type": "notification",
+        "event": "payment.succeeded",
+        "object": canonical_payment,
+    }
 
     try:
         # Роутинг по metadata.purpose: SEMINAR → showcase, иначе → workshop

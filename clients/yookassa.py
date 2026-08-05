@@ -7,11 +7,9 @@ from __future__ import annotations
 Документация: https://yookassa.ru/developers/api
 """
 
-import hashlib
-import hmac
-import json
 import logging
 import uuid
+from urllib.parse import quote
 
 import aiohttp
 
@@ -120,24 +118,25 @@ class YooKassaClient:
             "status": data["status"],
         }
 
-    @staticmethod
-    def verify_notification(body: bytes, provided_ip: str) -> bool:
-        """Проверить что webhook пришёл от ЮКасса.
+    async def get_payment(self, payment_id: str) -> dict:
+        """Получить каноническое состояние платежа из YooKassa API."""
+        if not payment_id:
+            raise ValueError("payment_id is required")
 
-        ЮКасса отправляет webhooks с IP-адресов:
-        185.71.76.0/27 и 185.71.77.0/27
+        auth = aiohttp.BasicAuth(self.shop_id, self.secret_key)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self.BASE_URL}/payments/{quote(payment_id, safe='')}",
+                auth=auth,
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning(
+                        "[YooKassa] get_payment failed: status=%s",
+                        resp.status,
+                    )
+                    raise RuntimeError(f"YooKassa API error: {resp.status}")
+                data = await resp.json()
 
-        Args:
-            body: тело запроса (bytes)
-            provided_ip: IP-адрес отправителя
-        """
-        # ЮКасса рекомендует проверять по IP
-        # https://yookassa.ru/developers/using-api/webhooks#ip
-        yookassa_nets = [
-            "185.71.76.",  # 185.71.76.0/27
-            "185.71.77.",  # 185.71.77.0/27
-            "77.75.153.",  # 77.75.153.0/25
-            "77.75.156.",  # 77.75.156.0/24
-            "127.0.0.1",   # localhost (dev)
-        ]
-        return any(provided_ip.startswith(net) for net in yookassa_nets)
+        if data.get("id") != payment_id:
+            raise RuntimeError("YooKassa API returned a different payment")
+        return data
