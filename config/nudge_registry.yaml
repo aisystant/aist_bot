@@ -1,0 +1,318 @@
+# ═══════════════════════════════════════════════════════════════════
+# WP-117 Canonical Nudge Registry
+# ═══════════════════════════════════════════════════════════════════
+#
+# Machine-readable source-of-truth for nudge taxonomy:
+#   rule_id  -> canonical_type, eligible_tiers, opt_out_category, phase, data_contract
+#   nudge_key -> rule_id, cooldown_days, class_cap, payload_keys, ai_personalizable, stopgap
+#
+# Boundaries:
+#   - WP-117 owns the rule/taxonomy and this registry.
+#   - WP-418 owns cooldown, class cap, opt-out enforcement and channel policy.
+#   - engagement_analyzer.py registers rules at import time; this file maps them.
+#
+# Versioning: bump `version` whenever the schema or mapping changes.
+version: "1.0.0"
+
+# ───────────────────────────────────────────────────────────────────
+# 1. RULES: mapping from engagement_analyzer rule_id to canonical metadata.
+#    `nudge_keys` lists every concrete key a rule can produce.
+# ───────────────────────────────────────────────────────────────────
+rules:
+  # T1. Реактивация и восстановление engagement
+  - rule_id: inactivity_3d
+    canonical_type: engagement_reactivation
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: [nudge_inactivity]
+    data_contract:
+      cooldown_days: 7
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: low_engagement_7d
+    canonical_type: engagement_reactivation
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: [nudge_low_engagement]
+    data_contract:
+      cooldown_days: 14
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: streak_drop
+    canonical_type: engagement_reactivation
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: [nudge_streak_drop]
+    data_contract:
+      cooldown_days: 14
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  # T2. Ритм практики и устранение застревания
+  - rule_id: slot_missing_3d
+    canonical_type: practice_rhythm
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: [nudge_slot_missing_3d]
+    data_contract:
+      cooldown_days: 7
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: marathon_stalled
+    canonical_type: practice_rhythm
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: return
+    phase: F1
+    nudge_keys: [nudge_marathon_stalled]
+    data_contract:
+      cooldown_days: 7
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: low_regularity
+    canonical_type: practice_rhythm
+    eligible_tiers: [T2, T3, T4]
+    opt_out_category: engagement
+    phase: F2
+    nudge_keys: [nudge_low_regularity]
+    data_contract:
+      cooldown_days: 14
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: true
+      stopgap: false
+
+  # T3. Признание прогресса и переход по траектории
+  - rule_id: achievement_sessions
+    canonical_type: recognition_progress
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: recognition
+    phase: F1
+    nudge_keys:
+      - nudge_sessions_10
+      - nudge_sessions_25
+      - nudge_sessions_50
+      - nudge_sessions_100
+    data_contract:
+      cooldown_days: 30
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: true
+
+  - rule_id: achievement_active_days
+    canonical_type: recognition_progress
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: recognition
+    phase: F1
+    nudge_keys:
+      - nudge_active_days_7
+      - nudge_active_days_14
+      - nudge_active_days_30
+    data_contract:
+      cooldown_days: 30
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: true
+
+  - rule_id: stage_upgrade
+    canonical_type: recognition_progress
+    eligible_tiers: [T2, T3, T4]
+    opt_out_category: trajectory
+    phase: F2
+    nudge_keys:
+      - nudge_stage_reached_2
+      - nudge_stage_reached_3
+      - nudge_stage_reached_4
+    data_contract:
+      cooldown_days: 30
+      class_cap: class_capped
+      payload_keys: [stage, recommend_stream, suggest_tier_upgrade]
+      ai_personalizable: true
+      stopgap: true
+
+  - rule_id: agency_growing
+    canonical_type: recognition_progress
+    eligible_tiers: [T3, T4]
+    opt_out_category: trajectory
+    phase: F2
+    nudge_keys: [nudge_agency_growing]
+    data_contract:
+      cooldown_days: 14
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: true
+      stopgap: false
+
+  - rule_id: agency_high
+    canonical_type: recognition_progress
+    eligible_tiers: [T3, T4]
+    opt_out_category: trajectory
+    phase: F2
+    nudge_keys: [nudge_agency_high]
+    data_contract:
+      cooldown_days: 30
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: true
+      stopgap: false
+
+  # T4. Диагностический ЦД-инсайт
+  - rule_id: diagnost_bottleneck
+    canonical_type: diagnostic_insight
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: trajectory
+    phase: F2
+    nudge_keys:
+      - nudge_bottleneck_cp_rhy
+      - nudge_bottleneck_cp_wld
+      - nudge_bottleneck_cp_skl
+      - nudge_bottleneck_cp_int
+      - nudge_bottleneck_cp_agt
+    data_contract:
+      cooldown_days: 14
+      class_cap: class_capped
+      payload_keys: [bottleneck_slot, recommended_stream]
+      ai_personalizable: true
+      stopgap: false
+
+  # T5. Онбординг, оснащение и lifecycle-конверсия
+  - rule_id: onboarder_gap
+    canonical_type: onboarding_lifecycle
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: onboarder
+    phase: F1
+    nudge_keys:
+      - nudge_onboarder_gap_x2
+      - nudge_onboarder_gap_x3
+    data_contract:
+      cooldown_days: 7
+      class_cap: class_capped
+      payload_keys: [gap]
+      ai_personalizable: false
+      stopgap: false
+
+  # T6. Адаптация частоты и защита от notification fatigue
+  - rule_id: notification_fatigue
+    canonical_type: frequency_adaptation
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F2
+    nudge_keys: [nudge_reduce_frequency]
+    data_contract:
+      cooldown_days: 30
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: true
+      stopgap: false
+
+  # T7. Транзакционное сопровождение обучения и расписания
+  # NOTE: WP-117 has no live rules for this type yet; placeholder rule_ids are declared
+  #       so the registry stays complete and the test enforces future mapping.
+  - rule_id: trial_reminder
+    canonical_type: transactional_learning
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: onboarder
+    phase: F1
+    nudge_keys: []
+    data_contract:
+      cooldown_days: 7
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: homework_deadline
+    canonical_type: transactional_learning
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: []
+    data_contract:
+      cooldown_days: 1
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: homework_reviewed
+    canonical_type: transactional_learning
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: recognition
+    phase: F1
+    nudge_keys: []
+    data_contract:
+      cooldown_days: 1
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: schedule_event
+    canonical_type: transactional_learning
+    eligible_tiers: [T1, T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: []
+    data_contract:
+      cooldown_days: 1
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+  - rule_id: mentor_queue
+    canonical_type: transactional_learning
+    eligible_tiers: [T2, T3, T4]
+    opt_out_category: engagement
+    phase: F1
+    nudge_keys: []
+    data_contract:
+      cooldown_days: 1
+      class_cap: class_capped
+      payload_keys: []
+      ai_personalizable: false
+      stopgap: false
+
+# ───────────────────────────────────────────────────────────────────
+# 2. DP.SC.116 CLASS MAP: each declared nudge class maps to exactly one
+#    canonical_type. See PACK-digital-platform/pack/digital-platform/
+#    08-service-clauses/DP.SC.116-notifications-nudges.md.
+# ───────────────────────────────────────────────────────────────────
+dp_sc_116_class_map:
+  inactivity: engagement_reactivation
+  streak: engagement_reactivation
+  milestone: recognition_progress
+  cp_insight: diagnostic_insight
+  trial: onboarding_lifecycle
+  onboarding: onboarding_lifecycle
+  fatigue: frequency_adaptation
+  homework_deadline: transactional_learning
+  homework_reviewed: transactional_learning
+  schedule: transactional_learning
+  mentor: transactional_learning
+
+# ───────────────────────────────────────────────────────────────────
+# 3. TIER AXIOM (declarative, not enforced here):
+#    T0 = pre-Ory / consent; T1 = identified; T2 = subscription;
+#    T3 = AI-client + personal memory/projection; T4 = GitHub/pack/agents.
+#    WP-418 owns the authoritative Tier Authority lookup.
+# ───────────────────────────────────────────────────────────────────
