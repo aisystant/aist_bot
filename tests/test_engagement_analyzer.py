@@ -216,6 +216,52 @@ def test_onboarder_gap_none_without_account_created_at():
     assert result is None, f"Expected None without account_created_at, got {result}"
 
 
+# ─────────────────────────────────────────────────────────────
+# WP-117 Ф-stopgap: achievement-нуджи подавляются
+# ─────────────────────────────────────────────────────────────
+
+def test_analyze_suppresses_achievement_sessions():
+    engagement = {'2_1_account': {'sessions_total': 100}}
+    nudges = analyze(engagement, _meta())
+    assert not any(n['rule_id'] == 'achievement_sessions' for n in nudges)
+    assert not any(n['nudge_key'].startswith('nudge_sessions_') for n in nudges)
+
+
+def test_analyze_suppresses_achievement_active_days():
+    engagement = {'2_4_time': {'active_days': 30}}
+    nudges = analyze(engagement, _meta())
+    assert not any(n['rule_id'] == 'achievement_active_days' for n in nudges)
+    assert not any(n['nudge_key'].startswith('nudge_active_days_') for n in nudges)
+
+
+def test_analyze_suppresses_stage_upgrade():
+    derived = {'3_4_qualification': {'stage': 3}}
+    nudges = analyze({}, _meta(), derived)
+    assert not any(n['rule_id'] == 'stage_upgrade' for n in nudges)
+    assert not any(n['nudge_key'].startswith('nudge_stage_reached_') for n in nudges)
+
+
+def test_analyze_preserves_agency_high():
+    """agency_high — не achievement, stopgap не должен его трогать."""
+    derived = {'3_10_integral': {'index': 75}}
+    nudges = analyze({}, _meta(), derived)
+    assert any(n['rule_id'] == 'agency_high' for n in nudges)
+
+
+def test_analyze_mixed_list_allows_non_achievements():
+    """Если одновременно сработали achievement и threshold-правило,
+    achievement должен быть подавлен, а threshold — остаться."""
+    engagement = {
+        '2_1_account': {'sessions_total': 100},
+        '2_4_time': {'events_last_7d': 1},
+    }
+    nudges = analyze(engagement, _meta())
+    rule_ids = {n['rule_id'] for n in nudges}
+    assert 'achievement_sessions' not in rule_ids
+    assert 'achievement_active_days' not in rule_ids
+    assert 'low_engagement_7d' in rule_ids
+
+
 if __name__ == '__main__':
     tests = [
         test_slot_missing_3d_fires_after_3_days,
@@ -239,6 +285,11 @@ if __name__ == '__main__':
         test_onboarder_gap_none_before_3_days,
         test_onboarder_gap_fires_exactly_3_days,
         test_onboarder_gap_none_without_account_created_at,
+        test_analyze_suppresses_achievement_sessions,
+        test_analyze_suppresses_achievement_active_days,
+        test_analyze_suppresses_stage_upgrade,
+        test_analyze_preserves_agency_high,
+        test_analyze_mixed_list_allows_non_achievements,
     ]
     passed = failed = 0
     for t in tests:

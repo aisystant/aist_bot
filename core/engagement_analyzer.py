@@ -15,6 +15,7 @@ import logging
 from datetime import datetime, timezone
 
 from config import MOSCOW_TZ
+from core.nudge_policy import stopgap_suppression_reason
 
 logger = logging.getLogger(__name__)
 
@@ -475,4 +476,20 @@ def analyze(
             except Exception as e:
                 logger.warning(f"[Nudge] Derived rule {rule_id} failed: {e}")
 
-    return results
+    # WP-117 Ф-stopgap: achievement-нуджи отключены до починки источников данных.
+    # Подавляем здесь, чтобы scheduler мог выбрать следующий допустимый кандидат,
+    # а не тратил слот на "come back" для пользователя, у которого сегодня активность.
+    filtered_results = []
+    for nudge in results:
+        reason = stopgap_suppression_reason(
+            nudge["rule_id"], nudge["nudge_key"]
+        )
+        if reason:
+            logger.info(
+                "[WP-117 stopgap] Suppressed rule=%s nudge=%s reason=%s",
+                nudge["rule_id"], nudge["nudge_key"], reason
+            )
+            continue
+        filtered_results.append(nudge)
+
+    return filtered_results
