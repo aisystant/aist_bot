@@ -27,6 +27,7 @@ onboarding nudges once the AI client is connected.
 import logging
 
 from core.nudge_delivery import NudgeCandidate
+from core.nudge_policy import stopgap_suppression_reason
 from core.onboarder.offer import offer_payload
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,17 @@ def produce(
     for n in nudges:
         rule_id = n["rule_id"]
         nudge_key = n["nudge_key"]
+
+        # WP-117 Ф-stopgap: defense-in-depth — analyzer должен был отфильтровать,
+        # но если результат дошёл до producer напрямую, подавляем здесь тоже.
+        stopgap_reason = stopgap_suppression_reason(rule_id, nudge_key)
+        if stopgap_reason:
+            logger.warning(
+                "[NudgeProducer] Stopgap suppressed rule=%s nudge=%s reason=%s",
+                rule_id, nudge_key, stopgap_reason
+            )
+            continue
+
         category = _RULE_CATEGORY.get(rule_id, _DEFAULT_CATEGORY)
 
         if category == "return" and active_today:

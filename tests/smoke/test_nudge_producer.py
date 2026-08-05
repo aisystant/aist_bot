@@ -105,4 +105,64 @@ def test_multiple_nudges_all_produced_independently():
         text_by_nudge_key={"nudge_inactivity": "a", "nudge_stage_reached_2": "b"},
         active_today=False, first_use_connect_full=False,
     )
-    assert {c.nudge_type for c in result} == {"nudge_inactivity", "nudge_stage_reached_2"}
+    assert {c.nudge_type for c in result} == {"nudge_inactivity"}
+
+
+def test_stopgap_suppresses_achievement_sessions_in_producer():
+    nudges = [_analyze_result("achievement_sessions", "nudge_sessions_10")]
+    result = np.produce(
+        nudges, user_id=1,
+        text_by_nudge_key={"nudge_sessions_10": "10 сессий!"},
+        active_today=False, first_use_connect_full=False,
+    )
+    assert result == []
+
+
+def test_stopgap_suppresses_achievement_active_days_in_producer():
+    nudges = [_analyze_result("achievement_active_days", "nudge_active_days_30")]
+    result = np.produce(
+        nudges, user_id=1,
+        text_by_nudge_key={"nudge_active_days_30": "30 дней!"},
+        active_today=False, first_use_connect_full=False,
+    )
+    assert result == []
+
+
+def test_stopgap_suppresses_stage_upgrade_in_producer():
+    nudges = [_analyze_result("stage_upgrade", "nudge_stage_reached_2")]
+    result = np.produce(
+        nudges, user_id=1,
+        text_by_nudge_key={"nudge_stage_reached_2": "Ступень 2"},
+        active_today=False, first_use_connect_full=False,
+    )
+    assert result == []
+
+
+def test_stopgap_preserves_agency_high_in_producer():
+    """agency_high — не achievement, producer не должен его подавлять."""
+    nudges = [_analyze_result("agency_high", "nudge_agency_high")]
+    result = np.produce(
+        nudges, user_id=1,
+        text_by_nudge_key={"nudge_agency_high": "Высокая агентность"},
+        active_today=False, first_use_connect_full=False,
+    )
+    assert len(result) == 1
+    assert result[0].nudge_type == "nudge_agency_high"
+
+
+def test_stopgap_mixed_list_keeps_allowed_nudges():
+    nudges = [
+        _analyze_result("inactivity_3d", "nudge_inactivity"),
+        _analyze_result("achievement_sessions", "nudge_sessions_25"),
+        _analyze_result("agency_high", "nudge_agency_high"),
+    ]
+    result = np.produce(
+        nudges, user_id=1,
+        text_by_nudge_key={
+            "nudge_inactivity": "a",
+            "nudge_sessions_25": "b",
+            "nudge_agency_high": "c",
+        },
+        active_today=False, first_use_connect_full=False,
+    )
+    assert {c.nudge_type for c in result} == {"nudge_inactivity", "nudge_agency_high"}
