@@ -23,7 +23,11 @@ HTTP стек: aiohttp (уже в requirements.txt бота). httpx целена
 """
 
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -32,7 +36,13 @@ import aiohttp
 
 from core.tracing import traced_acquire
 
-from config import EVENT_GATEWAY_URL, EVENT_GATEWAY_TIMEOUT, EVENT_GATEWAY_ENABLED
+from config import (
+    EVENT_GATEWAY_ENABLED,
+    EVENT_GATEWAY_HMAC_KEY,
+    EVENT_GATEWAY_HMAC_KEY_ID,
+    EVENT_GATEWAY_TIMEOUT,
+    EVENT_GATEWAY_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +121,31 @@ async def post_event(
 
     try:
         session = _get_session()
-        async with session.post(f"{EVENT_GATEWAY_URL}/events", json=envelope) as resp:
+        body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
+        headers = {"Content-Type": "application/json"}
+        if EVENT_GATEWAY_HMAC_KEY:
+            timestamp = str(int(time.time()))
+            canonical = (
+                f"v1\n{source}\n{EVENT_GATEWAY_HMAC_KEY_ID}\n{timestamp}\n".encode()
+                + body
+            )
+            signature = hmac.new(
+                EVENT_GATEWAY_HMAC_KEY.encode(),
+                canonical,
+                hashlib.sha256,
+            ).hexdigest()
+            headers.update({
+                "X-IWE-Signature-Version": "v1",
+                "X-IWE-Key-Id": EVENT_GATEWAY_HMAC_KEY_ID,
+                "X-IWE-Timestamp": timestamp,
+                "X-IWE-Signature": f"sha256={signature}",
+            })
+
+        async with session.post(
+            f"{EVENT_GATEWAY_URL}/events",
+            data=body,
+            headers=headers,
+        ) as resp:
             if resp.status >= 400:
                 body = await resp.text()
                 logger.warning(

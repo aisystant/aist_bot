@@ -9,8 +9,11 @@ WP-268 Phase 2 Phase A — smoke-тесты для helpers/dual_write.py.
 5. fire_event без running loop → warning, no raise.
 """
 
-import sys
+import hashlib
+import hmac
+import json as jsonlib
 import os
+import sys
 from pathlib import Path
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
@@ -55,9 +58,11 @@ async def test_post_event_envelope_correct():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
+        def post(self, url, json=None, data=None, headers=None):
             captured["url"] = url
-            captured["json"] = json
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["data"] = data
+            captured["headers"] = headers
             return FakeResponse()
         async def close(self):
             self.closed = True
@@ -89,6 +94,51 @@ async def test_post_event_envelope_correct():
 
 
 @pytest.mark.asyncio
+async def test_post_event_hmac_covers_exact_body():
+    """HMAC связывает источник, ключ, время и точные байты HTTP-тела."""
+    from helpers import dual_write
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class FakeSession:
+        closed = False
+
+        def post(self, url, json=None, data=None, headers=None):
+            captured["data"] = data
+            captured["headers"] = headers
+            return FakeResponse()
+
+    secret = "0123456789abcdef0123456789abcdef"
+    with patch.object(dual_write, "_get_session", return_value=FakeSession()), \
+         patch.object(dual_write, "EVENT_GATEWAY_ENABLED", True), \
+         patch.object(dual_write, "EVENT_GATEWAY_HMAC_KEY", secret), \
+         patch.object(dual_write, "EVENT_GATEWAY_HMAC_KEY_ID", "current"), \
+         patch.object(dual_write.time, "time", return_value=1785920400):
+        await dual_write.post_event(
+            source="aist-bot",
+            external_id="signed-1",
+            event_type="user_registered",
+            schema_version="v1",
+            occurred_at=datetime(2026, 8, 5, 9, 0, tzinfo=timezone.utc),
+            account_id=None,
+            payload={},
+        )
+
+    canonical = b"v1\naist-bot\ncurrent\n1785920400\n" + captured["data"]
+    expected = hmac.new(secret.encode(), canonical, hashlib.sha256).hexdigest()
+    assert captured["headers"]["X-IWE-Signature"] == f"sha256={expected}"
+
+
+@pytest.mark.asyncio
 async def test_post_event_account_id_none_omitted():
     """account_id=None → ключ отсутствует в envelope (gateway accepts NULL)."""
     from helpers import dual_write
@@ -106,8 +156,9 @@ async def test_post_event_account_id_none_omitted():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     with patch.object(dual_write, "_get_session", return_value=FakeSession()):
@@ -132,7 +183,7 @@ async def test_post_event_swallows_network_errors():
 
     class BrokenSession:
         closed = False
-        def post(self, url, json=None):
+        def post(self, url, json=None, data=None, headers=None):
             raise ConnectionError("connection refused")
 
     with patch.object(dual_write, "_get_session", return_value=BrokenSession()):
@@ -193,7 +244,7 @@ async def test_post_event_handles_4xx_response():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
+        def post(self, url, json=None, data=None, headers=None):
             return FakeResponse()
 
     with patch.object(dual_write, "_get_session", return_value=FakeSession()):
@@ -337,8 +388,9 @@ async def test_phase_b_qa_query_envelope():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     with patch.object(dual_write, "_get_session", return_value=FakeSession()):
@@ -388,8 +440,9 @@ async def test_phase_b_notification_sent_envelope():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     caller_payload = {"user_name": "Иван", "topic_title": "Урок 3"}
@@ -436,8 +489,9 @@ async def test_phase_b_request_traced_envelope():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     with patch.object(dual_write, "_get_session", return_value=FakeSession()):
@@ -482,8 +536,9 @@ async def test_phase_b_log_event_legacy_event_envelope():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     with patch.object(dual_write, "_get_session", return_value=FakeSession()):
@@ -588,8 +643,9 @@ async def test_user_updated_payload_omits_telegram_id():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     # Эмулируем тот же envelope, который собирает update_intern после fix
@@ -642,8 +698,9 @@ async def test_dt_oauth_completed_payload_omits_telegram_id():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     ory_id = "11111111-2222-3333-4444-555555555555"
@@ -687,8 +744,9 @@ async def test_dt_recalc_single_uses_day_bucket():
 
     class FakeSession:
         closed = False
-        def post(self, url, json=None):
-            captured["json"] = json
+        def post(self, url, json=None, data=None, headers=None):
+            captured["json"] = json if json is not None else jsonlib.loads(data)
+            captured["headers"] = headers
             return FakeResponse()
 
     user_uuid = "abc-def-123"

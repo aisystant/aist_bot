@@ -192,6 +192,9 @@ EVENT_GATEWAY_URL: str = os.getenv("EVENT_GATEWAY_URL", "https://event-gateway.a
 EVENT_GATEWAY_TIMEOUT: float = float(os.getenv("EVENT_GATEWAY_TIMEOUT", "5.0"))
 # Feature flag: можно отключить dual-write на проде через env var
 EVENT_GATEWAY_ENABLED: bool = os.getenv("EVENT_GATEWAY_ENABLED", "true").lower() == "true"
+# Поисточниковая подпись ingress. Пустой ключ сохраняет режим наблюдения при миграции.
+EVENT_GATEWAY_HMAC_KEY: str = os.getenv("EVENT_GATEWAY_HMAC_KEY", "")
+EVENT_GATEWAY_HMAC_KEY_ID: str = os.getenv("EVENT_GATEWAY_HMAC_KEY_ID", "current")
 
 # WP-418 Ф3/Ф4: единый слой доставки (Доставщик, core.notification_service).
 # Выключен по умолчанию. Включать ДО миграции/деплоя точек-отправителей: drain на
