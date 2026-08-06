@@ -31,7 +31,7 @@
 | **Активность** | Streaks, даты, марафон-статус | `development.user_state`, `activity_log` |
 | **Ответы** | Сводка ответов (theory, work_product, fixation) | `answers` |
 | **Интеграции** | GitHub / Ory / DT / Google Cal / Linear / Wakatime / Discourse — статус | соответствующие `*_connections` таблицы |
-| **Удаление данных** | Кнопка «Удалить всё» → confirm через text input | `delete_all_user_data()` |
+| **Удаление данных** | Кнопка «Удалить всё» → confirm через text input | `db/queries/profile.py::delete_all_user_data()` |
 
 ## 3. Правила навигации (§10.32)
 
@@ -41,7 +41,7 @@
 
 ## 4. Удаление (GDPR)
 
-**Confirm flow:** кнопка «Удалить всё» → bot отправляет сообщение с просьбой ввести «УДАЛИТЬ» → handler на следующее текстовое сообщение сверяет → `delete_all_user_data(chat_id)`.
+**Confirm flow:** кнопка «Удалить всё» → bot отправляет сообщение с просьбой ввести точную фразу → handler на следующее текстовое сообщение сверяет → кнопка «Я согласен, удалить все данные» → `delete_all_user_data(chat_id)` (каскадно удаляет все таблицы основного пула, включая `development.daily_activity_marker`, а затем вторичные БД).
 
 **Хранение context:** `awaiting_delete` → в `development.user_state.current_context` (не в `fsm_states.data` — §10.35).
 
@@ -52,7 +52,7 @@
 | `handlers/commands.py` | `cmd_mydata` |
 | `core/dispatcher.py` | `route_command('mydata')` |
 | `states/utilities/mydata.py` | (опциональный) SM state с inline hub |
-| `db/queries/users.py` | `delete_all_user_data()` |
+| `db/queries/profile.py` | `delete_all_user_data()` |
 
 ## 6. Связанное с Pack
 

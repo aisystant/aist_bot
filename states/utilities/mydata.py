@@ -408,7 +408,24 @@ class MyDataState(BaseState):
             chat_id = self._get_chat_id(user)
             lang = self._get_lang(user)
             await self._clear_context(chat_id)
-            await self._execute_delete(user, chat_id, lang)
+            try:
+                await self._execute_delete(user, chat_id, lang)
+            except Exception as e:
+                logger.error(f"MyData final delete failed for chat_id={chat_id}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                await self.send(
+                    user,
+                    t('mydata.delete_error', lang),
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=f"← {t('mydata.back_to_hub', lang)}",
+                            callback_data="mydata_hub",
+                        )],
+                    ]),
+                    parse_mode="Markdown",
+                )
+                return None
             return "deleted"
 
         if data == "mydata_cancel_delete":
