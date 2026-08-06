@@ -62,6 +62,11 @@ PATTERNS: list[dict] = [
      "pattern": r"(?i)стейт не найден|state.*not found|state.*not registered",
      "action": "PR: зарегистрировать стейт или убрать команду"},
 
+    # --- Discourse — before generic Claude 429 pattern ---
+    {"category": "scheduler", "severity": "L1",
+     "pattern": r"(?i)\[Discourse\] Comment polling paused after rate[-\s]?limit",
+     "action": "Отложить пакет; не менять счётчик отсутствующих топиков"},
+
     # --- Claude API (§ 3.3) — before DB (claude timeout ≠ db timeout) ---
     {"category": "claude_api", "severity": "L1",
      "pattern": r"(?i)rate_limit|RateLimitError|status.?code.*429",

@@ -26,10 +26,27 @@ Scopes: topics (write, read, read_lists), uploads (create), categories (list, sh
 
 import asyncio
 import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+
 import aiohttp
 from config import get_logger
 
 logger = get_logger(__name__)
+
+_MAX_RATE_LIMIT_SLEEP_SECONDS = 30.0
+
+
+class DiscourseError(Exception):
+    """Ошибка Discourse API, отличная от подтверждённого отсутствия топика."""
+
+
+class DiscourseRateLimitError(DiscourseError):
+    """Discourse исчерпал локальные повторы и всё ещё отвечает HTTP 429."""
+
+    def __init__(self, retry_after: float):
+        super().__init__(f"Discourse rate limit; retry after {retry_after:g}s")
+        self.retry_after = retry_after
 
 
 class DiscourseClient:
@@ -56,6 +73,45 @@ class DiscourseClient:
             "Content-Type": "application/json",
         }
 
+    @staticmethod
+    def _retry_after_from_header(value: str | None) -> float | None:
+        if not value:
+            return None
+        try:
+            return max(0.0, float(value))
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+    async def _get_retry_after(
+        self,
+        resp: aiohttp.ClientResponse,
+        default: float,
+        *,
+        read_body: bool = True,
+    ) -> float:
+        retry_after = self._retry_after_from_header(resp.headers.get("Retry-After"))
+        if retry_after is None and read_body:
+            try:
+                payload = await resp.json()
+                retry_after = float(payload.get("extras", {}).get("wait_seconds"))
+            except (
+                AttributeError,
+                TypeError,
+                ValueError,
+                aiohttp.ClientError,
+                asyncio.TimeoutError,
+            ):
+                retry_after = default
+        elif retry_after is None:
+            retry_after = default
+        return max(0.0, retry_after)
+
     async def _request_with_retry(
         self,
         method: str,
@@ -65,6 +121,7 @@ class DiscourseClient:
         json: dict | None = None,
         data: aiohttp.FormData | None = None,
         max_retries: int = 2,
+        raise_on_rate_limit: bool = False,
     ) -> aiohttp.ClientResponse:
         """Execute HTTP request with retry on 429/5xx.
 
@@ -82,19 +139,43 @@ class DiscourseClient:
             kwargs["data"] = data
 
         for attempt in range(max_retries + 1):
-            resp = await session.request(method, url, **kwargs)
+            try:
+                resp = await session.request(method, url, **kwargs)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                if attempt < max_retries:
+                    wait = 2 * (attempt + 1)
+                    logger.warning(
+                        f"Discourse network error on {method} {url}, "
+                        f"retry after {wait}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise DiscourseError(
+                    f"Discourse network error on {method} {url}: {type(exc).__name__}"
+                ) from exc
 
             if resp.status == 429:
+                retry_after = await self._get_retry_after(
+                    resp,
+                    default=float(5 * (2 ** attempt)),
+                    read_body=attempt < max_retries or raise_on_rate_limit,
+                )
                 if attempt < max_retries:
-                    retry_after = float(resp.headers.get("Retry-After", 5 * (2 ** attempt)))
+                    sleep_for = min(
+                        max(1.0, retry_after),
+                        _MAX_RATE_LIMIT_SLEEP_SECONDS,
+                    )
                     logger.warning(
                         f"Discourse 429 on {method} {url}, "
-                        f"retry after {retry_after}s (attempt {attempt + 1}/{max_retries})"
+                        f"retry after {sleep_for}s (attempt {attempt + 1}/{max_retries})"
                     )
-                    await resp.release()
-                    await asyncio.sleep(retry_after)
+                    resp.release()
+                    await asyncio.sleep(sleep_for)
                     continue
-                logger.error(f"Discourse 429 on {method} {url}, retries exhausted")
+                logger.warning(f"Discourse 429 on {method} {url}, retries exhausted")
+                if raise_on_rate_limit:
+                    resp.release()
+                    raise DiscourseRateLimitError(retry_after)
                 return resp
 
             if 500 <= resp.status < 600:
@@ -104,7 +185,7 @@ class DiscourseClient:
                         f"Discourse {resp.status} on {method} {url}, "
                         f"retry after {wait}s (attempt {attempt + 1}/{max_retries})"
                     )
-                    await resp.release()
+                    resp.release()
                     await asyncio.sleep(wait)
                     continue
                 logger.error(f"Discourse {resp.status} on {method} {url}, retries exhausted")
@@ -356,28 +437,43 @@ class DiscourseClient:
             return data.get("topic_list", {}).get("topics", [])
 
     async def get_topic(self, topic_id: int) -> dict | None:
-        """Получить топик с постами (для мониторинга комментариев)."""
+        """Получить топик или ``None`` только для подтверждённого HTTP 404.
+
+        Временные ответы API не маскируются под отсутствие топика: вызывающий
+        код должен отложить проверку, не меняя счётчик подтверждённых 404.
+        """
         url = f"{self.base_url}/t/{topic_id}.json"
-        resp = await self._request_with_retry("GET", url, headers=self._headers())
+        resp = await self._request_with_retry(
+            "GET",
+            url,
+            headers=self._headers(),
+            raise_on_rate_limit=True,
+        )
         async with resp:
             if resp.status == 404:
                 logger.info(f"Discourse get_topic {topic_id}: topic not found (404)")
                 return None
             if resp.status >= 400:
-                logger.error(f"Discourse get_topic {topic_id} error {resp.status}")
-                return None
-            return await resp.json()
+                raise DiscourseError(
+                    f"Discourse get_topic {topic_id} returned HTTP {resp.status}"
+                )
+            try:
+                topic = await resp.json()
+            except Exception as exc:
+                raise DiscourseError(
+                    f"Discourse get_topic {topic_id} returned invalid JSON"
+                ) from exc
+            if not isinstance(topic, dict) or not topic:
+                raise DiscourseError(
+                    f"Discourse get_topic {topic_id} returned invalid payload"
+                )
+            return topic
 
     # ── Cleanup ────────────────────────────────────────────
 
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
-
-
-class DiscourseError(Exception):
-    """Ошибка Discourse API."""
-    pass
 
 
 # ── Singleton ──────────────────────────────────────────────

@@ -666,12 +666,18 @@
 | `source_file` | TEXT | — | GitHub path |
 | `category_id` | INTEGER | — | |
 | `posts_count` | INTEGER | `1` | |
-| `comment_check_failures` | INTEGER | `0` | |
+| `comment_check_failures` | INTEGER | `0` | Счётчик подтверждённых HTTP 404; временные ошибки и HTTP 429 его не меняют, успешная проверка сбрасывает в 0 |
 | `last_checked_at`, `published_at` | TIMESTAMP | `NOW()` | |
 
 **Constraints:** UNIQUE(discourse_topic_id)
 
 **Индексы:** `idx_published_posts_topic`, `idx_published_posts_chat`
+
+Планировщик проверяет до десяти давно не проверявшихся постов за запуск с
+секундным интервалом между запросами. После трёх подтверждённых HTTP 404 пост
+переходит в недельный режим проверки вместо вечного исключения. Временная
+недоступность Discourse не считается отсутствием топика; любой терминальный
+исход продвигает очередь, а успешная проверка сбрасывает счётчик.
 
 ### 7.3. `scheduled_publications` (очередь публикаций)
 

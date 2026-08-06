@@ -114,12 +114,14 @@ async def is_title_published(chat_id: int, title: str) -> bool:
 
 
 async def update_post_comments_count(discourse_topic_id: int, posts_count: int) -> None:
-    """Обновить количество постов (комментариев) в топике."""
+    """Зафиксировать успешную проверку и снять прошлые ошибки HTTP 404."""
     pool = await get_publication_pool()
     await pool.execute(
         """
         UPDATE published_post
-        SET posts_count = $2, last_checked_at = NOW()
+        SET posts_count = $2,
+            last_checked_at = clock_timestamp(),
+            comment_check_failures = 0
         WHERE discourse_topic_id = $1
         """,
         discourse_topic_id, posts_count,
@@ -129,7 +131,8 @@ async def update_post_comments_count(discourse_topic_id: int, posts_count: int) 
 async def get_posts_for_comment_check() -> list[dict]:
     """Получить посты для проверки комментариев (polling).
 
-    Исключает посты с 3+ неудачными проверками (удалённые/недоступные топики).
+    После трёх подтверждённых 404 переводит пост в недельный backoff, но не
+    исключает навсегда. За один запуск берётся не больше десяти топиков.
 
     NOTE (WP-253 lift-and-shift): JOIN с club_account через cross-DB не работает
     из одного pool. Делаем отдельный запрос club_account и enrich в Python.
@@ -139,9 +142,14 @@ async def get_posts_for_comment_check() -> list[dict]:
         """
         SELECT pp.*
         FROM published_post pp
-        WHERE COALESCE(pp.comment_check_failures, 0) < 3
-        ORDER BY pp.published_at DESC
-        LIMIT 100
+        WHERE pp.discourse_topic_id IS NOT NULL
+          AND (
+              COALESCE(pp.comment_check_failures, 0) < 3
+              OR pp.last_checked_at IS NULL
+              OR pp.last_checked_at <= NOW() - INTERVAL '7 days'
+          )
+        ORDER BY pp.last_checked_at ASC NULLS FIRST, pp.published_at DESC, pp.id ASC
+        LIMIT 10
         """
     )
     posts = [dict(r) for r in rows]
@@ -162,12 +170,26 @@ async def get_posts_for_comment_check() -> list[dict]:
 
 
 async def increment_comment_check_failures(discourse_topic_id: int) -> None:
-    """Инкремент счётчика неудачных проверок комментариев."""
+    """Инкремент счётчика только после подтверждённого HTTP 404."""
     pool = await get_publication_pool()
     await pool.execute(
         """
         UPDATE published_post
-        SET comment_check_failures = COALESCE(comment_check_failures, 0) + 1
+        SET comment_check_failures = COALESCE(comment_check_failures, 0) + 1,
+            last_checked_at = clock_timestamp()
+        WHERE discourse_topic_id = $1
+        """,
+        discourse_topic_id,
+    )
+
+
+async def mark_comment_check_attempt(discourse_topic_id: int) -> None:
+    """Продвинуть очередь после терминальной ошибки, не связанной с HTTP 404."""
+    pool = await get_publication_pool()
+    await pool.execute(
+        """
+        UPDATE published_post
+        SET last_checked_at = clock_timestamp()
         WHERE discourse_topic_id = $1
         """,
         discourse_topic_id,
