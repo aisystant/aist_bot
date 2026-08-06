@@ -36,6 +36,7 @@ def patch_onboarding_deps():
          patch("core.tier_ui.send_tier_keyboard", new_callable=AsyncMock) as mock_send_kb, \
          patch("db.queries.aisystant.get_aisystant_id", new_callable=AsyncMock) as mock_ais, \
          patch("db.queries.onboarding_journey.get_onboarding_state", new_callable=AsyncMock) as mock_get_state, \
+         patch("db.queries.onboarding_journey.get_cohort_id_for_chat", new_callable=AsyncMock) as mock_cohort, \
          patch("db.queries.activity.get_activity_stats", new_callable=AsyncMock) as mock_stats, \
          patch("db.queries.users.get_slot_load", new_callable=AsyncMock) as mock_slot, \
          patch("db.queries.users.moscow_today") as mock_today, \
@@ -45,6 +46,7 @@ def patch_onboarding_deps():
         mock_get.return_value = make_intern(onboarding_completed=False)
         mock_link.return_value = None  # _try_auto_link returns UUID or None
         mock_get_state.return_value = {'cohort_id': 'R1'}
+        mock_cohort.return_value = 'R1'
         mock_tier.return_value = "T0"
         mock_kb.return_value = MagicMock()  # ReplyKeyboard
         mock_ais.return_value = None
@@ -64,6 +66,7 @@ def patch_onboarding_deps():
             "send_tier_kb": mock_send_kb,
             "aisystant_id": mock_ais,
             "get_onboarding_state": mock_get_state,
+            "get_cohort_id_for_chat": mock_cohort,
             "activity_stats": mock_stats,
             "slot_load": mock_slot,
             "moscow_today": mock_today,

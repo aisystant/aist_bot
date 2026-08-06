@@ -255,7 +255,8 @@ async def cmd_start(message: Message, state: FSMContext):
             # Напоминание о привязке Aisystant, если не привязан
             from db.queries.aisystant import get_aisystant_id
             lang = intern.get('language', 'ru') or 'ru'
-            aisystant_id = await get_aisystant_id(message.chat.id)
+            async with span("start.link_lookup"):
+                aisystant_id = await get_aisystant_id(message.chat.id)
             if not aisystant_id:
                 await message.answer(t('welcome.link_reminder', lang), parse_mode="Markdown")
 
@@ -266,11 +267,13 @@ async def cmd_start(message: Message, state: FSMContext):
                 tier = int(tier_str[1:])
             else:
                 from core.tier_detector import detect_ui_tier
-                tier = await detect_ui_tier(message.chat.id)
+                async with span("start.tier"):
+                    tier = await detect_ui_tier(message.chat.id)
             asyncio.create_task(sync_menu_commands(message.bot, message.chat.id, tier, lang))
 
             # WP-406 Ф5: вход Онбордера для вернувшихся с незакрытым Х2/Х3
-            await _maybe_offer_onboarder(message, message.chat.id)
+            async with span("start.onboarder_offer"):
+                await _maybe_offer_onboarder(message, message.chat.id)
             return
 
         lang = intern.get('language', 'ru')
@@ -284,7 +287,8 @@ async def cmd_start(message: Message, state: FSMContext):
         # Прогресс активности
         from db.queries.activity import get_activity_stats
         from core.topics import get_marathon_day, get_display_day
-        stats = await get_activity_stats(message.chat.id)
+        async with span("start.activity"):
+            stats = await get_activity_stats(message.chat.id)
         total_active = stats.get('total', 0)
         marathon_day = get_marathon_day(intern)
         display_day = get_display_day(intern)
@@ -296,12 +300,14 @@ async def cmd_start(message: Message, state: FSMContext):
             tier = int(tier_str[1:])
         else:
             from core.tier_detector import detect_ui_tier
-            tier = await detect_ui_tier(message.chat.id)
+            async with span("start.tier"):
+                tier = await detect_ui_tier(message.chat.id)
         keyboard = build_reply_keyboard(tier, lang)
 
         # Напоминание о привязке Aisystant, если не привязан
         from db.queries.aisystant import get_aisystant_id
-        aisystant_id = await get_aisystant_id(message.chat.id)
+        async with span("start.link_lookup"):
+            aisystant_id = await get_aisystant_id(message.chat.id)
 
         text = (
             t('welcome.returning', lang, name=intern['name']) + "\n" +
@@ -311,17 +317,19 @@ async def cmd_start(message: Message, state: FSMContext):
         if not aisystant_id:
             text += "\n\n" + t('welcome.link_reminder', lang)
 
-        await message.answer(
-            text,
-            parse_mode="Markdown",
-            reply_markup=keyboard,
-        )
+        async with span("start.welcome"):
+            await message.answer(
+                text,
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
 
         # Sync per-user menu commands (fire-and-forget to reduce latency)
         asyncio.create_task(sync_menu_commands(message.bot, message.chat.id, tier, lang))
 
         # WP-406 Ф5: вход Онбордера для вернувшихся с незакрытым Х2/Х3
-        await _maybe_offer_onboarder(message, message.chat.id)
+        async with span("start.onboarder_offer"):
+            await _maybe_offer_onboarder(message, message.chat.id)
         return
 
     # WP-79: Упрощённый онбординг — 0 шагов
@@ -334,24 +342,27 @@ async def cmd_start(message: Message, state: FSMContext):
     name = message.from_user.first_name or message.from_user.username or 'User'
 
     # Сразу создаём профиль и завершаем онбординг
-    await update_intern(
-        message.chat.id,
-        name=name,
-        language=lang,
-        onboarding_completed=True,
-    )
-    # Сохраняем tg_username для привязки Aisystant
-    if message.from_user.username:
-        await update_intern(message.chat.id, tg_username=message.from_user.username)
+    async with span("start.profile_create"):
+        await update_intern(
+            message.chat.id,
+            name=name,
+            language=lang,
+            onboarding_completed=True,
+        )
+        # Сохраняем tg_username для привязки Aisystant
+        if message.from_user.username:
+            await update_intern(message.chat.id, tg_username=message.from_user.username)
 
     # Пробуем привязать Aisystant (синхронно, чтобы знать результат)
-    aisystant_uuid = await _try_auto_link(message.chat.id)
-    linked = aisystant_uuid is not None
+    async with span("start.auto_link"):
+        aisystant_id = await _try_auto_link(message.chat.id)
+    linked = aisystant_id is not None
 
     # Отправляем приветствие + T0 клавиатуру
     from core.tier_ui import build_reply_keyboard, sync_menu_commands
     from core.tier_detector import detect_ui_tier
-    tier = await detect_ui_tier(message.chat.id)
+    async with span("start.tier"):
+        tier = await detect_ui_tier(message.chat.id)
     keyboard = build_reply_keyboard(tier, lang)
 
     if not linked:
@@ -386,23 +397,24 @@ async def cmd_start(message: Message, state: FSMContext):
         # WP-406 Ф5: вход Онбордера сразу после привязки (Экран B быстрого пути)
         await _maybe_offer_onboarder(message, message.chat.id)
 
-    await sync_menu_commands(message.bot, message.chat.id, tier, lang)
+    async with span("start.menu_sync"):
+        await sync_menu_commands(message.bot, message.chat.id, tier, lang)
 
     # WP-151 Ф3 / WP-406 Ф18: registration_completed (fast path).
     # Renamed from 'onboarding_completed' — that name is now reserved for the
     # moment both Х2 and Х3 close (see core/onboarder/x2.py, on_x3_confirm below).
     from db.queries.events import log_event
-    from db.queries.onboarding_journey import get_onboarding_state
+    from db.queries.onboarding_journey import get_cohort_id_for_chat
     cohort_id = 'R1'
-    if aisystant_uuid:
-        _state = await get_onboarding_state(aisystant_uuid)
-        cohort_id = (_state or {}).get('cohort_id', 'R1')
-    await log_event(message.chat.id, 'registration_completed', {
-        'lang': lang,
-        'path': 'fast',
-        'linked_aisystant': linked,
-        'cohort_id': cohort_id,
-    })
+    async with span("start.registration_event"):
+        if aisystant_id:
+            cohort_id = await get_cohort_id_for_chat(message.chat.id)
+        await log_event(message.chat.id, 'registration_completed', {
+            'lang': lang,
+            'path': 'fast',
+            'linked_aisystant': linked,
+            'cohort_id': cohort_id,
+        })
 
     if linked:
         await state.clear()
@@ -717,12 +729,11 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         # Renamed from 'onboarding_completed' — see rationale at the fast-path call above.
         from db.queries.events import log_event
         from db.queries.aisystant import get_aisystant_id
-        from db.queries.onboarding_journey import get_onboarding_state
-        _fsm_uuid = await get_aisystant_id(chat_id)
+        from db.queries.onboarding_journey import get_cohort_id_for_chat
+        _fsm_aisystant_id = await get_aisystant_id(chat_id)
         _fsm_cohort_id = 'R1'
-        if _fsm_uuid:
-            _fsm_state = await get_onboarding_state(_fsm_uuid)
-            _fsm_cohort_id = (_fsm_state or {}).get('cohort_id', 'R1')
+        if _fsm_aisystant_id:
+            _fsm_cohort_id = await get_cohort_id_for_chat(chat_id)
         await log_event(chat_id, 'onboarding_step', {'step': 'confirm'})
         await log_event(chat_id, 'registration_completed', {
             'lang': lang,
@@ -730,7 +741,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             'duration': intern.get('study_duration'),
             'schedule_time': intern.get('schedule_time'),
             'start_date': str(intern.get('marathon_start_date')),
-            'linked_aisystant': _fsm_uuid is not None,
+            'linked_aisystant': _fsm_aisystant_id is not None,
             'cohort_id': _fsm_cohort_id,
         })
 
@@ -964,12 +975,14 @@ async def on_onboarder_start(callback: CallbackQuery):
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e:
         logger.debug("[onboarder] could not clear offer button for %s: %s", chat_id, e)
-    intern = await get_intern(chat_id)
+    async with span("onboarder.get_intern"):
+        intern = await get_intern(chat_id)
     if not intern:
         return
     try:
         from core.onboarder import handle
-        await handle(intern, callback.message)
+        async with span("onboarder.handle"):
+            await handle(intern, callback.message)
     except Exception as e:
         logger.error("[onboarder] handle failed for %s: %s", chat_id, e)
         lang = intern.get('language', 'ru') or 'ru'
@@ -1080,7 +1093,7 @@ async def on_marathon_time_input(message: Message, state: FSMContext):
 async def _try_auto_link(chat_id: int) -> str | None:
     """Попытка автоматической привязки Aisystant аккаунта при /start.
 
-    Returns aisystant UUID if linked (already was or newly linked), None otherwise.
+    Returns Aisystant numeric/string ID if linked, None otherwise.
     """
     try:
         from db.queries.aisystant import get_aisystant_id, save_aisystant_link

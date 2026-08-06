@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import time
 import uuid
 import logging
@@ -107,6 +108,30 @@ async def span(name: str, **metadata):
             logger.info(f"[SPAN] {name}: {s.duration_ms:.0f}ms")
         else:
             logger.debug(f"[SPAN] {name}: {s.duration_ms:.0f}ms")
+
+
+@asynccontextmanager
+async def traced_acquire(pool, name: str):
+    """Получить соединение и отдельно измерить ожидание checkout из пула."""
+    acquire_context = pool.acquire()
+    if hasattr(acquire_context, "__aenter__"):
+        async with span(f"{name}.pool_acquire"):
+            conn = await acquire_context.__aenter__()
+        try:
+            yield conn
+        except BaseException:
+            suppress = await acquire_context.__aexit__(*sys.exc_info())
+            if not suppress:
+                raise
+        else:
+            await acquire_context.__aexit__(None, None, None)
+    else:
+        async with span(f"{name}.pool_acquire"):
+            conn = await acquire_context
+        try:
+            yield conn
+        finally:
+            await pool.release(conn)
 
 
 async def finish_trace(trace: Trace) -> None:
