@@ -4211,6 +4211,9 @@ mydata:
   delete_done_restart:
     ru: "Бот больше не хранит информацию о тебе. Начни заново командой /start."
     en: "The bot no longer stores your information. Start fresh with /start."
+  delete_error:
+    ru: "Не удалось удалить данные. Попробуйте позже или обратитесь в поддержку."
+    en: "Could not delete data. Please try again later or contact support."
 
   # ── Misc ──
   why_thinking:

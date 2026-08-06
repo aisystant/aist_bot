@@ -15,6 +15,32 @@ from db.sql_helpers import delete_from as _delete_from_sql
 
 logger = get_logger(__name__)
 
+# Optional user-data tables in the main pool, deleted by delete_all_user_data()
+# outside the core transaction so a missing/optional table cannot abort the
+# identity deletion. column = the identifier that stores THIS user's own id
+# (verified against db/models.py) — not a group/channel id some tables also
+# happen to name chat_id (e.g. community_members, see WP query in db/queries/workshop.py).
+OPTIONAL_CHAT_TABLES = [
+    ('assessments', 'chat_id'),
+    ('channel_mentions_log', 'mentioned_chat_id'),
+    ('community_members', 'telegram_id'),
+    ('conversion_events', 'chat_id'),
+    ('discourse_accounts', 'chat_id'),
+    ('dt_tokens', 'chat_id'),
+    ('github_connections', 'chat_id'),
+    ('google_calendar_connections', 'chat_id'),
+    ('oauth_pending_states', 'telegram_user_id'),
+    ('ory_tokens', 'chat_id'),
+    ('published_posts', 'chat_id'),
+    ('scheduled_publications', 'chat_id'),
+    ('tier_events', 'chat_id'),
+    ('training_attempts', 'chat_id'),
+    ('training_children', 'chat_id'),
+    ('training_progress', 'chat_id'),
+    ('training_settings', 'chat_id'),
+    ('workshop_payments', 'telegram_id'),
+]
+
 
 async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
     """Агрегированный профиль знаний пользователя (мультипул после WP-268 Phase 5 G5).
@@ -109,11 +135,26 @@ async def delete_all_user_data(chat_id: int) -> dict:
     result = {}
 
     async with pool.acquire() as conn:
+        for table, column in OPTIONAL_CHAT_TABLES:
+            try:
+                deleted = await conn.execute(
+                    _delete_from_sql(table, f'{column} = $1'), chat_id
+                )
+                result[table] = _parse_delete_count(deleted)
+            except Exception as e:
+                logger.warning(f"[DELETE] optional table {table} cleanup failed: {e}")
+                result[table] = 0
+
+    async with pool.acquire() as conn:
         async with conn.transaction():
             # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже)
             # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (см. ниже)
             # WP-253: feed_week/feed_session/marathon_content → learning pool (см. ниже)
+            # WP-7 Ф48: daily_activity_marker — атомарный гейт счётчика активных дней.
+            # channel_monitors имеет FK на public.users(id) — удаляем до users.
             tables_chat_id = [
+                'channel_monitors',
+                'development.daily_activity_marker',
                 'reminders', 'feedback_reports', 'subscriptions',
             ]
             for table in tables_chat_id:
@@ -158,48 +199,187 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['users'] = _parse_delete_count(deleted)
 
-    # persona.user_integrations (WakaTime, GitHub OAuth tokens — 12-BC архитектура)
-    # Отдельная БД — вне основной транзакции
+    # Ory account UUID, резолвится один раз — subscription.contract, indicators,
+    # rewards, persona и secrets ниже все ключуются по нему, не по chat_id
+    # (core/access.py, core/tier_detector.py, db/queries/rewards.py). Neon не
+    # поддерживает cross-DB JOIN, поэтому каждый пул ниже получает его отдельным
+    # параметром. Нет записи в ory_identity → все account_id-блоки пишут result[x]=0.
+    account_id = None
     try:
         from db.connection import get_persona_pool
         persona_pool = await get_persona_pool()
         async with persona_pool.acquire() as pconn:
-            deleted = await pconn.execute(
-                'DELETE FROM user_integrations WHERE account_id = (SELECT account_id FROM ory_identity WHERE telegram_id = $1)',
-                chat_id
+            account_id = await pconn.fetchval(
+                'SELECT account_id FROM ory_identity WHERE telegram_id = $1', chat_id
             )
-            result['persona_user_integrations'] = _parse_delete_count(deleted)
     except Exception as e:
-        if 'does not exist' in str(e):
-            result['persona_user_integrations'] = 0
-        else:
+        if 'does not exist' not in str(e):
+            logger.warning(f"[DELETE] persona account_id resolution failed: {e}")
+
+    # persona.user_integrations (WakaTime, GitHub OAuth tokens — 12-BC архитектура)
+    if account_id:
+        try:
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as pconn:
+                deleted = await pconn.execute(
+                    'DELETE FROM user_integrations WHERE account_id = $1', account_id
+                )
+                result['persona_user_integrations'] = _parse_delete_count(deleted)
+        except Exception as e:
             logger.warning(f"[DELETE] persona user_integrations cleanup failed: {e}")
             result['persona_user_integrations'] = 0
+    else:
+        result['persona_user_integrations'] = 0
 
     # WP-253 Gap C: github_connections живут в secrets Neon БД (после миграции от bot_data)
-    # Neon не поддерживает cross-DB JOIN — сначала UUID из persona, потом DELETE в secrets
-    try:
-        from db.connection import get_secrets_pool, get_persona_pool
-        persona_pool = await get_persona_pool()
-        async with persona_pool.acquire() as pconn:
-            row = await pconn.fetchrow(
-                'SELECT id AS account_id FROM ory_identity WHERE telegram_id = $1', chat_id
-            )
-        if row:
+    if account_id:
+        try:
+            from db.connection import get_secrets_pool
             secrets_pool = await get_secrets_pool()
             async with secrets_pool.acquire() as sconn:
                 deleted = await sconn.execute(
-                    'DELETE FROM github_connections WHERE user_uuid = $1', row['account_id']
+                    'DELETE FROM github_connections WHERE user_uuid = $1', account_id
                 )
                 result['secrets_github_connections'] = _parse_delete_count(deleted)
-        else:
-            result['secrets_github_connections'] = 0
+        except Exception as e:
+            if 'does not exist' in str(e):
+                result['secrets_github_connections'] = 0
+            else:
+                logger.warning(f"[DELETE] secrets github_connections cleanup failed: {e}")
+                result['secrets_github_connections'] = 0
+    else:
+        result['secrets_github_connections'] = 0
+
+    # WP-253 lift-and-shift: subscription.contract (core/access.py) — ключ account_id.
+    if account_id:
+        try:
+            from db.connection import get_subscription_pool
+            sub_pool = await get_subscription_pool()
+            async with sub_pool.acquire() as subconn:
+                deleted = await subconn.execute(
+                    'DELETE FROM contract WHERE account_id = $1', account_id
+                )
+                result['subscription_contract'] = _parse_delete_count(deleted)
+        except Exception as e:
+            logger.warning(f"[DELETE] subscription contract cleanup failed: {e}")
+            result['subscription_contract'] = 0
+    else:
+        result['subscription_contract'] = 0
+
+    # WP-253 lift-and-shift: indicators.calculated_profile (handlers/twin.py) — ключ
+    # account_id. digital_twins той же БД сознательно вне скоупа этого фикса — отдельное
+    # продуктовое решение (пилот, см. WP-476), не багфикс.
+    if account_id:
+        try:
+            from db.connection import get_indicators_pool
+            ind_pool = await get_indicators_pool()
+            async with ind_pool.acquire() as indconn:
+                deleted = await indconn.execute(
+                    'DELETE FROM public.calculated_profile WHERE account_id = $1::uuid',
+                    str(account_id)
+                )
+                result['indicators_calculated_profile'] = _parse_delete_count(deleted)
+        except Exception as e:
+            logger.warning(f"[DELETE] indicators calculated_profile cleanup failed: {e}")
+            result['indicators_calculated_profile'] = 0
+    else:
+        result['indicators_calculated_profile'] = 0
+
+    # WP-253 Ф9.3: rewards.point_balances (db/queries/rewards.py) — ключ account_id.
+    if account_id:
+        try:
+            from db.connection import get_rewards_pool
+            rewards_pool = await get_rewards_pool()
+            async with rewards_pool.acquire() as rewconn:
+                deleted = await rewconn.execute(
+                    'DELETE FROM point_balances WHERE account_id = $1', account_id
+                )
+                result['rewards_point_balances'] = _parse_delete_count(deleted)
+        except Exception as e:
+            logger.warning(f"[DELETE] rewards point_balances cleanup failed: {e}")
+            result['rewards_point_balances'] = 0
+    else:
+        result['rewards_point_balances'] = 0
+
+    # WP-253 lift-and-shift: discourse_accounts (основной пул, выше) → club_account
+    # (community пул) — ключ chat_id напрямую, без account_id (db/queries/discourse.py).
+    try:
+        from db.connection import get_community_pool
+        community_pool = await get_community_pool()
+        async with community_pool.acquire() as commconn:
+            deleted = await commconn.execute(
+                'DELETE FROM club_account WHERE chat_id = $1', chat_id
+            )
+            result['community_club_account'] = _parse_delete_count(deleted)
     except Exception as e:
-        if 'does not exist' in str(e):
-            result['secrets_github_connections'] = 0
-        else:
-            logger.warning(f"[DELETE] secrets github_connections cleanup failed: {e}")
-            result['secrets_github_connections'] = 0
+        logger.warning(f"[DELETE] community club_account cleanup failed: {e}")
+        result['community_club_account'] = 0
+
+    # WP-253 lift-and-shift (8 мая 2026): channel_monitor/channel_mention_log
+    # переехали в publication Neon БД под singular-именами — см.
+    # db/queries/channels.py. Legacy plural-таблицы в основном пуле (выше)
+    # почти наверняка пусты после миграции, но чистим на всякий случай —
+    # реальные данные живут здесь.
+    try:
+        from db.connection import get_publication_pool
+        pub_pool = await get_publication_pool()
+        async with pub_pool.acquire() as pubconn:
+            deleted = await pubconn.execute(
+                'DELETE FROM channel_monitor WHERE chat_id = $1', chat_id
+            )
+            result['publication_channel_monitor'] = _parse_delete_count(deleted)
+            deleted = await pubconn.execute(
+                'DELETE FROM channel_mention_log WHERE mentioned_chat_id = $1', chat_id
+            )
+            result['publication_channel_mention_log'] = _parse_delete_count(deleted)
+            # Same WP-253 migration, same pool/connection: published_post/scheduled_post
+            # (db/queries/discourse.py) — the user's actual authored blog content.
+            deleted = await pubconn.execute(
+                'DELETE FROM published_post WHERE chat_id = $1', chat_id
+            )
+            result['publication_published_post'] = _parse_delete_count(deleted)
+            deleted = await pubconn.execute(
+                'DELETE FROM scheduled_post WHERE chat_id = $1', chat_id
+            )
+            result['publication_scheduled_post'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] publication pool cleanup failed: {e}")
+        result['publication_channel_monitor'] = 0
+        result['publication_channel_mention_log'] = 0
+        result['publication_published_post'] = 0
+        result['publication_scheduled_post'] = 0
+
+    # WP-253 lift-and-shift: lead.conversion_event (db/queries/conversion.py) — ключ chat_id.
+    try:
+        from db.connection import get_lead_pool
+        lead_pool = await get_lead_pool()
+        async with lead_pool.acquire() as leadconn:
+            deleted = await leadconn.execute(
+                'DELETE FROM conversion_event WHERE chat_id = $1', chat_id
+            )
+            result['lead_conversion_event'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] lead conversion_event cleanup failed: {e}")
+        result['lead_conversion_event'] = 0
+
+    # WP-253 lift-and-shift: training_setting/training_child живут в reference БД
+    # (db/queries/training.py) — ключ chat_id. training_child хранит имя ребёнка.
+    try:
+        from db.connection import get_reference_pool
+        reference_pool = await get_reference_pool()
+        async with reference_pool.acquire() as refconn:
+            deleted = await refconn.execute(
+                'DELETE FROM training_setting WHERE chat_id = $1', chat_id
+            )
+            result['reference_training_setting'] = _parse_delete_count(deleted)
+            deleted = await refconn.execute(
+                'DELETE FROM training_child WHERE chat_id = $1', chat_id
+            )
+            result['reference_training_child'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] reference training cleanup failed: {e}")
+        result['reference_training_setting'] = 0
+        result['reference_training_child'] = 0
 
     # WP-268 Phase 3 Block 1: fsm_states живёт в отдельной БД (FSM_URL, Railway-local Postgres)
     try:
@@ -243,7 +423,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 chat_id
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
-            for table in ('feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments'):
+            for table in (
+                'feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments',
+                # WP-253 lift-and-shift: training_progress/training_attempt (db/queries/training.py)
+                'training_progress', 'training_attempt',
+            ):
                 deleted = await lconn.execute(
                     _delete_from_sql('learning.' + table, 'chat_id = $1'), chat_id
                 )
