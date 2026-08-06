@@ -267,12 +267,20 @@ async def get_delivery_report() -> dict:
     # Новый движок: learning.marathon_queue (sent today) + marathon_state (checkin today)
     # user_id в learning-таблицах = Telegram chat_id (одно значение, разные имена колонок)
     async with learning_pool.acquire() as lconn:
+        # content_type != 'checkin' (РП406 Ф30, code review): чек-ин — не занятие,
+        # его sent_at не должен подменять время доставки урока. До этой правки
+        # DISTINCT ON брал САМУЮ СВЕЖУЮ 'sent'-запись дня любого типа — чек-ин
+        # (обычно позже урока/практики) перебивал реальное время занятия. Заодно
+        # закрывает и новый send-time guard (core/scheduler.py): его пропущенные
+        # push-уведомления помечаются 'sent' для идемпотентности очереди, но не
+        # были доставкой урока — теперь этот отчёт их и не видит.
         queue_today = await lconn.fetch('''
             SELECT DISTINCT ON (user_id)
                 user_id AS chat_id, status, sent_at
             FROM learning.marathon_queue
             WHERE sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
               AND status = 'sent'
+              AND content_type != 'checkin'
             ORDER BY user_id, sent_at DESC
         ''')
         queue_map = {r['chat_id']: r for r in queue_today}

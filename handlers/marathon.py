@@ -587,9 +587,15 @@ async def callback_marathon_practice(callback: CallbackQuery):
             if day < 14 else
             "\n\n🎉 Это был последний день марафона!"
         )
+        # РП406 Ф30: чек-ин доступен сразу после практики, не только вечерним
+        # напоминанием — тот же callback marathon_checkin:{state}:{day}, что и у
+        # вечернего push (callback_marathon_checkin выше в этом файле).
+        from integrations.telegram.keyboards import kb_marathon_checkin
         await callback.message.answer(
             f"✅ День {day} завершён.\n\n"
-            f"🌙 Вечером придёт чек-ин — короткая рефлексия.{next_day_msg}"
+            f"🌙 Чек-ин дня {day}: как прошёл день? Можно отметить прямо сейчас "
+            f"или дождаться напоминания.{next_day_msg}",
+            reply_markup=kb_marathon_checkin(day),
         )
         # Фиксируем факт первого получения практики (гасит напоминание-nudge).
         # На повторных кликах ON CONFLICT DO NOTHING → no-op, доставка не блокируется.
