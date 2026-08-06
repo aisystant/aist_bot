@@ -133,7 +133,9 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/scheduler.py", "_check_marathon_missed_checkins"),
 ("core/scheduler.py", "_check_marathon_split_delivery"),
 ("core/scheduler.py", "_check_retry_storm"),
-("core/scheduler.py", "_discourse_check_comments"),
+# WP-330 Ф13: direct send moved under the lock/cooldown wrapper; delivery
+# migration remains separate from the rate-limit correctness fix.
+("core/scheduler.py", "_discourse_check_comments_unlocked"),
 ("core/scheduler.py", "_discourse_scheduled_publish"),
 ("core/scheduler.py", "_drain_delivery_queue.deliver"),
 ("core/scheduler.py", "_notify_retry_exhausted"),
