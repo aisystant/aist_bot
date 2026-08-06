@@ -125,10 +125,11 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
 async def delete_all_user_data(chat_id: int) -> dict:
     """Каскадное удаление ВСЕХ данных пользователя из всех таблиц.
 
-    Порядок: зависимые таблицы → user_state → users.
+    Порядок: зависимые таблицы → user_state → users, затем вторичные БД
+    (подписки, интеграции, награды, публикации, Digital Twin).
     Возвращает dict с количеством удалённых строк по таблицам.
 
-    Ref: DP.D.028 (User Data Tiers — протокол удаления).
+    Ref: DP.D.028 (User Data Tiers — протокол удаления), WP-476 (ЦД в удалении).
     """
     pool = await get_pool()
     result = {}
@@ -215,6 +216,27 @@ async def delete_all_user_data(chat_id: int) -> dict:
         if 'does not exist' not in str(e):
             logger.warning(f"[DELETE] persona account_id resolution failed: {e}")
 
+    # WP-476: Digital Twin data lives in the indicators DB; the canonical user_id
+    # in digital_twins is dt_user_id from secrets.dt_tokens, falling back to the
+    # Ory account id. Resolve the id before deleting the token row, then remove both.
+    dt_user_id = None
+    try:
+        from db.connection import get_secrets_pool
+        secrets_pool = await get_secrets_pool()
+        async with secrets_pool.acquire() as sconn:
+            dt_row = await sconn.fetchrow(
+                'SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1', chat_id
+            )
+            if dt_row:
+                dt_user_id = dt_row['dt_user_id']
+            deleted = await sconn.execute(
+                'DELETE FROM dt_tokens WHERE chat_id = $1', chat_id
+            )
+            result['secrets_dt_tokens'] = _parse_delete_count(deleted)
+    except Exception as e:
+        logger.warning(f"[DELETE] secrets dt_tokens cleanup failed: {e}")
+        result['secrets_dt_tokens'] = 0
+
     # persona.user_integrations (WakaTime, GitHub OAuth tokens — 12-BC архитектура)
     if account_id:
         try:
@@ -265,10 +287,10 @@ async def delete_all_user_data(chat_id: int) -> dict:
     else:
         result['subscription_contract'] = 0
 
-    # WP-253 lift-and-shift: indicators.calculated_profile (handlers/twin.py) — ключ
-    # account_id. digital_twins той же БД сознательно вне скоупа этого фикса — отдельное
-    # продуктовое решение (пилот, см. WP-476), не багфикс.
-    if account_id:
+    # WP-476: remove Digital Twin data from indicators DB. The canonical key is
+    # dt_user_id (from secrets.dt_tokens) when available, otherwise the Ory account id.
+    twin_user_id = dt_user_id or account_id
+    if twin_user_id:
         try:
             from db.connection import get_indicators_pool
             ind_pool = await get_indicators_pool()
@@ -278,11 +300,18 @@ async def delete_all_user_data(chat_id: int) -> dict:
                     str(account_id)
                 )
                 result['indicators_calculated_profile'] = _parse_delete_count(deleted)
+                deleted = await indconn.execute(
+                    'DELETE FROM digital_twins WHERE user_id = $1::uuid',
+                    str(twin_user_id)
+                )
+                result['indicators_digital_twins'] = _parse_delete_count(deleted)
         except Exception as e:
-            logger.warning(f"[DELETE] indicators calculated_profile cleanup failed: {e}")
+            logger.warning(f"[DELETE] indicators cleanup failed: {e}")
             result['indicators_calculated_profile'] = 0
+            result['indicators_digital_twins'] = 0
     else:
         result['indicators_calculated_profile'] = 0
+        result['indicators_digital_twins'] = 0
 
     # WP-253 Ф9.3: rewards.point_balances (db/queries/rewards.py) — ключ account_id.
     if account_id:

@@ -4174,7 +4174,8 @@ mydata:
       • Все ответы и фиксации
       • История консультаций
       • Статистика активности
-      • Подключения (GitHub, ЦД)
+      • Подключения (GitHub)
+      • Цифровой двойник и все данные, накопленные для него
       • Подписка
     en: |
       The following will be permanently deleted:
@@ -4182,7 +4183,8 @@ mydata:
       • All answers and fixations
       • Consultation history
       • Activity statistics
-      • Connections (GitHub, DT)
+      • Connections (GitHub)
+      • Digital Twin and all data collected for it
       • Subscription
   delete_instruction:
     ru: "Для подтверждения напишите точную фразу"
@@ -4191,8 +4193,8 @@ mydata:
     ru: "Последний шаг"
     en: "Final step"
   delete_final_body:
-    ru: "Все данные будут безвозвратно удалены. Это действие нельзя отменить."
-    en: "All data will be permanently deleted. This action cannot be undone."
+    ru: "Все данные будут безвозвратно удалены, включая данные цифрового двойника. Это действие нельзя отменить."
+    en: "All data will be permanently deleted, including the Digital Twin data. This action cannot be undone."
   delete_final_confirm_btn:
     ru: "Я согласен, удалить все данные"
     en: "I agree, delete all data"
