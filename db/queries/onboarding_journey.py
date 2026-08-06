@@ -15,6 +15,7 @@ from typing import Optional
 
 from db.connection import get_learning_pool
 from db.sql_helpers import update as _update_sql
+from core.tracing import traced_acquire
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,10 @@ async def get_onboarding_state(account_id: str) -> Optional[dict]:
     """Прочитать onboarding_state для пилота. None если строки нет (не opt-in)."""
     try:
         pool = await get_learning_pool()
-        async with pool.acquire() as conn:
+        async with traced_acquire(pool, "db.get_onboarding_state") as conn:
             row = await conn.fetchrow(
                 """SELECT
+                    cohort_id,
                     first_use_consent,
                     first_use_slot,
                     first_use_points,
@@ -45,6 +47,17 @@ async def get_onboarding_state(account_id: str) -> Optional[dict]:
     except Exception as e:
         logger.warning("[Setup] onboarding_state read failed: %s", e)
         return None
+
+
+async def get_cohort_id_for_chat(chat_id: int, default: str = "R1") -> str:
+    """Получить cohort через Ory account UUID, никогда не через Aisystant ID."""
+    from helpers.dual_write import resolve_ory_id_from_chat
+
+    account_id = await resolve_ory_id_from_chat(chat_id)
+    if not account_id:
+        return default
+    state = await get_onboarding_state(account_id)
+    return (state or {}).get("cohort_id", default)
 
 
 async def write_last_nudge_at(account_id: str) -> bool:

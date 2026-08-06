@@ -34,6 +34,8 @@ from typing import Optional
 
 import aiohttp
 
+from core.tracing import traced_acquire
+
 from config import (
     EVENT_GATEWAY_ENABLED,
     EVENT_GATEWAY_HMAC_KEY,
@@ -176,7 +178,7 @@ async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
         # После WP-268 cut-over читаем из persona.ory_identity, не из legacy public.users.
         from db.connection import get_persona_pool
         pool = await get_persona_pool()
-        async with pool.acquire() as conn:
+        async with traced_acquire(pool, "db.resolve_ory_id") as conn:
             ory = await conn.fetchval(
                 "SELECT account_id::text FROM public.ory_identity WHERE telegram_id = $1",
                 chat_id,

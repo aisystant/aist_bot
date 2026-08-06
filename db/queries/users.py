@@ -20,6 +20,7 @@ from config import get_logger, MOSCOW_TZ, MULTILANG_ENABLED
 from db.connection import get_pool, get_learning_pool
 from db.sql_helpers import update as _update_sql
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
+from core.tracing import traced_acquire
 
 logger = get_logger(__name__)
 
@@ -119,7 +120,7 @@ async def get_intern(chat_id: int) -> dict:
     Создаёт записи в users и user_state если не существуют.
     """
     pool = await get_pool()
-    async with pool.acquire() as conn:
+    async with traced_acquire(pool, "db.get_intern") as conn:
         row = await conn.fetchrow(_SELECT_JOINED, chat_id)
 
         if row:
@@ -362,7 +363,7 @@ async def update_intern(chat_id: int, **kwargs):
         return
 
     # Normalize: resolve aliases, serialize JSON, zero-pad schedule times
-    columns = {}
+    normalized_columns = {}
     for key, value in kwargs.items():
         # JSON-поля
         if key in ['interests', 'completed_topics', 'current_context']:
@@ -374,56 +375,70 @@ async def update_intern(chat_id: int, **kwargs):
 
         # Синхронизация bloom <-> complexity (aliases → canonical column)
         if key in ('bloom_level', 'complexity_level'):
-            columns['complexity_level'] = value
+            normalized_columns['complexity_level'] = value
             continue
         if key in ('topics_at_current_complexity', 'topics_at_current_bloom'):
-            columns['topics_at_current_complexity'] = value
+            normalized_columns['topics_at_current_complexity'] = value
             continue
 
-        columns[key] = value
+        normalized_columns[key] = value
 
-    if not columns:
+    if not normalized_columns:
         return
 
     # Security: reject unknown column names to prevent SQL injection
-    unknown = set(columns.keys()) - ALL_KNOWN_FIELDS
+    unknown = set(normalized_columns) - ALL_KNOWN_FIELDS
     if unknown:
         logger.error(f"[update_intern] Rejected unknown fields: {unknown} for chat_id={chat_id}")
-        columns = {k: v for k, v in columns.items() if k in ALL_KNOWN_FIELDS}
-        if not columns:
+        normalized_columns = {
+            key: value
+            for key, value in normalized_columns.items()
+            if key in ALL_KNOWN_FIELDS
+        }
+        if not normalized_columns:
             return
 
     # Split into profile and state updates
-    profile_updates = {k: v for k, v in columns.items() if k in PROFILE_FIELDS}
-    state_updates = {k: v for k, v in columns.items() if k in STATE_FIELDS}
+    profile_updates = {
+        key: value
+        for key, value in normalized_columns.items()
+        if key in PROFILE_FIELDS
+    }
+    state_updates = {
+        key: value
+        for key, value in normalized_columns.items()
+        if key in STATE_FIELDS
+    }
+    affected_fields = sorted(set(profile_updates) | set(state_updates))
 
     pool = await get_pool()
-    async with pool.acquire() as conn:
-        if profile_updates:
-            set_parts = []
-            params = [chat_id]  # $1 = telegram_id
-            for i, (col, val) in enumerate(profile_updates.items(), start=2):
-                set_parts.append(f"{col} = ${i}")
-                params.append(val)
-            columns = [sp.split(" = ", 1)[0] for sp in set_parts]
-            query = _update_sql(
-                'public.users', columns, 'telegram_id = $1',
-                extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
-            )
-            await conn.execute(query, *params)
+    async with traced_acquire(pool, "db.update_intern") as conn:
+        async with conn.transaction():
+            if profile_updates:
+                set_parts = []
+                params = [chat_id]  # $1 = telegram_id
+                for i, (col, val) in enumerate(profile_updates.items(), start=2):
+                    set_parts.append(f"{col} = ${i}")
+                    params.append(val)
+                update_columns = [sp.split(" = ", 1)[0] for sp in set_parts]
+                query = _update_sql(
+                    'public.users', update_columns, 'telegram_id = $1',
+                    extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
+                )
+                await conn.execute(query, *params)
 
-        if state_updates:
-            set_parts = []
-            params = [chat_id]  # $1 = chat_id
-            for i, (col, val) in enumerate(state_updates.items(), start=2):
-                set_parts.append(f"{col} = ${i}")
-                params.append(val)
-            columns = [sp.split(" = ", 1)[0] for sp in set_parts]
-            query = _update_sql(
-                'development.user_state', columns, 'chat_id = $1',
-                extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
-            )
-            await conn.execute(query, *params)
+            if state_updates:
+                set_parts = []
+                params = [chat_id]  # $1 = chat_id
+                for i, (col, val) in enumerate(state_updates.items(), start=2):
+                    set_parts.append(f"{col} = ${i}")
+                    params.append(val)
+                update_columns = [sp.split(" = ", 1)[0] for sp in set_parts]
+                query = _update_sql(
+                    'development.user_state', update_columns, 'chat_id = $1',
+                    extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
+                )
+                await conn.execute(query, *params)
 
     # Инкрементальный sync в ЦД (fire-and-forget)
     try:
@@ -432,8 +447,8 @@ async def update_intern(chat_id: int, **kwargs):
             mapped = {k: v for k, v in kwargs.items() if k in gateway_mcp.PROFILE_DT_MAPPING}
             if mapped:
                 asyncio.create_task(gateway_mcp.sync_fields(chat_id, mapped))
-    except Exception:
-        pass  # DT sync — best effort
+    except Exception as exc:
+        logger.debug("[update_intern] DT sync scheduling failed: %s", exc)
 
     # WP-268 Phase 2 dual-write: профиль/состояние обновлено
     # Audit fix (Phase 2): (1) PII — telegram_id заменён на account_id (ory_id) через
@@ -442,7 +457,6 @@ async def update_intern(chat_id: int, **kwargs):
     # epoch_ns; retry того же UPDATE даст тот же external_id ⇒ идемпотентность gateway.
     try:
         now = datetime.utcnow()
-        affected_fields = sorted(columns.keys())
         ory_id = await resolve_ory_id_from_chat(chat_id)
         fields_hash = hashlib.sha256(
             f"{chat_id}:{','.join(affected_fields)}".encode()
