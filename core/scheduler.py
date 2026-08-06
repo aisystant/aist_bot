@@ -535,15 +535,24 @@ async def _process_marathon_queue():
 
                     try:
                         if content_type == 'checkin':
-                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                                [
-                                    InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
-                                    InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
-                                    InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
-                                ]
-                            ])
-                            await bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=keyboard)
+                            # РП406 Ф30: чек-ин теперь доступен сразу после практики
+                            # (handlers/marathon.py, тот же callback marathon_checkin).
+                            # Send-time guard: перепроверяем прямо перед отправкой (не
+                            # раньше — очередь ставится в начале дня, когда чек-ина
+                            # заведомо ещё нет), иначе push задвоит уже сделанный чек-ин.
+                            from db.queries.marathon_newcomer import get_checkin_for_day
+                            if await get_checkin_for_day(chat_id, day):
+                                await mark_queue_sent(queue_id)
+                                logger.info(
+                                    f"[MarathonQueue] Skipped checkin day {day} for {chat_id} "
+                                    "(already checked in via post-practice button)"
+                                )
+                                continue
+                            from integrations.telegram.keyboards import kb_marathon_checkin
+                            await bot.send_message(
+                                chat_id, text, parse_mode="Markdown",
+                                reply_markup=kb_marathon_checkin(day),
+                            )
                         else:
                             await bot.send_message(chat_id, text, parse_mode="Markdown")
                         await mark_queue_sent(queue_id)

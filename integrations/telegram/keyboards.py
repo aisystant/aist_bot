@@ -184,6 +184,19 @@ def kb_marathon_start(lang: str = 'ru') -> InlineKeyboardMarkup:
     ])
 
 
+def kb_marathon_checkin(day: int) -> InlineKeyboardMarkup:
+    """Три кнопки состояния чек-ина дня. Используется и вечерним push
+    (core/scheduler.py), и немедленным приглашением после практики
+    (handlers/marathon.py) — один callback_marathon_checkin обрабатывает оба входа."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="😵 Хаос", callback_data=f"marathon_checkin:chaos:{day}"),
+            InlineKeyboardButton(text="🧱 Тупик", callback_data=f"marathon_checkin:stuck:{day}"),
+            InlineKeyboardButton(text="🔁 Поворот", callback_data=f"marathon_checkin:turn:{day}"),
+        ]
+    ])
+
+
 def kb_submit_work_product(lang: str = 'ru') -> InlineKeyboardMarkup:
     """Клавиатура для практического задания"""
     return InlineKeyboardMarkup(inline_keyboard=[
