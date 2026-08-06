@@ -57,6 +57,15 @@ _bot_id: int = None          # Telegram bot ID — used to isolate reminders on 
 # WP-7 Ф-Bot-RateLimit: глобальный semaphore для MarathonQueue (≤20 msg/sec)
 _marathon_semaphore = asyncio.Semaphore(5)
 
+_discourse_comment_poll_lock = asyncio.Lock()
+_discourse_rate_limited_until = 0.0
+_DISCOURSE_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+_DISCOURSE_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 3600.0
+_DISCOURSE_COMMENT_REQUEST_INTERVAL_SECONDS = 1.0
+DISCOURSE_RATE_LIMIT_LOG = (
+    "[Discourse] Comment polling paused after rate limit; retry_after=%ss"
+)
+
 # WP-330 P1-2: warn once if MENTOR_CHANNEL_ID is not configured
 _MENTOR_CHANNEL_WARNED = False
 
@@ -3217,7 +3226,27 @@ async def _smart_publisher_scan(*, notify: bool = True):
 
 async def _discourse_check_comments():
     """Проверить новые комментарии к опубликованным постам (каждый час)."""
-    from clients.discourse import discourse
+    if _discourse_comment_poll_lock.locked():
+        logger.warning("[Discourse] Previous comment polling run is still active")
+        return
+    async with _discourse_comment_poll_lock:
+        await _discourse_check_comments_unlocked()
+
+
+async def _discourse_check_comments_unlocked():
+    """Выполнить один защищённый от наложения пакет опроса Discourse."""
+    global _discourse_rate_limited_until
+
+    cooldown_remaining = _discourse_rate_limited_until - time.monotonic()
+    if cooldown_remaining > 0:
+        logger.info(
+            "[Discourse] Comment polling skipped during rate-limit cooldown; "
+            "remaining=%ss",
+            round(cooldown_remaining, 1),
+        )
+        return
+
+    from clients.discourse import DiscourseError, DiscourseRateLimitError, discourse
     if not discourse:
         return
 
@@ -3225,6 +3254,7 @@ async def _discourse_check_comments():
         get_posts_for_comment_check,
         update_post_comments_count,
         increment_comment_check_failures,
+        mark_comment_check_attempt,
     )
 
     posts = await get_posts_for_comment_check()
@@ -3233,22 +3263,26 @@ async def _discourse_check_comments():
 
     bot = Bot(token=_bot_token)
     try:
-        for post in posts:
+        for index, post in enumerate(posts):
+            if index:
+                await asyncio.sleep(_DISCOURSE_COMMENT_REQUEST_INTERVAL_SECONDS)
             topic_id = post.get("discourse_topic_id")
             try:
                 topic = await discourse.get_topic(topic_id)
-                if not topic:
+                if topic is None:
                     await increment_comment_check_failures(topic_id)
                     logger.info(f"[Discourse] Topic {topic_id} not found, failures incremented")
                     continue
 
-                new_count = topic.get("posts_count", 1)
+                new_count = topic.get("posts_count")
                 old_count = post.get("posts_count", 1)
+                if not isinstance(new_count, int) or new_count < 1:
+                    raise DiscourseError(
+                        f"Discourse topic {topic_id} has invalid posts_count"
+                    )
 
                 if new_count > old_count:
                     # Есть новые комментарии
-                    await update_post_comments_count(topic_id, new_count)
-
                     diff = new_count - old_count
                     slug = topic.get("slug", "")
                     url = f"https://systemsworld.club/t/{slug}/{topic_id}"
@@ -3260,13 +3294,48 @@ async def _discourse_check_comments():
                         f"Новый {word} ({diff}) к посту *{title}*\n\n{url}",
                         parse_mode="Markdown",
                     )
-                    logger.info(f"[Discourse] New comments for topic {topic_id}: {old_count} -> {new_count}")
-                elif new_count == old_count:
-                    # Обновить last_checked_at
                     await update_post_comments_count(topic_id, new_count)
-            except Exception as e:
-                await increment_comment_check_failures(topic_id)
-                logger.warning(f"[Discourse] Comment check error for topic {topic_id}: {e}")
+                    logger.info(f"[Discourse] New comments for topic {topic_id}: {old_count} -> {new_count}")
+                else:
+                    # В том числе после удаления/модерации комментария.
+                    await update_post_comments_count(topic_id, new_count)
+            except DiscourseRateLimitError as exc:
+                cooldown = min(
+                    max(_DISCOURSE_RATE_LIMIT_COOLDOWN_SECONDS, exc.retry_after),
+                    _DISCOURSE_RATE_LIMIT_MAX_COOLDOWN_SECONDS,
+                )
+                _discourse_rate_limited_until = time.monotonic() + cooldown
+                logger.error(
+                    DISCOURSE_RATE_LIMIT_LOG,
+                    cooldown,
+                )
+                break
+            except DiscourseError as exc:
+                logger.warning(
+                    "[Discourse] Comment check deferred for topic %s: %s",
+                    topic_id,
+                    exc,
+                )
+                try:
+                    await mark_comment_check_attempt(topic_id)
+                except Exception:
+                    logger.exception(
+                        "[Discourse] Failed to record comment check attempt for topic %s",
+                        topic_id,
+                    )
+            except Exception as exc:
+                logger.exception(
+                    "[Discourse] Unexpected comment check error for topic %s: %s",
+                    topic_id,
+                    exc,
+                )
+                try:
+                    await mark_comment_check_attempt(topic_id)
+                except Exception:
+                    logger.exception(
+                        "[Discourse] Failed to record comment check attempt for topic %s",
+                        topic_id,
+                    )
     finally:
         await bot.session.close()
 
