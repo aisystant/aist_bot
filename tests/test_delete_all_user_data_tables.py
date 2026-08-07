@@ -7,13 +7,17 @@ same way asyncpg would reject them at execute() time if malformed.
 Run: python3 -m pytest tests/test_delete_all_user_data_tables.py -v
 """
 
+import asyncio
 import inspect
 import sys
 import os
 
+import asyncpg
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db.queries.profile import OPTIONAL_CHAT_TABLES, delete_all_user_data
+from db.queries.profile import OPTIONAL_CHAT_TABLES, _delete_tolerant, delete_all_user_data
 from db.sql_helpers import delete_from
 
 
@@ -87,6 +91,122 @@ def test_request_traces_legacy_is_outside_core_transaction():
     assert "request_traces_legacy" not in core_transaction_source
     # The health-pool copy still exists further down, keyed without '_legacy'.
     assert "result['request_traces']" in core_transaction_source
+
+
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False  # never suppress — same contract as a real SAVEPOINT
+
+
+class _FakeConn:
+    """Minimal conn.execute()/conn.transaction() double for _delete_tolerant.
+    raises is the exception instance execute() should raise, or None for success."""
+
+    def __init__(self, raises=None, delete_count=3):
+        self.raises = raises
+        self.delete_count = delete_count
+
+    def transaction(self):
+        return _FakeTransaction()
+
+    async def execute(self, sql, chat_id):
+        if self.raises:
+            raise self.raises
+        return f"DELETE {self.delete_count}"
+
+
+def test_delete_tolerant_swallows_undefined_table_error():
+    """Regression test for the 2026-08-07 17:04 МСК prod incident:
+    delete_all_user_data crashed on development.daily_activity_marker right
+    after channel_monitors got fixed the same morning — the exact failure
+    mode _delete_tolerant exists to prevent."""
+    conn = _FakeConn(raises=asyncpg.exceptions.UndefinedTableError('relation "x" does not exist'))
+    result = asyncio.run(_delete_tolerant(conn, "DELETE FROM x WHERE chat_id = $1", 1, "x"))
+    assert result == 0
+
+
+def test_delete_tolerant_reraises_other_errors():
+    """Agreed with Codex in peer session 2026-08-07-09: swallowing anything
+    beyond UndefinedTableError would let a real failure (permissions, FK
+    violation, timeout) report a false 'deleted' — worse than an honest crash."""
+    conn = _FakeConn(raises=asyncpg.exceptions.InsufficientPrivilegeError("permission denied"))
+    with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+        asyncio.run(_delete_tolerant(conn, "DELETE FROM x WHERE chat_id = $1", 1, "x"))
+
+
+def test_delete_tolerant_returns_parsed_count_on_success():
+    conn = _FakeConn(delete_count=5)
+    result = asyncio.run(_delete_tolerant(conn, "DELETE FROM x WHERE chat_id = $1", 1, "x"))
+    assert result == 5
+
+
+class _FakeConnTracksTransaction(_FakeConn):
+    """Same double as _FakeConn, plus a counter for how many times
+    conn.transaction() (the SAVEPOINT) was actually opened."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.transaction_calls = 0
+
+    def transaction(self):
+        self.transaction_calls += 1
+        return super().transaction()
+
+
+def test_delete_tolerant_uses_a_savepoint_not_a_bare_execute():
+    """Regression guard for a gap an independent review found (2026-08-07,
+    session 2026-08-07-09): the tests above only check catch/re-raise
+    behavior and stay green even if the nested `async with
+    conn.transaction()` (the actual SAVEPOINT) is deleted from
+    _delete_tolerant — which reproduces the original prod crash
+    (InFailedSQLTransactionError on the next statement in the outer
+    transaction), reproduced empirically against real Postgres 16 by the
+    reviewer. A bare conn.execute() without the SAVEPOINT would pass every
+    other test in this file; only this one catches that specific mutation."""
+    conn = _FakeConnTracksTransaction()
+    asyncio.run(_delete_tolerant(conn, "DELETE FROM x WHERE chat_id = $1", 1, "x"))
+    assert conn.transaction_calls == 1
+
+
+def test_remaining_transaction_tables_use_delete_tolerant():
+    """The 6 tables identified as the same-class risk as channel_monitors
+    (bug-2026-08-07-delete-transaction-remaining-unguarded-tables.md) must
+    all go through _delete_tolerant, not a bare conn.execute(). The first 3
+    share a loop (generic `result[table]` assignment); the other 3 are
+    named individually — checked in their actual source shape, not a single
+    templated string."""
+    source = inspect.getsource(delete_all_user_data)
+    assert "for table in ('reminders', 'feedback_reports', 'subscriptions')" in source
+    assert "result[table] = await _delete_tolerant" in source
+    for key in ('service_usage', 'user_events', 'daily_activity_marker'):
+        assert f"result['{key}'] = await _delete_tolerant" in source
+
+
+def test_user_state_and_users_deletes_are_not_tolerant():
+    """Identity deletion must not swallow errors (see _delete_tolerant
+    docstring) — a failed DELETE here has to abort the whole operation, not
+    silently report a false 'deleted'."""
+    source = inspect.getsource(delete_all_user_data)
+    assert "result['user_state'] = _parse_delete_count(deleted)" in source
+    assert "result['user_state'] = await _delete_tolerant" not in source
+    assert "result['users'] = _parse_delete_count(deleted)" in source
+    assert "result['users'] = await _delete_tolerant" not in source
+
+
+def test_daily_activity_marker_deleted_after_user_state():
+    """Lock order must match record_active_day() (db/queries/activity.py)
+    and _reset_stats() (states/utilities/mydata.py): user_state before
+    daily_activity_marker, else a concurrent delete_all_user_data + activity
+    write for the same chat_id can deadlock (WP-7 Ф48). Exact SQL fragment
+    positions, not generic substring search — table names also appear in
+    comments earlier in the function."""
+    source = inspect.getsource(delete_all_user_data)
+    user_state_pos = source.index("DELETE FROM development.user_state WHERE chat_id = $1")
+    marker_pos = source.index("DELETE FROM development.daily_activity_marker WHERE chat_id = $1")
+    assert user_state_pos < marker_pos
 
 
 def test_cross_pool_tables_keyed_by_account_id_not_chat_id():
