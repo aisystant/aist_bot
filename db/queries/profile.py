@@ -22,6 +22,10 @@ logger = get_logger(__name__)
 OPTIONAL_CHAT_TABLES = [
     ('assessments', 'chat_id'),
     ('channel_mentions_log', 'mentioned_chat_id'),
+    # legacy-имя (мн. число); переехала в channel_monitor, publication пул,
+    # WP-253 — здесь физически не существует. См. test_channel_monitors_*
+    # в tests/test_delete_all_user_data_tables.py.
+    ('channel_monitors', 'chat_id'),
     ('community_members', 'telegram_id'),
     ('conversion_events', 'chat_id'),
     ('discourse_accounts', 'chat_id'),
@@ -145,15 +149,26 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 logger.warning(f"[DELETE] optional table {table} cleanup failed: {e}")
                 result[table] = 0
 
+        # Legacy bot_data.request_traces (main pool) — same treatment as
+        # channel_monitors above and for the same reason (moved out of the core
+        # transaction below). Distinct result key: the health-pool copy further
+        # down writes result['request_traces']. See test_delete_all_user_data_tables.py.
+        try:
+            deleted = await conn.execute(
+                'DELETE FROM request_traces WHERE user_id = $1', chat_id
+            )
+            result['request_traces_legacy'] = _parse_delete_count(deleted)
+        except Exception as e:
+            logger.warning(f"[DELETE] legacy request_traces cleanup failed: {e}")
+            result['request_traces_legacy'] = 0
+
     async with pool.acquire() as conn:
         async with conn.transaction():
             # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже)
             # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (см. ниже)
             # WP-253: feed_week/feed_session/marathon_content → learning pool (см. ниже)
             # WP-7 Ф48: daily_activity_marker — атомарный гейт счётчика активных дней.
-            # channel_monitors имеет FK на public.users(id) — удаляем до users.
             tables_chat_id = [
-                'channel_monitors',
                 'development.daily_activity_marker',
                 'reminders', 'feedback_reports', 'subscriptions',
             ]
@@ -163,23 +178,14 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result[table] = _parse_delete_count(deleted)
 
-            # Таблицы с user_id вместо chat_id (только legacy — request_traces переехал в health)
+            # Таблицы с user_id вместо chat_id (request_traces legacy — см. выше,
+            # уже удалена вне транзакции, не дублируем здесь)
             tables_user_id = ['service_usage']
             for table in tables_user_id:
                 deleted = await conn.execute(
                     _delete_from_sql(table, 'user_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
-            # Legacy bot_data.request_traces — historical, будет DROPPED после soak.
-            # Удаляем для GDPR-полноты пока таблица существует.
-            try:
-                deleted = await conn.execute(
-                    'DELETE FROM request_traces WHERE user_id = $1', chat_id
-                )
-                result['request_traces_legacy'] = _parse_delete_count(deleted)
-            except Exception as e:
-                logger.warning(f"[DELETE] legacy request_traces cleanup failed: {e}")
-                result['request_traces_legacy'] = 0
 
             # development.user_events
             deleted = await conn.execute(

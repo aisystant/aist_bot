@@ -188,7 +188,12 @@ class MyDataState(BaseState):
     # ─── Entry: Hub ────────────────────────────────────────────────────
 
     async def enter(self, user, context: dict = None) -> None:
-        """Показать хаб дата-центра."""
+        """Показать хаб дата-центра. context={'action': 'delete'} — сразу
+        экран подтверждения удаления (вход из команды /mydata_delete)."""
+        if context and context.get('action') == 'delete':
+            await self._start_delete_flow(user)
+            return
+
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
         tier = await self._detect_tier(chat_id)
@@ -1152,8 +1157,12 @@ class MyDataState(BaseState):
 
     # ─── Manage: Full delete flow ──────────────────────────────────────
 
-    async def _start_delete_flow(self, user, callback: CallbackQuery) -> None:
-        """Начать процедуру полного удаления данных."""
+    async def _start_delete_flow(self, user, callback: Optional[CallbackQuery] = None) -> None:
+        """Начать процедуру полного удаления данных.
+
+        callback=None — вход из команды /mydata_delete (нет сообщения для
+        редактирования на месте, сразу новое сообщение через self.send).
+        """
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
 
@@ -1176,12 +1185,15 @@ class MyDataState(BaseState):
             )],
         ])
 
-        try:
-            await callback.message.edit_text(
-                text, reply_markup=keyboard, parse_mode="Markdown",
-            )
-        except Exception:
-            await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
+        if callback:
+            try:
+                await callback.message.edit_text(
+                    text, reply_markup=keyboard, parse_mode="Markdown",
+                )
+                return
+            except Exception as e:
+                logger.warning(f"[MyData] delete_flow edit_text failed, falling back to send: {e}")
+        await self.send(user, text, reply_markup=keyboard, parse_mode="Markdown")
 
     async def _show_final_delete_confirm(self, user, chat_id: int, lang: str) -> None:
         """Финальное подтверждение кнопкой после ввода фразы."""

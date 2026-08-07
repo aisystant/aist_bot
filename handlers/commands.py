@@ -223,9 +223,8 @@ async def cmd_tier(message: Message, state: FSMContext):
     await message.answer(f"Твой тир: {description}")
 
 
-@commands_router.message(Command("mydata"))
-async def cmd_mydata(message: Message, state: FSMContext):
-    """Персональный дата-центр через Dispatcher → utility.mydata."""
+async def _route_to_mydata(message: Message, state: FSMContext, context: dict = None) -> None:
+    """Общий вход в utility.mydata для /mydata и /mydata_delete."""
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 
@@ -236,11 +235,28 @@ async def cmd_mydata(message: Message, state: FSMContext):
         return
 
     if dispatcher and dispatcher.is_sm_active:
-        await _safe_route(message, state, intern, dispatcher.route_command('mydata', intern))
+        await _safe_route(message, state, intern, dispatcher.route_command('mydata', intern, context))
         return
 
     lang = intern.get('language', 'ru') or 'ru'
     await message.answer(t('errors.processing_error', lang))
+
+
+@commands_router.message(Command("mydata"))
+async def cmd_mydata(message: Message, state: FSMContext):
+    """Персональный дата-центр через Dispatcher → utility.mydata."""
+    await _route_to_mydata(message, state)
+
+
+@commands_router.message(Command("mydata_delete"))
+async def cmd_mydata_delete(message: Message, state: FSMContext):
+    """Прямой вход в подтверждение удаления данных (/privacy обещает эту команду).
+
+    Telegram не допускает дефис в именах команд — /mydata-delete из текста
+    /privacy технически не парсится как команда (найдено 2026-08-07); это
+    подчёркивание, /privacy поправлен на него же.
+    """
+    await _route_to_mydata(message, state, context={'action': 'delete'})
 
 
 @commands_router.message(Command("waka"))
