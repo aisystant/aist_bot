@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import asyncpg
+
 from db.connection import get_pool, get_learning_pool, get_journal_pool, get_health_pool
 from config import get_logger
 from db.sql_helpers import delete_from as _delete_from_sql
@@ -126,6 +128,24 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
     return result
 
 
+async def _delete_tolerant(conn, sql: str, chat_id: int, table_label: str) -> int:
+    """DELETE в собственном SAVEPOINT (вложенная conn.transaction()); гасит
+    только UndefinedTableError — WP-253/легаси-миграции оставляют часть таблиц
+    физически отсутствующими в проде (SKIP_DB_MIGRATIONS=true, db/models.py не
+    гарантия реальной схемы). Любая другая ошибка обязана уронить всю
+    операцию — молчаливое "удалили" при реальном сбое хуже честного краха.
+    Найдено и согласовано в пир-сессии с Codex 2026-08-07 (channel_monitors
+    тем же классом бага уже роняла эту функцию утром).
+    """
+    try:
+        async with conn.transaction():
+            deleted = await conn.execute(sql, chat_id)
+            return _parse_delete_count(deleted)
+    except asyncpg.exceptions.UndefinedTableError:
+        logger.warning(f"[DELETE] {table_label} does not exist, skipping")
+        return 0
+
+
 async def delete_all_user_data(chat_id: int) -> dict:
     """Каскадное удаление ВСЕХ данных пользователя из всех таблиц.
 
@@ -167,37 +187,39 @@ async def delete_all_user_data(chat_id: int) -> dict:
             # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже)
             # WP-268 Phase 5 G5: answers/activity_log/assessments вынесены в learning BD (см. ниже)
             # WP-253: feed_week/feed_session/marathon_content → learning pool (см. ниже)
-            # WP-7 Ф48: daily_activity_marker — атомарный гейт счётчика активных дней.
-            tables_chat_id = [
-                'development.daily_activity_marker',
-                'reminders', 'feedback_reports', 'subscriptions',
-            ]
-            for table in tables_chat_id:
-                deleted = await conn.execute(
-                    _delete_from_sql(table, 'chat_id = $1'), chat_id
+            # Вспомогательные таблицы — через _delete_tolerant (см. её docstring).
+            for table in ('reminders', 'feedback_reports', 'subscriptions'):
+                result[table] = await _delete_tolerant(
+                    conn, _delete_from_sql(table, 'chat_id = $1'), chat_id, table
                 )
-                result[table] = _parse_delete_count(deleted)
 
             # Таблицы с user_id вместо chat_id (request_traces legacy — см. выше,
             # уже удалена вне транзакции, не дублируем здесь)
-            tables_user_id = ['service_usage']
-            for table in tables_user_id:
-                deleted = await conn.execute(
-                    _delete_from_sql(table, 'user_id = $1'), chat_id
-                )
-                result[table] = _parse_delete_count(deleted)
-
-            # development.user_events
-            deleted = await conn.execute(
-                'DELETE FROM development.user_events WHERE user_id = $1', chat_id
+            result['service_usage'] = await _delete_tolerant(
+                conn, _delete_from_sql('service_usage', 'user_id = $1'), chat_id,
+                'service_usage',
             )
-            result['user_events'] = _parse_delete_count(deleted)
 
-            # Bot state
+            result['user_events'] = await _delete_tolerant(
+                conn, 'DELETE FROM development.user_events WHERE user_id = $1', chat_id,
+                'development.user_events',
+            )
+
+            # Bot state — обязательная, ошибку не глушим (в отличие от таблиц выше/ниже).
             deleted = await conn.execute(
                 'DELETE FROM development.user_state WHERE chat_id = $1', chat_id
             )
             result['user_state'] = _parse_delete_count(deleted)
+
+            # WP-7 Ф48: атомарный гейт счётчика активных дней. Порядок ПОСЛЕ
+            # user_state — тот же, что record_active_day() (db/queries/activity.py)
+            # и _reset_stats() (states/utilities/mydata.py) требуют во избежание
+            # deadlock при конкурентном удалении аккаунта и записи активности для
+            # одного chat_id (комментарий в обоих местах).
+            result['daily_activity_marker'] = await _delete_tolerant(
+                conn, 'DELETE FROM development.daily_activity_marker WHERE chat_id = $1',
+                chat_id, 'development.daily_activity_marker',
+            )
 
             # Identity — последняя (FK от user_state)
             deleted = await conn.execute(
