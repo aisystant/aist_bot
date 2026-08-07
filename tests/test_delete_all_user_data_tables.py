@@ -38,12 +38,55 @@ def test_community_members_filters_by_telegram_id_not_chat_id():
     assert mapping['community_members'] == 'telegram_id'
 
 
-def test_channel_monitors_handled_in_core_transaction_not_optional_block():
-    """channel_monitors has a FK on public.users(id) (db/models.py) and must
-    be deleted inside the same core transaction, strictly before the users
-    DELETE — not here, where per-table failures are caught and swallowed."""
+def test_channel_monitors_is_in_optional_block_not_core_transaction():
+    """Regression test for the 2026-08-07 prod incident: delete_all_user_data
+    crashed for every user with asyncpg.exceptions.UndefinedTableError on
+    channel_monitors (legacy, main pool — migrated to channel_monitor,
+    singular, publication pool, WP-253; the main-pool table doesn't exist).
+
+    First fix attempt wrapped the DELETE in its own try/except *inside* the
+    core transaction (kept there under the belief that a live FK on
+    public.users(id) required deleting it before users). Cold-context review
+    caught that this doesn't work: PostgreSQL marks the whole transaction
+    aborted server-side after the first error, so the very next (unguarded)
+    statement in the same transaction — daily_activity_marker — would raise
+    asyncpg.exceptions.InFailedSQLTransactionError and crash the function
+    exactly the same way, just under a different exception name. Verified
+    empirically against a live Postgres 16 + asyncpg instance.
+
+    A dead table holds no FK on anything, so the original "must stay in the
+    core transaction for FK ordering" premise was false to begin with —
+    OPTIONAL_CHAT_TABLES (separate connection, autocommit per statement,
+    one table's failure can't abort another) is the correct home, same as
+    the other 18 legacy/migrated tables already there."""
     tables = [table for table, _column in OPTIONAL_CHAT_TABLES]
-    assert 'channel_monitors' not in tables
+    assert 'channel_monitors' in tables
+    assert dict(OPTIONAL_CHAT_TABLES)['channel_monitors'] == 'chat_id'
+
+    # Confirm it is NOT also duplicated inside delete_all_user_data's core
+    # transaction (the bug this test guards against).
+    source = inspect.getsource(delete_all_user_data)
+    core_transaction_source = source.split("async with conn.transaction():")[1]
+    assert "'channel_monitors'" not in core_transaction_source
+
+
+def test_request_traces_legacy_is_outside_core_transaction():
+    """Same bug class and same fix as channel_monitors above, found in the
+    same 2026-08-07 review pass: DELETE FROM request_traces (main pool,
+    "will be DROPPED after soak") lived inside the core transaction with its
+    own try/except — same non-fix, since prod runs with SKIP_DB_MIGRATIONS=true
+    (bot.py) so db/models.py's CREATE TABLE is not a reliable signal the table
+    still exists. Moved next to channel_monitors, outside the transaction, kept
+    under its own result key ('request_traces_legacy') because the health-pool
+    copy of this table (migrated destination, WP-253 G4) writes
+    result['request_traces'] further down in the same function — colliding
+    keys would silently drop one of the two counts."""
+    source = inspect.getsource(delete_all_user_data)
+    pre_transaction_source, core_transaction_source = source.split("async with conn.transaction():", 1)
+    assert "request_traces_legacy" in pre_transaction_source
+    assert "request_traces_legacy" not in core_transaction_source
+    # The health-pool copy still exists further down, keyed without '_legacy'.
+    assert "result['request_traces']" in core_transaction_source
 
 
 def test_cross_pool_tables_keyed_by_account_id_not_chat_id():
