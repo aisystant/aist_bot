@@ -45,6 +45,18 @@
 
 **Хранение context:** `awaiting_delete` → в `development.user_state.current_context` (не в `fsm_states.data` — §10.35).
 
+### 4.1. Прямой вход — `/mydata_delete` (добавлено 2026-08-07)
+
+`/privacy` обещает команду для удаления данных сразу, без навигации через хаб. `/mydata-delete` (дефис, как в исходном тексте политики) технически не может существовать как команда Telegram — допустимые символы `[a-zA-Z0-9_]`, дефис не входит. Зарегистрирована `/mydata_delete` (подчёркивание), `/privacy` поправлен на неё же.
+
+Ведёт в ТОТ ЖЕ confirm-flow, что кнопка «Удалить всё» (§4) — не fast-path и не пропускает фразу-подтверждение: `cmd_mydata_delete` → `route_command('mydata', intern, context={'action': 'delete'})` → `MyDataState.enter(context)` → сразу `_start_delete_flow()` вместо хаба.
+
+| Параметр | Значение |
+|----------|----------|
+| Команда | `/mydata_delete` |
+| Файл | [`handlers/commands.py`](../../../handlers/commands.py), `cmd_mydata_delete` + общий хелпер `_route_to_mydata` |
+| Точка входа в SM | `states/utilities/mydata.py::MyDataState.enter`, ветка `context.get('action') == 'delete'` |
+
 ## 5. Ключевые файлы
 
 | Файл | Назначение |
@@ -68,4 +80,5 @@ WP-214 — концепция учёта персональных данных �
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-08-07 | Добавлена команда `/mydata_delete` (§4.1) — прямой вход в confirm-flow удаления, обещанный `/privacy`. Заодно найден и починен P0-баг: `delete_all_user_data` падал для всех пользователей на несуществующей `channel_monitors` (WP-476). |
 | 2026-04-11 | Создание документа (DOC1.C batch) |
