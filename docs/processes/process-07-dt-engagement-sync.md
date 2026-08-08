@@ -146,6 +146,24 @@ ORDER BY s.id, qle.event_date DESC, qle.id DESC
 
 Graceful degradation: если `LMS_DATABASE_URL` не задан → квалификация пропускается, остальной sync продолжается.
 
+### 3.6. Дефолтная квалификация при завершении онбординга (WP-406 Ф31)
+
+`ensure_default_qualification(chat_id)` — вызывается из точек логирования
+`onboarding_completed` (`core/onboarder/x2.py:_finish_x2`,
+`handlers/onboarding.py:on_x3_confirm`). Правило (решение пилота 08.08.2026):
+
+- уже есть `2_collected.2_2_courses.qualification_level` в ЦД **или** живой
+  LMS-уровень Работник+ (numeric ≥ 25) → не трогаем и не понижаем;
+- квалификации нет → пишется «Ученик» (`{level, code=L2, numeric=20, event_date,
+  reason=onboarding_completed_default_wp406_f31}`) тем же upsert-путём в
+  `digital_twins`; живая шкала: Ученик = 4, автоназначение всегда < Работник(5);
+- fail-open: любая ошибка логируется и глотается, онбординг не ломается.
+
+**Merge углублён до `2_2_courses`:** оба upsert'а sync'а (bulk + single) сливают
+`2_2_courses` поэлементно (`старое || новое`), а не заменяют секцию целиком —
+иначе ночной sync затирал бы назначенную при онбординге квалификацию (payload
+sync'а несёт `qualification_level` только при LMS numeric ≥ 25).
+
 ---
 
 ## 4. Секции `2_collected` (финальная схема)
@@ -245,6 +263,7 @@ Collector продолжает работу при отказе любого о�
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-08-08 | WP-406 Ф31: `ensure_default_qualification` (дефолт «Ученик» при завершении онбординга) + deep merge `2_2_courses` в обоих upsert'ах |
 | 2026-08-01 | WP-502 A2.19: повторный триаж — актуализировано расписание (cron отключён, manual/webhook triggers), добавлены WP-268/WP-270, уточнена роль `sync_one_user_to_dt` |
 | 2026-04-11 | Создан документ (WP-7 DOC1.A-2) |
 | 2026-04-10 | WP-109 Ф7: decision weight aggregation → 2_8_decisions (0ffd1ef) |

@@ -125,6 +125,30 @@ def _has_learning_data(intern: dict) -> bool:
     return len(completed) > 0
 
 
+async def _save_entry_source_from_deeplink(chat_id: int, raw_source: str, intern: dict) -> None:
+    """Сохранить источник входа из deep-link `/start src_<value>` (WP-406 Ф16-B3).
+
+    Нормализованное значение (site|stand|bot|guide-kit) кладётся в
+    current_context['onboarding']['entry_source'] через канонический writer
+    Онбордера; локальная копия intern обновляется, чтобы последующие ветки
+    cmd_start (update_intern по stale current_context) не затёрли отметку.
+    Fail-open: ошибка сохранения не ломает /start.
+    """
+    try:
+        from core.onboarder import normalize_entry_source
+        from core.onboarder import storage as onboarder_storage
+        entry_source = normalize_entry_source(raw_source)
+        onboarding_ctx = await onboarder_storage.save_onboarding_context(
+            chat_id, {"entry_source": entry_source}
+        )
+        if intern is not None:
+            ctx = intern.get("current_context") or {}
+            ctx["onboarding"] = onboarding_ctx
+            intern["current_context"] = ctx
+    except Exception as e:
+        logger.warning("[onboarding] entry_source deep link save failed for %s: %s", chat_id, e)
+
+
 # ============= ХЕНДЛЕРЫ =============
 
 @onboarding_router.message(CommandStart())
@@ -147,6 +171,12 @@ async def cmd_start(message: Message, state: FSMContext):
     # WP-330 (peer-session 2026-06-05-34): span на первичную загрузку intern.
     async with span("start.get_intern"):
         intern = await get_intern(_uid)
+
+    # Deep link: /start src_<source> → метка источника входа в онбординг
+    # (WP-406 Ф16-B3, MVP). Значения: site | stand | bot | guide-kit, дефолт bot.
+    # Не прерывает поток — /start продолжается как обычно (fall through).
+    if len(args) > 1 and args[1].startswith("src_"):
+        await _save_entry_source_from_deeplink(_uid, args[1][4:], intern)
 
     # Deep links: /start consent | consent_optout | consent_revoke
     if len(args) > 1 and args[1] in ("consent", "consent_optout", "consent_revoke"):
@@ -878,21 +908,24 @@ async def on_x3_confirm(callback: CallbackQuery):
         chosen_stream = parts[1] if len(parts) > 1 else ""
         diagnostic_done = (parts[2] == "1") if len(parts) > 2 else False
         from core.onboarder import storage
-        status = await storage.get_status(chat_id)
-        if status["x3_done"]:
+        mark = await storage.mark_x3_done(chat_id)
+        if mark is None or not mark["newly_marked"]:
             return
-        _x2_done_before = status["x2_done"]
-        await storage.mark_x3_done(chat_id)
+        _x2_done_before = mark["x2_completed_at"] is not None
         if chosen_stream:
             await storage.save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
         # WP-406 Ф17 PR-2: x3_completed event (fire after mark; diagnostic_done from callback flag)
+        from core.onboarder import normalize_entry_source
         from db.queries.events import log_event
         _onb_ctx = await storage.get_onboarding_context(chat_id)
         _intern = await get_intern(chat_id)
         _lang = (_intern.get("language", "ru") or "ru") if _intern else "ru"
         _entry_type = _onb_ctx.get("entry_type", "direct")
+        # WP-406 Ф16-B3: source = канал входа (site|stand|bot|guide-kit), дефолт bot
+        _entry_source = normalize_entry_source(_onb_ctx.get("entry_source"))
         await log_event(chat_id, "x3_completed", {
             "entry_type": _entry_type,
+            "source": _entry_source,
             "lang": _lang,
             "diagnostic_done": diagnostic_done,
             "stream": chosen_stream,
@@ -903,9 +936,20 @@ async def on_x3_confirm(callback: CallbackQuery):
         if _x2_done_before:
             await log_event(chat_id, "onboarding_completed", {
                 "entry_type": _entry_type,
+                "source": _entry_source,
                 "lang": _lang,
                 "closed_by": "x3",
             })
+            # WP-406 Ф31: дефолтная квалификация «Ученик», если своей ещё нет.
+            # Fail-open: ошибка записи не ломает онбординг.
+            try:
+                from db.queries.dt_sync import ensure_default_qualification
+                await ensure_default_qualification(chat_id)
+            except Exception as e:
+                logger.error(
+                    "[onboarder_x3] default qualification assignment failed for %s: %s",
+                    chat_id, e,
+                )
         await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу.")
     except Exception as e:
         logger.error("[onboarder_x3] mark_x3_done failed for %s: %s", chat_id, e)

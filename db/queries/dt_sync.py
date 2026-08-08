@@ -54,6 +54,23 @@ _QUAL_LEVEL_MAP = {
     "Деятель (революционер)": {"code": "L8", "level": 80},
 }
 
+# ─── WP-406 Ф31: живая шкала квалификаций (reference qualification_levels_v4) ───
+# Интересант(1) → Определяющийся(2) → Первокурсник(3) → Ученик(4) → Работник(5) → ...
+# Pilot decision (peer-session 2026-08-08-01): auto-assignment on onboarding
+# completion NEVER sets Работник(5) or above — those come only from live
+# Методсовет/LMS qualification (delivered here by dt_sync, numeric >= 25).
+_LIVE_QUAL_SCALE = {
+    "Интересант": 1,
+    "Определяющийся": 2,
+    "Первокурсник": 3,
+    "Ученик": 4,
+    "Работник": 5,
+}
+_DEFAULT_ONBOARDING_QUALIFICATION = "Ученик"  # live scale level 4
+_AUTO_ASSIGN_MAX_LIVE_LEVEL = 4  # strictly below Работник(5)
+# LMS numeric threshold: >= 25 (Работник+) is LMS-managed, see sync merge below.
+_LMS_MANAGED_NUMERIC_MIN = 25
+
 
 async def _preload_lms_qualifications(lms_user_ids: list[str]) -> dict:
     """Прочитать текущие квалификации из LMS DB для списка suser.id.
@@ -454,6 +471,9 @@ async def sync_engagement_to_dt() -> dict:
                         '2_collected': collected_data,
                     }
 
+                    # WP-406 Ф31: 2_2_courses merged one level deeper — preserves
+                    # qualification_level assigned at onboarding completion when
+                    # this payload carries none (LMS qual absent or numeric < 25).
                     await dt_conn.execute('''
                         INSERT INTO digital_twins (user_id, data, created_at, updated_at)
                         VALUES ($1, $2::jsonb, NOW(), NOW())
@@ -462,6 +482,10 @@ async def sync_engagement_to_dt() -> dict:
                                 || jsonb_build_object('2_collected',
                                     COALESCE(digital_twins.data->'2_collected', '{}'::jsonb)
                                     || ($2::jsonb->'2_collected')
+                                    || jsonb_build_object('2_2_courses',
+                                        COALESCE(digital_twins.data->'2_collected'->'2_2_courses', '{}'::jsonb)
+                                        || COALESCE($2::jsonb->'2_collected'->'2_2_courses', '{}'::jsonb)
+                                    )
                                 ),
                             updated_at = NOW()
                     ''', user_id, json.dumps(merge_payload))
@@ -789,6 +813,9 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             merge_payload = {'2_collected': collected_data}
 
             # WP-227: пишем в digitaltwin БД через dt_conn
+            # WP-406 Ф31: 2_2_courses merged one level deeper — preserves
+            # qualification_level assigned at onboarding completion when
+            # this payload carries none (LMS qual absent or numeric < 25).
             await dt_conn.execute('''
                 INSERT INTO digital_twins (user_id, data, created_at, updated_at)
                 VALUES ($1, $2::jsonb, NOW(), NOW())
@@ -797,6 +824,10 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                         || jsonb_build_object('2_collected',
                             COALESCE(digital_twins.data->'2_collected', '{}'::jsonb)
                             || ($2::jsonb->'2_collected')
+                            || jsonb_build_object('2_2_courses',
+                                COALESCE(digital_twins.data->'2_collected'->'2_2_courses', '{}'::jsonb)
+                                || COALESCE($2::jsonb->'2_collected'->'2_2_courses', '{}'::jsonb)
+                            )
                         ),
                     updated_at = NOW()
             ''', effective_user_id, json.dumps(merge_payload))
@@ -829,6 +860,147 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
 
     except Exception as e:
         logger.error(f"[DT Sync] sync_one_user failed for {user_id}: {e}")
+        return False
+
+
+async def ensure_default_qualification(chat_id: int) -> bool:
+    """WP-406 Ф31: назначить дефолтную квалификацию при завершении онбординга.
+
+    Pilot decision (peer-session 2026-08-08-01, находка Ф25):
+      - Уже есть квалификация (2_collected.2_2_courses.qualification_level в ЦД
+        или живой LMS-уровень Работник+) → НЕ трогать и НЕ понижать.
+      - Квалификации нет → назначить «Ученик» (живая шкала: уровень 4).
+      - Автоназначение НИКОГДА не ставит Работник(5)+ — только живая
+        квалификация Методсовета/LMS (доставляется сюда через dt_sync).
+
+    Same storage path as sync_one_user_to_dt: deep merge into
+    digital_twins.data['2_collected']['2_2_courses']['qualification_level'].
+    Fail-open: любая ошибка логируется и глотается — онбординг не ломается.
+
+    Returns:
+        True если дефолт записан; False если уже была квалификация /
+        нет DT-identity / guard / ошибка.
+    """
+    try:
+        live_level = _LIVE_QUAL_SCALE.get(_DEFAULT_ONBOARDING_QUALIFICATION)
+        if live_level is None or live_level > _AUTO_ASSIGN_MAX_LIVE_LEVEL:
+            logger.error(
+                "[DT Qual] default qualification %r violates auto-assign ceiling "
+                "(live level %s, max %s) — refusing to write",
+                _DEFAULT_ONBOARDING_QUALIFICATION, live_level, _AUTO_ASSIGN_MAX_LIVE_LEVEL,
+            )
+            return False
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            user_row = await conn.fetchrow(
+                "SELECT ory_id, aisystant_id FROM public.users WHERE telegram_id = $1",
+                chat_id,
+            )
+
+            # Canonical digital_twins key (WP-218 Ф7.1):
+            # dt_user_id (secrets dt_tokens) > users.ory_id > engagement.user_uuid
+            dt_user_id = None
+            try:
+                from db.connection import get_secrets_pool
+                secrets_pool = await get_secrets_pool()
+                async with secrets_pool.acquire() as sconn:
+                    dt_user_id = await sconn.fetchval(
+                        "SELECT dt_user_id FROM public.dt_tokens WHERE chat_id = $1 LIMIT 1",
+                        chat_id,
+                    )
+            except Exception as e:
+                logger.debug(f"[DT Qual] dt_tokens lookup failed for {chat_id}: {e}")
+
+            ory_id = user_row["ory_id"] if user_row else None
+            engagement_uuid = None
+            if not dt_user_id and not ory_id:
+                try:
+                    engagement_uuid = await conn.fetchval(
+                        "SELECT user_uuid FROM development.engagement WHERE user_id = $1",
+                        chat_id,
+                    )
+                except Exception as e:
+                    logger.debug(f"[DT Qual] engagement lookup failed for {chat_id}: {e}")
+
+            effective_user_id = dt_user_id or ory_id or engagement_uuid
+            if not effective_user_id:
+                logger.info(
+                    f"[DT Qual] no DT identity for chat_id={chat_id} — "
+                    f"skip default qualification"
+                )
+                return False
+            effective_user_id = str(effective_user_id)
+
+            # Rule 1: уже есть квалификация в ЦД → не трогать (никогда не понижаем).
+            existing = await conn.fetchval(
+                """
+                SELECT data->'2_collected'->'2_2_courses'->'qualification_level'
+                FROM digital_twins WHERE user_id = $1
+                """,
+                effective_user_id,
+            )
+            if existing is not None:
+                existing_val = json.loads(existing) if isinstance(existing, str) else existing
+                if existing_val:
+                    logger.info(
+                        f"[DT Qual] chat_id={chat_id} already has qualification — untouched"
+                    )
+                    return False
+
+            # Rule 2: живой LMS-уровень Работник+ (numeric >= 25) — LMS-managed.
+            # Пропускаем: dt_sync доставит его в ЦД сам, дефолт стал бы понижением.
+            aisystant_id = user_row["aisystant_id"] if user_row else None
+            if aisystant_id:
+                try:
+                    quals = await _preload_lms_qualifications([str(aisystant_id)])
+                    lms_qual = quals.get(str(aisystant_id))
+                    if lms_qual and lms_qual.get("numeric", 0) >= _LMS_MANAGED_NUMERIC_MIN:
+                        logger.info(
+                            f"[DT Qual] chat_id={chat_id} has live LMS qualification "
+                            f"{lms_qual.get('level')!r} — skip default"
+                        )
+                        return False
+                except Exception as e:
+                    logger.warning(
+                        f"[DT Qual] LMS check failed for {chat_id}: {e} — "
+                        f"continuing with DT-only check"
+                    )
+
+            meta = _QUAL_LEVEL_MAP[_DEFAULT_ONBOARDING_QUALIFICATION]
+            qual = {
+                "level": _DEFAULT_ONBOARDING_QUALIFICATION,
+                "code": meta["code"],
+                "numeric": meta["level"],
+                "event_date": datetime.now(timezone.utc).isoformat(),
+                "reason": "onboarding_completed_default_wp406_f31",
+            }
+            merge_payload = {"2_collected": {"2_2_courses": {"qualification_level": qual}}}
+            # Deep merge down to 2_2_courses — соседние ключи (marathon_steps_total
+            # и др.) и остальные секции 2_collected не затираются.
+            await conn.execute('''
+                INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                VALUES ($1, $2::jsonb, NOW(), NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    data = COALESCE(digital_twins.data, '{}'::jsonb)
+                        || jsonb_build_object('2_collected',
+                            COALESCE(digital_twins.data->'2_collected', '{}'::jsonb)
+                            || jsonb_build_object('2_2_courses',
+                                COALESCE(digital_twins.data->'2_collected'->'2_2_courses', '{}'::jsonb)
+                                || ($2::jsonb->'2_collected'->'2_2_courses')
+                            )
+                        ),
+                    updated_at = NOW()
+            ''', effective_user_id, json.dumps(merge_payload))
+            logger.info(
+                f"[DT Qual] default qualification "
+                f"{_DEFAULT_ONBOARDING_QUALIFICATION!r} (live level {live_level}) "
+                f"assigned for chat_id={chat_id} (dt user {effective_user_id})"
+            )
+            return True
+
+    except Exception as e:
+        logger.error(f"[DT Qual] ensure_default_qualification failed for chat_id={chat_id}: {e}")
         return False
 
 
