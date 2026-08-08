@@ -908,11 +908,10 @@ async def on_x3_confirm(callback: CallbackQuery):
         chosen_stream = parts[1] if len(parts) > 1 else ""
         diagnostic_done = (parts[2] == "1") if len(parts) > 2 else False
         from core.onboarder import storage
-        status = await storage.get_status(chat_id)
-        if status["x3_done"]:
+        mark = await storage.mark_x3_done(chat_id)
+        if mark is None or not mark["newly_marked"]:
             return
-        _x2_done_before = status["x2_done"]
-        await storage.mark_x3_done(chat_id)
+        _x2_done_before = mark["x2_completed_at"] is not None
         if chosen_stream:
             await storage.save_onboarding_context(chat_id, {"confirmed_stream": chosen_stream})
         # WP-406 Ф17 PR-2: x3_completed event (fire after mark; diagnostic_done from callback flag)

@@ -14,10 +14,14 @@ WP-406 Ф31: дефолтная квалификация «Ученик» при
 """
 
 import json
+from datetime import datetime
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import db.queries.dt_sync as dt_sync
+
+_DT = datetime(2026, 8, 8, 12, 0, 0)
 
 
 # ─────────────────────────── фейковый пул ───────────────────────────
@@ -204,9 +208,9 @@ async def test_x3_completion_assigns_default_qualification():
     """Х2 закрыт → подтверждение Х3 (onboarding_completed) вызывает назначение квалификации."""
     callback = _mock_callback("x3_confirm:marathon:0")
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": True, "x3_done": False}), \
-         patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
          patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct"}), \
@@ -226,9 +230,9 @@ async def test_x3_first_no_qualification_call():
     """Х2 ещё открыт → onboarding_completed нет → квалификация не назначается."""
     callback = _mock_callback("x3_confirm:marathon:0")
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": False, "x3_done": False}), \
-         patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": None, "x3_completed_at": _DT}), \
          patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct"}), \
@@ -249,9 +253,11 @@ async def test_x2_completion_assigns_default_qualification():
     bot = AsyncMock()
     chat_id = 317106357
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": False, "x3_done": True}), \
-         patch("core.onboarder.storage.mark_x2_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x2_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
+         patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
+               return_value={"x2_done": True, "x3_done": True}), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct"}), \
          patch("db.queries.users.get_intern", new_callable=AsyncMock,
@@ -270,9 +276,9 @@ async def test_qualification_error_does_not_break_x3_flow():
     """Fail-open: ensure_default_qualification упал → поток Х3 доходит до ответа пользователю."""
     callback = _mock_callback("x3_confirm:marathon:0")
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": True, "x3_done": False}), \
-         patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
          patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct"}), \
@@ -297,9 +303,11 @@ async def test_qualification_error_does_not_break_x2_flow():
     bot = AsyncMock()
     chat_id = 317106357
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": False, "x3_done": True}), \
-         patch("core.onboarder.storage.mark_x2_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x2_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
+         patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
+               return_value={"x2_done": True, "x3_done": True}), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct"}), \
          patch("db.queries.users.get_intern", new_callable=AsyncMock,

@@ -53,38 +53,74 @@ async def get_status(chat_id: int) -> dict:
     }
 
 
-async def mark_x2_done(chat_id: int) -> None:
-    """Поставить отметку «понял сообщество» (Х2). Idempotent: не сдвигает дату."""
-    await _mark_done(chat_id, "x2_completed_at")
+async def mark_x2_done(chat_id: int) -> dict | None:
+    """Поставить отметку «понял сообщество» (Х2). Атомарный mark-and-read.
+
+    Возвращает {"newly_marked": bool, "x2_completed_at": dt, "x3_completed_at": dt|None}
+    или None, если строки user_state нет. Idempotent: не сдвигает дату.
+    """
+    return await _mark_done(chat_id, "x2_completed_at")
 
 
-async def mark_x3_done(chat_id: int) -> None:
-    """Поставить отметку «выбрал траекторию» (Х3). Idempotent: не сдвигает дату."""
-    await _mark_done(chat_id, "x3_completed_at")
+async def mark_x3_done(chat_id: int) -> dict | None:
+    """Поставить отметку «выбрал траекторию» (Х3). Атомарный mark-and-read.
+
+    Возвращает {"newly_marked": bool, "x2_completed_at": dt|None, "x3_completed_at": dt}
+    или None, если строки user_state нет. Idempotent: не сдвигает дату.
+    """
+    return await _mark_done(chat_id, "x3_completed_at")
 
 
-async def _mark_done(chat_id: int, column: str) -> None:
+async def _mark_done(chat_id: int, column: str) -> dict | None:
+    # FOR UPDATE serializes concurrent X2/X3 closers — exactly one caller observes
+    # the other slice closed; stale double click yields newly_marked=False.
     queries = {
         "x2_completed_at": """
-            UPDATE development.user_state
-            SET x2_completed_at = COALESCE(x2_completed_at, (NOW() AT TIME ZONE 'utc'))
-            WHERE chat_id = $1
+            WITH before AS (
+                SELECT x2_completed_at AS prev
+                FROM development.user_state
+                WHERE chat_id = $1
+                FOR UPDATE
+            ), upd AS (
+                UPDATE development.user_state u
+                SET x2_completed_at = COALESCE(u.x2_completed_at, (NOW() AT TIME ZONE 'utc'))
+                FROM before
+                WHERE u.chat_id = $1
+                RETURNING before.prev, u.x2_completed_at, u.x3_completed_at
+            )
+            SELECT (prev IS NULL) AS newly_marked, x2_completed_at, x3_completed_at FROM upd
         """,
         "x3_completed_at": """
-            UPDATE development.user_state
-            SET x3_completed_at = COALESCE(x3_completed_at, (NOW() AT TIME ZONE 'utc'))
-            WHERE chat_id = $1
+            WITH before AS (
+                SELECT x3_completed_at AS prev
+                FROM development.user_state
+                WHERE chat_id = $1
+                FOR UPDATE
+            ), upd AS (
+                UPDATE development.user_state u
+                SET x3_completed_at = COALESCE(u.x3_completed_at, (NOW() AT TIME ZONE 'utc'))
+                FROM before
+                WHERE u.chat_id = $1
+                RETURNING before.prev, u.x2_completed_at, u.x3_completed_at
+            )
+            SELECT (prev IS NULL) AS newly_marked, x2_completed_at, x3_completed_at FROM upd
         """,
     }
     if column not in queries:
         raise ValueError(f"unsupported onboarding marker: {column}")
     pool = await get_pool()
     async with pool.acquire() as conn:
-        status = await conn.execute(queries[column], chat_id)
-    # "UPDATE 0" = строки user_state ещё нет: отметка не поставлена. В живом flow
+        row = await conn.fetchrow(queries[column], chat_id)
+    # row is None = строки user_state ещё нет: отметка не поставлена. В живом flow
     # get_intern лениво создаёт строку, поэтому это сигнал ошибки вызова, не норма.
-    if status == "UPDATE 0":
+    if row is None:
         logger.warning("onboarder mark skipped: no user_state row for chat_id=%s (%s)", chat_id, column)
+        return None
+    return {
+        "newly_marked": row["newly_marked"],
+        "x2_completed_at": row["x2_completed_at"],
+        "x3_completed_at": row["x3_completed_at"],
+    }
 
 
 async def get_onboarding_context(chat_id: int) -> dict:

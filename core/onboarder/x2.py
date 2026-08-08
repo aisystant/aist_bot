@@ -204,11 +204,10 @@ async def _finish_x2(bot, chat_id: int) -> None:
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     from core.onboarder import storage
 
-    status = await storage.get_status(chat_id)
-    if status["x2_done"]:
+    mark = await storage.mark_x2_done(chat_id)
+    if mark is None or not mark["newly_marked"]:
         return
-    _x3_done_before = status["x3_done"]
-    await storage.mark_x2_done(chat_id)
+    _x3_done_before = mark["x3_completed_at"] is not None
 
     # WP-406 Ф17 PR-2: x2_completed event (fire after mark to ensure DB write succeeded)
     from core.onboarder import normalize_entry_source

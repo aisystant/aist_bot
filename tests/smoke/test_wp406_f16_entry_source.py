@@ -8,10 +8,14 @@ WP-406 Ф16-B3 (MVP): метка источника входа в события
 значения полей, никакого PII (FORBIDDEN_FIELDS).
 """
 
+from datetime import datetime
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.onboarder import DEFAULT_ENTRY_SOURCE, ENTRY_SOURCES, normalize_entry_source
+
+_DT = datetime(2026, 8, 8, 12, 0, 0)
 
 
 # ─────────────────────────── normalize_entry_source ───────────────────────────
@@ -130,8 +134,10 @@ async def test_x2_events_carry_source():
     chat_id = 317106357
 
     with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": False, "x3_done": True}), \
-         patch("core.onboarder.storage.mark_x2_done", new_callable=AsyncMock), \
+               return_value={"x2_done": True, "x3_done": True}), \
+         patch("core.onboarder.storage.mark_x2_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct", "entry_source": "stand"}), \
          patch("db.queries.users.get_intern", new_callable=AsyncMock,
@@ -155,9 +161,9 @@ async def test_x3_events_carry_source():
     callback.from_user = MagicMock(id=317106357)
     callback.message = AsyncMock()
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": True, "x3_done": False}), \
-         patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
          patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct", "entry_source": "site"}), \
@@ -181,9 +187,9 @@ async def test_x3_events_default_source_bot():
     callback.from_user = MagicMock(id=317106357)
     callback.message = AsyncMock()
 
-    with patch("core.onboarder.storage.get_status", new_callable=AsyncMock,
-               return_value={"x2_done": True, "x3_done": False}), \
-         patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock), \
+    with patch("core.onboarder.storage.mark_x3_done", new_callable=AsyncMock,
+               return_value={"newly_marked": True,
+                             "x2_completed_at": _DT, "x3_completed_at": _DT}), \
          patch("core.onboarder.storage.save_onboarding_context", new_callable=AsyncMock), \
          patch("core.onboarder.storage.get_onboarding_context", new_callable=AsyncMock,
                return_value={"entry_type": "direct"}), \
