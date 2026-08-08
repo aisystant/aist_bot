@@ -211,14 +211,18 @@ async def _finish_x2(bot, chat_id: int) -> None:
     await storage.mark_x2_done(chat_id)
 
     # WP-406 Ф17 PR-2: x2_completed event (fire after mark to ensure DB write succeeded)
+    from core.onboarder import normalize_entry_source
     from db.queries.events import log_event
     from db.queries.users import get_intern as _get_intern
     _intern = await _get_intern(chat_id)
     _lang = (_intern.get("language", "ru") or "ru") if _intern else "ru"
     _onb_ctx = await storage.get_onboarding_context(chat_id)
     _entry_type = _onb_ctx.get("entry_type", "direct")
+    # WP-406 Ф16-B3: source = канал входа (site|stand|bot|guide-kit), дефолт bot
+    _entry_source = normalize_entry_source(_onb_ctx.get("entry_source"))
     await log_event(chat_id, "x2_completed", {
         "entry_type": _entry_type,
+        "source": _entry_source,
         "lang": _lang,
         "path": "confirm",
     })
@@ -228,9 +232,20 @@ async def _finish_x2(bot, chat_id: int) -> None:
     if _x3_done_before:
         await log_event(chat_id, "onboarding_completed", {
             "entry_type": _entry_type,
+            "source": _entry_source,
             "lang": _lang,
             "closed_by": "x2",
         })
+        # WP-406 Ф31: дефолтная квалификация «Ученик», если своей ещё нет.
+        # Fail-open: ошибка записи не ломает онбординг.
+        try:
+            from db.queries.dt_sync import ensure_default_qualification
+            await ensure_default_qualification(chat_id)
+        except Exception as e:
+            logger.error(
+                "[x2] default qualification assignment failed for chat_id=%s: %s",
+                chat_id, e,
+            )
 
     status = await storage.get_status(chat_id)
     text = (
