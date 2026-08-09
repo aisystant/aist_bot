@@ -426,11 +426,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
         reference_pool = await get_reference_pool()
         async with reference_pool.acquire() as refconn:
             deleted = await refconn.execute(
-                'DELETE FROM training_setting WHERE chat_id = $1', chat_id
+                'DELETE FROM public.training_setting WHERE chat_id = $1', chat_id
             )
             result['reference_training_setting'] = _parse_delete_count(deleted)
             deleted = await refconn.execute(
-                'DELETE FROM training_child WHERE chat_id = $1', chat_id
+                'DELETE FROM public.training_child WHERE chat_id = $1', chat_id
             )
             result['reference_training_child'] = _parse_delete_count(deleted)
     except Exception as e:

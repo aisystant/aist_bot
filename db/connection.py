@@ -477,6 +477,18 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
     except Exception as e:
         logger.warning(f"[schema-verify] consent_grant@learning check skipped: {e}")
 
+    # 4. public.training_setting — reference-пул. REFERENCE_URL может указывать
+    # на Neon pooled endpoint, где session search_path не является контрактом.
+    # Явная схема здесь и в query-layer сохраняет проверку и runtime read-path
+    # работоспособными даже при search_path=pg_catalog.
+    try:
+        rpool = await get_reference_pool()
+        async with rpool.acquire() as conn:
+            if not await conn.fetchval("SELECT to_regclass('public.training_setting')"):
+                missing.append("public.training_setting@reference")
+    except Exception as e:
+        logger.warning(f"[schema-verify] training_setting@reference check skipped: {e}")
+
     if missing:
         msg = f"Schema drift detected: {', '.join(missing)} missing. Run migrations."
         logger.error(f"❌ {msg} (non-fatal — bot continues, see WP-330 A-zero)")
@@ -506,7 +518,10 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
         # NON-FATAL: НЕ raise — страж не должен крэшить прод.
         return
 
-    logger.info("✅ Schema verify passed (learning.feed_sessions, journal.feedback_triage, learning.consent_grant)")
+    logger.info(
+        "✅ Schema verify passed (learning.feed_sessions, journal.feedback_triage, "
+        "learning.consent_grant, public.training_setting)"
+    )
 
 
 async def init_db():

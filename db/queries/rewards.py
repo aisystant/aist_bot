@@ -143,7 +143,7 @@ async def get_active_reward_rules() -> List[Dict[str, Any]]:
                 """
                 SELECT trigger_event, amount, streak_eligible, description,
                        effort_minutes, is_marker, max_per_day, group_mult, rarity_mult
-                FROM reward_rules
+                FROM public.reward_rules
                 WHERE reward_kind = 'points'
                   AND amount > 0
                   AND (valid_to IS NULL OR valid_to > NOW())
@@ -165,7 +165,7 @@ async def get_domain_multipliers() -> Dict[str, Dict[str, Any]]:
         pool = await get_reference_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT domain, multiplier, daily_cap_default FROM activity_domain_multipliers ORDER BY domain"
+                "SELECT domain, multiplier, daily_cap_default FROM public.activity_domain_multipliers ORDER BY domain"
             )
             return {
                 r['domain']: {
@@ -297,7 +297,7 @@ async def get_loyalty_rate() -> Decimal:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT rate FROM loyalty_pool_config
+                SELECT rate FROM public.loyalty_pool_config
                 WHERE valid_to IS NULL OR valid_to > NOW()
                 ORDER BY valid_from DESC
                 LIMIT 1
@@ -345,7 +345,7 @@ async def get_student_stage_multipliers() -> List[Dict[str, Any]]:
             rows = await conn.fetch(
                 """
                 SELECT stage, name, multiplier, daily_cap
-                FROM student_stage_multipliers
+                FROM public.student_stage_multipliers
                 ORDER BY stage
                 """
             )
@@ -367,7 +367,7 @@ async def get_qualification_multipliers_list() -> List[Dict[str, Any]]:
             rows = await conn.fetch(
                 """
                 SELECT qualification, multiplier, daily_cap
-                FROM qualification_multipliers
+                FROM public.qualification_multipliers
                 ORDER BY multiplier
                 """
             )
@@ -395,9 +395,9 @@ async def get_qualification_levels_v4_list() -> List[Dict[str, Any]]:
                     ql.qual_mult,
                     ql.action_cap,
                     ql.action_cap * COALESCE(lpc.K, 10) AS daily_cap_bonuses
-                FROM qualification_levels_v4 ql
+                FROM public.qualification_levels_v4 ql
                 CROSS JOIN (
-                    SELECT K FROM loyalty_pool_config
+                    SELECT K FROM public.loyalty_pool_config
                     WHERE valid_to IS NULL
                     ORDER BY valid_from DESC
                     LIMIT 1

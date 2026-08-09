@@ -36,7 +36,8 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          python -m pytest tests/smoke/ -v --tb=short --junitxml=smoke-results.xml
+          python -m pytest tests/smoke/ tests/test_search_path_independence.py \
+            -v --tb=short --junitxml=smoke-results.xml
 
       - name: Upload test results
         if: always()

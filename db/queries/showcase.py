@@ -22,13 +22,13 @@ async def get_active_seminars(*, free_only: bool = False) -> list[dict]:
     async with pool.acquire() as conn:
         if free_only:
             rows = await conn.fetch(
-                """SELECT * FROM product
+                """SELECT * FROM public.product
                    WHERE type = 'seminar' AND active = TRUE AND is_free = TRUE
                    ORDER BY sort_order""",
             )
         else:
             rows = await conn.fetch(
-                """SELECT * FROM product
+                """SELECT * FROM public.product
                    WHERE type = 'seminar' AND active = TRUE
                    ORDER BY sort_order""",
             )
@@ -40,7 +40,7 @@ async def get_seminar_by_code(code: str) -> dict | None:
     pool = await get_reference_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM product WHERE code = $1 AND type = 'seminar' AND active = TRUE",
+            "SELECT * FROM public.product WHERE code = $1 AND type = 'seminar' AND active = TRUE",
             code,
         )
     return dict(row) if row else None
@@ -51,7 +51,7 @@ async def get_seminar_by_tilda_uid(tilda_uid: str) -> dict | None:
     pool = await get_reference_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT * FROM product
+            """SELECT * FROM public.product
                WHERE type = 'seminar' AND active = TRUE
                  AND metadata->>'tilda_uid' = $1""",
             tilda_uid,
@@ -110,7 +110,7 @@ async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
     ref_pool = await get_reference_pool()
     async with ref_pool.acquire() as conn:
         codes = await conn.fetch(
-            "SELECT code FROM product WHERE tg_chat_id = $1 AND type = 'seminar' AND active = TRUE",
+            "SELECT code FROM public.product WHERE tg_chat_id = $1 AND type = 'seminar' AND active = TRUE",
             chat_id,
         )
     if not codes:
@@ -145,7 +145,7 @@ async def get_user_seminar_codes(telegram_id: int) -> set[str]:
     ref_pool = await get_reference_pool()
     async with ref_pool.acquire() as conn:
         seminar_rows = await conn.fetch(
-            "SELECT code FROM product WHERE code = ANY($1) AND type = 'seminar'",
+            "SELECT code FROM public.product WHERE code = ANY($1) AND type = 'seminar'",
             paid_codes,
         )
     return {r["code"] for r in seminar_rows}
