@@ -12,6 +12,7 @@ DEVELOPER_CHAT_ID не существовал → ImportError при каждо�
 aiogram глотал молча → бот не отвечал никому (14 часов).
 """
 
+import json
 import sys
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ os.environ.setdefault("DEVELOPER_CHAT_ID", "123456")
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 
 def _make_fake_message(user_id: int = 999):
@@ -279,3 +280,93 @@ class TestMiddlewareCall:
             await mw(handler, msg, {"event_update": fake_update})
 
         assert len(call_count) == 3, "Разные update_id должны проходить все"
+
+
+def _session_pool(conn):
+    acquire_context = MagicMock()
+    acquire_context.__aenter__ = AsyncMock(return_value=conn)
+    acquire_context.__aexit__ = AsyncMock(return_value=None)
+    pool = MagicMock()
+    pool.acquire.return_value = acquire_context
+    return pool
+
+
+@pytest.mark.asyncio
+class TestSessionTracking:
+    """Сессия измеряет активность между запросами, а не время отсутствия."""
+
+    async def test_request_within_timeout_updates_last_activity(self, monkeypatch):
+        import db.queries.sessions as sessions
+
+        now = datetime.now(timezone.utc)
+        conn = MagicMock()
+        conn.fetchrow = AsyncMock(return_value={
+            "id": 7,
+            "started_at": now - timedelta(minutes=10),
+            "ended_at": now - timedelta(minutes=5),
+            "request_count": 2,
+            "commands": '["/start"]',
+        })
+        conn.execute = AsyncMock()
+        monkeypatch.setattr(
+            sessions, "get_health_pool", AsyncMock(return_value=_session_pool(conn))
+        )
+        log_event = AsyncMock()
+        monkeypatch.setattr(sessions, "log_event", log_event)
+
+        await sessions.get_or_create_session(42, "/learn")
+
+        sql, session_id, ended_at, duration, exit_point, commands = (
+            conn.execute.await_args.args
+        )
+        assert "UPDATE user_sessions" in sql
+        assert session_id == 7
+        assert 9 * 60 <= duration <= 11 * 60
+        assert exit_point == "/learn"
+        assert json.loads(commands) == ["/start", "/learn"]
+        assert ended_at >= now
+        log_event.assert_not_awaited()
+
+    async def test_request_after_timeout_creates_new_closed_interval(self, monkeypatch):
+        import db.queries.sessions as sessions
+
+        now = datetime.now(timezone.utc)
+        conn = MagicMock()
+        conn.fetchrow = AsyncMock(return_value={
+            "id": 8,
+            "started_at": now - timedelta(hours=3),
+            "ended_at": now - timedelta(hours=2),
+            "request_count": 4,
+            "commands": '["/learn"]',
+        })
+        conn.execute = AsyncMock()
+        monkeypatch.setattr(
+            sessions, "get_health_pool", AsyncMock(return_value=_session_pool(conn))
+        )
+        log_event = AsyncMock()
+        monkeypatch.setattr(sessions, "log_event", log_event)
+
+        await sessions.get_or_create_session(42, "/start")
+
+        sql, chat_id, started_at, entry_point, commands = conn.execute.await_args.args
+        assert "INSERT INTO user_sessions" in sql
+        assert "ended_at, duration_seconds" in sql
+        assert chat_id == 42
+        assert started_at >= now
+        assert entry_point == "/start"
+        assert json.loads(commands) == ["/start"]
+        log_event.assert_awaited_once()
+
+    async def test_legacy_cleanup_does_not_invent_duration(self, monkeypatch):
+        import db.queries.sessions as sessions
+
+        conn = MagicMock()
+        conn.execute = AsyncMock(return_value="UPDATE 3")
+        monkeypatch.setattr(
+            sessions, "get_health_pool", AsyncMock(return_value=_session_pool(conn))
+        )
+
+        assert await sessions.finalize_stale_sessions() == 3
+        cleanup_sql = conn.execute.await_args.args[0]
+        assert "duration_seconds = 0" in cleanup_sql
+        assert "request_count *" not in cleanup_sql
