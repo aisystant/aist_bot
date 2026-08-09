@@ -31,7 +31,7 @@ async def get_active_subscription(chat_id: int) -> Optional[dict]:
             '''SELECT id, chat_id, telegram_payment_charge_id,
                       status, stars_amount, created_at AS started_at,
                       expires_at, created_at
-               FROM subscriptions
+               FROM public.subscriptions
                WHERE chat_id = $1
                  AND status = 'active'
                  AND expires_at > NOW()
@@ -65,7 +65,7 @@ async def save_subscription(
     pool = await get_pool()
     async with pool.acquire() as conn:
         row_id = await conn.fetchval(
-            '''INSERT INTO subscriptions
+            '''INSERT INTO public.subscriptions
                (chat_id, telegram_payment_charge_id, status,
                 stars_amount, expires_at)
                VALUES ($1, $2, 'active', $3, $4)
@@ -84,7 +84,7 @@ async def cancel_subscription(chat_id: int, charge_id: str) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''UPDATE subscriptions
+            '''UPDATE public.subscriptions
                SET status = 'cancelled'
                WHERE chat_id = $1
                  AND telegram_payment_charge_id = $2
@@ -101,7 +101,7 @@ async def get_subscription_history(chat_id: int, limit: int = 10) -> list[dict]:
         rows = await conn.fetch(
             '''SELECT id, status, stars_amount, created_at AS started_at,
                       expires_at, created_at
-               FROM subscriptions
+               FROM public.subscriptions
                WHERE chat_id = $1
                ORDER BY created_at DESC
                LIMIT $2''',
@@ -138,7 +138,7 @@ async def upsert_subscription_grant(
     async with pool.acquire() as conn:
         updated = await conn.execute(
             '''
-            UPDATE subscription_grants
+            UPDATE public.subscription_grants
             SET valid_until = GREATEST(valid_until, $1)
             WHERE telegram_id = $2
               AND source IN ('tg_stars', 'bot_payment')
@@ -157,7 +157,7 @@ async def upsert_subscription_grant(
 
         await conn.execute(
             '''
-            INSERT INTO subscription_grants
+            INSERT INTO public.subscription_grants
                 (telegram_id, product, source, valid_from, valid_until, granted_by)
             VALUES
                 ($1, 'br', $2, NOW(), $3, 'system')

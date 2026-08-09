@@ -22,7 +22,7 @@ async def save_qa(chat_id: int, mode: str, context_topic: str,
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
-            INSERT INTO qa_history
+            INSERT INTO public.qa_history
             (chat_id, mode, context_topic, question, answer, mcp_sources)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
@@ -66,7 +66,7 @@ async def get_qa_history(chat_id: int, limit: int = 50) -> List[dict]:
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT * FROM qa_history
+            SELECT * FROM public.qa_history
             WHERE chat_id = $1
             ORDER BY created_at DESC
             LIMIT $2
@@ -88,7 +88,7 @@ async def get_qa_by_id(qa_id: int) -> Optional[dict]:
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT * FROM qa_history WHERE id = $1', qa_id
+            'SELECT * FROM public.qa_history WHERE id = $1', qa_id
         )
         if not row:
             return None
@@ -109,7 +109,7 @@ async def get_latest_qa_id(chat_id: int) -> Optional[int]:
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT id FROM qa_history WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
+            'SELECT id FROM public.qa_history WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
             chat_id
         )
         return row['id'] if row else None
@@ -120,7 +120,7 @@ async def update_qa_helpful(qa_id: int, helpful: bool):
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE qa_history SET helpful = $1 WHERE id = $2',
+            'UPDATE public.qa_history SET helpful = $1 WHERE id = $2',
             helpful, qa_id
         )
 
@@ -150,7 +150,7 @@ async def update_qa_comment(qa_id: int, comment: str):
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE qa_history SET user_comment = $1 WHERE id = $2',
+            'UPDATE public.qa_history SET user_comment = $1 WHERE id = $2',
             comment, qa_id
         )
 
@@ -187,7 +187,7 @@ async def _get_chat_id_for_qa(qa_id: int) -> Optional[int]:
         pool = await get_journal_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                'SELECT chat_id FROM qa_history WHERE id = $1', qa_id
+                'SELECT chat_id FROM public.qa_history WHERE id = $1', qa_id
             )
             return row['chat_id'] if row else None
     except Exception:
@@ -199,7 +199,7 @@ async def get_qa_count(chat_id: int) -> int:
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT COUNT(*) as count FROM qa_history WHERE chat_id = $1',
+            'SELECT COUNT(*) as count FROM public.qa_history WHERE chat_id = $1',
             chat_id
         )
         return row['count']
@@ -225,13 +225,13 @@ async def get_user_qa_stats(chat_id: int) -> dict:
                 COUNT(*) FILTER (WHERE helpful = TRUE) AS helpful,
                 COUNT(*) FILTER (WHERE helpful = FALSE) AS not_helpful,
                 COUNT(*) FILTER (WHERE created_at >= $2) AS this_week
-            FROM qa_history
+            FROM public.qa_history
             WHERE chat_id = $1
         ''', chat_id, week_start)
 
         topics = await conn.fetch('''
             SELECT context_topic AS topic, COUNT(*) AS cnt
-            FROM qa_history
+            FROM public.qa_history
             WHERE chat_id = $1
               AND context_topic IS NOT NULL AND context_topic != ''
             GROUP BY context_topic

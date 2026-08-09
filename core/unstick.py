@@ -46,7 +46,7 @@ async def detect_repeated_errors(minutes: int = ERROR_WINDOW_MINUTES,
                 context->>'user_id' as user_id,
                 COUNT(*) as error_count,
                 MAX(message) as last_error
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - ($1 || ' minutes')::INTERVAL
               AND context->>'user_id' IS NOT NULL
               AND context->>'user_id' != '0'
@@ -80,7 +80,7 @@ async def detect_stuck_users(timeout_minutes: int = STUCK_TIMEOUT_MINUTES) -> li
             WITH latest_traces AS (
                 SELECT DISTINCT ON (user_id)
                     user_id, state, created_at
-                FROM request_traces
+                FROM public.request_traces
                 WHERE created_at > NOW() - INTERVAL '24 hours'
                 ORDER BY user_id, created_at DESC
             )

@@ -617,7 +617,7 @@ async def get_users_for_practice_nudge(limit: int = 100) -> list[dict]:
                  AND mq.sent_at <= NOW() - INTERVAL '30 minutes'
                  AND mp.status = 'active'
                  AND NOT EXISTS (
-                   SELECT 1 FROM domain_event de
+                   SELECT 1 FROM public.domain_event de
                    WHERE de.source = 'aist-bot'
                      AND de.event_type = 'notification_sent'
                      AND de.external_id =

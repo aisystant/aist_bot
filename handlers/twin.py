@@ -787,7 +787,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
             persona_pool = await get_persona_pool()
             async with persona_pool.acquire() as persona_conn:
                 account_id = await persona_conn.fetchval(
-                    "SELECT account_id FROM ory_identity WHERE telegram_id = $1",
+                    "SELECT account_id FROM public.ory_identity WHERE telegram_id = $1",
                     chat_id,
                 )
         except Exception as pe:
@@ -800,7 +800,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                 ind_pool = await get_indicators_pool()
                 async with ind_pool.acquire() as ind_conn:
                     existing = await ind_conn.fetchval(
-                        "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                        "SELECT data->'2_collected' FROM public.digital_twins WHERE user_id = $1",
                         str(account_id),
                     )
                     if existing:
@@ -824,7 +824,7 @@ async def _fallback_engagement(chat_id: int) -> dict | None:
                     # Fallback: legacy digital_twins (пока calculated_profile не заполнен)
                     if '_derived' not in collected:
                         existing_derived = await ind_conn.fetchval(
-                            "SELECT data->'3_derived' FROM digital_twins WHERE user_id = $1",
+                            "SELECT data->'3_derived' FROM public.digital_twins WHERE user_id = $1",
                             str(account_id),
                         )
                         if existing_derived:

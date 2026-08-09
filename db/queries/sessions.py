@@ -46,7 +46,7 @@ async def get_or_create_session(chat_id: int, command: str):
         # только у legacy-записей старой модели.
         row = await conn.fetchrow('''
             SELECT id, started_at, ended_at, request_count, commands
-            FROM user_sessions
+            FROM public.user_sessions
             WHERE chat_id = $1
             ORDER BY started_at DESC
             LIMIT 1
@@ -61,7 +61,7 @@ async def get_or_create_session(chat_id: int, command: str):
                 if command not in commands:
                     commands.append(command)
                 await conn.execute('''
-                    UPDATE user_sessions
+                    UPDATE public.user_sessions
                     SET ended_at = $2,
                         duration_seconds = $3,
                         request_count = request_count + 1,
@@ -81,7 +81,7 @@ async def get_or_create_session(chat_id: int, command: str):
                 # Legacy-строка не знает последнего запроса. Не выдумываем
                 # активность: фиксируем нулевую известную длительность.
                 await conn.execute('''
-                    UPDATE user_sessions
+                    UPDATE public.user_sessions
                     SET ended_at = started_at,
                         duration_seconds = 0
                     WHERE id = $1
@@ -89,7 +89,7 @@ async def get_or_create_session(chat_id: int, command: str):
 
         # Создать новую сессию
         await conn.execute('''
-            INSERT INTO user_sessions
+            INSERT INTO public.user_sessions
                 (chat_id, started_at, ended_at, duration_seconds,
                  request_count, entry_point, exit_point, commands)
             VALUES ($1, $2, $2, 0, 1, $3, $3, $4::jsonb)
@@ -115,7 +115,7 @@ async def finalize_stale_sessions():
     pool = await get_health_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''
-            UPDATE user_sessions
+            UPDATE public.user_sessions
             SET ended_at = started_at,
                 duration_seconds = 0
             WHERE ended_at IS NULL
@@ -140,14 +140,14 @@ async def get_session_stats(hours: int = 24) -> dict:
                 COUNT(*) as count,
                 COALESCE(AVG(duration_seconds), 0)::INTEGER as avg_duration_sec,
                 COALESCE(AVG(request_count), 0)::REAL as avg_requests
-            FROM user_sessions
+            FROM public.user_sessions
             WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
               AND duration_seconds IS NOT NULL
         ''', str(hours))
 
         entry_points = await conn.fetch('''
             SELECT entry_point as point, COUNT(*) as count
-            FROM user_sessions
+            FROM public.user_sessions
             WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
               AND entry_point IS NOT NULL
             GROUP BY entry_point

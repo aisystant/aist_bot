@@ -34,8 +34,8 @@ async def get_l2_fixable_errors(
             SELECT e.id, e.error_key, e.category, e.severity,
                    e.logger_name, e.message, e.traceback, e.context,
                    e.occurrence_count, e.suggested_action
-            FROM error_logs e
-            LEFT JOIN pending_fixes pf
+            FROM public.error_logs e
+            LEFT JOIN public.pending_fixes pf
                 ON e.error_key = pf.error_key
                 AND pf.status IN ('pending', 'approved', 'applied')
             WHERE e.severity = 'L2'
@@ -62,7 +62,7 @@ async def create_pending_fix(
     async with (await get_health_pool()).acquire() as conn:
         try:
             row = await conn.fetchrow("""
-                INSERT INTO pending_fixes
+                INSERT INTO public.pending_fixes
                     (error_log_id, error_key, diagnosis, archgate_eval,
                      proposed_diff, file_path, tg_message_id)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -80,7 +80,7 @@ async def get_pending_fix(fix_id: int) -> Optional[dict]:
     """Get pending fix by ID."""
     async with (await get_health_pool()).acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT * FROM pending_fixes WHERE id = $1
+            SELECT * FROM public.pending_fixes WHERE id = $1
         """, fix_id)
         return dict(row) if row else None
 
@@ -94,7 +94,7 @@ async def update_fix_status(
     """Update fix status and optional PR info."""
     async with (await get_health_pool()).acquire() as conn:
         await conn.execute("""
-            UPDATE pending_fixes
+            UPDATE public.pending_fixes
             SET status = $2,
                 pr_url = COALESCE($3, pr_url),
                 branch_name = COALESCE($4, branch_name),
@@ -108,7 +108,7 @@ async def cleanup_old_fixes(days: int = 30) -> int:
     """Delete old resolved fixes."""
     async with (await get_health_pool()).acquire() as conn:
         result = await conn.execute("""
-            DELETE FROM pending_fixes
+            DELETE FROM public.pending_fixes
             WHERE status IN ('applied', 'rejected', 'failed')
               AND resolved_at < NOW() - INTERVAL '1 day' * $1
         """, days)

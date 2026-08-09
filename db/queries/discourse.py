@@ -22,7 +22,7 @@ async def get_discourse_account(chat_id: int) -> dict | None:
     """Получить привязанный аккаунт Discourse."""
     pool = await get_community_pool()
     row = await pool.fetchrow(
-        "SELECT * FROM club_account WHERE chat_id = $1", chat_id
+        "SELECT * FROM public.club_account WHERE chat_id = $1", chat_id
     )
     return dict(row) if row else None
 
@@ -37,7 +37,7 @@ async def link_discourse_account(
     pool = await get_community_pool()
     await pool.execute(
         """
-        INSERT INTO club_account (chat_id, discourse_username, blog_category_id, blog_category_slug)
+        INSERT INTO public.club_account (chat_id, discourse_username, blog_category_id, blog_category_slug)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (chat_id) DO UPDATE SET
             discourse_username = $2,
@@ -53,7 +53,7 @@ async def unlink_discourse_account(chat_id: int) -> bool:
     """Отвязать аккаунт Discourse."""
     pool = await get_community_pool()
     result = await pool.execute(
-        "DELETE FROM club_account WHERE chat_id = $1", chat_id
+        "DELETE FROM public.club_account WHERE chat_id = $1", chat_id
     )
     return result != "DELETE 0"
 
@@ -62,7 +62,7 @@ async def get_chat_id_by_discourse_username(username: str) -> int | None:
     """Найти chat_id по discourse_username (для входящих webhook-событий)."""
     pool = await get_community_pool()
     row = await pool.fetchrow(
-        "SELECT chat_id FROM club_account WHERE discourse_username = $1", username
+        "SELECT chat_id FROM public.club_account WHERE discourse_username = $1", username
     )
     return row["chat_id"] if row else None
 
@@ -81,9 +81,9 @@ async def save_published_post(
     pool = await get_publication_pool()
     await pool.execute(
         """
-        INSERT INTO published_post (chat_id, discourse_topic_id, discourse_post_id, title, category_id, source_file)
+        INSERT INTO public.published_post (chat_id, discourse_topic_id, discourse_post_id, title, category_id, source_file)
         SELECT $1, $2, $3, $4, $5, $6
-        WHERE NOT EXISTS (SELECT 1 FROM published_post WHERE discourse_topic_id = $2)
+        WHERE NOT EXISTS (SELECT 1 FROM public.published_post WHERE discourse_topic_id = $2)
         """,
         chat_id, discourse_topic_id, discourse_post_id, title, category_id, source_file,
     )
@@ -94,7 +94,7 @@ async def get_published_posts(chat_id: int) -> list[dict]:
     pool = await get_publication_pool()
     rows = await pool.fetch(
         """
-        SELECT * FROM published_post
+        SELECT * FROM public.published_post
         WHERE chat_id = $1
         ORDER BY published_at DESC
         """,
@@ -107,7 +107,7 @@ async def is_title_published(chat_id: int, title: str) -> bool:
     """Проверить, опубликован ли пост с таким заголовком (дедупликация)."""
     pool = await get_publication_pool()
     row = await pool.fetchrow(
-        "SELECT 1 FROM published_post WHERE chat_id = $1 AND lower(title) = lower($2)",
+        "SELECT 1 FROM public.published_post WHERE chat_id = $1 AND lower(title) = lower($2)",
         chat_id, title,
     )
     return row is not None
@@ -118,7 +118,7 @@ async def update_post_comments_count(discourse_topic_id: int, posts_count: int) 
     pool = await get_publication_pool()
     await pool.execute(
         """
-        UPDATE published_post
+        UPDATE public.published_post
         SET posts_count = $2,
             last_checked_at = clock_timestamp(),
             comment_check_failures = 0
@@ -141,7 +141,7 @@ async def get_posts_for_comment_check() -> list[dict]:
     rows = await pub_pool.fetch(
         """
         SELECT pp.*
-        FROM published_post pp
+        FROM public.published_post pp
         WHERE pp.discourse_topic_id IS NOT NULL
           AND (
               COALESCE(pp.comment_check_failures, 0) < 3
@@ -160,7 +160,7 @@ async def get_posts_for_comment_check() -> list[dict]:
     chat_ids = list({p["chat_id"] for p in posts})
     com_pool = await get_community_pool()
     accounts = await com_pool.fetch(
-        "SELECT chat_id, discourse_username FROM club_account WHERE chat_id = ANY($1::bigint[])",
+        "SELECT chat_id, discourse_username FROM public.club_account WHERE chat_id = ANY($1::bigint[])",
         chat_ids,
     )
     username_by_chat = {a["chat_id"]: a["discourse_username"] for a in accounts}
@@ -174,7 +174,7 @@ async def increment_comment_check_failures(discourse_topic_id: int) -> None:
     pool = await get_publication_pool()
     await pool.execute(
         """
-        UPDATE published_post
+        UPDATE public.published_post
         SET comment_check_failures = COALESCE(comment_check_failures, 0) + 1,
             last_checked_at = clock_timestamp()
         WHERE discourse_topic_id = $1
@@ -188,7 +188,7 @@ async def mark_comment_check_attempt(discourse_topic_id: int) -> None:
     pool = await get_publication_pool()
     await pool.execute(
         """
-        UPDATE published_post
+        UPDATE public.published_post
         SET last_checked_at = clock_timestamp()
         WHERE discourse_topic_id = $1
         """,
@@ -221,7 +221,7 @@ async def schedule_publication(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO scheduled_post (chat_id, title, raw, category_id, schedule_time, tags, source_file)
+            INSERT INTO public.scheduled_post (chat_id, title, raw, category_id, schedule_time, tags, source_file)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (chat_id, source_file)
                 WHERE status IN ('pending', 'publishing') AND source_file IS NOT NULL
@@ -236,7 +236,7 @@ async def schedule_publication(
         if source_file:
             existing = await conn.fetchrow(
                 """
-                SELECT id FROM scheduled_post
+                SELECT id FROM public.scheduled_post
                 WHERE chat_id = $1 AND source_file = $2 AND status IN ('pending', 'publishing')
                 ORDER BY schedule_time
                 LIMIT 1
@@ -261,7 +261,7 @@ async def get_pending_publications() -> list[dict]:
     rows = await pub_pool.fetch(
         """
         SELECT sp.*
-        FROM scheduled_post sp
+        FROM public.scheduled_post sp
         WHERE sp.status = 'pending' AND sp.schedule_time <= NOW()
         ORDER BY sp.schedule_time
         """
@@ -273,7 +273,7 @@ async def get_pending_publications() -> list[dict]:
     chat_ids = list({p["chat_id"] for p in pubs})
     com_pool = await get_community_pool()
     accounts = await com_pool.fetch(
-        "SELECT chat_id, discourse_username FROM club_account WHERE chat_id = ANY($1::bigint[])",
+        "SELECT chat_id, discourse_username FROM public.club_account WHERE chat_id = ANY($1::bigint[])",
         chat_ids,
     )
     username_by_chat = {a["chat_id"]: a["discourse_username"] for a in accounts}
@@ -294,7 +294,7 @@ async def get_and_claim_pending_publication() -> dict | None:
             row = await conn.fetchrow(
                 """
                 SELECT sp.*
-                FROM scheduled_post sp
+                FROM public.scheduled_post sp
                 WHERE sp.status = 'pending' AND sp.schedule_time <= NOW()
                 ORDER BY sp.schedule_time
                 FOR UPDATE SKIP LOCKED
@@ -305,7 +305,7 @@ async def get_and_claim_pending_publication() -> dict | None:
                 return None
             await conn.execute(
                 """
-                UPDATE scheduled_post
+                UPDATE public.scheduled_post
                 SET status = 'publishing', updated_at = NOW()
                 WHERE id = $1
                 """,
@@ -315,7 +315,7 @@ async def get_and_claim_pending_publication() -> dict | None:
     pub = dict(row)
     com_pool = await get_community_pool()
     acc = await com_pool.fetchrow(
-        "SELECT discourse_username FROM club_account WHERE chat_id = $1",
+        "SELECT discourse_username FROM public.club_account WHERE chat_id = $1",
         pub["chat_id"],
     )
     pub["discourse_username"] = acc["discourse_username"] if acc else None
@@ -331,7 +331,7 @@ async def reset_stale_publishing(max_age_minutes: int = 10) -> int:
     pool = await get_publication_pool()
     result = await pool.execute(
         """
-        UPDATE scheduled_post
+        UPDATE public.scheduled_post
         SET status = 'pending', updated_at = NOW()
         WHERE status = 'publishing'
           AND updated_at < NOW() - (make_interval(mins => $1))
@@ -353,7 +353,7 @@ async def mark_publication_done(pub_id: int, discourse_topic_id: int) -> None:
     pool = await get_publication_pool()
     await pool.execute(
         """
-        UPDATE scheduled_post
+        UPDATE public.scheduled_post
         SET status = 'published', discourse_topic_id = $2, updated_at = NOW()
         WHERE id = $1 AND status = 'publishing'
         """,
@@ -365,7 +365,7 @@ async def mark_publication_failed(pub_id: int) -> None:
     """Пометить публикацию как неудачную."""
     pool = await get_publication_pool()
     await pool.execute(
-        "UPDATE scheduled_post SET status = 'failed', updated_at = NOW() WHERE id = $1 AND status = 'publishing'",
+        "UPDATE public.scheduled_post SET status = 'failed', updated_at = NOW() WHERE id = $1 AND status = 'publishing'",
         pub_id,
     )
 
@@ -377,7 +377,7 @@ async def get_all_published_source_files(chat_id: int) -> set[str]:
     """Множество source_file опубликованных постов (для reconciliation)."""
     pool = await get_publication_pool()
     rows = await pool.fetch(
-        "SELECT source_file FROM published_post WHERE chat_id = $1 AND source_file IS NOT NULL",
+        "SELECT source_file FROM public.published_post WHERE chat_id = $1 AND source_file IS NOT NULL",
         chat_id,
     )
     return {r["source_file"] for r in rows}
@@ -387,7 +387,7 @@ async def get_all_published_titles_lower(chat_id: int) -> set[str]:
     """Множество title (lowercase) опубликованных постов (для reconciliation по title)."""
     pool = await get_publication_pool()
     rows = await pool.fetch(
-        "SELECT lower(title) as t FROM published_post WHERE chat_id = $1",
+        "SELECT lower(title) as t FROM public.published_post WHERE chat_id = $1",
         chat_id,
     )
     return {r["t"] for r in rows}
@@ -398,7 +398,7 @@ async def get_all_scheduled_source_files(chat_id: int) -> set[str]:
     pool = await get_publication_pool()
     rows = await pool.fetch(
         """
-        SELECT sp.source_file FROM scheduled_post sp
+        SELECT sp.source_file FROM public.scheduled_post sp
         WHERE sp.chat_id = $1
           AND sp.status IN ('pending', 'publishing')
           AND sp.source_file IS NOT NULL
@@ -413,7 +413,7 @@ async def get_all_scheduled_titles_lower(chat_id: int) -> set[str]:
     pool = await get_publication_pool()
     rows = await pool.fetch(
         """
-        SELECT lower(title) as t FROM scheduled_post
+        SELECT lower(title) as t FROM public.scheduled_post
         WHERE chat_id = $1 AND status IN ('pending', 'publishing')
         """,
         chat_id,
@@ -425,7 +425,7 @@ async def get_scheduled_count(chat_id: int) -> int:
     """Количество постов в очереди (pending)."""
     pool = await get_publication_pool()
     row = await pool.fetchrow(
-        "SELECT COUNT(*) as cnt FROM scheduled_post WHERE chat_id = $1 AND status = 'pending'",
+        "SELECT COUNT(*) as cnt FROM public.scheduled_post WHERE chat_id = $1 AND status = 'pending'",
         chat_id,
     )
     return row["cnt"] if row else 0
@@ -437,7 +437,7 @@ async def get_scheduled_dates(chat_id: int) -> set:
     rows = await pool.fetch(
         """
         SELECT DISTINCT schedule_time::date as d
-        FROM scheduled_post
+        FROM public.scheduled_post
         WHERE chat_id = $1 AND status = 'pending'
         """,
         chat_id,
@@ -451,7 +451,7 @@ async def get_upcoming_schedule(chat_id: int, limit: int = 10) -> list[dict]:
     rows = await pool.fetch(
         """
         SELECT id, title, schedule_time, status, source_file
-        FROM scheduled_post
+        FROM public.scheduled_post
         WHERE chat_id = $1 AND status = 'pending'
         ORDER BY schedule_time
         LIMIT $2
@@ -464,7 +464,7 @@ async def get_upcoming_schedule(chat_id: int, limit: int = 10) -> list[dict]:
 async def get_all_discourse_accounts() -> list[dict]:
     """Все привязанные аккаунты Discourse (для scheduler scan)."""
     pool = await get_community_pool()
-    rows = await pool.fetch("SELECT * FROM club_account")
+    rows = await pool.fetch("SELECT * FROM public.club_account")
     return [dict(r) for r in rows]
 
 
@@ -478,7 +478,7 @@ async def get_scheduled_publication(pub_id: int) -> dict | None:
     row = await pub_pool.fetchrow(
         """
         SELECT sp.*
-        FROM scheduled_post sp
+        FROM public.scheduled_post sp
         WHERE sp.id = $1 AND sp.status = 'pending'
         """,
         pub_id,
@@ -488,7 +488,7 @@ async def get_scheduled_publication(pub_id: int) -> dict | None:
     pub = dict(row)
     com_pool = await get_community_pool()
     acc = await com_pool.fetchrow(
-        "SELECT discourse_username FROM club_account WHERE chat_id = $1",
+        "SELECT discourse_username FROM public.club_account WHERE chat_id = $1",
         pub["chat_id"],
     )
     pub["discourse_username"] = acc["discourse_username"] if acc else None
@@ -505,7 +505,7 @@ async def claim_specific_publication(pub_id: int) -> dict | None:
     pub_pool = await get_publication_pool()
     row = await pub_pool.fetchrow(
         """
-        UPDATE scheduled_post
+        UPDATE public.scheduled_post
         SET status = 'publishing', updated_at = NOW()
         WHERE id = $1 AND status = 'pending'
         RETURNING *
@@ -517,7 +517,7 @@ async def claim_specific_publication(pub_id: int) -> dict | None:
     pub = dict(row)
     com_pool = await get_community_pool()
     acc = await com_pool.fetchrow(
-        "SELECT discourse_username FROM club_account WHERE chat_id = $1",
+        "SELECT discourse_username FROM public.club_account WHERE chat_id = $1",
         pub["chat_id"],
     )
     pub["discourse_username"] = acc["discourse_username"] if acc else None
@@ -528,7 +528,7 @@ async def cancel_scheduled_publication(pub_id: int) -> None:
     """Отменить запланированную публикацию."""
     pool = await get_publication_pool()
     await pool.execute(
-        "DELETE FROM scheduled_post WHERE id = $1 AND status = 'pending'",
+        "DELETE FROM public.scheduled_post WHERE id = $1 AND status = 'pending'",
         pub_id,
     )
 
@@ -537,7 +537,7 @@ async def reschedule_publication(pub_id: int, new_time: datetime) -> None:
     """Перенести публикацию на новое время."""
     pool = await get_publication_pool()
     await pool.execute(
-        "UPDATE scheduled_post SET schedule_time = $2 WHERE id = $1 AND status = 'pending'",
+        "UPDATE public.scheduled_post SET schedule_time = $2 WHERE id = $1 AND status = 'pending'",
         pub_id, new_time,
     )
 
@@ -558,7 +558,7 @@ async def reschedule_all_pending(
     rows = await pool.fetch(
         """
         SELECT id, title, source_file, schedule_time
-        FROM scheduled_post
+        FROM public.scheduled_post
         WHERE chat_id = $1 AND status = 'pending'
         ORDER BY schedule_time
         """,
@@ -583,7 +583,7 @@ async def reschedule_all_pending(
     # Delete duplicates
     if duplicate_ids:
         await pool.execute(
-            "DELETE FROM scheduled_post WHERE id = ANY($1::int[])",
+            "DELETE FROM public.scheduled_post WHERE id = ANY($1::int[])",
             duplicate_ids,
         )
 
@@ -612,7 +612,7 @@ async def reschedule_all_pending(
     result = []
     for post, slot in zip(unique_posts, slots):
         await pool.execute(
-            "UPDATE scheduled_post SET schedule_time = $2 WHERE id = $1",
+            "UPDATE public.scheduled_post SET schedule_time = $2 WHERE id = $1",
             post["id"], slot,
         )
         result.append((post["title"], slot))

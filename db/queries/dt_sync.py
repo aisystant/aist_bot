@@ -107,9 +107,9 @@ async def _preload_lms_qualifications(lms_user_ids: list[str]) -> dict:
                     qle.level,
                     qle.event_date,
                     qle.reason
-                FROM suser s
-                JOIN contact c ON c.value = s.email AND c.contact_type = 0
-                JOIN qualification_level_event qle ON qle.kontragent_id = c.kontragent_id
+                FROM public.suser s
+                JOIN public.contact c ON c.value = s.email AND c.contact_type = 0
+                JOIN public.qualification_level_event qle ON qle.kontragent_id = c.kontragent_id
                 WHERE s.id = ANY($1::bigint[])
                 ORDER BY s.id, qle.event_date DESC, qle.id DESC
             ''', int_ids)
@@ -282,7 +282,7 @@ async def sync_engagement_to_dt() -> dict:
                     e.events_last_7d,
                     e.events_last_30d
                 FROM development.engagement e
-                LEFT JOIN dt_tokens dt ON dt.chat_id = e.user_id
+                LEFT JOIN public.dt_tokens dt ON dt.chat_id = e.user_id
                 LEFT JOIN public.users u ON u.telegram_id = e.user_id
                 WHERE e.user_uuid IS NOT NULL
             ''')
@@ -406,7 +406,7 @@ async def sync_engagement_to_dt() -> dict:
                                 AND occurred_at >= NOW() - INTERVAL '30 days'
                                 THEN DATE(occurred_at)
                             END) AS day_opens_30d
-                        FROM domain_event
+                        FROM public.domain_event
                         WHERE account_id = $1::uuid
                           AND source = 'iwe'
                           AND occurred_at >= NOW() - INTERVAL '30 days'
@@ -475,7 +475,7 @@ async def sync_engagement_to_dt() -> dict:
                     # qualification_level assigned at onboarding completion when
                     # this payload carries none (LMS qual absent or numeric < 25).
                     await dt_conn.execute('''
-                        INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                        INSERT INTO public.digital_twins (user_id, data, created_at, updated_at)
                         VALUES ($1, $2::jsonb, NOW(), NOW())
                         ON CONFLICT (user_id) DO UPDATE SET
                             data = COALESCE(digital_twins.data, '{}'::jsonb)
@@ -771,7 +771,7 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
                         AND occurred_at >= NOW() - INTERVAL '30 days'
                         THEN DATE(occurred_at)
                     END) AS day_opens_30d
-                FROM domain_event
+                FROM public.domain_event
                 WHERE account_id = $1::uuid
                   AND source = 'iwe'
                   AND occurred_at >= NOW() - INTERVAL '30 days'
@@ -796,7 +796,7 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             # Fallback: dt-collect snapshot (переходный период)
             if '2_6_coding' not in collected_data or '2_7_iwe' not in collected_data:
                 existing = await conn.fetchval(
-                    "SELECT data->'2_collected' FROM digital_twins WHERE user_id = $1",
+                    "SELECT data->'2_collected' FROM public.digital_twins WHERE user_id = $1",
                     effective_user_id,
                 )
                 if existing:
@@ -817,7 +817,7 @@ async def sync_one_user_to_dt(user_id: str) -> bool:
             # qualification_level assigned at onboarding completion when
             # this payload carries none (LMS qual absent or numeric < 25).
             await dt_conn.execute('''
-                INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                INSERT INTO public.digital_twins (user_id, data, created_at, updated_at)
                 VALUES ($1, $2::jsonb, NOW(), NOW())
                 ON CONFLICT (user_id) DO UPDATE SET
                     data = COALESCE(digital_twins.data, '{}'::jsonb)
@@ -936,7 +936,7 @@ async def ensure_default_qualification(chat_id: int) -> bool:
             existing = await conn.fetchval(
                 """
                 SELECT data->'2_collected'->'2_2_courses'->'qualification_level'
-                FROM digital_twins WHERE user_id = $1
+                FROM public.digital_twins WHERE user_id = $1
                 """,
                 effective_user_id,
             )
@@ -979,7 +979,7 @@ async def ensure_default_qualification(chat_id: int) -> bool:
             # Deep merge down to 2_2_courses — соседние ключи (marathon_steps_total
             # и др.) и остальные секции 2_collected не затираются.
             await conn.execute('''
-                INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                INSERT INTO public.digital_twins (user_id, data, created_at, updated_at)
                 VALUES ($1, $2::jsonb, NOW(), NOW())
                 ON CONFLICT (user_id) DO UPDATE SET
                     data = COALESCE(digital_twins.data, '{}'::jsonb)

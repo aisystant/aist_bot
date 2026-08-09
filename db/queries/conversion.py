@@ -37,7 +37,7 @@ async def log_conversion_event(
     pool = await get_lead_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO conversion_event
+            '''INSERT INTO public.conversion_event
                (chat_id, trigger_type, milestone, action)
                VALUES ($1, $2, $3, $4)''',
             chat_id, trigger_type, milestone, action,
@@ -54,7 +54,7 @@ async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = N
     async with pool.acquire() as conn:
         if trigger_type:
             row = await conn.fetchval(
-                '''SELECT 1 FROM conversion_event
+                '''SELECT 1 FROM public.conversion_event
                    WHERE chat_id = $1
                      AND trigger_type = $2
                      AND milestone = $3
@@ -63,7 +63,7 @@ async def was_milestone_sent(chat_id: int, milestone: str, trigger_type: str = N
             )
         else:
             row = await conn.fetchval(
-                '''SELECT 1 FROM conversion_event
+                '''SELECT 1 FROM public.conversion_event
                    WHERE chat_id = $1
                      AND milestone = $2
                    LIMIT 1''',
@@ -77,7 +77,7 @@ async def is_cooldown_active(chat_id: int) -> bool:
     pool = await get_lead_pool()
     async with pool.acquire() as conn:
         last = await conn.fetchval(
-            '''SELECT MAX(shown_at) FROM conversion_event
+            '''SELECT MAX(shown_at) FROM public.conversion_event
                WHERE chat_id = $1''',
             chat_id,
         )
@@ -114,12 +114,12 @@ async def get_milestone_eligible_users(milestone_day: int) -> list[dict]:
     lead_pool = await get_lead_pool()
     async with lead_pool.acquire() as conn:
         already_rows = await conn.fetch(
-            '''SELECT DISTINCT chat_id FROM conversion_event
+            '''SELECT DISTINCT chat_id FROM public.conversion_event
                WHERE trigger_type = 'C3' AND milestone = $1''',
             milestone,
         )
         cooldown_rows = await conn.fetch(
-            '''SELECT DISTINCT chat_id FROM conversion_event
+            '''SELECT DISTINCT chat_id FROM public.conversion_event
                WHERE shown_at > NOW() - INTERVAL '7 days' '''
         )
     excluded_chat_ids = {r["chat_id"] for r in already_rows} | {r["chat_id"] for r in cooldown_rows}

@@ -78,7 +78,7 @@ async def save_feedback(
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
-            INSERT INTO feedback_report
+            INSERT INTO public.feedback_report
             (chat_id, category, scenario, severity, message)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id
@@ -93,7 +93,7 @@ async def get_pending_reports(severity: str, since_hours: int = 24) -> List[dict
         rows = await conn.fetch('''
             SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
                    f.message, f.created_at
-            FROM feedback_report f
+            FROM public.feedback_report f
             WHERE f.status = 'new' AND f.severity = $1
               AND f.created_at >= NOW() - make_interval(hours => $2)
             ORDER BY f.created_at
@@ -109,7 +109,7 @@ async def mark_notified(ids: List[int]):
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE feedback_report SET status = 'notified', notified_at = NOW() WHERE id = ANY($1)",
+            "UPDATE public.feedback_report SET status = 'notified', notified_at = NOW() WHERE id = ANY($1)",
             ids,
         )
 
@@ -122,7 +122,7 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
             rows = await conn.fetch('''
                 SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
                        f.message, f.status, f.created_at
-                FROM feedback_report f
+                FROM public.feedback_report f
                 WHERE f.created_at >= NOW() - make_interval(hours => $1)
                 ORDER BY f.created_at DESC
                 LIMIT $2
@@ -131,7 +131,7 @@ async def get_all_reports(limit: int = 20, since_hours: int = None) -> List[dict
             rows = await conn.fetch('''
                 SELECT f.id, f.chat_id, f.category, f.scenario, f.severity,
                        f.message, f.status, f.created_at
-                FROM feedback_report f
+                FROM public.feedback_report f
                 ORDER BY f.created_at DESC
                 LIMIT $1
             ''', limit)
@@ -152,7 +152,7 @@ async def get_report_stats() -> dict:
                 COUNT(*) FILTER (WHERE severity = 'red') AS red_count,
                 COUNT(*) FILTER (WHERE severity = 'yellow') AS yellow_count,
                 COUNT(*) FILTER (WHERE severity = 'green') AS green_count
-            FROM feedback_report
+            FROM public.feedback_report
         ''')
         return dict(row) if row else {}
 
@@ -161,6 +161,6 @@ async def clear_all_reports() -> int:
     """Удалить все отчёты. Возвращает количество удалённых."""
     pool = await get_journal_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute('DELETE FROM feedback_report')
+        result = await conn.execute('DELETE FROM public.feedback_report')
         # result = "DELETE N"
         return int(result.split()[-1]) if result else 0

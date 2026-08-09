@@ -38,8 +38,8 @@ async def _ensure_status_check(conn: asyncpg.Connection) -> None:
     row = await conn.fetchrow(
         """
         SELECT 1
-        FROM pg_constraint
-        WHERE conrelid = 'scheduled_post'::regclass
+        FROM pg_catalog.pg_constraint
+        WHERE conrelid = 'public.scheduled_post'::regclass
           AND conname = 'chk_scheduled_post_status'
         """
     )
@@ -47,7 +47,7 @@ async def _ensure_status_check(conn: asyncpg.Connection) -> None:
         return
     await conn.execute(
         """
-        ALTER TABLE scheduled_post
+        ALTER TABLE public.scheduled_post
         ADD CONSTRAINT chk_scheduled_post_status
         CHECK (status IN ('pending', 'publishing', 'published', 'failed'))
         """
@@ -62,7 +62,7 @@ async def _deduplicate_pending_source_files(conn: asyncpg.Connection) -> int:
     """
     result = await conn.execute(
         """
-        DELETE FROM scheduled_post
+        DELETE FROM public.scheduled_post
         WHERE id IN (
             SELECT id FROM (
                 SELECT id,
@@ -70,7 +70,7 @@ async def _deduplicate_pending_source_files(conn: asyncpg.Connection) -> int:
                            PARTITION BY chat_id, source_file
                            ORDER BY schedule_time, id
                        ) AS rn
-                FROM scheduled_post
+                FROM public.scheduled_post
                 WHERE status IN ('pending', 'publishing')
                   AND source_file IS NOT NULL
             ) sub
@@ -89,7 +89,7 @@ async def _ensure_unique_pending_index(conn: asyncpg.Connection) -> None:
     await conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_post_unique_pending_source
-        ON scheduled_post (chat_id, source_file)
+        ON public.scheduled_post (chat_id, source_file)
         WHERE status IN ('pending', 'publishing') AND source_file IS NOT NULL
         """
     )
@@ -99,7 +99,7 @@ async def _ensure_updated_at(conn: asyncpg.Connection) -> None:
     """Add updated_at column used for stale publishing detection."""
     await conn.execute(
         """
-        ALTER TABLE scheduled_post
+        ALTER TABLE public.scheduled_post
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
         """
     )
@@ -109,7 +109,7 @@ async def _backfill_publishing_to_pending(conn: asyncpg.Connection) -> int:
     """Recover rows left in 'publishing' after a previous crash."""
     result = await conn.execute(
         """
-        UPDATE scheduled_post
+        UPDATE public.scheduled_post
         SET status = 'pending'
         WHERE status = 'publishing'
         """

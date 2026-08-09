@@ -91,7 +91,7 @@ async def main():
                 COALESCE(SUM(base_amount * dom_mult * qual_mult * streak_mult), 0) AS total_raw,
                 COALESCE(SUM(CASE WHEN cap_truncated THEN effective ELSE 0 END), 0) AS lost_to_cap,
                 COUNT(CASE WHEN cap_truncated THEN 1 END) AS capped_events
-            FROM applied_events
+            FROM public.applied_events
             WHERE account_id = $1
             """,
             account_id,
@@ -122,7 +122,7 @@ async def main():
                 COALESCE(SUM(base_amount * dom_mult * qual_mult * streak_mult), 0) AS raw,
                 BOOL_OR(cap_truncated) AS cap_hit,
                 MAX(daily_cap) AS daily_cap
-            FROM applied_events
+            FROM public.applied_events
             WHERE account_id = $1
             GROUP BY DATE(applied_at)
             ORDER BY day DESC
@@ -159,7 +159,7 @@ async def main():
                 COUNT(*) AS cnt,
                 COALESCE(SUM(effective), 0) AS eff,
                 COALESCE(AVG(effective), 0) AS avg_eff
-            FROM applied_events
+            FROM public.applied_events
             WHERE account_id = $1
             GROUP BY event_type
             ORDER BY eff DESC
@@ -177,7 +177,7 @@ async def main():
         zero_rows = await conn.fetch(
             """
             SELECT event_type, applied_at, raw_amount, effective, cap_truncated, daily_cap
-            FROM applied_events
+            FROM public.applied_events
             WHERE account_id = $1 AND effective = 0
             ORDER BY applied_at DESC
             LIMIT 10
@@ -212,7 +212,7 @@ async def main():
                 event_type,
                 COALESCE(SUM(base_amount * dom_mult * qual_mult * streak_mult), 0) AS raw,
                 COALESCE(SUM(effective), 0) AS eff
-            FROM applied_events
+            FROM public.applied_events
             WHERE account_id = $1
             GROUP BY event_type
             HAVING COALESCE(SUM(base_amount * dom_mult * qual_mult * streak_mult), 0) > COALESCE(SUM(effective), 0) * 1.5

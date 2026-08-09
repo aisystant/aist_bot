@@ -133,7 +133,7 @@ async def _start_heartbeat_poller(
                     row = await conn.fetchrow(
                         """
                         SELECT event_type, occurred_at, payload
-                        FROM domain_event
+                        FROM public.domain_event
                         WHERE event_type IN (
                                 'session.heartbeat',
                                 'session.turn_completed',
@@ -177,7 +177,7 @@ async def _start_heartbeat_poller(
                     hpool = await get_health_pool()
                     async with hpool.acquire() as hconn:
                         await hconn.execute(
-                            """INSERT INTO request_traces
+                            """INSERT INTO public.request_traces
                                (trace_id, user_id, command, state, total_ms, spans, created_at)
                                VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
                             session_id,
@@ -296,7 +296,7 @@ async def recover_active_heartbeat_pollers(bot) -> None:
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT chat_id, data FROM fsm_states WHERE state = $1",
+                "SELECT chat_id, data FROM public.fsm_states WHERE state = $1",
                 "ExternalSession:active",
             )
     except Exception as exc:

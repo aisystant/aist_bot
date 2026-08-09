@@ -176,11 +176,11 @@ async def cmd_remind(message: Message):
         pool = await get_learning_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
+                "ALTER TABLE public.reminder ADD COLUMN IF NOT EXISTS text TEXT"
             )
             # bot_id колонку гарантирует миграция 024 (WP-212 Layer 1) при старте.
             row = await conn.fetchrow(
-                """INSERT INTO reminder (chat_id, reminder_type, scheduled_for, text, bot_id)
+                """INSERT INTO public.reminder (chat_id, reminder_type, scheduled_for, text, bot_id)
                    VALUES ($1, 'custom', $2, $3, $4)
                    RETURNING id""",
                 chat_id, scheduled_for, text, message.bot.id,
@@ -205,7 +205,7 @@ async def _cmd_list(message: Message, chat_id: int):
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT id, text, scheduled_for
-                   FROM reminder
+                   FROM public.reminder
                    WHERE chat_id = $1 AND sent = FALSE AND reminder_type = 'custom'
                    ORDER BY scheduled_for
                    LIMIT 10""",
@@ -235,7 +235,7 @@ async def _cmd_cancel(message: Message, chat_id: int, reminder_id: int):
         pool = await get_learning_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(
-                """DELETE FROM reminder
+                """DELETE FROM public.reminder
                    WHERE id = $1 AND chat_id = $2 AND sent = FALSE AND reminder_type = 'custom'""",
                 reminder_id, chat_id,
             )

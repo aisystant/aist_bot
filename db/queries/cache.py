@@ -25,7 +25,7 @@ async def cache_get(cache_key: str) -> Optional[str]:
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''SELECT content FROM content_cache
+            '''SELECT content FROM public.content_cache
                WHERE cache_key = $1 AND expires_at > NOW()''',
             cache_key
         )
@@ -41,7 +41,7 @@ async def cache_set(cache_key: str, content_type: str, content: str, ttl_days: i
     expires = datetime.now(MOSCOW_TZ) + timedelta(days=ttl_days)
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO content_cache (cache_key, content_type, content, expires_at)
+            '''INSERT INTO public.content_cache (cache_key, content_type, content, expires_at)
                VALUES ($1, $2, $3, $4)
                ON CONFLICT (cache_key)
                DO UPDATE SET content = $3, expires_at = $4, created_at = NOW()''',
@@ -55,6 +55,6 @@ async def cache_cleanup():
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            'DELETE FROM content_cache WHERE expires_at < NOW()'
+            'DELETE FROM public.content_cache WHERE expires_at < NOW()'
         )
     logger.info(f"[Cache] Cleanup: {result}")

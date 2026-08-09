@@ -37,7 +37,7 @@ async def get_points_balance(account_id: Optional[str]) -> Optional[Decimal]:
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT points FROM point_balances WHERE account_id = $1",
+                "SELECT points FROM public.point_balances WHERE account_id = $1",
                 account_id,
             )
             return row['points'] if row else None
@@ -69,7 +69,7 @@ async def get_recent_applied_events(
                 """
                 SELECT event_id, event_type, base_amount, dom_mult, qual_mult,
                        streak_mult, daily_cap, effective, cap_truncated, applied_at
-                FROM applied_events
+                FROM public.applied_events
                 WHERE account_id = $1
                 ORDER BY applied_at DESC
                 LIMIT $2
@@ -95,7 +95,7 @@ async def get_today_raw_total(account_id: Optional[str]) -> Decimal:
                 SELECT COALESCE(
                     SUM(base_amount * dom_mult * qual_mult * streak_mult), 0
                 ) AS today_raw
-                FROM applied_events
+                FROM public.applied_events
                 WHERE account_id = $1
                   AND DATE(applied_at) = CURRENT_DATE
                 """,
@@ -118,7 +118,7 @@ async def get_today_total(account_id: Optional[str]) -> Decimal:
             row = await conn.fetchrow(
                 """
                 SELECT COALESCE(SUM(effective), 0) AS today_total
-                FROM applied_events
+                FROM public.applied_events
                 WHERE account_id = $1
                   AND DATE(applied_at) = CURRENT_DATE
                 """,
@@ -194,7 +194,7 @@ async def get_earned_total(account_id: Optional[str]) -> Optional[Decimal]:
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT earned_total FROM point_balances WHERE account_id = $1",
+                "SELECT earned_total FROM public.point_balances WHERE account_id = $1",
                 account_id,
             )
             return row['earned_total'] if row else None
@@ -271,7 +271,7 @@ async def get_user_daily_cap(account_id: Optional[str]) -> Optional[int]:
             row = await conn.fetchrow(
                 """
                 SELECT daily_cap AS daily_total_cap
-                FROM applied_events
+                FROM public.applied_events
                 WHERE account_id = $1 AND daily_cap >= 20
                 ORDER BY applied_at DESC
                 LIMIT 1

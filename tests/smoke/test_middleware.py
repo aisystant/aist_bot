@@ -319,7 +319,7 @@ class TestSessionTracking:
         sql, session_id, ended_at, duration, exit_point, commands = (
             conn.execute.await_args.args
         )
-        assert "UPDATE user_sessions" in sql
+        assert "UPDATE public.user_sessions" in sql
         assert session_id == 7
         assert 9 * 60 <= duration <= 11 * 60
         assert exit_point == "/learn"
@@ -349,7 +349,7 @@ class TestSessionTracking:
         await sessions.get_or_create_session(42, "/start")
 
         sql, chat_id, started_at, entry_point, commands = conn.execute.await_args.args
-        assert "INSERT INTO user_sessions" in sql
+        assert "INSERT INTO public.user_sessions" in sql
         assert "ended_at, duration_seconds" in sql
         assert chat_id == 42
         assert started_at >= now

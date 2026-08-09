@@ -30,7 +30,7 @@ async def save_ory_tokens(
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO ory_tokens (chat_id, access_token, refresh_token, expires_at, ory_id, updated_at)
+            '''INSERT INTO public.ory_tokens (chat_id, access_token, refresh_token, expires_at, ory_id, updated_at)
                VALUES ($1, $2, $3, $4, $5, NOW())
                ON CONFLICT (chat_id) DO UPDATE SET
                    access_token = $2,
@@ -52,7 +52,7 @@ async def load_all_ory_tokens() -> List[Dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
-               FROM ory_tokens
+               FROM public.ory_tokens
                WHERE refresh_token IS NOT NULL
                  AND length(refresh_token) > 0'''
         )
@@ -75,7 +75,7 @@ async def load_one_ory_token(chat_id: int) -> Optional[Dict]:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
-               FROM ory_tokens
+               FROM public.ory_tokens
                WHERE chat_id = $1
                  AND refresh_token IS NOT NULL
                  AND length(refresh_token) > 0''',
@@ -89,7 +89,7 @@ async def delete_ory_tokens(chat_id: int) -> None:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'DELETE FROM ory_tokens WHERE chat_id = $1',
+            'DELETE FROM public.ory_tokens WHERE chat_id = $1',
             chat_id,
         )
 
@@ -103,7 +103,7 @@ async def get_expiring_ory_tokens(margin_seconds: int = 600) -> List[Dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, ory_id
-               FROM ory_tokens
+               FROM public.ory_tokens
                WHERE refresh_token IS NOT NULL
                  AND length(refresh_token) > 0
                  AND expires_at < NOW() + INTERVAL '1 second' * $1''',
@@ -147,7 +147,7 @@ async def refresh_ory_token_with_lock(
         async with conn.transaction():
             row = await conn.fetchrow(
                 '''SELECT access_token, refresh_token, expires_at, ory_id
-                   FROM ory_tokens
+                   FROM public.ory_tokens
                    WHERE chat_id = $1
                    FOR UPDATE''',
                 chat_id,
@@ -189,7 +189,7 @@ async def refresh_ory_token_with_lock(
             new_refresh = new_tokens.get('refresh_token') or row['refresh_token']
 
             await conn.execute(
-                '''UPDATE ory_tokens
+                '''UPDATE public.ory_tokens
                    SET access_token = $1, refresh_token = $2,
                        expires_at = $3, updated_at = NOW()
                    WHERE chat_id = $4''',

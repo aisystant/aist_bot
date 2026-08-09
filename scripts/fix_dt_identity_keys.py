@@ -41,8 +41,8 @@ async def main(dry_run: bool) -> None:
                 ory_row.user_id   AS ory_id_key,
                 u.telegram_id
             FROM public.users u
-            JOIN digital_twins users_row ON users_row.user_id = u.id::text
-            JOIN digital_twins ory_row   ON ory_row.user_id   = u.ory_id::text
+            JOIN public.digital_twins users_row ON users_row.user_id = u.id::text
+            JOIN public.digital_twins ory_row   ON ory_row.user_id   = u.ory_id::text
             WHERE u.ory_id IS NOT NULL
         """)
 
@@ -63,14 +63,14 @@ async def main(dry_run: bool) -> None:
             # COALESCE(ory_row.data->'2_collected', '{}') || COALESCE(users_row.data->'2_collected', '{}')
             # jsonb || берёт правый операнд для перекрывающихся ключей — ory_id ряд приоритетнее
             merge_result = await conn.execute("""
-                UPDATE digital_twins AS ory_row
+                UPDATE public.digital_twins AS ory_row
                 SET data = jsonb_build_object(
                     '2_collected',
                     COALESCE(users_row.data->'2_collected', '{}'::jsonb)
                     || COALESCE(ory_row.data->'2_collected', '{}'::jsonb)
                 ),
                 updated_at = NOW()
-                FROM digital_twins AS users_row
+                FROM public.digital_twins AS users_row
                 JOIN public.users u ON u.id::text = users_row.user_id
                 WHERE ory_row.user_id = u.ory_id::text
                   AND u.ory_id IS NOT NULL
@@ -79,16 +79,16 @@ async def main(dry_run: bool) -> None:
 
             # Шаг 3: удалить users.id ряды
             delete_result = await conn.execute("""
-                DELETE FROM digital_twins
+                DELETE FROM public.digital_twins
                 WHERE user_id IN (
                     SELECT u.id::text FROM public.users u
                     WHERE u.ory_id IS NOT NULL
                       AND EXISTS (
-                          SELECT 1 FROM digital_twins dt
+                          SELECT 1 FROM public.digital_twins dt
                           WHERE dt.user_id = u.ory_id::text
                       )
                       AND EXISTS (
-                          SELECT 1 FROM digital_twins dt2
+                          SELECT 1 FROM public.digital_twins dt2
                           WHERE dt2.user_id = u.id::text
                       )
                 )
@@ -98,7 +98,7 @@ async def main(dry_run: bool) -> None:
         # Шаг 4: верификация
         remaining = await conn.fetch("""
             SELECT user_id, COUNT(*) as cnt
-            FROM digital_twins
+            FROM public.digital_twins
             GROUP BY user_id
             HAVING COUNT(*) > 1
         """)
@@ -118,7 +118,7 @@ async def main(dry_run: bool) -> None:
                    dt.data->'2_collected' ? '2_7_iwe' AS has_iwe,
                    dt.data->'2_collected' ? '2_8_ecosystem' AS has_ecosystem,
                    dt.data->'2_collected' ? '2_9_knowledge' AS has_knowledge
-            FROM digital_twins dt
+            FROM public.digital_twins dt
             JOIN public.users u ON u.id::text = dt.user_id OR u.ory_id::text = dt.user_id
             WHERE u.telegram_id = 74892489
         """)

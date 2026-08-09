@@ -48,7 +48,7 @@ async def dry_run():
         ''')
         log_rows = await learning_conn.fetch('''
             SELECT chat_id, array_agg(DISTINCT activity_date ORDER BY activity_date) AS dates
-            FROM activity_log
+            FROM public.activity_log
             GROUP BY chat_id
         ''')
         dates_by_chat_id = {r['chat_id']: r['dates'] for r in log_rows}

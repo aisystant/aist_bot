@@ -196,7 +196,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ОТВЕТЫ И РАБОЧИЕ ПРОДУКТЫ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS answers (
+            CREATE TABLE IF NOT EXISTS public.answers (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
 
@@ -239,7 +239,7 @@ async def create_tables(pool: asyncpg.Pool):
         # НАПОМИНАНИЯ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS reminders (
+            CREATE TABLE IF NOT EXISTS public.reminders (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
                 reminder_type TEXT,
@@ -301,7 +301,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ЛЕНТА: НЕДЕЛЬНЫЕ ПЛАНЫ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS feed_weeks (
+            CREATE TABLE IF NOT EXISTS public.feed_weeks (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
 
@@ -332,7 +332,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ЛЕНТА: СЕССИИ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS feed_sessions (
+            CREATE TABLE IF NOT EXISTS public.feed_sessions (
                 id SERIAL PRIMARY KEY,
                 week_id INTEGER,
 
@@ -366,7 +366,7 @@ async def create_tables(pool: asyncpg.Pool):
             await conn.execute('''
                 WITH keep AS (
                     SELECT DISTINCT ON (week_id, session_date) id
-                    FROM feed_sessions
+                    FROM public.feed_sessions
                     WHERE session_date IS NOT NULL
                     ORDER BY week_id, session_date,
                         CASE WHEN status = 'completed' THEN 0
@@ -374,7 +374,7 @@ async def create_tables(pool: asyncpg.Pool):
                              ELSE 2 END,
                         created_at DESC
                 )
-                DELETE FROM feed_sessions
+                DELETE FROM public.feed_sessions
                 WHERE session_date IS NOT NULL
                   AND id NOT IN (SELECT id FROM keep)
             ''')
@@ -384,7 +384,7 @@ async def create_tables(pool: asyncpg.Pool):
         try:
             await conn.execute('''
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_feed_sessions_week_date
-                ON feed_sessions (week_id, session_date)
+                ON public.feed_sessions (week_id, session_date)
             ''')
         except Exception:
             pass
@@ -394,7 +394,7 @@ async def create_tables(pool: asyncpg.Pool):
         try:
             await conn.execute('''
                 CREATE INDEX IF NOT EXISTS idx_feed_sessions_week_status
-                ON feed_sessions (week_id, status)
+                ON public.feed_sessions (week_id, status)
             ''')
         except Exception:
             pass
@@ -403,7 +403,7 @@ async def create_tables(pool: asyncpg.Pool):
         # МАРАФОН: ПРЕ-ГЕНЕРИРОВАННЫЙ КОНТЕНТ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS marathon_content (
+            CREATE TABLE IF NOT EXISTS public.marathon_content (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 topic_index INTEGER NOT NULL,
@@ -426,7 +426,7 @@ async def create_tables(pool: asyncpg.Pool):
         # Миграция: добавить notification_sent_at если отсутствует
         try:
             await conn.execute('''
-                ALTER TABLE marathon_content
+                ALTER TABLE public.marathon_content
                 ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMP
             ''')
         except Exception:
@@ -435,7 +435,7 @@ async def create_tables(pool: asyncpg.Pool):
         # Миграция: добавить fail_count в reminders для retry limit
         try:
             await conn.execute('''
-                ALTER TABLE reminders
+                ALTER TABLE public.reminders
                 ADD COLUMN IF NOT EXISTS fail_count INTEGER DEFAULT 0
             ''')
         except Exception:
@@ -447,7 +447,7 @@ async def create_tables(pool: asyncpg.Pool):
         # reminders.sent, notification_sent_at
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS notification_log (
+            CREATE TABLE IF NOT EXISTS public.notification_log (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 notification_type TEXT NOT NULL,
@@ -460,19 +460,19 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notification_log_chat_type
-            ON notification_log(chat_id, notification_type)
+            ON public.notification_log(chat_id, notification_type)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notification_log_created
-            ON notification_log(created_at)
+            ON public.notification_log(created_at)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # ЛОГ АКТИВНОСТИ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS activity_log (
+            CREATE TABLE IF NOT EXISTS public.activity_log (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
 
@@ -489,14 +489,14 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_activity_date
-            ON activity_log(chat_id, activity_date)
+            ON public.activity_log(chat_id, activity_date)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # ВОПРОСЫ И ОТВЕТЫ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS qa_history (
+            CREATE TABLE IF NOT EXISTS public.qa_history (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
 
@@ -513,7 +513,7 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_qa_history_chat_id
-            ON qa_history(chat_id)
+            ON public.qa_history(chat_id)
         ''')
 
         qa_migrations = [
@@ -530,7 +530,7 @@ async def create_tables(pool: asyncpg.Pool):
         # GITHUB ПОДКЛЮЧЕНИЯ (OAuth токены + настройки)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS github_connections (
+            CREATE TABLE IF NOT EXISTS public.github_connections (
                 chat_id BIGINT PRIMARY KEY,
                 access_token TEXT NOT NULL,
                 token_type TEXT DEFAULT 'bearer',
@@ -571,7 +571,7 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_oauth_states_created
-            ON oauth_pending_states(created_at)
+            ON public.oauth_pending_states(created_at)
         ''')
 
         # ═══════════════════════════════════════════════════════════
@@ -598,7 +598,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ОЦЕНКИ / ТЕСТЫ (assessments)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS assessments (
+            CREATE TABLE IF NOT EXISTS public.assessments (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT,
 
@@ -615,7 +615,7 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_assessments_chat_id
-            ON assessments(chat_id)
+            ON public.assessments(chat_id)
         ''')
 
         # ═══════════════════════════════════════════════════════════
@@ -640,16 +640,16 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_feedback_reports_severity_status
-            ON feedback_reports(severity, status)
+            ON public.feedback_reports(severity, status)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # АВТО-ТРИАЖ FEEDBACK (feedback_triage)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS feedback_triage (
+            CREATE TABLE IF NOT EXISTS public.feedback_triage (
                 id SERIAL PRIMARY KEY,
-                qa_id INTEGER NOT NULL REFERENCES qa_history(id),
+                qa_id INTEGER NOT NULL REFERENCES public.qa_history(id),
                 chat_id BIGINT NOT NULL,
                 question TEXT NOT NULL,
                 answer_snippet TEXT,
@@ -671,17 +671,17 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_feedback_triage_severity_status
-            ON feedback_triage(severity, status)
+            ON public.feedback_triage(severity, status)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_feedback_triage_category
-            ON feedback_triage(category)
+            ON public.feedback_triage(category)
         ''')
 
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_triage_qa_id
-            ON feedback_triage(qa_id)
+            ON public.feedback_triage(qa_id)
         ''')
 
         # Migration 008 fallback: feedback_unified lifecycle fields
@@ -693,14 +693,14 @@ async def create_tables(pool: asyncpg.Pool):
             ('resolution_note', 'TEXT DEFAULT NULL'),
         ]:
             await conn.execute(f'''
-                ALTER TABLE feedback_triage ADD COLUMN IF NOT EXISTS {col} {typedef}
+                ALTER TABLE public.feedback_triage ADD COLUMN IF NOT EXISTS {col} {typedef}
             ''')
 
         # ═══════════════════════════════════════════════════════════
         # ИСПОЛЬЗОВАНИЕ СЕРВИСОВ (аналитика)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS service_usage (
+            CREATE TABLE IF NOT EXISTS public.service_usage (
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL,
                 service_id TEXT NOT NULL,
@@ -711,19 +711,19 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_service_usage_user
-            ON service_usage(user_id)
+            ON public.service_usage(user_id)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_service_usage_service
-            ON service_usage(user_id, service_id)
+            ON public.service_usage(user_id, service_id)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # ПОДПИСКИ (Stars Subscription)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS subscriptions (
+            CREATE TABLE IF NOT EXISTS public.subscriptions (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 telegram_payment_charge_id TEXT NOT NULL,
@@ -739,19 +739,19 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_subscriptions_chat_id
-            ON subscriptions(chat_id)
+            ON public.subscriptions(chat_id)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_subscriptions_active
-            ON subscriptions(chat_id, status)
+            ON public.subscriptions(chat_id, status)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # FSM СОСТОЯНИЯ (для aiogram)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS fsm_states (
+            CREATE TABLE IF NOT EXISTS public.fsm_states (
                 chat_id BIGINT PRIMARY KEY,
                 state TEXT,
                 data TEXT DEFAULT '{}',
@@ -772,7 +772,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ТРЕЙСИНГ ЗАПРОСОВ (для Grafana)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS request_traces (
+            CREATE TABLE IF NOT EXISTS public.request_traces (
                 id SERIAL PRIMARY KEY,
                 trace_id TEXT NOT NULL,
                 user_id BIGINT NOT NULL,
@@ -786,19 +786,19 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_traces_created
-            ON request_traces (created_at DESC)
+            ON public.request_traces (created_at DESC)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_traces_user
-            ON request_traces (user_id, created_at DESC)
+            ON public.request_traces (user_id, created_at DESC)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # МОНИТОРИНГ ОШИБОК
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS error_logs (
+            CREATE TABLE IF NOT EXISTS public.error_logs (
                 id SERIAL PRIMARY KEY,
                 error_key TEXT NOT NULL,
                 level TEXT NOT NULL DEFAULT 'ERROR',
@@ -815,12 +815,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_last_seen
-            ON error_logs (last_seen_at DESC)
+            ON public.error_logs (last_seen_at DESC)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_alerted
-            ON error_logs (alerted, last_seen_at DESC)
+            ON public.error_logs (alerted, last_seen_at DESC)
         ''')
 
         # Classifier columns (WP-45 Phase 2)
@@ -831,24 +831,24 @@ async def create_tables(pool: asyncpg.Pool):
             ('escalated', 'BOOLEAN DEFAULT FALSE'),
         ]:
             await conn.execute(f'''
-                ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
+                ALTER TABLE public.error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
             ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_category
-            ON error_logs (category, last_seen_at DESC)
+            ON public.error_logs (category, last_seen_at DESC)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_escalated
-            ON error_logs (escalated, last_seen_at DESC)
+            ON public.error_logs (escalated, last_seen_at DESC)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # L2 AUTO-FIX (WP-45)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS pending_fixes (
+            CREATE TABLE IF NOT EXISTS public.pending_fixes (
                 id SERIAL PRIMARY KEY,
                 error_log_id INTEGER NOT NULL,
                 error_key TEXT NOT NULL,
@@ -867,7 +867,7 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_error_key_active
-            ON pending_fixes (error_key) WHERE status IN ('pending', 'approved')
+            ON public.pending_fixes (error_key) WHERE status IN ('pending', 'approved')
         ''')
 
         # content_cache → learning pool (WP-253, cache.py использует get_learning_pool)
@@ -876,7 +876,7 @@ async def create_tables(pool: asyncpg.Pool):
         # СЕССИИ ПОЛЬЗОВАТЕЛЕЙ
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS user_sessions (
+            CREATE TABLE IF NOT EXISTS public.user_sessions (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -891,12 +891,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_sessions_chat_id
-            ON user_sessions (chat_id)
+            ON public.user_sessions (chat_id)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_sessions_started
-            ON user_sessions (started_at DESC)
+            ON public.user_sessions (started_at DESC)
         ''')
 
         # ═══════════════════════════════════════════════════════════
@@ -915,12 +915,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_conversion_chat_id
-            ON conversion_events (chat_id)
+            ON public.conversion_events (chat_id)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_conversion_trigger
-            ON conversion_events (trigger_type, milestone)
+            ON public.conversion_events (trigger_type, milestone)
         ''')
 
         # ═══════════════════════════════════════════════════════════
@@ -938,7 +938,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS published_posts (
+            CREATE TABLE IF NOT EXISTS public.published_posts (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 discourse_topic_id INTEGER NOT NULL,
@@ -954,16 +954,16 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_published_posts_topic
-            ON published_posts (discourse_topic_id)
+            ON public.published_posts (discourse_topic_id)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_published_posts_chat
-            ON published_posts (chat_id)
+            ON public.published_posts (chat_id)
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS scheduled_publications (
+            CREATE TABLE IF NOT EXISTS public.scheduled_publications (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 title TEXT NOT NULL,
@@ -980,13 +980,13 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_scheduled_pubs_pending
-            ON scheduled_publications (status, schedule_time)
+            ON public.scheduled_publications (status, schedule_time)
             WHERE status = 'pending'
         ''')
 
         try:
             await conn.execute(
-                'ALTER TABLE scheduled_publications ADD COLUMN IF NOT EXISTS source_file TEXT'
+                'ALTER TABLE public.scheduled_publications ADD COLUMN IF NOT EXISTS source_file TEXT'
             )
         except Exception:
             pass
@@ -995,7 +995,7 @@ async def create_tables(pool: asyncpg.Pool):
         # TIER EVENTS (WP-52)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS tier_events (
+            CREATE TABLE IF NOT EXISTS public.tier_events (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 from_tier INTEGER NOT NULL,
@@ -1007,12 +1007,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_tier_events_chat
-            ON tier_events (chat_id, created_at DESC)
+            ON public.tier_events (chat_id, created_at DESC)
         ''')
 
         try:
             await conn.execute(
-                'ALTER TABLE published_posts ADD COLUMN IF NOT EXISTS comment_check_failures INTEGER DEFAULT 0'
+                'ALTER TABLE public.published_posts ADD COLUMN IF NOT EXISTS comment_check_failures INTEGER DEFAULT 0'
             )
         except Exception:
             pass
@@ -1020,7 +1020,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ============= ТРЕНИРОВКА (WP-55) =============
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS training_settings (
+            CREATE TABLE IF NOT EXISTS public.training_settings (
                 chat_id BIGINT PRIMARY KEY,
                 cognitive_level TEXT DEFAULT 'postformal',
                 enabled_principles TEXT DEFAULT '["ZP.1","ZP.2","ZP.3","ZP.4","ZP.5","ZP.6"]',
@@ -1030,7 +1030,7 @@ async def create_tables(pool: asyncpg.Pool):
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS training_progress (
+            CREATE TABLE IF NOT EXISTS public.training_progress (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 principle_id TEXT NOT NULL,
@@ -1044,11 +1044,11 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_training_progress_chat
-            ON training_progress (chat_id)
+            ON public.training_progress (chat_id)
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS training_attempts (
+            CREATE TABLE IF NOT EXISTS public.training_attempts (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 principle_id TEXT NOT NULL,
@@ -1063,16 +1063,16 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_training_attempts_chat
-            ON training_attempts (chat_id, principle_id)
+            ON public.training_attempts (chat_id, principle_id)
         ''')
 
         try:
             await conn.execute('''
-                ALTER TABLE training_settings
+                ALTER TABLE public.training_settings
                 ADD COLUMN IF NOT EXISTS training_mode TEXT DEFAULT 'shuffle'
             ''')
             await conn.execute('''
-                ALTER TABLE training_settings
+                ALTER TABLE public.training_settings
                 ADD COLUMN IF NOT EXISTS single_principle TEXT
             ''')
         except Exception:
@@ -1092,16 +1092,16 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_training_children_chat
-            ON training_children (chat_id)
+            ON public.training_children (chat_id)
         ''')
 
         try:
             await conn.execute('''
-                ALTER TABLE training_progress
+                ALTER TABLE public.training_progress
                 ADD COLUMN IF NOT EXISTS child_id INTEGER DEFAULT NULL
             ''')
             await conn.execute('''
-                ALTER TABLE training_attempts
+                ALTER TABLE public.training_attempts
                 ADD COLUMN IF NOT EXISTS child_id INTEGER DEFAULT NULL
             ''')
         except Exception:
@@ -1110,7 +1110,7 @@ async def create_tables(pool: asyncpg.Pool):
         try:
             await conn.execute('''
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_training_progress_child
-                ON training_progress (chat_id, principle_id, child_id)
+                ON public.training_progress (chat_id, principle_id, child_id)
                 WHERE child_id IS NOT NULL
             ''')
         except Exception:
@@ -1223,7 +1223,7 @@ async def create_tables(pool: asyncpg.Pool):
                 ) AS milestone_notifications,
                 MIN(nl.created_at) AS first_notification_at,
                 MAX(nl.created_at) AS last_notification_at
-            FROM notification_log nl
+            FROM public.notification_log nl
             JOIN public.users u ON u.telegram_id = nl.chat_id
             GROUP BY u.telegram_id, u.ory_id
         ''')
@@ -1232,7 +1232,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ТОКЕНЫ ЦИФРОВОГО ДВОЙНИКА (WP-82)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS dt_tokens (
+            CREATE TABLE IF NOT EXISTS public.dt_tokens (
                 chat_id BIGINT PRIMARY KEY,
                 access_token TEXT NOT NULL,
                 refresh_token TEXT NOT NULL,
@@ -1246,7 +1246,7 @@ async def create_tables(pool: asyncpg.Pool):
         # ТОКЕНЫ ORY OAUTH (WP-209: бот→Gateway)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS ory_tokens (
+            CREATE TABLE IF NOT EXISTS public.ory_tokens (
                 chat_id BIGINT PRIMARY KEY,
                 access_token TEXT NOT NULL,
                 refresh_token TEXT NOT NULL,
@@ -1286,7 +1286,7 @@ async def create_tables(pool: asyncpg.Pool):
                         i.difficulty_preference, i.learning_style, i.study_duration,
                         i.current_problems, i.desires, i.tg_username,
                         i.aisystant_id, i.aisystant_linked_at, i.dt_connected_at, i.created_at
-                    FROM interns i
+                    FROM public.interns i
                     WHERE NOT EXISTS (
                         SELECT 1 FROM public.users u WHERE u.telegram_id = i.chat_id
                     )
@@ -1315,7 +1315,7 @@ async def create_tables(pool: asyncpg.Pool):
                         aisystant_id = COALESCE(i.aisystant_id, u.aisystant_id),
                         aisystant_linked_at = COALESCE(i.aisystant_linked_at, u.aisystant_linked_at),
                         dt_connected_at = COALESCE(i.dt_connected_at, u.dt_connected_at)
-                    FROM interns i
+                    FROM public.interns i
                     WHERE u.telegram_id = i.chat_id
                 ''')
             except Exception as e:
@@ -1347,7 +1347,7 @@ async def create_tables(pool: asyncpg.Pool):
                         i.onboarding_completed, i.bot_blocked, i.bot_blocked_at, i.bot_recheck_at, i.trial_started_at,
                         i.assessment_state, i.assessment_date, i.stats_reset_date,
                         i.notify_template_updates, i.created_at
-                    FROM interns i
+                    FROM public.interns i
                     JOIN public.users u ON u.telegram_id = i.chat_id
                     WHERE NOT EXISTS (
                         SELECT 1 FROM development.user_state s WHERE s.chat_id = i.chat_id
@@ -1374,7 +1374,7 @@ async def create_tables(pool: asyncpg.Pool):
 
             # Step 4: Drop interns (CASCADE removes FK from wakatime/discourse)
             try:
-                await conn.execute('DROP TABLE IF EXISTS interns CASCADE')
+                await conn.execute('DROP TABLE IF EXISTS public.interns CASCADE')
                 logger.info("[Migration] Dropped interns table")
             except Exception as e:
                 logger.warning(f"[Migration] Failed to drop interns: {e}")
@@ -1422,14 +1422,14 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_channel_monitors_channel
-            ON channel_monitors(channel_id) WHERE active = TRUE
+            ON public.channel_monitors(channel_id) WHERE active = TRUE
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # СООБЩЕСТВО IWE: ОПЛАТЫ + УЧАСТНИКИ (WP-181)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS workshop_payments (
+            CREATE TABLE IF NOT EXISTS public.workshop_payments (
                 id SERIAL PRIMARY KEY,
                 telegram_id BIGINT NOT NULL,
                 aisystant_id TEXT,
@@ -1444,21 +1444,21 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_workshop_payments_tg
-            ON workshop_payments (telegram_id)
+            ON public.workshop_payments (telegram_id)
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_workshop_payments_status
-            ON workshop_payments (telegram_id, status)
+            ON public.workshop_payments (telegram_id, status)
             WHERE status = 'success'
         ''')
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_workshop_payments_payment_id
-            ON workshop_payments (payment_id)
+            ON public.workshop_payments (payment_id)
             WHERE payment_id IS NOT NULL
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS community_members (
+            CREATE TABLE IF NOT EXISTS public.community_members (
                 id SERIAL PRIMARY KEY,
                 telegram_id BIGINT NOT NULL,
                 chat_id BIGINT NOT NULL,
@@ -1472,12 +1472,12 @@ async def create_tables(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_community_members_chat
-            ON community_members (chat_id)
+            ON public.community_members (chat_id)
             WHERE left_at IS NULL
         ''')
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_community_members_unique
-            ON community_members (telegram_id, chat_id)
+            ON public.community_members (telegram_id, chat_id)
             WHERE left_at IS NULL
         ''')
 
@@ -1492,7 +1492,7 @@ async def create_tables_health(pool: asyncpg.Pool):
     """
     async with pool.acquire() as conn:
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS error_logs (
+            CREATE TABLE IF NOT EXISTS public.error_logs (
                 id SERIAL PRIMARY KEY,
                 error_key TEXT NOT NULL,
                 level TEXT NOT NULL DEFAULT 'ERROR',
@@ -1508,11 +1508,11 @@ async def create_tables_health(pool: asyncpg.Pool):
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_last_seen
-            ON error_logs (last_seen_at DESC)
+            ON public.error_logs (last_seen_at DESC)
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_alerted
-            ON error_logs (alerted, last_seen_at DESC)
+            ON public.error_logs (alerted, last_seen_at DESC)
         ''')
         for col, typedef in [
             ('category', 'TEXT'),
@@ -1521,19 +1521,19 @@ async def create_tables_health(pool: asyncpg.Pool):
             ('escalated', 'BOOLEAN DEFAULT FALSE'),
         ]:
             await conn.execute(f'''
-                ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
+                ALTER TABLE public.error_logs ADD COLUMN IF NOT EXISTS {col} {typedef}
             ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_category
-            ON error_logs (category, last_seen_at DESC)
+            ON public.error_logs (category, last_seen_at DESC)
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_error_logs_escalated
-            ON error_logs (escalated, last_seen_at DESC)
+            ON public.error_logs (escalated, last_seen_at DESC)
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS pending_fixes (
+            CREATE TABLE IF NOT EXISTS public.pending_fixes (
                 id SERIAL PRIMARY KEY,
                 error_log_id INTEGER NOT NULL,
                 error_key TEXT NOT NULL,
@@ -1551,11 +1551,11 @@ async def create_tables_health(pool: asyncpg.Pool):
         ''')
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_error_key_active
-            ON pending_fixes (error_key) WHERE status IN ('pending', 'approved')
+            ON public.pending_fixes (error_key) WHERE status IN ('pending', 'approved')
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS user_sessions (
+            CREATE TABLE IF NOT EXISTS public.user_sessions (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1569,18 +1569,18 @@ async def create_tables_health(pool: asyncpg.Pool):
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_sessions_chat_id
-            ON user_sessions (chat_id)
+            ON public.user_sessions (chat_id)
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_sessions_started
-            ON user_sessions (started_at DESC)
+            ON public.user_sessions (started_at DESC)
         ''')
 
         # ═══════════════════════════════════════════════════════════
         # ТРЕЙСИНГ ЗАПРОСОВ (для Grafana, WP-7 Ф2)
         # ═══════════════════════════════════════════════════════════
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS request_traces (
+            CREATE TABLE IF NOT EXISTS public.request_traces (
                 id SERIAL PRIMARY KEY,
                 trace_id TEXT NOT NULL,
                 user_id BIGINT NOT NULL,
@@ -1594,12 +1594,12 @@ async def create_tables_health(pool: asyncpg.Pool):
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_traces_created
-            ON request_traces (created_at DESC)
+            ON public.request_traces (created_at DESC)
         ''')
 
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_traces_user
-            ON request_traces (user_id, created_at DESC)
+            ON public.request_traces (user_id, created_at DESC)
         ''')
 
     logger.info("Health BD tables created/updated")

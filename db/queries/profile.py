@@ -83,15 +83,15 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
         lpool = await get_learning_pool()
         async with lpool.acquire() as lc:
             result['total_digests'] = await lc.fetchval(
-                '''SELECT COUNT(*) FROM feed_sessions fs
-                   JOIN feed_weeks fw ON fs.week_id = fw.id
+                '''SELECT COUNT(*) FROM public.feed_sessions fs
+                   JOIN public.feed_weeks fw ON fs.week_id = fw.id
                    WHERE fw.chat_id = $1''', chat_id) or 0
             result['total_fixations'] = await lc.fetchval(
-                '''SELECT COUNT(*) FROM feed_sessions fs
-                   JOIN feed_weeks fw ON fs.week_id = fw.id
+                '''SELECT COUNT(*) FROM public.feed_sessions fs
+                   JOIN public.feed_weeks fw ON fs.week_id = fw.id
                    WHERE fw.chat_id = $1 AND fs.status = 'completed' ''', chat_id) or 0
             result['current_feed_topics'] = await lc.fetchval(
-                '''SELECT accepted_topics FROM feed_weeks
+                '''SELECT accepted_topics FROM public.feed_weeks
                    WHERE chat_id = $1 AND status = 'active'
                    ORDER BY created_at DESC LIMIT 1''', chat_id)
     except Exception as e:
@@ -105,9 +105,9 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
         lp = await get_learning_pool()
         async with lp.acquire() as lc:
             theory = await lc.fetchval(
-                "SELECT COUNT(*) FROM answers WHERE chat_id=$1 AND answer_type='theory_answer'", chat_id)
+                "SELECT COUNT(*) FROM public.answers WHERE chat_id=$1 AND answer_type='theory_answer'", chat_id)
             wp = await lc.fetchval(
-                "SELECT COUNT(*) FROM answers WHERE chat_id=$1 AND answer_type='work_product'", chat_id)
+                "SELECT COUNT(*) FROM public.answers WHERE chat_id=$1 AND answer_type='work_product'", chat_id)
         result['theory_answers_count'] = theory or 0
         result['work_products_count'] = wp or 0
     except Exception as e:
@@ -120,7 +120,7 @@ async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
         jp = await get_journal_pool()
         async with jp.acquire() as jc:
             qa_count = await jc.fetchval(
-                "SELECT COUNT(*) FROM qa_history WHERE chat_id=$1", chat_id)
+                "SELECT COUNT(*) FROM public.qa_history WHERE chat_id=$1", chat_id)
         result['qa_count'] = qa_count or 0
     except Exception as e:
         logger.warning(f"[Profile] journal pool qa failed: {e}")
@@ -163,7 +163,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         for table, column in OPTIONAL_CHAT_TABLES:
             try:
                 deleted = await conn.execute(
-                    _delete_from_sql(table, f'{column} = $1'), chat_id
+                    _delete_from_sql(f'public.{table}', f'{column} = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
             except Exception as e:
@@ -176,7 +176,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         # down writes result['request_traces']. See test_delete_all_user_data_tables.py.
         try:
             deleted = await conn.execute(
-                'DELETE FROM request_traces WHERE user_id = $1', chat_id
+                'DELETE FROM public.request_traces WHERE user_id = $1', chat_id
             )
             result['request_traces_legacy'] = _parse_delete_count(deleted)
         except Exception as e:
@@ -191,13 +191,13 @@ async def delete_all_user_data(chat_id: int) -> dict:
             # Вспомогательные таблицы — через _delete_tolerant (см. её docstring).
             for table in ('reminders', 'feedback_reports', 'subscriptions'):
                 result[table] = await _delete_tolerant(
-                    conn, _delete_from_sql(table, 'chat_id = $1'), chat_id, table
+                    conn, _delete_from_sql(f'public.{table}', 'chat_id = $1'), chat_id, table
                 )
 
             # Таблицы с user_id вместо chat_id (request_traces legacy — см. выше,
             # уже удалена вне транзакции, не дублируем здесь)
             result['service_usage'] = await _delete_tolerant(
-                conn, _delete_from_sql('service_usage', 'user_id = $1'), chat_id,
+                conn, _delete_from_sql('public.service_usage', 'user_id = $1'), chat_id,
                 'service_usage',
             )
 
@@ -239,7 +239,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         persona_pool = await get_persona_pool()
         async with persona_pool.acquire() as pconn:
             account_id = await pconn.fetchval(
-                'SELECT account_id FROM ory_identity WHERE telegram_id = $1', chat_id
+                'SELECT account_id FROM public.ory_identity WHERE telegram_id = $1', chat_id
             )
     except Exception as e:
         if 'does not exist' not in str(e):
@@ -254,12 +254,12 @@ async def delete_all_user_data(chat_id: int) -> dict:
         secrets_pool = await get_secrets_pool()
         async with secrets_pool.acquire() as sconn:
             dt_row = await sconn.fetchrow(
-                'SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1', chat_id
+                'SELECT dt_user_id FROM public.dt_tokens WHERE chat_id = $1', chat_id
             )
             if dt_row:
                 dt_user_id = dt_row['dt_user_id']
             deleted = await sconn.execute(
-                'DELETE FROM dt_tokens WHERE chat_id = $1', chat_id
+                'DELETE FROM public.dt_tokens WHERE chat_id = $1', chat_id
             )
             result['secrets_dt_tokens'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -272,7 +272,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             persona_pool = await get_persona_pool()
             async with persona_pool.acquire() as pconn:
                 deleted = await pconn.execute(
-                    'DELETE FROM user_integrations WHERE account_id = $1', account_id
+                    'DELETE FROM public.user_integrations WHERE account_id = $1', account_id
                 )
                 result['persona_user_integrations'] = _parse_delete_count(deleted)
         except Exception as e:
@@ -288,7 +288,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             secrets_pool = await get_secrets_pool()
             async with secrets_pool.acquire() as sconn:
                 deleted = await sconn.execute(
-                    'DELETE FROM github_connections WHERE user_uuid = $1', account_id
+                    'DELETE FROM public.github_connections WHERE user_uuid = $1', account_id
                 )
                 result['secrets_github_connections'] = _parse_delete_count(deleted)
         except Exception as e:
@@ -307,7 +307,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             sub_pool = await get_subscription_pool()
             async with sub_pool.acquire() as subconn:
                 deleted = await subconn.execute(
-                    'DELETE FROM contract WHERE account_id = $1', account_id
+                    'DELETE FROM public.contract WHERE account_id = $1', account_id
                 )
                 result['subscription_contract'] = _parse_delete_count(deleted)
         except Exception as e:
@@ -330,7 +330,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['indicators_calculated_profile'] = _parse_delete_count(deleted)
                 deleted = await indconn.execute(
-                    'DELETE FROM digital_twins WHERE user_id = $1::uuid',
+                    'DELETE FROM public.digital_twins WHERE user_id = $1::uuid',
                     str(twin_user_id)
                 )
                 result['indicators_digital_twins'] = _parse_delete_count(deleted)
@@ -349,7 +349,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             rewards_pool = await get_rewards_pool()
             async with rewards_pool.acquire() as rewconn:
                 deleted = await rewconn.execute(
-                    'DELETE FROM point_balances WHERE account_id = $1', account_id
+                    'DELETE FROM public.point_balances WHERE account_id = $1', account_id
                 )
                 result['rewards_point_balances'] = _parse_delete_count(deleted)
         except Exception as e:
@@ -365,7 +365,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         community_pool = await get_community_pool()
         async with community_pool.acquire() as commconn:
             deleted = await commconn.execute(
-                'DELETE FROM club_account WHERE chat_id = $1', chat_id
+                'DELETE FROM public.club_account WHERE chat_id = $1', chat_id
             )
             result['community_club_account'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -382,21 +382,21 @@ async def delete_all_user_data(chat_id: int) -> dict:
         pub_pool = await get_publication_pool()
         async with pub_pool.acquire() as pubconn:
             deleted = await pubconn.execute(
-                'DELETE FROM channel_monitor WHERE chat_id = $1', chat_id
+                'DELETE FROM public.channel_monitor WHERE chat_id = $1', chat_id
             )
             result['publication_channel_monitor'] = _parse_delete_count(deleted)
             deleted = await pubconn.execute(
-                'DELETE FROM channel_mention_log WHERE mentioned_chat_id = $1', chat_id
+                'DELETE FROM public.channel_mention_log WHERE mentioned_chat_id = $1', chat_id
             )
             result['publication_channel_mention_log'] = _parse_delete_count(deleted)
             # Same WP-253 migration, same pool/connection: published_post/scheduled_post
             # (db/queries/discourse.py) — the user's actual authored blog content.
             deleted = await pubconn.execute(
-                'DELETE FROM published_post WHERE chat_id = $1', chat_id
+                'DELETE FROM public.published_post WHERE chat_id = $1', chat_id
             )
             result['publication_published_post'] = _parse_delete_count(deleted)
             deleted = await pubconn.execute(
-                'DELETE FROM scheduled_post WHERE chat_id = $1', chat_id
+                'DELETE FROM public.scheduled_post WHERE chat_id = $1', chat_id
             )
             result['publication_scheduled_post'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -412,7 +412,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         lead_pool = await get_lead_pool()
         async with lead_pool.acquire() as leadconn:
             deleted = await leadconn.execute(
-                'DELETE FROM conversion_event WHERE chat_id = $1', chat_id
+                'DELETE FROM public.conversion_event WHERE chat_id = $1', chat_id
             )
             result['lead_conversion_event'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -444,7 +444,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         fsm_pool = await get_fsm_pool()
         async with fsm_pool.acquire() as fconn:
             deleted = await fconn.execute(
-                'DELETE FROM fsm_states WHERE chat_id = $1', chat_id
+                'DELETE FROM public.fsm_states WHERE chat_id = $1', chat_id
             )
             result['fsm_states'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -458,11 +458,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
         async with journal_pool.acquire() as jconn:
             # feedback_triage сначала (FK на qa_history)
             deleted = await jconn.execute(
-                'DELETE FROM feedback_triage WHERE chat_id = $1', chat_id
+                'DELETE FROM public.feedback_triage WHERE chat_id = $1', chat_id
             )
             result['feedback_triage'] = _parse_delete_count(deleted)
             deleted = await jconn.execute(
-                'DELETE FROM qa_history WHERE chat_id = $1', chat_id
+                'DELETE FROM public.qa_history WHERE chat_id = $1', chat_id
             )
             result['qa_history'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -475,8 +475,8 @@ async def delete_all_user_data(chat_id: int) -> dict:
         async with learning_pool.acquire() as lconn:
             # feed_sessions зависит от feed_weeks (FK week_id) — удалять первой
             deleted = await lconn.execute(
-                '''DELETE FROM feed_sessions
-                   WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)''',
+                '''DELETE FROM public.feed_sessions
+                   WHERE week_id IN (SELECT id FROM public.feed_weeks WHERE chat_id = $1)''',
                 chat_id
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
@@ -498,11 +498,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
         health_pool = await get_health_pool()
         async with health_pool.acquire() as hconn:
             deleted = await hconn.execute(
-                'DELETE FROM user_sessions WHERE chat_id = $1', chat_id
+                'DELETE FROM public.user_sessions WHERE chat_id = $1', chat_id
             )
             result['user_sessions'] = _parse_delete_count(deleted)
             deleted = await hconn.execute(
-                'DELETE FROM request_traces WHERE user_id = $1', chat_id
+                'DELETE FROM public.request_traces WHERE user_id = $1', chat_id
             )
             result['request_traces'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -566,7 +566,7 @@ async def reset_learning_data(chat_id: int) -> dict:
         fsm_pool = await get_fsm_pool()
         async with fsm_pool.acquire() as fconn:
             deleted = await fconn.execute(
-                'DELETE FROM fsm_states WHERE chat_id = $1', chat_id
+                'DELETE FROM public.fsm_states WHERE chat_id = $1', chat_id
             )
             result['fsm_states'] = _parse_delete_count(deleted)
     except Exception as e:
@@ -579,8 +579,8 @@ async def reset_learning_data(chat_id: int) -> dict:
         async with learning_pool.acquire() as lconn:
             # feed_sessions зависит от feed_weeks (FK week_id) — удалять первой
             deleted = await lconn.execute(
-                '''DELETE FROM feed_sessions
-                   WHERE week_id IN (SELECT id FROM feed_weeks WHERE chat_id = $1)''',
+                '''DELETE FROM public.feed_sessions
+                   WHERE week_id IN (SELECT id FROM public.feed_weeks WHERE chat_id = $1)''',
                 chat_id
             )
             result['feed_sessions'] = _parse_delete_count(deleted)

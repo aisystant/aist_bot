@@ -85,7 +85,7 @@ async def cleanup_old_traces(days: int = 7) -> int:
     pool = await get_health_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "DELETE FROM request_traces WHERE created_at < NOW() - INTERVAL '1 day' * $1",
+            "DELETE FROM public.request_traces WHERE created_at < NOW() - INTERVAL '1 day' * $1",
             days,
         )
         count = int(result.split()[-1]) if result else 0
@@ -115,7 +115,7 @@ async def get_latency_report(hours: int = 24) -> dict:
             SELECT COUNT(*) AS total,
                    AVG((payload->>'total_ms')::numeric)::int AS avg_ms,
                    percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::int AS p95_ms
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - INTERVAL '1 hour' * $1
         """, hours)
@@ -126,7 +126,7 @@ async def get_latency_report(hours: int = 24) -> dict:
                    percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::int AS p95_ms,
                    MAX((payload->>'total_ms')::numeric)::int AS max_ms,
                    COUNT(*) AS count
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - INTERVAL '1 hour' * $1
               AND payload->>'command' IS NOT NULL
@@ -139,7 +139,7 @@ async def get_latency_report(hours: int = 24) -> dict:
                    (payload->>'total_ms')::numeric AS total_ms,
                    payload->>'state' AS state,
                    ingested_at AS created_at
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - INTERVAL '1 hour' * $1
             ORDER BY ingested_at DESC
@@ -156,7 +156,7 @@ async def get_latency_report(hours: int = 24) -> dict:
                    AVG((s->>'duration_ms')::numeric)::int AS avg_ms,
                    MAX((s->>'duration_ms')::numeric)::int AS max_ms,
                    COUNT(*) AS count
-            FROM request_traces, jsonb_array_elements(spans) AS s
+            FROM public.request_traces, jsonb_array_elements(spans) AS s
             WHERE created_at > NOW() - INTERVAL '1 hour' * $1
             GROUP BY name
             ORDER BY avg_ms DESC
@@ -197,7 +197,7 @@ async def check_nav_latency_alerts(minutes: int = 15) -> Optional[str]:
                 (payload->>'total_ms')::numeric AS total_ms,
                 payload->>'state' AS state,
                 ingested_at AS created_at
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot'
               AND event_type = 'request_traced'
               AND ingested_at > NOW() - INTERVAL '1 minute' * $1
@@ -250,7 +250,7 @@ async def check_latency_alerts(minutes: int = 15) -> Optional[str]:
                 (payload->>'total_ms')::numeric AS total_ms,
                 payload->>'state' AS state,
                 ingested_at AS created_at
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot'
               AND event_type = 'request_traced'
               AND ingested_at > NOW() - INTERVAL '1 minute' * $1
@@ -318,7 +318,7 @@ async def log_tool_call_audit(
         lp = await get_learning_pool()
         async with lp.acquire() as conn:
             await conn.execute(
-                """INSERT INTO domain_event
+                """INSERT INTO public.domain_event
                    (source, external_id, event_type, schema_version, occurred_at, payload)
                    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
                    ON CONFLICT (source, external_id) DO NOTHING""",

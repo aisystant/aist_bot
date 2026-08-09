@@ -33,8 +33,8 @@ async def get_wakatime_connection(chat_id: int) -> Optional[Dict[str, Any]]:
                     ui.access_token AS api_key,
                     ui.metadata->>'wakatime_username' AS wakatime_username,
                     ui.connected_at
-                FROM user_integrations ui
-                JOIN ory_identity oi ON oi.account_id = ui.account_id
+                FROM public.user_integrations ui
+                JOIN public.ory_identity oi ON oi.account_id = ui.account_id
                 WHERE oi.telegram_id = $1
                     AND ui.service = 'wakatime'
                     AND ui.active = TRUE
@@ -63,8 +63,8 @@ async def get_all_wakatime_accounts() -> list[dict]:
                     ui.account_id,
                     oi.telegram_id AS chat_id,
                     ui.access_token AS api_key
-                FROM user_integrations ui
-                JOIN ory_identity oi ON oi.account_id = ui.account_id
+                FROM public.user_integrations ui
+                JOIN public.ory_identity oi ON oi.account_id = ui.account_id
                 WHERE ui.service = 'wakatime'
                     AND ui.active = TRUE
                     AND oi.telegram_id IS NOT NULL
@@ -87,7 +87,7 @@ async def save_wakatime_connection(
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
             account_row = await conn.fetchrow(
-                'SELECT account_id FROM ory_identity WHERE telegram_id = $1', chat_id
+                'SELECT account_id FROM public.ory_identity WHERE telegram_id = $1', chat_id
             )
             if not account_row or not account_row['account_id']:
                 logger.warning(
@@ -101,7 +101,7 @@ async def save_wakatime_connection(
                 metadata = json.dumps({"wakatime_username": wakatime_username})
 
             await conn.execute('''
-                INSERT INTO user_integrations
+                INSERT INTO public.user_integrations
                     (account_id, service, access_token, scope, metadata,
                      connected_at, updated_at, active)
                 VALUES ($1, 'wakatime', $2, 'read_stats', $3::jsonb, NOW(), NOW(), TRUE)
@@ -129,10 +129,10 @@ async def delete_wakatime_connection(chat_id: int) -> None:
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
             await conn.execute('''
-                UPDATE user_integrations
+                UPDATE public.user_integrations
                 SET active = FALSE, updated_at = NOW()
                 WHERE account_id = (
-                    SELECT account_id FROM ory_identity WHERE telegram_id = $1
+                    SELECT account_id FROM public.ory_identity WHERE telegram_id = $1
                 )
                 AND service = 'wakatime'
             ''', chat_id)

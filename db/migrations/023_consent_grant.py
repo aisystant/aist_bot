@@ -81,11 +81,11 @@ ON learning.consent_grant (account_id, scope);
 HAD_UNIQUE_TARGET_SQL = """
 SELECT
   EXISTS(
-    SELECT 1 FROM pg_constraint
+    SELECT 1 FROM pg_catalog.pg_constraint
     WHERE conrelid = to_regclass('learning.consent_grant') AND contype = 'u'
   )
   OR EXISTS(
-    SELECT 1 FROM pg_indexes
+    SELECT 1 FROM pg_catalog.pg_indexes
     WHERE schemaname = 'learning' AND tablename = 'consent_grant'
       AND indexdef ILIKE '%UNIQUE%'
       AND indexdef ILIKE '%account_id%'

@@ -29,7 +29,7 @@ async def create_workshop_payment(
     pool = await get_pool()
     async with pool.acquire() as conn:
         row_id = await conn.fetchval(
-            """INSERT INTO workshop_payments
+            """INSERT INTO public.workshop_payments
                    (telegram_id, aisystant_id, amount, source, payment_id, status, created_at)
                VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
                RETURNING id""",
@@ -45,14 +45,14 @@ async def confirm_workshop_payment(payment_id_or_row_id, *, by_payment_id: bool 
     async with pool.acquire() as conn:
         if by_payment_id:
             result = await conn.execute(
-                """UPDATE workshop_payments
+                """UPDATE public.workshop_payments
                    SET status = 'success', paid_at = NOW()
                    WHERE payment_id = $1 AND status = 'pending'""",
                 str(payment_id_or_row_id),
             )
         else:
             result = await conn.execute(
-                """UPDATE workshop_payments
+                """UPDATE public.workshop_payments
                    SET status = 'success', paid_at = NOW()
                    WHERE id = $1 AND status = 'pending'""",
                 int(payment_id_or_row_id),
@@ -74,7 +74,7 @@ async def create_and_confirm_payment(
     pool = await get_pool()
     async with pool.acquire() as conn:
         row_id = await conn.fetchval(
-            """INSERT INTO workshop_payments
+            """INSERT INTO public.workshop_payments
                    (telegram_id, aisystant_id, amount, source, payment_id, status, paid_at, created_at)
                VALUES ($1, $2, $3, $4, $5, 'success', NOW(), NOW())
                ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL DO NOTHING
@@ -93,7 +93,7 @@ async def get_workshop_payment_count(telegram_id: int) -> int:
     pool = await get_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
-            """SELECT COUNT(*) FROM workshop_payments
+            """SELECT COUNT(*) FROM public.workshop_payments
                WHERE telegram_id = $1 AND status = 'success'""",
             telegram_id,
         )
@@ -105,7 +105,7 @@ async def migrate_payments_to_aisystant(telegram_id: int, aisystant_id: str) -> 
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            """UPDATE workshop_payments
+            """UPDATE public.workshop_payments
                SET aisystant_id = $2
                WHERE telegram_id = $1 AND aisystant_id IS NULL""",
             telegram_id, aisystant_id,
@@ -131,7 +131,7 @@ async def log_community_join(
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            """INSERT INTO community_members
+            """INSERT INTO public.community_members
                    (telegram_id, chat_id, username, first_name, source, joined_at)
                VALUES ($1, $2, $3, $4, $5, NOW())
                ON CONFLICT (telegram_id, chat_id) WHERE left_at IS NULL
@@ -146,7 +146,7 @@ async def log_community_leave(telegram_id: int, chat_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            """UPDATE community_members
+            """UPDATE public.community_members
                SET left_at = NOW()
                WHERE telegram_id = $1 AND chat_id = $2 AND left_at IS NULL""",
             telegram_id, chat_id,
@@ -165,13 +165,13 @@ async def get_community_stats(chat_id: int, *, days: int = 7) -> dict:
     async with pool.acquire() as conn:
         # Всего активных
         total = await conn.fetchval(
-            "SELECT COUNT(*) FROM community_members WHERE chat_id = $1 AND left_at IS NULL",
+            "SELECT COUNT(*) FROM public.community_members WHERE chat_id = $1 AND left_at IS NULL",
             chat_id,
         )
 
         # По источнику
         source_rows = await conn.fetch(
-            """SELECT source, COUNT(*) as cnt FROM community_members
+            """SELECT source, COUNT(*) as cnt FROM public.community_members
                WHERE chat_id = $1 AND left_at IS NULL
                GROUP BY source""",
             chat_id,
@@ -183,8 +183,8 @@ async def get_community_stats(chat_id: int, *, days: int = 7) -> dict:
             """SELECT DISTINCT ON (cm.telegram_id)
                       cm.telegram_id, cm.username, cm.first_name, cm.source, cm.joined_at,
                       wp.amount, wp.paid_at
-               FROM community_members cm
-               LEFT JOIN workshop_payments wp
+               FROM public.community_members cm
+               LEFT JOIN public.workshop_payments wp
                    ON cm.telegram_id = wp.telegram_id AND wp.status = 'success'
                WHERE cm.chat_id = $1 AND cm.joined_at >= $2
                ORDER BY cm.telegram_id, cm.joined_at DESC""",
@@ -194,7 +194,7 @@ async def get_community_stats(chat_id: int, *, days: int = 7) -> dict:
         # Вышедшие за период
         left_members = await conn.fetch(
             """SELECT telegram_id, username, first_name, left_at
-               FROM community_members
+               FROM public.community_members
                WHERE chat_id = $1 AND left_at >= $2
                ORDER BY left_at DESC""",
             chat_id, since,

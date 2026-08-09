@@ -57,7 +57,7 @@ async def main():
                 onboarding_completed, bot_blocked, bot_blocked_at, bot_recheck_at, trial_started_at,
                 assessment_state, assessment_date, stats_reset_date,
                 notify_template_updates, created_at
-            FROM interns
+            FROM public.interns
             ORDER BY chat_id
         """)
         print(f"  Found {len(interns)} users in recovery branch")
@@ -224,7 +224,7 @@ async def main():
         print("\n=== Step 5: Backfilling ory_id from dt_tokens ===")
         result = await prod_conn.execute("""
             UPDATE public.users SET ory_id = dt_tokens.dt_user_id::uuid
-            FROM dt_tokens
+            FROM public.dt_tokens
             WHERE public.users.telegram_id = dt_tokens.chat_id
               AND dt_tokens.dt_user_id IS NOT NULL
               AND public.users.ory_id IS NULL

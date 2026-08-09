@@ -67,7 +67,7 @@ async def save_app_installation(
 
             # Path 2: INSERT — нужен user_uuid из dt_tokens
             dt_row = await conn.fetchrow(
-                "SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1 LIMIT 1",
+                "SELECT dt_user_id FROM public.dt_tokens WHERE chat_id = $1 LIMIT 1",
                 chat_id,
             )
             if not dt_row or not dt_row.get("dt_user_id"):

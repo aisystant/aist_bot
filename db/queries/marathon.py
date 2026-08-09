@@ -30,7 +30,7 @@ async def save_marathon_content(
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO marathon_content
+            '''INSERT INTO public.marathon_content
                (chat_id, topic_index, lesson_content, question_content, practice_content, bloom_level)
                VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (chat_id, topic_index) DO UPDATE SET
@@ -57,7 +57,7 @@ async def get_marathon_content(chat_id: int, topic_index: int) -> dict | None:
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''SELECT * FROM marathon_content
+            '''SELECT * FROM public.marathon_content
                WHERE chat_id = $1 AND topic_index = $2''',
             chat_id, topic_index,
         )
@@ -88,7 +88,7 @@ async def mark_notification_sent(chat_id: int, topic_index: int):
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''UPDATE marathon_content
+            '''UPDATE public.marathon_content
                SET notification_sent_at = NOW()
                WHERE chat_id = $1 AND topic_index = $2''',
             chat_id, topic_index,
@@ -100,7 +100,7 @@ async def mark_content_delivered(chat_id: int, topic_index: int):
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''UPDATE marathon_content
+            '''UPDATE public.marathon_content
                SET status = 'delivered', delivered_at = NOW()
                WHERE chat_id = $1 AND topic_index = $2''',
             chat_id, topic_index,
@@ -112,7 +112,7 @@ async def invalidate_user_content(chat_id: int):
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            '''DELETE FROM marathon_content
+            '''DELETE FROM public.marathon_content
                WHERE chat_id = $1 AND status = 'pending' ''',
             chat_id,
         )
@@ -129,7 +129,7 @@ async def cleanup_error_questions():
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            '''UPDATE marathon_content
+            '''UPDATE public.marathon_content
                SET question_content = NULL
                WHERE question_content IS NOT NULL
                  AND LENGTH(question_content) < 100
@@ -152,7 +152,7 @@ async def cleanup_expired_content():
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            '''DELETE FROM marathon_content
+            '''DELETE FROM public.marathon_content
                WHERE status = 'pending' AND created_at::date < $1''',
             today,
         )
@@ -160,7 +160,7 @@ async def cleanup_expired_content():
 
         # Feed: expire (не delete) — сохраняем для аналитики
         feed_result = await conn.execute(
-            '''UPDATE feed_sessions SET status = 'expired'
+            '''UPDATE public.feed_sessions SET status = 'expired'
                WHERE status IN ('pending', 'active') AND session_date < $1''',
             today,
         )

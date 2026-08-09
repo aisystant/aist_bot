@@ -26,7 +26,7 @@ async def create_auth_code(chat_id: int, account_id: str, scope: str = "full") -
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO external_auth_codes (code, chat_id, account_id, scope, expires_at)
+            INSERT INTO public.external_auth_codes (code, chat_id, account_id, scope, expires_at)
             VALUES ($1, $2, $3::uuid, $4, $5)
             """,
             code, chat_id, account_id, scope, expires_at,
@@ -39,7 +39,7 @@ async def peek_auth_code_chat_id(code: str) -> Optional[int]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT chat_id FROM external_auth_codes WHERE code = $1 AND expires_at > NOW()",
+            "SELECT chat_id FROM public.external_auth_codes WHERE code = $1 AND expires_at > NOW()",
             code,
         )
     return int(row["chat_id"]) if row else None
@@ -62,7 +62,7 @@ async def exchange_code_and_store_tokens(
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                DELETE FROM external_auth_codes
+                DELETE FROM public.external_auth_codes
                 WHERE code = $1 AND expires_at > NOW()
                 RETURNING chat_id, account_id::text, scope
                 """,
@@ -72,7 +72,7 @@ async def exchange_code_and_store_tokens(
                 return None
             await conn.execute(
                 """
-                INSERT INTO ory_client_tokens
+                INSERT INTO public.ory_client_tokens
                   (id, account_id, access_token_hash, refresh_token_hash,
                    scope, client_label, computed_tier, chat_id)
                 VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
@@ -97,7 +97,7 @@ async def lookup_client_token(access_hash: str) -> Optional[dict]:
         row = await conn.fetchrow(
             """
             SELECT id::text, account_id::text, scope, computed_tier
-            FROM ory_client_tokens
+            FROM public.ory_client_tokens
             WHERE access_token_hash = $1 AND revoked_at IS NULL
             """,
             access_hash,
@@ -119,7 +119,7 @@ async def lookup_refresh_token(refresh_hash: str) -> Optional[dict]:
         row = await conn.fetchrow(
             """
             SELECT id::text, account_id::text, scope, chat_id
-            FROM ory_client_tokens
+            FROM public.ory_client_tokens
             WHERE refresh_token_hash = $1 AND revoked_at IS NULL
             """,
             refresh_hash,
@@ -150,7 +150,7 @@ async def refresh_client_token(
         async with conn.transaction():
             old = await conn.fetchrow(
                 """
-                UPDATE ory_client_tokens
+                UPDATE public.ory_client_tokens
                 SET revoked_at = NOW()
                 WHERE refresh_token_hash = $1 AND revoked_at IS NULL
                 RETURNING account_id::text, scope, client_label, chat_id
@@ -161,7 +161,7 @@ async def refresh_client_token(
                 return False
             await conn.execute(
                 """
-                INSERT INTO ory_client_tokens
+                INSERT INTO public.ory_client_tokens
                   (id, account_id, access_token_hash, refresh_token_hash,
                    scope, client_label, computed_tier, chat_id)
                 VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, $8)
@@ -179,7 +179,7 @@ async def touch_client_token(token_id: str) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE ory_client_tokens SET last_used = NOW() WHERE id = $1::uuid",
+            "UPDATE public.ory_client_tokens SET last_used = NOW() WHERE id = $1::uuid",
             token_id,
         )
 
@@ -190,7 +190,7 @@ async def revoke_client_token(token_id: str, account_id: str) -> bool:
     async with pool.acquire() as conn:
         result = await conn.execute(
             """
-            UPDATE ory_client_tokens
+            UPDATE public.ory_client_tokens
             SET revoked_at = NOW()
             WHERE id = $1::uuid AND account_id = $2::uuid AND revoked_at IS NULL
             """,
@@ -207,7 +207,7 @@ async def revoke_all_client_tokens(account_id: str) -> int:
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "UPDATE ory_client_tokens SET revoked_at = NOW() WHERE account_id = $1::uuid AND revoked_at IS NULL",
+            "UPDATE public.ory_client_tokens SET revoked_at = NOW() WHERE account_id = $1::uuid AND revoked_at IS NULL",
             account_id,
         )
     return int(result.split(" ")[-1])
@@ -220,7 +220,7 @@ async def list_client_tokens(account_id: str) -> list:
         rows = await conn.fetch(
             """
             SELECT id::text, client_label, scope, last_used, created_at
-            FROM ory_client_tokens
+            FROM public.ory_client_tokens
             WHERE account_id = $1::uuid AND revoked_at IS NULL
             ORDER BY created_at DESC
             """,
@@ -233,6 +233,6 @@ async def cleanup_expired_auth_codes() -> None:
     """Removes expired one-time codes. Called from scheduler."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        deleted = await conn.execute("DELETE FROM external_auth_codes WHERE expires_at < NOW()")
+        deleted = await conn.execute("DELETE FROM public.external_auth_codes WHERE expires_at < NOW()")
     if deleted != "DELETE 0":
         logger.info("external_auth_codes cleanup: %s", deleted)

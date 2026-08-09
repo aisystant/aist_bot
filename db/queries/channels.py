@@ -29,7 +29,7 @@ async def get_monitors_for_channel(channel_id: int) -> list[dict]:
     pub_pool = await get_publication_pool()
     rows = await pub_pool.fetch(
         '''
-        SELECT * FROM channel_monitor
+        SELECT * FROM public.channel_monitor
         WHERE channel_id = $1 AND active = TRUE
         ''',
         channel_id,
@@ -69,7 +69,7 @@ async def get_user_monitors(chat_id: int) -> list[dict]:
     pool = await get_publication_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT * FROM channel_monitor
+            SELECT * FROM public.channel_monitor
             WHERE chat_id = $1
             ORDER BY created_at DESC
         ''', chat_id)
@@ -87,7 +87,7 @@ async def upsert_monitor(
     pool = await get_publication_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
-            INSERT INTO channel_monitor (channel_id, channel_title, user_id, chat_id, is_admin)
+            INSERT INTO public.channel_monitor (channel_id, channel_title, user_id, chat_id, is_admin)
             VALUES ($1, $2, $3::uuid, $4, $5)
             ON CONFLICT (channel_id, chat_id)
             DO UPDATE SET
@@ -105,7 +105,7 @@ async def deactivate_monitor(channel_id: int, chat_id: int) -> bool:
     pool = await get_publication_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''
-            UPDATE channel_monitor SET active = FALSE, updated_at = NOW() AT TIME ZONE 'utc'
+            UPDATE public.channel_monitor SET active = FALSE, updated_at = NOW() AT TIME ZONE 'utc'
             WHERE channel_id = $1 AND chat_id = $2
         ''', channel_id, chat_id)
         return result != 'UPDATE 0'
@@ -117,7 +117,7 @@ async def is_mention_logged(channel_id: int, message_id: int, mentioned_chat_id:
     async with pool.acquire() as conn:
         return await conn.fetchval('''
             SELECT EXISTS(
-                SELECT 1 FROM channel_mention_log
+                SELECT 1 FROM public.channel_mention_log
                 WHERE channel_id = $1 AND message_id = $2 AND mentioned_chat_id = $3
             )
         ''', channel_id, message_id, mentioned_chat_id)
@@ -134,7 +134,7 @@ async def log_mention(
     pool = await get_publication_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO channel_mention_log (channel_id, message_id, mentioned_chat_id, mention_type, draft_sent)
+            INSERT INTO public.channel_mention_log (channel_id, message_id, mentioned_chat_id, mention_type, draft_sent)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (channel_id, message_id, mentioned_chat_id) DO NOTHING
         ''', channel_id, message_id, mentioned_chat_id, mention_type, draft_sent)

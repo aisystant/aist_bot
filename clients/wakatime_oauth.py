@@ -188,7 +188,7 @@ class WakaTimeOAuthClient:
             pool = await get_persona_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    'SELECT account_id FROM ory_identity WHERE telegram_id = $1', telegram_user_id
+                    'SELECT account_id FROM public.ory_identity WHERE telegram_id = $1', telegram_user_id
                 )
                 if not row or not row['account_id']:
                     logger.warning(
@@ -199,7 +199,7 @@ class WakaTimeOAuthClient:
                 account_id = row['account_id']
 
                 await conn.execute('''
-                    INSERT INTO user_integrations
+                    INSERT INTO public.user_integrations
                         (account_id, service, access_token, refresh_token, scope,
                          metadata, connected_at, updated_at, active)
                     VALUES ($1, 'wakatime', $2, $3, $4, '{}', NOW(), NOW(), TRUE)
@@ -232,8 +232,8 @@ class WakaTimeOAuthClient:
         try:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow('''
-                    SELECT 1 FROM user_integrations ui
-                    JOIN ory_identity oi ON oi.account_id = ui.account_id
+                    SELECT 1 FROM public.user_integrations ui
+                    JOIN public.ory_identity oi ON oi.account_id = ui.account_id
                     WHERE oi.telegram_id = $1 AND ui.service = 'wakatime' AND ui.active = TRUE
                 ''', telegram_user_id)
                 return row is not None
@@ -249,10 +249,10 @@ class WakaTimeOAuthClient:
             pool = await get_persona_pool()
             async with pool.acquire() as conn:
                 await conn.execute('''
-                    UPDATE user_integrations
+                    UPDATE public.user_integrations
                     SET active = FALSE, updated_at = NOW()
                     WHERE account_id = (
-                        SELECT account_id FROM ory_identity WHERE telegram_id = $1
+                        SELECT account_id FROM public.ory_identity WHERE telegram_id = $1
                     )
                     AND service = 'wakatime'
                 ''', telegram_user_id)

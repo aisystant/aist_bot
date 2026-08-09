@@ -24,16 +24,15 @@ def _validate_qualified(name: str) -> str:
 
 
 def _validate_table(name: str) -> str:
-    if "." in name:
-        return _validate_qualified(name)
-    return _validate_identifier(name)
+    return _validate_qualified(name)
 
 
 def update(table: str, columns: list[str], where: str,
            extra_set: list[str] | None = None) -> str:
     """Build ``UPDATE table SET col=$i ... WHERE ...``.
 
-    ``table`` must be a qualified identifier (schema.table or table).
+    ``table`` must be a qualified identifier (schema.table). Dynamic SQL must
+    never rely on the connection's session ``search_path``.
     ``columns`` are validated against a strict identifier regex.
     ``extra_set`` contains raw SQL fragments appended after parameterised parts
     (e.g. ``updated_at = NOW()``). Values themselves must still be passed as

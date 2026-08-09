@@ -180,9 +180,9 @@ class ProgressState(BaseState):
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
                     """SELECT COUNT(DISTINCT fw.id) AS cnt
-                       FROM feed_weeks fw
+                       FROM public.feed_weeks fw
                        WHERE fw.chat_id = $1
-                         AND EXISTS (SELECT 1 FROM feed_sessions fs WHERE fs.week_id = fw.id)""",
+                         AND EXISTS (SELECT 1 FROM public.feed_sessions fs WHERE fs.week_id = fw.id)""",
                     chat_id,
                 )
                 feed_weeks_count = row['cnt'] if row else 0
@@ -196,7 +196,7 @@ class ProgressState(BaseState):
             pool = await get_learning_pool()
             async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    'SELECT scores, dominant_state, created_at FROM assessments WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
+                    'SELECT scores, dominant_state, created_at FROM public.assessments WHERE chat_id = $1 ORDER BY created_at DESC LIMIT 1',
                     chat_id,
                 )
                 if row:

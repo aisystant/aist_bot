@@ -35,7 +35,7 @@ async def ensure_notification_log():
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS notification_log (
+            CREATE TABLE IF NOT EXISTS public.notification_log (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
                 notification_type TEXT NOT NULL,
@@ -47,11 +47,11 @@ async def ensure_notification_log():
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notification_log_chat_type
-            ON notification_log(chat_id, notification_type)
+            ON public.notification_log(chat_id, notification_type)
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_notification_log_created
-            ON notification_log(created_at)
+            ON public.notification_log(created_at)
         ''')
 
 
@@ -84,7 +84,7 @@ async def insert_domain_event_direct(
     lp = await get_learning_pool()
     async with lp.acquire() as conn:
         row = await conn.fetchrow(
-            '''INSERT INTO domain_event
+            '''INSERT INTO public.domain_event
                (source, external_id, event_type, schema_version,
                 occurred_at, account_id, payload)
                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
@@ -146,7 +146,7 @@ async def was_notification_sent(idempotency_key: str) -> bool:
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT 1 FROM domain_event "
+            "SELECT 1 FROM public.domain_event "
             "WHERE source = 'aist-bot' AND event_type = 'notification_sent' AND external_id = $1",
             f"notification-{idempotency_key}",
         )
@@ -206,7 +206,7 @@ async def was_nudge_sent_recently(chat_id: int, nudge_key: str, cooldown_days: i
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """SELECT 1 FROM domain_event
+            """SELECT 1 FROM public.domain_event
                WHERE source = 'aist-bot'
                  AND event_type = 'notification_sent'
                  AND payload->>'notification_type' = 'nudge'
@@ -246,7 +246,7 @@ async def fetch_recent_nudges_by_type(
             patterns = [f"notification-nudge:{uid}:%:{nudge_type}" for uid in user_ids]
             rows = await conn.fetch(
                 """SELECT external_id, ingested_at
-                   FROM domain_event
+                   FROM public.domain_event
                    WHERE source = 'aist-bot'
                      AND event_type = 'notification_sent'
                      AND ingested_at >= NOW() - INTERVAL '1 day' * $1
@@ -284,7 +284,7 @@ async def get_notification_stats(chat_id: int, days: int = 30) -> dict:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT payload->>'notification_type' AS notification_type, COUNT(*) AS cnt
-               FROM domain_event
+               FROM public.domain_event
                WHERE source = 'aist-bot'
                  AND event_type = 'notification_sent'
                  AND payload->>'idempotency_key' LIKE $1

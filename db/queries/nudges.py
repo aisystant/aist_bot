@@ -55,7 +55,7 @@ async def get_nudge_candidates() -> list[dict]:
                 ) AS last_slot_at
             FROM development.user_state s
             JOIN public.users u ON u.telegram_id = s.chat_id
-            LEFT JOIN digital_twins dt ON dt.user_id = u.id::text
+            LEFT JOIN public.digital_twins dt ON dt.user_id = u.id::text
             WHERE u.tier NOT IN ('T0')
               AND s.bot_blocked = FALSE
               AND COALESCE(s.notify_nudges, TRUE) = TRUE

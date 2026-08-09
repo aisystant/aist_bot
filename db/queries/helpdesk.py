@@ -16,7 +16,7 @@ async def create_ticket(chat_id: int, topic: str) -> int:
     async with pool.acquire() as conn:
         return await conn.fetchval(
             """
-            INSERT INTO helpdesk_tickets (chat_id, topic, created_at, updated_at)
+            INSERT INTO public.helpdesk_tickets (chat_id, topic, created_at, updated_at)
             VALUES ($1, $2, $3, $3)
             RETURNING id
             """,
@@ -29,7 +29,7 @@ async def update_ticket_conversation(ticket_id: int, conversation_id: int, conta
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            UPDATE helpdesk_tickets
+            UPDATE public.helpdesk_tickets
             SET conversation_id = $1, contact_identifier = $2, updated_at = $3
             WHERE id = $4
             """,
@@ -42,7 +42,7 @@ async def get_chat_id_by_conversation(conversation_id: int) -> int | None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         return await conn.fetchval(
-            "SELECT chat_id FROM helpdesk_tickets WHERE conversation_id = $1 LIMIT 1",
+            "SELECT chat_id FROM public.helpdesk_tickets WHERE conversation_id = $1 LIMIT 1",
             conversation_id,
         )
 
@@ -51,6 +51,6 @@ async def close_ticket(conversation_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE helpdesk_tickets SET status = 'closed', updated_at = $1 WHERE conversation_id = $2",
+            "UPDATE public.helpdesk_tickets SET status = 'closed', updated_at = $1 WHERE conversation_id = $2",
             datetime.utcnow(), conversation_id,
         )

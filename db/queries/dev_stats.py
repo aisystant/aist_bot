@@ -72,7 +72,7 @@ async def get_integration_stats() -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         github_row = await conn.fetchrow(
-            'SELECT COUNT(*) AS github_connected FROM github_connections'
+            'SELECT COUNT(*) AS github_connected FROM public.github_connections'
         )
     # assessments → learning BD (мигрировано Phase 5 G5)
     learning_pool = await get_learning_pool()
@@ -81,7 +81,7 @@ async def get_integration_stats() -> dict:
             SELECT
                 COUNT(DISTINCT chat_id) AS assessed_users,
                 COUNT(*) AS total_assessments
-            FROM assessments
+            FROM public.assessments
         ''')
     return {
         'github_connected': github_row['github_connected'] if github_row else 0,
@@ -100,7 +100,7 @@ async def get_global_service_usage(limit: int = 15) -> List[dict]:
             rows = await conn.fetch('''
                 SELECT service_id, COUNT(*) AS cnt,
                        COUNT(DISTINCT user_id) AS users
-                FROM service_usage
+                FROM public.service_usage
                 GROUP BY service_id
                 ORDER BY cnt DESC
                 LIMIT $1
@@ -144,7 +144,7 @@ async def get_qa_stats() -> dict:
                 COUNT(DISTINCT chat_id) AS unique_users,
                 COUNT(*) FILTER (WHERE created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date) AS today,
                 COUNT(*) FILTER (WHERE created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - INTERVAL '7 days') AS this_week
-            FROM qa_history
+            FROM public.qa_history
         ''')
         return dict(row) if row else {}
 
@@ -155,7 +155,7 @@ async def get_qa_top_topics(limit: int = 10) -> List[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT context_topic AS topic, COUNT(*) AS cnt
-            FROM qa_history
+            FROM public.qa_history
             WHERE context_topic IS NOT NULL AND context_topic != ''
             GROUP BY context_topic
             ORDER BY cnt DESC
@@ -182,7 +182,8 @@ async def get_table_sizes() -> List[dict]:
             'marathon_content',
         ]:
             try:
-                row = await conn.fetchrow(select_count_from(table))
+                qualified_table = table if '.' in table else f'public.{table}'
+                row = await conn.fetchrow(select_count_from(qualified_table))
                 results.append({'table': table, 'count': row['cnt']})
             except Exception:
                 results.append({'table': table, 'count': -1})
@@ -215,7 +216,7 @@ async def get_pending_content_count() -> int:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM marathon_content WHERE status = 'pending'"
+            "SELECT COUNT(*) AS cnt FROM public.marathon_content WHERE status = 'pending'"
         )
         return row['cnt'] if row else 0
 
@@ -254,7 +255,7 @@ async def get_delivery_report() -> dict:
                 SELECT DISTINCT ON (mc.chat_id)
                     mc.chat_id, mc.status, mc.created_at,
                     mc.notification_sent_at
-                FROM marathon_content mc
+                FROM public.marathon_content mc
                 WHERE mc.notification_sent_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date
                    OR (mc.notification_sent_at IS NULL
                        AND mc.created_at >= (NOW() AT TIME ZONE 'Europe/Moscow')::date)

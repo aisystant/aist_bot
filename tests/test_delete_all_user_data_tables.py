@@ -23,8 +23,13 @@ from db.sql_helpers import delete_from
 
 def test_every_entry_builds_valid_sql():
     for table, column in OPTIONAL_CHAT_TABLES:
-        sql = delete_from(table, f"{column} = $1")
-        assert sql == f"DELETE FROM {table} WHERE {column} = $1"
+        sql = delete_from(f"public.{table}", f"{column} = $1")
+        assert sql == f"DELETE FROM public.{table} WHERE {column} = $1"
+
+
+def test_dynamic_sql_rejects_unqualified_tables():
+    with pytest.raises(ValueError, match="Invalid qualified SQL identifier"):
+        delete_from("training_setting", "chat_id = $1")
 
 
 def test_no_duplicate_tables():
@@ -220,9 +225,9 @@ def test_cross_pool_tables_keyed_by_account_id_not_chat_id():
     peer-session code review with Kimi 2026-08-06 (session
     2026-08-06-16-aist-bot-delete-bugs)."""
     source = inspect.getsource(delete_all_user_data)
-    assert "DELETE FROM contract WHERE account_id = $1" in source
+    assert "DELETE FROM public.contract WHERE account_id = $1" in source
     assert "DELETE FROM public.calculated_profile WHERE account_id = $1::uuid" in source
-    assert "DELETE FROM point_balances WHERE account_id = $1" in source
+    assert "DELETE FROM public.point_balances WHERE account_id = $1" in source
 
 
 def test_club_account_keyed_by_chat_id_directly():
@@ -231,7 +236,7 @@ def test_club_account_keyed_by_chat_id_directly():
     test_cross_pool_tables_keyed_by_account_id_not_chat_id — keys by chat_id
     directly, no account_id resolution needed (db/queries/discourse.py)."""
     source = inspect.getsource(delete_all_user_data)
-    assert "DELETE FROM club_account WHERE chat_id = $1" in source
+    assert "DELETE FROM public.club_account WHERE chat_id = $1" in source
 
 
 def test_wp253_migrated_pools_not_missed():
@@ -243,9 +248,9 @@ def test_wp253_migrated_pools_not_missed():
     "delete all my data". Confirmed against db/queries/conversion.py,
     db/queries/training.py and db/queries/discourse.py module docstrings."""
     source = inspect.getsource(delete_all_user_data)
-    assert "DELETE FROM published_post WHERE chat_id = $1" in source
-    assert "DELETE FROM scheduled_post WHERE chat_id = $1" in source
-    assert "DELETE FROM conversion_event WHERE chat_id = $1" in source
+    assert "DELETE FROM public.published_post WHERE chat_id = $1" in source
+    assert "DELETE FROM public.scheduled_post WHERE chat_id = $1" in source
+    assert "DELETE FROM public.conversion_event WHERE chat_id = $1" in source
     assert "DELETE FROM public.training_setting WHERE chat_id = $1" in source
     assert "DELETE FROM public.training_child WHERE chat_id = $1" in source
     assert "'learning.' + table" in source

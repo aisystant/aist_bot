@@ -143,7 +143,7 @@ async def _save_triage(
     async with (await get_journal_pool()).acquire() as conn:
         try:
             row = await conn.fetchrow("""
-                INSERT INTO feedback_triage
+                INSERT INTO public.feedback_triage
                     (qa_id, chat_id, question, answer_snippet,
                      category, severity, cluster, reason,
                      has_comment, user_comment,
@@ -219,7 +219,7 @@ async def _send_alert(qa_id: int, chat_id: int, question: str,
             # Mark as notified
             async with (await get_journal_pool()).acquire() as conn:
                 await conn.execute(
-                    "UPDATE feedback_triage SET notified_at = NOW() WHERE qa_id = $1",
+                    "UPDATE public.feedback_triage SET notified_at = NOW() WHERE qa_id = $1",
                     qa_id,
                 )
         finally:
@@ -252,7 +252,7 @@ async def triage_feedback(qa_id: int, feedback_type: str = "not_helpful"):
     # Check for existing comment
     async with (await get_journal_pool()).acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT user_comment FROM qa_history WHERE id = $1", qa_id
+            "SELECT user_comment FROM public.qa_history WHERE id = $1", qa_id
         )
     user_comment = row["user_comment"] if row and row["user_comment"] else None
     has_comment = bool(user_comment)

@@ -35,11 +35,11 @@ async def migrate():
         """)
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_helpdesk_chat_id
-                ON helpdesk_tickets(chat_id)
+                ON public.helpdesk_tickets(chat_id)
         """)
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_helpdesk_conversation_id
-                ON helpdesk_tickets(conversation_id)
+                ON public.helpdesk_tickets(conversation_id)
         """)
         print("Migration 015 complete: helpdesk_tickets created.")
     finally:

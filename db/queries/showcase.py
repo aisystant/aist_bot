@@ -77,7 +77,7 @@ async def create_seminar_payment(
 
     async with pool.acquire() as conn:
         row_id = await conn.fetchval(
-            """INSERT INTO finance_payments
+            """INSERT INTO public.finance_payments
                    (telegram_id, code, amount, currency, channel, success,
                     purpose, ext_id, created_at)
                VALUES ($1, $2, $3, $4, $5, TRUE, 'SEMINAR', $6, NOW())
@@ -97,7 +97,7 @@ async def has_seminar_access(telegram_id: int, product_code: str) -> bool:
     pool = await get_bot_data_pool()
     async with pool.acquire() as conn:
         count = await conn.fetchval(
-            """SELECT COUNT(*) FROM finance_payments
+            """SELECT COUNT(*) FROM public.finance_payments
                WHERE telegram_id = $1 AND code = $2 AND success = TRUE""",
             telegram_id, product_code,
         )
@@ -121,7 +121,7 @@ async def has_access_to_chat(telegram_id: int, chat_id: int) -> bool:
     bd_pool = await get_bot_data_pool()
     async with bd_pool.acquire() as conn:
         count = await conn.fetchval(
-            """SELECT COUNT(*) FROM finance_payments
+            """SELECT COUNT(*) FROM public.finance_payments
                WHERE telegram_id = $1 AND code = ANY($2) AND success = TRUE""",
             telegram_id, seminar_codes,
         )
@@ -134,7 +134,7 @@ async def get_user_seminar_codes(telegram_id: int) -> set[str]:
     bd_pool = await get_bot_data_pool()
     async with bd_pool.acquire() as conn:
         paid_rows = await conn.fetch(
-            "SELECT DISTINCT code FROM finance_payments WHERE telegram_id = $1 AND success = TRUE",
+            "SELECT DISTINCT code FROM public.finance_payments WHERE telegram_id = $1 AND success = TRUE",
             telegram_id,
         )
     if not paid_rows:

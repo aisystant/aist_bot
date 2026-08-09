@@ -347,7 +347,7 @@ async def classify_unprocessed(limit: int = 100) -> int:
     async with (await get_health_pool()).acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, logger_name, message, traceback
-            FROM error_logs
+            FROM public.error_logs
             WHERE category IS NULL
             ORDER BY last_seen_at DESC
             LIMIT $1
@@ -389,7 +389,7 @@ async def classify_unprocessed(limit: int = 100) -> int:
 
     async with (await get_health_pool()).acquire() as conn:
         await conn.executemany("""
-            UPDATE error_logs
+            UPDATE public.error_logs
             SET category = $2, severity = $3, suggested_action = $4
             WHERE id = $1
         """, updates)
@@ -415,7 +415,7 @@ async def _escalate_persistent_l1() -> int:
     """
     async with (await get_health_pool()).acquire() as conn:
         result = await conn.execute("""
-            UPDATE error_logs
+            UPDATE public.error_logs
             SET severity = 'L2',
                 suggested_action = 'PR: persistent L1 → auto-escalated to L2'
             WHERE severity = 'L1'
@@ -444,7 +444,7 @@ async def check_escalation() -> Optional[str]:
         rows = await conn.fetch("""
             SELECT id, category, severity, logger_name, message,
                    occurrence_count, context, last_seen_at
-            FROM error_logs
+            FROM public.error_logs
             WHERE escalated = FALSE
               AND last_seen_at > NOW() - INTERVAL '1 hour'
               AND (
@@ -486,7 +486,7 @@ async def check_escalation() -> Optional[str]:
     ids = [r['id'] for r in rows]
     async with (await get_health_pool()).acquire() as conn:
         await conn.execute(
-            "UPDATE error_logs SET escalated = TRUE WHERE id = ANY($1::int[])", ids
+            "UPDATE public.error_logs SET escalated = TRUE WHERE id = ANY($1::int[])", ids
         )
 
     logger.warning(f"[Classifier] Escalated {len(ids)} errors (L3/L4/unknown)")

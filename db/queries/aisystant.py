@@ -33,7 +33,7 @@ async def get_aisystant_id(chat_id: int) -> str | None:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT COALESCE(traits->>'aisystant_suser_id', traits->>'aisystant_id')
-                   AS aisystant_id FROM ory_identity WHERE telegram_id = $1""",
+                   AS aisystant_id FROM public.ory_identity WHERE telegram_id = $1""",
                 chat_id,
             )
             if row and row['aisystant_id']:
@@ -69,7 +69,7 @@ async def get_aisystant_id_by_account(account_id: str) -> str | None:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT COALESCE(traits->>'aisystant_suser_id', traits->>'aisystant_id')
-                   AS aisystant_id FROM ory_identity WHERE account_id = $1""",
+                   AS aisystant_id FROM public.ory_identity WHERE account_id = $1""",
                 uuid.UUID(account_id),
             )
             if row and row['aisystant_id']:

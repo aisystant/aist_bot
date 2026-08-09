@@ -43,7 +43,7 @@ async def get_github_connection(chat_id: int) -> Optional[Dict[str, Any]]:
                 target_repo, notes_path, strategy_repo, knowledge_repo,
                 default_branch, strategy_default_branch,
                 created_at, updated_at
-            FROM github_connections
+            FROM public.github_connections
             WHERE chat_id = $1
         ''', chat_id, GITHUB_TOKEN_ENCRYPTION_KEY)
         if row:
@@ -80,7 +80,7 @@ async def save_github_connection(
     async with pool.acquire() as conn:
         if GITHUB_TOKEN_ENCRYPTION_KEY:
             await conn.execute('''
-                INSERT INTO github_connections
+                INSERT INTO public.github_connections
                     (user_uuid, chat_id, access_token_encrypted, token_type, scope, github_username)
                 VALUES (
                     $1, $2,
@@ -99,7 +99,7 @@ async def save_github_connection(
         else:
             logger.warning(f"save_github_connection: no encryption key, storing placeholder for chat_id={chat_id}")
             await conn.execute('''
-                INSERT INTO github_connections
+                INSERT INTO public.github_connections
                     (user_uuid, chat_id, access_token_encrypted, token_type, scope, github_username)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (user_uuid) DO UPDATE SET
@@ -118,7 +118,7 @@ async def update_github_repo(chat_id: int, target_repo: str, default_branch: str
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE github_connections SET target_repo = $1, default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
+            'UPDATE public.github_connections SET target_repo = $1, default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
             target_repo, chat_id, default_branch,
         )
 
@@ -128,7 +128,7 @@ async def update_github_notes_path(chat_id: int, notes_path: str) -> None:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE github_connections SET notes_path = $1, updated_at = NOW() WHERE chat_id = $2',
+            'UPDATE public.github_connections SET notes_path = $1, updated_at = NOW() WHERE chat_id = $2',
             notes_path, chat_id,
         )
 
@@ -138,7 +138,7 @@ async def update_github_strategy_repo(chat_id: int, strategy_repo: str, strategy
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE github_connections SET strategy_repo = $1, strategy_default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
+            'UPDATE public.github_connections SET strategy_repo = $1, strategy_default_branch = $3, updated_at = NOW() WHERE chat_id = $2',
             strategy_repo, chat_id, strategy_default_branch,
         )
 
@@ -148,7 +148,7 @@ async def update_github_knowledge_repo(chat_id: int, knowledge_repo: str) -> Non
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'UPDATE github_connections SET knowledge_repo = $1, updated_at = NOW() WHERE chat_id = $2',
+            'UPDATE public.github_connections SET knowledge_repo = $1, updated_at = NOW() WHERE chat_id = $2',
             knowledge_repo, chat_id,
         )
 
@@ -170,7 +170,7 @@ async def get_users_with_knowledge_repo() -> list[dict]:
                 chat_id,
                 pgp_sym_decrypt(access_token_encrypted, $1)::text AS access_token,
                 knowledge_repo
-            FROM github_connections
+            FROM public.github_connections
             WHERE knowledge_repo IS NOT NULL
         ''', GITHUB_TOKEN_ENCRYPTION_KEY)
         return [dict(r) for r in rows]
@@ -190,7 +190,7 @@ async def get_users_needing_github_relink() -> list[dict]:
         linked = {
             row["chat_id"]
             for row in await conn.fetch(
-                "SELECT chat_id FROM github_connections WHERE chat_id IS NOT NULL"
+                "SELECT chat_id FROM public.github_connections WHERE chat_id IS NOT NULL"
             )
         }
 
@@ -200,8 +200,8 @@ async def get_users_needing_github_relink() -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT oi.telegram_id AS chat_id, ui.account_id
-            FROM user_integrations ui
-            JOIN ory_identity oi ON oi.account_id = ui.account_id
+            FROM public.user_integrations ui
+            JOIN public.ory_identity oi ON oi.account_id = ui.account_id
             WHERE ui.service = 'github' AND ui.active = TRUE
               AND oi.telegram_id IS NOT NULL
             """
@@ -215,7 +215,7 @@ async def delete_github_connection(chat_id: int) -> None:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'DELETE FROM github_connections WHERE chat_id = $1', chat_id
+            'DELETE FROM public.github_connections WHERE chat_id = $1', chat_id
         )
     logger.info(f"Deleted GitHub connection for user {chat_id}")
 
@@ -237,7 +237,7 @@ async def sync_github_to_user_integrations(
     pool = await get_persona_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT account_id FROM ory_identity WHERE telegram_id = $1', chat_id
+            'SELECT account_id FROM public.ory_identity WHERE telegram_id = $1', chat_id
         )
         if not row or not row['account_id']:
             logger.warning(
@@ -259,7 +259,7 @@ async def sync_github_to_user_integrations(
             stored_token = access_token
 
         await conn.execute('''
-            INSERT INTO user_integrations
+            INSERT INTO public.user_integrations
                 (account_id, service, access_token, scope, metadata, connected_at, updated_at, active)
             VALUES ($1, 'github', $2, $3, $4, NOW(), NOW(), TRUE)
             ON CONFLICT (account_id, service) DO UPDATE SET
@@ -284,7 +284,7 @@ async def _get_user_uuid_by_chat_id(chat_id: int):
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                'SELECT account_id FROM ory_identity WHERE telegram_id = $1', chat_id
+                'SELECT account_id FROM public.ory_identity WHERE telegram_id = $1', chat_id
             )
             if row and row['account_id']:
                 return row['account_id']

@@ -220,7 +220,7 @@ async def _get_user_stage(user_id: int) -> Optional[int]:
         async with pool.acquire() as conn:
             row = await conn.fetchrow('''
                 SELECT data->'3_derived'->'3_4_qualification'->>'stage' as stage
-                FROM digital_twins
+                FROM public.digital_twins
                 WHERE user_id = $1::text
                 LIMIT 1
             ''', str(user_uuid))
