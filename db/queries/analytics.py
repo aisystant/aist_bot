@@ -83,14 +83,14 @@ async def _get_session_metrics(conn, hours: int) -> dict:
                 COUNT(*) as count,
                 COALESCE(AVG(duration_seconds), 0)::INTEGER as avg_duration_sec,
                 COALESCE(AVG(request_count), 0)::REAL as avg_requests
-            FROM user_sessions
+            FROM public.user_sessions
             WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
               AND duration_seconds IS NOT NULL
         ''', str(hours))
 
         entry_points = await hc.fetch('''
             SELECT entry_point as point, COUNT(*) as count
-            FROM user_sessions
+            FROM public.user_sessions
             WHERE started_at > NOW() - ($1 || ' hours')::INTERVAL
               AND entry_point IS NOT NULL
             GROUP BY entry_point
@@ -123,7 +123,7 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
                 percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p95_ms,
                 percentile_cont(0.99) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p99_ms,
                 COUNT(*) FILTER (WHERE (payload->>'total_ms')::numeric > 8000) AS red_zone
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
         ''', str(hours))
@@ -135,14 +135,14 @@ async def _get_quality_metrics(conn, hours: int) -> dict:
     async with learning_pool.acquire() as lc:
         qa = await lc.fetchrow('''
             SELECT
-                (SELECT COUNT(*) FROM domain_event
+                (SELECT COUNT(*) FROM public.domain_event
                  WHERE source='aist-bot' AND event_type='qa_query'
                    AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS total,
-                (SELECT COUNT(*) FROM domain_event
+                (SELECT COUNT(*) FROM public.domain_event
                  WHERE source='aist-bot' AND event_type='qa_feedback'
                    AND payload->>'helpful' = 'true'
                    AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS helpful,
-                (SELECT COUNT(*) FROM domain_event
+                (SELECT COUNT(*) FROM public.domain_event
                  WHERE source='aist-bot' AND event_type='qa_feedback'
                    AND payload->>'helpful' = 'false'
                    AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL) AS not_helpful
@@ -190,7 +190,7 @@ async def _get_retention_metrics(conn) -> dict:
         async with learning_pool.acquire() as lc:
             retained = await lc.fetchval('''
                 SELECT COUNT(DISTINCT a.chat_id)
-                FROM activity_log a
+                FROM public.activity_log a
                 WHERE (a.chat_id, a.activity_date) IN (
                     SELECT unnest($1::bigint[]), unnest($2::date[])
                 )
@@ -210,13 +210,13 @@ async def _get_trend_metrics(conn) -> dict:
             WITH this_week AS (
                 SELECT
                     COUNT(DISTINCT chat_id) as dau_avg
-                FROM activity_log
+                FROM public.activity_log
                 WHERE activity_date >= (NOW() AT TIME ZONE 'Europe/Moscow')::date - 6
             ),
             last_week AS (
                 SELECT
                     COUNT(DISTINCT chat_id) as dau_avg
-                FROM activity_log
+                FROM public.activity_log
                 WHERE activity_date BETWEEN (NOW() AT TIME ZONE 'Europe/Moscow')::date - 13 AND (NOW() AT TIME ZONE 'Europe/Moscow')::date - 7
             )
             SELECT
@@ -232,11 +232,11 @@ async def _get_trend_metrics(conn) -> dict:
     # Session trends
     sess_row = await conn.fetchrow('''
         WITH this_week AS (
-            SELECT COUNT(*) as cnt FROM user_sessions
+            SELECT COUNT(*) as cnt FROM public.user_sessions
             WHERE started_at >= NOW() - INTERVAL '7 days'
         ),
         last_week AS (
-            SELECT COUNT(*) as cnt FROM user_sessions
+            SELECT COUNT(*) as cnt FROM public.user_sessions
             WHERE started_at BETWEEN NOW() - INTERVAL '14 days' AND NOW() - INTERVAL '7 days'
         )
         SELECT tw.cnt as this_week, lw.cnt as last_week
@@ -266,13 +266,13 @@ async def _get_error_metrics(conn, hours: int) -> dict:
                 SUM(occurrence_count)::BIGINT as total_errors,
                 COUNT(*) FILTER (WHERE severity IN ('L3', 'L4')) as l3_plus,
                 COUNT(*) FILTER (WHERE category = 'unknown') as unknown
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
         ''', str(hours))
 
         by_category = await hc.fetch('''
             SELECT category, SUM(occurrence_count)::BIGINT as count
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
               AND category IS NOT NULL
             GROUP BY category ORDER BY count DESC LIMIT 5
@@ -280,7 +280,7 @@ async def _get_error_metrics(conn, hours: int) -> dict:
 
         by_severity = await hc.fetch('''
             SELECT severity, COUNT(*) as count
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - ($1 || ' hours')::INTERVAL
               AND severity IS NOT NULL
             GROUP BY severity ORDER BY severity
@@ -290,7 +290,7 @@ async def _get_error_metrics(conn, hours: int) -> dict:
     learning_pool = await get_learning_pool()
     async with learning_pool.acquire() as lc:
         requests = await lc.fetchval('''
-            SELECT COUNT(*) FROM domain_event
+            SELECT COUNT(*) FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
         ''', str(hours))
@@ -320,7 +320,7 @@ async def _get_command_metrics(conn, hours: int) -> dict:
         top = await lc.fetch('''
             SELECT payload->>'command' AS command, COUNT(*) AS count,
                    AVG((payload->>'total_ms')::numeric)::INTEGER AS avg_ms
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
               AND payload->>'command' IS NOT NULL AND payload->>'command' != ''
@@ -331,7 +331,7 @@ async def _get_command_metrics(conn, hours: int) -> dict:
             SELECT payload->>'command' AS command, COUNT(*) AS count,
                    AVG((payload->>'total_ms')::numeric)::INTEGER AS avg_ms,
                    percentile_cont(0.95) WITHIN GROUP (ORDER BY (payload->>'total_ms')::numeric)::INTEGER AS p95_ms
-            FROM domain_event
+            FROM public.domain_event
             WHERE source = 'aist-bot' AND event_type = 'request_traced'
               AND ingested_at > NOW() - ($1 || ' hours')::INTERVAL
               AND payload->>'command' IS NOT NULL AND payload->>'command' != ''

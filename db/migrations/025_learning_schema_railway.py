@@ -47,7 +47,7 @@ async def migrate():
         # 1. public: domain_event (единый канал событий — DP.SC.044)
         # ═══════════════════════════════════════════════════════════════════
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS domain_event (
+            CREATE TABLE IF NOT EXISTS public.domain_event (
                 id              BIGSERIAL PRIMARY KEY,
                 source          TEXT NOT NULL,
                 external_id     TEXT NOT NULL,
@@ -61,15 +61,15 @@ async def migrate():
             )
         """)
         await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_domain_event_type ON domain_event (event_type)"
+            "CREATE INDEX IF NOT EXISTS idx_domain_event_type ON public.domain_event (event_type)"
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_domain_event_account "
-            "ON domain_event (account_id) WHERE account_id IS NOT NULL"
+            "ON public.domain_event (account_id) WHERE account_id IS NOT NULL"
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_domain_event_occurred "
-            "ON domain_event (occurred_at DESC)"
+            "ON public.domain_event (occurred_at DESC)"
         )
         # NOTIFY trigger — создаём если функция ещё не существует
         await conn.execute("""
@@ -83,14 +83,14 @@ async def migrate():
         """)
         trigger_exists = await conn.fetchval("""
             SELECT EXISTS (
-                SELECT 1 FROM pg_trigger
+                SELECT 1 FROM pg_catalog.pg_trigger
                 WHERE tgname = 'trg_domain_event_notify'
             )
         """)
         if not trigger_exists:
             await conn.execute("""
                 CREATE TRIGGER trg_domain_event_notify
-                    AFTER INSERT ON domain_event
+                    AFTER INSERT ON public.domain_event
                     FOR EACH ROW
                     EXECUTE FUNCTION notify_domain_event_added()
             """)
@@ -111,11 +111,11 @@ async def migrate():
         """)
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_security_reject_reason "
-            "ON security_reject_log (reason)"
+            "ON public.security_reject_log (reason)"
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_security_reject_received "
-            "ON security_reject_log (received_at DESC)"
+            "ON public.security_reject_log (received_at DESC)"
         )
         print("  security_reject_log — OK")
 
@@ -145,7 +145,7 @@ async def migrate():
         """)
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_content_cache_expires "
-            "ON content_cache (expires_at)"
+            "ON public.content_cache (expires_at)"
         )
         print("  content_cache — OK")
 
@@ -166,7 +166,7 @@ async def migrate():
         """)
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_reminder_pending "
-            "ON reminder (scheduled_for) WHERE sent = FALSE"
+            "ON public.reminder (scheduled_for) WHERE sent = FALSE"
         )
         print("  reminder — OK")
 
@@ -566,7 +566,7 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
             "SELECT to_regclass('learning.marathon_queue')"
         )
         domain_exists = await conn.fetchval(
-            "SELECT to_regclass('domain_event')"
+            "SELECT to_regclass('public.domain_event')"
         )
 
     if queue_exists and domain_exists:

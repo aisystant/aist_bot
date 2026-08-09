@@ -31,7 +31,7 @@ async def migrate_products_if_needed(
     Возвращает количество скопированных строк (0 = уже было мигрировано).
     """
     async with reference_pool.acquire() as ref_conn:
-        existing = await ref_conn.fetchval("SELECT COUNT(*) FROM product")
+        existing = await ref_conn.fetchval("SELECT COUNT(*) FROM public.product")
         if existing > 0:
             logger.info(f"[migrate_products] reference.product уже содержит {existing} строк, пропуск")
             return 0
@@ -64,7 +64,7 @@ async def migrate_products_if_needed(
         else:
             select_parts.append("'{}'::jsonb AS metadata")
 
-        rows = await src_conn.fetch(_select_from_sql('products', select_parts))
+        rows = await src_conn.fetch(_select_from_sql('public.products', select_parts))
 
     if not rows:
         logger.warning("[migrate_products] Railway products пуст — нечего копировать")
@@ -80,7 +80,7 @@ async def migrate_products_if_needed(
             for row in rows:
                 values = [row[c] for c in result_cols]
                 query = _insert_into_sql(
-                    'product',
+                    'public.product',
                     result_cols,
                     placeholders,
                     'source',

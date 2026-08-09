@@ -58,7 +58,7 @@ async def _save_canary_state(pool, paused_until_monotonic: float) -> None:
     try:
         async with pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO canary_state (id, paused_until, updated_at)
+                INSERT INTO public.canary_state (id, paused_until, updated_at)
                 VALUES (1, $1, NOW())
                 ON CONFLICT (id) DO UPDATE SET paused_until = $1, updated_at = NOW()
             """, wall_time)
@@ -74,7 +74,7 @@ async def restore_canary_from_db(pool) -> None:
     try:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT paused_until FROM canary_state WHERE id = 1"
+                "SELECT paused_until FROM public.canary_state WHERE id = 1"
             )
         if row and row['paused_until']:
             remaining = (row['paused_until'] - datetime.utcnow()).total_seconds()

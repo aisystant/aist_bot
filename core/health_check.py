@@ -43,7 +43,7 @@ async def _count_cascade_errors(minutes: int = 5) -> int:
     async with (await get_health_pool()).acquire() as conn:
         row = await conn.fetchrow("""
             SELECT COUNT(DISTINCT error_key) AS unique_count
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - INTERVAL '1 minute' * $1
               AND error_key IS NOT NULL
         """, minutes)
@@ -55,7 +55,7 @@ async def _has_pool_exhaustion(minutes: int = 5) -> bool:
     async with (await get_health_pool()).acquire() as conn:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS cnt
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - INTERVAL '1 minute' * $1
               AND severity = 'L3'
               AND (error_key ILIKE '%pool%' OR error_key ILIKE '%connection%refused%'

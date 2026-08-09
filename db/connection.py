@@ -443,7 +443,7 @@ async def _verify_schema(pool: asyncpg.Pool) -> None:
     try:
         lpool = await get_learning_pool()
         async with lpool.acquire() as conn:
-            if not await conn.fetchval("SELECT to_regclass('feed_sessions')"):
+            if not await conn.fetchval("SELECT to_regclass('public.feed_sessions')"):
                 missing.append("feed_sessions@learning")
     except Exception as e:
         logger.warning(f"[schema-verify] feed_sessions@learning check skipped: {e}")

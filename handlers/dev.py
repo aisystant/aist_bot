@@ -774,7 +774,7 @@ async def cmd_delivery_smoke(message: Message):
         async with pool.acquire() as conn:
             try:
                 updated = await conn.execute(
-                    '''UPDATE marathon_content
+                    '''UPDATE public.marathon_content
                        SET status = 'delivered', delivered_at = NOW()
                        WHERE chat_id = $1
                          AND status = 'pending'
@@ -1262,7 +1262,7 @@ async def cmd_user_repair(message: Message):
         # 1. users
         async with bot_pool.acquire() as conn:
             u = await conn.fetchrow(
-                "SELECT chat_id, tier, email FROM users WHERE lower(email) = $1 LIMIT 1",
+                "SELECT chat_id, tier, email FROM public.users WHERE lower(email) = $1 LIMIT 1",
                 email,
             )
         if not u:
@@ -1276,7 +1276,7 @@ async def cmd_user_repair(message: Message):
         # 2. ory_identity
         async with persona_pool.acquire() as conn:
             ory_row = await conn.fetchrow(
-                "SELECT account_id, ory_id FROM ory_identity WHERE telegram_id = $1 LIMIT 1",
+                "SELECT account_id, ory_id FROM public.ory_identity WHERE telegram_id = $1 LIMIT 1",
                 chat_id,
             )
         if not ory_row or not ory_row["account_id"]:
@@ -1303,7 +1303,7 @@ async def cmd_user_repair(message: Message):
         # 4. persona.user_integrations
         async with persona_pool.acquire() as conn:
             ui = await conn.fetchrow(
-                "SELECT active, metadata FROM user_integrations "
+                "SELECT active, metadata FROM public.user_integrations "
                 "WHERE account_id = $1 AND service = 'github' LIMIT 1",
                 account_id,
             )

@@ -175,7 +175,7 @@ async def _check_contract_subscription(chat_id: int) -> bool:
             return bool(await conn.fetchval(
                 """
                 SELECT EXISTS(
-                    SELECT 1 FROM contract
+                    SELECT 1 FROM public.contract
                     WHERE account_id = $1::uuid
                       AND status = 'active'
                       AND valid_to > NOW()
@@ -286,7 +286,7 @@ async def _log_tier_transition(chat_id: int, from_tier: int, to_tier: int, reaso
         pool = await get_rewards_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO tier_events (chat_id, from_tier, to_tier, reason, created_at)
+                """INSERT INTO public.tier_events (chat_id, from_tier, to_tier, reason, created_at)
                    VALUES ($1, $2, $3, $4, $5)""",
                 chat_id, from_tier, to_tier, reason, datetime.utcnow(),
             )

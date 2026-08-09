@@ -131,7 +131,7 @@ def recalculate_account(cur, rules, levels, profile, account_id, K):
         SELECT event_id, event_type, base_amount, dom_mult,
                qual_mult, streak_mult, daily_cap, raw_amount, effective,
                applied_at, payload_snapshot, rule_id
-        FROM applied_events
+        FROM public.applied_events
         WHERE account_id = %s
         ORDER BY applied_at, event_id
         """,
@@ -259,16 +259,16 @@ def recalculate_balances(cur):
     log.info("Recalculating point_balances...")
     cur.execute(
         """
-        UPDATE point_balances pb
+        UPDATE public.point_balances pb
         SET points = COALESCE(earned.earned, 0) - COALESCE(burned.burned, 0)
         FROM (
             SELECT account_id, COALESCE(SUM(effective), 0) AS earned
-            FROM applied_events
+            FROM public.applied_events
             GROUP BY account_id
         ) earned
         LEFT JOIN (
             SELECT account_id, COALESCE(SUM(points_amount), 0) AS burned
-            FROM redeemed_events
+            FROM public.redeemed_events
             WHERE status = 'confirmed'
             GROUP BY account_id
         ) burned ON earned.account_id = burned.account_id
@@ -279,22 +279,22 @@ def recalculate_balances(cur):
 
     cur.execute(
         """
-        INSERT INTO point_balances (account_id, points, last_event_id, last_updated)
+        INSERT INTO public.point_balances (account_id, points, last_event_id, last_updated)
         SELECT earned.account_id,
                COALESCE(earned.earned, 0) - COALESCE(burned.burned, 0),
                0, NOW()
         FROM (
             SELECT account_id, COALESCE(SUM(effective), 0) AS earned
-            FROM applied_events
+            FROM public.applied_events
             GROUP BY account_id
         ) earned
         LEFT JOIN (
             SELECT account_id, COALESCE(SUM(points_amount), 0) AS burned
-            FROM redeemed_events
+            FROM public.redeemed_events
             WHERE status = 'confirmed'
             GROUP BY account_id
         ) burned ON earned.account_id = burned.account_id
-        LEFT JOIN point_balances pb ON pb.account_id = earned.account_id
+        LEFT JOIN public.point_balances pb ON pb.account_id = earned.account_id
         WHERE pb.account_id IS NULL
         """
     )
@@ -308,10 +308,10 @@ def main():
 
     try:
         log.info("Creating backup...")
-        cur.execute("DROP TABLE IF EXISTS point_balances_backup_v4")
-        cur.execute("CREATE TABLE point_balances_backup_v4 AS SELECT * FROM point_balances")
-        cur.execute("DROP TABLE IF EXISTS applied_events_backup_v4")
-        cur.execute("CREATE TABLE applied_events_backup_v4 AS SELECT * FROM applied_events")
+        cur.execute("DROP TABLE IF EXISTS public.point_balances_backup_v4")
+        cur.execute("CREATE TABLE public.point_balances_backup_v4 AS SELECT * FROM public.point_balances")
+        cur.execute("DROP TABLE IF EXISTS public.applied_events_backup_v4")
+        cur.execute("CREATE TABLE public.applied_events_backup_v4 AS SELECT * FROM public.applied_events")
         conn.commit()
 
         rules = load_rules(cur)
@@ -319,7 +319,7 @@ def main():
         profiles = load_profiles(cur)
 
         log.info("Fetching account list...")
-        cur.execute("SELECT DISTINCT account_id FROM applied_events ORDER BY account_id")
+        cur.execute("SELECT DISTINCT account_id FROM public.applied_events ORDER BY account_id")
         all_accounts = [str(r["account_id"]) for r in cur.fetchall()]
         log.info("Total accounts: %d", len(all_accounts))
 

@@ -51,7 +51,7 @@ class PostgresStorage(BaseStorage):
         async def _do():
             async with (await get_fsm_pool()).acquire() as conn:
                 await conn.execute('''
-                    INSERT INTO fsm_states (chat_id, state, updated_at)
+                    INSERT INTO public.fsm_states (chat_id, state, updated_at)
                     VALUES ($1, $2, NOW())
                     ON CONFLICT (chat_id) DO UPDATE SET state = $2, updated_at = NOW()
                 ''', key.chat_id, state_str)
@@ -63,7 +63,7 @@ class PostgresStorage(BaseStorage):
         async def _do():
             async with (await get_fsm_pool()).acquire() as conn:
                 row = await conn.fetchrow(
-                    'SELECT state FROM fsm_states WHERE chat_id = $1', key.chat_id
+                    'SELECT state FROM public.fsm_states WHERE chat_id = $1', key.chat_id
                 )
                 result = row['state'] if row else None
                 logger.debug(f"[FSM] get_state: chat_id={key.chat_id}, user_id={key.user_id}, bot_id={key.bot_id}, state={result}")
@@ -78,7 +78,7 @@ class PostgresStorage(BaseStorage):
         async def _do():
             async with (await get_fsm_pool()).acquire() as conn:
                 await conn.execute('''
-                    INSERT INTO fsm_states (chat_id, data, updated_at)
+                    INSERT INTO public.fsm_states (chat_id, data, updated_at)
                     VALUES ($1, $2, NOW())
                     ON CONFLICT (chat_id) DO UPDATE SET data = $2, updated_at = NOW()
                 ''', key.chat_id, data_str)
@@ -90,7 +90,7 @@ class PostgresStorage(BaseStorage):
         async def _do():
             async with (await get_fsm_pool()).acquire() as conn:
                 row = await conn.fetchrow(
-                    'SELECT data FROM fsm_states WHERE chat_id = $1', key.chat_id
+                    'SELECT data FROM public.fsm_states WHERE chat_id = $1', key.chat_id
                 )
                 if row and row['data']:
                     return json.loads(row['data'])

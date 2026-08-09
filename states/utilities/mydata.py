@@ -1112,7 +1112,7 @@ class MyDataState(BaseState):
         pool = await get_journal_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(
-                'DELETE FROM qa_history WHERE chat_id = $1', chat_id,
+                'DELETE FROM public.qa_history WHERE chat_id = $1', chat_id,
             )
         count = int(result.split()[-1]) if result else 0
         await self.send(

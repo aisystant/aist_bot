@@ -32,7 +32,7 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
             SELECT id, level, logger_name, message,
                    context, occurrence_count, last_seen_at,
                    category, severity, suggested_action
-            FROM error_logs
+            FROM public.error_logs
             WHERE alerted = FALSE
               AND last_seen_at > NOW() - INTERVAL '1 minute' * $1
             ORDER BY
@@ -74,7 +74,7 @@ async def check_error_alerts(minutes: int = 15) -> Optional[str]:
     ids = [r['id'] for r in rows]
     async with (await get_health_pool()).acquire() as conn:
         await conn.execute(
-            "UPDATE error_logs SET alerted = TRUE WHERE id = ANY($1::int[])", ids
+            "UPDATE public.error_logs SET alerted = TRUE WHERE id = ANY($1::int[])", ids
         )
 
     return "\n".join(lines)
@@ -93,14 +93,14 @@ async def get_error_report(hours: int = 24) -> dict:
             SELECT COUNT(*) AS unique_errors,
                    COALESCE(SUM(occurrence_count), 0)::int AS total_occurrences,
                    COUNT(*) FILTER (WHERE level = 'CRITICAL') AS critical_count
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - INTERVAL '1 hour' * $1
         """, hours)
 
         recent = await conn.fetch("""
             SELECT level, logger_name, message, occurrence_count,
                    last_seen_at, context
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - INTERVAL '1 hour' * $1
             ORDER BY last_seen_at DESC
             LIMIT 10
@@ -110,7 +110,7 @@ async def get_error_report(hours: int = 24) -> dict:
             SELECT logger_name,
                    COUNT(*) AS count,
                    SUM(occurrence_count)::int AS total_occurrences
-            FROM error_logs
+            FROM public.error_logs
             WHERE last_seen_at > NOW() - INTERVAL '1 hour' * $1
             GROUP BY logger_name
             ORDER BY total_occurrences DESC
@@ -129,7 +129,7 @@ async def cleanup_old_errors(days: int = 7) -> int:
     """Delete error_logs older than N days."""
     async with (await get_health_pool()).acquire() as conn:
         result = await conn.execute(
-            "DELETE FROM error_logs WHERE last_seen_at < NOW() - INTERVAL '1 day' * $1",
+            "DELETE FROM public.error_logs WHERE last_seen_at < NOW() - INTERVAL '1 day' * $1",
             days,
         )
         count = int(result.split()[-1]) if result else 0

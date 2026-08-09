@@ -21,7 +21,7 @@ async def get_calendar_connection(chat_id: int) -> Optional[Dict[str, Any]]:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT * FROM google_calendar WHERE chat_id = $1', chat_id
+            'SELECT * FROM public.google_calendar WHERE chat_id = $1', chat_id
         )
         if row:
             return dict(row)
@@ -39,7 +39,7 @@ async def save_calendar_connection(
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO google_calendar (chat_id, access_token, refresh_token, expires_at, email)
+            INSERT INTO public.google_calendar (chat_id, access_token, refresh_token, expires_at, email)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (chat_id) DO UPDATE SET
                 access_token = $2,
@@ -61,7 +61,7 @@ async def update_calendar_tokens(
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            UPDATE google_calendar
+            UPDATE public.google_calendar
             SET access_token = $1, refresh_token = $2, expires_at = $3, updated_at = NOW()
             WHERE chat_id = $4
         ''', access_token, refresh_token, expires_at, chat_id)
@@ -72,6 +72,6 @@ async def delete_calendar_connection(chat_id: int) -> None:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'DELETE FROM google_calendar WHERE chat_id = $1', chat_id
+            'DELETE FROM public.google_calendar WHERE chat_id = $1', chat_id
         )
     logger.info(f"Deleted Google Calendar connection for user {chat_id}")

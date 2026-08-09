@@ -331,7 +331,7 @@ async def send_fix_proposal(
         from db.connection import get_health_pool
         async with (await get_health_pool()).acquire() as conn:
             await conn.execute(
-                "UPDATE pending_fixes SET tg_message_id = $1 WHERE id = $2",
+                "UPDATE public.pending_fixes SET tg_message_id = $1 WHERE id = $2",
                 sent.message_id, fix_id,
             )
         logger.info(f"[AutoFix] Proposal #{fix_id} sent for error {error['error_key']}")

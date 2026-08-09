@@ -66,7 +66,7 @@ async def record_active_day(chat_id: int, activity_type: str,
     async with learning_pool.acquire() as conn:
         try:
             await conn.execute('''
-                INSERT INTO activity_log (chat_id, activity_date, activity_type, mode, reference_id)
+                INSERT INTO public.activity_log (chat_id, activity_date, activity_type, mode, reference_id)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (chat_id, activity_date, activity_type) DO NOTHING
             ''', chat_id, today, activity_type, mode, reference_id)
@@ -115,7 +115,7 @@ async def get_activity_stats(chat_id: int) -> dict:
     async with pool.acquire() as conn:
         recent_activity = await conn.fetch('''
             SELECT activity_date, activity_type, mode
-            FROM activity_log
+            FROM public.activity_log
             WHERE chat_id = $1 AND activity_date >= $2
             ORDER BY activity_date DESC
         ''', chat_id, week_start)
@@ -142,7 +142,7 @@ async def record_service_usage(user_id: int, service_id: str, action: str = "ent
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO service_usage (user_id, service_id, action)
+            INSERT INTO public.service_usage (user_id, service_id, action)
             VALUES ($1, $2, $3)
         ''', user_id, service_id, action)
 
@@ -157,7 +157,7 @@ async def get_service_usage_counts(user_id: int) -> dict[str, int]:
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT service_id, COUNT(*) as cnt
-            FROM service_usage
+            FROM public.service_usage
             WHERE user_id = $1
             GROUP BY service_id
             ORDER BY cnt DESC
@@ -181,7 +181,7 @@ async def get_activity_calendar(chat_id: int, weeks: int = 4) -> List[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT DISTINCT activity_date
-            FROM activity_log
+            FROM public.activity_log
             WHERE chat_id = $1 AND activity_date >= $2
             ORDER BY activity_date
         ''', chat_id, start_date)

@@ -22,7 +22,7 @@ async def save_answer(chat_id: int, topic_index: int, answer: str,
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO answers 
+            INSERT INTO public.answers
             (chat_id, topic_index, answer, mode, answer_type, topic_id, 
              work_product_category, complexity_level, feed_session_id) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -35,7 +35,7 @@ async def get_answers(chat_id: int, limit: int = 100) -> List[dict]:
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT * FROM answers
+            SELECT * FROM public.answers
             WHERE chat_id = $1
             ORDER BY created_at DESC
             LIMIT $2
@@ -55,7 +55,7 @@ async def delete_marathon_answers(chat_id: int) -> int:
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''
-            DELETE FROM answers
+            DELETE FROM public.answers
             WHERE chat_id = $1 AND mode = 'marathon'
         ''', chat_id)
         # result format: "DELETE N"
@@ -88,7 +88,7 @@ async def get_weekly_work_products(chat_id: int, week_offset: int = 0) -> List[d
             SELECT 
                 id, chat_id, mode, answer_type, work_product_category,
                 answer, topic_index, topic_id, feed_session_id, created_at
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND answer_type IN ('work_product', 'fixation')
               AND created_at >= $2
@@ -105,7 +105,7 @@ async def get_answers_count_by_type(chat_id: int) -> dict:
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT answer_type, COUNT(*) as count
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
             GROUP BY answer_type
         ''', chat_id)
@@ -132,7 +132,7 @@ async def get_work_products_by_day(chat_id: int, topics_list: list) -> dict:
         # Считаем уникальные topic_index для каждого РП
         rows = await conn.fetch('''
             SELECT DISTINCT topic_index
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND answer_type = 'work_product'
         ''', chat_id)
@@ -170,7 +170,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
         # Активные дни за неделю (марафон)
         active_days = await conn.fetchval('''
             SELECT COUNT(DISTINCT activity_date)
-            FROM activity_log
+            FROM public.activity_log
             WHERE chat_id = $1
               AND mode = 'marathon'
               AND activity_date >= $2
@@ -179,7 +179,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
         # Рабочие продукты за неделю (уникальные topic_index)
         work_products = await conn.fetchval('''
             SELECT COUNT(DISTINCT topic_index)
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND mode = 'marathon'
               AND created_at >= $2
@@ -189,7 +189,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
         # Ответы на уроки за неделю (уникальные topic_index)
         theory_answers = await conn.fetchval('''
             SELECT COUNT(DISTINCT topic_index)
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND mode = 'marathon'
               AND created_at >= $2
@@ -199,7 +199,7 @@ async def get_weekly_marathon_stats(chat_id: int) -> dict:
         # Бонусные ответы за неделю
         bonus_answers = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND mode = 'marathon'
               AND created_at >= $2
@@ -239,7 +239,7 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
     async with learning_pool.acquire() as conn:
         active_days = await conn.fetchval('''
             SELECT COUNT(DISTINCT activity_date)
-            FROM activity_log
+            FROM public.activity_log
             WHERE chat_id = $1
               AND mode = 'feed'
               AND activity_date >= $2
@@ -252,9 +252,9 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
         # Дайджесты за неделю (все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM feed_sessions
+            FROM public.feed_sessions
             WHERE week_id IN (
-                SELECT id FROM feed_weeks WHERE chat_id = $1
+                SELECT id FROM public.feed_weeks WHERE chat_id = $1
             )
             AND session_date >= $2
         ''', chat_id, week_start)
@@ -262,9 +262,9 @@ async def get_weekly_feed_stats(chat_id: int) -> dict:
         # Фиксации за неделю (завершённые сессии по session_date)
         fixations = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM feed_sessions
+            FROM public.feed_sessions
             WHERE week_id IN (
-                SELECT id FROM feed_weeks WHERE chat_id = $1
+                SELECT id FROM public.feed_weeks WHERE chat_id = $1
             )
             AND status = 'completed'
             AND session_date >= $2
@@ -310,13 +310,13 @@ async def get_total_stats(chat_id: int) -> dict:
                 start_date = created_at
         else:
             first_activity = await conn.fetchval('''
-                SELECT MIN(activity_date) FROM activity_log WHERE chat_id = $1
+                SELECT MIN(activity_date) FROM public.activity_log WHERE chat_id = $1
             ''', chat_id)
             if first_activity:
                 start_date = first_activity
             else:
                 first_answer = await conn.fetchval('''
-                    SELECT MIN(created_at)::date FROM answers WHERE chat_id = $1
+                    SELECT MIN(created_at)::date FROM public.answers WHERE chat_id = $1
                 ''', chat_id)
                 start_date = first_answer if first_answer else today
 
@@ -327,14 +327,14 @@ async def get_total_stats(chat_id: int) -> dict:
         # Всего активных дней (от даты сброса)
         total_active_days = await conn.fetchval('''
             SELECT COUNT(DISTINCT activity_date)
-            FROM activity_log
+            FROM public.activity_log
             WHERE chat_id = $1 AND activity_date >= $2
         ''', chat_id, count_from)
 
         # Всего рабочих продуктов (от даты сброса)
         work_products = await conn.fetchval('''
             SELECT COUNT(DISTINCT topic_index)
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND answer_type = 'work_product'
               AND created_at >= $2
@@ -347,9 +347,9 @@ async def get_total_stats(chat_id: int) -> dict:
         # Всего дайджестов (от даты сброса, все сессии по session_date)
         digests = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM feed_sessions
+            FROM public.feed_sessions
             WHERE week_id IN (
-                SELECT id FROM feed_weeks WHERE chat_id = $1
+                SELECT id FROM public.feed_weeks WHERE chat_id = $1
             )
             AND session_date >= $2
         ''', chat_id, count_from)
@@ -357,9 +357,9 @@ async def get_total_stats(chat_id: int) -> dict:
         # Всего фиксаций (от даты сброса, завершённые сессии по session_date)
         fixations = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM feed_sessions
+            FROM public.feed_sessions
             WHERE week_id IN (
-                SELECT id FROM feed_weeks WHERE chat_id = $1
+                SELECT id FROM public.feed_weeks WHERE chat_id = $1
             )
             AND status = 'completed'
             AND session_date >= $2
@@ -387,7 +387,7 @@ async def get_theory_count_at_level(chat_id: int, complexity_level: int) -> int:
     async with pool.acquire() as conn:
         count = await conn.fetchval('''
             SELECT COUNT(*)
-            FROM answers
+            FROM public.answers
             WHERE chat_id = $1
               AND answer_type = 'theory_answer'
               AND mode = 'marathon'

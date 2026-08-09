@@ -80,7 +80,7 @@ class AccessLayer:
             persona_pool = await get_persona_pool()
             async with persona_pool.acquire() as conn:
                 account_id = await conn.fetchval(
-                    "SELECT account_id FROM ory_identity WHERE telegram_id = $1",
+                    "SELECT account_id FROM public.ory_identity WHERE telegram_id = $1",
                     user_id,
                 )
 
@@ -93,7 +93,7 @@ class AccessLayer:
                     async with subscription_pool.acquire() as conn:
                         has_grant = await conn.fetchval(
                             """SELECT EXISTS (
-                                SELECT 1 FROM contract
+                                SELECT 1 FROM public.contract
                                 WHERE account_id = $1
                                   AND status = 'active'
                                   AND valid_to > now()

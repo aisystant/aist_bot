@@ -39,7 +39,7 @@ async def save_assessment(
     pool = await get_learning_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            '''INSERT INTO assessments
+            '''INSERT INTO public.assessments
                (chat_id, assessment_id, answers, scores,
                 dominant_state, self_check, open_response)
                VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -71,14 +71,14 @@ async def get_latest_assessment(
     async with pool.acquire() as conn:
         if assessment_id:
             row = await conn.fetchrow(
-                '''SELECT * FROM assessments
+                '''SELECT * FROM public.assessments
                    WHERE chat_id = $1 AND assessment_id = $2
                    ORDER BY created_at DESC LIMIT 1''',
                 chat_id, assessment_id,
             )
         else:
             row = await conn.fetchrow(
-                '''SELECT * FROM assessments
+                '''SELECT * FROM public.assessments
                    WHERE chat_id = $1
                    ORDER BY created_at DESC LIMIT 1''',
                 chat_id,
@@ -117,14 +117,14 @@ async def get_assessment_history(
     async with pool.acquire() as conn:
         if assessment_id:
             rows = await conn.fetch(
-                '''SELECT * FROM assessments
+                '''SELECT * FROM public.assessments
                    WHERE chat_id = $1 AND assessment_id = $2
                    ORDER BY created_at DESC LIMIT $3''',
                 chat_id, assessment_id, limit,
             )
         else:
             rows = await conn.fetch(
-                '''SELECT * FROM assessments
+                '''SELECT * FROM public.assessments
                    WHERE chat_id = $1
                    ORDER BY created_at DESC LIMIT $2''',
                 chat_id, limit,

@@ -189,7 +189,7 @@ async def test_polling_prioritizes_oldest_check(monkeypatch):
     sql = " ".join(pool.fetch.await_args.args[0].split())
     expected = " ".join(
         """
-        SELECT pp.* FROM published_post pp
+            SELECT pp.* FROM public.published_post pp
         WHERE pp.discourse_topic_id IS NOT NULL
           AND (
               COALESCE(pp.comment_check_failures, 0) < 3

@@ -34,7 +34,7 @@ async def migrate():
         """)
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_projection_dlq_status_retry
-            ON projection_dlq (status, next_retry_at)
+            ON public.projection_dlq (status, next_retry_at)
         """)
         print("Migration 019 complete: projection_dlq created in learning DB.")
     finally:

@@ -22,7 +22,7 @@ async def validate_extension_token(token: str) -> str | None:
             row = await conn.fetchrow(
                 """
                 SELECT account_id::text
-                FROM user_integrations
+                FROM public.user_integrations
                 WHERE service = 'iwe_extension'
                   AND access_token = $1
                   AND active = TRUE
@@ -45,7 +45,7 @@ async def get_extension_token(account_id: str) -> str | None:
             row = await conn.fetchrow(
                 """
                 SELECT access_token
-                FROM user_integrations
+                FROM public.user_integrations
                 WHERE service = 'iwe_extension'
                   AND account_id = $1::uuid
                   AND active = TRUE
@@ -70,7 +70,7 @@ async def generate_extension_token(account_id: str) -> str | None:
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO user_integrations
+                INSERT INTO public.user_integrations
                     (account_id, service, access_token, scope, metadata,
                      connected_at, updated_at, active)
                 VALUES ($1::uuid, 'iwe_extension', $2, 'typing', '{}'::jsonb,

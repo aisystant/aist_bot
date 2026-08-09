@@ -29,7 +29,7 @@ async def save_dt_tokens(
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            '''INSERT INTO dt_tokens (chat_id, access_token, refresh_token, expires_at, dt_user_id, updated_at)
+            '''INSERT INTO public.dt_tokens (chat_id, access_token, refresh_token, expires_at, dt_user_id, updated_at)
                VALUES ($1, $2, $3, $4, $5, NOW())
                ON CONFLICT (chat_id) DO UPDATE SET
                    access_token = $2,
@@ -51,7 +51,7 @@ async def load_all_dt_tokens() -> List[Dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''SELECT chat_id, access_token, refresh_token, expires_at, dt_user_id
-               FROM dt_tokens
+               FROM public.dt_tokens
                WHERE refresh_token IS NOT NULL'''
         )
         return [dict(r) for r in rows]
@@ -62,7 +62,7 @@ async def delete_dt_tokens(chat_id: int) -> None:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'DELETE FROM dt_tokens WHERE chat_id = $1',
+            'DELETE FROM public.dt_tokens WHERE chat_id = $1',
             chat_id,
         )
 
@@ -72,6 +72,6 @@ async def get_dt_user_id(chat_id: int) -> Optional[str]:
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
         return await conn.fetchval(
-            'SELECT dt_user_id FROM dt_tokens WHERE chat_id = $1',
+            'SELECT dt_user_id FROM public.dt_tokens WHERE chat_id = $1',
             chat_id,
         )

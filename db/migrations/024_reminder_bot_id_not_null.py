@@ -51,7 +51,7 @@ def _own_bot_id() -> int:
 async def _ensure(conn) -> dict:
     """Идемпотентно: колонка → backfill own_bot_id → delete NULL → NOT NULL."""
     # 1. Колонка существует (заменяет рантайм-костыли ADD COLUMN IF NOT EXISTS bot_id).
-    await conn.execute("ALTER TABLE reminder ADD COLUMN IF NOT EXISTS bot_id BIGINT")
+    await conn.execute("ALTER TABLE public.reminder ADD COLUMN IF NOT EXISTS bot_id BIGINT")
 
     pbid = _own_bot_id()
     if pbid <= 0:
@@ -61,16 +61,16 @@ async def _ensure(conn) -> dict:
     # 2. Backfill: история + будущие → own_bot_id (просроченные неотправленные не трогаем).
     #    scheduled_for хранится как naive UTC → сравниваем с naive UTC now.
     backfilled = await conn.execute(
-        """UPDATE reminder
+        """UPDATE public.reminder
            SET bot_id = $1
            WHERE bot_id IS NULL
              AND (sent = TRUE OR scheduled_for > (now() AT TIME ZONE 'UTC'))""",
         pbid,
     )
     # 3. Удаляем оставшиеся NULL (просроченные неотправленные — стале).
-    deleted = await conn.execute("DELETE FROM reminder WHERE bot_id IS NULL")
+    deleted = await conn.execute("DELETE FROM public.reminder WHERE bot_id IS NULL")
     # 4. Включаем ограничение (идемпотентно: при отсутствии NULL — no-op).
-    await conn.execute("ALTER TABLE reminder ALTER COLUMN bot_id SET NOT NULL")
+    await conn.execute("ALTER TABLE public.reminder ALTER COLUMN bot_id SET NOT NULL")
 
     def _n(tag: str) -> int:
         # asyncpg возвращает 'UPDATE N' / 'DELETE N'

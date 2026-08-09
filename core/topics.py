@@ -490,7 +490,7 @@ async def save_answer(chat_id: int, topic_index: int, answer: str):
 
     async with (await get_learning_pool()).acquire() as conn:
         await conn.execute(
-            '''INSERT INTO answers (chat_id, topic_index, answer, answer_type, mode)
+            '''INSERT INTO public.answers (chat_id, topic_index, answer, answer_type, mode)
                VALUES ($1, $2, $3, $4, $5)''',
             chat_id, topic_index, answer, answer_type, 'marathon'
         )

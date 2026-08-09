@@ -209,7 +209,7 @@ async def _save_trace_to_db(trace: Trace) -> None:
         pool = await get_health_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO request_traces
+                """INSERT INTO public.request_traces
                    (trace_id, user_id, command, state, total_ms, spans, created_at)
                    VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())""",
                 trace.trace_id,

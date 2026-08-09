@@ -1697,9 +1697,9 @@ async def check_reminders():
             # Обрабатываем по одному в транзакции: claim → send → mark sent
             while True:
                 row = await conn.fetchrow(
-                    '''UPDATE reminder SET sent = TRUE
+                    '''UPDATE public.reminder SET sent = TRUE
                        WHERE id = (
-                           SELECT r.id FROM reminder r
+                           SELECT r.id FROM public.reminder r
                            WHERE r.sent = FALSE AND r.scheduled_for <= $1
                              AND NOT (r.chat_id = ANY($2::bigint[]))
                              AND r.bot_id = $3
@@ -1720,7 +1720,7 @@ async def check_reminders():
                     row['chat_id']
                 )
                 if is_blocked_now:
-                    await conn.execute("UPDATE reminder SET sent = FALSE WHERE id = $1", row['id'])
+                    await conn.execute("UPDATE public.reminder SET sent = FALSE WHERE id = $1", row['id'])
                     logger.info(f"[Scheduler] Reverted reminder {row['id']} — user {row['chat_id']} blocked (TOCTOU)")
                     continue
 
@@ -1738,7 +1738,7 @@ async def check_reminders():
                     else:
                         # Retry limit: increment fail_count, give up after 3 attempts
                         fail_count = await conn.fetchval(
-                            'SELECT COALESCE(fail_count, 0) FROM reminder WHERE id = $1',
+                            'SELECT COALESCE(fail_count, 0) FROM public.reminder WHERE id = $1',
                             row['id']
                         )
                         if fail_count is not None and fail_count >= 2:
@@ -1747,7 +1747,7 @@ async def check_reminders():
                         else:
                             # Откатываем sent=TRUE и инкрементируем fail_count для retry
                             await conn.execute(
-                                'UPDATE reminder SET sent = FALSE, fail_count = COALESCE(fail_count, 0) + 1 WHERE id = $1',
+                                'UPDATE public.reminder SET sent = FALSE, fail_count = COALESCE(fail_count, 0) + 1 WHERE id = $1',
                                 row['id']
                             )
                             logger.error(f"Failed to send reminder to {row['chat_id']} (attempt {(fail_count or 0) + 1}/3): {e}")
@@ -1982,7 +1982,7 @@ async def scheduled_check():
             pool = await get_fsm_pool()
             async with pool.acquire() as conn:
                 result = await conn.execute(
-                    "DELETE FROM fsm_states WHERE updated_at < NOW() - INTERVAL '30 days'"
+                    "DELETE FROM public.fsm_states WHERE updated_at < NOW() - INTERVAL '30 days'"
                 )
                 count = int(result.split()[-1]) if result else 0
                 if count > 0:

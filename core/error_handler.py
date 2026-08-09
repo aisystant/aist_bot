@@ -146,7 +146,7 @@ class AsyncDBLogHandler(logging.Handler):
                     ctx_json = json.dumps(item['context'])
                     # Try update existing recent row first
                     updated = await conn.execute('''
-                        UPDATE error_logs
+                        UPDATE public.error_logs
                         SET occurrence_count = occurrence_count + $2,
                             last_seen_at = $3,
                             message = $4
@@ -158,7 +158,7 @@ class AsyncDBLogHandler(logging.Handler):
                     # If no row updated → insert new
                     if updated == 'UPDATE 0':
                         await conn.execute('''
-                            INSERT INTO error_logs
+                            INSERT INTO public.error_logs
                             (error_key, level, logger_name, message, traceback,
                              context, occurrence_count, first_seen_at, last_seen_at)
                             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $8)

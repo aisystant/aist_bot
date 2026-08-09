@@ -1654,7 +1654,7 @@ async def ory_callback_handler(request: web.Request) -> web.Response:
         pool = await get_pool()
         async with pool.acquire() as dt_conn:
             await dt_conn.execute('''
-                INSERT INTO digital_twins (user_id, data, created_at, updated_at)
+                INSERT INTO public.digital_twins (user_id, data, created_at, updated_at)
                 VALUES ($1, '{}'::jsonb, NOW(), NOW())
                 ON CONFLICT (user_id) DO NOTHING
             ''', ory_id)
@@ -1802,12 +1802,12 @@ async def internal_remind_handler(request: web.Request) -> web.Response:
         learning_pool = await get_learning_pool()
         async with learning_pool.acquire() as conn:
             await conn.execute(
-                "ALTER TABLE reminder ADD COLUMN IF NOT EXISTS text TEXT"
+                "ALTER TABLE public.reminder ADD COLUMN IF NOT EXISTS text TEXT"
             )
             # WP-212: bot_id из TELEGRAM_BOT_TOKEN для изоляции напоминаний по инстансам
             _bot_id = int(os.getenv('TELEGRAM_BOT_TOKEN', '0').split(':')[0])
             record = await conn.fetchrow(
-                '''INSERT INTO reminder (chat_id, reminder_type, scheduled_for, text, bot_id)
+                '''INSERT INTO public.reminder (chat_id, reminder_type, scheduled_for, text, bot_id)
                    VALUES ($1, $2, $3, $4, $5)
                    RETURNING id, scheduled_for''',
                 chat_id, 'custom', scheduled_for, text, _bot_id
