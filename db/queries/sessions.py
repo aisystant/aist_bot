@@ -21,20 +21,33 @@ logger = logging.getLogger(__name__)
 SESSION_TIMEOUT_MINUTES = 30
 
 
+def _last_activity_at(row):
+    """Вернуть фактическое время последнего запроса с legacy fallback."""
+    return row['ended_at'] or row['started_at']
+
+
+def _duration_seconds(started_at, last_activity_at) -> int:
+    """Длительность активного интервала от первого до последнего запроса."""
+    return max(0, int((last_activity_at - started_at).total_seconds()))
+
+
 async def get_or_create_session(chat_id: int, command: str):
     """Найти активную сессию или создать новую.
 
     Вызывается fire-and-forget из TracingMiddleware на каждый запрос.
-    Если active session < SESSION_TIMEOUT — обновить.
-    Если нет — финализировать старую + создать новую.
+    Сессия продолжается, если с последнего запроса прошло меньше timeout.
+    ended_at всегда означает последний запрос, поэтому duration не включает
+    часы отсутствия пользователя и не требует поздней финализации.
     """
     pool = await get_health_pool()
     async with pool.acquire() as conn:
-        # Найти последнюю незакрытую сессию пользователя
+        # Последняя сессия может быть продолжена, если пользователь вернулся
+        # раньше timeout. Новые строки всегда имеют ended_at; NULL остаётся
+        # только у legacy-записей старой модели.
         row = await conn.fetchrow('''
-            SELECT id, started_at, request_count, commands
+            SELECT id, started_at, ended_at, request_count, commands
             FROM user_sessions
-            WHERE chat_id = $1 AND ended_at IS NULL
+            WHERE chat_id = $1
             ORDER BY started_at DESC
             LIMIT 1
         ''', chat_id)
@@ -42,40 +55,50 @@ async def get_or_create_session(chat_id: int, command: str):
         now = datetime.now(timezone.utc)
 
         if row:
-            elapsed = (now - row['started_at']).total_seconds() / 60.0
-            if elapsed < SESSION_TIMEOUT_MINUTES:
-                # Обновить существующую сессию
+            idle_minutes = (now - _last_activity_at(row)).total_seconds() / 60.0
+            if idle_minutes < SESSION_TIMEOUT_MINUTES:
                 commands = json.loads(row['commands']) if row['commands'] else []
                 if command not in commands:
                     commands.append(command)
                 await conn.execute('''
                     UPDATE user_sessions
-                    SET request_count = request_count + 1,
-                        exit_point = $2,
-                        commands = $3::jsonb
+                    SET ended_at = $2,
+                        duration_seconds = $3,
+                        request_count = request_count + 1,
+                        exit_point = $4,
+                        commands = $5::jsonb
                     WHERE id = $1
-                ''', row['id'], command, json.dumps(commands))
+                ''',
+                    row['id'],
+                    now,
+                    _duration_seconds(row['started_at'], now),
+                    command,
+                    json.dumps(commands),
+                )
                 return
 
-            # Сессия истекла — финализировать
-            duration = int((now - row['started_at']).total_seconds())
-            await conn.execute('''
-                UPDATE user_sessions
-                SET ended_at = $2,
-                    duration_seconds = $3
-                WHERE id = $1
-            ''', row['id'], now, duration)
+            if row['ended_at'] is None:
+                # Legacy-строка не знает последнего запроса. Не выдумываем
+                # активность: фиксируем нулевую известную длительность.
+                await conn.execute('''
+                    UPDATE user_sessions
+                    SET ended_at = started_at,
+                        duration_seconds = 0
+                    WHERE id = $1
+                ''', row['id'])
 
         # Создать новую сессию
         await conn.execute('''
-            INSERT INTO user_sessions (chat_id, started_at, entry_point, commands)
-            VALUES ($1, $2, $3, $4::jsonb)
+            INSERT INTO user_sessions
+                (chat_id, started_at, ended_at, duration_seconds,
+                 request_count, entry_point, exit_point, commands)
+            VALUES ($1, $2, $2, 0, 1, $3, $3, $4::jsonb)
         ''', chat_id, now, command, json.dumps([command]))
 
         # WP-151 Ф3: session_start с returning_after_days
         returning_after_days = None
         if row:
-            returning_after_days = max(0, (now - row['started_at']).days)
+            returning_after_days = max(0, (now - _last_activity_at(row)).days)
         await log_event(chat_id, 'session_start', {
             'entry_point': command,
             'returning_after_days': returning_after_days,
@@ -83,18 +106,18 @@ async def get_or_create_session(chat_id: int, command: str):
 
 
 async def finalize_stale_sessions():
-    """Финализировать все сессии без ended_at, у которых last update > timeout.
+    """Закрыть оставшиеся legacy-сессии без ended_at.
 
-    Вызывается из scheduler midnight cleanup.
+    Новая модель обновляет ended_at на каждом запросе и сюда не попадает.
+    Для legacy-строк неизвестно время последнего запроса, поэтому не создаём
+    искусственную длительность из request_count.
     """
     pool = await get_health_pool()
     async with pool.acquire() as conn:
         result = await conn.execute('''
             UPDATE user_sessions
-            SET ended_at = started_at + (request_count * INTERVAL '1 second' * 30),
-                duration_seconds = EXTRACT(EPOCH FROM
-                    (started_at + (request_count * INTERVAL '1 second' * 30)) - started_at
-                )::INTEGER
+            SET ended_at = started_at,
+                duration_seconds = 0
             WHERE ended_at IS NULL
               AND started_at < NOW() - INTERVAL '30 minutes'
         ''')
