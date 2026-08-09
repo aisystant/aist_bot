@@ -246,7 +246,7 @@ def test_wp253_migrated_pools_not_missed():
     assert "DELETE FROM published_post WHERE chat_id = $1" in source
     assert "DELETE FROM scheduled_post WHERE chat_id = $1" in source
     assert "DELETE FROM conversion_event WHERE chat_id = $1" in source
-    assert "DELETE FROM training_setting WHERE chat_id = $1" in source
-    assert "DELETE FROM training_child WHERE chat_id = $1" in source
+    assert "DELETE FROM public.training_setting WHERE chat_id = $1" in source
+    assert "DELETE FROM public.training_child WHERE chat_id = $1" in source
     assert "'learning.' + table" in source
     assert "'training_progress', 'training_attempt'" in source
