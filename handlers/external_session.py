@@ -1151,8 +1151,23 @@ async def recover_orphan_finalizations(bot) -> None:
         # Прочитать meta — проверить status: completed
         path = entry.get("path") or f"{_SESSIONS_PATH}/{name}"
         meta_text, _ = await _gh_get_file(path, token, repo, branch)
-        if meta_text and re.search(r'^status:\s*"?completed"?', meta_text, re.M):
-            completed_sessions.append(sid)
+        if not meta_text or not re.search(r'^status:\s*"?completed"?', meta_text, re.M):
+            continue
+        # WP-7 OrphanRecovery-TargetBot-Ignored (09.08.2026): recover_orphan_finalizations
+        # запускается независимо в КАЖДОМ из двух ботов (prod/pilot), сканирует одни и те
+        # же SESSION-*.md и раньше финализировало через любой bot-объект первым увидевший
+        # сироту — не сверяя target_bot из meta с флейвором текущего процесса. Пропускаем
+        # чужие: та же сессия при следующем скане будет подобрана процессом с совпадающим
+        # флейвором. Отсутствие поля (pre-cutover meta) — не блокируем, чтобы не завести
+        # осиротевшую сироту навечно.
+        target_m = re.search(r'^target_bot:\s*"?(\w+)"?', meta_text, re.M)
+        if target_m and target_m.group(1).strip().lower() != _BOT_FLAVOR:
+            logger.info(
+                "[session] recovery: %s target_bot=%s != this bot (%s), leaving for the right process",
+                sid, target_m.group(1), _BOT_FLAVOR,
+            )
+            continue
+        completed_sessions.append(sid)
     if skipped_pre_cutover > 0:
         logger.info("[session] recovery: skipped %d pre-cutover orphans (date < %s)",
                     skipped_pre_cutover, _RECOVERY_CUTOVER_DATE)
