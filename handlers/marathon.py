@@ -23,6 +23,7 @@ from db.queries.marathon_newcomer import (
     get_sent_checkins_count,
     get_total_checkins_count,
     has_recent_lesson_practice_sent,
+    mark_lesson_practice_delivered,
     pause_marathon,
     resume_marathon,
 )
@@ -234,6 +235,13 @@ async def _deliver_marathon_lesson(user_id: int, target, day: int, intern: dict 
     ]])
     await target.answer(text, parse_mode="Markdown", reply_markup=keyboard)
     logger.info(f"[Learn] Delivered new-format lesson day {day} to {user_id}")
+
+    # Гасим утреннюю рассылку того же дня в scheduler — иначе _process_marathon_queue
+    # не знает о живой выдаче и шлёт то же занятие повторно (дубль Дня N).
+    try:
+        await mark_lesson_practice_delivered(user_id, day)
+    except Exception as e:
+        logger.warning(f"[Learn] mark_lesson_practice_delivered failed for {user_id} day {day}: {e}")
 
 
 async def _migrate_old_marathon_to_new(user_id: int, intern: dict) -> dict:
