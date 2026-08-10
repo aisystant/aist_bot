@@ -43,8 +43,16 @@ def set_bot_instance(bot):
 
 
 async def health_handler(request: web.Request) -> web.Response:
-    """Health check endpoint для Railway."""
+    """Process liveness for Railway; intentionally independent from databases."""
     return web.Response(text="OK", status=200)
+
+
+async def readiness_handler(request: web.Request) -> web.Response:
+    """Dependency readiness for diagnostics; never use as Railway liveness."""
+    from readiness import readiness_snapshot
+
+    payload, status = await readiness_snapshot()
+    return web.json_response(payload, status=status)
 
 
 async def linear_callback_handler(request: web.Request) -> web.Response:
@@ -2605,6 +2613,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.middlewares.append(webhook_logging_middleware)
 
     app.router.add_get("/health", health_handler)
+    app.router.add_get("/ready", readiness_handler)
     app.router.add_get("/auth/linear/callback", linear_callback_handler)
     app.router.add_get("/auth/twin/callback", twin_callback_handler)
     app.router.add_get("/auth/github/callback", github_callback_handler)
