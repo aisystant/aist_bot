@@ -544,12 +544,14 @@ async def generate_multi_topic_digest(
             logger.error(f"MCP search error for '{topic}': {e}")
         return context
 
-    # Запускаем все темы параллельно с таймаутом 30 сек на MCP-фазу
+    # Запускаем все темы параллельно с таймаутом на MCP-фазу.
+    # Держать < GATEWAY_MCP_TIMEOUT (Railway env, сейчас 35s) — иначе wait_for
+    # всегда обрывает запрос первым, впустую съедая весь бюджет генерации.
     try:
         context_tasks = [fetch_topic_context(topic) for topic in topics]
         results = await asyncio.wait_for(
             asyncio.gather(*context_tasks, return_exceptions=True),
-            timeout=30  # 30 сек на все MCP запросы
+            timeout=10
         )
         mcp_context = "".join(r for r in results if isinstance(r, str))
     except asyncio.TimeoutError:
