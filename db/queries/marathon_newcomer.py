@@ -68,6 +68,25 @@ async def mark_queue_sent(queue_id: int):
         )
 
 
+async def mark_lesson_practice_delivered(user_id: int, day_number: int):
+    """Отметить lesson_practice дня как доставленную вне очереди (живая выдача /learn).
+
+    Без этого _process_marathon_queue (scheduler) не знает о живой доставке и
+    повторно шлёт то же занятие по расписанию — дубль Дня N (найдено на живых
+    аккаунтах 2026-08-10). WHERE status='pending' делает вызов идемпотентным:
+    если запись уже 'sent' (её отправил scheduler), UPDATE — no-op.
+    """
+    pool = await get_learning_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            '''UPDATE learning.marathon_queue
+               SET status = 'sent', sent_at = NOW(), updated_at = NOW()
+               WHERE user_id = $1 AND day_number = $2
+                 AND content_type = 'lesson_practice' AND status = 'pending' ''',
+            user_id, day_number,
+        )
+
+
 async def schedule_queue_retry(queue_id: int, attempts: int, delay_minutes: int = 30):
     """Перенести отправку на delay_minutes вперёд."""
     scheduled_at = datetime.utcnow() + timedelta(minutes=delay_minutes)
