@@ -1,8 +1,18 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from readiness import readiness_snapshot
+
+
+REPO_ROOT = Path(__file__).parents[1]
+
+
+def test_readiness_module_is_packaged_in_runtime_image() -> None:
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY readiness.py ." in dockerfile
 
 
 @pytest.mark.asyncio
