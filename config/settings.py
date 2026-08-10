@@ -8,6 +8,7 @@ import os
 import logging
 from datetime import timedelta, timezone
 from pathlib import Path
+from typing import Mapping
 
 # ============= ТОКЕНЫ И ПОДКЛЮЧЕНИЯ =============
 
@@ -19,6 +20,32 @@ CLAUDE_MODEL_OPUS = "claude-sonnet-4-6"
 CLAUDE_MODEL_SONNET = "claude-sonnet-4-6"
 CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-20251001"
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def _read_main_pool_sizes(
+    environ: Mapping[str, str] | None = None,
+) -> tuple[int, int]:
+    """Read and validate the shared Railway PostgreSQL pool budget."""
+    source = os.environ if environ is None else environ
+
+    def positive_int(name: str, default: int) -> int:
+        raw_value = source.get(name, str(default))
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} должен быть целым положительным числом") from exc
+        if value < 1:
+            raise ValueError(f"{name} должен быть целым положительным числом")
+        return value
+
+    min_size = positive_int("DB_POOL_MIN_SIZE", 2)
+    max_size = positive_int("DB_POOL_MAX_SIZE", 10)
+    if min_size > max_size:
+        raise ValueError("DB_POOL_MIN_SIZE не может превышать DB_POOL_MAX_SIZE")
+    return min_size, max_size
+
+
+DB_POOL_MIN_SIZE, DB_POOL_MAX_SIZE = _read_main_pool_sizes()
 
 # WP-253 tech debt bridge: products + finance_payments до ETL в Neon (G3/G5).
 # DT_DATABASE_URL = Railway /bot_data — содержит public.products + public.finance_payments.

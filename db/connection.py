@@ -9,6 +9,8 @@ from typing import Optional
 
 from config import (
     DATABASE_URL,
+    DB_POOL_MIN_SIZE,
+    DB_POOL_MAX_SIZE,
     BOT_DATA_URL,
     PERSONA_URL,
     SUBSCRIPTION_URL,
@@ -78,12 +80,20 @@ async def get_pool() -> asyncpg.Pool:
             _pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 statement_cache_size=100,
-                min_size=10,
-                max_size=50,
+                # Two bot instances share a 100-connection Railway server with
+                # n8n and other services. Five concurrent background-job classes
+                # were observed during the 10 Aug incident; 10 keeps 2x headroom
+                # without allowing both bots to consume the whole server budget.
+                min_size=DB_POOL_MIN_SIZE,
+                max_size=DB_POOL_MAX_SIZE,
                 command_timeout=30,
                 max_inactive_connection_lifetime=60,
             )
-            logger.info("✅ Пул соединений создан (min=10, max=50)")
+            logger.info(
+                "✅ Пул соединений создан (min=%s, max=%s)",
+                DB_POOL_MIN_SIZE,
+                DB_POOL_MAX_SIZE,
+            )
         except Exception as e:
             logger.error(f"❌ Ошибка создания пула соединений: {e}")
             raise

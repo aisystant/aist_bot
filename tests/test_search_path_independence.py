@@ -60,6 +60,11 @@ TO_REGCLASS_LITERAL = re.compile(
     r"([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)['\"]\s*\)",
     re.IGNORECASE,
 )
+PGCRYPTO_CALL = re.compile(
+    r"(?P<qualified>public\.)?pgp_sym_(?P<operation>encrypt|decrypt)\s*\("
+    r"(?P<arguments>[^)]*)\)",
+    re.IGNORECASE | re.DOTALL,
+)
 CTE_NAME = re.compile(
     r"(?:\bWITH(?:\s+RECURSIVE)?|,)\s*([a-z_][a-z0-9_]*)\s+AS\s+"
     r"(?:(?:NOT\s+)?MATERIALIZED\s+)?\(",
@@ -79,7 +84,7 @@ def _runtime_python_files() -> list[Path]:
     )
 
 
-def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
+def _runtime_queries(path: Path) -> list[tuple[int, str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     bound_sql = {
         target.id: node.value.value
@@ -92,7 +97,7 @@ def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
         )
         if isinstance(target, ast.Name)
     }
-    violations: list[tuple[int, str]] = []
+    queries: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if (
             not isinstance(node, ast.Call)
@@ -113,6 +118,14 @@ def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
             query = bound_sql.get(query_arg.id, "")
         else:
             query = ""
+        if query:
+            queries.append((query_arg.lineno, query))
+    return queries
+
+
+def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
+    violations: list[tuple[int, str]] = []
+    for query_lineno, query in _runtime_queries(path):
         cte_names = {match.group(1).lower() for match in CTE_NAME.finditer(query)}
         for match in RELATION_AFTER_SQL_KEYWORD.finditer(query):
             relation = match.group(1).lower()
@@ -123,7 +136,7 @@ def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
                 and relation not in NON_RELATION_SQL_KEYWORDS
                 and not followed_by_call
             ):
-                violations.append((query_arg.lineno, relation))
+                violations.append((query_lineno, relation))
         for pattern in (
             INDEX_TARGET,
             TRIGGER_TARGET,
@@ -133,7 +146,7 @@ def _unqualified_runtime_relations(path: Path) -> list[tuple[int, str]]:
             for match in pattern.finditer(query):
                 relation = match.group(1).lower()
                 if "." not in relation:
-                    violations.append((query_arg.lineno, relation))
+                    violations.append((query_lineno, relation))
     return violations
 
 
@@ -191,3 +204,25 @@ def test_runtime_queries_are_independent_from_search_path() -> None:
         "session search_path is not stable behind a transaction pool:\n"
         + "\n".join(violations)
     )
+
+
+def test_runtime_pgcrypto_calls_are_schema_qualified_and_typed() -> None:
+    violations: list[str] = []
+    call_count = 0
+    for path in _runtime_python_files():
+        for _line, query in _runtime_queries(path):
+            for match in PGCRYPTO_CALL.finditer(query):
+                call_count += 1
+                operation = match.group("operation").lower()
+                required_text_casts = 2 if operation == "encrypt" else 1
+                if not match.group("qualified"):
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}: public schema is missing"
+                    )
+                if match.group("arguments").count("::text") < required_text_casts:
+                    violations.append(
+                        f"{path.relative_to(REPO_ROOT)}: {operation} arguments are not explicit"
+                    )
+
+    assert call_count == 5, "Update the pgcrypto guard when adding a runtime call"
+    assert not violations, "\n".join(violations)

@@ -38,7 +38,7 @@ async def get_github_connection(chat_id: int) -> Optional[Dict[str, Any]]:
         row = await conn.fetchrow('''
             SELECT
                 user_uuid, chat_id,
-                pgp_sym_decrypt(access_token_encrypted, $2)::text AS access_token,
+                public.pgp_sym_decrypt(access_token_encrypted, $2::text)::text AS access_token,
                 token_type, scope, github_username,
                 target_repo, notes_path, strategy_repo, knowledge_repo,
                 default_branch, strategy_default_branch,
@@ -84,12 +84,12 @@ async def save_github_connection(
                     (user_uuid, chat_id, access_token_encrypted, token_type, scope, github_username)
                 VALUES (
                     $1, $2,
-                    pgp_sym_encrypt($3, $6),
+                    public.pgp_sym_encrypt($3::text, $6::text),
                     $4, $5, $7
                 )
                 ON CONFLICT (user_uuid) DO UPDATE SET
                     chat_id = EXCLUDED.chat_id,
-                    access_token_encrypted = pgp_sym_encrypt($3, $6),
+                    access_token_encrypted = public.pgp_sym_encrypt($3::text, $6::text),
                     token_type = $4,
                     scope = $5,
                     github_username = COALESCE($7, github_connections.github_username),
@@ -168,7 +168,7 @@ async def get_users_with_knowledge_repo() -> list[dict]:
         rows = await conn.fetch('''
             SELECT
                 chat_id,
-                pgp_sym_decrypt(access_token_encrypted, $1)::text AS access_token,
+                public.pgp_sym_decrypt(access_token_encrypted, $1::text)::text AS access_token,
                 knowledge_repo
             FROM public.github_connections
             WHERE knowledge_repo IS NOT NULL
@@ -252,7 +252,7 @@ async def sync_github_to_user_integrations(
         # Legacy plaintext rows (no 'pgp:' prefix) remain readable by Activity Hub during migration.
         if GITHUB_TOKEN_ENCRYPTION_KEY:
             stored_token = await conn.fetchval(
-                "SELECT 'pgp:' || encode(pgp_sym_encrypt($1, $2), 'base64')",
+                "SELECT 'pgp:' || encode(public.pgp_sym_encrypt($1::text, $2::text), 'base64')",
                 access_token, GITHUB_TOKEN_ENCRYPTION_KEY,
             )
         else:

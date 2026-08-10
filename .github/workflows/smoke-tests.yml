@@ -37,6 +37,7 @@ jobs:
       - name: Run smoke tests
         run: |
           python -m pytest tests/smoke/ tests/test_search_path_independence.py \
+            tests/test_db_pool_settings.py tests/test_readiness.py \
             -v --tb=short --junitxml=smoke-results.xml
 
       - name: Upload test results
