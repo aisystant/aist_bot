@@ -47,8 +47,8 @@ welcome:
     en: "Welcome to the Marathon, {name}!"
 
   marathon_intro:
-    ru: "14 дней от случайного ученика к систематическому."
-    en: "14 days from casual learner to systematic practitioner."
+    ru: "14 дней от случайной практики к систематической."
+    en: "14 days from occasional to systematic practice."
 
   marathon_days_info:
     ru: "{days} дней — по 2 темы в день (занятие + задание)"
@@ -361,8 +361,8 @@ menu:
 # -----------------------------------------------------------------------------
 onboarding:
   welcome:
-    ru: "Привет! Я помогу тебе стать систематическим учеником."
-    en: "Hello! I'll help you become a systematic learner."
+    ru: "Привет! Я помогу тебе выстроить систематическую практику."
+    en: "Hello! I'll help you build a systematic practice."
 
   welcome_back:
     ru: "С возвращением, {name}!"
@@ -3241,8 +3241,8 @@ marathon:
     en: "You can continue learning in Feed mode or move to full programs."
 
   completed_next_step:
-    ru: "Марафон — это знакомство. Следующий шаг — полная программа *Личное развитие*, где вы освоите все практики систематического ученика."
-    en: "The Marathon was an introduction. Next step — the full *Personal Development* program, where you'll master all practices of a systematic learner."
+    ru: "Марафон — это знакомство. Следующий шаг — полная программа *Личное развитие*, где вы освоите все практики систематической работы."
+    en: "The Marathon was an introduction. Next step — the full *Personal Development* program, where you'll master all practices of systematic work."
     description: "C1 conversion message after marathon completion"
 
   btn_program_lr:
@@ -5061,7 +5061,7 @@ milestones:
 
   day_14:
     ru: "🏃 *Две недели развития!*\n\n{marathon_status}\n\nВы входите в число самых активных участников."
-    en: "🏃 *Two weeks of learning!*\n\n{marathon_status}\n\nYou're among our most active learners."
+    en: "🏃 *Two weeks in!*\n\n{marathon_status}\n\nYou're among our most active participants."
 
   day_14_marathon_done:
     ru: "Марафон пройден — отличный результат! Следующий шаг — программа *Личное развитие*."
@@ -5127,16 +5127,16 @@ nudges:
     en: "🎉 10 sessions! Great start. Keep going — every session builds your skills."
 
   nudge_sessions_25:
-    ru: "🌟 25 сессий — вы уже в числе активных учеников! Попробуйте /twin для обзора прогресса."
-    en: "🌟 25 sessions — you're among active learners! Try /twin for a progress overview."
+    ru: "🌟 25 сессий — вы уже в числе активных участников! Попробуйте /twin для обзора прогресса."
+    en: "🌟 25 sessions — you're among active participants! Try /twin for a progress overview."
 
   nudge_sessions_50:
     ru: "💪 50 сессий! Это серьёзный результат. Ваш цифровой двойник отражает ваш рост."
     en: "💪 50 sessions! That's a solid achievement. Your digital twin reflects your growth."
 
   nudge_sessions_100:
-    ru: "🏆 100 сессий! Вы — один из самых систематичных учеников платформы."
-    en: "🏆 100 sessions! You're one of the most systematic learners on the platform."
+    ru: "🏆 100 сессий! Вы — один из самых систематичных участников платформы."
+    en: "🏆 100 sessions! You're one of the most systematic participants on the platform."
 
   nudge_active_days_7:
     ru: "📅 7 активных дней! Первая неделя систематичной работы — отличная основа."
