@@ -87,6 +87,36 @@ if [ -n "$lexicon_report" ]; then
     echo ""
 fi
 
+# ─── Проверка drift контента марафона (warning-only) ───
+# Выполняется до code-only early exit: изменение самого sync-script, hook или
+# контента тоже должно проверить контракт source-of-truth.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYNC_SCRIPT="$SCRIPT_DIR/scripts/sync-marathon-content.sh"
+if [[ -f "$SYNC_SCRIPT" ]]; then
+    SYNC_OUT=$(bash "$SYNC_SCRIPT" --check 2>&1)
+    SYNC_CODE=$?
+    case "$SYNC_CODE" in
+        0)
+            ;;
+        1)
+            echo ""
+            echo "   ⚠️  Контент марафона: авторский файл отличается от bot-копии."
+            echo "      Запусти: bash scripts/sync-marathon-content.sh"
+            echo "      Затем: git add data/marathon-content.json && git commit --amend --no-edit"
+            ;;
+        2)
+            echo ""
+            echo "   ⚠️  Контент марафона не проверен: авторский источник недоступен."
+            printf '      %s\n' "${SYNC_OUT//$'\n'/$'\n      '}"
+            ;;
+        *)
+            echo ""
+            echo "   ⚠️  Проверка контента марафона завершилась с ошибкой (код $SYNC_CODE)."
+            printf '      %s\n' "${SYNC_OUT//$'\n'/$'\n      '}"
+            ;;
+    esac
+fi
+
 # ─── Если ничего не затронуто — выходим ───
 total_touched=$((touched_handlers + touched_core + touched_models + touched_migrations + touched_engines + touched_queries + touched_states + touched_dev + touched_admin))
 if [ $total_touched -eq 0 ]; then
@@ -163,20 +193,6 @@ if [ -n "$STAGED_PY" ]; then
         echo "   См. WP-212 — изоляция напоминаний по инстансам бота."
         echo ""
         exit 1
-    fi
-fi
-
-# ─── Проверка drift контента марафона (warning-only) ───
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SYNC_SCRIPT="$SCRIPT_DIR/scripts/sync-marathon-content.sh"
-if [[ -f "$SYNC_SCRIPT" ]]; then
-    SYNC_OUT=$(bash "$SYNC_SCRIPT" --check 2>&1)
-    SYNC_CODE=$?
-    if [[ $SYNC_CODE -ne 0 ]]; then
-        echo ""
-        echo "   ⚠️  Контент марафона: расхождение SoT vs bot-копия."
-        echo "      Запусти: bash scripts/sync-marathon-content.sh"
-        echo "      Затем: git add data/marathon-content.json && git commit --amend --no-edit"
     fi
 fi
 

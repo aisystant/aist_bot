@@ -17,8 +17,8 @@ set -euo pipefail
 BOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$BOT_DIR/data/marathon-content.json"
 
-# Авторский файл ищем относительно бота (сиблинг в ~/IWE) или по env SRC override.
-SRC="${MARATHON_CONTENT_SRC:-$BOT_DIR/../../DS-marathon-v2-tseren/materials/participants/marathon-content.json}"
+# Авторский файл ищем относительно бота (сиблинг в IWE root) или по env SRC override.
+SRC="${MARATHON_CONTENT_SRC:-$BOT_DIR/../DS-marathon-v2-tseren/materials/participants/marathon-content.json}"
 
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
@@ -30,17 +30,27 @@ if [[ ! -f "$SRC" ]]; then
 fi
 
 # Валидация: исходник — корректный JSON со словарём days.
-python3 - "$SRC" <<'PY'
+if ! python3 - "$SRC" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
 days = data.get("days", {})
 assert isinstance(days, dict) and len(days) >= 1, "нет дней в контенте"
 print(f"✓ Исходник валиден: {len(days)} дней")
 PY
+then
+  echo "❌ Авторский файл не прошёл JSON-валидацию: $SRC"
+  exit 3
+fi
 
 if cmp -s "$SRC" "$DEST"; then
   echo "✓ Уже синхронизировано — расхождений нет."
   exit 0
+else
+  CMP_CODE=$?
+  if [[ $CMP_CODE -gt 1 ]]; then
+    echo "❌ Не удалось сравнить авторский файл и bot-копию (cmp code $CMP_CODE)."
+    exit 3
+  fi
 fi
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
