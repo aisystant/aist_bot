@@ -1838,6 +1838,101 @@ async def internal_remind_handler(request: web.Request) -> web.Response:
         )
 
 
+# WP-406 Ф33 §4: anti-replay в границах процесса (остаточный риск контракта v1:
+# после рестарта окно открывается заново — принято пир-сессией 2026-08-11-25, ход 3).
+_ONBOARDING_REPLAY_CACHE: dict = {}
+_ONBOARDING_REPLAY_WINDOW = 300  # секунд; равно допустимому clock skew
+
+
+async def onboarding_facts_handler(request: web.Request) -> web.Response:
+    """WP-406 Ф33 §4: read-контракт фактов онбординга для gateway-mcp.
+
+    GET /internal/onboarding-facts?user_id=<ory_uuid>
+    Headers: X-Onboarding-Timestamp: <unix seconds>
+             X-Onboarding-Signature: sha256=<hmac>
+    Подпись: HMAC-SHA256 над канонической строкой
+             "GET\\n/internal/onboarding-facts\\nuser_id=<uuid>\\n<timestamp>"
+    Секреты: GATEWAY_ONBOARDING_READ_SECRET (+ _PREVIOUS на период ротации —
+             тот же dual-key паттерн, что у workbook-webhook выше).
+    Ответ: ровно 4 факта {status, source, occurred_at} + contract_version;
+           бизнес-отсутствие (нет привязки/гайда) — всегда 200 с фактами,
+           никаких 404 по наличию пользователя (anti-enumeration).
+    """
+    import os
+    import hashlib
+    import hmac
+    import json
+    import time
+    import uuid as uuid_mod
+
+    secret = os.getenv('GATEWAY_ONBOARDING_READ_SECRET', '')
+    if not secret:
+        logger.warning("[OnboardingFacts] GATEWAY_ONBOARDING_READ_SECRET not configured")
+        return web.Response(text="Service unavailable", status=503)
+
+    # Дешёвый DoS-предохранитель: early reject до HMAC и БД (консенсус, ход 3 п.3).
+    if len(request.query_string) > 256:
+        return web.Response(text="Bad request", status=400)
+    user_ids = request.query.getall('user_id', [])
+    if len(user_ids) != 1:  # дубли user_id = canonicalization attack, не угадываем
+        return web.Response(text="Bad request", status=400)
+    try:
+        account_id = str(uuid_mod.UUID(user_ids[0]))
+    except (ValueError, AttributeError, TypeError):
+        return web.Response(text="Bad request", status=400)
+
+    ts_raw = request.headers.get('X-Onboarding-Timestamp', '')
+    # try/except, не isdigit(): isdigit() пропускает юникод-цифры (U+00B2) и
+    # строки длиннее int-лимита Python 3.11 (4300 цифр) — оба варианта роняли
+    # ValueError ДО аутентификации (review-01 Critical, пир-сессия 2026-08-11-25).
+    if len(ts_raw) > 20:
+        return web.Response(text="Forbidden", status=403)
+    try:
+        ts = int(ts_raw)
+    except ValueError:
+        return web.Response(text="Forbidden", status=403)
+    if ts < 0:
+        return web.Response(text="Forbidden", status=403)
+    now = int(time.time())
+    drift = abs(now - ts)
+    if drift > _ONBOARDING_REPLAY_WINDOW:
+        logger.warning("[OnboardingFacts] timestamp rejected: drift=%ss", drift)
+        return web.Response(text="Forbidden", status=403)
+
+    canonical = f"GET\n/internal/onboarding-facts\nuser_id={account_id}\n{ts_raw}"
+    provided_sig = request.headers.get('X-Onboarding-Signature', '')
+    valid = False
+    for key in (secret, os.getenv('GATEWAY_ONBOARDING_READ_SECRET_PREVIOUS', '')):
+        if not key:
+            continue
+        expected = "sha256=" + hmac.new(key.encode(), canonical.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(provided_sig, expected):
+            valid = True
+            break
+    if not valid:
+        logger.warning("[OnboardingFacts] invalid HMAC signature")
+        return web.Response(text="Forbidden", status=403)
+
+    for sig, expires in list(_ONBOARDING_REPLAY_CACHE.items()):
+        if expires < now:
+            _ONBOARDING_REPLAY_CACHE.pop(sig, None)
+    if provided_sig in _ONBOARDING_REPLAY_CACHE:
+        logger.warning("[OnboardingFacts] replayed signature rejected")
+        return web.Response(text="Forbidden", status=403)
+    _ONBOARDING_REPLAY_CACHE[provided_sig] = now + _ONBOARDING_REPLAY_WINDOW
+
+    from db.queries.onboarding_facts import CONTRACT_VERSION, collect_onboarding_facts
+    facts = await collect_onboarding_facts(account_id)
+    return web.Response(
+        text=json.dumps({
+            "contract_version": CONTRACT_VERSION,
+            "user_id": account_id,
+            "facts": facts,
+        }),
+        content_type="application/json",
+    )
+
+
 async def internal_notify_handler(request: web.Request) -> web.Response:
     """WP-5 Ф12: внутреннее уведомление от gateway-mcp о начале индексации форкнутого репо.
 
@@ -2627,6 +2722,7 @@ def create_oauth_app(dp=None, bot=None) -> web.Application:
     app.router.add_get("/auth/github_app/setup", github_app_setup_handler)  # WP-301 Ф7
     app.router.add_get("/auth/github_app/callback", github_app_callback_handler)  # WP-301 Ф7
     app.router.add_post("/internal/notify", internal_notify_handler)  # WP-5 Ф12
+    app.router.add_get("/internal/onboarding-facts", onboarding_facts_handler)  # WP-406 Ф33 §4
     app.router.add_post("/internal/remind", internal_remind_handler)  # WP-320 Ф2 DP.SC.134
     app.router.add_post("/internal/auth/exchange", external_auth_exchange_handler)      # WP-411 Ф2
     app.router.add_post("/internal/auth/introspect", external_auth_introspect_handler)  # WP-411 Ф2
