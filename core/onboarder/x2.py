@@ -245,6 +245,13 @@ async def _finish_x2(bot, chat_id: int) -> None:
                 "[x2] default qualification assignment failed for chat_id=%s: %s",
                 chat_id, e,
             )
+        # WP-406 Ф-К: Первокурсник достигнут здесь (X2 закрылся вторым) — поставить
+        # в очередь рендер первого руководства. Симметрично — handlers/onboarding.py:on_x3_confirm.
+        from db.queries.guide_render import trigger_first_guide
+        await trigger_first_guide(
+            chat_id, source="onboarding_completed",
+            trigger_event_id=f"onboarding_completed:x2:{chat_id}",
+        )
 
     status = await storage.get_status(chat_id)
     text = (
@@ -258,4 +265,6 @@ async def _finish_x2(bot, chat_id: int) -> None:
         ]])
         await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
     else:
+        if _x3_done_before:
+            text += "\n\n📖 Готовлю твоё первое персональное руководство — пришлю, как будет готово."
         await bot.send_message(chat_id, text, parse_mode="HTML")

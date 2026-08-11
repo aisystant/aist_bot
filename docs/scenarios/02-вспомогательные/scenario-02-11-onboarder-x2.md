@@ -75,11 +75,22 @@
   квалификация Методсовета/LMS через dt_sync;
 - fail-open: ошибка записи логируется (ERROR), онбординг не ломается.
 
+**Триггер первого руководства (WP-406 Ф-К).** В тот же момент `onboarding_completed`
+вызывается `db.queries.guide_render.trigger_first_guide(chat_id, source, trigger_event_id)`
+— ставит запись в очередь `learning.guide_render_queue` (`trigger_type='onboarding_x3'`,
+общая очередь с 3 другими сервисами, обрабатывается `render-pilot-guides.py --queue-only`
+раз в ~10 мин, не синхронно). Пользователь видит строку «📖 Готовлю твоё первое
+персональное руководство — пришлю, как будет готово.» в финальном сообщении Х2/Х3.
+Fail-open (T0-пользователь без account_id или сбой INSERT — пропуск с логом, онбординг
+не ломается). Контракт вызова и обоснование (совместимость с будущим WP-521 Ф7) —
+`sessions/2026-08/11/2026-08-11-21-wp406-tk-trigger-portnoy/report.md` (DS-my-strategy).
+
 ## 5. Связанные артефакты
 
 - Обещание: `DP.SC.170` (Онбордер). Роль: `DP.ROLE.067`.
 - Код: `core/onboarder/` (`offer.py`, `x2.py`, `x3.py`, `storage.py`, `handle()`).
 - Хендлеры: `handlers/onboarding.py` (вход + callbacks Х2), `handlers/hermes.py` (гибрид).
+- Триггер руководства: `db/queries/guide_render.py` (WP-406 Ф-К).
 - Не входит (follow-up): проактивный нудж scheduler, вынос текстов Х2 в i18n.
 - **Известный дрейф (WP-406 Ф21):** `DP.SC.170`/`DP.ROLE.067` в Pack всё ещё
   описывают критерий закрытия Х2 как «4 базовых вопроса», включая нормы

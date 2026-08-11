@@ -950,7 +950,18 @@ async def on_x3_confirm(callback: CallbackQuery):
                     "[onboarder_x3] default qualification assignment failed for %s: %s",
                     chat_id, e,
                 )
-        await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу.")
+            # WP-406 Ф-К: Первокурсник достигнут здесь (X3 закрылся вторым) — поставить
+            # в очередь рендер первого руководства. Симметрично — core/onboarder/x2.py:_finish_x2.
+            from db.queries.guide_render import trigger_first_guide
+            await trigger_first_guide(
+                chat_id, source="onboarding_completed",
+                trigger_event_id=f"onboarding_completed:x3:{chat_id}",
+            )
+        _guide_line = (
+            "\n\n📖 Готовлю твоё первое персональное руководство — пришлю, как будет готово."
+            if _x2_done_before else ""
+        )
+        await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу." + _guide_line)
     except Exception as e:
         logger.error("[onboarder_x3] mark_x3_done failed for %s: %s", chat_id, e)
         intern = await get_intern(chat_id)
