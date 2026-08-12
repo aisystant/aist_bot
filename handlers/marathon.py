@@ -78,7 +78,7 @@ async def start_marathon_flow(user_id: int, reply_msg, schedule_time: str = "04:
             await reply_msg.answer(
                 "Не получилось возобновить. Попробуй сбросить марафон:\n"
                 "/settings → «Мои данные» → «Управление данными» → «🔄 Сбросить марафон».\n"
-                "Ели не поможет — напиши /support."
+                "Если не поможет — напиши /support."
             )
         return
 

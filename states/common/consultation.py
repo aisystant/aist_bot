@@ -80,11 +80,26 @@ _DIAGNOSTICIAN_PATTERNS = [
     "оцени мой уровень", "диагностика", "тестирование ступени",
 ]
 
+# WP-498 Ф5: Наставник (MIM.R.001 Режим 2) — always-on 1:1 диагноз+рекомендация.
+# Черновик лексики из WP-498.md варианта B (25.07), + ближайшие естественные
+# вариации написания (без запятой / без окончания). Осознанно НЕ расширено
+# дальше — более широкий список не пройден пилотом, риск ложного
+# срабатывания уже отмечен как повышенный (см. WP-498.md, вариант B, минус).
+_MENTOR_PATTERNS = [
+    "застрял", "застряла",
+    "не получается",
+    "не знаю, что делать", "не знаю что делать",
+    "упал мотивацией", "упала мотивация", "потерял мотивацию", "нет мотивации",
+    "в тупике",
+]
+
 
 # WP-156: Explicit role prefixes — user can address a role directly
+# WP-498 Ф5: "наставник" добавлен по тому же образцу (25.07).
 _ROLE_PREFIXES = {
     'navigator': ['навигатор', 'navigator'],
     'diagnostician': ['диагност', 'diagnostician'],
+    'mentor': ['наставник', 'mentor'],
 }
 
 
@@ -92,11 +107,16 @@ def _detect_role(question: str) -> Optional[str]:
     """Определяет, нужна ли смена роли (DP.D.044).
 
     Priority:
-    1. Explicit prefix: "Навигатор, ..." / "Диагност, ..."
-    2. Pattern match from question content
+    1. Explicit prefix: "Навигатор, ..." / "Диагност, ..." / "Наставник, ..."
+    2. Pattern match from question content — diagnostician → navigator → mentor.
+       Mentor patterns are checked last (lowest priority): WP-498.md вариант B
+       explicitly flags higher false-positive risk for mentor lexicon (широкое
+       полномочие 4-компонентной связки), а ошибочный роутинг сюда дороже, чем
+       в узкую роль Навигатора/Диагноста — поэтому более специфичные паттерны
+       двух существующих ролей должны выигрывать при конфликте.
 
     Returns:
-        "navigator" | "diagnostician" | None (Консультант по умолчанию)
+        "navigator" | "diagnostician" | "mentor" | None (Консультант по умолчанию)
     """
     q = question.lower().strip()
 
@@ -114,6 +134,10 @@ def _detect_role(question: str) -> Optional[str]:
     for pattern in _NAVIGATOR_PATTERNS:
         if pattern in q:
             return "navigator"
+
+    for pattern in _MENTOR_PATTERNS:
+        if pattern in q:
+            return "mentor"
 
     return None
 
@@ -730,6 +754,7 @@ class ConsultationState(BaseState):
                 else:
                     detected_role = _detect_role(question) if not is_refinement else None
                 role_prompt = None
+                role_context_extra = None
                 if detected_role:
                     role_prompt = load_role_prompt(detected_role)
                     if role_prompt:
@@ -739,6 +764,18 @@ class ConsultationState(BaseState):
                         if transition_msg:
                             await self.send(user, transition_msg, parse_mode="Markdown")
                         logger.info(f"Consultation: role switch → {detected_role} for user {user_chat_id}")
+
+                        # WP-498 Ф5.1 (DP.M.386): mentor context-sufficiency gate,
+                        # шаг 1 — детерминированный RAG-поиск PD.METHOD.* ДО
+                        # генерации. Результат идёт ВНУТРЬ диспетчер-промпта
+                        # (role_context_extra), не проверяется post-hoc.
+                        if detected_role == "mentor":
+                            from engines.shared.mentor_grounding import (
+                                mentor_grounding_search,
+                                format_grounding_section,
+                            )
+                            grounding = await mentor_grounding_search(question, user_chat_id)
+                            role_context_extra = format_grounding_section(grounding, lang)
 
                 # Conversation history → multi-turn messages
                 history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
@@ -756,6 +793,7 @@ class ConsultationState(BaseState):
                     conversation_messages=history_messages,
                     ui_tier=ui_tier,
                     role_prompt_override=role_prompt,
+                    role_context_extra=role_context_extra,
                 )
                 logger.info("[Consultation] handle_question_with_tools done in %dms user=%s", int((time.time() - _t0) * 1000), user_chat_id)
 

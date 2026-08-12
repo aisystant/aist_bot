@@ -62,6 +62,14 @@ class GatewayMCPClient:
 
     TOOLS_CACHE_TTL = 15 * 60  # 15 min (DP.SC.129)
 
+    # WP-7 (2026-07-23): TTL негативного кэша «токена нет в БД» — без него каждый
+    # запрос от T0/непривязанного пользователя (напр. collect_pre_search на любой
+    # вопрос) бьёт в load_one_ory_token() на каждый вызов и спамит
+    # gateway_token_cache_miss метрику → ложные срабатывания Grafana-алерта
+    # «Gateway Token Cache Miss Spike» (>10/час, docs/processes/process-10-gateway-mcp.md)
+    # обычным трафиком, а не признаком реального инцидента.
+    NO_TOKEN_CACHE_TTL = 60
+
     # Б.x tool-descriptor validation (ArchGate 2026-07-07, DP.SC.129).
     # Bilingual role-break + delimiter markers — a discovered tool whose description
     # contains any of these is dropped entirely (fail-secure), not sanitized in place:
@@ -79,6 +87,11 @@ class GatewayMCPClient:
 
         # Per-user tokens: telegram_user_id -> {access_token, refresh_token, expires_at, ory_id}
         self._tokens: Dict[int, Dict[str, Any]] = {}
+
+        # WP-7 (2026-07-23): telegram_user_id -> time.time() последнего «в БД тоже
+        # нет токена» — короткий TTL (NO_TOKEN_CACHE_TTL), не даёт долбить БД/метрику
+        # на каждый вызов для пользователей, которые просто не подключали Ory.
+        self._no_token_users: Dict[int, float] = {}
 
         # DP.SC.129: discovered tools cache (in-memory, single-instance)
         self._tools_cache: List[Dict] = []
@@ -479,6 +492,36 @@ class GatewayMCPClient:
         headers: Dict[str, str] = {}
         if telegram_user_id:
             token = self._get_access_token(telegram_user_id)
+            if not token:
+                # In-memory cache miss (restart / race with OAuth callback) не
+                # значит «токена нет» — _refresh_single_token() уже умеет
+                # подгружать его из БД (WP-200), но раньше эта подгрузка
+                # срабатывала только реактивно, после 401. Без неё запрос
+                # с валидным токеном в БД отбивался здесь мгновенно и молча
+                # (инцидент 2026-07-22 20:53 UTC: grant_consent → None x4).
+                #
+                # Негативный кэш: T0/непривязанные пользователи структурно не
+                # имеют токена в БД — без TTL-паузы каждый их вызов долбит
+                # load_one_ory_token() и спамит cache-miss метрику (см.
+                # NO_TOKEN_CACHE_TTL выше).
+                no_token_since = self._no_token_users.get(telegram_user_id)
+                within_negative_ttl = (
+                    no_token_since is not None
+                    and time.time() - no_token_since < self.NO_TOKEN_CACHE_TTL
+                )
+                if within_negative_ttl:
+                    token = None
+                else:
+                    # Таймстамп трогаем ТОЛЬКО когда реально сходили в _refresh_single_token —
+                    # иначе непрерывный трафик от одного user'а (интервал < TTL) на каждом вызове
+                    # переписывает no_token_since вперёд → окно подавления никогда не истекает
+                    # (найдено независимой code-review проверкой, 2026-07-23).
+                    if await self._refresh_single_token(telegram_user_id):
+                        token = self._get_access_token(telegram_user_id)
+                    if token:
+                        self._no_token_users.pop(telegram_user_id, None)
+                    else:
+                        self._no_token_users[telegram_user_id] = time.time()
             if token:
                 headers["Authorization"] = f"Bearer {token}"
             else:

@@ -537,14 +537,30 @@ async def on_upd_typing(callback: CallbackQuery, state: FSMContext):
 @settings_router.callback_query(UpdateStates.choosing_field, F.data == "upd_mode")
 async def on_upd_mode(callback: CallbackQuery, state: FSMContext):
     """Переход к выбору режима (Марафон/Лента)."""
-    await state.clear()
     await callback.answer()
 
+    from handlers import get_dispatcher
+    dispatcher = get_dispatcher()
+    intern = await get_intern(callback.message.chat.id)
+
+    if dispatcher and dispatcher.is_sm_active and intern:
+        # mode_router (mode_marathon/mode_feed/mode_training) не подключён при
+        # USE_STATE_MACHINE=true (engines/integration.py) — cmd_mode() ниже рисовал
+        # бы кнопки без обработчиков. common.mode_select — тот же экран через SM.
+        try:
+            await state.clear()
+            await callback.message.delete()
+            await dispatcher.route_command('mode', intern)
+            return
+        except Exception as e:
+            logger.error(f"Error routing upd_mode via SM: {e}")
+
+    # Legacy fallback (SM выключен)
+    await state.clear()
     try:
         from engines.mode_selector import cmd_mode
         await cmd_mode(callback.message)
     except ImportError:
-        intern = await get_intern(callback.message.chat.id)
         lang = intern.get('language', 'ru') if intern else 'ru'
         await callback.message.edit_text(
             f"*{t('update.mode_title', lang)}*\n\n"

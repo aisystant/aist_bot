@@ -120,7 +120,7 @@
 | `x3_completed_at` | TIMESTAMP | `NULL` | Онбордер Х3: выбрал траекторию (WP-406 Ф5, миграция 030) |
 | `assessment_state` | TEXT | `NULL` | State assessment-flow |
 | `assessment_date` | DATE | `NULL` | Дата прохождения |
-| `stats_reset_date` | DATE | `NULL` | Дата сброса статистики |
+| `stats_reset_date` | DATE | `NULL` | Дата сброса статистики. Пишут обе ветки сброса (`/progress` → `reset_user_stats()`, `/mydata` → `_reset_stats()`) — с WP-7 Ф48; до этого `/mydata`-ветка не писала это поле |
 | `notify_template_updates` | BOOLEAN | `FALSE` | Подписка на обновления |
 | `notify_nudges` | BOOLEAN | `TRUE` | Подписка на nudges |
 | `created_at`, `updated_at` | TIMESTAMP | `NOW()` | |
@@ -298,6 +298,20 @@
 **Constraints:** UNIQUE(chat_id, activity_date, activity_type) — одна запись типа в день
 
 **Индексы:** `idx_activity_date ON (chat_id, activity_date)`
+
+### 3.3b. `development.daily_activity_marker` (атомарный гейт счётчика, WP-7 Ф48)
+
+> Служебная таблица для `record_active_day()` — см. [P-01 Отслеживание активности](../processes/process-01-activity-tracking.md). Живёт в dev БД (не learning, в отличие от `activity_log`) — именно поэтому запись маркера и обновление счётчиков `development.user_state` атомарны (одна транзакция, одна БД).
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `chat_id` | BIGINT | — | часть PK |
+| `activity_date` | DATE | — | часть PK |
+| `created_at` | TIMESTAMP | `NOW() AT TIME ZONE 'utc'` | |
+
+**Constraints:** PRIMARY KEY(chat_id, activity_date) — без FK на `user_state` (не усиливает уникальность, лишняя связь с порядком create/delete пользователя).
+
+**Пишет:** `record_active_day()` (INSERT); обе ветки сброса статистики — `_reset_stats()` (`states/utilities/mydata.py`, /mydata) и `reset_user_stats()` (`db/queries/answers.py`, /progress) — DELETE всех строк пользователя при сбросе.
 
 ### 3.4. `notification_queue` (приватная очередь Доставщика)
 
@@ -873,6 +887,8 @@
 **Колонки:** `day`, `entry_type`, `lang`, `started`, `x2_completed`, `x3_completed`, `completed`.
 
 **Группировка:** `day + entry_type + lang` (эти ключи есть в payload started/x2/x3). `cohort_id` живёт только в started/completed — в группировку не входит, добавить когда x2/x3 тоже понесут cohort_id. Срез «за период» = SUM по строкам дней в диапазоне.
+
+**Поле `source` в payload (WP-406 Ф16-B3):** все четыре события несут `payload->>'source'` — источник входа `site | stand | bot | guide-kit` (дефолт `bot`, из deep-link `/start src_<value>`). В view пока не входит — добавить в группировку при следующем пересоздании, если нужен срез по каналам.
 
 **Правило DROP + CREATE (§10.22):** view пересоздаётся, данные не теряются (stateless).
 

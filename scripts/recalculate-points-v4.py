@@ -26,10 +26,7 @@ from psycopg2.extras import RealDictCursor, execute_values
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
-REWARDS_DSN = os.environ.get(
-    "REWARDS_URL",
-    "postgresql://neondb_owner:npg_ZlRWtDg1zf3J@ep-dark-hall-ag8bo8lf.c-2.eu-central-1.aws.neon.tech/rewards?sslmode=require",
-)
+REWARDS_DSN = os.environ["REWARDS_URL"]
 BATCH_SIZE = 5000
 
 

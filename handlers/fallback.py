@@ -92,6 +92,31 @@ async def on_unknown_message(message: Message, state: FSMContext):
     chat_id = message.chat.id
     text = message.text or ''
 
+    # WP-501 (2026-07-26): reaching fallback means the FSM-based session path
+    # (handlers/external_session.py:handle_session_text, StateFilter(ExternalSession.active))
+    # did NOT claim this message — either no session is active for this chat, or the
+    # session was created by the VS Code bridge script (vscode-session-handoff.py),
+    # which never sets that FSM state. Check GitHub directly as a secondary path
+    # before falling through to SM/onboarding routing below. Cost: one GitHub list +
+    # per-file GET only on messages that would otherwise be unhandled (not on every
+    # message), acceptable at current session volume (see WP-501 review finding).
+    if text and not text.startswith('/'):
+        from handlers.external_session import find_active_bridge_session_for_chat, _append_pilot_turn
+        found = await find_active_bridge_session_for_chat(chat_id)
+        if found:
+            session_id, next_turn_n, token, repo, branch = found
+            ok = await _append_pilot_turn(session_id, message.message_id, text, next_turn_n, token, repo, branch)
+            if ok:
+                logger.info(
+                    "[fallback] appended pilot turn %d to bridge session %s (chat %s)",
+                    next_turn_n, session_id, chat_id,
+                )
+                return
+            logger.error(
+                "[fallback] failed to append pilot turn to bridge session %s (chat %s) — falling through",
+                session_id, chat_id,
+            )
+
     if dispatcher and dispatcher.is_sm_active:
         intern = await get_intern(chat_id)
         tier_num = await detect_ui_tier(chat_id)

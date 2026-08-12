@@ -181,6 +181,17 @@ async def create_tables(pool: asyncpg.Pool):
             ADD COLUMN IF NOT EXISTS x3_completed_at TIMESTAMP DEFAULT NULL
         ''')
 
+        # Migration 039 (WP-7 Ф48): атомарный гейт "значимая активность уже
+        # засчитана сегодня" для record_active_day() — см. db/queries/activity.py.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS development.daily_activity_marker (
+                chat_id BIGINT NOT NULL,
+                activity_date DATE NOT NULL,
+                created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'utc'),
+                PRIMARY KEY (chat_id, activity_date)
+            )
+        ''')
+
         # ═══════════════════════════════════════════════════════════
         # ОТВЕТЫ И РАБОЧИЕ ПРОДУКТЫ
         # ═══════════════════════════════════════════════════════════

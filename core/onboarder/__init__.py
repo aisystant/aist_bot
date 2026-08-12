@@ -47,7 +47,32 @@ __all__ = [
     "get_status",
     "has_open_gap",
     "handle",
+    "ENTRY_SOURCES",
+    "DEFAULT_ENTRY_SOURCE",
+    "normalize_entry_source",
 ]
+
+# WP-406 Ф16-B3: источник входа в онбординг (канал привлечения). Передаётся
+# deep-link'ом `/start src_<value>` (handlers/onboarding.py), хранится в
+# current_context['onboarding']['entry_source'] и попадает полем `source` в
+# payload событий onboarding_started / x2_completed / x3_completed /
+# onboarding_completed. По аналогии с entry_type (дефолт direct) — не заменяет его.
+ENTRY_SOURCES = ("site", "stand", "bot", "guide-kit")
+DEFAULT_ENTRY_SOURCE = "bot"
+
+
+def normalize_entry_source(value) -> str:
+    """Свести произвольное значение к допустимому источнику входа.
+
+    Понимает underscore-вариант deep-link'а (`src_guide_kit` → `guide-kit`).
+    Неизвестное/пустое значение → дефолт `bot`. Только значения полей,
+    никакого PII (FORBIDDEN_FIELDS).
+    """
+    if isinstance(value, str):
+        candidate = value.strip().lower().replace("_", "-")
+        if candidate in ENTRY_SOURCES:
+            return candidate
+    return DEFAULT_ENTRY_SOURCE
 
 
 async def get_status(chat_id: int) -> dict:
@@ -94,14 +119,20 @@ async def handle(intern: dict, message) -> None:
         from db.queries.onboarding_journey import get_cohort_id_for_chat
         _cohort = await get_cohort_id_for_chat(chat_id)
         _entry_type = intern.get("entry_type", "direct")
+        # WP-406 Ф16-B3: entry_source сохранён deep-link'ом /start src_<value>;
+        # отсутствует → дефолт bot. Нормализованное значение фиксируем в контексте,
+        # чтобы x2/x3/completed несли тот же source.
+        _entry_source = normalize_entry_source(_ctx.get("entry_source"))
         await log_event(chat_id, "onboarding_started", {
             "entry_type": _entry_type,
+            "source": _entry_source,
             "lang": intern.get("language", "ru") or "ru",
             "cohort_id": _cohort,
         })
         await storage.save_onboarding_context(chat_id, {
             "started_fired": True,
             "entry_type": _entry_type,
+            "entry_source": _entry_source,
         })
 
     status = await storage.get_status(chat_id)

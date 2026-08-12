@@ -52,11 +52,45 @@
 оба среза были недостижимы. Кнопка «Освоиться» в точках реального входа закрывает
 этот разрыв. Cooldown 3 дня не даёт повторять оффер на каждом `/start`.
 
-## 4. Связанные артефакты
+## 4. События воронки и дефолтная квалификация
+
+**Метка источника входа (WP-406 Ф16-B3, MVP).** События `onboarding_started` /
+`x2_completed` / `x3_completed` / `onboarding_completed` несут поле `source`:
+`site | stand | bot | guide-kit`, дефолт `bot`. Источник — deep-link
+`/start src_<value>` (например `/start src_site`; underscore-вариант
+`src_guide_kit` нормализуется в `guide-kit`), хранение —
+`current_context['onboarding']['entry_source']`. Работает по аналогии с
+`entry_type` (дефолт `direct`) и не заменяет его. В payload — только значения
+из фиксированного списка, никакого PII.
+
+**Дефолтная квалификация (WP-406 Ф31, решение пилота 08.08).** В момент
+`onboarding_completed` (оба среза закрыты — `_finish_x2` либо `on_x3_confirm`)
+вызывается `db.queries.dt_sync.ensure_default_qualification(chat_id)`:
+
+- уже есть квалификация (ЦД `2_collected.2_2_courses.qualification_level` или
+  живой LMS-уровень Работник+) → не трогаем и не понижаем;
+- квалификации нет → назначается «Ученик» (живая шкала: Интересант(1) →
+  Определяющийся(2) → Первокурсник(3) → **Ученик(4)** → Работник(5)…);
+- автоназначение НИКОГДА не ставит уровень ≥ Работник(5) — только живая
+  квалификация Методсовета/LMS через dt_sync;
+- fail-open: ошибка записи логируется (ERROR), онбординг не ломается.
+
+**Триггер первого руководства (WP-406 Ф-К).** В тот же момент `onboarding_completed`
+вызывается `db.queries.guide_render.trigger_first_guide(chat_id, source, trigger_event_id)`
+— ставит запись в очередь `learning.guide_render_queue` (`trigger_type='onboarding_x3'`,
+общая очередь с 3 другими сервисами, обрабатывается `render-pilot-guides.py --queue-only`
+раз в ~10 мин, не синхронно). Пользователь видит строку «📖 Готовлю твоё первое
+персональное руководство — пришлю, как будет готово.» в финальном сообщении Х2/Х3.
+Fail-open (T0-пользователь без account_id или сбой INSERT — пропуск с логом, онбординг
+не ломается). Контракт вызова и обоснование (совместимость с будущим WP-521 Ф7) —
+`sessions/2026-08/11/2026-08-11-21-wp406-tk-trigger-portnoy/report.md` (DS-my-strategy).
+
+## 5. Связанные артефакты
 
 - Обещание: `DP.SC.170` (Онбордер). Роль: `DP.ROLE.067`.
 - Код: `core/onboarder/` (`offer.py`, `x2.py`, `x3.py`, `storage.py`, `handle()`).
 - Хендлеры: `handlers/onboarding.py` (вход + callbacks Х2), `handlers/hermes.py` (гибрид).
+- Триггер руководства: `db/queries/guide_render.py` (WP-406 Ф-К).
 - Не входит (follow-up): проактивный нудж scheduler, вынос текстов Х2 в i18n.
 - **Известный дрейф (WP-406 Ф21):** `DP.SC.170`/`DP.ROLE.067` в Pack всё ещё
   описывают критерий закрытия Х2 как «4 базовых вопроса», включая нормы

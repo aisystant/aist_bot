@@ -754,12 +754,16 @@ _role_prompt_cache: Dict[str, str] = {}
 _ROLE_FILES = {
     "navigator": "navigator.md",
     "diagnostician": "diagnostician.md",
+    # WP-498 Ф5.1: Наставник (MIM.R.001 Режим 2) — связка Диагност⊗Навигатор⊗
+    # Преподаватель-предметник⊗Преподаватель-лидер, диспетчер-промпт DP.M.386.
+    "mentor": "mentor.md",
 }
 
 # Role display: emoji + name for footer (L1 Role Attribution)
 ROLE_ATTRIBUTION = {
     "navigator": {"ru": "🧭 Навигатор", "en": "🧭 Navigator"},
     "diagnostician": {"ru": "🎯 Диагност", "en": "🎯 Diagnostician"},
+    "mentor": {"ru": "🧑‍🏫 Наставник", "en": "🧑‍🏫 Mentor"},
 }
 
 # WP-156: Hint for continuing with the same role via prefix
@@ -772,6 +776,10 @@ ROLE_CONTINUE_HINT = {
         "ru": "Чтобы продолжить с Диагностом, начни вопрос со слова «Диагност» и далее ваш вопрос.",
         "en": "To continue with Diagnostician, start with 'Diagnostician' followed by your question.",
     },
+    "mentor": {
+        "ru": "Чтобы продолжить с Наставником, начни вопрос со слова «Наставник» и далее ваш вопрос.",
+        "en": "To continue with Mentor, start with 'Mentor' followed by your question.",
+    },
 }
 
 # Role transition messages (L2 Role Attribution)
@@ -783,6 +791,10 @@ ROLE_TRANSITION = {
     "diagnostician": {
         "ru": "🎯 _Подключаю Диагноста — он определит вашу ступень._",
         "en": "🎯 _Connecting Diagnostician — they'll assess your level._",
+    },
+    "mentor": {
+        "ru": "🧑‍🏫 _Подключаю Наставника — разберётся, что сейчас происходит, и что делать дальше._",
+        "en": "🧑‍🏫 _Connecting Mentor — they'll figure out what's going on and what to do next._",
     },
 }
 

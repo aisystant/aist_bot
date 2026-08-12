@@ -13,7 +13,6 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from engines.tailor.port import LessonDeliveryResult, TailorPort
-from engines.tailor.planner import BLOOM_NAMES, DIRECTION_NAMES
 from helpers.message_split import split_message_safe
 
 logger = logging.getLogger(__name__)
@@ -84,9 +83,16 @@ class BotTailorAdapter(TailorPort):
 
     async def format_lesson(self, lesson: dict, generated: dict) -> str:
         """Форматировать занятие в HTML для Telegram."""
-        topic_name = lesson.get('topic_name', '')
-        direction = DIRECTION_NAMES.get(lesson.get('direction', 0), '')
-        bloom_depth = lesson.get('bloom_depth', 1)
+        area_name = lesson.get('area_name', '')
+        impact_type = lesson.get('impact_type', 'worldview')
+        depth = lesson.get('depth', 1)
+
+        if impact_type == 'worldview':
+            depth_label = {1: 'Осознание', 2: 'Различение', 3: 'Компиляция'}.get(depth, '')
+            type_label = f"Мировоззрение · {depth_label}"
+        else:
+            depth_label = {1: 'Объяснение', 2: 'Умение', 3: 'Навык', 4: 'Мастерство'}.get(depth, '')
+            type_label = f"Мастерство · {depth_label}"
 
         intro = generated.get('intro', '')
         text = generated.get('lesson_text', '')
@@ -98,8 +104,8 @@ class BotTailorAdapter(TailorPort):
 
         # Заголовок
         parts.append(
-            f"✂️ <b>{topic_name}</b>\n"
-            f"<i>{direction} · Глубина {bloom_depth}</i>\n"
+            f"✂️ <b>{area_name}</b>\n"
+            f"<i>{type_label}</i>\n"
         )
 
         if intro:
@@ -121,14 +127,14 @@ class BotTailorAdapter(TailorPort):
 
     def _build_keyboard(self, lesson: dict) -> InlineKeyboardMarkup:
         """Построить inline-клавиатуру для занятия."""
-        topic_id = lesson.get('topic_id', '')
-        bloom_depth = lesson.get('bloom_depth', 1)
-        direction = lesson.get('direction', 1)
+        element_id = lesson.get('element_id', '')
+        depth = lesson.get('depth', 1)
+        area = lesson.get('area', 1)
 
         # Encode контекст в callback_data (max 64 bytes)
-        # Формат: tailor_answer:{topic_id}:{bloom}:{dir}
-        answer_data = f"{CB_TAILOR_ANSWER}:{topic_id}:{bloom_depth}:{direction}"
-        skip_data = f"{CB_TAILOR_SKIP}:{topic_id}:{bloom_depth}:{direction}"
+        # Формат: tailor_answer:{element_id}:{depth}:{area}
+        answer_data = f"{CB_TAILOR_ANSWER}:{element_id}:{depth}:{area}"
+        skip_data = f"{CB_TAILOR_SKIP}:{element_id}:{depth}:{area}"
 
         return InlineKeyboardMarkup(inline_keyboard=[
             [
