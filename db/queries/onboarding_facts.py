@@ -7,17 +7,20 @@ Read-контракт для 4 фактов онбординга, которые
 Единственный потребитель — gateway-mcp через GET /internal/onboarding-facts
 (oauth_server.py), формат каждого факта: {status, source, occurred_at}.
 
-Статусная вокабула (§3 концепции, консенсус пир-сессии, ход 1-3):
-  confirmed          — факт наблюдён в каноническом столе
-  pending_evaluation — наблюдаемое «ещё не сделано» (строки нет / отметки нет)
-  unknown            — техническая недоступность источника ИЛИ пробел
-                       наблюдаемости (meeting_held: стола нет вообще, С2)
+Статусная вокабула v2 (решение пилота 12.08.2026; вопрос вынесен сессиями
+2026-08-11-25/-30 — «натяжка pending_evaluation» заменена явным статусом):
+  confirmed — факт наблюдён в каноническом столе
+  absent    — авторитетное «факта нет у владельца» (строки нет / отметки нет);
+              в v1 кодировалось pending_evaluation, что конфликтовало с настоящим
+              «сдано и ждёт оценщика» из конвейера диагностики (§2 концепции)
+  unknown   — техническая недоступность источника ИЛИ пробел
+              наблюдаемости (meeting_held: стола нет вообще, С2)
 
-Retention-оговорка (Codex, ход 3): «нет строк в guide_render_queue =>
-pending_evaluation» корректно, пока очередь не чистится — на 11.08.2026 ни
-activity-hub (владелец схемы), ни потребитель render-pilot-guides.py строк не
-удаляют. Если появится cleanup done-строк — семантика деградирует в unknown,
-менять здесь и бампать contract_version.
+Retention-оговорка (Codex, ход 3): «нет строк в guide_render_queue => absent»
+корректно, пока очередь не чистится — на 11.08.2026 ни activity-hub (владелец
+схемы), ни потребитель render-pilot-guides.py строк не удаляют. Если появится
+cleanup done-строк — семантика деградирует в unknown, менять здесь и бампать
+contract_version.
 """
 from __future__ import annotations
 
@@ -29,7 +32,7 @@ from db.connection import get_pool, get_learning_pool, get_persona_pool
 
 logger = logging.getLogger(__name__)
 
-CONTRACT_VERSION = "onboarding-facts-v1"
+CONTRACT_VERSION = "onboarding-facts-v2"
 
 _SRC_TELEGRAM = "persona.ory_identity"
 _SRC_GUIDE = "learning.guide_render_queue"
@@ -61,7 +64,7 @@ async def _telegram_fact(account_id: str) -> Tuple[Dict[str, Any], Optional[int]
             )
         if row and row["telegram_id"]:
             return _fact("confirmed", _SRC_TELEGRAM, row["created_at"]), int(row["telegram_id"])
-        return _fact("pending_evaluation", _SRC_TELEGRAM, None), None
+        return _fact("absent", _SRC_TELEGRAM, None), None
     except Exception as exc:
         logger.warning(
             "[onboarding_facts] telegram_linked read failed for %s…: %s",
@@ -76,7 +79,7 @@ async def _guide_fact(account_id: str) -> Dict[str, Any]:
     Несколько done-строк => детерминизм: max(completed_at) (Codex, ход 3).
 
     Принятое ограничение v1 (review-01 Medium): dead_letter-строки (retry-бюджет
-    исчерпан, авторендер не случится) тоже дают pending_evaluation — «не выдан»
+    исчерпан, авторендер не случится) тоже дают absent — «не выдан»
     для читателя верно, но «скоро будет» из этого статуса выводить нельзя.
     Различение failed-состояния = бамп contract_version, не тихая правка."""
     try:
@@ -90,7 +93,7 @@ async def _guide_fact(account_id: str) -> Dict[str, Any]:
             )
         if row and row["done_at"]:
             return _fact("confirmed", _SRC_GUIDE, row["done_at"])
-        return _fact("pending_evaluation", _SRC_GUIDE, None)
+        return _fact("absent", _SRC_GUIDE, None)
     except Exception as exc:
         logger.warning(
             "[onboarding_facts] guide_issued read failed for %s…: %s",
@@ -107,7 +110,7 @@ async def _trajectory_fact(telegram_id: Optional[int],
         return _fact("unknown", _SRC_TRAJECTORY, None)
     if telegram_id is None:
         # Привязки нет => X3 (бот-флоу) заведомо не проходился.
-        return _fact("pending_evaluation", _SRC_TRAJECTORY, None)
+        return _fact("absent", _SRC_TRAJECTORY, None)
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -117,7 +120,7 @@ async def _trajectory_fact(telegram_id: Optional[int],
             )
         if completed_at:
             return _fact("confirmed", _SRC_TRAJECTORY, completed_at)
-        return _fact("pending_evaluation", _SRC_TRAJECTORY, None)
+        return _fact("absent", _SRC_TRAJECTORY, None)
     except Exception as exc:
         logger.warning(
             "[onboarding_facts] trajectory_confirmed read failed for chat %s: %s",

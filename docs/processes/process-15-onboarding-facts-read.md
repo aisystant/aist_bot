@@ -10,14 +10,14 @@
 `GET /internal/onboarding-facts?user_id=<ory_uuid>` — отдаёт gateway-mcp ровно 4 факта
 онбординга, которые сегодня знает только бот: `telegram_linked`, `guide_issued`,
 `meeting_held`, `trajectory_confirmed`. Каждый факт: `{status, source, occurred_at}`;
-ответ несёт `contract_version: "onboarding-facts-v1"`.
+ответ несёт `contract_version: "onboarding-facts-v2"` (v2 с 12.08.2026 — решение пилота: статус `absent` вместо натяжки `pending_evaluation`; v1 нигде не деплоился с потребителями).
 
 ## Статусная вокабула
 
-`confirmed` — факт наблюдён · `pending_evaluation` — наблюдаемое «ещё не сделано»
+`confirmed` — факт наблюдён · `absent` — авторитетное «факта нет у владельца»
 · `unknown` — сбой чтения источника ИЛИ пробел наблюдаемости. Отдельного
-`not_done`/`failed` нет намеренно (вокабула §3 концепции); `dead_letter` рендер-очереди
-даёт `pending_evaluation` — принятое ограничение v1.
+`failed` нет намеренно; `dead_letter` рендер-очереди даёт `absent` — принятое
+ограничение v2 («не выдан» верно, «скоро будет» из статуса не выводится).
 
 ## Источники фактов
 
