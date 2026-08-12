@@ -4,7 +4,7 @@ WP-406 Ф33 §4: read-контракт GET /internal/onboarding-facts.
 Контракт: concept-checklist-data-ownership-2026-08-10.md §4 + консенсус
 пир-сессии 2026-08-11-25-wp406-onboarding-facts-read (Claude+Codex, 3 хода):
 HMAC над канонической строкой (dual-key), окно ±300с, in-process anti-replay,
-вокабула без расширения (pending_evaluation = наблюдаемое «не сделано»,
+вокабула без расширения (absent = наблюдаемое «не сделано»,
 unknown = сбой чтения или пробел наблюдаемости), guide_issued из status='done'
 очереди рендера, meeting_held всегда unknown (стола нет, С2).
 
@@ -33,10 +33,10 @@ _DT = datetime(2026, 8, 11, 12, 0, 0)
 FACTS_STUB = {
     "telegram_linked": {"status": "confirmed", "source": "persona.ory_identity",
                         "occurred_at": _DT.isoformat()},
-    "guide_issued": {"status": "pending_evaluation",
+    "guide_issued": {"status": "absent",
                      "source": "learning.guide_render_queue", "occurred_at": None},
     "meeting_held": {"status": "unknown", "source": None, "occurred_at": None},
-    "trajectory_confirmed": {"status": "pending_evaluation",
+    "trajectory_confirmed": {"status": "absent",
                              "source": "development.user_state.x3_completed_at",
                              "occurred_at": None},
 }
@@ -82,7 +82,7 @@ async def test_valid_signature_returns_contract_v1():
         resp = await onboarding_facts_handler(_request())
     assert resp.status == 200
     body = json.loads(resp.text)
-    assert body["contract_version"] == "onboarding-facts-v1"
+    assert body["contract_version"] == "onboarding-facts-v2"
     assert body["user_id"] == ACCOUNT
     assert set(body["facts"]) == {"telegram_linked", "guide_issued",
                                   "meeting_held", "trajectory_confirmed"}
@@ -257,10 +257,10 @@ async def test_no_link_row_is_pending_not_unknown():
          patch.object(mod, "get_learning_pool", new_callable=AsyncMock,
                       return_value=_pool_with(learning_conn)):
         facts = await mod.collect_onboarding_facts(ACCOUNT)
-    assert facts["telegram_linked"]["status"] == "pending_evaluation"
-    assert facts["guide_issued"]["status"] == "pending_evaluation"
+    assert facts["telegram_linked"]["status"] == "absent"
+    assert facts["guide_issued"]["status"] == "absent"
     # без привязки X3 заведомо не проходился — pending, не unknown
-    assert facts["trajectory_confirmed"]["status"] == "pending_evaluation"
+    assert facts["trajectory_confirmed"]["status"] == "absent"
 
 
 @pytest.mark.asyncio
