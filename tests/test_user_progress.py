@@ -64,7 +64,7 @@ def _load_module(name: str, filepath: str):
 
 
 def _setup_imports():
-    """Настроить изолированные импорты для тестов."""
+    """Настроить изолированные импорты для тестов (побочный эффект: sys.modules)."""
     _mock_modules()
 
     import types
@@ -118,21 +118,74 @@ def _setup_imports():
     sys.modules['states.common'] = states_common
 
 
-_setup_imports()
+# Заполняются в _ensure_test_modules_loaded() — НЕ на уровне модуля.
+# pytest импортирует (собирает) все test_*.py файлы ПЕРЕД выполнением любого
+# теста; вызов здесь на уровне модуля подменял бы sys.modules во время сбора
+# и портил бы импорт остальных тестовых файлов сессии (найдено WP-498, 12.08:
+# 37 failed + 9 errors в других файлах, пропадали при --ignore этого файла).
+_context_pipeline = None
+_question_handler = None
+_consultation = None
+_MODULES_LOADED = False
+_ORIGINAL_SYS_MODULES = None
 
-# Загружаем целевые модули
-_context_pipeline = _load_module(
-    'engines.shared.context_pipeline',
-    os.path.join(PROJECT_ROOT, 'engines', 'shared', 'context_pipeline.py'),
-)
-_question_handler = _load_module(
-    'engines.shared.question_handler',
-    os.path.join(PROJECT_ROOT, 'engines', 'shared', 'question_handler.py'),
-)
-_consultation = _load_module(
-    'states.common.consultation',
-    os.path.join(PROJECT_ROOT, 'states', 'common', 'consultation.py'),
-)
+
+def _ensure_test_modules_loaded():
+    """Настроить моки sys.modules и загрузить целевые модули (лениво).
+
+    Вызывается из setup_module() (pytest execution phase, не collection)
+    или явно в standalone-режиме — идемпотентно.
+    """
+    global _context_pipeline, _question_handler, _consultation
+    global _MODULES_LOADED, _ORIGINAL_SYS_MODULES
+    if _MODULES_LOADED:
+        return
+    _ORIGINAL_SYS_MODULES = dict(sys.modules)
+    try:
+        _setup_imports()
+        _context_pipeline = _load_module(
+            'engines.shared.context_pipeline',
+            os.path.join(PROJECT_ROOT, 'engines', 'shared', 'context_pipeline.py'),
+        )
+        _question_handler = _load_module(
+            'engines.shared.question_handler',
+            os.path.join(PROJECT_ROOT, 'engines', 'shared', 'question_handler.py'),
+        )
+        _consultation = _load_module(
+            'states.common.consultation',
+            os.path.join(PROJECT_ROOT, 'states', 'common', 'consultation.py'),
+        )
+    except Exception:
+        # Частичная подмена sys.modules не должна пережить неудачную загрузку —
+        # иначе испорченный sys.modules ломает сбор/выполнение остальных
+        # тестовых файлов той же pytest-сессии (тот же класс бага, который
+        # чинит этот файл, только на другом триггере).
+        for key in list(sys.modules.keys()):
+            if key not in _ORIGINAL_SYS_MODULES:
+                del sys.modules[key]
+        sys.modules.update(_ORIGINAL_SYS_MODULES)
+        raise
+    _MODULES_LOADED = True
+
+
+def setup_module(module):
+    """pytest xunit-хук: выполняется перед первым тестом ЭТОГО файла —
+    на фазе выполнения, не сбора. Поэтому подмена sys.modules здесь уже
+    не может испортить импорт соседних test_*.py (их сбор к этому моменту
+    завершён)."""
+    _ensure_test_modules_loaded()
+
+
+def teardown_module(module):
+    """Откатить подмену sys.modules после тестов этого файла (rollback)."""
+    global _MODULES_LOADED
+    if _ORIGINAL_SYS_MODULES is None:
+        return
+    for key in list(sys.modules.keys()):
+        if key not in _ORIGINAL_SYS_MODULES:
+            del sys.modules[key]
+    sys.modules.update(_ORIGINAL_SYS_MODULES)
+    _MODULES_LOADED = False
 
 
 def _run(coro):
@@ -573,6 +626,8 @@ def test_tier_prompts_progress_after_user_profile():
 # =========================================================================
 
 if __name__ == "__main__":
+    _ensure_test_modules_loaded()
+
     print("\n🧪 Тесты: инъекция прогресса пользователя (РП #5)\n")
     print("=" * 60)
 
