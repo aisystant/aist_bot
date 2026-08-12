@@ -13,22 +13,19 @@ Telethon требует один и тот же event loop, но pytest-asyncio 
 """
 
 import os
-import sys
-
-# КРИТИЧНО: nest_asyncio ДО любого импорта asyncio
-try:
-    import nest_asyncio
-    nest_asyncio.apply()
-except ImportError:
-    print("ERROR: nest_asyncio не установлен! pip install nest_asyncio")
-    sys.exit(1)
-
-import asyncio
-from typing import Coroutine, TypeVar, Any
 import pytest
 
-from .client import BotTestClient, BotTest
+# Telethon uses one event loop for the whole E2E session.  Absence of this
+# optional E2E dependency must not stop the ordinary test suite at collection.
+try:
+    import nest_asyncio
+except ModuleNotFoundError:
+    nest_asyncio = None
+else:
+    nest_asyncio.apply()
 
+import asyncio
+from typing import Any, Coroutine, TypeVar
 
 # Загружаем переменные окружения
 def _load_test_env():
@@ -48,12 +45,12 @@ _load_test_env()
 
 # ============ SINGLETON EVENT LOOP И CLIENT ============
 
-_session_loop: asyncio.AbstractEventLoop = None
-_bot_client: BotTestClient = None
+_session_loop: Any = None
+_bot_client: Any = None
 _client_started = False
 
 
-def get_loop() -> asyncio.AbstractEventLoop:
+def get_loop() -> Any:
     """Возвращает единственный event loop для всей сессии"""
     global _session_loop
     if _session_loop is None:
@@ -78,10 +75,14 @@ def run_async(coro: Coroutine[Any, Any, T]) -> T:
     return loop.run_until_complete(coro)
 
 
-def _get_client() -> BotTestClient:
+def _get_client() -> Any:
     """Создаёт клиента (lazy)"""
     global _bot_client
     if _bot_client is None:
+        if nest_asyncio is None:
+            pytest.skip("Telegram E2E требует nest_asyncio; используйте run_tests.sh")
+        from .client import BotTestClient
+
         _bot_client = BotTestClient(
             api_id=int(os.getenv("TEST_API_ID", "0")),
             api_hash=os.getenv("TEST_API_HASH", ""),
@@ -91,28 +92,27 @@ def _get_client() -> BotTestClient:
     return _bot_client
 
 
-def _ensure_started() -> BotTestClient:
+def _ensure_started() -> Any:
     """Запускает клиента если ещё не запущен"""
     global _client_started
 
-    client = _get_client()
-
     if not _client_started:
-        if not client.api_id or not client.api_hash:
+        if not os.getenv("TEST_API_ID") or not os.getenv("TEST_API_HASH"):
             pytest.skip("TEST_API_ID и TEST_API_HASH не настроены")
-        if not client.bot_username:
+        if not os.getenv("TEST_BOT_USERNAME"):
             pytest.skip("TEST_BOT_USERNAME не настроен")
 
+        client = _get_client()
         run_async(client.start())
         _client_started = True
 
-    return client
+    return _get_client()
 
 
 # ============ FIXTURES ============
 
 @pytest.fixture(scope="session")
-def bot(request) -> BotTestClient:
+def bot(request) -> Any:
     """
     Клиент бота для тестов. Использовать с run_async().
 
@@ -136,13 +136,13 @@ def bot(request) -> BotTestClient:
 
 # Алиас для совместимости с существующими тестами
 @pytest.fixture(scope="session")
-def bot_client(bot) -> BotTestClient:
+def bot_client(bot) -> Any:
     """Алиас для bot (совместимость)"""
     return bot
 
 
 @pytest.fixture
-def fresh_bot(bot) -> BotTestClient:
+def fresh_bot(bot) -> Any:
     """Очищает чат перед тестом"""
     run_async(bot.clear_chat())
     run_async(asyncio.sleep(0.5))
@@ -151,7 +151,7 @@ def fresh_bot(bot) -> BotTestClient:
 
 # Алиас
 @pytest.fixture
-def fresh_client(fresh_bot) -> BotTestClient:
+def fresh_client(fresh_bot) -> Any:
     """Алиас для fresh_bot (совместимость)"""
     return fresh_bot
 

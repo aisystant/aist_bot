@@ -10,6 +10,8 @@ E2E тесты онбординга (Класс 1: Регистрация и о�
 
 import pytest
 
+pytest.importorskip("telethon", reason="Telegram E2E требует Telethon; используйте run_tests.sh")
+
 from .client import BotTestClient
 from .conftest import run_async
 

@@ -11,6 +11,8 @@ E2E тесты Марафона (Класс 2: Марафон).
 import pytest
 import asyncio
 
+pytest.importorskip("telethon", reason="Telegram E2E требует Telethon; используйте run_tests.sh")
+
 from .client import BotTestClient
 from .conftest import run_async
 

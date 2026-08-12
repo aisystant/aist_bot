@@ -1,5 +1,7 @@
 #!/bin/bash
 # Скрипт для запуска Telegram E2E тестов с автосохранением результатов
+# Ошибка pytest должна сохранять ненулевой код, даже когда вывод пишется в файл.
+set -o pipefail
 #
 # Использование:
 #   ./tests/test-telegram/run_tests.sh              # все тесты
@@ -46,6 +48,12 @@ esac
 
 echo "Результаты будут сохранены в: $RESULT_FILE"
 echo ""
+
+echo "Устанавливаю зависимости Telegram E2E..."
+if ! python3 -m pip install --disable-pip-version-check --quiet telethon nest_asyncio; then
+    echo "Не удалось установить зависимости Telegram E2E."
+    exit 1
+fi
 
 # Запускаем тесты и сохраняем результаты
 python3 -m pytest "$TEST_PATH" $MARKER -v 2>&1 | tee "$RESULT_FILE"
