@@ -151,6 +151,77 @@ class TestOfferCooldown(unittest.TestCase):
         self.assertFalse(self._fn("not-a-date"))
 
 
+class TestOfferJustShown(unittest.TestCase):
+    """offer._just_shown: короткое дедуп-окно (независимо от 3-дневного cooldown).
+
+    Peer-сессия 2026-08-12-12 (WP-406) — cross-channel дубль между /start
+    (bypass_cooldown=True) и Проводником (handlers/hermes.py, обычный cooldown),
+    найдено code review при фиксе.
+    """
+
+    def setUp(self):
+        from core.onboarder import offer
+        self._fn = offer._just_shown
+        self._window = offer._DEDUP_SECONDS
+
+    def test_never_offered_not_just_shown(self):
+        self.assertFalse(self._fn(None))
+        self.assertFalse(self._fn(""))
+
+    def test_offered_seconds_ago_is_just_shown(self):
+        from datetime import datetime, timedelta
+        recent = (datetime.utcnow() - timedelta(seconds=5)).isoformat()
+        self.assertTrue(self._fn(recent))
+
+    def test_offered_past_dedup_window_not_just_shown(self):
+        from datetime import datetime, timedelta
+        past_window = (datetime.utcnow() - timedelta(seconds=self._window + 5)).isoformat()
+        self.assertFalse(self._fn(past_window))
+
+    def test_broken_timestamp_not_just_shown(self):
+        self.assertFalse(self._fn("not-a-date"))
+
+
+class TestShouldOfferBypassCooldown(unittest.IsolatedAsyncioTestCase):
+    """offer.should_offer(bypass_cooldown=...): /start игнорирует 3-дневный cooldown,
+    но не игнорирует короткое дедуп-окно (не показывает дубль сразу после Проводника).
+    """
+
+    def _patch_storage(self, mock, has_gap: bool, offered_at):
+        from unittest.mock import AsyncMock, patch
+
+        status = {"x2_done": not has_gap, "x3_done": not has_gap}
+        ctx = {"offer_shown_at": offered_at} if offered_at else {}
+        return patch.multiple(
+            "core.onboarder.storage",
+            get_status=AsyncMock(return_value=status),
+            get_onboarding_context=AsyncMock(return_value=ctx),
+        )
+
+    async def test_bypass_ignores_3day_cooldown(self):
+        from datetime import datetime, timedelta
+        from core.onboarder import offer
+
+        recent = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        with self._patch_storage(self, has_gap=True, offered_at=recent):
+            self.assertFalse(await offer.should_offer(123, bypass_cooldown=False))
+            self.assertTrue(await offer.should_offer(123, bypass_cooldown=True))
+
+    async def test_bypass_still_respects_dedup_window(self):
+        from datetime import datetime, timedelta
+        from core.onboarder import offer
+
+        just_now = (datetime.utcnow() - timedelta(seconds=5)).isoformat()
+        with self._patch_storage(self, has_gap=True, offered_at=just_now):
+            self.assertFalse(await offer.should_offer(123, bypass_cooldown=True))
+
+    async def test_no_gap_never_offers_even_with_bypass(self):
+        from core.onboarder import offer
+
+        with self._patch_storage(self, has_gap=False, offered_at=None):
+            self.assertFalse(await offer.should_offer(123, bypass_cooldown=True))
+
+
 class TestOfferPayload(unittest.TestCase):
     """offer.offer_payload: единый источник текста и кнопки для всех точек входа."""
 

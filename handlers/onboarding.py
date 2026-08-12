@@ -1005,17 +1005,23 @@ async def on_start_diagnose_for_x3(callback: CallbackQuery, state: FSMContext):
 
 # ============= WP-406: ОНБОРДЕР — ЕДИНЫЙ ВХОД + Х2 (ПОНИМАНИЕ СООБЩЕСТВА) =============
 
-async def _maybe_offer_onboarder(message: Message, chat_id: int) -> None:
+async def _maybe_offer_onboarder(message: Message, chat_id: int, bypass_cooldown: bool = True) -> None:
     """Показать кнопку «Освоиться» (вход Онбордера), если есть открытый разрыв Х2/Х3.
 
     Точка достижимости: вызывается там, куда новый человек реально попадает после
     /start (Экран B быстрого пути) и в приветствии возвращающегося. Решение «что и
     когда» — в core/onboarder/offer.py (should_offer = разрыв + cooldown); здесь
     только отрисовка кнопки.
+
+    `bypass_cooldown=True` (дефолт) — все вызовы этой функции идут из `/start`
+    (peer-сессия 2026-08-12-12): cooldown здесь не нужен, он существует только
+    для отдельного проактивного канала (Проводник, handlers/hermes.py). Явное
+    действие пользователя (`/start`) должно всегда показывать next-step, если
+    разрыв открыт.
     """
     from core.onboarder import offer
     try:
-        if not await offer.should_offer(chat_id):
+        if not await offer.should_offer(chat_id, bypass_cooldown=bypass_cooldown):
             return
     except Exception as e:
         logger.warning("[onboarder] should_offer check failed for %s: %s", chat_id, e)
