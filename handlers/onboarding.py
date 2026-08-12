@@ -427,8 +427,15 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML",
             reply_markup=keyboard,
         )
+        # Пауза с индикатором «печатает» между сообщениями — иначе Экран B
+        # приходит одной пачкой из 3 сообщений разом (живая находка WP-406, 12.08).
+        from helpers.typing_indicator import keep_typing
+        async with keep_typing(message):
+            await asyncio.sleep(1.2)
         from handlers.consent import show_consent_optin
         await show_consent_optin(message)
+        async with keep_typing(message):
+            await asyncio.sleep(1.0)
         # WP-406 Ф5: вход Онбордера сразу после привязки (Экран B быстрого пути)
         await _maybe_offer_onboarder(message, message.chat.id)
 
