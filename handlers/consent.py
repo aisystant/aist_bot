@@ -570,9 +570,18 @@ async def on_consent_accept(callback: CallbackQuery):
     except Exception as exc:
         logger.warning("[invite] post-consent attribution failed user_id=%s: %s", user_id, exc)
 
-    # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б)
+    # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б).
+    # WP-406 bug-2026-08-12: не показывать, если открыт разрыв Х2/Х3 — «Освоиться»
+    # (Экран B, отправлен раньше в этом же /start) уже покрывает эту роль, а Х3.3
+    # сам заканчивается выбором курса/потока. should_offer() не годится сюда как
+    # проверка (подмешивает cooldown, не про "разрыв открыт"), поэтому статус
+    # читаем напрямую через storage.get_status().
     try:
-        await _send_intent_screen(callback.message)
+        from core.onboarder import storage
+        status = await storage.get_status(user_id)
+        has_onboarder_gap = not (status["x2_done"] and status["x3_done"])
+        if not has_onboarder_gap:
+            await _send_intent_screen(callback.message)
     except Exception as exc:
         logger.warning("[consent] intent_screen failed user_id=%s: %s", user_id, exc)
 
@@ -580,8 +589,19 @@ async def on_consent_accept(callback: CallbackQuery):
 @consent_router.callback_query(F.data == "consent_decline")
 async def on_consent_decline(callback: CallbackQuery):
     await callback.answer()
+    # WP-406 bug-2026-08-12: если выше уже висит кнопка «Освоиться» (открытый
+    # разрыв Х2/Х3) — подсказать про неё явно, иначе после отказа тишина рядом
+    # с нерассмотренной кнопкой выглядит как тупик.
+    hint = ""
+    try:
+        from core.onboarder import storage
+        status = await storage.get_status(callback.from_user.id)
+        if not (status["x2_done"] and status["x3_done"]):
+            hint = "\n\nМожешь нажать «🎓 Освоиться» выше — она не про трекинг."
+    except Exception as exc:
+        logger.warning("[consent_decline] onboarder status check failed user_id=%s: %s", callback.from_user.id, exc)
     await callback.message.edit_text(
-        "👌 Без проблем — можешь вернуться к этому позже.",
+        f"👌 Без проблем — можешь вернуться к этому позже.{hint}",
         parse_mode="HTML",
         reply_markup=_status_keyboard(None),
     )
