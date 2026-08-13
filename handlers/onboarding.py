@@ -434,10 +434,11 @@ async def cmd_start(message: Message, state: FSMContext):
             await asyncio.sleep(1.2)
         from handlers.consent import show_consent_optin
         await show_consent_optin(message)
-        async with keep_typing(message):
-            await asyncio.sleep(1.0)
-        # WP-406 Ф5: вход Онбордера сразу после привязки (Экран B быстрого пути)
-        await _maybe_offer_onboarder(message, message.chat.id)
+        # WP-406 (пир-сессия 2026-08-13-01): «Освоиться» больше не шлётся здесь
+        # параллельно с согласием — Telegram не гасит кнопки старого сообщения,
+        # оба интерактива оставались «живыми» одновременно (нарушение принципа
+        # «один вопрос за раз»). Показ перенесён в on_consent_accept/decline
+        # (handlers/consent.py) — после того, как пользователь ответит.
 
     async with span("start.menu_sync"):
         await sync_menu_commands(message.bot, message.chat.id, tier, lang)

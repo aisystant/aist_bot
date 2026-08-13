@@ -570,41 +570,46 @@ async def on_consent_accept(callback: CallbackQuery):
     except Exception as exc:
         logger.warning("[invite] post-consent attribution failed user_id=%s: %s", user_id, exc)
 
-    # Post-consent: экран выбора намерения (Вариант Б, WP-349 Ф16б).
-    # WP-406 bug-2026-08-12: не показывать, если открыт разрыв Х2/Х3 — «Освоиться»
-    # (Экран B, отправлен раньше в этом же /start) уже покрывает эту роль, а Х3.3
-    # сам заканчивается выбором курса/потока. should_offer() не годится сюда как
-    # проверка (подмешивает cooldown, не про "разрыв открыт"), поэтому статус
-    # читаем напрямую через storage.get_status().
+    # Post-consent: ровно один следующий CTA — «Освоиться» (если открыт разрыв
+    # Х2/Х3) либо экран выбора намерения (Вариант Б, WP-349 Ф16б) в противном
+    # случае. Взаимоисключающе — иначе снова два интерактива подряд (WP-406,
+    # пир-сессия 2026-08-13-01: «Освоиться» раньше шла из onboarding.py
+    # параллельно с согласием, теперь — только здесь, после ответа). should_offer()
+    # не годится как проверка (подмешивает cooldown, не про "разрыв открыт"),
+    # поэтому статус читаем напрямую через storage.get_status().
     try:
         from core.onboarder import storage
         status = await storage.get_status(user_id)
         has_onboarder_gap = not (status["x2_done"] and status["x3_done"])
-        if not has_onboarder_gap:
+        if has_onboarder_gap:
+            from handlers.onboarding import _maybe_offer_onboarder
+            await _maybe_offer_onboarder(callback.message, user_id, bypass_cooldown=True)
+        else:
             await _send_intent_screen(callback.message)
     except Exception as exc:
-        logger.warning("[consent] intent_screen failed user_id=%s: %s", user_id, exc)
+        logger.warning("[consent] post_consent_cta failed user_id=%s: %s", user_id, exc)
 
 
 @consent_router.callback_query(F.data == "consent_decline")
 async def on_consent_decline(callback: CallbackQuery):
     await callback.answer()
-    # WP-406 bug-2026-08-12: если выше уже висит кнопка «Освоиться» (открытый
-    # разрыв Х2/Х3) — подсказать про неё явно, иначе после отказа тишина рядом
-    # с нерассмотренной кнопкой выглядит как тупик.
-    hint = ""
+    await callback.message.edit_text(
+        "👌 Без проблем — можешь вернуться к этому позже.",
+        parse_mode="HTML",
+        reply_markup=_status_keyboard(None),
+    )
+    # WP-406 (пир-сессия 2026-08-13-01): раньше здесь была текстовая подсказка
+    # «нажми Освоиться выше», рассчитанная на кнопку, отправленную параллельно
+    # с согласием (Экран B). Теперь та кнопка не шлётся заранее — если разрыв
+    # Х2/Х3 ещё открыт, показываем «Освоиться» реальной кнопкой прямо здесь.
     try:
         from core.onboarder import storage
         status = await storage.get_status(callback.from_user.id)
         if not (status["x2_done"] and status["x3_done"]):
-            hint = "\n\nМожешь нажать «🎓 Освоиться» выше — она не про трекинг."
+            from handlers.onboarding import _maybe_offer_onboarder
+            await _maybe_offer_onboarder(callback.message, callback.from_user.id, bypass_cooldown=True)
     except Exception as exc:
-        logger.warning("[consent_decline] onboarder status check failed user_id=%s: %s", callback.from_user.id, exc)
-    await callback.message.edit_text(
-        f"👌 Без проблем — можешь вернуться к этому позже.{hint}",
-        parse_mode="HTML",
-        reply_markup=_status_keyboard(None),
-    )
+        logger.warning("[consent_decline] onboarder offer failed user_id=%s: %s", callback.from_user.id, exc)
 
 
 @consent_router.callback_query(F.data == "consent_revoke_confirm")
