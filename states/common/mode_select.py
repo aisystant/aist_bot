@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import logging
 import random
 from typing import Optional
 
@@ -21,6 +22,8 @@ from core.tier_config import UITier
 from i18n import t, get_language_name, SUPPORTED_LANGUAGES
 from db.queries.users import update_intern
 from config import MULTILANG_ENABLED
+
+logger = logging.getLogger(__name__)
 
 
 # Tier → i18n key suffix for tier label
@@ -53,11 +56,28 @@ def _get_tier_label(tier: int, lang: str) -> str:
     return t(f'welcome.tier_label.{key}', lang)
 
 
-def _get_random_tip(tier: int, lang: str, chat_id: int) -> str:
+async def _get_random_tip(tier: int, lang: str, chat_id: int) -> str:
     """Get a random tip for the tier, avoiding consecutive repeats.
 
     Tips are stored as numbered i18n keys: welcome.tips.t{N}_{idx}
+
+    WP-406 (живая находка 13.08): при открытом разрыве Х2/Х3 генеральный
+    ротационный tip (например «Попробуй Ленту») уводит в сторону от
+    незакрытого онбординга — сразу вслед идёт `_maybe_offer_onboarder()`
+    с предложением «Освоиться», и два разных CTA подряд конкурируют за
+    внимание. Пока разрыв открыт — tip не показываем, следующее сообщение
+    уже несёт актуальный next-step.
     """
+    from core.onboarder import storage
+    try:
+        status = await storage.get_status(chat_id)
+        has_onboarder_gap = not (status["x2_done"] and status["x3_done"])
+    except Exception as e:
+        logger.warning("[mode_select] onboarder gap check failed chat_id=%s: %s", chat_id, e)
+        has_onboarder_gap = False
+    if has_onboarder_gap:
+        return ""
+
     key_prefix = _TIER_TIPS_KEY.get(tier, 't1')
 
     # Collect all tips for this tier (t0_0, t0_1, ...)
@@ -133,7 +153,7 @@ class ModeSelectState(BaseState):
         keyboard = build_reply_keyboard(tier, lang)
 
         tier_label = _get_tier_label(tier, lang)
-        tip = _get_random_tip(tier, lang, chat_id)
+        tip = await _get_random_tip(tier, lang, chat_id)
 
         if context.get('source') == 'mode':
             # /mode — информативное сообщение с номером тира
@@ -142,6 +162,8 @@ class ModeSelectState(BaseState):
             # /start и другие входы — приветствие с именем
             name = user_dict.get('name', '')
             greeting = t('welcome.menu_greeting', lang, name=name, tier_label=tier_label, tip=tip)
+        if not tip:
+            greeting = greeting.rstrip()  # пустой tip не должен оставлять висящую пустую строку
 
         await self.send(user, greeting, reply_markup=keyboard, parse_mode="Markdown")
         # fire-and-forget: set_my_commands не блокирует ответ пользователю
