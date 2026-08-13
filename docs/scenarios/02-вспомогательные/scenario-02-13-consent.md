@@ -58,8 +58,8 @@ wp: WP-188 (Ф17 + Ф17.10)
 | `/consent opt-in` | Privacy-текст + inline [✅ Принять] | там же |
 | `/consent opt-out` | UPDATE `opt_in=FALSE` (история сохранена, `opted_at` не трогается) | `db/queries/consent.py:80` (COALESCE) |
 | `/consent revoke` | Двухшаговое подтверждение → DELETE строки (GDPR right to erasure) | `handlers/consent.py:317` |
-| `consent_accept` | UPSERT с opt_in=TRUE; cache invalidate (race-safe, до+после UPDATE) | `handlers/consent.py:282` |
-| `consent_decline` | UPSERT с opt_in=FALSE | `handlers/consent.py:308` |
+| `consent_accept` | UPSERT с opt_in=TRUE через gateway; после подтверждения — ровно один следующий CTA: «🎓 Освоиться» (если открыт разрыв Х2/Х3, WP-406) или экран «С чего начнём?» (WP-349 Ф16б) — взаимоисключающе | `handlers/consent.py:498` |
+| `consent_decline` | Без записи в БД; после отказа — «🎓 Освоиться», если открыт разрыв Х2/Х3 (WP-406) | `handlers/consent.py:589` |
 | `consent_link_now` | Запуск `/link` flow, если LMS не привязан | `handlers/consent.py:344` |
 | `consent_from_onboarding` | Точка входа из onboarding (после `/start` / `/link`) | `handlers/consent.py:414` |
 | `consent_retry_status` | Повторный показ status (refresh после ETL). Экран «привязан, идёт синхронизация» (нет Ory-идентичности при наличии Aisystant-аккаунта) показывает кнопку «🔑 Войти через Aisystant» (реальный OAuth-вход через Ory вместо ожидания батч-переноса раз в 4 часа) + «🔄 Попробовать снова» | `handlers/consent.py:450` |
@@ -137,6 +137,7 @@ wp: WP-188 (Ф17 + Ф17.10)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-08-13 | WP-406 (пир-сессия 2026-08-13-01): показ «🎓 Освоиться» перенесён с Экрана B (`/start`, параллельно с согласием) в `consent_accept`/`consent_decline` — один интерактив за раз вместо двух одновременных. |
 | 2026-07-09 | WP-7 ORY-RT1: экран «идёт синхронизация» (нет Ory-идентичности, есть Aisystant) получил кнопку «🔑 Войти через Aisystant» (переиспользует `ory_register`/`clients/ory_oauth.py` — реальный OAuth-вход вместо ожидания 4-часового батча). Убрано вводящее в заблуждение «1-2 минуты» + личный контакт в тексте. `_retry_keyboard()` стала `async def` (генерирует `auth_url`), все 7 вызовов обновлены на `await`. |
 | 2026-05-23 | WP-349: После `consent_accept` нудж теперь ведёт на `/setup` (не `/diagnose`). |
 | 2026-05-12 | WP-188 Ф17 — реализация `/consent`, writer-pool, GDPR fixes, activity-summary, /link follow-up |
