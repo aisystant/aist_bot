@@ -238,6 +238,18 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 037 (scheduled_post dedup lock) skipped: {_e}", exc_info=True)
 
+    # Миграция 039: development.daily_activity_marker — атомарный гейт счётчика
+    # активных дней (WP-7 Ф48). create_tables пропущена в проде (SKIP_DB_MIGRATIONS),
+    # поэтому явный вызов — без таблицы record_active_day() падает на каждой фиксации.
+    try:
+        _m039 = _il.import_module("db.migrations.039_wp7_f48_daily_activity_marker")
+        if await _m039.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 039: daily_activity_marker создана")
+        else:
+            logger.info("✅ Migration 039: daily_activity_marker уже существует")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 039 (daily_activity_marker) skipped: {_e}", exc_info=True)
+
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
     if HEALTH_URL != DATABASE_URL:
