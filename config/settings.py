@@ -95,6 +95,11 @@ KNOWLEDGE_MCP_URL = os.getenv("KNOWLEDGE_MCP_URL", "https://knowledge-mcp.aisyst
 DIGITAL_TWIN_MCP_URL = os.getenv("DIGITAL_TWIN_MCP_URL", "https://twin.aisystant.com/mcp")
 GATEWAY_MCP_URL = os.getenv("GATEWAY_MCP_URL", "https://mcp.aisystant.com/mcp")
 GATEWAY_MCP_TIMEOUT: int = int(os.getenv("GATEWAY_MCP_TIMEOUT", "3"))
+# WP-522 §3в: standalone read-model чек-листа участника (аутентификация — сервисный
+# токен onboarder, оба переданы в Railway env одновременно с ORY_URL клиента).
+CHECKLIST_MCP_URL = os.getenv("CHECKLIST_MCP_URL", "")
+CHECKLIST_MCP_SERVICE_TOKEN_ONBOARDER = os.getenv("CHECKLIST_MCP_SERVICE_TOKEN_ONBOARDER", "")
+CHECKLIST_MCP_TIMEOUT: int = int(os.getenv("CHECKLIST_MCP_TIMEOUT", "3"))
 
 # ============= LANGFUSE (L5 Observability, WP-179) =============
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
