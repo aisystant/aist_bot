@@ -776,10 +776,12 @@ async def main():
     from clients.mcp import MCPClient
     from clients.gateway_mcp import gateway_mcp
     from clients.wakatime import wakatime_client
+    from clients.checklist_mcp import checklist_mcp
     await ClaudeClient.close_session()
     await MCPClient.close_session()
     await gateway_mcp.close()
     await wakatime_client.close_session()
+    await checklist_mcp.close()
     # ФИКС (peer-session 2026-06-05-02): singleton-сессии aisystant/discourse/
     # github_content не закрывались нигде → "Unclosed client session/connector"
     # при остановке процесса. Закрываем все три (discourse/github_content

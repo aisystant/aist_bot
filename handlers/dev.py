@@ -11,7 +11,7 @@ import os
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 
 from helpers.message_split import truncate_safe
 
@@ -294,6 +294,63 @@ async def cmd_latency(message: Message):
     text = truncate_safe(text)
 
     await message.answer(text, parse_mode="HTML")
+
+
+@dev_router.message(Command("checklist"))
+async def cmd_checklist(message: Message, command: CommandObject):
+    """/checklist [account_id] — чек-лист участника (WP-522 §3в) через checklist-mcp.
+
+    Без аргумента — чек-лист самого разработчика (resolve по chat_id). С аргументом —
+    чек-лист указанного account_id (поддержка/диагностика чужого участника).
+    """
+    if not _is_developer(message.chat.id):
+        return
+
+    import html as html_mod
+
+    from clients.checklist_mcp import checklist_mcp
+    from helpers.dual_write import resolve_ory_id_from_chat
+
+    arg = command.args.strip() if command.args else ""
+    account_id = arg or await resolve_ory_id_from_chat(message.chat.id)
+
+    if not account_id:
+        await message.answer("Не нашёл account_id — укажи явно: /checklist &lt;account_id&gt;", parse_mode="HTML")
+        return
+
+    logger.info("[dev] /checklist запрошен developer_chat_id=%s account_id=%s", message.chat.id, account_id)
+
+    status = await checklist_mcp.get_checklist_status(account_id)
+    if not status:
+        # status is None (сеть/HTTP-ошибка, уже в логе checklist_mcp) или {}/content без summary
+        # (checklist-mcp ответил 200, но форма тела неожиданная) — оба случая для разработчика
+        # выглядят одинаково: "нет данных", причина сети — в логе клиента, форма тела — здесь.
+        logger.warning("[dev] /checklist: пустой или неожиданный ответ checklist-mcp для account_id=%s", account_id)
+        await message.answer("checklist-mcp не ответил (сервис недоступен, не настроен, или пустой ответ) — детали в логе.")
+        return
+
+    summary = status.get("summary", {})
+    unknown_facts = [f["id"] for f in status.get("facts", []) if f.get("value") == "unknown"]
+
+    sep = "─" * 20
+    text = (
+        f"<b>Чек-лист участника</b> ({_msk_now()})\n{sep}\n\n"
+        f"account_id: <code>{html_mod.escape(str(account_id))}</code>\n"
+        f"Подтверждённый этап: {html_mod.escape(str(summary.get('current_confirmed_stage') or '—'))}\n"
+        f"Текущий этап в работе: {html_mod.escape(str(summary.get('in_progress_stage') or '—'))} "
+        f"({html_mod.escape(str(summary.get('stage_progress') or '0/0'))})\n"
+        f"Осведомлённость (О-серия): {html_mod.escape(str(summary.get('awareness_progress') or '0/0'))}\n"
+        f"Неизвестно фактов: {summary.get('unknown_count', 0)} из {summary.get('total_facts', 0)}\n"
+    )
+    if unknown_facts:
+        text += f"\n<i>Без писателя:</i> {html_mod.escape(', '.join(str(f) for f in unknown_facts))}"
+
+    try:
+        await message.answer(text, parse_mode="HTML")
+    except Exception:
+        logger.exception("[dev] /checklist: HTML-рендер упал, fallback без форматирования")
+        import re
+        await message.answer(re.sub(r"<[^>]+>", "", text))
 
 
 @dev_router.message(Command("errors"))
