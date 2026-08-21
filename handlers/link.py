@@ -25,7 +25,9 @@ from aiogram.filters import Command
 
 from db.queries import get_intern
 from db.queries.aisystant import get_aisystant_id, save_aisystant_link, remove_aisystant_link
+from db.queries.consent import get_consent_grant
 from clients.aisystant import aisystant
+from helpers.dual_write import resolve_ory_id_from_chat
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -80,17 +82,31 @@ async def cmd_link(message: Message):
         await _refresh_tier_keyboard(message, chat_id, lang)
         # Показываем что делать дальше
         await _send_link_next_steps(message, chat_id, lang)
-        # WP-188 Ф17 follow-up: предложить consent для тех, кто пришёл к /link уже
-        # после онбординга (auto-link не сработал на /start) — иначе они не увидят
-        # inline-кнопки consent и не узнают про opt-in.
-        await message.answer(
-            "📊 <b>Хочешь, чтобы платформа считала твою ступень мастерства?</b>\n\n"
-            "Для этого нужно одно действие — согласие на трекинг развития.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="📊 Согласие на трекинг", callback_data="consent_from_onboarding"),
-            ]]),
-        )
+        # WP-188 Ф17 follow-up + WP-544 Ф3: предложить consent для тех, кто пришёл
+        # к /link уже после онбординга (auto-link не сработал на /start) — иначе
+        # они не увидят inline-кнопки consent и не узнают про opt-in. Пропускаем,
+        # если consent уже дан на этот account_id (напр. после /unlink → /link на
+        # том же аккаунте) — иначе просим то, что уже есть, вторым CTA подряд.
+        # Fail-open: сразу после save_aisystant_link Ory-идентичность может ещё
+        # не подтянуться (см. _resolve_account в consent.py), либо сам запрос
+        # к БД может упасть — в обоих случаях показываем предложение, как раньше,
+        # а не роняем необработанным исключением уже доставленные next-steps.
+        already_consented = False
+        try:
+            account_id = await resolve_ory_id_from_chat(chat_id)
+            if account_id:
+                already_consented = await get_consent_grant(account_id, "data_analysis")
+        except Exception as e:
+            logger.warning(f"[Link] consent check failed for {chat_id}: {e}")
+        if not already_consented:
+            await message.answer(
+                "📊 <b>Хочешь, чтобы платформа считала твою ступень мастерства?</b>\n\n"
+                "Для этого нужно одно действие — согласие на трекинг развития.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="📊 Согласие на трекинг", callback_data="consent_from_onboarding"),
+                ]]),
+            )
         return
 
     # Не найден → показываем ссылку для привязки
