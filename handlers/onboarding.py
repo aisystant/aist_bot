@@ -969,7 +969,9 @@ async def on_x3_confirm(callback: CallbackQuery):
             "\n\n📖 Готовлю твоё первое персональное руководство — пришлю, как будет готово."
             if _x2_done_before else ""
         )
-        await callback.message.answer("✅ Курс выбран! Добро пожаловать в программу." + _guide_line)
+        from core.onboarder.x3 import describe_stream
+        _stream_name = describe_stream(chosen_stream) if chosen_stream else "программа"
+        await callback.message.answer(f"✅ Выбрано: {_stream_name}. Добро пожаловать в программу." + _guide_line)
     except Exception as e:
         logger.error("[onboarder_x3] mark_x3_done failed for %s: %s", chat_id, e)
         intern = await get_intern(chat_id)

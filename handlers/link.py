@@ -24,13 +24,22 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 from db.queries import get_intern
-from db.queries.aisystant import get_aisystant_id, save_aisystant_link
+from db.queries.aisystant import get_aisystant_id, save_aisystant_link, remove_aisystant_link
 from clients.aisystant import aisystant
 from i18n import t
 
 logger = logging.getLogger(__name__)
 
 link_router = Router(name="link")
+
+
+def _unlink_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔓 Да, отвязать", callback_data="unlink_confirm"),
+            InlineKeyboardButton(text="↩️ Отмена", callback_data="unlink_cancel"),
+        ],
+    ])
 
 
 def _lang(intern) -> str:
@@ -139,6 +148,52 @@ async def callback_link_check(callback: CallbackQuery):
         logger.info(f"[Link] callback: _send_link_next_steps returned for {chat_id}")
     else:
         await callback.answer(t('link.check_not_yet', lang), show_alert=True)
+
+
+@link_router.message(Command("unlink"))
+async def cmd_unlink(message: Message):
+    """Команда /unlink — отвязать текущий Aisystant аккаунт (для привязки другого)."""
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    existing = await get_aisystant_id(chat_id)
+    if not existing:
+        await message.answer("Аккаунт Aisystant сейчас не привязан — отвязывать нечего.")
+        return
+
+    await message.answer(
+        "⚠️ <b>Отвязать аккаунт Aisystant?</b>\n\n"
+        "После отвязки платформа не будет связывать твою активность в боте "
+        "с текущим аккаунтом. Привязать другой аккаунт можно будет командой "
+        "<b>/link</b> сразу после этого.\n\n"
+        "Продолжить?",
+        parse_mode="HTML",
+        reply_markup=_unlink_confirm_keyboard(),
+    )
+
+
+@link_router.callback_query(F.data == "unlink_confirm")
+async def callback_unlink_confirm(callback: CallbackQuery):
+    chat_id = callback.from_user.id
+    try:
+        await remove_aisystant_link(chat_id)
+    except Exception as e:
+        logger.error(f"[Unlink] remove_aisystant_link error for {chat_id}: {e}")
+        await callback.answer("Не получилось отвязать. Попробуй ещё раз позже.", show_alert=True)
+        return
+    await callback.answer("Аккаунт отвязан.")
+    await callback.message.edit_text(
+        "🔓 <b>Аккаунт Aisystant отвязан.</b>\n\n"
+        "Чтобы привязать другой — используй команду <b>/link</b>.",
+        parse_mode="HTML",
+    )
+
+
+@link_router.callback_query(F.data == "unlink_cancel")
+async def callback_unlink_cancel(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.edit_text("Отменено — привязка не изменена.")
 
 
 async def _migrate_workshop_payments(chat_id: int, aisystant_id: str):

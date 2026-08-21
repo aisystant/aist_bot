@@ -519,6 +519,18 @@ async def on_consent_accept(callback: CallbackQuery):
         )
         if result is None or not result.get("success"):
             logger.error("[consent_accept] gateway grant_consent failed for %s: %s", user_id, result)
+            # WP-544 Ф2: not_authorized/token_expired — не сетевой сбой, а
+            # отсутствующий/протухший ключ входа (Ory). "Попробуй позже" тут
+            # ложная подсказка — повтор без входа даст тот же отказ. Показываем
+            # экран с кнопкой входа (уже используется в _LINKED_BUT_SYNCING_TEXT).
+            if gateway_mcp._last_call_error in ("not_authorized", "token_expired"):
+                await callback.answer()
+                await callback.message.answer(
+                    _LINKED_BUT_SYNCING_TEXT,
+                    parse_mode="HTML",
+                    reply_markup=await _retry_keyboard(user_id),
+                )
+                return
             await callback.answer("Ошибка записи. Попробуй позже.", show_alert=True)
             return
         await set_consent_grant(account_id, "text_analysis", granted=True)

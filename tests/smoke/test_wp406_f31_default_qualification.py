@@ -292,9 +292,9 @@ async def test_qualification_error_does_not_break_x3_flow():
 
     logged_events = [call.args[1] for call in mock_log.await_args_list]
     assert "onboarding_completed" in logged_events
-    # Пользователь получил подтверждение выбора курса, а не сообщение об ошибке
+    # Пользователь получил подтверждение выбора потока, а не сообщение об ошибке
     answered = [call.args[0] for call in callback.message.answer.await_args_list]
-    assert any("Курс выбран" in text for text in answered)
+    assert any("Выбрано" in text and "Добро пожаловать" in text for text in answered)
 
 
 @pytest.mark.asyncio

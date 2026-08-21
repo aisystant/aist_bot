@@ -256,7 +256,19 @@ async def save_aisystant_link(chat_id: int, aisystant_id: str):
 
 
 async def remove_aisystant_link(chat_id: int):
-    """Удалить привязку Aisystant аккаунта."""
+    """Удалить привязку Aisystant аккаунта.
+
+    Чистит public.users (Railway) — путь, который читает get_aisystant_id() как
+    fallback и который save_aisystant_link() всегда проверяет первым при /link
+    ("уже привязан"). Также обнуляет persona.ory_identity.telegram_id (Neon) —
+    primary read-path, симметрично тому, как save_aisystant_link() его проставляет
+    (см. её docstring). Без этого шага resolve_ory_id_from_chat() продолжит
+    находить старую связь по telegram_id, даже когда public.users уже очищен.
+
+    Не трогает public.users.ory_id и development.identity_map — их читают /points
+    и ЦД независимо от aisystant_id; они пересинхронизируются сами при следующем
+    /link (см. save_aisystant_link() строки sync ory_id).
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         # Берём user_uuid + предыдущий aisystant_id ДО апдейта
@@ -273,6 +285,27 @@ async def remove_aisystant_link(chat_id: int):
             chat_id,
         )
     logger.info(f"Aisystant unlinked: chat_id={chat_id}")
+
+    try:
+        persona_pool = await get_persona_pool()
+        async with persona_pool.acquire() as pconn:
+            persona_result = await pconn.execute(
+                '''UPDATE public.ory_identity
+                   SET telegram_id = NULL
+                   WHERE telegram_id = $1''',
+                chat_id,
+            )
+            logger.info(f"[Aisystant] persona.ory_identity telegram_id cleared: {persona_result} for chat_id={chat_id}")
+    except Exception as exc:
+        # Не блокируем unlink целиком — public.users уже очищен, /link заново
+        # найдёт аккаунт. Симметрично graceful degrade в save_aisystant_link().
+        logger.warning(f"[Aisystant] persona.ory_identity clear failed: {exc}")
+
+    try:
+        from helpers.dual_write import _ory_cache
+        _ory_cache.pop(chat_id, None)
+    except Exception:
+        pass
 
     # WP-268 Phase 2 dual-write: aisystant_unlinked
     if prev:

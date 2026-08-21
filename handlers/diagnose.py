@@ -29,6 +29,7 @@ from db.queries.cp_assessment import (
     get_latest_cp_assessment,
     save_cp_assessment,
     compute_cp_stage,
+    describe_bottleneck,
 )
 
 logger = logging.getLogger(__name__)
@@ -257,6 +258,20 @@ STREAM_LABELS = {
     "РР": "Рабочее развитие — переход к ролям Интеллектуала и Профессионала",
 }
 
+# strftime('%B') зависит от locale процесса (не задан на проде → английские имена
+# месяцев); locale.setlocale() не годится — глобален для процесса, гонка между
+# конкурентными asyncio-запросами разных пользователей.
+_MONTH_NAMES_RU = {
+    1: "январь", 2: "февраль", 3: "март", 4: "апрель",
+    5: "май", 6: "июнь", 7: "июль", 8: "август",
+    9: "сентябрь", 10: "октябрь", 11: "ноябрь", 12: "декабрь",
+}
+
+
+def _format_month_year_ru(dt: datetime) -> str:
+    return f"{_MONTH_NAMES_RU[dt.month]} {dt.year}"
+
+
 # WP-371: следующие роли траектории Ученик → Интеллектуал → Профессионал → Исследователь → Просветитель.
 # Показывается только на ст. 5 (Проактивный), когда ЛР завершена и следующая программа — РР.
 NEXT_ROLES_HINT = "Интеллектуал → Профессионал"
@@ -349,21 +364,13 @@ def _format_result(profile: dict, valid_until_iso: str | None) -> str:
     if bottleneck is None or bottleneck == 'none':
         priority_line = "Узких мест нет — поддерживайте темп и берите следующие ступени."
     else:
-        bottleneck_human = {
-            "cp.rhy": "регулярность и ритм занятий",
-            "cp.wld": "мировоззрение и системный взгляд",
-            "cp.skl": "учёт времени и собранность",
-            "cp.iwe": "рабочая среда и инструменты",
-            "cp.int": "системное мышление",
-            "cp.agt": "агентность и инициатива",
-        }.get(bottleneck, bottleneck)
-        priority_line = f"Приоритет роста: {bottleneck_human}"
+        priority_line = f"Приоритет роста: {describe_bottleneck(bottleneck)}"
 
     valid_str = ""
     if valid_until_iso:
         try:
             dt = datetime.fromisoformat(valid_until_iso)
-            valid_str = f"\nАктуально до: {dt.strftime('%B %Y')}"
+            valid_str = f"\nАктуально до: {_format_month_year_ru(dt)}"
         except Exception:
             pass
 
