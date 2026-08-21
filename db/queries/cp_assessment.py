@@ -20,6 +20,26 @@ logger = logging.getLogger(__name__)
 MANDATORY_SLOTS = ["cp.rhy", "cp.wld", "cp.skl", "cp.int", "cp.agt"]  # WP-370: align with PD.FORM.089 v5.0 (17 мая 2026) — cp.iwe → informational
 CP_TTL_DAYS = 180
 
+# Человекочитаемые имена слотов (bottleneck_slot). Единственный источник перевода
+# cp.* → текст для пилота — используется handlers/diagnose.py и core/onboarder/x3.py,
+# не дублировать словарь в UI-коде.
+SLOT_NAMES_RU = {
+    "cp.rhy": "регулярность и ритм занятий",
+    "cp.wld": "мировоззрение и системный взгляд",
+    "cp.skl": "учёт времени и собранность",
+    "cp.iwe": "рабочая среда и инструменты",
+    "cp.int": "системное мышление",
+    "cp.agt": "агентность и инициатива",
+}
+
+
+def describe_bottleneck(bottleneck_slot: str) -> str:
+    """Перевести код узкого места (cp.*) в человекочитаемое имя.
+
+    Неизвестный код возвращается как есть (не выдумываем имя).
+    """
+    return SLOT_NAMES_RU.get(bottleneck_slot, bottleneck_slot)
+
 
 def compute_cp_stage(cp_scores: dict) -> dict:
     """cp_confirmed_stage = min(mandatory). FORM.089 §6.1.

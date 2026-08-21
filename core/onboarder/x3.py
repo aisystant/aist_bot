@@ -107,10 +107,12 @@ async def _show_x3_offer(
     """
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+    from db.queries.cp_assessment import describe_bottleneck
+
     stream_name = describe_stream(recommended_stream)
     # bottleneck_slot хранится как строка "none" когда узкого места нет (NOT NULL в БД)
     effective_bottleneck = bottleneck_slot if bottleneck_slot and bottleneck_slot != "none" else None
-    bottleneck_text = f" (узкое место: <b>{effective_bottleneck}</b>)" if effective_bottleneck else ""
+    bottleneck_text = f" (узкое место: <b>{describe_bottleneck(effective_bottleneck)}</b>)" if effective_bottleneck else ""
 
     text = (
         f"🎯 Тебе подходит <b>{stream_name}</b>{bottleneck_text}.\n\n"
