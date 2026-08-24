@@ -9,6 +9,7 @@ WP-268 Phase 2 Phase A — smoke-тесты для helpers/dual_write.py.
 5. fire_event без running loop → warning, no raise.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json as jsonlib
@@ -355,19 +356,24 @@ async def test_resolve_ory_id_negative_cache():
 
 
 @pytest.mark.asyncio
-async def test_resolve_ory_id_db_error_returns_none():
-    """На ошибке БД resolve возвращает None и не raise."""
+async def test_resolve_ory_id_db_error_returns_none(caplog):
+    """Ошибка resolve не раскрывает Telegram ID и текст исключения."""
     from helpers import dual_write
 
     dual_write._ory_cache.clear()
+    telegram_id_marker = 987654321
+    exception_marker = "DATABASE_SECRET_SENTINEL"
 
     async def broken_get_persona_pool():
-        raise ConnectionError("db down")
+        raise ConnectionError(exception_marker)
 
     with patch("db.connection.get_persona_pool", broken_get_persona_pool):
-        result = await dual_write.resolve_ory_id_from_chat(42)
+        result = await dual_write.resolve_ory_id_from_chat(telegram_id_marker)
 
     assert result is None
+    assert "resolve_ory_id_from_chat failed: ConnectionError" in caplog.text
+    assert str(telegram_id_marker) not in caplog.text
+    assert exception_marker not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -621,6 +627,266 @@ def test_audit_fix_no_epoch_ns_in_external_ids():
         assert "epoch_ns = int(" not in text, (
             f"{path}: остался epoch_ns assignment"
         )
+
+
+@pytest.mark.asyncio
+async def test_tool_call_audit_v2_omits_sensitive_content_and_sets_account_id():
+    """Д6.5: tool audit хранит только метаданные и канонического владельца."""
+    from db.queries import traces
+
+    telegram_user_id = 987654321
+    account_id = "11111111-2222-3333-4444-555555555555"
+    query_marker = "QUERY_SECRET_SENTINEL"
+    available_tool_markers = [
+        "SEARCH_TOOL_SECRET_SENTINEL",
+        "PERSONAL_TOOL_SECRET_SENTINEL",
+    ]
+    chosen_tool_marker = available_tool_markers[1]
+    input_key_marker = "INPUT_KEY_SECRET_SENTINEL"
+    input_marker = "INPUT_SECRET_SENTINEL"
+    result_marker = "RESULT_SECRET_SENTINEL"
+    tool_input = {input_key_marker: input_marker, "limit": 5}
+
+    conn = MagicMock()
+    conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+    class FakeAcquire:
+        async def __aenter__(self):
+            return conn
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakePool:
+        def acquire(self):
+            return FakeAcquire()
+
+    resolve_account = AsyncMock(return_value=account_id)
+    with patch(
+        "helpers.dual_write.resolve_ory_id_from_chat",
+        resolve_account,
+    ), patch.object(
+        traces,
+        "get_learning_pool",
+        AsyncMock(return_value=FakePool()),
+    ):
+        await traces.log_tool_call_audit(
+            telegram_user_id=telegram_user_id,
+            query=query_marker,
+            available_tools=available_tool_markers,
+            chosen_tool=chosen_tool_marker,
+            tool_input=tool_input,
+            result_summary=result_marker,
+        )
+
+    resolve_account.assert_awaited_once_with(telegram_user_id)
+    conn.execute.assert_awaited_once()
+    (
+        sql,
+        source,
+        external_id,
+        event_type,
+        schema_version,
+        stored_account_id,
+        occurred_at,
+        serialized_payload,
+    ) = conn.execute.await_args.args
+
+    assert "account_id" in sql
+    assert "$5::uuid" in sql
+    assert source == "aist-bot"
+    assert event_type == "tool_call_audit"
+    assert schema_version == "v2"
+    assert stored_account_id == account_id
+    assert occurred_at.tzinfo == timezone.utc
+    assert external_id.startswith("tool-audit-")
+    assert len(external_id.removeprefix("tool-audit-")) == 32
+    int(external_id.removeprefix("tool-audit-"), 16)
+
+    sensitive_markers = (
+        query_marker,
+        *available_tool_markers,
+        input_key_marker,
+        input_marker,
+        result_marker,
+        str(telegram_user_id),
+    )
+    db_call_repr = repr(conn.execute.await_args.args)
+    for marker in sensitive_markers:
+        assert marker not in db_call_repr
+        assert marker not in external_id
+        assert marker not in serialized_payload
+
+    payload = jsonlib.loads(serialized_payload)
+    assert payload == {
+        "available_tool_count": len(available_tool_markers),
+        "available_tool_fingerprints": [
+            hashlib.sha256(tool_name.encode("utf-8")).hexdigest()
+            for tool_name in available_tool_markers
+        ],
+        "chosen_tool_fingerprint": hashlib.sha256(
+            chosen_tool_marker.encode("utf-8")
+        ).hexdigest(),
+        "query_length": len(query_marker),
+        "tool_input_key_count": len(tool_input),
+        "tool_input_length": len(
+            jsonlib.dumps(
+                tool_input,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        ),
+        "result_length": len(result_marker),
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_call_audit_v2_skips_event_without_canonical_account_id():
+    """Д6.5: событие без владельца не обходит RLS и контур удаления."""
+    from db.queries import traces
+
+    telegram_user_id = 987654321
+    query_marker = "QUERY_SECRET_SENTINEL"
+    tool_marker = "TOOL_SECRET_SENTINEL"
+    input_marker = "INPUT_SECRET_SENTINEL"
+    result_marker = "RESULT_SECRET_SENTINEL"
+
+    conn = MagicMock()
+    conn.execute = AsyncMock()
+    acquire_context = MagicMock()
+    acquire_context.__aenter__ = AsyncMock(return_value=conn)
+    acquire_context.__aexit__ = AsyncMock(return_value=False)
+    pool = MagicMock()
+    pool.acquire.return_value = acquire_context
+    get_pool = AsyncMock(return_value=pool)
+    resolve_account = AsyncMock(return_value=None)
+
+    with patch(
+        "helpers.dual_write.resolve_ory_id_from_chat",
+        resolve_account,
+    ), patch.object(
+        traces,
+        "get_learning_pool",
+        get_pool,
+    ), patch.object(
+        traces.logger,
+        "warning",
+    ) as log_warning:
+        await traces.log_tool_call_audit(
+            telegram_user_id=telegram_user_id,
+            query=query_marker,
+            available_tools=[tool_marker],
+            chosen_tool=tool_marker,
+            tool_input={"query": input_marker},
+            result_summary=result_marker,
+        )
+
+    resolve_account.assert_awaited_once_with(telegram_user_id)
+    get_pool.assert_not_awaited()
+    pool.acquire.assert_not_called()
+    conn.execute.assert_not_awaited()
+    log_warning.assert_called_once_with(
+        "tool_call_audit skipped: canonical account_id unavailable"
+    )
+    warning_repr = repr(log_warning.call_args)
+    for marker in (
+        query_marker,
+        tool_marker,
+        input_marker,
+        result_marker,
+        str(telegram_user_id),
+    ):
+        assert marker not in warning_repr
+
+
+@pytest.mark.asyncio
+async def test_tool_call_audit_v2_malformed_input_never_raises_or_logs_content():
+    """Д6.5: ошибка нормализации остаётся fire-and-forget и не раскрывает PII."""
+    from db.queries import traces
+
+    exception_marker = "EXCEPTION_SECRET_SENTINEL"
+    telegram_id_marker = 987654321
+    query_marker = "QUERY_SECRET_SENTINEL"
+
+    class NonSerializableInput:
+        def __len__(self):
+            return 1
+
+        def __str__(self):
+            raise RuntimeError(exception_marker)
+
+    resolve_account = AsyncMock(return_value="unused-account-id")
+    get_pool = AsyncMock()
+    with patch(
+        "helpers.dual_write.resolve_ory_id_from_chat",
+        resolve_account,
+    ), patch.object(
+        traces,
+        "get_learning_pool",
+        get_pool,
+    ), patch.object(
+        traces.logger,
+        "warning",
+    ) as log_warning:
+        result = await traces.log_tool_call_audit(
+            telegram_user_id=telegram_id_marker,
+            query=query_marker,
+            available_tools=["SAFE_TOOL"],
+            chosen_tool="SAFE_TOOL",
+            tool_input=NonSerializableInput(),
+            result_summary="unused",
+        )
+
+    assert result is None
+    resolve_account.assert_not_awaited()
+    get_pool.assert_not_awaited()
+    log_warning.assert_called_once_with(
+        "tool_call_audit insert failed: %s",
+        "RuntimeError",
+    )
+    warning_repr = repr(log_warning.call_args)
+    for marker in (exception_marker, str(telegram_id_marker), query_marker):
+        assert marker not in warning_repr
+
+
+@pytest.mark.asyncio
+async def test_tool_call_audit_task_callback_logs_exception_type_only():
+    """Д6.5: callback фоновой задачи не пишет текст исключения или PII."""
+    from engines.shared import question_handler
+
+    exception_marker = "CALLBACK_EXCEPTION_SECRET_SENTINEL"
+    telegram_id_marker = 987654321
+    query_marker = "CALLBACK_QUERY_SECRET_SENTINEL"
+
+    async def broken_audit(*args, **kwargs):
+        raise RuntimeError(exception_marker)
+
+    question_handler._bg_audit_tasks.clear()
+    with patch.object(
+        question_handler,
+        "log_tool_call_audit",
+        broken_audit,
+    ), patch.object(
+        question_handler.logger,
+        "warning",
+    ) as log_warning:
+        question_handler._fire_and_forget_audit(
+            telegram_user_id=telegram_id_marker,
+            query=query_marker,
+        )
+        audit_tasks = tuple(question_handler._bg_audit_tasks)
+        assert len(audit_tasks) == 1
+        await asyncio.gather(*audit_tasks, return_exceptions=True)
+        await asyncio.sleep(0)
+
+    log_warning.assert_called_once_with(
+        "tool_call_audit task failed: %s",
+        "RuntimeError",
+    )
+    warning_repr = repr(log_warning.call_args)
+    for marker in (exception_marker, str(telegram_id_marker), query_marker):
+        assert marker not in warning_repr
 
 
 @pytest.mark.asyncio
