@@ -184,7 +184,10 @@ async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
                 chat_id,
             )
     except Exception as exc:
-        logger.warning(f"[dual-write] resolve_ory_id_from_chat({chat_id}) failed: {exc}")
+        logger.warning(
+            "[dual-write] resolve_ory_id_from_chat failed: %s",
+            type(exc).__name__,
+        )
         return None
 
     # Cache size management: clear полностью при превышении лимита.

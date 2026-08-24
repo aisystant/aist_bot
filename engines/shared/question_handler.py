@@ -42,6 +42,19 @@ def _hash_chat_id(chat_id) -> str:
 _bg_audit_tasks: set = set()
 
 
+def _log_audit_task_failure(task: asyncio.Task) -> None:
+    """Log only the exception type from a completed audit task."""
+    if task.cancelled():
+        return
+
+    exception = task.exception()
+    if exception is not None:
+        logger.warning(
+            "tool_call_audit task failed: %s",
+            type(exception).__name__,
+        )
+
+
 def _fire_and_forget_audit(*args, **kwargs) -> None:
     """Log a tool-call audit event (Л2.2, DP.SC.129) without blocking the response.
 
@@ -53,9 +66,7 @@ def _fire_and_forget_audit(*args, **kwargs) -> None:
     task = asyncio.create_task(log_tool_call_audit(*args, **kwargs))
     _bg_audit_tasks.add(task)
     task.add_done_callback(_bg_audit_tasks.discard)
-    task.add_done_callback(
-        lambda t: t.exception() and logger.warning(f"tool_call_audit task failed: {t.exception()}")
-    )
+    task.add_done_callback(_log_audit_task_failure)
 
 
 # Маппинг complexity_level → стиль ответа
