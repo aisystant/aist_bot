@@ -4,7 +4,7 @@
 
 Архитектура (DP.SC.020 v3):
 - Платформа регистрирует один App «Aisystant Personal Guide»
-- Пилот устанавливает App на свой `<user>/personal-guide` репо (1 клик)
+- Пилот устанавливает App на свой `<user>/DS-personal-guide` репо (1 клик)
 - App получает installation_id, write permission на contents, push event subscription
 - Платформа пишет `assignments/YYYY-MM-DD.md` через installation token
 - Пилот пишет `workbook/YYYY-MM-DD.md` сам → push → webhook → платформа

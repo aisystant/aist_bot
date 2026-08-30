@@ -148,7 +148,8 @@ async def cmd_connect_guide(message: Message):
     await message.answer(
         "<b>Подключение персонального руководства</b>\n\n"
         "Нажми кнопку ниже — GitHub откроет страницу установки App. "
-        "Выбери репо <code>personal-guide</code> (или создай его, если ещё нет).\n\n"
+        "Выбери свой репо личного руководства — <code>DS-personal-guide</code> "
+        "(или <code>personal-guide</code>, если у тебя старое имя; создай его, если ещё нет).\n\n"
         "После установки:\n"
         "• Портной будет писать твои занятия в <code>assignments/</code>\n"
         "• Твои ответы в <code>workbook/</code> автоматически обновят ЦД\n"
