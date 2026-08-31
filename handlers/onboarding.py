@@ -1029,7 +1029,8 @@ async def _maybe_offer_onboarder(message: Message, chat_id: int, bypass_cooldown
     except Exception as e:
         logger.warning("[onboarder] should_offer check failed for %s: %s", chat_id, e)
         return
-    payload = offer.offer_payload()
+    hint = await offer.checklist_next_step_hint(chat_id)
+    payload = offer.offer_payload(hint)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=payload["button_text"], callback_data=payload["callback_data"]),
     ]])
