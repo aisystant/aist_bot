@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from datetime import datetime
 from typing import Optional, TypedDict
+from uuid import uuid4
 
 from db.connection import get_consent_pool
 
@@ -29,6 +29,11 @@ DEFAULT_SCOPE = ["stage_evaluation", "club_activity"]
 # Full clear at limit — same pattern as _ory_cache in helpers/dual_write.py.
 _consent_cache: dict[str, bool] = {}
 _CONSENT_CACHE_LIMIT = 5000
+
+
+def generate_consent_event_id() -> str:
+    """Создать случайный идентификатор consent-события без связи с PII."""
+    return str(uuid4())
 
 
 def invalidate_consent_cache(account_id: str) -> None:
@@ -257,7 +262,7 @@ async def set_consent_grant(
         from helpers.dual_write import post_event
         asyncio.create_task(post_event(
             source="aist-bot",
-            external_id=f"consent-{account_id}-{scope}-{time.time_ns()}",
+            external_id=generate_consent_event_id(),
             event_type="consent_granted",
             schema_version="v1",
             occurred_at=datetime.utcnow(),
