@@ -579,6 +579,38 @@ async def delete_all_user_data(chat_id: int) -> dict:
         result['user_sessions'] = 0
         result['request_traces'] = 0
 
+    # WP-554 Ф8: the Persona projection is the final local identity leg. Its
+    # consent records retain PII and reference ory_identity, so both deletes
+    # must succeed together and consent_grants must precede the identity row.
+    # Keep account_id from the verified lookup and bind telegram_id again on
+    # the identity DELETE as a defence-in-depth check against cross-account use.
+    if account_id:
+        try:
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as pconn:
+                async with pconn.transaction():
+                    deleted_consent_grants = await pconn.execute(
+                        'DELETE FROM public.consent_grants WHERE account_id = $1',
+                        account_id,
+                    )
+                    deleted_identity = await pconn.execute(
+                        '''DELETE FROM public.ory_identity
+                           WHERE account_id = $1 AND telegram_id = $2''',
+                        account_id,
+                        chat_id,
+                    )
+            result['persona_consent_grants'] = _parse_delete_count(deleted_consent_grants)
+            result['persona_ory_identity'] = _parse_delete_count(deleted_identity)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "persona.identity_and_consent", e)
+            # A failed transaction rolls both statements back. Do not expose a
+            # provisional row count as a completed deletion in the receipt.
+            result['persona_consent_grants'] = 0
+            result['persona_ory_identity'] = 0
+    else:
+        result['persona_consent_grants'] = 0
+        result['persona_ory_identity'] = 0
+
     total = sum(result.values())
     logger.info(
         "[DELETE] completed %d row deletions across %d counters; failed legs=%d",

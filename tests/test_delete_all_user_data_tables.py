@@ -279,11 +279,15 @@ class _DeleteConn:
         self.fetchval_result = fetchval_result
         self.fetchrow_result = fetchrow_result
         self.fetchrow_calls = []
+        self.execute_calls = []
+        self.transaction_calls = 0
 
     def transaction(self):
+        self.transaction_calls += 1
         return _FakeTransaction()
 
     async def execute(self, sql, *args):
+        self.execute_calls.append((sql, args))
         if self.execute_error_for and self.execute_error_for in sql:
             raise self.error or RuntimeError("injected deletion failure")
         return "DELETE 0"
@@ -392,6 +396,75 @@ def test_persona_identity_lookup_failure_blocks_success(monkeypatch):
         asyncio.run(delete_all_user_data(123456))
 
     assert error.value.failed_components == ("persona.identity_lookup",)
+
+
+def test_persona_consent_and_identity_are_final_atomic_leg(monkeypatch):
+    """Persona PII is deleted in FK order only after the other local legs."""
+    account_id = "00000000-0000-0000-0000-000000000001"
+    persona_conn = _DeleteConn(fetchval_result=account_id)
+    privacy_conn = _DeleteConn(
+        fetchrow_result={
+            "rows_unlinked": 0,
+            "rows_payload_scrubbed": 0,
+            "tombstone_external_id": "forget-test",
+        }
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_DeletePool(conn=privacy_conn),
+    )
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    calls = [(sql, args) for sql, args in persona_conn.execute_calls]
+    integration_index = next(
+        index for index, (sql, _) in enumerate(calls)
+        if "DELETE FROM public.user_integrations" in sql
+    )
+    consent_index = next(
+        index for index, (sql, _) in enumerate(calls)
+        if "DELETE FROM public.consent_grants" in sql
+    )
+    identity_index = next(
+        index for index, (sql, _) in enumerate(calls)
+        if "DELETE FROM public.ory_identity" in sql
+    )
+
+    assert integration_index < consent_index < identity_index
+    assert calls[consent_index][1] == (account_id,)
+    assert calls[identity_index][1] == (account_id, 123456)
+    assert persona_conn.transaction_calls == 1
+    assert result["persona_consent_grants"] == 0
+    assert result["persona_ory_identity"] == 0
+
+
+def test_persona_consent_failure_blocks_success_without_partial_count(monkeypatch):
+    """A failed Persona transaction cannot be represented as partial success."""
+    persona_conn = _DeleteConn(
+        execute_error_for="public.consent_grants",
+        error=asyncpg.exceptions.InsufficientPrivilegeError("permission denied"),
+        fetchval_result="00000000-0000-0000-0000-000000000001",
+    )
+    privacy_conn = _DeleteConn(
+        fetchrow_result={
+            "rows_unlinked": 0,
+            "rows_payload_scrubbed": 0,
+            "tombstone_external_id": "forget-test",
+        }
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_DeletePool(conn=privacy_conn),
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert error.value.failed_components == ("persona.identity_and_consent",)
+    assert error.value.partial_result["persona_consent_grants"] == 0
+    assert error.value.partial_result["persona_ory_identity"] == 0
 
 
 def test_journal_erasure_uses_verified_account_and_narrow_pool(monkeypatch):
