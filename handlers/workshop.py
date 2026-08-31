@@ -748,6 +748,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
             await confirm_burn(payment_id)
         except Exception as e:
             logger.error(f"[Redeem] confirm_burn on duplicate: payment_id={payment_id}, error={e}")
+            raise
         return {"ok": True, "duplicate": True}
 
     # WP-327: подтвердить burn (no-op если резерва не было)
@@ -756,6 +757,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
         logger.info(f"[Redeem] confirm_burn(yk={payment_id}) result={ok}")
     except Exception as e:
         logger.error(f"[Redeem] confirm_burn exception: payment_id={payment_id}, error={e}")
+        raise
 
     # Отправляем invite
     count = await get_workshop_payment_count(telegram_id)
