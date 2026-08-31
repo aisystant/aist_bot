@@ -20,6 +20,7 @@ from .settings import (
     SUBSCRIPTION_URL,
     INDICATORS_URL,
     LEARNING_URL,
+    PRIVACY_DELETION_URL,
     REWARDS_URL,
     CONSENT_URL,
     FSM_URL,
