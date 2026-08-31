@@ -27,6 +27,16 @@ _DEDUP_SECONDS = 120
 _OFFER_KEY = "offer_shown_at"
 _CALLBACK_DATA = "onboarder_start"
 
+# Названия этапов чек-листа участника (WP-522, канон §Артефакт) — те же 6
+# разделов, что уже показывает тайл «Оснащение N из M» (РП417).
+_STAGE_LABELS = {
+    "К": "Контакт",
+    "Г": "Оснащение",
+    "С": "Первые результаты",
+    "В": "Владение",
+    "Р": "Регулярность",
+}
+
 _OFFER_TEXT = (
     "Хочешь освоиться в сообществе? За пару минут покажу, как тут всё "
     "устроено и как пользоваться ботом, и помогу выбрать первый курс."
@@ -115,10 +125,50 @@ async def mark_offered(chat_id: int) -> None:
     )
 
 
-def offer_payload() -> dict:
-    """Plain-data оффера — handlers оборачивают button_text/callback_data в клавиатуру."""
+async def checklist_next_step_hint(chat_id: int) -> str | None:
+    """Короткая строка «на каком этапе участник» по read-model чек-листа (WP-522).
+
+    Fail-open: любая ошибка (нет привязки Ory, сеть, checklist-mcp не настроен/
+    недоступен, таймаут — таймаут уже внутри `checklist_mcp.get_checklist_status`,
+    `CHECKLIST_MCP_TIMEOUT`) → None. Вызывающий код показывает оффер БЕЗ хинта —
+    то же поведение, что было до этой функции, а не ошибку пользователю.
+    Не логирует account_id/подробности исключения (PII, тот же инвариант,
+    что уже держит checklist-mcp для В3 — только `type(e).__name__`).
+    """
+    try:
+        from clients.checklist_mcp import checklist_mcp
+        from helpers.dual_write import resolve_ory_id_from_chat
+
+        account_id = await resolve_ory_id_from_chat(chat_id)
+        if not account_id:
+            return None
+        status = await checklist_mcp.get_checklist_status(account_id)
+        if not status:
+            return None
+        summary = status.get("summary") or {}
+        stage = summary.get("in_progress_stage")
+        progress = summary.get("stage_progress")
+        if not stage or not progress:
+            return None
+        label = _STAGE_LABELS.get(stage, stage)
+        return f"Ты сейчас на этапе «{label}» ({progress})."
+    except Exception as e:
+        logger.warning(
+            "[onboarder] checklist_next_step_hint failed for chat=%s: %s",
+            chat_id, type(e).__name__,
+        )
+        return None
+
+
+def offer_payload(hint: str | None = None) -> dict:
+    """Plain-data оффера — handlers оборачивают button_text/callback_data в клавиатуру.
+
+    `hint` — необязательная строка от `checklist_next_step_hint()`, добавляется
+    перед основным текстом оффера (WP-522, боевой вызывающий код).
+    """
+    text = f"{hint}\n\n{_OFFER_TEXT}" if hint else _OFFER_TEXT
     return {
-        "text": _OFFER_TEXT,
+        "text": text,
         "button_text": _BUTTON_TEXT,
         "callback_data": _CALLBACK_DATA,
     }
