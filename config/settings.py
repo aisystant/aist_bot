@@ -59,6 +59,9 @@ PERSONA_URL = os.getenv("PERSONA_URL") or os.getenv("DATABASE_URL")  # persona.o
 SUBSCRIPTION_URL = os.getenv("SUBSCRIPTION_URL") or os.getenv("DATABASE_URL")  # subscription.contract
 INDICATORS_URL = os.getenv("INDICATORS_URL") or os.getenv("DATABASE_URL")  # indicators.calculated_profile (заменяет digitaltwin)
 LEARNING_URL = os.getenv("LEARNING_URL") or os.getenv("DATABASE_URL")  # learning.domain_event (qa, notifications, traces)
+# WP-554 Ф7: отдельная роль с единственным EXECUTE на erase-функцию journal.
+# Без fallback: подмена широким LEARNING_URL разрушит least-privilege границу.
+PRIVACY_DELETION_URL = os.getenv("PRIVACY_DELETION_URL")
 REWARDS_URL = os.getenv("REWARDS_URL") or os.getenv("DATABASE_URL")  # rewards.point_balances (WP-253 Ф9.3, проекция баллов)
 # WP-188 Ф17: учёт opt-in/opt-out на трекинг (learning.tracking_consent) через role consent_writer
 # (миграция 113). Отдельный pool — write-pool для GDPR-границы. Fallback на LEARNING_URL — read-only path.

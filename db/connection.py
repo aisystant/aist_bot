@@ -16,6 +16,7 @@ from config import (
     SUBSCRIPTION_URL,
     INDICATORS_URL,
     LEARNING_URL,
+    PRIVACY_DELETION_URL,
     REWARDS_URL,
     CONSENT_URL,
     FSM_URL,
@@ -42,6 +43,8 @@ _persona_pool: Optional[asyncpg.Pool] = None       # persona.ory_identity, perso
 _subscription_pool: Optional[asyncpg.Pool] = None  # subscription.contract
 _indicators_pool: Optional[asyncpg.Pool] = None    # indicators.calculated_profile (Память.Derived: ЦД)
 _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, notifications, traces)
+# WP-554 Ф7: отдельная узкая роль без прав на таблицы journal.
+_privacy_deletion_pool: Optional[asyncpg.Pool] = None
 _rewards_pool: Optional[asyncpg.Pool] = None       # rewards.point_balances (WP-253 Ф9.3 проекция)
 
 # WP-188 Ф17: writer-pool для learning.tracking_consent через роль consent_writer (миграция 113).
@@ -162,6 +165,24 @@ async def get_learning_pool() -> asyncpg.Pool:
         )
         logger.info("✅ Learning пул соединений создан")
     return _learning_pool
+
+
+async def get_privacy_deletion_pool() -> asyncpg.Pool:
+    """Return the least-privilege pool for the journal erasure function only."""
+    global _privacy_deletion_pool
+    if not PRIVACY_DELETION_URL:
+        raise RuntimeError("PRIVACY_DELETION_URL is required for account deletion")
+    if _privacy_deletion_pool is None:
+        _privacy_deletion_pool = await asyncpg.create_pool(
+            PRIVACY_DELETION_URL,
+            statement_cache_size=0,
+            min_size=1,
+            max_size=1,
+            command_timeout=30,
+            max_inactive_connection_lifetime=60,
+        )
+        logger.info("Privacy deletion pool created")
+    return _privacy_deletion_pool
 
 
 async def get_rewards_pool() -> asyncpg.Pool:
@@ -349,7 +370,7 @@ async def get_bot_data_pool() -> asyncpg.Pool:
 
 async def close_pool():
     """Закрыть пул соединений"""
-    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _rewards_pool, _consent_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool, _publication_pool, _community_pool, _lead_pool, _reference_pool, _bot_data_pool
+    global _pool, _persona_pool, _subscription_pool, _indicators_pool, _learning_pool, _privacy_deletion_pool, _rewards_pool, _consent_pool, _fsm_pool, _journal_pool, _health_pool, _secrets_pool, _publication_pool, _community_pool, _lead_pool, _reference_pool, _bot_data_pool
     if _pool:
         await _pool.close()
         _pool = None
@@ -370,6 +391,10 @@ async def close_pool():
         await _learning_pool.close()
         _learning_pool = None
         logger.info("🔒 Learning пул соединений закрыт")
+    if _privacy_deletion_pool:
+        await _privacy_deletion_pool.close()
+        _privacy_deletion_pool = None
+        logger.info("Privacy deletion pool closed")
     if _rewards_pool:
         await _rewards_pool.close()
         _rewards_pool = None

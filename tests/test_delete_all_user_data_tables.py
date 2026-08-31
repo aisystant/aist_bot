@@ -271,9 +271,14 @@ class _DeleteConn:
         self,
         execute_error_for: str | None = None,
         error: Exception | None = None,
+        fetchval_result=None,
+        fetchrow_result=None,
     ):
         self.execute_error_for = execute_error_for
         self.error = error
+        self.fetchval_result = fetchval_result
+        self.fetchrow_result = fetchrow_result
+        self.fetchrow_calls = []
 
     def transaction(self):
         return _FakeTransaction()
@@ -284,10 +289,11 @@ class _DeleteConn:
         return "DELETE 0"
 
     async def fetchval(self, sql, *args):
-        return None
+        return self.fetchval_result
 
     async def fetchrow(self, sql, *args):
-        return None
+        self.fetchrow_calls.append((sql, args))
+        return self.fetchrow_result
 
 
 class _AcquireConn:
@@ -319,12 +325,14 @@ def _patch_deletion_pools(
     community_pool=None,
     main_pool=None,
     persona_pool=None,
+    privacy_pool=None,
 ):
     """Route every pool used by delete_all_user_data() to deterministic doubles."""
     success_pool = _DeletePool()
     main_pool = main_pool or success_pool
     community_pool = community_pool or success_pool
     persona_pool = persona_pool or success_pool
+    privacy_pool = privacy_pool or success_pool
 
     async def main_getter():
         return main_pool
@@ -338,9 +346,13 @@ def _patch_deletion_pools(
     async def persona_getter():
         return persona_pool
 
+    async def privacy_getter():
+        return privacy_pool
+
     monkeypatch.setattr(profile_queries, "get_pool", main_getter)
     monkeypatch.setattr(profile_queries, "get_learning_pool", success_getter)
     monkeypatch.setattr(profile_queries, "get_health_pool", success_getter)
+    monkeypatch.setattr(profile_queries, "get_privacy_deletion_pool", privacy_getter)
 
     for getter_name in (
         "get_secrets_pool",
@@ -380,6 +392,61 @@ def test_persona_identity_lookup_failure_blocks_success(monkeypatch):
         asyncio.run(delete_all_user_data(123456))
 
     assert error.value.failed_components == ("persona.identity_lookup",)
+
+
+def test_journal_erasure_uses_verified_account_and_narrow_pool(monkeypatch):
+    """The bot passes only persona's verified account ID to the narrow role."""
+    account_id = "00000000-0000-0000-0000-000000000001"
+    persona_conn = _DeleteConn(fetchval_result=account_id)
+    privacy_conn = _DeleteConn(
+        fetchrow_result={
+            "rows_unlinked": 2,
+            "rows_payload_scrubbed": 3,
+            "tombstone_external_id": "forget-test",
+        }
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_DeletePool(conn=privacy_conn),
+    )
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    assert result["journal_domain_event"] == 5
+    assert len(privacy_conn.fetchrow_calls) == 1
+    sql, args = privacy_conn.fetchrow_calls[0]
+    assert "domain_event_forget_account" in sql
+    assert args == (account_id, "self_service_account_deletion")
+
+
+def test_journal_erasure_permission_failure_blocks_success(monkeypatch):
+    """Losing EXECUTE must not let the user receive a false completion."""
+    persona_conn = _DeleteConn(
+        fetchval_result="00000000-0000-0000-0000-000000000001"
+    )
+    privacy_pool = _DeletePool(
+        acquire_error=asyncpg.exceptions.InsufficientPrivilegeError("permission denied")
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=privacy_pool,
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "journal.domain_event" in error.value.failed_components
+    assert error.value.partial_result["journal_domain_event"] == 0
+
+
+def test_privacy_pool_has_no_broad_database_fallback():
+    """A missing narrow credential must fail closed instead of using learning access."""
+    source = inspect.getsource(db_connection.get_privacy_deletion_pool)
+
+    assert "PRIVACY_DELETION_URL" in source
+    assert "LEARNING_URL" not in source
 
 
 def test_missing_classified_optional_table_does_not_fail_deletion(monkeypatch):

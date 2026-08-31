@@ -11,7 +11,13 @@ from typing import Optional
 
 import asyncpg
 
-from db.connection import get_pool, get_learning_pool, get_journal_pool, get_health_pool
+from db.connection import (
+    get_health_pool,
+    get_journal_pool,
+    get_learning_pool,
+    get_pool,
+    get_privacy_deletion_pool,
+)
 from config import get_logger
 from db.sql_helpers import delete_from as _delete_from_sql
 
@@ -284,6 +290,31 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
     except Exception as e:
         _record_required_cleanup_failure(failures, "persona.identity_lookup", e)
+
+    # WP-554 Ф7: account_id comes only from the verified persona mapping above,
+    # never from a user-supplied command parameter. The dedicated role can invoke
+    # this SECURITY DEFINER function but cannot read or change journal tables.
+    if account_id:
+        try:
+            privacy_pool = await get_privacy_deletion_pool()
+            async with privacy_pool.acquire() as privacy_conn:
+                erased = await privacy_conn.fetchrow(
+                    '''SELECT rows_unlinked, rows_payload_scrubbed, tombstone_external_id
+                       FROM public.domain_event_forget_account($1::uuid, $2)''',
+                    account_id,
+                    "self_service_account_deletion",
+                )
+                if erased is None:
+                    raise RuntimeError("domain-event erasure returned no result")
+                result["journal_domain_event"] = (
+                    int(erased["rows_unlinked"])
+                    + int(erased["rows_payload_scrubbed"])
+                )
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "journal.domain_event", e)
+            result["journal_domain_event"] = 0
+    else:
+        result["journal_domain_event"] = 0
 
     # WP-476: Digital Twin data lives in the indicators DB; the canonical user_id
     # in digital_twins is dt_user_id from secrets.dt_tokens, falling back to the
