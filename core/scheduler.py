@@ -58,6 +58,7 @@ _bot_id: int = None          # Telegram bot ID — used to isolate reminders on 
 _marathon_semaphore = asyncio.Semaphore(5)
 
 _discourse_comment_poll_lock = asyncio.Lock()
+_publisher_scan_lock = asyncio.Lock()
 _discourse_rate_limited_until = 0.0
 _DISCOURSE_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _DISCOURSE_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 3600.0
@@ -1149,6 +1150,11 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
         _scheduler.add_job(_smart_publisher_scan, 'cron', hour=5, minute=7)  # Publisher: daily scan 05:07 MSK (after strategist ~04:00)
         # Startup scan: компенсация пропущенного cron при редеплое после 05:07 MSK (cooldown предотвращает дубли)
         _scheduler.add_job(_smart_publisher_scan, 'date', run_date=datetime.now(MOSCOW_TZ) + timedelta(minutes=2), id='publisher_startup_scan', kwargs={'notify': False})
+        # Publisher backfill: еженедельный проход без 14-дневного окна (P-16) — подбирает
+        # посты, ставшие ready позже своего окна ежедневного скана, до этого зависавшие
+        # в ready навсегда (найдено 31.08, ~40 постов с февраля). notify=False — Queue
+        # Watch уже покрыт ежедневным сканом, повторное уведомление по воскресеньям лишнее.
+        _scheduler.add_job(_smart_publisher_scan, 'cron', day_of_week='sun', hour=6, minute=17, kwargs={'backfill': True, 'notify': False})
     _scheduler.add_job(_discourse_check_comments, 'cron', minute='3')  # Discourse: comment polling (1x/hour, was 4x — rate limit 429)
     _scheduler.add_job(_send_slot_daily_prompt, 'cron', hour=19, minute=0)  # WP-310 Ф13c: slot prompt 22:00 МСК (= 19:00 UTC)
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
@@ -2946,7 +2952,20 @@ async def _discourse_scheduled_publish():
         await bot.session.close()
 
 
-async def _smart_publisher_scan(*, notify: bool = True):
+async def _smart_publisher_scan(*, notify: bool = True, backfill: bool = False):
+    """Обёртка с блокировкой: три job (05:07 daily, startup, вс 06:17 backfill)
+    делят одну функцию — на редеплое в районе времени job'а два запуска могут
+    наложиться (WP-502 code review, ход 6, Codex 31.08). Тот же паттерн, что
+    `_discourse_check_comments`/`_discourse_comment_poll_lock` выше в файле.
+    """
+    if _publisher_scan_lock.locked():
+        logger.warning("[Publisher] Previous scan still running, skipping this trigger")
+        return
+    async with _publisher_scan_lock:
+        await _smart_publisher_scan_unlocked(notify=notify, backfill=backfill)
+
+
+async def _smart_publisher_scan_unlocked(*, notify: bool = True, backfill: bool = False):
     """R21 Публикатор: ежедневный scan индекса знаний + auto-schedule (05:07 МСК).
 
     Цикл:
@@ -2958,6 +2977,13 @@ async def _smart_publisher_scan(*, notify: bool = True):
 
     Args:
         notify: Отправлять ли queue-watch уведомления. Cron (05:07) = True, startup scan = False.
+        backfill: Игнорировать 14-дневное окно `_is_recent` и включить прошлый год
+            в scan_paths. Пост, ставший `ready` позже чем через 14 дней после
+            даты в имени файла, иначе никогда не попадёт в `all_posts` — окно
+            это НЕ TTL на публикацию, а просто дневная оптимизация объёма
+            сканирования, и без отдельного прохода без него пропущенные посты
+            зависают в `ready` навсегда (найдено 31.08, ~40 постов с февраля).
+            Еженедельный cron = True, ежедневный и startup scan = False.
     """
 
     from clients.github_content import create_content_client, parse_frontmatter
@@ -3011,6 +3037,8 @@ async def _smart_publisher_scan(*, notify: bool = True):
                 all_posts = []
 
                 def _is_recent(filename: str) -> bool:
+                    if backfill:
+                        return True
                     try:
                         match = re.search(r'\b(\d{4})-(\d{2})-(\d{2})\b', filename)
                         if not match:
@@ -3021,10 +3049,17 @@ async def _smart_publisher_scan(*, notify: bool = True):
                         return True
 
                 # Рекурсивный обход: год → месячные папки → файлы + подпапки (мультиканальные посты)
-                year_path = f"docs/{current_year}"
-                month_dirs = await client.list_dirs(year_path)
-                # Fallback: если нет подпапок — сканировать плоско (обратная совместимость)
-                scan_paths = [f"{year_path}/{d}" for d in month_dirs] if month_dirs else [year_path]
+                # backfill дополнительно берёт прошлый год — иначе пост,
+                # висящий в ready через границу года, тоже был бы невидим.
+                year_paths = [f"docs/{current_year}"]
+                if backfill:
+                    year_paths.append(f"docs/{current_year - 1}")
+
+                scan_paths = []
+                for year_path in year_paths:
+                    month_dirs = await client.list_dirs(year_path)
+                    # Fallback: если нет подпапок — сканировать плоско (обратная совместимость)
+                    scan_paths.extend([f"{year_path}/{d}" for d in month_dirs] if month_dirs else [year_path])
 
                 all_files = []
                 for scan_path in scan_paths:

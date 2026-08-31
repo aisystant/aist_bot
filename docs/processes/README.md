@@ -22,6 +22,7 @@
 | P-03 | [Определение интента](process-03-intent-detection.md) | Классификация сообщений пользователя | `bot.py` (устаревает при USE_STATE_MACHINE=true) |
 | P-04 | [Сбор статистики](process-04-stats-collection.md) | Агрегация данных для /progress | `db/queries/`, `states/utilities/progress.py` |
 | P-05 | [Локализация](process-05-i18n.md) | Многоязычный интерфейс (ru/en/es/fr) | `i18n/` |
+| P-16 | [Publisher: content scan + backfill](process-16-publisher-content-scan.md) | Скан индекса знаний, auto-schedule в клуб, еженедельный backfill просроченных `ready` | `core/scheduler.py` |
 
 ---
 
