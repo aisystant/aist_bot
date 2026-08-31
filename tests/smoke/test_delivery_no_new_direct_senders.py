@@ -143,7 +143,10 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/scheduler.py", "_refresh_subscribers_snapshot"),
 ("core/scheduler.py", "_send_marathon_weekly_digest"),
 ("core/scheduler.py", "_send_slot_daily_prompt"),
-("core/scheduler.py", "_smart_publisher_scan"),
+    # WP-502: direct send moved under _publisher_scan_lock wrapper (same
+    # pattern as _discourse_check_comments_unlocked above); _smart_publisher_scan
+    # itself now only delegates and holds no direct bot.send_* call.
+("core/scheduler.py", "_smart_publisher_scan_unlocked"),
 ("core/scheduler.py", "_watch_delivery_queue"),
 ("core/scheduler.py", "pre_generate_feed_digest"),
 ("core/scheduler.py", "scheduled_check"),
