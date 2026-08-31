@@ -8,7 +8,9 @@ Burn-эмиттер баллов (WP-327 Ф1+Ф2, see DP.SC.141, DP.ROLE.051).
   2. confirm_burn() — подтверждение при payment.succeeded webhook / successful_payment
   3. rollback_burn() — откат при payment.canceled ИЛИ timeout 30 мин
 
-Не writer point_balances — пишет только в rewards.redeemed_events.
+Не выполняет прямых UPDATE point_balances. BURN_APPLY_MODE=bridge вызывает узкую
+SECURITY DEFINER-функцию apply_confirmed_burn_v1(); режим projection только
+подтверждает durable ledger-строку, которую той же функцией применяет MDPW.
 События эмитируются ЧЕРЕЗ event-gateway (helpers.dual_write.post_event), НЕ direct INSERT
 в learning.domain_event — соответствие DP.SC.044 OwnerIntegrity (single writer = DP.ROLE.032).
 
@@ -26,11 +28,103 @@ from typing import Optional
 
 import asyncpg
 
-from db.connection import get_rewards_pool
+from db.connection import BurnApplyMode, get_burn_apply_mode, get_rewards_pool
 from db.queries.rewards import get_loyalty_rate
 from helpers.dual_write import post_event
 
 logger = logging.getLogger(__name__)
+
+NEGATIVE_BALANCE_ERROR_MARKER = "REDEEM_NEGATIVE_BALANCE_ATTEMPT"
+DEDUCTION_FAILURE_ERROR_MARKER = "REDEEM_DEDUCTION_FAILED"
+
+
+class PointsDeductionInvariantError(RuntimeError):
+    """The protected burn function returned an impossible contract outcome."""
+
+
+def _log_negative_balance_attempt(operation: str, outcome: str) -> None:
+    """Emit one stable ERROR signal without payment/account identifiers."""
+    logger.error(
+        "[Redeem] %s operation=%s outcome=%s manual_review_required",
+        NEGATIVE_BALANCE_ERROR_MARKER,
+        operation,
+        outcome,
+    )
+
+
+def _log_deduction_failure(operation: str, outcome: str) -> None:
+    """Emit a stable non-PII signal for every non-CHECK deduction failure."""
+    logger.error(
+        "[Redeem] %s operation=%s outcome=%s manual_review_required",
+        DEDUCTION_FAILURE_ERROR_MARKER,
+        operation,
+        outcome,
+    )
+
+
+async def _lock_burn_account(
+    conn: asyncpg.Connection,
+    *,
+    account_id: uuid.UUID,
+) -> None:
+    """Share one transaction-scoped account lock with grant and burn workers."""
+    await conn.execute(
+        """
+        SELECT pg_advisory_xact_lock(
+            hashtextextended('wp547:account:' || $1::uuid::text, 0)
+        )
+        """,
+        account_id,
+    )
+
+
+async def _apply_confirmed_burn(
+    conn: asyncpg.Connection,
+    *,
+    payment_id: str,
+    operation: str,
+) -> str:
+    """Invoke the single protected debit path and classify its stable outcome."""
+    try:
+        outcome = await conn.fetchval(
+            "SELECT public.apply_confirmed_burn_v1($1)", payment_id
+        )
+    except asyncpg.CheckViolationError:
+        _log_negative_balance_attempt(operation, "deduction_rejected")
+        raise
+    except Exception:
+        _log_deduction_failure(operation, "database_error")
+        raise
+
+    if outcome == "manual_review_insufficient_balance":
+        _log_negative_balance_attempt(operation, "deduction_rejected")
+        return outcome
+    if outcome in {"manual_review_balance_missing", "manual_review"}:
+        _log_deduction_failure(operation, "balance_row_missing")
+        return outcome
+    if outcome not in {"applied", "already_applied"}:
+        _log_deduction_failure(operation, "unexpected_function_outcome")
+        raise PointsDeductionInvariantError(
+            "apply_confirmed_burn_v1 returned an unexpected outcome"
+        )
+    return outcome
+
+
+async def _apply_or_queue_confirmed_burn(
+    conn: asyncpg.Connection,
+    *,
+    payment_id: str,
+    operation: str,
+) -> str:
+    """Apply in bridge mode; leave the durable row to MDPW in projection mode."""
+    if get_burn_apply_mode() is BurnApplyMode.PROJECTION:
+        return "queued"
+    return await _apply_confirmed_burn(
+        conn,
+        payment_id=payment_id,
+        operation=operation,
+    )
+
 
 # Курс конвертации читается из loyalty_pool_config (WP-327 v4.1)
 # Fallback 0.10 ₽/бонус при недоступности БД
@@ -241,23 +335,35 @@ async def reserve_burn(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Race protection: SELECT FOR UPDATE на point_balances. Блокирует параллельные reserve_burn для того же account_id.
+            account_uuid = uuid.UUID(account_id)
+            # One xact-scoped namespace serializes reserve, grant and burn apply.
+            # SELECT FOR UPDATE alone cannot serialize against an INSERT of a
+            # previously absent balance row or against the grant function.
+            await _lock_burn_account(conn, account_id=account_uuid)
             balance_row = await conn.fetchrow(
                 "SELECT COALESCE(points, 0) AS balance FROM public.point_balances WHERE account_id = $1 FOR UPDATE",
-                uuid.UUID(account_id),
+                account_uuid,
             )
             current_balance = Decimal(str(balance_row["balance"])) if balance_row else Decimal("0")
 
-            # Уже зарезервированное сегодня (без 'confirmed' — оно уже отражено в balance через projection)
+            # Subtract every active reserve plus confirmed bridge rows whose
+            # debit has not committed yet. Historical confirmed rows have
+            # balance_apply_eligible=FALSE and were handled by the legacy bot.
             reserved_row = await conn.fetchrow(
                 """
                 SELECT COALESCE(SUM(points_amount), 0) AS reserved
                 FROM public.redeemed_events
                 WHERE account_id = $1
-                  AND reserved_at >= date_trunc('day', now())
-                  AND status = 'reserved'
+                  AND (
+                      status = 'reserved'
+                      OR (
+                          status = 'confirmed'
+                          AND balance_apply_eligible
+                          AND balance_applied_at IS NULL
+                      )
+                  )
                 """,
-                uuid.UUID(account_id),
+                account_uuid,
             )
             reserved_today = Decimal(str(reserved_row["reserved"]))
             available = current_balance - reserved_today
@@ -274,14 +380,14 @@ async def reserve_burn(
                 """
                 INSERT INTO public.redeemed_events
                     (payment_id, account_id, points_amount, discount_rub,
-                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose, status,
+                     qualification_snapshot, daily_cap_snapshot, payment_source, purpose,
                      expires_at, product_code)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'reserved', $9, $10)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (payment_id) DO NOTHING
                 RETURNING payment_id
                 """,
                 payment_id,
-                uuid.UUID(account_id),
+                account_uuid,
                 points_amount,
                 discount_rub,
                 qualification_snapshot,
@@ -377,27 +483,27 @@ async def confirm_subscription_reserves(account_id: str) -> int:
     pool = await get_rewards_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            account_uuid = uuid.UUID(account_id)
+            await _lock_burn_account(conn, account_id=account_uuid)
             rows = await conn.fetch(
                 """
                 UPDATE public.redeemed_events
-                SET status = 'confirmed', confirmed_at = now()
+                SET status = 'confirmed',
+                    confirmed_at = now(),
+                    balance_apply_eligible = TRUE
                 WHERE account_id = $1
                   AND purpose = 'SUBSCRIPTION'
                   AND status = 'reserved'
                   AND payment_id NOT LIKE 'yk_%'
                 RETURNING payment_id, account_id, points_amount
                 """,
-                uuid.UUID(account_id),
+                account_uuid,
             )
             for row in rows:
-                await conn.execute(
-                    """
-                    UPDATE public.point_balances
-                    SET points = points - $1, last_updated = now()
-                    WHERE account_id = $2
-                    """,
-                    row["points_amount"],
-                    row["account_id"],
+                await _apply_or_queue_confirmed_burn(
+                    conn,
+                    payment_id=row["payment_id"],
+                    operation="confirm_subscription_reserves",
                 )
                 logger.info(
                     f"[Redeem] confirm_subscription_reserves: payment_id={row['payment_id']}, "
@@ -425,10 +531,14 @@ async def confirm_course_reserves(account_id: str, course_codes: list[str]) -> i
     pool = await get_rewards_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            account_uuid = uuid.UUID(account_id)
+            await _lock_burn_account(conn, account_id=account_uuid)
             rows = await conn.fetch(
                 """
                 UPDATE public.redeemed_events
-                SET status = 'confirmed', confirmed_at = now()
+                SET status = 'confirmed',
+                    confirmed_at = now(),
+                    balance_apply_eligible = TRUE
                 WHERE account_id = $1
                   AND purpose = 'COURSE'
                   AND status = 'reserved'
@@ -436,18 +546,14 @@ async def confirm_course_reserves(account_id: str, course_codes: list[str]) -> i
                   AND product_code = ANY($2::text[])
                 RETURNING payment_id, account_id, points_amount, product_code
                 """,
-                uuid.UUID(account_id),
+                account_uuid,
                 course_codes,
             )
             for row in rows:
-                await conn.execute(
-                    """
-                    UPDATE public.point_balances
-                    SET points = points - $1, last_updated = now()
-                    WHERE account_id = $2
-                    """,
-                    row["points_amount"],
-                    row["account_id"],
+                await _apply_or_queue_confirmed_burn(
+                    conn,
+                    payment_id=row["payment_id"],
+                    operation="confirm_course_reserves",
                 )
                 logger.info(
                     f"[Redeem] confirm_course_reserves: payment_id={row['payment_id']}, "
@@ -486,7 +592,8 @@ async def confirm_reserve_by_payment_id(payment_id: str) -> Optional[Decimal]:
     right as its TTL rollback fires elsewhere could lose the points deduction while
     Aisystant has already granted course access (WP-446 Ф3b, peer-session 2026-07-02-15).
 
-    Returns points_amount deducted, or None if the row was already confirmed/rolled back.
+    Returns confirmed points_amount, or None if the row was already confirmed/rolled
+    back. In projection mode the durable row may still await MDPW application.
     """
     pool = await get_rewards_pool()
     async with pool.acquire() as conn:
@@ -495,10 +602,23 @@ async def confirm_reserve_by_payment_id(payment_id: str) -> Optional[Decimal]:
                 "SELECT pg_advisory_xact_lock(hashtext($1))",
                 f"burn_reserve:{payment_id}",
             )
+            account_id = await conn.fetchval(
+                """
+                SELECT account_id
+                FROM public.redeemed_events
+                WHERE payment_id = $1 AND status = 'reserved'
+                """,
+                payment_id,
+            )
+            if account_id is None:
+                return None
+            await _lock_burn_account(conn, account_id=account_id)
             row = await conn.fetchrow(
                 """
                 UPDATE public.redeemed_events
-                SET status = 'confirmed', confirmed_at = now()
+                SET status = 'confirmed',
+                    confirmed_at = now(),
+                    balance_apply_eligible = TRUE
                 WHERE payment_id = $1 AND status = 'reserved'
                 RETURNING account_id, points_amount
                 """,
@@ -506,14 +626,10 @@ async def confirm_reserve_by_payment_id(payment_id: str) -> Optional[Decimal]:
             )
             if row is None:
                 return None
-            await conn.execute(
-                """
-                UPDATE public.point_balances
-                SET points = points - $1, last_updated = now()
-                WHERE account_id = $2
-                """,
-                row["points_amount"],
-                row["account_id"],
+            await _apply_or_queue_confirmed_burn(
+                conn,
+                payment_id=payment_id,
+                operation="confirm_reserve_by_payment_id",
             )
     logger.info(
         f"[Redeem] confirm_reserve_by_payment_id: payment_id={payment_id}, "
@@ -564,84 +680,92 @@ async def confirm_burn(payment_id: str) -> bool:
     pool = await get_rewards_pool()
 
     async with pool.acquire() as conn:
-        # ВАЖНО: confirm разделён на ДВЕ транзакции для предотвращения webhook retry-loop
-        # при CHECK (points >= 0) violation.
-        # Tx1: UPDATE redeemed_events status='confirmed' — committed независимо.
-        # Tx2: UPDATE point_balances — если CHECK violation, status уже 'confirmed' и
-        # webhook вернёт 200 (не будет ретрая ЮКассы). Admin alert через post_event.
-        # (VR-review C-блокер #1, 17 мая 2026)
-
-        row = await conn.fetchrow(
-            """
-            UPDATE public.redeemed_events
-            SET status = 'confirmed', confirmed_at = now()
-            WHERE payment_id = $1 AND status = 'reserved'
-            RETURNING account_id, points_amount
-            """,
-            payment_id,
-        )
-
-        if row is None:
-            # Не нашли в status='reserved' — проверяем текущий статус (идемпотентность / late-webhook)
-            existing = await conn.fetchrow(
-                "SELECT status, account_id, points_amount FROM public.redeemed_events WHERE payment_id = $1",
+        async with conn.transaction():
+            account_id = await conn.fetchval(
+                "SELECT account_id FROM public.redeemed_events WHERE payment_id = $1",
                 payment_id,
             )
-
-            if existing is None:
+            if account_id is None:
                 logger.warning(f"[Redeem] confirm_burn: payment_id={payment_id} not found")
                 return False
 
-            if existing["status"] == "confirmed":
-                logger.info(f"[Redeem] confirm_burn idempotent: payment_id={payment_id} already confirmed")
-                return True
-
-            if existing["status"] == "rolled_back":
-                logger.error(
-                    f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
-                    f"Admin alert sent via event-gateway. Manual review required."
-                )
-                asyncio.create_task(
-                    post_event(
-                        source="aist-bot",
-                        external_id=f"redeem_late_webhook_{payment_id}",
-                        event_type="points_redeem_late_webhook",
-                        schema_version="v1",
-                        occurred_at=datetime.now(timezone.utc),
-                        account_id=str(existing["account_id"]),
-                        payload={
-                            "payment_id": payment_id,
-                            "points_amount": str(existing["points_amount"]),
-                            "issue": "payment_succeeded_after_rollback",
-                        },
-                    )
-                )
-                return False
-
-            logger.warning(f"[Redeem] confirm_burn unexpected status: {existing['status']}")
-            return False
-
-        # row is not None: статус успешно переведён в 'confirmed'. Tx2: inline UPDATE point_balances.
-        # TODO (Phase 2 refactor): убрать inline UPDATE и перейти на projection-worker handler для
-        # event_type='points_redeemed'. См. DP.ROLE.051 §9.
-        try:
-            await conn.execute(
+            # Fixed ordering across reserve/grant/burn: account xact-lock first,
+            # ledger row second. The protected function uses the same order.
+            await _lock_burn_account(conn, account_id=account_id)
+            row = await conn.fetchrow(
                 """
-                UPDATE public.point_balances
-                SET points = points - $1, last_updated = now()
-                WHERE account_id = $2
+                UPDATE public.redeemed_events
+                SET status = 'confirmed',
+                    confirmed_at = now(),
+                    balance_apply_eligible = TRUE
+                WHERE payment_id = $1 AND status = 'reserved'
+                RETURNING account_id, points_amount
                 """,
-                row["points_amount"],
-                row["account_id"],
+                payment_id,
             )
-        except asyncpg.CheckViolationError as e:
-            # CHECK (points >= 0) — баланс изменился между reserve и confirm. status уже 'confirmed'
-            # (Tx1), webhook возвращает 200, ретрая ЮКассы нет. Admin alert для ручного refund.
-            logger.error(
-                f"[Redeem] confirm_burn negative_balance: payment_id={payment_id}, "
-                f"points={row['points_amount']}, account={str(row['account_id'])[:8]}. "
-                f"Status set to 'confirmed', balance NOT decremented. Admin review needed. Error: {e}"
+
+            if row is None:
+                # Re-check under the account lock: replay and late webhook take
+                # different paths, and legacy confirmed rows are never opted in
+                # automatically because they may already have been debited.
+                existing = await conn.fetchrow(
+                    """
+                    SELECT status, account_id, points_amount,
+                           balance_apply_eligible
+                    FROM public.redeemed_events
+                    WHERE payment_id = $1
+                    """,
+                    payment_id,
+                )
+                if existing is None:
+                    return False
+                if existing["status"] == "confirmed":
+                    if not existing["balance_apply_eligible"]:
+                        logger.info(
+                            "[Redeem] confirm_burn legacy idempotent: "
+                            f"payment_id={payment_id} already confirmed"
+                        )
+                        return True
+                    row = existing
+                elif existing["status"] == "rolled_back":
+                    logger.error(
+                        f"[Redeem] LATE WEBHOOK: payment_id={payment_id} was rolled_back, but payment succeeded. "
+                        "Admin alert sent via event-gateway. Manual review required."
+                    )
+                    asyncio.create_task(
+                        post_event(
+                            source="aist-bot",
+                            external_id=f"redeem_late_webhook_{payment_id}",
+                            event_type="points_redeem_late_webhook",
+                            schema_version="v1",
+                            occurred_at=datetime.now(timezone.utc),
+                            account_id=str(existing["account_id"]),
+                            payload={
+                                "payment_id": payment_id,
+                                "points_amount": str(existing["points_amount"]),
+                                "issue": "payment_succeeded_after_rollback",
+                            },
+                        )
+                    )
+                    return False
+                else:
+                    logger.warning(
+                        "[Redeem] confirm_burn unexpected status: "
+                        f"{existing['status']}"
+                    )
+                    return False
+
+            outcome = await _apply_or_queue_confirmed_burn(
+                conn,
+                payment_id=payment_id,
+                operation="confirm_burn",
             )
+
+        if outcome.startswith("manual_review"):
+            issue = {
+                "manual_review_insufficient_balance": "check_violation_balance_below_zero",
+                "manual_review_balance_missing": "confirmed_without_balance_deduction",
+            }.get(outcome, "confirmed_without_balance_deduction")
             asyncio.create_task(
                 post_event(
                     source="aist-bot",
@@ -653,12 +777,14 @@ async def confirm_burn(payment_id: str) -> bool:
                     payload={
                         "payment_id": payment_id,
                         "points_amount": str(row["points_amount"]),
-                        "issue": "check_violation_balance_below_zero",
+                        "issue": issue,
                     },
                 )
             )
+            return True
 
-        # Успешный confirm — эмитируем event для projection-worker (read-replica на point_balances)
+        # Notification only: correctness comes from the durable ledger scan and
+        # apply_confirmed_burn_v1 marker, never from fire-and-forget delivery.
         asyncio.create_task(
             post_event(
                 source="aist-bot",
@@ -674,7 +800,10 @@ async def confirm_burn(payment_id: str) -> bool:
             )
         )
 
-    logger.info(f"[Redeem] confirm_burn: payment_id={payment_id}, points={row['points_amount']}")
+    logger.info(
+        f"[Redeem] confirm_burn: payment_id={payment_id}, "
+        f"points={row['points_amount']}, outcome={outcome}"
+    )
     return True
 
 

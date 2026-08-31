@@ -722,6 +722,7 @@ async def process_seminar_yookassa_webhook(data: dict, bot: Bot) -> dict:
             await confirm_burn(payment_id)
         except Exception as e:
             logger.error(f"[Redeem] Showcase confirm_burn on duplicate: payment_id={payment_id}, error={e}")
+            raise
         return {"ok": True, "duplicate": True}
 
     # WP-327: подтвердить burn по реальному YK payment_id (no-op если резерва не было)
@@ -730,6 +731,7 @@ async def process_seminar_yookassa_webhook(data: dict, bot: Bot) -> dict:
         logger.info(f"[Redeem] Showcase confirm_burn(yk={payment_id}) result={ok}")
     except Exception as e:
         logger.error(f"[Redeem] Showcase confirm_burn exception: payment_id={payment_id}, error={e}")
+        raise
 
     # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер)
     try:

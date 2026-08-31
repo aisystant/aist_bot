@@ -29,14 +29,23 @@ Grafana queries (для PostgreSQL datasource → Neon):
     ORDER BY occurrence_count DESC
 """
 
+from dataclasses import dataclass
 import html
-import re
 import logging
+import re
 from typing import Optional
 
 from db.connection import get_health_pool
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EscalationBatch:
+    """Alert text plus rows to acknowledge only after successful delivery."""
+
+    text: str
+    ids: tuple[int, ...]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -158,6 +167,12 @@ PATTERNS: list[dict] = [
      "action": "Transient: переключение polling↔webhook (Railway redeploy)"},
 
     # --- DB (§ 3.2) — last: generic patterns (connection, timeout) ---
+    {"category": "db", "severity": "L4",
+     "pattern": r"\bREDEEM_NEGATIVE_BALANCE_ATTEMPT\b",
+     "action": "Manual review: reconcile redeemed_events and point_balances before any retry"},
+    {"category": "db", "severity": "L4",
+     "pattern": r"\bREDEEM_DEDUCTION_FAILED\b",
+     "action": "Manual review: confirmed reserve may be missing its balance deduction"},
     {"category": "db", "severity": "L3",
      "pattern": r"(?i)too many connections|pool.*exhaust|connection pool",
      "action": "Restart бот (освободить pool)"},
@@ -277,6 +292,66 @@ _VALID_CATEGORIES = {"fsm", "claude_api", "telegram_api", "mcp", "scheduler", "d
 _VALID_SEVERITIES = {"L1", "L2", "L3", "L4"}
 
 
+_EXTERNAL_REDACTIONS: tuple[tuple[re.Pattern, str], ...] = (
+    (
+        re.compile(
+            r"(?i)\b(?:postgres(?:ql)?|https?|redis)://[^\s/@:]+:[^@\s]+@"
+        ),
+        "<scheme>://<credentials>@",
+    ),
+    (
+        re.compile(
+            r"(?i)(\b(?:bearer|token|api[_-]?key)\s*[=:]?\s*)"
+            r"[A-Za-z0-9._~+/=-]{8,}"
+        ),
+        r"\1<token>",
+    ),
+    (
+        re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}\b"),
+        "<telegram-token>",
+    ),
+    (
+        re.compile(
+            r"(?i)(\b(?:account(?:_id)?|user(?:_id)?|chat(?:_id)?|"
+            r"payment(?:_id|_ref)?|reserve(?:_id)?|external(?:_id|_ref)?|"
+            r"ory_id)\b[\"']?\s*[=:]\s*)[\"']?[^\"'\s,;}\]]+[\"']?"
+        ),
+        r"\1<id>",
+    ),
+    (
+        re.compile(
+            r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-"
+            r"[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"
+        ),
+        "<uuid>",
+    ),
+    (
+        re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+        "<email>",
+    ),
+    (
+        re.compile(r"(?<![\w.-])\d{7,}(?![\w.-])"),
+        "<numeric-id>",
+    ),
+    (
+        re.compile(r"/Users/[^/\s]+"),
+        "/Users/<user>",
+    ),
+    (
+        re.compile(r"(?<!\w)@[A-Za-z0-9_]{5,}"),
+        "<handle>",
+    ),
+)
+
+
+def _redact_for_external(value: str | None, limit: int) -> str:
+    """Remove common identifiers and credentials before external classification."""
+    redacted = value or ""
+    for pattern, replacement in _EXTERNAL_REDACTIONS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted[:limit]
+
+
 async def _classify_with_haiku(logger_name: str, message: str, traceback_text: str | None) -> dict | None:
     """Classify unknown error using Haiku. Returns dict or None on failure.
 
@@ -295,13 +370,13 @@ async def _classify_with_haiku(logger_name: str, message: str, traceback_text: s
     traceback_tail = ""
     if traceback_text:
         lines = traceback_text.strip().splitlines()
-        traceback_tail = "\n".join(lines[-3:])
+        traceback_tail = lines[-1] if lines else ""
 
     from config import CLAUDE_MODEL_HAIKU
     prompt = _HAIKU_CLASSIFY_PROMPT.format(
-        logger_name=logger_name,
-        message=(message or "")[:200],
-        traceback_tail=traceback_tail[:300],
+        logger_name=_redact_for_external(logger_name, 100),
+        message=_redact_for_external(message, 200),
+        traceback_tail=_redact_for_external(traceback_tail, 200),
     )
 
     try:
@@ -431,39 +506,47 @@ async def _escalate_persistent_l1() -> int:
         return count
 
 
-async def check_escalation() -> Optional[str]:
+async def check_escalation() -> Optional[EscalationBatch]:
     """L4: find L3/L4 or high-occurrence unknown errors needing escalation.
 
-    Returns HTML alert text for TG, None if nothing to escalate.
+    Returns an unacknowledged alert batch, or None if nothing needs escalation.
     Called from scheduler every 15 min.
     """
     # Phase 1: upgrade persistent L1 → L2 (код-баги, не transient)
     await _escalate_persistent_l1()
 
+    page_size = 50
+    offset = 0
+    rows = []
     async with (await get_health_pool()).acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT id, category, severity, logger_name, message,
-                   occurrence_count, context, last_seen_at
-            FROM public.error_logs
-            WHERE escalated = FALSE
-              AND last_seen_at > NOW() - INTERVAL '1 hour'
-              AND (
-                  severity IN ('L3', 'L4')
-                  OR (category = 'unknown' AND occurrence_count >= 5)
-              )
-            ORDER BY
-                CASE severity
-                    WHEN 'L4' THEN 1 WHEN 'L3' THEN 2 ELSE 3
-                END,
-                occurrence_count DESC
-            LIMIT 5
-        """)
+        while len(rows) < 5:
+            page = await conn.fetch("""
+                SELECT id, category, severity, logger_name, message,
+                       occurrence_count, context, last_seen_at
+                FROM public.error_logs
+                WHERE escalated = FALSE
+                  AND last_seen_at > NOW() - INTERVAL '1 hour'
+                  AND (
+                      severity IN ('L3', 'L4')
+                      OR (category = 'unknown' AND occurrence_count >= 5)
+                  )
+                ORDER BY
+                    CASE severity
+                        WHEN 'L4' THEN 1 WHEN 'L3' THEN 2 ELSE 3
+                    END,
+                    occurrence_count DESC,
+                    id
+                LIMIT $1 OFFSET $2
+            """, page_size, offset)
+            rows.extend(
+                row for row in page
+                if not is_suppressed(row['logger_name'], row['message'] or '')
+            )
+            if len(page) < page_size:
+                break
+            offset += len(page)
 
-    if not rows:
-        return None
-
-    # Filter out suppressed (benign) errors before alerting
-    rows = [r for r in rows if not is_suppressed(r['logger_name'], r['message'] or '')]
+    rows = rows[:5]
     if not rows:
         return None
 
@@ -482,12 +565,19 @@ async def check_escalation() -> Optional[str]:
 
     lines.append(f"\n\U0001f449 /errors \u2014 \u043f\u043e\u043b\u043d\u044b\u0439 \u043e\u0442\u0447\u0451\u0442")
 
-    # Mark as escalated
-    ids = [r['id'] for r in rows]
+    return EscalationBatch(
+        text="\n".join(lines),
+        ids=tuple(r['id'] for r in rows),
+    )
+
+
+async def mark_escalation_sent(ids: tuple[int, ...]) -> None:
+    """Acknowledge L3/L4 rows only after Telegram accepted the alert."""
+    if not ids:
+        return
     async with (await get_health_pool()).acquire() as conn:
         await conn.execute(
-            "UPDATE public.error_logs SET escalated = TRUE WHERE id = ANY($1::int[])", ids
+            "UPDATE public.error_logs SET escalated = TRUE WHERE id = ANY($1::int[])",
+            list(ids),
         )
-
     logger.warning(f"[Classifier] Escalated {len(ids)} errors (L3/L4/unknown)")
-    return "\n".join(lines)

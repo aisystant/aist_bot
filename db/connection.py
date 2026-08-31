@@ -4,8 +4,11 @@
 Пул соединений PostgreSQL через asyncpg.
 """
 
-import asyncpg
+import os
+from enum import Enum
 from typing import Optional
+
+import asyncpg
 
 from config import (
     DATABASE_URL,
@@ -73,6 +76,25 @@ _reference_pool: Optional[asyncpg.Pool] = None     # product, training_setting, 
 # WP-253 tech debt: Railway /bot_data bridge для products + finance_payments до ETL в Neon.
 # TODO: после ETL products → reference и finance_payments → payment — удалить этот pool (G3/G5).
 _bot_data_pool: Optional[asyncpg.Pool] = None      # products, finance_payments (Railway /bot_data)
+
+
+class BurnApplyMode(str, Enum):
+    """Which process initiates the protected confirmed-burn apply."""
+
+    BRIDGE = "bridge"
+    PROJECTION = "projection"
+
+
+def get_burn_apply_mode() -> BurnApplyMode:
+    """Read and validate the explicit bot-A/bot-B cutover mode."""
+    raw_mode = os.environ.get("BURN_APPLY_MODE", BurnApplyMode.BRIDGE.value)
+    try:
+        return BurnApplyMode(raw_mode.strip().lower())
+    except ValueError as exc:
+        allowed = ", ".join(mode.value for mode in BurnApplyMode)
+        raise RuntimeError(
+            f"BURN_APPLY_MODE must be one of: {allowed}"
+        ) from exc
 
 
 async def get_pool() -> asyncpg.Pool:
@@ -185,11 +207,62 @@ async def get_privacy_deletion_pool() -> asyncpg.Pool:
     return _privacy_deletion_pool
 
 
+async def _init_rewards_connection(conn: asyncpg.Connection) -> None:
+    """Fail closed on the rewards identity and bot-A/bot-B ACL boundary."""
+    identity = await conn.fetchrow(
+        """
+        SELECT session_user::text AS session_user,
+               current_user::text AS current_user,
+               burn_function.oid IS NOT NULL AS burn_function_exists,
+               COALESCE(
+                   has_function_privilege(
+                       current_user,
+                       burn_function.oid,
+                       'EXECUTE'
+                   ),
+                   FALSE
+               ) AS can_execute_burn
+        FROM (
+            SELECT to_regprocedure(
+                'public.apply_confirmed_burn_v1(text)'
+            ) AS oid
+        ) AS burn_function
+        """
+    )
+    session_user = identity["session_user"] if identity else None
+    current_user = identity["current_user"] if identity else None
+    if session_user != "points_redeemer" or current_user != "points_redeemer":
+        raise RuntimeError(
+            "REWARDS_URL must authenticate with "
+            "session_user=current_user=points_redeemer; "
+            f"got session_user={session_user!r}, current_user={current_user!r}"
+        )
+
+    if not identity["burn_function_exists"]:
+        raise RuntimeError(
+            "apply_confirmed_burn_v1 must exist before the rewards bot pool starts"
+        )
+
+    mode = get_burn_apply_mode()
+    can_execute_burn = bool(identity["can_execute_burn"])
+    if mode is BurnApplyMode.BRIDGE and not can_execute_burn:
+        raise RuntimeError(
+            "BURN_APPLY_MODE=bridge requires points_redeemer EXECUTE on "
+            "apply_confirmed_burn_v1"
+        )
+    if mode is BurnApplyMode.PROJECTION and can_execute_burn:
+        raise RuntimeError(
+            "BURN_APPLY_MODE=projection requires points_redeemer EXECUTE on "
+            "apply_confirmed_burn_v1 to be revoked"
+        )
+
+
 async def get_rewards_pool() -> asyncpg.Pool:
     """Пул соединений к rewards БД (WP-253 Ф9.3): point_balances.
 
-    Read-only для бота — writer = projection-worker (DP.SC.122). Latency p95 ≤1s
-    после INSERT в learning.domain_event.
+    Бот пишет только ledger redeemed_events. BURN_APPLY_MODE=bridge вызывает
+    защищённую функцию (bot A); projection только ставит durable marker очереди
+    (bot B). Прямой UPDATE point_balances запрещён ACL в обоих режимах.
     """
     global _rewards_pool
     if _rewards_pool is None:
@@ -200,6 +273,7 @@ async def get_rewards_pool() -> asyncpg.Pool:
             max_size=5,
             command_timeout=30,
             max_inactive_connection_lifetime=60,
+            init=_init_rewards_connection,
         )
         logger.info("✅ Rewards пул соединений создан")
     return _rewards_pool

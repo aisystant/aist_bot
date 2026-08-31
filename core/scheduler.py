@@ -1908,15 +1908,18 @@ async def scheduled_check():
     # 🚨 L4 Escalation: L3/L4/unknown ошибки → отдельный алерт (WP-45)
     if now.minute % 15 == 0 and dev_chat_id:
         try:
-            from core.error_classifier import check_escalation
-            escalation_text = await check_escalation()
-            if escalation_text:
+            from core.error_classifier import check_escalation, mark_escalation_sent
+            escalation = await check_escalation()
+            if escalation:
                 bot = Bot(token=_bot_token)
                 try:
                     try:
-                        await bot.send_message(int(dev_chat_id), escalation_text, parse_mode="HTML")
+                        await bot.send_message(
+                            int(dev_chat_id), escalation.text, parse_mode="HTML"
+                        )
                     except Exception:
-                        await bot.send_message(int(dev_chat_id), escalation_text)
+                        await bot.send_message(int(dev_chat_id), escalation.text)
+                    await mark_escalation_sent(escalation.ids)
                     logger.info("[Scheduler] Escalation alert sent to developer")
                 finally:
                     await bot.session.close()
