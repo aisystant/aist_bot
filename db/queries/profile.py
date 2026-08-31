@@ -48,6 +48,35 @@ OPTIONAL_CHAT_TABLES = [
 ]
 
 
+class IncompleteUserDataDeletion(RuntimeError):
+    """One or more required storage legs could not be verified as deleted.
+
+    ``partial_result`` is deliberately retained for retry/audit code, while the
+    exception prevents callers from presenting a partial cleanup as success.
+    Neither the message nor the component names contain a subject identifier.
+    """
+
+    def __init__(self, failed_components: list[str], partial_result: dict[str, int]):
+        self.failed_components = tuple(dict.fromkeys(failed_components))
+        self.partial_result = dict(partial_result)
+        components = ", ".join(self.failed_components)
+        super().__init__(f"Required deletion legs failed: {components}")
+
+
+def _record_required_cleanup_failure(
+    failures: list[str],
+    component: str,
+    error: Exception,
+) -> None:
+    """Record a required-leg failure without logging subject data or SQL args."""
+    failures.append(component)
+    logger.warning(
+        "[DELETE] required cleanup failed for %s (%s)",
+        component,
+        type(error).__name__,
+    )
+
+
 async def get_knowledge_profile(chat_id: int) -> Optional[dict]:
     """Агрегированный профиль знаний пользователя (мультипул после WP-268 Phase 5 G5).
 
@@ -154,10 +183,16 @@ async def delete_all_user_data(chat_id: int) -> dict:
     (подписки, интеграции, награды, публикации, Digital Twin).
     Возвращает dict с количеством удалённых строк по таблицам.
 
+    Raises:
+        IncompleteUserDataDeletion: хотя бы одна обязательная нога не смогла
+            подтвердить удаление. Исключение содержит частичный результат для
+            будущего повтора, но не позволяет интерфейсу показать ложный успех.
+
     Ref: DP.D.028 (User Data Tiers — протокол удаления), WP-476 (ЦД в удалении).
     """
     pool = await get_pool()
     result = {}
+    failures: list[str] = []
 
     async with pool.acquire() as conn:
         for table, column in OPTIONAL_CHAT_TABLES:
@@ -166,8 +201,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
                     _delete_from_sql(f'public.{table}', f'{column} = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
+            except asyncpg.exceptions.UndefinedTableError:
+                logger.warning("[DELETE] optional table %s does not exist, skipping", table)
+                result[table] = 0
             except Exception as e:
-                logger.warning(f"[DELETE] optional table {table} cleanup failed: {e}")
+                _record_required_cleanup_failure(failures, f"main.{table}", e)
                 result[table] = 0
 
         # Legacy bot_data.request_traces (main pool) — same treatment as
@@ -179,8 +217,11 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 'DELETE FROM public.request_traces WHERE user_id = $1', chat_id
             )
             result['request_traces_legacy'] = _parse_delete_count(deleted)
+        except asyncpg.exceptions.UndefinedTableError:
+            logger.warning("[DELETE] legacy request_traces does not exist, skipping")
+            result['request_traces_legacy'] = 0
         except Exception as e:
-            logger.warning(f"[DELETE] legacy request_traces cleanup failed: {e}")
+            _record_required_cleanup_failure(failures, "main.request_traces_legacy", e)
             result['request_traces_legacy'] = 0
 
     async with pool.acquire() as conn:
@@ -242,8 +283,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 'SELECT account_id FROM public.ory_identity WHERE telegram_id = $1', chat_id
             )
     except Exception as e:
-        if 'does not exist' not in str(e):
-            logger.warning(f"[DELETE] persona account_id resolution failed: {e}")
+        _record_required_cleanup_failure(failures, "persona.identity_lookup", e)
 
     # WP-476: Digital Twin data lives in the indicators DB; the canonical user_id
     # in digital_twins is dt_user_id from secrets.dt_tokens, falling back to the
@@ -263,7 +303,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['secrets_dt_tokens'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] secrets dt_tokens cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "secrets.dt_tokens", e)
         result['secrets_dt_tokens'] = 0
 
     # persona.user_integrations (WakaTime, GitHub OAuth tokens — 12-BC архитектура)
@@ -276,7 +316,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['persona_user_integrations'] = _parse_delete_count(deleted)
         except Exception as e:
-            logger.warning(f"[DELETE] persona user_integrations cleanup failed: {e}")
+            _record_required_cleanup_failure(failures, "persona.user_integrations", e)
             result['persona_user_integrations'] = 0
     else:
         result['persona_user_integrations'] = 0
@@ -292,11 +332,8 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['secrets_github_connections'] = _parse_delete_count(deleted)
         except Exception as e:
-            if 'does not exist' in str(e):
-                result['secrets_github_connections'] = 0
-            else:
-                logger.warning(f"[DELETE] secrets github_connections cleanup failed: {e}")
-                result['secrets_github_connections'] = 0
+            _record_required_cleanup_failure(failures, "secrets.github_connections", e)
+            result['secrets_github_connections'] = 0
     else:
         result['secrets_github_connections'] = 0
 
@@ -311,7 +348,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['subscription_contract'] = _parse_delete_count(deleted)
         except Exception as e:
-            logger.warning(f"[DELETE] subscription contract cleanup failed: {e}")
+            _record_required_cleanup_failure(failures, "subscription.contract", e)
             result['subscription_contract'] = 0
     else:
         result['subscription_contract'] = 0
@@ -335,7 +372,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['indicators_digital_twins'] = _parse_delete_count(deleted)
         except Exception as e:
-            logger.warning(f"[DELETE] indicators cleanup failed: {e}")
+            _record_required_cleanup_failure(failures, "indicators", e)
             result['indicators_calculated_profile'] = 0
             result['indicators_digital_twins'] = 0
     else:
@@ -353,7 +390,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['rewards_point_balances'] = _parse_delete_count(deleted)
         except Exception as e:
-            logger.warning(f"[DELETE] rewards point_balances cleanup failed: {e}")
+            _record_required_cleanup_failure(failures, "rewards.point_balances", e)
             result['rewards_point_balances'] = 0
     else:
         result['rewards_point_balances'] = 0
@@ -369,7 +406,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['community_club_account'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] community club_account cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "community.club_account", e)
         result['community_club_account'] = 0
 
     # WP-253 lift-and-shift (8 мая 2026): channel_monitor/channel_mention_log
@@ -400,7 +437,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['publication_scheduled_post'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] publication pool cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "publication", e)
         result['publication_channel_monitor'] = 0
         result['publication_channel_mention_log'] = 0
         result['publication_published_post'] = 0
@@ -416,7 +453,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['lead_conversion_event'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] lead conversion_event cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "lead.conversion_event", e)
         result['lead_conversion_event'] = 0
 
     # WP-253 lift-and-shift: training_setting/training_child живут в reference БД
@@ -434,7 +471,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['reference_training_child'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] reference training cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "reference.training", e)
         result['reference_training_setting'] = 0
         result['reference_training_child'] = 0
 
@@ -448,7 +485,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['fsm_states'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] fsm_states cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "fsm.fsm_states", e)
         result['fsm_states'] = 0
 
     # WP-268 Phase 3 Block 2: qa_history + feedback_triage живут в journal БД
@@ -466,7 +503,8 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['qa_history'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] journal cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "journal", e)
+        result['feedback_triage'] = 0
         result['qa_history'] = 0
 
     # WP-268 Phase 5 G5 + WP-253: learning pool — answers, feed, marathon
@@ -490,7 +528,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] learning cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "learning", e)
 
     # WP-268 Phase 5 G5 Tier2: user_sessions вынесены в health BD
     # WP-253 G4 (8 мая): + request_traces переехал в health (writer core/tracing.py)
@@ -506,12 +544,19 @@ async def delete_all_user_data(chat_id: int) -> dict:
             )
             result['request_traces'] = _parse_delete_count(deleted)
     except Exception as e:
-        logger.warning(f"[DELETE] health cleanup failed: {e}")
+        _record_required_cleanup_failure(failures, "health", e)
         result['user_sessions'] = 0
         result['request_traces'] = 0
 
     total = sum(result.values())
-    logger.info(f"[DELETE] user {chat_id}: {total} rows deleted from {len(result)} tables")
+    logger.info(
+        "[DELETE] completed %d row deletions across %d counters; failed legs=%d",
+        total,
+        len(result),
+        len(failures),
+    )
+    if failures:
+        raise IncompleteUserDataDeletion(failures, result)
     return result
 
 

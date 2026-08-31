@@ -8,13 +8,19 @@ promised a command Telegram cannot register (hyphen not allowed in command names
 Run: python3 -m pytest tests/test_mydata_delete_command.py -v
 """
 
+import asyncio
 import inspect
-import sys
 import os
+import sys
+from unittest.mock import AsyncMock
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from handlers.commands import cmd_mydata_delete
+from db.queries import profile as profile_queries
+from db.queries.profile import IncompleteUserDataDeletion
 from states.utilities.mydata import MyDataState
 
 
@@ -61,3 +67,19 @@ def test_start_delete_flow_does_not_skip_to_final_execution():
     source = inspect.getsource(MyDataState.enter)
     assert "delete_all_user_data" not in source
     assert "_execute_delete" not in source
+
+
+def test_execute_delete_does_not_send_success_after_incomplete_cleanup(monkeypatch):
+    """The visible success message is unreachable when a required leg failed."""
+    async def incomplete_delete(_chat_id):
+        raise IncompleteUserDataDeletion(["journal"], {"users": 1})
+
+    monkeypatch.setattr(profile_queries, "delete_all_user_data", incomplete_delete)
+
+    state = object.__new__(MyDataState)
+    state.send = AsyncMock()
+
+    with pytest.raises(IncompleteUserDataDeletion):
+        asyncio.run(state._execute_delete(object(), 123456, "ru"))
+
+    state.send.assert_not_awaited()

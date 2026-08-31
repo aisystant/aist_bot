@@ -415,10 +415,8 @@ class MyDataState(BaseState):
             await self._clear_context(chat_id)
             try:
                 await self._execute_delete(user, chat_id, lang)
-            except Exception as e:
-                logger.error(f"MyData final delete failed for chat_id={chat_id}: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
+            except Exception:
+                logger.exception("MyData final delete failed")
                 await self.send(
                     user,
                     t('mydata.delete_error', lang),
@@ -1238,8 +1236,11 @@ class MyDataState(BaseState):
             from clients.gateway_mcp import gateway_mcp
             if gateway_mcp.is_connected(chat_id):
                 gateway_mcp.disconnect(chat_id)
-        except Exception:
-            pass
+        except Exception as error:
+            logger.warning(
+                "[MyData] gateway disconnect failed before account deletion (%s)",
+                type(error).__name__,
+            )
 
         result = await delete_all_user_data(chat_id)
         total = sum(result.values())
