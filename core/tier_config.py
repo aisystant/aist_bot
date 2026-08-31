@@ -8,7 +8,7 @@ Tier model (payment-first, cumulative):
   T0:  not linked to Aisystant (brand new user)
   T1: linked to Aisystant, no БР subscription
   T2: Aisystant «Инженерия интеллекта» subscription active
-  T3: T2 + DT connected
+  T3: T2 + AI client connected (any interface: claude.ai / Claude Code / VS Code / Telegram) — WP-406 Ф13
   T4: T3 + GitHub connected
   T5: admin (DEVELOPER_CHAT_ID) — menu set in bot.py, NOT here
 

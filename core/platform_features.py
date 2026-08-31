@@ -55,8 +55,9 @@ async def _check_subscription(chat_id: int) -> bool:
 
 
 async def _check_dt(chat_id: int) -> bool:
-    from core.tier_detector import _is_dt_connected
-    return await _is_dt_connected(chat_id)
+    # AI-client connection = T3 condition (WP-406 Ф13): any interface, not only Digital Twin.
+    from core.tier_detector import _is_ai_client_connected
+    return await _is_ai_client_connected(chat_id)
 
 
 async def _check_github(chat_id: int) -> bool:
