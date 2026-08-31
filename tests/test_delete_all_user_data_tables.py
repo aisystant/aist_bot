@@ -9,15 +9,22 @@ Run: python3 -m pytest tests/test_delete_all_user_data_tables.py -v
 
 import asyncio
 import inspect
-import sys
 import os
+import sys
 
 import asyncpg
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db.queries.profile import OPTIONAL_CHAT_TABLES, _delete_tolerant, delete_all_user_data
+import db.connection as db_connection
+from db.queries import profile as profile_queries
+from db.queries.profile import (
+    IncompleteUserDataDeletion,
+    OPTIONAL_CHAT_TABLES,
+    _delete_tolerant,
+    delete_all_user_data,
+)
 from db.sql_helpers import delete_from
 
 
@@ -255,3 +262,148 @@ def test_wp253_migrated_pools_not_missed():
     assert "DELETE FROM public.training_child WHERE chat_id = $1" in source
     assert "'learning.' + table" in source
     assert "'training_progress', 'training_attempt'" in source
+
+
+class _DeleteConn:
+    """Success-path double for the complete multi-pool deletion traversal."""
+
+    def __init__(
+        self,
+        execute_error_for: str | None = None,
+        error: Exception | None = None,
+    ):
+        self.execute_error_for = execute_error_for
+        self.error = error
+
+    def transaction(self):
+        return _FakeTransaction()
+
+    async def execute(self, sql, *args):
+        if self.execute_error_for and self.execute_error_for in sql:
+            raise self.error or RuntimeError("injected deletion failure")
+        return "DELETE 0"
+
+    async def fetchval(self, sql, *args):
+        return None
+
+    async def fetchrow(self, sql, *args):
+        return None
+
+
+class _AcquireConn:
+    def __init__(self, conn=None, error: Exception | None = None):
+        self.conn = conn or _DeleteConn()
+        self.error = error
+
+    async def __aenter__(self):
+        if self.error:
+            raise self.error
+        return self.conn
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+class _DeletePool:
+    def __init__(self, conn=None, acquire_error: Exception | None = None):
+        self.conn = conn or _DeleteConn()
+        self.acquire_error = acquire_error
+
+    def acquire(self):
+        return _AcquireConn(self.conn, self.acquire_error)
+
+
+def _patch_deletion_pools(
+    monkeypatch,
+    *,
+    community_pool=None,
+    main_pool=None,
+    persona_pool=None,
+):
+    """Route every pool used by delete_all_user_data() to deterministic doubles."""
+    success_pool = _DeletePool()
+    main_pool = main_pool or success_pool
+    community_pool = community_pool or success_pool
+    persona_pool = persona_pool or success_pool
+
+    async def main_getter():
+        return main_pool
+
+    async def success_getter():
+        return success_pool
+
+    async def community_getter():
+        return community_pool
+
+    async def persona_getter():
+        return persona_pool
+
+    monkeypatch.setattr(profile_queries, "get_pool", main_getter)
+    monkeypatch.setattr(profile_queries, "get_learning_pool", success_getter)
+    monkeypatch.setattr(profile_queries, "get_health_pool", success_getter)
+
+    for getter_name in (
+        "get_secrets_pool",
+        "get_subscription_pool",
+        "get_indicators_pool",
+        "get_rewards_pool",
+        "get_publication_pool",
+        "get_lead_pool",
+        "get_reference_pool",
+        "get_fsm_pool",
+        "get_journal_pool",
+    ):
+        monkeypatch.setattr(db_connection, getter_name, success_getter)
+    monkeypatch.setattr(db_connection, "get_community_pool", community_getter)
+    monkeypatch.setattr(db_connection, "get_persona_pool", persona_getter)
+
+
+def test_required_pool_failure_raises_with_partial_result(monkeypatch):
+    """A failed required leg must never return the dict consumed by the success UI."""
+    community_pool = _DeletePool(acquire_error=RuntimeError("community unavailable"))
+    _patch_deletion_pools(monkeypatch, community_pool=community_pool)
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert error.value.failed_components == ("community.club_account",)
+    assert "users" in error.value.partial_result
+    assert "123456" not in str(error.value)
+
+
+def test_persona_identity_lookup_failure_blocks_success(monkeypatch):
+    """A missing account-id lookup makes account-keyed legs unverifiable."""
+    persona_pool = _DeletePool(acquire_error=RuntimeError("persona unavailable"))
+    _patch_deletion_pools(monkeypatch, persona_pool=persona_pool)
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert error.value.failed_components == ("persona.identity_lookup",)
+
+
+def test_missing_classified_optional_table_does_not_fail_deletion(monkeypatch):
+    """Only an explicitly optional table's UndefinedTableError is a safe skip."""
+    main_conn = _DeleteConn(
+        execute_error_for="public.assessments",
+        error=asyncpg.exceptions.UndefinedTableError("relation does not exist"),
+    )
+    _patch_deletion_pools(monkeypatch, main_pool=_DeletePool(conn=main_conn))
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    assert result["assessments"] == 0
+
+
+def test_optional_table_permission_error_blocks_success(monkeypatch):
+    """Optional means schema-optional, not permission/error-optional."""
+    main_conn = _DeleteConn(
+        execute_error_for="public.assessments",
+        error=asyncpg.exceptions.InsufficientPrivilegeError("permission denied"),
+    )
+    _patch_deletion_pools(monkeypatch, main_pool=_DeletePool(conn=main_conn))
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "main.assessments" in error.value.failed_components
