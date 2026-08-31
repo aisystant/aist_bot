@@ -102,8 +102,9 @@ async def set_consent(
             effective_scope,
         )
     logger.info(
-        "[consent] set account_id=%s opt_in=%s scope=%s",
-        account_id, opt_in, effective_scope,
+        "[consent] set opt_in=%s scope_count=%d",
+        opt_in,
+        len(effective_scope),
     )
     return ConsentRow(
         account_id=row["account_id"],
@@ -167,8 +168,9 @@ async def revoke_consent(account_id: str) -> bool:
     success = updated_rows > 0 or deleted_rows > 0
 
     logger.info(
-        "[consent] revoke account_id=%s consent_grant_rows=%d tracking_consent_rows=%d",
-        account_id, updated_rows, deleted_rows
+        "[consent] revoke consent_grant_rows=%d tracking_consent_rows=%d",
+        updated_rows,
+        deleted_rows,
     )
     return success
 
@@ -242,8 +244,9 @@ async def set_consent_grant(
     if scope == "typing_tracking":
         invalidate_consent_cache(account_id)
     logger.info(
-        "[consent_grant] set account_id=%s scope=%s granted=%s",
-        account_id, scope, granted,
+        "[consent_grant] set scope=%s granted=%s",
+        scope,
+        granted,
     )
 
     # WP-457 Ф10 (consent write-path fix): единственный writer этого scope обязан
