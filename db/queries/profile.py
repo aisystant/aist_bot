@@ -410,16 +410,19 @@ async def delete_all_user_data(chat_id: int) -> dict:
         result['indicators_calculated_profile'] = 0
         result['indicators_digital_twins'] = 0
 
-    # WP-253 Ф9.3: rewards.point_balances (db/queries/rewards.py) — ключ account_id.
+    # WP-253 Ф9.3 + WP-547 (migration 041): rewards.point_balances, ключ account_id.
+    # Прямой DELETE запрещён ролью points_redeemer (protected burn-path cutover,
+    # 2026-09-01) — удаление идёт только через SECURITY DEFINER erase_account_balance,
+    # которая берёт тот же account advisory lock, что apply_confirmed_burn_v1.
     if account_id:
         try:
             from db.connection import get_rewards_pool
             rewards_pool = await get_rewards_pool()
             async with rewards_pool.acquire() as rewconn:
-                deleted = await rewconn.execute(
-                    'DELETE FROM public.point_balances WHERE account_id = $1', account_id
+                deleted = await rewconn.fetchval(
+                    'SELECT public.erase_account_balance($1::uuid)', account_id
                 )
-                result['rewards_point_balances'] = _parse_delete_count(deleted)
+                result['rewards_point_balances'] = int(deleted)
         except Exception as e:
             _record_required_cleanup_failure(failures, "rewards.point_balances", e)
             result['rewards_point_balances'] = 0
