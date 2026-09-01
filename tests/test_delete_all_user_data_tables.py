@@ -234,7 +234,10 @@ def test_cross_pool_tables_keyed_by_account_id_not_chat_id():
     source = inspect.getsource(delete_all_user_data)
     assert "DELETE FROM public.contract WHERE account_id = $1" in source
     assert "DELETE FROM public.calculated_profile WHERE account_id = $1::uuid" in source
-    assert "DELETE FROM public.point_balances WHERE account_id = $1" in source
+    # WP-547 cutover (2026-09-01): points_redeemer lost direct DELETE on
+    # point_balances — erasure now goes through the SECURITY DEFINER
+    # erase_account_balance() (migration 041), still keyed by account_id.
+    assert "SELECT public.erase_account_balance($1::uuid)" in source
 
 
 def test_club_account_keyed_by_chat_id_directly():
@@ -271,7 +274,7 @@ class _DeleteConn:
         self,
         execute_error_for: str | None = None,
         error: Exception | None = None,
-        fetchval_result=None,
+        fetchval_result=0,
         fetchrow_result=None,
     ):
         self.execute_error_for = execute_error_for
