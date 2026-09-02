@@ -611,8 +611,11 @@ async def reset_learning_data(chat_id: int) -> dict:
             )
             result['feed_sessions'] = _parse_delete_count(deleted)
             for table in ('feed_weeks', 'marathon_content', 'answers', 'activity_log', 'assessments'):
+                # Bug fix (2026-09-02, same class as delete_all_user_data() fix
+                # d4432494): these tables physically live in the PUBLIC schema
+                # of this learning-pool database, not under a "learning" schema.
                 deleted = await lconn.execute(
-                    _delete_from_sql('learning.' + table, 'chat_id = $1'), chat_id
+                    _delete_from_sql('public.' + table, 'chat_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:
