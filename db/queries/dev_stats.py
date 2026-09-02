@@ -189,21 +189,26 @@ async def get_table_sizes() -> List[dict]:
                 results.append({'table': table, 'count': -1})
 
     # learning BD tables (WP-268 Phase 5 G5)
+    # Bug fix (2026-09-02, same class as delete_all_user_data()/reset_learning_data()
+    # fixes): these tables physically live in the PUBLIC schema of the
+    # learning-pool database, not under a "learning" schema. Display label kept
+    # as 'learning.<table>' -- it groups by pool, not by real SQL schema.
     learning_pool = await get_learning_pool()
     async with learning_pool.acquire() as lc:
         for table in ['answers', 'activity_log', 'assessments']:
             try:
-                row = await lc.fetchrow(select_count_from('learning.' + table))
+                row = await lc.fetchrow(select_count_from('public.' + table))
                 results.append({'table': f'learning.{table}', 'count': row['cnt']})
             except Exception:
                 results.append({'table': f'learning.{table}', 'count': -1})
 
     # health BD tables (WP-268 Phase 5 G5 Tier2)
+    # Same fix: error_logs/user_sessions/pending_fixes are in public, not health.
     health_pool = await get_health_pool()
     async with health_pool.acquire() as hc:
         for table in ['error_logs', 'user_sessions', 'pending_fixes']:
             try:
-                row = await hc.fetchrow(select_count_from('health.' + table))
+                row = await hc.fetchrow(select_count_from('public.' + table))
                 results.append({'table': f'health.{table}', 'count': row['cnt']})
             except Exception:
                 results.append({'table': f'health.{table}', 'count': -1})
