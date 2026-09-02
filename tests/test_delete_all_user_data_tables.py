@@ -282,8 +282,27 @@ def test_wp253_migrated_pools_not_missed():
     assert "DELETE FROM public.conversion_event WHERE chat_id = $1" in source
     assert "DELETE FROM public.training_setting WHERE chat_id = $1" in source
     assert "DELETE FROM public.training_child WHERE chat_id = $1" in source
-    assert "'learning.' + table" in source
+    assert "'public.' + table" in source
     assert "'training_progress', 'training_attempt'" in source
+
+
+def test_learning_pool_loop_uses_public_schema_not_learning():
+    """Regression test for a 2026-09-02 prod bug (found verifying an unrelated
+    WP-554/learning.cp_assessments gap): all seven tables in this loop
+    (feed_weeks/marathon_content/answers/activity_log/assessments/
+    training_progress/training_attempt) physically live in the PUBLIC schema
+    of the learning-pool database, not under a "learning" schema -- confirmed
+    live via to_regclass() against the real production database for every one
+    of the seven tables (plus feed_sessions, which was already correct).
+    The old 'learning.' prefix made every DELETE in this loop raise
+    UndefinedTableError on the very first iteration; the single try/except
+    around the whole block turned that into a required-leg failure for
+    essentially every real delete_all_user_data() call -- account deletion
+    was silently broken for (as far as could be determined) every user who
+    triggered it."""
+    source = inspect.getsource(delete_all_user_data)
+    assert "'learning.' + table" not in source, "old wrong-schema prefix must be gone"
+    assert "_delete_from_sql('public.' + table, 'chat_id = $1')" in source
 
 
 class _DeleteConn:
