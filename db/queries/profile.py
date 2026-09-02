@@ -504,8 +504,15 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 # WP-253 lift-and-shift: training_progress/training_attempt (db/queries/training.py)
                 'training_progress', 'training_attempt',
             ):
+                # Bug fix (2026-09-02, found verifying WP-554/learning.cp_assessments):
+                # all seven tables physically live in the PUBLIC schema of this same
+                # learning-pool database, not under a "learning" schema -- confirmed
+                # live (to_regclass) for every one of them. The old 'learning.' prefix
+                # made every DELETE in this loop raise UndefinedTableError on the
+                # first iteration, which the single try/except around the whole block
+                # (below) turned into a required-leg failure for every real call.
                 deleted = await lconn.execute(
-                    _delete_from_sql('learning.' + table, 'chat_id = $1'), chat_id
+                    _delete_from_sql('public.' + table, 'chat_id = $1'), chat_id
                 )
                 result[table] = _parse_delete_count(deleted)
     except Exception as e:
