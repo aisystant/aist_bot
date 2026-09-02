@@ -372,7 +372,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 )
                 result['learning_cp_assessments'] = _parse_delete_count(deleted)
         except Exception as e:
-            _record_required_cleanup_failure(failures, "learning.cp_assessments", e)
+            logger.warning(f"[DELETE] learning cp_assessments cleanup failed: {e}")
             result['learning_cp_assessments'] = 0
     else:
         result['learning_cp_assessments'] = 0

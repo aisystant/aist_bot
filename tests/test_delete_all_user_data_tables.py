@@ -249,6 +249,19 @@ def test_cp_assessments_deletion_is_gated_by_account_id():
     assert "result['learning_cp_assessments'] = 0" in source
 
 
+def test_cp_assessments_failure_handler_does_not_crash():
+    """Regression test for a pilot-backport-only bug (2026-09-02, PR #302
+    review): the except handler for this leg must not reference a name that
+    is undefined in THIS module. new-architecture's IncompleteUserDataDeletion
+    machinery (_record_required_cleanup_failure/failures) does not exist on
+    pilot -- calling it here would turn any real failure of this DELETE
+    (missing table, permissions, transient network) into an uncaught
+    NameError that aborts delete_all_user_data() mid-function, silently
+    skipping every remaining leg (roughly two-thirds of the function)."""
+    source = inspect.getsource(delete_all_user_data)
+    assert "_record_required_cleanup_failure" not in source
+
+
 def test_club_account_keyed_by_chat_id_directly():
     """club_account (community pool) is the WP-253 successor of discourse_accounts
     (main pool, in OPTIONAL_CHAT_TABLES above) and — unlike the three tables in
