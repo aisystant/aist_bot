@@ -209,8 +209,9 @@ async def schedule_publication(
 ) -> int | None:
     """Запланировать публикацию.
 
-    Возвращает id новой записи либо id существующей pending/publishing записи
-    с тем же source_file (защита от race condition между scan'ами).
+    Возвращает id только что созданной записи. Если параллельный scan уже
+    создал pending/publishing запись с тем же source_file, возвращает None:
+    уникальный индекс выбирает единственного отправителя подтверждения.
     """
     # Safeguard: scheduled_post.schedule_time — TIMESTAMP (naive).
     # asyncpg не может записать aware datetime в naive колонку → DataError.
@@ -232,19 +233,6 @@ async def schedule_publication(
         )
         if row:
             return row["id"]
-        # Conflict: return existing pending/publishing id for this source_file.
-        if source_file:
-            existing = await conn.fetchrow(
-                """
-                SELECT id FROM public.scheduled_post
-                WHERE chat_id = $1 AND source_file = $2 AND status IN ('pending', 'publishing')
-                ORDER BY schedule_time
-                LIMIT 1
-                """,
-                chat_id, source_file,
-            )
-            if existing:
-                return existing["id"]
     return None
 
 
