@@ -238,6 +238,25 @@ def test_cross_pool_tables_keyed_by_account_id_not_chat_id():
     # point_balances — erasure now goes through the SECURITY DEFINER
     # erase_account_balance() (migration 041), still keyed by account_id.
     assert "SELECT public.erase_account_balance($1::uuid)" in source
+    # WP-554 gap (found 2026-09-02, WP-417 Ф-cutover-scope): learning.cp_assessments
+    # (стадия развития, db/queries/cp_assessment.py) was entirely missing from this
+    # function — the WP-554 PII map had it nowhere, confirmed by direct code read.
+    assert "DELETE FROM learning.cp_assessments WHERE account_id = $1::uuid" in source
+
+
+def test_cp_assessments_deletion_is_gated_by_account_id():
+    """Same failure shape as the other account-id legs above: without a verified
+    account_id there is nothing to key the DELETE on, so the leg must report 0
+    rather than skip binding entirely (which would raise at the asyncpg parameter
+    step, same class of bug this file already guards against)."""
+    source = inspect.getsource(delete_all_user_data)
+    delete_idx = source.index("DELETE FROM learning.cp_assessments")
+    # the nearest 'if account_id:' before this DELETE is the one gating it (not a
+    # stray one belonging to an earlier unrelated block further up the function)
+    guard_idx = source.rindex("if account_id:", 0, delete_idx)
+    gated_block = source[guard_idx:delete_idx]
+    assert "get_learning_pool" in gated_block
+    assert "result['learning_cp_assessments'] = 0" in source
 
 
 def test_club_account_keyed_by_chat_id_directly():

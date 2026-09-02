@@ -429,6 +429,25 @@ async def delete_all_user_data(chat_id: int) -> dict:
     else:
         result['rewards_point_balances'] = 0
 
+    # WP-554 (найдено 2026-09-02, WP-417 Ф-cutover-scope): learning.cp_assessments
+    # (ступень развития/cp-профиль, db/queries/cp_assessment.py) ключуется account_id,
+    # тот же learning-пул, что и chat_id-цикл ниже — отдельный блок, не строка того
+    # цикла, потому что ключ другой.
+    if account_id:
+        try:
+            learning_account_pool = await get_learning_pool()
+            async with learning_account_pool.acquire() as lacconn:
+                deleted = await lacconn.execute(
+                    'DELETE FROM learning.cp_assessments WHERE account_id = $1::uuid',
+                    account_id
+                )
+                result['learning_cp_assessments'] = _parse_delete_count(deleted)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "learning.cp_assessments", e)
+            result['learning_cp_assessments'] = 0
+    else:
+        result['learning_cp_assessments'] = 0
+
     # WP-253 lift-and-shift: discourse_accounts (основной пул, выше) → club_account
     # (community пул) — ключ chat_id напрямую, без account_id (db/queries/discourse.py).
     try:
