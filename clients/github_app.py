@@ -216,3 +216,36 @@ async def get_installation_repos(installation_id: int) -> list[dict]:
     except Exception as e:
         logger.warning("[GitHubApp] list repos failed: %s", e)
         return []
+
+
+async def set_repo_private(installation_id: int, repo_full_name: str) -> bool:
+    """Переключает репозиторий на приватный через installation token.
+
+    Требует permission "Administration: write" у App — без него GitHub
+    вернёт 403 и функция вернёт False. Вызывающий код обязан явно
+    предупредить пользователя при False, не считать успех по умолчанию
+    (WP-527: 6 из 11 проверенных `personal-guide`-репо оказались публичными
+    после ручного создания пользователем через install-flow GitHub App).
+    """
+    token = await get_installation_token(installation_id)
+    if not token:
+        return False
+    url = f"{GITHUB_API}/repos/{repo_full_name}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(url, headers=headers, json={"private": True}, timeout=10) as resp:
+                if resp.status == 200:
+                    return True
+                body = await resp.text()
+                logger.warning(
+                    "[GitHubApp] set_repo_private failed for %s: status=%d body=%s",
+                    repo_full_name, resp.status, body[:300],
+                )
+                return False
+    except Exception as e:
+        logger.warning("[GitHubApp] set_repo_private failed for %s: %s", repo_full_name, e)
+        return False

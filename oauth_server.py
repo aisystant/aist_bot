@@ -2167,7 +2167,8 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
     # Получить репо через App API (нужны installation_token + list repos)
     from clients import github_app as gha
     repos = await gha.get_installation_repos(installation_id)
-    repo_full_name = repos[0].get("full_name", "") if repos else ""
+    selected_repo = repos[0] if repos else None
+    repo_full_name = selected_repo.get("full_name", "") if selected_repo else ""
     if not repo_full_name:
         logger.warning(
             "[GitHubApp] callback: no repos for installation_id=%d (chat_id=%d)",
@@ -2178,6 +2179,28 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
     github_username = ""
     if repo_full_name and "/" in repo_full_name:
         github_username = repo_full_name.split("/", 1)[0]
+
+    # WP-527: пользователь создаёт репо вручную через install-flow GitHub —
+    # приватность по умолчанию не гарантирована (6 из 11 проверенных
+    # personal-guide-репо оказались публичными). Проверяем и принудительно
+    # включаем приватность; если App не имеет прав (Administration: write) —
+    # честно предупреждаем пользователя вместо тихого "всё готово".
+    privacy_note = ""
+    if repo_full_name and selected_repo.get("private") is False:
+        made_private = await gha.set_repo_private(installation_id, repo_full_name)
+        if made_private:
+            logger.info("[GitHubApp] repo %s was public, switched to private", repo_full_name)
+        else:
+            logger.warning(
+                "[GitHubApp] repo %s is public, could not enforce private "
+                "(check App permission Administration:write)",
+                repo_full_name,
+            )
+            privacy_note = (
+                f"\n\n⚠️ Репозиторий сейчас публичный, бот не смог переключить его "
+                f"автоматически. Сделай это вручную: github.com/{repo_full_name}/settings "
+                f"→ Danger Zone → Change visibility → Private."
+            )
 
     from db.queries.github_app import save_app_installation
     ok, status = await save_app_installation(chat_id, installation_id, repo_full_name, github_username)
@@ -2211,12 +2234,20 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
                 f"Репо: <code>{repo_full_name or 'не определён'}</code>\n"
                 f"Installation ID: <code>{installation_id}</code>\n\n"
                 f"Теперь Портной может писать assignments в твой репо, "
-                f"а твои push в <code>workbook/</code> автоматически обновляют ЦД.",
+                f"а твои push в <code>workbook/</code> автоматически обновляют ЦД."
+                f"{privacy_note}",
                 parse_mode="HTML",
             )
         except Exception as e:
             logger.warning("[GitHubApp] notify bot failed: %s", e)
 
+    privacy_note_html = (
+        f'<p style="background:#fff3cd;padding:12px;border-radius:6px;">'
+        f'⚠️ Репозиторий сейчас публичный, бот не смог переключить его автоматически. '
+        f'Сделай это вручную: <a href="https://github.com/{repo_full_name}/settings" '
+        f'target="_blank">настройки репозитория</a> → Danger Zone → Change visibility → Private.</p>'
+        if privacy_note else ""
+    )
     return web.Response(
         text=f"""<!DOCTYPE html>
 <html><head><title>Установка завершена</title><meta charset="utf-8"></head>
@@ -2224,6 +2255,7 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
 <h1>✅ App установлен</h1>
 <p>Репозиторий: <code>{repo_full_name or '(не определён)'}</code></p>
 <p>Installation ID: <code>{installation_id}</code></p>
+{privacy_note_html}
 <p>Можно закрыть это окно и вернуться в Telegram.</p>
 </body></html>""",
         content_type="text/html",
