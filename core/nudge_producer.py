@@ -38,6 +38,21 @@ _REACTIVATION_TYPE = "engagement_reactivation"
 _RECOGNITION_TYPE = "recognition_progress"
 
 
+def _canonical_type_safe(rule_id: str) -> str | None:
+    """canonical_type или None для незамапленного rule_id.
+
+    Без защиты один незамапленный rule_id ронял бы KeyError'ом весь тик
+    send_engagement_nudges() для всех пользователей (per-user try/except в
+    scheduler нет). None не совпадает ни с reactivation, ни с recognition —
+    нудж проходит без арбитража, это безопасный дефолт.
+    """
+    try:
+        return get_rule_config(rule_id).canonical_type
+    except KeyError:
+        logger.warning("[NudgeProducer] Unmapped rule_id %s — skipped in narrative arbitration", rule_id)
+        return None
+
+
 def arbitrate_narrative(nudges: list[dict]) -> list[dict]:
     """Suppress recognition while current rule facts say reactivation is needed.
 
@@ -46,7 +61,7 @@ def arbitrate_narrative(nudges: list[dict]) -> list[dict]:
     the suppression window without a second TTL.
     """
     has_reactivation = any(
-        get_rule_config(n["rule_id"]).canonical_type == _REACTIVATION_TYPE
+        _canonical_type_safe(n["rule_id"]) == _REACTIVATION_TYPE
         for n in nudges
     )
     if not has_reactivation:
@@ -54,7 +69,7 @@ def arbitrate_narrative(nudges: list[dict]) -> list[dict]:
     return [
         n
         for n in nudges
-        if get_rule_config(n["rule_id"]).canonical_type != _RECOGNITION_TYPE
+        if _canonical_type_safe(n["rule_id"]) != _RECOGNITION_TYPE
     ]
 
 
@@ -95,7 +110,13 @@ def produce(
             )
             continue
 
-        category = get_rule_config(rule_id).opt_out_category
+        try:
+            category = get_rule_config(rule_id).opt_out_category
+        except KeyError:
+            # Как до реестра: незамапленный rule_id — без категорийных гейтов,
+            # но не уронить весь тик для остальных пользователей.
+            logger.warning("[NudgeProducer] Unmapped rule_id %s — fallback category 'engagement'", rule_id)
+            category = "engagement"
 
         if category == "return" and active_today:
             continue  # 21-apr incident class: active user, no "come back".

@@ -1,6 +1,6 @@
 """Backfill WP-117 milestone receipts from delivered notification events.
 
-Default mode is dry-run. Use ``--apply`` only after migration 039 is deployed.
+Default mode is dry-run. Use ``--apply`` only after migration 043 is deployed.
 The script intentionally accepts only the three achievement key families;
 ``agency_high`` is recognition, but not a one-time milestone.
 """

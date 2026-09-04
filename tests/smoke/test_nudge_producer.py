@@ -187,3 +187,23 @@ def test_narrative_reactivation_suppresses_recognition_before_delivery_filters()
 def test_narrative_activity_event_reopens_recognition_without_ttl():
     nudges = [_analyze_result("agency_high", "nudge_agency_high")]
     assert np.arbitrate_narrative(nudges) == nudges
+
+
+def test_arbitrate_narrative_unmapped_rule_id_does_not_crash():
+    # peer-review round 1: незамапленный rule_id не должен ронять KeyError'ом
+    # весь тик — нудж проходит без арбитража (безопасный дефолт).
+    nudges = [_analyze_result("ghost_rule", "nudge_ghost")]
+    assert np.arbitrate_narrative(nudges) == nudges
+
+
+def test_produce_unmapped_rule_id_falls_back_to_engagement():
+    # peer-review round 1: fallback на категорию 'engagement' (без гейтов),
+    # как было до введения реестра.
+    result = np.produce(
+        [_analyze_result("ghost_rule", "nudge_ghost")],
+        user_id=1,
+        text_by_nudge_key={"nudge_ghost": "текст"},
+        active_today=False,
+        first_use_connect_full=False,
+    )
+    assert [c.nudge_type for c in result] == ["nudge_ghost"]

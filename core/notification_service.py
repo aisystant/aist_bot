@@ -236,12 +236,16 @@ async def drain(
                 try:
                     await deliver_fn(chat_id, content_spec)
                     try:
-                        await conn.execute(
-                            """UPDATE development.nudge_receipt
-                               SET status = 'delivered', delivered_at = NOW()
-                               WHERE queue_id = $1 AND status = 'reserved'""",
-                            row["id"],
-                        )
+                        # Savepoint: без него ошибка settlement (напр. таблица
+                        # ещё не создана в fail-open окне) отравляет общую
+                        # транзакцию drain — и уже отправленное уйдёт повторно.
+                        async with conn.transaction():
+                            await conn.execute(
+                                """UPDATE development.nudge_receipt
+                                   SET status = 'delivered', delivered_at = NOW()
+                                   WHERE queue_id = $1 AND status = 'reserved'""",
+                                row["id"],
+                            )
                     except Exception as receipt_error:
                         # Migration 043 is fail-open at boot for legacy deploys.
                         # Delivery must not fail after transport acknowledgement;
