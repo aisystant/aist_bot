@@ -84,6 +84,8 @@ def format_report(statuses: list[TriggerStatus]) -> str:
     ]
     for status in statuses:
         if status.auto_deploy_live:
+            # Railway allows at most one trigger per service+environment;
+            # --json exposes the full list if that ever changes.
             trigger = status.triggers[0]
             lines.append(
                 f"{status.service}: branch-based auto-deploy LIVE "
@@ -118,10 +120,19 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         statuses = check_all()
+    except FileNotFoundError:
+        print("railway CLI not found — is it installed and on PATH?", file=sys.stderr)
+        return 2
     except subprocess.CalledProcessError as exc:
         print(f"railway api failed: {exc.stderr}", file=sys.stderr)
         return 2
-    except (subprocess.TimeoutExpired, RuntimeError, KeyError, json.JSONDecodeError) as exc:
+    except (
+        subprocess.TimeoutExpired,
+        RuntimeError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
         print(f"could not read deployment triggers: {exc}", file=sys.stderr)
         return 2
 
