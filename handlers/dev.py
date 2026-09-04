@@ -730,64 +730,6 @@ async def cmd_reset(message: Message):
     )
 
 
-@dev_router.message(Command("migrate_tokens"))
-async def cmd_migrate_tokens(message: Message):
-    """/migrate_tokens — разовая миграция WP-554 Б4: дошифровать токены,
-    записанные ДО перехода wakatime/iwe_extension/dt_tokens на pgp_sym_encrypt.
-
-    Безопасно повторять: трогает только строки без префикса 'pgp:' (уже
-    зашифрованные и NULL — не задевает). Удалить эту команду после
-    подтверждённого успешного запуска — дальше она не нужна, новые записи
-    уже шифруются на лету (db/queries/token_crypto.py).
-    """
-    if not _is_developer(message.chat.id):
-        return
-
-    from config import GITHUB_TOKEN_ENCRYPTION_KEY
-    from db.connection import get_persona_pool, get_secrets_pool
-
-    if not GITHUB_TOKEN_ENCRYPTION_KEY:
-        await message.answer("GITHUB_TOKEN_ENCRYPTION_KEY не установлен — миграция отменена.")
-        return
-
-    encrypt_column_sql = """
-        WITH updated AS (
-            UPDATE {table}
-            SET {column} = 'pgp:' || encode(public.pgp_sym_encrypt({column}, $1::text), 'base64')
-            WHERE {scope}
-              AND {column} IS NOT NULL
-              AND {column} NOT LIKE 'pgp:%'
-            RETURNING 1
-        )
-        SELECT count(*) FROM updated
-    """
-
-    counts: dict[str, int] = {}
-    persona_pool = await get_persona_pool()
-    async with persona_pool.acquire() as conn:
-        for column in ("access_token", "refresh_token"):
-            sql = encrypt_column_sql.format(
-                table="public.user_integrations",
-                column=column,
-                scope="service IN ('wakatime', 'iwe_extension')",
-            )
-            counts[f"user_integrations.{column}"] = await conn.fetchval(sql, GITHUB_TOKEN_ENCRYPTION_KEY)
-
-    secrets_pool = await get_secrets_pool()
-    async with secrets_pool.acquire() as conn:
-        for column in ("access_token", "refresh_token"):
-            sql = encrypt_column_sql.format(table="public.dt_tokens", column=column, scope="TRUE")
-            counts[f"dt_tokens.{column}"] = await conn.fetchval(sql, GITHUB_TOKEN_ENCRYPTION_KEY)
-
-    logger.info(f"[migrate_tokens] {counts}")
-    report = "\n".join(f"{k}: {v}" for k, v in counts.items())
-    await message.answer(
-        f"<b>Миграция токенов завершена (WP-554 Б4)</b>\n\n{report}\n\n"
-        f"Удали эту команду из handlers/dev.py — своё дело сделала.",
-        parse_mode="HTML",
-    )
-
-
 @dev_router.message(Command("delivery"))
 async def cmd_delivery(message: Message):
     """/delivery — отчёт о доставке уроков марафона за сегодня."""
