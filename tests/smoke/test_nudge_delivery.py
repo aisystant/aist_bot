@@ -18,6 +18,8 @@ class FakeConn:
         self._duplicate = duplicate
         self._next_id = 100
         self.inserts = []  # (chat_id, notification_class, payload, priority, dedup_key, journal_key, journal_type)
+        self.receipt_claimed = False
+        self.receipt_insert_attempts = 0
 
     def transaction(self):
         class _Tx:
@@ -37,6 +39,13 @@ class FakeConn:
     async def fetchrow(self, sql, *args):
         if sql.strip().startswith("SELECT 1"):
             return {"x": 1} if self._duplicate else None
+        if "INSERT INTO development.nudge_receipt" in sql:
+            self.receipt_insert_attempts += 1
+            if self.receipt_claimed:
+                return None
+            self.receipt_claimed = True
+            self._next_id += 1
+            return {"id": self._next_id}
         self._next_id += 1
         self.inserts.append(args)
         return {"id": self._next_id}
@@ -242,3 +251,72 @@ async def test_get_recent_nudges_batch_defaults_to_all_registered_types(monkeypa
     await nd.get_recent_nudges_batch([1])
 
     assert captured["cooldowns"] == {"a": 1, "b": 2}
+
+
+@pytest.mark.asyncio
+async def test_once_per_recipient_survives_cooldown_expiry(monkeypatch):
+    _register(monkeypatch, milestone=nd.NudgeTypeConfig(
+        nudge_type="milestone", cooldown_days=30,
+        class_cap=nd.ClassCap.CLASS_CAPPED,
+        dedup_scope=nd.DedupScope.ONCE_PER_RECIPIENT,
+    ))
+    conn = FakeConn(cap_count=0, duplicate=False)
+    _patch_pool(monkeypatch, conn)
+    candidate = nd.NudgeCandidate(
+        user_id=1, nudge_type="milestone", payload={"text": "done"},
+        dedup_key="nudge:1:milestone", priority=4,
+    )
+
+    first = await nd.select_and_enqueue([candidate])
+    second = await nd.select_and_enqueue([candidate])
+
+    assert first[0].enqueued is True
+    assert second == [nd.EnqueueResult(
+        user_id=1, nudge_type="milestone", enqueued=False, reason="once-claimed"
+    )]
+    assert len(conn.inserts) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_once_claim_creates_one_queue_row(monkeypatch):
+    import asyncio
+
+    _register(monkeypatch, milestone=nd.NudgeTypeConfig(
+        nudge_type="milestone", cooldown_days=30,
+        class_cap=nd.ClassCap.CLASS_CAPPED,
+        dedup_scope=nd.DedupScope.ONCE_PER_RECIPIENT,
+    ))
+    conn = FakeConn(cap_count=0, duplicate=False)
+    _patch_pool(monkeypatch, conn)
+    candidate = nd.NudgeCandidate(
+        user_id=1, nudge_type="milestone", payload={"text": "done"},
+        dedup_key="nudge:1:milestone", priority=4,
+    )
+
+    results = await asyncio.gather(
+        nd.select_and_enqueue([candidate]),
+        nd.select_and_enqueue([candidate]),
+    )
+
+    assert sum(batch[0].enqueued for batch in results) == 1
+    assert len(conn.inserts) == 1
+
+
+@pytest.mark.asyncio
+async def test_suppressed_candidate_does_not_claim_receipt(monkeypatch):
+    _register(monkeypatch, milestone=nd.NudgeTypeConfig(
+        nudge_type="milestone", cooldown_days=30,
+        class_cap=nd.ClassCap.CLASS_CAPPED,
+        dedup_scope=nd.DedupScope.ONCE_PER_RECIPIENT,
+    ))
+    conn = FakeConn(cap_count=2, duplicate=False)
+    _patch_pool(monkeypatch, conn)
+    candidate = nd.NudgeCandidate(
+        user_id=1, nudge_type="milestone", payload={"text": "done"},
+        dedup_key="nudge:1:milestone", priority=4,
+    )
+
+    result = await nd.select_and_enqueue([candidate])
+
+    assert result[0].reason == "cap-exceeded"
+    assert conn.receipt_insert_attempts == 0

@@ -235,6 +235,21 @@ async def drain(
                 )
                 try:
                     await deliver_fn(chat_id, content_spec)
+                    try:
+                        await conn.execute(
+                            """UPDATE development.nudge_receipt
+                               SET status = 'delivered', delivered_at = NOW()
+                               WHERE queue_id = $1 AND status = 'reserved'""",
+                            row["id"],
+                        )
+                    except Exception as receipt_error:
+                        # Migration 043 is fail-open at boot for legacy deploys.
+                        # Delivery must not fail after transport acknowledgement;
+                        # a missing settlement remains safely at-most-once.
+                        logger.warning(
+                            "[Delivery] receipt settlement failed id=%s: %s",
+                            row["id"], receipt_error,
+                        )
                     delivered += 1
                 except Exception as e:
                     failed += 1

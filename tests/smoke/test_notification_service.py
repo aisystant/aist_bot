@@ -22,6 +22,7 @@ class FakeConn:
         self.updates = []  # id строк, по которым прошёл UPDATE (дренаж)
         self.update_sqls = []  # SQL UPDATE'ов — различение sent / suppressed (Ф4)
         self.inserts = []  # args INSERT'ов — проверка journal_key/journal_type (Ф4)
+        self.receipt_updates = []
 
     def transaction(self):
         class _Tx:
@@ -33,8 +34,11 @@ class FakeConn:
 
     async def execute(self, sql, *args):
         if sql.strip().upper().startswith("UPDATE"):
-            self.updates.append(args[0] if args else None)
-            self.update_sqls.append(sql)
+            if "development.nudge_receipt" in sql:
+                self.receipt_updates.append(args[0] if args else None)
+            else:
+                self.updates.append(args[0] if args else None)
+                self.update_sqls.append(sql)
         return "OK"
 
     async def fetchval(self, sql, *args):
@@ -175,9 +179,38 @@ async def test_drain_delivers_and_marks_sent(monkeypatch):
     assert delivered == [(555, "урок дня")]          # реально доставлено
     assert stats["delivered"] == 1
     assert conn.updates == [7]                        # статус помечен sent (log-before-send)
+    assert conn.receipt_updates == [7]                # receipt подтверждён только после deliver
     # без journal_* — технический fallback (canary/ops-alert)
     assert journaled[0]["idempotency_key"] == "delivery:7"
     assert journaled[0]["notification_type"] == ns.CLASS_MUST_DELIVER
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_leaves_once_receipt_reserved(monkeypatch):
+    row = {
+        "id": 8,
+        "chat_id": 555,
+        "notification_class": ns.CLASS_CAPPED,
+        "payload": '{"text": "milestone"}',
+        "priority": 4,
+        "journal_key": "nudge:555:2026-08-06:nudge_sessions_10",
+        "journal_type": "nudge",
+    }
+    conn = FakeConn(drain_rows=[row])
+    _patch_pool(monkeypatch, conn)
+
+    async def _journal_new(**_kwargs):
+        return True
+
+    async def _ambiguous_failure(_chat_id, _content_spec):
+        raise TimeoutError("transport outcome unknown")
+
+    monkeypatch.setattr(ns, "try_insert_notification", _journal_new)
+
+    stats = await ns.drain(_ambiguous_failure)
+
+    assert stats == {"delivered": 0, "failed": 1}
+    assert conn.receipt_updates == []
 
 
 @pytest.mark.asyncio

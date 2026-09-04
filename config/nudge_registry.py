@@ -28,6 +28,7 @@ class NudgeKeyDataContract:
     payload_keys: tuple[str, ...]
     ai_personalizable: bool
     stopgap: bool
+    dedup_scope: str
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ def _load_data_contract(raw: dict[str, Any]) -> NudgeKeyDataContract:
         payload_keys=_as_tuple(raw.get("payload_keys")),
         ai_personalizable=bool(raw.get("ai_personalizable", False)),
         stopgap=bool(raw.get("stopgap", False)),
+        dedup_scope=str(raw.get("dedup_scope", "recurring")),
     )
 
 

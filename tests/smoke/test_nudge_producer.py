@@ -48,7 +48,10 @@ def test_return_category_produced_when_not_active_today():
 
 
 def test_onboarding_category_suppressed_when_ai_client_connected():
-    np._RULE_CATEGORY["onboarding_gap"] = "onboarding"
+    original = np.get_rule_config
+    class _Rule:
+        opt_out_category = "onboarding"
+    np.get_rule_config = lambda _rule_id: _Rule()
     try:
         nudges = [_analyze_result("onboarding_gap", "nudge_onboarding_gap")]
         result = np.produce(
@@ -57,7 +60,7 @@ def test_onboarding_category_suppressed_when_ai_client_connected():
         )
         assert result == []
     finally:
-        del np._RULE_CATEGORY["onboarding_gap"]
+        np.get_rule_config = original
 
 
 def test_onboarder_gap_category_not_suppressed_by_ai_client_connected():
@@ -166,3 +169,21 @@ def test_stopgap_mixed_list_keeps_allowed_nudges():
         active_today=False, first_use_connect_full=False,
     )
     assert {c.nudge_type for c in result} == {"nudge_inactivity", "nudge_agency_high"}
+
+
+def test_narrative_reactivation_suppresses_recognition_before_delivery_filters():
+    nudges = [
+        _analyze_result("inactivity_3d", "nudge_inactivity"),
+        _analyze_result("agency_high", "nudge_agency_high"),
+        _analyze_result("low_regularity", "nudge_low_regularity"),
+    ]
+    result = np.arbitrate_narrative(nudges)
+    assert {n["nudge_key"] for n in result} == {
+        "nudge_inactivity",
+        "nudge_low_regularity",
+    }
+
+
+def test_narrative_activity_event_reopens_recognition_without_ttl():
+    nudges = [_analyze_result("agency_high", "nudge_agency_high")]
+    assert np.arbitrate_narrative(nudges) == nudges

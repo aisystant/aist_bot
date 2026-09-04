@@ -4,7 +4,8 @@
 #
 # Machine-readable source-of-truth for nudge taxonomy:
 #   rule_id  -> canonical_type, eligible_tiers, opt_out_category, phase, data_contract
-#   nudge_key -> rule_id, cooldown_days, class_cap, payload_keys, ai_personalizable, stopgap
+#   nudge_key -> rule_id, cooldown_days, class_cap, payload_keys,
+#                ai_personalizable, stopgap, dedup_scope
 #
 # Boundaries:
 #   - WP-117 owns the rule/taxonomy and this registry.
@@ -12,7 +13,7 @@
 #   - engagement_analyzer.py registers rules at import time; this file maps them.
 #
 # Versioning: bump `version` whenever the schema or mapping changes.
-version: "1.0.0"
+version: "1.1.0"
 
 # ───────────────────────────────────────────────────────────────────
 # 1. RULES: mapping from engagement_analyzer rule_id to canonical metadata.
@@ -116,6 +117,7 @@ rules:
       payload_keys: []
       ai_personalizable: false
       stopgap: true
+      dedup_scope: once_per_recipient
 
   - rule_id: achievement_active_days
     canonical_type: recognition_progress
@@ -132,6 +134,7 @@ rules:
       payload_keys: []
       ai_personalizable: false
       stopgap: true
+      dedup_scope: once_per_recipient
 
   - rule_id: stage_upgrade
     canonical_type: recognition_progress
@@ -148,6 +151,7 @@ rules:
       payload_keys: [stage, recommend_stream, suggest_tier_upgrade]
       ai_personalizable: true
       stopgap: true
+      dedup_scope: once_per_recipient
 
   - rule_id: agency_growing
     canonical_type: recognition_progress
