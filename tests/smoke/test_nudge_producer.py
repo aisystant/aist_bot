@@ -196,14 +196,26 @@ def test_arbitrate_narrative_unmapped_rule_id_does_not_crash():
     assert np.arbitrate_narrative(nudges) == nudges
 
 
+def test_arbitrate_narrative_unmapped_survives_alongside_reactivation():
+    # peer-review round 2: путь, где реально происходит арбитраж —
+    # reactivation-нудж есть, а рядом незамапленный rule_id. Оба переживают
+    # фильтрацию (незамапленный ≠ recognition, значит не подавляется).
+    nudges = [
+        _analyze_result("inactivity_3d", "nudge_inactivity"),
+        _analyze_result("ghost_rule", "nudge_ghost"),
+    ]
+    result = np.arbitrate_narrative(nudges)
+    assert {n["nudge_key"] for n in result} == {"nudge_inactivity", "nudge_ghost"}
+
+
 def test_produce_unmapped_rule_id_falls_back_to_engagement():
-    # peer-review round 1: fallback на категорию 'engagement' (без гейтов),
-    # как было до введения реестра.
+    # peer-review round 2: active_today=True — если бы fallback был 'return',
+    # нудж был бы подавлен гейтом; 'engagement' — проходит.
     result = np.produce(
         [_analyze_result("ghost_rule", "nudge_ghost")],
         user_id=1,
         text_by_nudge_key={"nudge_ghost": "текст"},
-        active_today=False,
+        active_today=True,
         first_use_connect_full=False,
     )
     assert [c.nudge_type for c in result] == ["nudge_ghost"]
