@@ -14,6 +14,7 @@ from typing import Optional, Dict, Any
 
 from config import get_logger
 from db.connection import get_persona_pool
+from db.queries.token_crypto import encrypt_text_token, decrypt_text_token
 
 logger = get_logger(__name__)
 
@@ -40,7 +41,9 @@ async def get_wakatime_connection(chat_id: int) -> Optional[Dict[str, Any]]:
                     AND ui.active = TRUE
             ''', chat_id)
             if row:
-                return dict(row)
+                result = dict(row)
+                result['api_key'] = await decrypt_text_token(conn, result['api_key'])
+                return result
             return None
     except Exception as e:
         if 'does not exist' in str(e):
@@ -69,7 +72,21 @@ async def get_all_wakatime_accounts() -> list[dict]:
                     AND ui.active = TRUE
                     AND oi.telegram_id IS NOT NULL
             ''')
-            return [dict(r) for r in rows]
+            accounts = [dict(r) for r in rows]
+            decrypted = []
+            for account in accounts:
+                try:
+                    account['api_key'] = await decrypt_text_token(conn, account['api_key'])
+                except Exception:
+                    # WP-554 Б4: одна нерасшифровываемая запись не должна
+                    # прерывать сбор typing-событий для остальных аккаунтов.
+                    logger.warning(
+                        "get_all_wakatime_accounts: не удалось расшифровать api_key account_id=%s — пропускаю",
+                        account.get('account_id'),
+                    )
+                    continue
+                decrypted.append(account)
+            return decrypted
     except Exception as e:
         if 'does not exist' in str(e):
             logger.warning(f"persona.user_integrations not available: {e}")
@@ -100,6 +117,7 @@ async def save_wakatime_connection(
             if wakatime_username:
                 metadata = json.dumps({"wakatime_username": wakatime_username})
 
+            stored_api_key = await encrypt_text_token(conn, api_key)
             await conn.execute('''
                 INSERT INTO public.user_integrations
                     (account_id, service, access_token, scope, metadata,
@@ -114,7 +132,7 @@ async def save_wakatime_connection(
                     END,
                     updated_at = NOW(),
                     active = TRUE
-            ''', account_id, api_key, metadata)
+            ''', account_id, stored_api_key, metadata)
             logger.info(f"Saved WakaTime connection for chat_id={chat_id}")
     except Exception as e:
         if 'does not exist' in str(e):

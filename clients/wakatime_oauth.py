@@ -183,6 +183,7 @@ class WakaTimeOAuthClient:
     ) -> None:
         """Сохраняет WakaTime-токен в persona.user_integrations."""
         from db.connection import get_persona_pool
+        from db.queries.token_crypto import encrypt_text_token
 
         try:
             pool = await get_persona_pool()
@@ -198,6 +199,11 @@ class WakaTimeOAuthClient:
 
                 account_id = row['account_id']
 
+                # WP-554 Б4: та же схема, что github.py::sync_github_to_user_integrations —
+                # эта же колонка user_integrations.access_token уже частично зашифрована.
+                stored_access_token = await encrypt_text_token(conn, access_token)
+                stored_refresh_token = await encrypt_text_token(conn, refresh_token)
+
                 await conn.execute('''
                     INSERT INTO public.user_integrations
                         (account_id, service, access_token, refresh_token, scope,
@@ -211,8 +217,8 @@ class WakaTimeOAuthClient:
                         active = TRUE
                 ''',
                     account_id,
-                    access_token,
-                    refresh_token,
+                    stored_access_token,
+                    stored_refresh_token,
                     scope,
                 )
                 logger.info(f"Saved WakaTime connection for telegram_id={telegram_user_id}")

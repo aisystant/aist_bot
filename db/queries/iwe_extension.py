@@ -10,26 +10,51 @@ import secrets
 
 from config import get_logger
 from db.connection import get_persona_pool
+from db.queries.token_crypto import encrypt_text_token, decrypt_text_token
 
 logger = get_logger(__name__)
 
 
 async def validate_extension_token(token: str) -> str | None:
-    """Проверить X-IWE-Api-Key и вернуть account_id или None."""
+    """Проверить X-IWE-Api-Key и вернуть account_id или None.
+
+    WP-554 Б4: access_token теперь хранится зашифрованным (pgp_sym_encrypt,
+    недетерминированный шифротекст) — прямое равенство `access_token = $1`
+    больше не находит новые строки. Расшифровка сделана в Python, не в самом
+    SQL-запросе построчно с try/except: pgp_sym_decrypt бросает жёсткую
+    ошибку при несовпадении ключа (например, во время ротации ключа), а
+    делать это внутри WHERE означало бы, что одна чужая нерасшифровываемая
+    строка обрывает запрос целиком для ЛЮБОГО пользователя — не только
+    владельца этой строки (найдено холодным ревью). Legacy plaintext-строки
+    (без префикса 'pgp:') матчатся прямым равенством без обращения к ключу.
+    """
     try:
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
-            row = await conn.fetchrow(
+            rows = await conn.fetch(
                 """
-                SELECT account_id::text
+                SELECT account_id::text AS account_id, access_token
                 FROM public.user_integrations
                 WHERE service = 'iwe_extension'
-                  AND access_token = $1
                   AND active = TRUE
-                """,
-                token,
+                """
             )
-            return row["account_id"] if row else None
+            for row in rows:
+                stored = row["access_token"]
+                if stored == token:
+                    return row["account_id"]
+                if stored and stored.startswith("pgp:"):
+                    try:
+                        decrypted = await decrypt_text_token(conn, stored)
+                    except Exception:
+                        logger.warning(
+                            "[iwe_extension] не удалось расшифровать строку account_id=%s при проверке токена — пропускаю",
+                            row["account_id"],
+                        )
+                        continue
+                    if decrypted == token:
+                        return row["account_id"]
+            return None
     except Exception as exc:
         if "does not exist" in str(exc):
             logger.warning("[iwe_extension] user_integrations not available: %s", exc)
@@ -52,7 +77,9 @@ async def get_extension_token(account_id: str) -> str | None:
                 """,
                 account_id,
             )
-            return row["access_token"] if row else None
+            if not row:
+                return None
+            return await decrypt_text_token(conn, row["access_token"])
     except Exception as exc:
         if "does not exist" in str(exc):
             return None
@@ -68,6 +95,7 @@ async def generate_extension_token(account_id: str) -> str | None:
     try:
         pool = await get_persona_pool()
         async with pool.acquire() as conn:
+            stored_token = await encrypt_text_token(conn, token)
             await conn.execute(
                 """
                 INSERT INTO public.user_integrations
@@ -81,7 +109,7 @@ async def generate_extension_token(account_id: str) -> str | None:
                     active       = TRUE
                 """,
                 account_id,
-                token,
+                stored_token,
             )
         logger.info("[iwe_extension] token issued for account_id=%s", account_id)
     except Exception as exc:

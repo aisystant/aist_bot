@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 
 from config import get_logger
 from db.connection import get_secrets_pool
+from db.queries.token_crypto import encrypt_text_token, decrypt_text_token
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,8 @@ async def save_dt_tokens(
     """Сохранить или обновить токены ЦД для пользователя."""
     pool = await get_secrets_pool()
     async with pool.acquire() as conn:
+        stored_access_token = await encrypt_text_token(conn, access_token)
+        stored_refresh_token = await encrypt_text_token(conn, refresh_token)
         await conn.execute(
             '''INSERT INTO public.dt_tokens (chat_id, access_token, refresh_token, expires_at, dt_user_id, updated_at)
                VALUES ($1, $2, $3, $4, $5, NOW())
@@ -37,7 +40,7 @@ async def save_dt_tokens(
                    expires_at = $4,
                    dt_user_id = COALESCE($5, dt_tokens.dt_user_id),
                    updated_at = NOW()''',
-            chat_id, access_token, refresh_token, expires_at, dt_user_id,
+            chat_id, stored_access_token, stored_refresh_token, expires_at, dt_user_id,
         )
 
 
@@ -54,7 +57,23 @@ async def load_all_dt_tokens() -> List[Dict]:
                FROM public.dt_tokens
                WHERE refresh_token IS NOT NULL'''
         )
-        return [dict(r) for r in rows]
+        results = [dict(r) for r in rows]
+        decrypted = []
+        for r in results:
+            try:
+                r['access_token'] = await decrypt_text_token(conn, r['access_token'])
+                r['refresh_token'] = await decrypt_text_token(conn, r['refresh_token'])
+            except Exception:
+                # WP-554 Б4: одна нерасшифровываемая строка (например, ключ
+                # уже сменился, а строка ещё под старым) не должна ронять
+                # весь стартовый прогрев ЦД-подключений для остальных.
+                logger.warning(
+                    "load_all_dt_tokens: не удалось расшифровать токены chat_id=%s — пропускаю",
+                    r.get('chat_id'),
+                )
+                continue
+            decrypted.append(r)
+        return decrypted
 
 
 async def delete_dt_tokens(chat_id: int) -> None:
