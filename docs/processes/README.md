@@ -23,6 +23,7 @@
 | P-04 | [Сбор статистики](process-04-stats-collection.md) | Агрегация данных для /progress | `db/queries/`, `states/utilities/progress.py` |
 | P-05 | [Локализация](process-05-i18n.md) | Многоязычный интерфейс (ru/en/es/fr) | `i18n/` |
 | P-16 | [Publisher: content scan + backfill](process-16-publisher-content-scan.md) | Скан индекса знаний, auto-schedule в клуб, еженедельный backfill просроченных `ready` | `core/scheduler.py` |
+| P-17 | [GitHub App Install — Privacy Enforcement](process-17-github-app-install-privacy-enforcement.md) | Проверка и принудительная приватность репозитория после установки GitHub App в `/connect_guide` | `clients/github_app.py`, `oauth_server.py` |
 
 ---
 
