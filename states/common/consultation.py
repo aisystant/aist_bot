@@ -195,6 +195,14 @@ def _role_exempt_from_paywall(question: str, force_role: Optional[str]) -> Optio
     return _detect_role(question) if question else None
 
 
+def _is_paywall_exempt(entry_role: Optional[str], session_ctx: dict) -> bool:
+    """WP-498 Ф13 (05.09): платёжный барьер снят, если роль распознана в этом
+    сообщении ИЛИ уже была распознана раньше в этой персистентной сессии
+    консультации (``session_ctx['active_free_role']``, Fable-ревью — без
+    этого follow-up без ролевой лексики падал обратно на paywall)."""
+    return entry_role is not None or bool(session_ctx.get('active_free_role'))
+
+
 def _detect_role(question: str) -> Optional[str]:
     """Определяет, нужна ли смена роли (DP.D.044).
 
@@ -562,6 +570,7 @@ class ConsultationState(BaseState):
         ctx.pop('consultation_history', None)
         ctx.pop('consultation_last_activity', None)
         ctx.pop('qa_comment_id', None)
+        ctx.pop('active_free_role', None)  # WP-498 Ф13: не переживает новую сессию
         return ctx
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
@@ -585,14 +594,28 @@ class ConsultationState(BaseState):
 
         # --- Проверка доступа (подписка/триал) ---
         chat_id = self._get_chat_id(user)
+        # WP-498 Ф13 (05.09, находка Fable-ревью): _load_session_context — синхронное
+        # чтение уже загруженного поля user['current_context'], без похода в БД —
+        # дешёво вызвать здесь же, до платёжного барьера — дубль загрузки ниже убран.
+        session_ctx = await self._load_session_context(user)
         _entry_role = _role_exempt_from_paywall(
             context.get('question', '') or '', context.get('force_role'),
         )
+        # Бесплатная роль остаётся бесплатной на всю персистентную сессию
+        # консультации, не только на первое сообщение — иначе follow-up без
+        # ролевой лексики («да, на втором задании») снова падает на платный
+        # барьер. Сбрасывается в _clear_session() при выходе/таймауте.
+        if _entry_role is not None:
+            session_ctx['active_free_role'] = _entry_role
+            if chat_id:
+                await self._save_session_context(chat_id, session_ctx)
+        _paywall_exempt = _is_paywall_exempt(_entry_role, session_ctx)
         logger.info(
             f"[Consultation] enter: chat_id={chat_id}, force_role={context.get('force_role')}, "
-            f"question={bool(context.get('question'))}, paywall_exempt_role={_entry_role}"
+            f"question={bool(context.get('question'))}, paywall_exempt_role={_entry_role}, "
+            f"sticky_free_role={session_ctx.get('active_free_role')}"
         )
-        if chat_id and _entry_role is None:
+        if chat_id and not _paywall_exempt:
             from core.access import access_layer
             has_access = await access_layer.has_access(chat_id, 'consultation')
             logger.info(f"[Consultation] access check for chat_id={chat_id}: {has_access}")
@@ -624,13 +647,19 @@ class ConsultationState(BaseState):
         # WP-156: Explicit role entry (/navigator) — save in session, show greeting
         force_role = context.get('force_role')
         if force_role and force_role in _FORCE_ROLE_COMMANDS:
-            chat_id_fr = self._get_chat_id(user)
-            if chat_id_fr:
-                session_ctx_fr = await self._load_session_context(user)
-                session_ctx_fr['force_role'] = force_role
-                self._clear_session(session_ctx_fr)  # New session for role
-                session_ctx_fr['consultation_last_activity'] = time.time()
-                await self._save_session_context(chat_id_fr, session_ctx_fr)
+            if chat_id:
+                # WP-498 Ф13 (05.09, второй раунд Fable-ревью): раньше здесь
+                # заново грузился ОТДЕЛЬНЫЙ session_ctx_fr тем же chat_id и
+                # сохранялся поверх — стирал active_free_role, записанный
+                # выше в этом же вызове enter() (правило одного источника
+                # правды на сессию). Теперь переиспользуем session_ctx;
+                # active_free_role ставим заново ПОСЛЕ _clear_session, т.к.
+                # она его тоже чистит (новая сессия роли).
+                self._clear_session(session_ctx)  # New session for role
+                session_ctx['force_role'] = force_role
+                session_ctx['active_free_role'] = force_role
+                session_ctx['consultation_last_activity'] = time.time()
+                await self._save_session_context(chat_id, session_ctx)
 
             if not question:
                 # No question yet — show role greeting and wait
@@ -658,8 +687,7 @@ class ConsultationState(BaseState):
             await self.send(user, t('consultation.no_question', lang))
             return None  # Остаёмся — ждём вопрос
 
-        # Загружаем session context для history
-        session_ctx = await self._load_session_context(user)
+        # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
 
         # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---
