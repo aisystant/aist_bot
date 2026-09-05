@@ -942,12 +942,10 @@ async def on_x3_confirm(callback: CallbackQuery):
         # если Х2 был закрыт раньше — это последний из двух разрывов, событие логируется тут.
         # Симметричный лог для обратного порядка — core/onboarder/x2.py:_finish_x2.
         if _x2_done_before:
-            await log_event(chat_id, "onboarding_completed", {
-                "entry_type": _entry_type,
-                "source": _entry_source,
-                "lang": _lang,
-                "closed_by": "x3",
-            })
+            from core.onboarder.events import emit_onboarding_completed
+            await emit_onboarding_completed(
+                chat_id, _entry_type, _entry_source, _lang, closed_by="x3",
+            )
             # WP-406 Ф31: дефолтная квалификация «Ученик», если своей ещё нет.
             # Fail-open: ошибка записи не ломает онбординг.
             try:
