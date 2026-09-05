@@ -4649,25 +4649,9 @@ subscription:
     ru: "✅ Подписка продлена. Спасибо!"
     en: "✅ Subscription renewed. Thank you!"
 
-  trial_active:
-    ru: "🆓 Пробный период: осталось {days} дн."
-    en: "🆓 Free trial: {days} days left."
-
-  trial_expiring:
-    ru: "⏳ Ваш бесплатный период (30 дней, тир T2 — Learning) заканчивается завтра!\n\nОформите подписку «Инженерия интеллекта» (system-school.ru/open-endedness), чтобы сохранить доступ к Ленте, Консультанту, Заметкам и Планам.\n\nПодписка также даёт возможность бесплатно поднять тир до T3 — Personalization (Цифровой двойник, персональные рекомендации) и T4 — Creation (публикации в Клуб через GitHub).\n\nБез подписки вы перейдёте на тир T1 — Start. Бесплатно останутся: Марафон, Тренажёр, Оценка квалификации и Расписание."
-    en: "⏳ Your free trial (30 days, tier T2 — Learning) ends tomorrow!\n\nSubscribe to «Intelligence Engineering» (system-school.ru/open-endedness) to keep access to Feed, Consultant, Notes, and Plans.\n\nThe subscription also lets you upgrade for free to T3 — Personalization (Digital Twin, personal recommendations) and T4 — Creation (publish to Club via GitHub).\n\nWithout a subscription you'll move to tier T1 — Start. Free features: Marathon, Training, Qualification Assessment, and Schedule."
-
-  trial_expired:
-    ru: "⌛ Бесплатный период (30 дней) закончился. Ваш тир сменился на T1 — Start.\n\nБесплатно доступны: Марафон, Тренажёр, Оценка квалификации, Расписание.\n\nОформите подписку «Инженерия интеллекта» (system-school.ru/open-endedness) — вернутся Лента, Консультант, Заметки и Планы (T2). А подключив Цифрового двойника (T3) и GitHub (T4), вы бесплатно получите персональные рекомендации и публикации в Клуб."
-    en: "⌛ Your free trial (30 days) has ended. You are now on tier T1 — Start.\n\nFree features: Marathon, Training, Qualification Assessment, Schedule.\n\nSubscribe to «Intelligence Engineering» (system-school.ru/open-endedness) to restore Feed, Consultant, Notes, and Plans (T2). Connect Digital Twin (T3) and GitHub (T4) to unlock personal recommendations and Club publishing — at no extra cost."
-
   status_active:
     ru: "✅ Подписка активна до {date}"
     en: "✅ Subscription active until {date}"
-
-  status_trial:
-    ru: "🆓 Пробный период ({days} дн. осталось)"
-    en: "🆓 Free trial ({days} days remaining)"
 
   status_expired:
     ru: "❌ Подписка не активна"
@@ -5054,10 +5038,6 @@ milestones:
   day_7_inactive:
     ru: "Попробуйте открыть первое занятие — это займёт всего пару минут!"
     en: "Try opening your first lesson — it only takes a couple of minutes!"
-
-  day_7_trial:
-    ru: "\n\n💡 Напоминаем: первые 30 дней — пробный период. После него Лента и консультации доступны по подписке «Инженерия интеллекта» (system-school.ru/open-endedness)."
-    en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Инженерия интеллекта» subscription."
 
   day_14:
     ru: "🏃 *Две недели развития!*\n\n{marathon_status}\n\nВы входите в число самых активных участников."
@@ -5810,8 +5790,8 @@ paywall:
     ru: "📖 *Лента* даёт ежедневные дайджесты по темам, которые ты выбираешь сам. Бот адаптирует глубину под твой уровень."
     en: "📖 *Feed* delivers daily digests on topics you choose. The bot adapts depth to your level."
   consultation:
-    ru: "❓ *Консультант* отвечает на вопросы по базе из 5300+ документов. Начни с ? и задай любой вопрос."
-    en: "❓ *Consultant* answers questions using 5300+ documents. Start with ? and ask anything."
+    ru: "❓ *Консультант* отвечает на вопросы по базе из 5300+ документов. Начни с ? и задай любой вопрос.\n\nНаставник, Навигатор и Диагност — бесплатно и без подписки: напиши «? застрял», «? с чего начать» или «? какая у меня ступень»."
+    en: "❓ *Consultant* answers questions using 5300+ documents. Start with ? and ask anything.\n\nMentor, Navigator, and Diagnostician are free, no subscription needed: try «? stuck», «? where to start», or «? what's my level»."
   notes:
     ru: "📝 *Заметки* сохраняют мысли прямо в боте. Напиши точку и текст → .Интересная идея"
     en: "📝 *Notes* save your thoughts right in the bot. Type dot and text → .Interesting idea"

@@ -206,22 +206,36 @@ def _is_paywall_exempt(entry_role: Optional[str], session_ctx: dict) -> bool:
 def _detect_role(question: str) -> Optional[str]:
     """Определяет, нужна ли смена роли (DP.D.044).
 
+    WP-498 Ф14 (05.09, находка Fable-ревью «одно имя наружу»): участники не
+    различают Наставника/Навигатора/Диагноста между собой (дословно пилот:
+    «люди не разделяют эти роли у себя»), а по DP.SC.197/DP.ROLE.042 §5-6
+    Навигатор и Диагност — компоненты связки Наставника, не отдельные роли
+    того же уровня. Поэтому: угадывание по СОДЕРЖАНИЮ текста (без явного
+    имени) теперь ВСЕГДА ведёт к Наставнику — он сам решает внутри диспетчер-
+    промпта (mentor.md), какой компонент нужен, по той же ситуации. Отдельные
+    имена navigator/diagnostician остаются доступны только тем, кто их
+    осознанно назвал явно — префиксом («Навигатор, …») или командой
+    (/navigator, /diagnose, WP-156, `force_role`) — это ярлык для тех, кто
+    знает, не изменение автодетекта.
+
     Priority:
     1. Explicit prefix: "Навигатор, ..." / "Диагност, ..." / "Наставник, ..."
+       — единственный путь к самостоятельным ролям navigator/diagnostician.
     1a. Mentor «назвать понятие» anchor phrases (WP-498 Ф11) — narrow, checked first.
-    2. Pattern match from question content — diagnostician → navigator → mentor.
-       Mentor patterns are checked last (lowest priority): WP-498.md вариант B
-       explicitly flags higher false-positive risk for mentor lexicon (широкое
-       полномочие 4-компонентной связки), а ошибочный роутинг сюда дороже, чем
-       в узкую роль Навигатора/Диагноста — поэтому более специфичные паттерны
-       двух существующих ролей должны выигрывать при конфликте.
+    2. Pattern match from question content — вся лексика (бывшая
+       diagnostician/navigator/mentor) теперь ведёт к "mentor". Списки
+       _DIAGNOSTICIAN_PATTERNS/_NAVIGATOR_PATTERNS сохранены и проверяются
+       в том же порядке (специфичные раньше широких) — они по-прежнему
+       нужны как узкие фильтры от ложных срабатываний, просто общий выход
+       один.
 
     Returns:
         "navigator" | "diagnostician" | "mentor" | None (Консультант по умолчанию)
     """
     q = question.lower().strip()
 
-    # 1. Explicit role prefix (highest priority)
+    # 1. Explicit role prefix (highest priority) — единственный путь к
+    # самостоятельным navigator/diagnostician.
     for role, prefixes in _ROLE_PREFIXES.items():
         for prefix in prefixes:
             if q.startswith(prefix):
@@ -232,14 +246,14 @@ def _detect_role(question: str) -> Optional[str]:
     if detect_mentor_intent(q) == MENTOR_INTENT_CONCEPT_NAMING:
         return "mentor"
 
-    # 2. Content pattern matching
+    # 2. Content pattern matching — Ф14: без явного имени всё ведёт к mentor.
     for pattern in _DIAGNOSTICIAN_PATTERNS:
         if pattern in q:
-            return "diagnostician"
+            return "mentor"
 
     for pattern in _NAVIGATOR_PATTERNS:
         if pattern in q:
-            return "navigator"
+            return "mentor"
 
     for pattern in _MENTOR_PATTERNS:
         if pattern in q:
