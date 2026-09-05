@@ -27,7 +27,10 @@ from states.common.consultation import (  # noqa: E402
     _is_paywall_exempt,
     _role_exempt_from_paywall,
 )
-from handlers.fallback import _is_role_addressed_question  # noqa: E402
+from handlers.fallback import (  # noqa: E402
+    _is_concept_naming_request,
+    _is_role_addressed_question,
+)
 
 
 # =============================================================================
@@ -83,6 +86,39 @@ def test_text_without_question_mark_never_bypasses():
     # T4-редирект для текста без "?" не должен трогаться этой веткой вообще —
     # даже если содержимое похоже на роль (это уже поведение WP-392, не Ф12).
     assert _is_role_addressed_question("Наставник, я застрял") is False
+
+
+# =============================================================================
+# Ф15 (АрхГейт, вариант Д): «назови понятие» без «?» у T4 — в бота, не в Hermes
+# handlers.fallback._is_concept_naming_request (реальный код)
+# =============================================================================
+
+@pytest.mark.parametrize("text", [
+    "объясни через понятия IWE, что мы сейчас сделали",
+    "какой гейт мы применили в этой работе",
+    "назови понятие, которое мы применили",
+    "Наставник, какой метод я применил?",
+    "Наставник, что нового мы сделали",
+])
+def test_concept_naming_without_question_mark_goes_to_bot(text):
+    assert _is_concept_naming_request(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "Наставник, я застрял",             # роль без якоря — остаётся у Hermes
+    "какой гейт блокирует создание репо?",  # вопрос об устройстве, не рефлексия
+    "какой метод я применил?",          # расширенный якорь только после «Наставник,»
+    "расскажи про мотивацию вообще",
+    "",
+])
+def test_plain_t4_text_stays_with_hermes(text):
+    assert _is_concept_naming_request(text) is False
+
+
+def test_question_mark_text_is_not_double_handled():
+    # «?»-путь решает _is_role_addressed_question; этот предикат его не дублирует.
+    assert _is_concept_naming_request("? объясни через понятия IWE") is False
+    assert _is_role_addressed_question("? объясни через понятия IWE") is True
 
 
 # =============================================================================

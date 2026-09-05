@@ -42,6 +42,21 @@ def _is_role_addressed_question(text: str) -> bool:
     return _detect_role(text[1:].strip()) is not None
 
 
+def _is_concept_naming_request(text: str) -> bool:
+    """WP-498 Ф15 (05.09, АрхГейт вариант Д): «назови понятие» без ведущего «?».
+
+    Событие concept_named (факты мастерства М10/М11/М14) пишет только Наставник
+    бота — Hermes словаря понятий не имеет. Поэтому T4-сообщение с якорем
+    концепт-нейминга уходит в консультацию бота, а не в Hermes, даже без «?».
+    Тот же детектор, что внутри консультации (states.common.consultation
+    .detect_mentor_intent) — списки якорей здесь не копируются.
+    """
+    if text.startswith('?'):
+        return False  # «?»-путь решается _is_role_addressed_question
+    from states.common.consultation import MENTOR_INTENT_CONCEPT_NAMING, detect_mentor_intent
+    return detect_mentor_intent(text) == MENTOR_INTENT_CONCEPT_NAMING
+
+
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
     """Проверяет, что callback НЕ принадлежит engines/ или connect/ роутерам."""
     if not callback.data:
@@ -147,6 +162,22 @@ async def on_unknown_message(message: Message, state: FSMContext):
             if await _sm_is_expecting_reply(chat_id) or FeedDigestState.is_waiting_fixation(chat_id):
                 logger.info("[fallback] T4-full skipped: SM or feed expecting reply for chat %s", chat_id)
                 # fall through to SM dispatch below
+            elif intern and _is_concept_naming_request(text) and (
+                mentor_state := dispatcher.sm.check_global_event(
+                    '?' + text, dispatcher.sm.get_user_state(intern))
+            ):
+                # WP-498 Ф15 (АрхГейт, вариант Д): «назови понятие» без «?» — в
+                # Наставника бота, не в Hermes: событие concept_named умеет писать
+                # только бот. check_global_event с «?» — тот же гейт allow_global
+                # из transitions.yaml, что пропустил бы «?»-вопрос из этого стейта
+                # (стейт без allow_global консультации → как раньше, Hermes).
+                logger.info(
+                    "[fallback] T4 concept_naming intent → %s instead of Hermes (chat %s, tier %s)",
+                    mentor_state, chat_id, tier_num,
+                )
+                await state.clear()
+                await dispatcher.go_to(intern, mentor_state, {'question': text})
+                return
             else:
                 # Снять префикс «Гермес,» если есть — T4 не обязан его писать,
                 # но если написал, Hermes не должен видеть служебный токен.
