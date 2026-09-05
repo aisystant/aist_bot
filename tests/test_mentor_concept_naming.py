@@ -97,7 +97,7 @@ def test_stuck_intent_stays_plain(q):
 
 def test_other_roles_unaffected():
     assert _detect_role("Навигатор, с чего начать?") == "navigator"
-    assert _detect_role("какой курс мне выбрать") == "navigator"
+    assert _detect_role("какую программу выбрать") == "navigator"
     assert _detect_role("Диагност, определи мою ступень") == "diagnostician"
     assert _detect_role("какая у меня ступень") == "diagnostician"
     assert _detect_role("Как оформить отпуск?") is None

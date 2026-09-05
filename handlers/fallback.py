@@ -27,6 +27,21 @@ _HERMES_UNAVAILABLE_TIER_MSG = "Функция недоступна на тво�
 _HERMES_SESSION_MAP: dict[int, str] = {}
 
 
+def _is_role_addressed_question(text: str) -> bool:
+    """WP-498 Ф12 (05.09): «?»-вопрос, адресованный Наставнику/Диагносту/Навигатору.
+
+    Та же лексика, что определяет роль внутри самой консультации
+    (states.common.consultation._detect_role) — не дублируем список паттернов,
+    только применяем его здесь ещё раз, чтобы решить это ДО T4-редиректа в
+    Hermes (Ф3.1b), который иначе перехватывает сообщение раньше, чем машина
+    состояний вообще увидит «?».
+    """
+    if not text.startswith('?'):
+        return False
+    from states.common.consultation import _detect_role
+    return _detect_role(text[1:].strip()) is not None
+
+
 def _is_main_router_callback(callback: CallbackQuery) -> bool:
     """Проверяет, что callback НЕ принадлежит engines/ или connect/ роутерам."""
     if not callback.data:
@@ -121,8 +136,11 @@ async def on_unknown_message(message: Message, state: FSMContext):
         intern = await get_intern(chat_id)
         tier_num = await detect_ui_tier(chat_id)
 
-        # WP-392 Ф3.1b: T4-full — ВСЁ в Hermes (без префикса, без консультанта)
-        if tier_num >= 4 and text and not text.startswith('/'):
+        # WP-392 Ф3.1b: T4-full — ВСЁ в Hermes (без префикса, без консультанта).
+        # WP-498 Ф12 (05.09, решение пилота): кроме «?»-вопроса, адресованного
+        # Наставнику/Диагносту/Навигатору — та роль всегда и для всех тиров, идёт
+        # в SM (машина войдёт в консультацию и определит роль сама), не в Hermes.
+        if tier_num >= 4 and text and not text.startswith('/') and not _is_role_addressed_question(text):
             # Не перехватывать у SM, ожидающей ответ (фиксация, марафон и др.)
             from handlers.external_session import _sm_is_expecting_reply
             from states.feed.digest import FeedDigestState
