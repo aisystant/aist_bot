@@ -1,5 +1,5 @@
 """
-Рефлексия — коммит дневной рефлексии в personal-guide (WP-309 Ф3).
+Рефлексия — коммит дневной рефлексии в DS-personal-guide (WP-309 Ф3).
 
 Команды:
 - /reflect — создать history/YYYY-MM/YYYY-MM-DD-reflection.md с шаблоном
@@ -94,7 +94,7 @@ def _parse_date(text: str) -> str | None:
 
 @reflect_router.message(Command("reflect"))
 async def cmd_reflect(message: Message):
-    """Команда /reflect — создать или записать рефлексию в personal-guide."""
+    """Команда /reflect — создать или записать рефлексию в DS-personal-guide."""
     chat_id = message.chat.id
     intern = await get_intern(chat_id)
     lang = _lang(intern)

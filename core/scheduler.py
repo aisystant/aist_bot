@@ -2488,7 +2488,7 @@ async def send_engagement_nudges():
         is_ai_personalizable,
     )
     from core.nudge_delivery import get_recent_nudges_batch, select_and_enqueue
-    from core.nudge_producer import produce as produce_nudges
+    from core.nudge_producer import arbitrate_narrative, produce as produce_nudges
     from db.queries.nudges import get_nudge_candidates
     from i18n import t
 
@@ -2621,6 +2621,13 @@ async def send_engagement_nudges():
 
             # Run rules (basic + derived-aware)
             nudges = analyze(engagement, user_meta, derived)
+            if not nudges:
+                continue
+
+            # WP-117 Ф-narrative: arbitrate on raw rule facts before cooldown
+            # filtering and before choosing the first message. A reactivation
+            # cooldown must not let a contradictory recognition message pass.
+            nudges = arbitrate_narrative(nudges)
             if not nudges:
                 continue
 

@@ -28,7 +28,7 @@
                                                     render-pilot-guides.py --queue-only
                                                                         │
                                                                         ▼
-                                                       GitHub personal-guide репо пилота
+                                                       GitHub DS-personal-guide репо пилота
 ```
 
 Результат рендера бот не получает и не проверяет — доставка отдельным каналом (GitHub, existing flow).

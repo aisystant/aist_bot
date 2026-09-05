@@ -94,6 +94,30 @@ _MENTOR_PATTERNS = [
 ]
 
 
+# WP-498 Ф11: под-интент Наставника «назвать понятие» (РП-522 §Этап М,
+# писатель М10/М11/М14). Без префикса — только фразы с явным якорем на язык
+# IWE («понятие», «гейт»): слова «метод»/«что мы сделали» сами по себе
+# семантически пересекаются с Навигатором (SS.5 «итоги») и обычной
+# консультацией (пир-сессия 2026-09-05-06 с Kimi, ход 2-3). Расширенный
+# список действует ТОЛЬКО после явного префикса «Наставник, …» — префикс
+# сам снимает неоднозначность.
+_CONCEPT_NAMING_PATTERNS = [
+    "через понятия",
+    "какое понятие", "какие понятия",
+    # «какой гейт» само по себе — ещё и вопрос об устройстве системы («какой
+    # гейт блокирует создание репо?»), поэтому только рефлексивные формы
+    # (холодное ревью 05.09, Medium).
+    "какой гейт мы применили", "какой гейт я применил", "какой гейт сработал",
+    "назови понятие", "назови гейт",
+]
+_CONCEPT_NAMING_PREFIXED_PATTERNS = _CONCEPT_NAMING_PATTERNS + [
+    "что нового мы сделали", "что мы сейчас сделали",
+    "какой метод я применил", "какой метод мы применили",
+    "что я применил",
+]
+
+MENTOR_INTENT_CONCEPT_NAMING = "concept_naming"
+
 # WP-156: Explicit role prefixes — user can address a role directly
 # WP-498 Ф5: "наставник" добавлен по тому же образцу (25.07).
 _ROLE_PREFIXES = {
@@ -103,11 +127,30 @@ _ROLE_PREFIXES = {
 }
 
 
+def detect_mentor_intent(question: str) -> Optional[str]:
+    """Под-интент Наставника (WP-498 Ф11): «назвать понятие» или None (= «застрял»).
+
+    Явный префикс «Наставник, …» → проверка по расширенному списку остатка
+    фразы; без префикса → только якорные фразы (_CONCEPT_NAMING_PATTERNS).
+    """
+    q = question.lower().strip()
+    for prefix in _ROLE_PREFIXES['mentor']:
+        if q.startswith(prefix):
+            rest = q[len(prefix):].lstrip(" ,:;!-—")
+            if any(pattern in rest for pattern in _CONCEPT_NAMING_PREFIXED_PATTERNS):
+                return MENTOR_INTENT_CONCEPT_NAMING
+            return None
+    if any(pattern in q for pattern in _CONCEPT_NAMING_PATTERNS):
+        return MENTOR_INTENT_CONCEPT_NAMING
+    return None
+
+
 def _detect_role(question: str) -> Optional[str]:
     """Определяет, нужна ли смена роли (DP.D.044).
 
     Priority:
     1. Explicit prefix: "Навигатор, ..." / "Диагност, ..." / "Наставник, ..."
+    1a. Mentor «назвать понятие» anchor phrases (WP-498 Ф11) — narrow, checked first.
     2. Pattern match from question content — diagnostician → navigator → mentor.
        Mentor patterns are checked last (lowest priority): WP-498.md вариант B
        explicitly flags higher false-positive risk for mentor lexicon (широкое
@@ -125,6 +168,11 @@ def _detect_role(question: str) -> Optional[str]:
         for prefix in prefixes:
             if q.startswith(prefix):
                 return role
+
+    # 1a. WP-498 Ф11: якорные фразы «назвать понятие» — уже лексики обеих
+    # других ролей, поэтому проверяются ДО них (см. _CONCEPT_NAMING_PATTERNS).
+    if detect_mentor_intent(q) == MENTOR_INTENT_CONCEPT_NAMING:
+        return "mentor"
 
     # 2. Content pattern matching
     for pattern in _DIAGNOSTICIAN_PATTERNS:
@@ -755,6 +803,7 @@ class ConsultationState(BaseState):
                     detected_role = _detect_role(question) if not is_refinement else None
                 role_prompt = None
                 role_context_extra = None
+                mentor_intent = None
                 if detected_role:
                     role_prompt = load_role_prompt(detected_role)
                     if role_prompt:
@@ -774,8 +823,17 @@ class ConsultationState(BaseState):
                                 mentor_grounding_search,
                                 format_grounding_section,
                             )
-                            grounding = await mentor_grounding_search(question, user_chat_id)
-                            role_context_extra = format_grounding_section(grounding, lang)
+                            from engines.shared.mentor_concept_naming import (
+                                format_concept_naming_section,
+                            )
+                            mentor_intent = detect_mentor_intent(question)
+                            if mentor_intent == MENTOR_INTENT_CONCEPT_NAMING:
+                                # WP-498 Ф11: понятие IWE, не метод практикума —
+                                # словарь понятий вместо RAG-поиска PD.METHOD.*.
+                                role_context_extra = format_concept_naming_section(lang)
+                            else:
+                                grounding = await mentor_grounding_search(question, user_chat_id)
+                                role_context_extra = format_grounding_section(grounding, lang)
 
                 # Conversation history → multi-turn messages
                 history_messages = self._build_history_messages(session_ctx, question) if session_ctx.get('consultation_history') else None
@@ -796,6 +854,23 @@ class ConsultationState(BaseState):
                     role_context_extra=role_context_extra,
                 )
                 logger.info("[Consultation] handle_question_with_tools done in %dms user=%s", int((time.time() - _t0) * 1000), user_chat_id)
+
+                # WP-498 Ф11: служебный маркер CONCEPT_NAMED снимается ДО показа
+                # участнику; событие — только после трёх детерминированных проверок.
+                if mentor_intent == MENTOR_INTENT_CONCEPT_NAMING:
+                    from engines.shared.mentor_concept_naming import (
+                        emit_concept_named,
+                        extract_concept_marker,
+                        resolve_session_type,
+                        validate_named_concept,
+                    )
+                    answer, named_concept_id = extract_concept_marker(answer)
+                    named_entry = validate_named_concept(named_concept_id, answer)
+                    if named_entry:
+                        await emit_concept_named(
+                            user_chat_id, named_concept_id, named_entry,
+                            resolve_session_type(session_ctx),
+                        )
 
                 # L1 Role Attribution: footer with role signature
                 if detected_role and role_prompt:

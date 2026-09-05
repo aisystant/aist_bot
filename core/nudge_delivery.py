@@ -40,11 +40,17 @@ class ClassCap(Enum):
     CLASS_EXCLUSIVE = "exclusive"  # единственный в батче для пользователя
 
 
+class DedupScope(Enum):
+    RECURRING = "recurring"
+    ONCE_PER_RECIPIENT = "once_per_recipient"
+
+
 @dataclass(frozen=True)
 class NudgeTypeConfig:
     nudge_type: str
     cooldown_days: int  # 0 = кулдаун не применяется (окно схлопывается в NOW())
     class_cap: ClassCap
+    dedup_scope: DedupScope = DedupScope.RECURRING
     channel_defaults: list[str] = field(default_factory=lambda: ["telegram"])
 
 
@@ -194,9 +200,29 @@ async def _try_enqueue_one(user_id: int, candidate: NudgeCandidate) -> EnqueueRe
                         enqueued=False, reason="cap-exceeded",
                     )
 
+            receipt_id: Optional[int] = None
+            if config.dedup_scope == DedupScope.ONCE_PER_RECIPIENT:
+                receipt = await conn.fetchrow(
+                    """INSERT INTO development.nudge_receipt
+                       (recipient_chat_id, nudge_key, status, reserved_at)
+                       VALUES ($1, $2, 'reserved', NOW())
+                       ON CONFLICT (recipient_chat_id, nudge_key) DO NOTHING
+                       RETURNING id""",
+                    user_id,
+                    candidate.nudge_type,
+                )
+                if not receipt:
+                    return EnqueueResult(
+                        user_id=user_id,
+                        nudge_type=candidate.nudge_type,
+                        enqueued=False,
+                        reason="once-claimed",
+                    )
+                receipt_id = receipt["id"]
+
             queue_class = "capped" if config.class_cap == ClassCap.CLASS_CAPPED else candidate.nudge_type
             idempotency_key = f"nudge:{user_id}:{_today_utc().isoformat()}:{candidate.nudge_type}"
-            await conn.fetchrow(
+            queue_row = await conn.fetchrow(
                 """INSERT INTO development.notification_queue
                    (chat_id, notification_class, payload, priority, dedup_key,
                     journal_key, journal_type, status)
@@ -205,6 +231,14 @@ async def _try_enqueue_one(user_id: int, candidate: NudgeCandidate) -> EnqueueRe
                 user_id, queue_class, json.dumps(candidate.payload), candidate.priority,
                 candidate.dedup_key, idempotency_key, "nudge",
             )
+            if receipt_id is not None:
+                await conn.execute(
+                    """UPDATE development.nudge_receipt
+                       SET queue_id = $1
+                       WHERE id = $2""",
+                    queue_row["id"],
+                    receipt_id,
+                )
 
     return EnqueueResult(user_id=user_id, nudge_type=candidate.nudge_type, enqueued=True, reason=None)
 

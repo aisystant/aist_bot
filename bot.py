@@ -226,6 +226,16 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 032 (notification_queue) skipped: {_e}", exc_info=True)
 
+    # Миграция 043: once-per-recipient receipts для milestone-нуджей (WP-117).
+    try:
+        _m043 = _il.import_module("db.migrations.043_wp117_milestone_receipts")
+        if await _m043.migrate_if_needed(await _get_pool()):
+            logger.info("✅ Migration 043: nudge_receipt создана")
+        else:
+            logger.info("✅ Migration 043: nudge_receipt уже существует")
+    except Exception as _e:
+        logger.warning(f"⚠️ Migration 043 (nudge_receipt) skipped: {_e}", exc_info=True)
+
     # Миграция 037: scheduled_post — дедупликация + atomic publish lock (WP-167).
     # Индекс + статус 'publishing' защищают от дублей при публикации в клуб.
     try:
