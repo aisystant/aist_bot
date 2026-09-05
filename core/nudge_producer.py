@@ -26,6 +26,7 @@ onboarding nudges once the AI client is connected.
 
 import logging
 
+from config.nudge_registry import get_rule_config
 from core.nudge_delivery import NudgeCandidate
 from core.nudge_policy import stopgap_suppression_reason
 from core.onboarder.offer import offer_payload
@@ -33,25 +34,43 @@ from core.onboarder.offer import offer_payload
 logger = logging.getLogger(__name__)
 
 
-# Maps engagement_analyzer.py rule_id -> opt_out_category (DP.SC.116 vocab).
-# Unmapped rule_ids fall back to "engagement" (the majority case).
-_RULE_CATEGORY: dict[str, str] = {
-    "inactivity_3d": "engagement",
-    "slot_missing_3d": "engagement",
-    "low_engagement_7d": "engagement",
-    "low_regularity": "engagement",
-    "notification_fatigue": "engagement",
-    "streak_drop": "engagement",
-    "marathon_stalled": "return",
-    "achievement_sessions": "recognition",
-    "achievement_active_days": "recognition",
-    "stage_upgrade": "trajectory",
-    "agency_growing": "trajectory",
-    "agency_high": "trajectory",
-    "diagnost_bottleneck": "trajectory",
-    "onboarder_gap": "onboarder",
-}
-_DEFAULT_CATEGORY = "engagement"
+_REACTIVATION_TYPE = "engagement_reactivation"
+_RECOGNITION_TYPE = "recognition_progress"
+
+
+def _canonical_type_safe(rule_id: str) -> str | None:
+    """canonical_type или None для незамапленного rule_id.
+
+    Без защиты один незамапленный rule_id ронял бы KeyError'ом весь тик
+    send_engagement_nudges() для всех пользователей (per-user try/except в
+    scheduler нет). None не совпадает ни с reactivation, ни с recognition —
+    нудж проходит без арбитража, это безопасный дефолт.
+    """
+    try:
+        return get_rule_config(rule_id).canonical_type
+    except KeyError:
+        logger.warning("[NudgeProducer] Unmapped rule_id %s — skipped in narrative arbitration", rule_id)
+        return None
+
+
+def arbitrate_narrative(nudges: list[dict]) -> list[dict]:
+    """Suppress recognition while current rule facts say reactivation is needed.
+
+    This runs on raw analyzer output before cooldown filtering. A fresh activity
+    event makes the reactivation rule stop firing on the next run, which closes
+    the suppression window without a second TTL.
+    """
+    has_reactivation = any(
+        _canonical_type_safe(n["rule_id"]) == _REACTIVATION_TYPE
+        for n in nudges
+    )
+    if not has_reactivation:
+        return list(nudges)
+    return [
+        n
+        for n in nudges
+        if _canonical_type_safe(n["rule_id"]) != _RECOGNITION_TYPE
+    ]
 
 
 def produce(
@@ -91,7 +110,13 @@ def produce(
             )
             continue
 
-        category = _RULE_CATEGORY.get(rule_id, _DEFAULT_CATEGORY)
+        try:
+            category = get_rule_config(rule_id).opt_out_category
+        except KeyError:
+            # Как до реестра: незамапленный rule_id — без категорийных гейтов,
+            # но не уронить весь тик для остальных пользователей.
+            logger.warning("[NudgeProducer] Unmapped rule_id %s — fallback category 'engagement'", rule_id)
+            category = "engagement"
 
         if category == "return" and active_today:
             continue  # 21-apr incident class: active user, no "come back".

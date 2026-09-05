@@ -297,6 +297,29 @@ async def create_tables(pool: asyncpg.Pool):
             ON development.notification_queue(dedup_key)
         ''')
 
+        # WP-117 Ф-milestone-once: at-most-once claim for milestone messages.
+        # recipient_chat_id is the honest runtime identity until Ф-identity
+        # introduces a canonical account key.
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS development.nudge_receipt (
+                id BIGSERIAL PRIMARY KEY,
+                recipient_chat_id BIGINT NOT NULL,
+                nudge_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'reserved'
+                    CHECK (status IN ('reserved', 'delivered')),
+                queue_id INTEGER REFERENCES development.notification_queue(id)
+                    ON DELETE SET NULL,
+                reserved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                delivered_at TIMESTAMPTZ,
+                UNIQUE (recipient_chat_id, nudge_key)
+            )
+        ''')
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_nudge_receipt_queue
+            ON development.nudge_receipt(queue_id)
+            WHERE queue_id IS NOT NULL
+        ''')
+
         # ═══════════════════════════════════════════════════════════
         # ЛЕНТА: НЕДЕЛЬНЫЕ ПЛАНЫ
         # ═══════════════════════════════════════════════════════════

@@ -60,3 +60,20 @@ def test_register_types_merges_into_target():
     assert set(target) == {t[0] for t in EXPECTED_TYPES}
     # Default channel preserved
     assert target["nudge_inactivity"].channel_defaults == ["telegram"]
+
+
+def test_only_true_milestones_are_once_per_recipient():
+    types = reg.registered_types()
+    once = {
+        key for key, config in types.items()
+        if config.dedup_scope == nd.DedupScope.ONCE_PER_RECIPIENT
+    }
+    assert once == {
+        "nudge_sessions_10", "nudge_sessions_25",
+        "nudge_sessions_50", "nudge_sessions_100",
+        "nudge_active_days_7", "nudge_active_days_14",
+        "nudge_active_days_30",
+        "nudge_stage_reached_2", "nudge_stage_reached_3",
+        "nudge_stage_reached_4",
+    }
+    assert types["nudge_agency_high"].dedup_scope == nd.DedupScope.RECURRING

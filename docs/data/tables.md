@@ -339,6 +339,22 @@
 
 **Ретеншна нет** (рост навсегда). Constraint будущей чистки: retention ≥ max(dedup_hours) = 48 ч, иначе дедуп `capped` ослепнет.
 
+### 3.5. `nudge_receipt` (однократные milestone-нуджи)
+
+> WP-117 Ф-milestone-once. Receipt резервируется в одной транзакции с `notification_queue`; неоднозначная транспортная ошибка оставляет `reserved` терминальным (at-most-once, без автоматического reaper). Гарантия пока действует на Telegram-получателя, а не на каноническую личность — переход к account key относится к Ф-identity.
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `id` | BIGSERIAL | — | PK |
+| `recipient_chat_id` | BIGINT | — | Текущий идентификатор получателя в Telegram |
+| `nudge_key` | TEXT | — | Неизменяемая идентичность milestone-сообщения |
+| `status` | TEXT | `reserved` | `reserved` → `delivered`; иных автоматических переходов нет |
+| `queue_id` | INTEGER | `NULL` | Ссылка на строку `notification_queue` |
+| `reserved_at` | TIMESTAMPTZ | `NOW()` | Момент атомарного claim |
+| `delivered_at` | TIMESTAMPTZ | `NULL` | Заполняется только после успешного вызова транспорта |
+
+**Constraints:** UNIQUE(`recipient_chat_id`, `nudge_key`); UNIQUE(`queue_id`) WHERE queue_id IS NOT NULL.
+
 ---
 
 ## 4. Аутентификация и интеграции
@@ -974,6 +990,7 @@ channel_mentions_log — standalone (по channel_id + message_id)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-09-04 | **Миграция 043 (WP-117 Ф-milestone-once):** `development.nudge_receipt` — at-most-once claim для milestone-нуджей с атомарной постановкой в очередь и честным ограничением once-per-Telegram-recipient до завершения Ф-identity. (Перенумерована из 039 — номер был дважды занят.) |
 | 2026-08-09 | **WP-46: исправлена семантика `user_sessions`:** `ended_at` теперь означает последний запрос и обновляется вместе с точным `duration_seconds`; разрыв ≥30 минут создаёт новую сессию. Удалена эвристика `30 секунд × request_count`, которая выдумывала длительность legacy-сессий. |
 | 2026-07-17 | **Миграции 236+238 на Railway (WP-117 Ф-onboarding-gap):** `learning.onboarding_state` на Railway пилот-бота — было 29 колонок (только каноническая 233), не хватало 9 из `neon-migrations/mvp/236-wp349-onboarding-state-upgrade-markers.sql` и `238-wp349-onboarding-state-referral.sql` (`msg_f_sent_at`/`msg_g_sent_at`, `cp_stage`, `has_diagnosis`, `msg_b_low/b_high_sent_at`, `msg_c_sent_at`, `msg_e_sent_at`, `referral_source`). Batch-fetch F/G-маркеров (WP-349 Ф6/Ф7, `core/scheduler.py`) падал fail-open на каждый запуск 13:00. Миграции 236+238 применены напрямую к живой Railway-БД; сверка с Neon-прод — 38/38, diff пуст. Миграция 025 (bootstrap) дополнена теми же 9 колонками, чтобы дрейф не повторился при будущем пересоздании базы с нуля. |
 | 2026-07-08 | **Миграция 038 (WP-117 Ф-onboarding-gap):** `learning.onboarding_state` на Railway пересоздана по канонической схеме (`neon-migrations/mvp/233-wp346-onboarding-state.sql`) — было 16 колонок вместо 29 (не хватало `last_nudge_at`, `has_subscription`, всех `first_use_*`, `slot_count` и др., блокировало PR #291). Причина: миграция 025 (2026-06-06) создавала таблицу своим устаревшим inline DDL, разошедшимся с 233. `marathon_queue` получил недостающую `bot_id` (канонический `240-wp7-mar5-marathon-queue-bot-id.sql`). Миграция 025 исправлена, чтобы будущий bootstrap с нуля не воспроизводил тот же дрейф. Пир-сессия `2026-07-08-01-wp117-railway-column-drift`. |

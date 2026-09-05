@@ -14,14 +14,16 @@ import core.notification_service as ns
 # ─────────────────────────── фейк asyncpg ───────────────────────────
 
 class FakeConn:
-    def __init__(self, cap_count=0, duplicate=False, drain_rows=None):
+    def __init__(self, cap_count=0, duplicate=False, drain_rows=None, receipt_fails=False):
         self._cap_count = cap_count
         self._duplicate = duplicate
         self._drain_rows = drain_rows or []
+        self._receipt_fails = receipt_fails
         self._next_id = 100
         self.updates = []  # id строк, по которым прошёл UPDATE (дренаж)
         self.update_sqls = []  # SQL UPDATE'ов — различение sent / suppressed (Ф4)
         self.inserts = []  # args INSERT'ов — проверка journal_key/journal_type (Ф4)
+        self.receipt_updates = []
 
     def transaction(self):
         class _Tx:
@@ -33,8 +35,13 @@ class FakeConn:
 
     async def execute(self, sql, *args):
         if sql.strip().upper().startswith("UPDATE"):
-            self.updates.append(args[0] if args else None)
-            self.update_sqls.append(sql)
+            if "development.nudge_receipt" in sql:
+                if self._receipt_fails:
+                    raise Exception('UndefinedTableError: relation "development.nudge_receipt" does not exist')
+                self.receipt_updates.append(args[0] if args else None)
+            else:
+                self.updates.append(args[0] if args else None)
+                self.update_sqls.append(sql)
         return "OK"
 
     async def fetchval(self, sql, *args):
@@ -175,9 +182,74 @@ async def test_drain_delivers_and_marks_sent(monkeypatch):
     assert delivered == [(555, "урок дня")]          # реально доставлено
     assert stats["delivered"] == 1
     assert conn.updates == [7]                        # статус помечен sent (log-before-send)
+    assert conn.receipt_updates == [7]                # receipt подтверждён только после deliver
     # без journal_* — технический fallback (canary/ops-alert)
     assert journaled[0]["idempotency_key"] == "delivery:7"
     assert journaled[0]["notification_type"] == ns.CLASS_MUST_DELIVER
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_leaves_once_receipt_reserved(monkeypatch):
+    row = {
+        "id": 8,
+        "chat_id": 555,
+        "notification_class": ns.CLASS_CAPPED,
+        "payload": '{"text": "milestone"}',
+        "priority": 4,
+        "journal_key": "nudge:555:2026-08-06:nudge_sessions_10",
+        "journal_type": "nudge",
+    }
+    conn = FakeConn(drain_rows=[row])
+    _patch_pool(monkeypatch, conn)
+
+    async def _journal_new(**_kwargs):
+        return True
+
+    async def _ambiguous_failure(_chat_id, _content_spec):
+        raise TimeoutError("transport outcome unknown")
+
+    monkeypatch.setattr(ns, "try_insert_notification", _journal_new)
+
+    stats = await ns.drain(_ambiguous_failure)
+
+    assert stats == {"delivered": 0, "failed": 1}
+    assert conn.receipt_updates == []
+
+
+@pytest.mark.asyncio
+async def test_drain_survives_receipt_settlement_failure(monkeypatch):
+    # Savepoint (peer-review round 1): сломанный settlement — таблица
+    # nudge_receipt ещё не создана в fail-open окне — не должен отменить
+    # уже случившуюся доставку и отравить общую транзакцию drain
+    # (иначе следующий drain пошлёт пользователю дубль).
+    row = {
+        "id": 9,
+        "chat_id": 777,
+        "notification_class": ns.CLASS_CAPPED,
+        "payload": '{"text": "milestone"}',
+        "priority": 4,
+        "journal_key": None,
+        "journal_type": None,
+    }
+    conn = FakeConn(drain_rows=[row], receipt_fails=True)
+    _patch_pool(monkeypatch, conn)
+
+    async def _journal_new(**_kwargs):
+        return True
+
+    monkeypatch.setattr(ns, "try_insert_notification", _journal_new)
+
+    delivered = []
+
+    async def deliver(chat_id, _content_spec):
+        delivered.append(chat_id)
+
+    stats = await ns.drain(deliver)
+
+    assert delivered == [777]                # доставка состоялась
+    assert stats["delivered"] == 1
+    assert conn.updates == [9]               # строка очереди помечена sent
+    assert conn.receipt_updates == []        # settlement упал — и это пережито
 
 
 @pytest.mark.asyncio

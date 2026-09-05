@@ -119,20 +119,22 @@ def test_cooldown_and_class_cap_match_nudge_type_registry():
             f"nudge_key '{nudge_key}': class_cap mismatch: "
             f"registry={key_config.data_contract.class_cap} expected={expected_cap}"
         )
+        assert key_config.data_contract.dedup_scope == type_config.dedup_scope.value
 
 
-def test_canonical_type_matches_rule_category():
-    """opt_out_category in registry must match _RULE_CATEGORY in nudge_producer."""
-    from core.nudge_producer import _RULE_CATEGORY, _DEFAULT_CATEGORY
-
+def test_once_per_recipient_is_explicitly_limited_to_milestones():
     registry = load_nudge_registry()
-    for rule_id in _collect_analyzer_rule_ids():
-        rule = registry.rules[rule_id]
-        expected_category = _RULE_CATEGORY.get(rule_id, _DEFAULT_CATEGORY)
-        assert rule.opt_out_category == expected_category, (
-            f"rule_id '{rule_id}': opt_out_category mismatch: "
-            f"registry={rule.opt_out_category} producer={expected_category}"
-        )
+    once_rules = {
+        rule.rule_id
+        for rule in registry.rules.values()
+        if rule.data_contract.dedup_scope == "once_per_recipient"
+    }
+    assert once_rules == {
+        "achievement_sessions",
+        "achievement_active_days",
+        "stage_upgrade",
+    }
+    assert registry.rules["agency_high"].data_contract.dedup_scope == "recurring"
 
 
 def test_stopgap_flags_match_nudge_policy():
