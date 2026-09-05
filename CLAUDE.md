@@ -759,13 +759,13 @@ Telegram Markdown v1 парсит `_` как маркер курсива. Три
 
 **SoT контента:** `DS-marathon-v2-tseren/materials/participants/marathon-content.json` → sync → `data/marathon-content.json` (bot runtime). Dockerfile не включает DS-marathon-v2-tseren → fallback path в prod недоступен.
 
-### 10.39. T4-full тестировать нельзя через тир-специфичный код консультации
+### 10.39. ~~T4-full тестировать нельзя через тир-специфичный код консультации~~ — снято 05.09
 
-`handlers/fallback.py:100` — T4-аккаунты (`tier_num >= 4`) при обычном сообщении уходят целиком в Hermes (`gateway_mcp.hermes_chat()`), минуя `handle_question_with_tools()`/`consultation.py`. Живой E2E-прогон фич, завязанных на консультацию (tool_use, discovery), через T4-аккаунт технически не проверяет их — трафик идёт другим кодом.
-
-**Источник (2026-07-07, WP-5):** попытка живого прогона generic MCP tool discovery через реальный аккаунт пилота (T4) не дошла до кода, который проверялась.
-
-**Правило:** для E2E теста consultation-специфичных фич нужен онбордированный тестовый аккаунт тира T1-T3, не T4.
+Правило описывало `tier_num >= 4` в `handlers/fallback.py`, уводивший T4 целиком в
+Hermes мимо `consultation.py`. Этот блок удалён (WP-392 retirement — внешний Hermes
+отключён в чате бота, `DS-my-strategy/archive/wp-contexts/WP-392/retirement.md`): T4
+теперь маршрутизируется как любой другой тир, через `consultation.py`. E2E-прогон
+consultation-фич через T4-аккаунт больше не обходит их стороной — ограничение снято.
 
 ### 10.40. `gateway_mcp.list_tools()` берёт произвольный токен без retry-on-401
 

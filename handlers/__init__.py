@@ -119,8 +119,9 @@ def setup_handlers(dp: AiogramDispatcher, dispatcher: BotDispatcher) -> None:
     dp.include_router(setup_router)
     dp.include_router(tier_upgrade_router)
     dp.include_router(referral_router)
-    # WP-392: hermes_router ДО external_session — «Гермес» адресует Hermes-рантайм,
-    # а не активную Claude-сессию (которая иначе перехватила бы текст первой).
+    # WP-392: hermes_router ДО external_session — префикс «Гермес» перехватывает
+    # текст (Проводник для tier<T3, отказ для tier≥T3 — внешний Hermes отключён
+    # 05.09), иначе активная Claude-сессия перехватила бы его первой.
     dp.include_router(hermes_router)
     dp.include_router(byok_router)
     dp.include_router(external_session_router)

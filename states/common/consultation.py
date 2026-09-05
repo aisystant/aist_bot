@@ -51,33 +51,55 @@ MAX_REFINEMENT_ROUNDS = 3
 
 # --- Role routing patterns (DP.D.044) ---
 _NAVIGATOR_PATTERNS = [
-    # SS.1: С чего начать / выбор пути
+    # SS.1: С чего начать / выбор пути. WP-498 Ф12 (05.09, верификация): "куда
+    # пойти"/"что выбрать"/"какой курс" убраны — без учебного контекста ловили
+    # бытовые вопросы (куда пойти поужинать, что выбрать в подарок, какой курс
+    # валют); "какую программу"/"программа обучения"/"порекомендуй программу"
+    # уже покрывают тот же смысл без этого риска.
     "с чего начать", "с чего мне начать", "что мне изучать", "какую программу",
-    "куда пойти", "что выбрать", "какой курс", "программа обучения",
+    "программа обучения",
     "не знаю с чего", "подскажи путь", "что посоветуешь изучать",
     "как начать учиться", "помоги выбрать", "что дальше учить",
     "какой путь", "порекомендуй программу", "подскажи программу",
     # SS.3: Мемы (учебные барьеры)
-    "нет времени", "не хватает времени", "не получается учиться",
+    # WP-498 Ф12 (05.09, холодное ревью): "нет времени"/"не хватает времени" без
+    # "учиться" ловили любую жалобу на нехватку времени вообще — теперь эта же
+    # лексика гейтит не только тон приветствия, но и бесплатный доступ (см.
+    # _role_exempt_from_paywall), поэтому сузил до учебного контекста.
+    "нет времени учиться", "не хватает времени учиться", "не получается учиться",
     "сбиваюсь", "бросаю", "не могу учиться", "мешает учиться",
     "нужно идеально", "потом начну", "сначала пойму",
     "не мне это", "поздно учиться", "нет способностей",
-    # SS.4: Помидорки (ритм обучения)
-    "сколько помидорок", "сколько учиться", "как спланировать неделю",
-    "помоги с ритмом", "ритм обучения", "план на неделю",
-    "сколько времени уделять", "расписание обучения",
-    # SS.5: Итоги
-    "итоги недели", "итоги", "как у меня дела", "как я продвинулся",
-    "мой прогресс за неделю", "подведи итоги",
-    # SS.6: Зачем
-    "зачем это учить", "зачем мне это", "какой смысл", "не понимаю зачем",
-    "для чего это нужно", "почему это важно",
+    # SS.4: Помидорки (ритм обучения). WP-498 Ф12 (05.09, верификация round 2):
+    # "как спланировать неделю"/"план на неделю"/"сколько времени уделять" без
+    # учебного якоря ловили "план на неделю ремонта", "сколько времени уделять
+    # сну" и т.п. — сузил до явного учебного контекста.
+    "сколько помидорок", "сколько учиться", "как спланировать неделю учёбы",
+    "помоги с ритмом", "ритм обучения", "план на неделю учёбы",
+    "сколько времени уделять учёбе", "расписание обучения",
+    # SS.5: Итоги. WP-498 Ф12: голое "итоги" убрано — избыточно (уже покрыто
+    # "итоги недели"/"подведи итоги") и слишком широко ловило любой чужой текст
+    # со словом "итоги" (эта лексика теперь гейтит не только тон, но и платный
+    # доступ — см. _role_exempt_from_paywall).
+    # WP-498 Ф12 (05.09, верификация round 2): "как у меня дела"/"мой прогресс
+    # за неделю" без учебного якоря ловили "как у меня дела со здоровьем",
+    # "мой прогресс за неделю в спортзале" — сузил.
+    "итоги недели", "как у меня дела с учёбой", "как я продвинулся в учёбе",
+    "мой прогресс за неделю в учёбе", "подведи итоги",
+    # SS.6: Зачем. WP-498 Ф12: "какой смысл"/"почему это важно" убраны —
+    # слишком общие (матчат любой вопрос "почему X важно», не только про
+    # учёбу); оставшихся фраз достаточно без ложных срабатываний.
+    "зачем это учить", "зачем мне это", "не понимаю зачем",
+    "для чего это нужно",
 ]
 
 _DIAGNOSTICIAN_PATTERNS = [
-    "протестируй меня", "протестируй", "какая у меня ступень",
+    # WP-498 Ф12 (05.09, верификация): голые "протестируй"/"диагностика" убраны
+    # — ловили "протестируй мой скрипт на баги", "диагностика двигателя" и т.п.;
+    # "протестируй меня"/"тестирование ступени" уже покрывают учебный смысл.
+    "протестируй меня", "какая у меня ступень",
     "определи мою ступень", "на какой я ступени", "моя ступень",
-    "оцени мой уровень", "диагностика", "тестирование ступени",
+    "оцени мой уровень", "тестирование ступени",
 ]
 
 # WP-498 Ф5: Наставник (MIM.R.001 Режим 2) — always-on 1:1 диагноз+рекомендация.
@@ -87,7 +109,8 @@ _DIAGNOSTICIAN_PATTERNS = [
 # срабатывания уже отмечен как повышенный (см. WP-498.md, вариант B, минус).
 _MENTOR_PATTERNS = [
     "застрял", "застряла",
-    "не получается",
+    # WP-498 Ф12 (05.09, холодное ревью): голое "не получается" убрано —
+    # слишком общая жалоба, матчит что угодно, не только "застрял в практикуме".
     "не знаю, что делать", "не знаю что делать",
     "упал мотивацией", "упала мотивация", "потерял мотивацию", "нет мотивации",
     "в тупике",
@@ -143,6 +166,41 @@ def detect_mentor_intent(question: str) -> Optional[str]:
     if any(pattern in q for pattern in _CONCEPT_NAMING_PATTERNS):
         return MENTOR_INTENT_CONCEPT_NAMING
     return None
+
+
+# WP-156: команды, ставящие force_role, поддерживают только эти две роли
+# (нет /diagnose или /mentor — см. core/dispatcher.py). Общая константа для
+# _role_exempt_from_paywall и приветственного блока ниже — холодное ревью 05.09
+# нашло, что два хардкода одного кортежа рискуют разойтись при добавлении
+# новой команды.
+_FORCE_ROLE_COMMANDS = ('navigator', 'diagnostician')
+
+
+def _role_exempt_from_paywall(question: str, force_role: Optional[str]) -> Optional[str]:
+    """WP-498 Ф12 (05.09, решение пилота): роль, которая освобождает от платного
+    барьера подписки, если распознана.
+
+    Наставник/Диагност/Навигатор — всегда и для всех тиров, независимо от
+    подписки: у людей нет причин различать эти роли по имени, распознавание
+    делает та же лексика _detect_role, что и внутри самой консультации, ничего
+    отдельного не изобретаем. Generic-вопрос без роли (дефолтный Консультант,
+    поиск по общей базе знаний) paywall НЕ освобождён — платный барьер и
+    T4-редирект в Hermes для него остаются как были.
+
+    `force_role` (из /navigator, /diagnose — WP-156) побеждает независимо от
+    текста вопроса: явная команда уже есть явное намерение позвать роль.
+    """
+    if force_role in _FORCE_ROLE_COMMANDS:
+        return force_role
+    return _detect_role(question) if question else None
+
+
+def _is_paywall_exempt(entry_role: Optional[str], session_ctx: dict) -> bool:
+    """WP-498 Ф13 (05.09): платёжный барьер снят, если роль распознана в этом
+    сообщении ИЛИ уже была распознана раньше в этой персистентной сессии
+    консультации (``session_ctx['active_free_role']``, Fable-ревью — без
+    этого follow-up без ролевой лексики падал обратно на paywall)."""
+    return entry_role is not None or bool(session_ctx.get('active_free_role'))
 
 
 def _detect_role(question: str) -> Optional[str]:
@@ -512,6 +570,7 @@ class ConsultationState(BaseState):
         ctx.pop('consultation_history', None)
         ctx.pop('consultation_last_activity', None)
         ctx.pop('qa_comment_id', None)
+        ctx.pop('active_free_role', None)  # WP-498 Ф13: не переживает новую сессию
         return ctx
 
     async def enter(self, user, context: dict = None) -> Optional[str]:
@@ -535,8 +594,28 @@ class ConsultationState(BaseState):
 
         # --- Проверка доступа (подписка/триал) ---
         chat_id = self._get_chat_id(user)
-        logger.info(f"[Consultation] enter: chat_id={chat_id}, force_role={context.get('force_role')}, question={bool(context.get('question'))}")
-        if chat_id:
+        # WP-498 Ф13 (05.09, находка Fable-ревью): _load_session_context — синхронное
+        # чтение уже загруженного поля user['current_context'], без похода в БД —
+        # дешёво вызвать здесь же, до платёжного барьера — дубль загрузки ниже убран.
+        session_ctx = await self._load_session_context(user)
+        _entry_role = _role_exempt_from_paywall(
+            context.get('question', '') or '', context.get('force_role'),
+        )
+        # Бесплатная роль остаётся бесплатной на всю персистентную сессию
+        # консультации, не только на первое сообщение — иначе follow-up без
+        # ролевой лексики («да, на втором задании») снова падает на платный
+        # барьер. Сбрасывается в _clear_session() при выходе/таймауте.
+        if _entry_role is not None:
+            session_ctx['active_free_role'] = _entry_role
+            if chat_id:
+                await self._save_session_context(chat_id, session_ctx)
+        _paywall_exempt = _is_paywall_exempt(_entry_role, session_ctx)
+        logger.info(
+            f"[Consultation] enter: chat_id={chat_id}, force_role={context.get('force_role')}, "
+            f"question={bool(context.get('question'))}, paywall_exempt_role={_entry_role}, "
+            f"sticky_free_role={session_ctx.get('active_free_role')}"
+        )
+        if chat_id and not _paywall_exempt:
             from core.access import access_layer
             has_access = await access_layer.has_access(chat_id, 'consultation')
             logger.info(f"[Consultation] access check for chat_id={chat_id}: {has_access}")
@@ -567,14 +646,20 @@ class ConsultationState(BaseState):
 
         # WP-156: Explicit role entry (/navigator) — save in session, show greeting
         force_role = context.get('force_role')
-        if force_role and force_role in ('navigator', 'diagnostician'):
-            chat_id_fr = self._get_chat_id(user)
-            if chat_id_fr:
-                session_ctx_fr = await self._load_session_context(user)
-                session_ctx_fr['force_role'] = force_role
-                self._clear_session(session_ctx_fr)  # New session for role
-                session_ctx_fr['consultation_last_activity'] = time.time()
-                await self._save_session_context(chat_id_fr, session_ctx_fr)
+        if force_role and force_role in _FORCE_ROLE_COMMANDS:
+            if chat_id:
+                # WP-498 Ф13 (05.09, второй раунд Fable-ревью): раньше здесь
+                # заново грузился ОТДЕЛЬНЫЙ session_ctx_fr тем же chat_id и
+                # сохранялся поверх — стирал active_free_role, записанный
+                # выше в этом же вызове enter() (правило одного источника
+                # правды на сессию). Теперь переиспользуем session_ctx;
+                # active_free_role ставим заново ПОСЛЕ _clear_session, т.к.
+                # она его тоже чистит (новая сессия роли).
+                self._clear_session(session_ctx)  # New session for role
+                session_ctx['force_role'] = force_role
+                session_ctx['active_free_role'] = force_role
+                session_ctx['consultation_last_activity'] = time.time()
+                await self._save_session_context(chat_id, session_ctx)
 
             if not question:
                 # No question yet — show role greeting and wait
@@ -602,8 +687,7 @@ class ConsultationState(BaseState):
             await self.send(user, t('consultation.no_question', lang))
             return None  # Остаёмся — ждём вопрос
 
-        # Загружаем session context для history
-        session_ctx = await self._load_session_context(user)
+        # session_ctx уже загружен выше (до платёжного барьера, Ф13).
         _answer_for_history = ""  # Трекинг ответа для записи в history
 
         # --- Meta-question fast path: "кто ты?", "что умеешь?" → instant rich response ---

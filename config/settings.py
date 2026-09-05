@@ -657,6 +657,11 @@ SM_EXPECTING_REPLY_STATES: dict[str, int] = {
     "workshop.marathon.task": 1440,      # задание может выполняться до 24ч
     "workshop.marathon.bonus": 60,
     "workshop.assessment.flow": 60,
+    # WP-498 Ф13 (05.09, находка Fable-ревью): без этой строки follow-up внутри
+    # активной консультации (Наставник и др.) у T4-аккаунтов уходил в Hermes
+    # вместо ответа роли — персистентная сессия консультации работала только
+    # на первое сообщение. 5 мин = states/common/consultation.py:SESSION_TIMEOUT_SEC.
+    "common.consultation": 5,
 }
 
 # ============= КАТЕГОРИИ РАБОЧИХ ПРОДУКТОВ =============
