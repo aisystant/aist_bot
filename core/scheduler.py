@@ -1117,9 +1117,13 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
         aiogram_dispatcher: aiogram Dispatcher (FSM storage)
         bot_token: Telegram bot token
     """
-    # DISABLE_SCHEDULER=true — отключает scheduler (для тестовых инстансов с общей БД)
+    # DISABLE_SCHEDULER=true — отключает scheduler (для тестовых инстансов с общей БД).
+    # WARNING, не INFO: флаг гасит весь планировщик разом (доставку марафона,
+    # дайджесты, нуджи, health-пробы и т.д.), не только один job — незаметный
+    # дрейф этого флага на живом хостинге стоил боту суток простоя рассылки,
+    # прежде чем кто-то заметил строку в логе (WP-117/WP-562, 05.09.2026).
     if os.getenv("DISABLE_SCHEDULER", "false").lower() == "true":
-        logger.info("[Scheduler] DISABLE_SCHEDULER=true — планировщик отключён")
+        logger.warning("[Scheduler] DISABLE_SCHEDULER=true — ВЕСЬ планировщик отключён (все задачи, не только рассылка)")
         return None
 
     global _scheduler, _bot_dispatcher, _aiogram_dispatcher, _bot_token, _bot_id
