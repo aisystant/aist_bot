@@ -255,10 +255,11 @@ async def test_emit_skips_without_account():
 def test_prompt_section_s0_form():
     section = format_concept_naming_section("ru")
     for code, entry in CONCEPT_FACT_MAP.items():
-        assert f"{entry.name_ru} ({code})" in section
+        assert f"{entry.name_ru} ({code})" in section  # словарь для модели: название ↔ код маркера
+    assert "участнику в тексте НЕ показывай" in section  # решение пилота 05.09: код не для участника
     assert CONCEPT_MARKER_PREFIX in section
     assert "ЗАПРЕЩЕНО" in section
-    assert "Пути к файлам" in section
+    assert "пути к файлам" in section
     # Правила читаются моделью по порядку — номера обязаны идти подряд (ревью 05.09, Medium).
     rule_numbers = [int(line[0]) for line in section.splitlines() if line[:2] in {f"{n}." for n in range(1, 10)}]
     assert rule_numbers == list(range(1, len(rule_numbers) + 1)), rule_numbers
@@ -269,4 +270,4 @@ def test_mentor_prompt_has_scenario_9():
 
     prompt = load_role_prompt("mentor")
     assert "Назови понятие" in prompt
-    assert "код — только в скобках" in prompt
+    assert "коды понятий и документов участнику не показывай" in prompt
