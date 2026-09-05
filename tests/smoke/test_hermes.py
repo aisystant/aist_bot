@@ -1,25 +1,26 @@
-"""Smoke-тесты: hermes_router (WP-392 Ф3.1, WP-428 Ф7).
+"""Smoke-тесты: hermes_router (WP-392 Ф3.1, WP-392 retirement 05.09).
 
-«Гермес»/«hermes» → внешний Hermes-рантайм (Nous Research) через hermes_chat для T3+.
-Для T1/T2 — Проводник (Haiku, DP.SC.169, WP-349 Ф33).
-Роутер выделен из fallback и регистрируется ДО external_session/fallback.
-WP-428 Ф7: session_id threads Hermes history; /hermes_reset generates a new session_id.
+«Гермес»/«hermes» — префикс, распознаваемый роутером. Для tier<T3 отвечает
+Проводник (Haiku, локальный, DP.SC.169). Для tier>=T3 внешний Hermes-рантайм
+отключён (пилот, 05.09) — отвечаем _HERMES_RETIRED_MSG, gateway_mcp.hermes_chat
+не вызывается. Роутер выделен из fallback и регистрируется ДО external_session/fallback.
 """
 
-import re
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from handlers.hermes import (
     _is_hermes_message,
-    _HERMES_SESSION_KEY,
-    on_hermes_reset,
     _send_unavailable,
     _SERVICE_DOWN_MSG,
     _RECONNECT_MSG,
     _RECONNECT_BTN,
     _UNAVAILABLE_TIER_MSG,
+    _HERMES_RETIRED_MSG,
+    on_hermes,
 )
+from tests.smoke.conftest import make_intern
 from tests.smoke.factories import text_message
 
 
@@ -38,43 +39,55 @@ def test_filter_rejects_non_hermes():
         assert _is_hermes_message(msg) is (txt.lower().startswith(("гермес", "hermes")))
 
 
-# ─── WP-428 Ф7: /hermes_reset ───
+# ─── WP-392 retirement: tier>=T3 → отказ, gateway_mcp не вызывается ───
 
-_SESSION_ID_RE = re.compile(r"^tg-\d+-reset-\d+$")
+@pytest.mark.asyncio
+async def test_hermes_prefix_tier3_gets_retired_message_not_gateway():
+    msg = text_message("Гермес, привет", chat_id=1).message
+    object.__setattr__(msg, "answer", AsyncMock())
+    state = AsyncMock()
+    with patch("handlers.hermes.get_intern", new_callable=AsyncMock,
+               return_value=make_intern(onboarding_completed=True, tier="T3", current_state=None)), \
+         patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock, return_value=3), \
+         patch("handlers.external_session._sm_is_expecting_reply", new_callable=AsyncMock, return_value=False), \
+         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+        await on_hermes(msg, state)
+    mock_gmc.hermes_chat.assert_not_called()
+    msg.answer.assert_awaited_once_with(_HERMES_RETIRED_MSG)
 
 
 @pytest.mark.asyncio
-async def test_hermes_reset_guard_no_from_user():
-    """Anonymous message (from_user=None) must be silently ignored."""
-    message = MagicMock()
-    message.from_user = None
+async def test_hermes_prefix_tier4_gets_retired_message():
+    msg = text_message("Гермес, что нового", chat_id=1).message
+    object.__setattr__(msg, "answer", AsyncMock())
     state = AsyncMock()
-    await on_hermes_reset(message, state)
-    state.update_data.assert_not_called()
-    message.answer.assert_not_called()
+    with patch("handlers.hermes.get_intern", new_callable=AsyncMock,
+               return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
+         patch("handlers.external_session._sm_is_expecting_reply", new_callable=AsyncMock, return_value=False), \
+         patch("clients.gateway_mcp.gateway_mcp") as mock_gmc:
+        await on_hermes(msg, state)
+    mock_gmc.hermes_chat.assert_not_called()
+    msg.answer.assert_awaited_once_with(_HERMES_RETIRED_MSG)
 
 
 @pytest.mark.asyncio
-async def test_hermes_reset_writes_new_session_id():
-    """Happy path: writes tg-{user_id}-reset-{ts} under _HERMES_SESSION_KEY."""
-    message = MagicMock()
-    message.from_user = MagicMock()
-    message.from_user.id = 42
-    message.answer = AsyncMock()
+async def test_hermes_prefix_tier_below_3_still_uses_conductor():
+    """tier<T3 не затронут ретайром — Проводник (локальный Haiku) отвечает как раньше."""
+    msg = text_message("Гермес, что такое T2", chat_id=1).message
+    object.__setattr__(msg, "answer", AsyncMock())
     state = AsyncMock()
-    await on_hermes_reset(message, state)
-    state.update_data.assert_awaited_once()
-    call_kwargs = state.update_data.call_args[0][0]
-    assert _HERMES_SESSION_KEY in call_kwargs
-    new_sid = call_kwargs[_HERMES_SESSION_KEY]
-    assert _SESSION_ID_RE.match(new_sid), f"Unexpected session_id format: {new_sid}"
-    assert new_sid.startswith("tg-42-reset-")
-    message.answer.assert_awaited_once()
-
-
-def test_session_key_constant_stable():
-    """FSM key name must stay stable (other components may depend on it)."""
-    assert _HERMES_SESSION_KEY == "hermes_session_id"
+    with patch("handlers.hermes.get_intern", new_callable=AsyncMock,
+               return_value=make_intern(onboarding_completed=True, tier="T1", current_state=None)), \
+         patch("core.tier_detector.detect_ui_tier", new_callable=AsyncMock, return_value=1), \
+         patch("handlers.external_session._sm_is_expecting_reply", new_callable=AsyncMock, return_value=False), \
+         patch("clients.claude.claude") as mock_claude, \
+         patch("core.onboarder.offer.should_offer", new_callable=AsyncMock, return_value=False):
+        mock_claude.generate = AsyncMock(return_value="T2 — подписка «Инженерия интеллекта».")
+        await on_hermes(msg, state)
+    mock_claude.generate.assert_awaited_once()
+    msg.answer.assert_awaited_once()
+    assert "Проводник:" in msg.answer.await_args.args[0]
 
 
 # ─── РП7 BOT-HERMES1: name-free unavailable messages ───
@@ -87,7 +100,11 @@ def test_user_messages_never_name_the_runtime():
 
 @pytest.mark.asyncio
 async def test_send_unavailable_not_connected_prompts_reauth():
-    """Нет Ory-токена → кнопка повторного входа, не «попробуй позже»."""
+    """Нет Ory-токена → кнопка повторного входа, не «попробуй позже».
+
+    _send_unavailable остаётся живым кодом — используется VS Code-мостом
+    (external_session.py, /agent hermes), отключение чата его не затронуло.
+    """
     message = MagicMock()
     message.chat.id = 7
     message.answer = AsyncMock()

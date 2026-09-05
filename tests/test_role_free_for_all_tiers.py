@@ -1,12 +1,13 @@
 """Unit-тесты WP-498 Ф12 (05.09, решение пилота): роли Наставник/Диагност/Навигатор
-доступны всегда и для всех тиров — платный барьер и T4→Hermes редирект остаются
-только для generic-вопроса без распознанной роли (дефолтный Консультант).
+доступны всегда и для всех тиров — платный барьер остаётся только для generic-вопроса
+без распознанной роли (дефолтный Консультант).
 
-Покрывает две точки решения (одна и та же лексика _detect_role, не дублируется):
-- states.common.consultation._role_exempt_from_paywall — снятие платного барьера
-  в enter() консультации.
-- handlers.fallback._is_role_addressed_question — снятие T4→Hermes редиректа,
-  тестируется напрямую как реальный код, не копия его логики.
+Покрывает: states.common.consultation._role_exempt_from_paywall — снятие платного
+барьера в enter() консультации.
+
+T4→Hermes редирект (handlers.fallback._is_role_addressed_question) убран вместе с
+самим редиректом при отключении Hermes (05.09) — см. WP-392 retirement; секция
+тестов на него удалена этой же правкой, не перенесена.
 """
 
 import os
@@ -27,8 +28,6 @@ from states.common.consultation import (  # noqa: E402
     _is_paywall_exempt,
     _role_exempt_from_paywall,
 )
-from handlers.fallback import _is_role_addressed_question  # noqa: E402
-
 
 # =============================================================================
 # _role_exempt_from_paywall — платный барьер (enter())
@@ -59,30 +58,6 @@ def test_force_role_unknown_value_ignored():
     # force_role вне (navigator, diagnostician) — не считается специалистом,
     # решение падает обратно на текст вопроса.
     assert _role_exempt_from_paywall("расскажи про мотивацию вообще", "something_else") is None
-
-
-# =============================================================================
-# Обход T4→Hermes — handlers.fallback._is_role_addressed_question (реальный код)
-# =============================================================================
-
-@pytest.mark.parametrize("text", [
-    "? я застрял на задании",
-    "? Наставник, какой гейт мы применили?",
-    "? какая у меня ступень",
-    "? Навигатор, с чего начать?",
-])
-def test_role_addressed_question_bypasses_t4_redirect(text):
-    assert _is_role_addressed_question(text) is True
-
-
-def test_generic_question_does_not_bypass_t4_redirect():
-    assert _is_role_addressed_question("? расскажи про мотивацию вообще") is False
-
-
-def test_text_without_question_mark_never_bypasses():
-    # T4-редирект для текста без "?" не должен трогаться этой веткой вообще —
-    # даже если содержимое похоже на роль (это уже поведение WP-392, не Ф12).
-    assert _is_role_addressed_question("Наставник, я застрял") is False
 
 
 # =============================================================================
