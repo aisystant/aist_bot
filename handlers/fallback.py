@@ -48,13 +48,15 @@ def _is_concept_naming_request(text: str) -> bool:
     Событие concept_named (факты мастерства М10/М11/М14) пишет только Наставник
     бота — Hermes словаря понятий не имеет. Поэтому T4-сообщение с якорем
     концепт-нейминга уходит в консультацию бота, а не в Hermes, даже без «?».
-    Тот же детектор, что внутри консультации (states.common.consultation
-    .detect_mentor_intent) — списки якорей здесь не копируются.
+    Якоря и их владелец — states.common.consultation (здесь не копируются);
+    без «?»/префикса действует только однозначное для IWE подмножество
+    (холодное ревью 05.09: «какой гейт сработал: AND или OR» у разработчика
+    T4 — не про IWE).
     """
     if text.startswith('?'):
         return False  # «?»-путь решается _is_role_addressed_question
-    from states.common.consultation import MENTOR_INTENT_CONCEPT_NAMING, detect_mentor_intent
-    return detect_mentor_intent(text) == MENTOR_INTENT_CONCEPT_NAMING
+    from states.common.consultation import is_explicit_concept_naming_request
+    return is_explicit_concept_naming_request(text)
 
 
 def _is_main_router_callback(callback: CallbackQuery) -> bool:

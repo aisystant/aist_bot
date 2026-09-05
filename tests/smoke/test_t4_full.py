@@ -153,6 +153,82 @@ async def test_t4_hermes_prefix_stripped(state):
     assert mock_hermes.call_args.kwargs.get("message") == "привет"
 
 
+# ─── T4 + «назови понятие» без «?» → Наставник бота, не Hermes (WP-498 Ф15) ───
+
+def _t4_dispatcher(consultation_allowed: bool) -> MagicMock:
+    """Диспетчер с машиной, у которой гейт allow_global консультации открыт/закрыт."""
+    mock_dp = MagicMock()
+    mock_dp.is_sm_active = True
+    mock_dp.route_message = AsyncMock(return_value=True)
+    mock_dp.go_to = AsyncMock()
+    mock_dp.sm.get_user_state.return_value = "common.mode_select"
+    mock_dp.sm.check_global_event.return_value = "common.consultation" if consultation_allowed else None
+    return mock_dp
+
+
+@pytest.mark.asyncio
+async def test_t4_concept_naming_without_question_mark_goes_to_bot_mentor(state):
+    """T4: «объясни через понятия IWE …» без «?» → go_to консультации, Hermes не вызывается."""
+    text = "объясни через понятия IWE, что мы сейчас сделали"
+    msg = _make_msg(text)
+    mock_hermes = AsyncMock(return_value="не должно вызваться")
+    mock_dp = _t4_dispatcher(consultation_allowed=True)
+    intern = make_intern(onboarding_completed=True, tier="T4", current_state=None)
+
+    with patch("handlers.fallback.get_intern", new_callable=AsyncMock, return_value=intern), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
+         patch("handlers.get_dispatcher", return_value=mock_dp), \
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
+        mock_gmc.hermes_chat = mock_hermes
+        await on_unknown_message(msg, state)
+
+    mock_hermes.assert_not_called()
+    mock_dp.go_to.assert_awaited_once_with(intern, "common.consultation", {"question": text})
+    # Гейт спрошен ровно так, как его спросил бы «?»-вопрос из того же стейта.
+    mock_dp.sm.check_global_event.assert_called_once_with("?" + text, "common.mode_select")
+
+
+@pytest.mark.asyncio
+async def test_t4_concept_naming_stays_with_hermes_when_consultation_not_allowed(state):
+    """T4: тот же текст из стейта без allow_global консультации → Hermes, как раньше."""
+    text = "объясни через понятия IWE, что мы сейчас сделали"
+    msg = _make_msg(text)
+    mock_hermes = AsyncMock(return_value="Ответ Hermes")
+    mock_dp = _t4_dispatcher(consultation_allowed=False)
+
+    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
+               return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
+         patch("handlers.get_dispatcher", return_value=mock_dp), \
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
+        mock_gmc.hermes_chat = mock_hermes
+        await on_unknown_message(msg, state)
+
+    mock_dp.go_to.assert_not_called()
+    mock_hermes.assert_called_once()
+    assert mock_hermes.call_args.kwargs.get("message") == text
+
+
+@pytest.mark.asyncio
+async def test_t4_developer_gate_talk_stays_with_hermes(state):
+    """T4: «какой гейт сработал: AND или OR» — не про IWE → Hermes (ревью 05.09, High)."""
+    text = "какой гейт сработал: AND или OR, помоги разобраться в этой логической схеме"
+    msg = _make_msg(text)
+    mock_hermes = AsyncMock(return_value="Ответ Hermes")
+    mock_dp = _t4_dispatcher(consultation_allowed=True)
+
+    with patch("handlers.fallback.get_intern", new_callable=AsyncMock,
+               return_value=make_intern(onboarding_completed=True, tier="T4", current_state=None)), \
+         patch("handlers.fallback.detect_ui_tier", new_callable=AsyncMock, return_value=4), \
+         patch("handlers.get_dispatcher", return_value=mock_dp), \
+         patch.object(_gmc_mod, "gateway_mcp") as mock_gmc:
+        mock_gmc.hermes_chat = mock_hermes
+        await on_unknown_message(msg, state)
+
+    mock_dp.go_to.assert_not_called()
+    mock_hermes.assert_called_once()
+
+
 # ─── T3: обычный текст → НЕ Hermes ───
 
 @pytest.mark.asyncio

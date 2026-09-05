@@ -139,7 +139,32 @@ _CONCEPT_NAMING_PREFIXED_PATTERNS = _CONCEPT_NAMING_PATTERNS + [
     "что я применил",
 ]
 
+# WP-498 Ф15 (АрхГейт, вариант Д; холодное ревью 05.09, High): подмножество
+# якорей, однозначных для языка IWE. Нужно там, где сообщение НЕ адресовано
+# боту явно («?» или «Наставник, …») — у T4 обычный текст уходит в Hermes, и
+# «какой гейт сработал: AND или OR» / «объясни фотосинтез через понятия»
+# у разработчика не должны уводить его из беседы с Hermes в Наставника.
+_CONCEPT_NAMING_EXPLICIT_PATTERNS = [
+    "понятия iwe", "понятие iwe",
+    "какой гейт мы применили",   # формулировка чек-листа участника (РП-522)
+    "назови понятие", "назови гейт",
+]
+
 MENTOR_INTENT_CONCEPT_NAMING = "concept_naming"
+
+
+def is_explicit_concept_naming_request(text: str) -> bool:
+    """«Назови понятие» в тексте, не адресованном боту явно (WP-498 Ф15).
+
+    Явный префикс «Наставник, …» — участник сам выбрал собеседника, действует
+    обычный detect_mentor_intent(); без префикса — только якоря, однозначные
+    для IWE (_CONCEPT_NAMING_EXPLICIT_PATTERNS), не весь _CONCEPT_NAMING_PATTERNS.
+    """
+    q = text.lower().strip()
+    if any(q.startswith(prefix) for prefix in _ROLE_PREFIXES['mentor']):
+        return detect_mentor_intent(q) == MENTOR_INTENT_CONCEPT_NAMING
+    return any(pattern in q for pattern in _CONCEPT_NAMING_EXPLICIT_PATTERNS)
+
 
 # WP-156: Explicit role prefixes — user can address a role directly
 # WP-498 Ф5: "наставник" добавлен по тому же образцу (25.07).

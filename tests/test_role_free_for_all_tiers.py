@@ -95,10 +95,12 @@ def test_text_without_question_mark_never_bypasses():
 
 @pytest.mark.parametrize("text", [
     "объясни через понятия IWE, что мы сейчас сделали",
-    "какой гейт мы применили в этой работе",
+    "какое понятие IWE мы сейчас применили",
+    "какой гейт мы применили в этой работе",   # формулировка чек-листа РП-522
     "назови понятие, которое мы применили",
-    "Наставник, какой метод я применил?",
+    "Наставник, какой метод я применил?",       # явный префикс = сам выбрал собеседника
     "Наставник, что нового мы сделали",
+    "Наставник, какой гейт сработал",
 ])
 def test_concept_naming_without_question_mark_goes_to_bot(text):
     assert _is_concept_naming_request(text) is True
@@ -110,9 +112,21 @@ def test_concept_naming_without_question_mark_goes_to_bot(text):
     "какой метод я применил?",          # расширенный якорь только после «Наставник,»
     "расскажи про мотивацию вообще",
     "",
+    # Холодное ревью 05.09 (High): у разработчика T4 «гейт»/«понятие» — обиходные
+    # слова вне IWE; без «?»/префикса такие фразы остаются у Hermes.
+    "какой гейт сработал: AND или OR, помоги разобраться в этой логической схеме",
+    "напомни, какой гейт я применил в CI пайплайне вчера — quality gate или security gate",
+    "объясни фотосинтез через понятия, знакомые школьнику",
+    "какое понятие имеется в виду в этом английском тексте — object или subject",
 ])
 def test_plain_t4_text_stays_with_hermes(text):
     assert _is_concept_naming_request(text) is False
+
+
+def test_question_mark_path_keeps_the_wider_anchor_list():
+    # Сужение якорей касается только пути без «?»; «?»-вопрос (участник сам
+    # адресовал бота) по-прежнему распознаёт весь список Ф11.
+    assert _is_role_addressed_question("? объясни фотосинтез через понятия") is True
 
 
 def test_question_mark_text_is_not_double_handled():
