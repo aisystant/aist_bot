@@ -113,10 +113,10 @@ def test_generic_life_questions_no_longer_leak_free_access(question):
     "подведи итоги",
     "зачем это учить",
 ])
-def test_scoped_learning_phrases_still_route_to_navigator(question):
+def test_scoped_learning_phrases_still_route_to_mentor(question):
     # Узкие, явно учебные формулировки продолжают распознаваться — сужение
-    # не сломало основной сценарий.
-    assert _detect_role(question) == "navigator"
+    # не сломало основной сценарий. Ф14: без явного имени — к mentor.
+    assert _detect_role(question) == "mentor"
 
 
 @pytest.mark.parametrize("question", [
@@ -153,8 +153,8 @@ def test_round_two_verification_findings_no_longer_leak_free_access(question):
     "мой прогресс за неделю в учёбе",
     "сколько времени уделять учёбе",
 ])
-def test_scoped_rhythm_phrases_still_route_to_navigator(question):
-    assert _detect_role(question) == "navigator"
+def test_scoped_rhythm_phrases_still_route_to_mentor(question):
+    assert _detect_role(question) == "mentor"
 
 
 # =============================================================================
@@ -189,8 +189,8 @@ def test_mentor_stuck_lexicon_residual_risk_accepted():
     "нужна диагностика двигателя, определи мою ступень усталости",
     "тестирование ступени",
 ])
-def test_scoped_diagnostician_phrases_still_route(question):
-    assert _detect_role(question) == "diagnostician"
+def test_scoped_diagnostician_phrases_still_route_to_mentor(question):
+    assert _detect_role(question) == "mentor"
 
 
 # =============================================================================
@@ -258,3 +258,24 @@ async def test_bare_navigator_command_then_followup_stays_paywall_exempt():
     assert mock_has_access.call_count == 0, (
         "has_access не должен вызываться для follow-up внутри бесплатной сессии роли."
     )
+
+
+# =============================================================================
+# mentor.md покрывает алгоритмы Навигатора/Диагноста (Ф14, находка ревью)
+# =============================================================================
+
+def test_mentor_prompt_covers_navigator_start_algorithm():
+    from engines.shared.consultation_tools import load_role_prompt
+
+    prompt = load_role_prompt("mentor")
+    assert "стартовую точку" in prompt
+    assert "малый проверяемый эксперимент" in prompt
+
+
+def test_mentor_prompt_covers_diagnostician_formal_algorithm():
+    from engines.shared.consultation_tools import load_role_prompt
+
+    prompt = load_role_prompt("mentor")
+    assert "ежедневный/почти ежедневный слот" in prompt
+    assert "Состояния (ресурс)" in prompt
+    assert "Практикующий" in prompt and "Систематический" in prompt
