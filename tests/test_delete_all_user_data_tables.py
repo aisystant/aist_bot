@@ -517,7 +517,7 @@ def test_optional_table_permission_error_blocks_success(monkeypatch):
     assert "main.assessments" in error.value.failed_components
 
 
-# WP-554 Ф9 (пир-сессия с Codex, 09.09): persona-финализатор — bot_profile/
+# WP-554 Ф11 (пир-сессия с Codex, 09.09): persona-финализатор — bot_profile/
 # consent_grants/ory_identity, гейт `not failures`, счётчики публикуются только
 # после commit.
 

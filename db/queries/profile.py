@@ -609,7 +609,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
         result['user_sessions'] = 0
         result['request_traces'] = 0
 
-    # WP-554 Ф9: identity-финализатор. `not failures` gate — ory_identity
+    # WP-554 Ф11: identity-финализатор. `not failures` gate — ory_identity
     # остаётся резолвируемым (см. account_id lookup выше) для повторной
     # попытки, если любая предыдущая нога упала. result.update() только
     # после commit — rollback не должен оставлять в result чужие счётчики.
