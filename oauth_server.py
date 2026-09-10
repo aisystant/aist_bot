@@ -2204,8 +2204,25 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
     # Получить репо через App API (нужны installation_token + list repos)
     from clients import github_app as gha
     repos = await gha.get_installation_repos(installation_id)
-    selected_repo = repos[0] if repos else None
+
+    # WP-406 Ф22 (peer-сессия 2026-09-10-08, раунд 3): не перезаписывать
+    # безусловно repos[0] — если этот callback сработал повторно для УЖЕ
+    # привязанной установки (например, GitHub Configure добавил репозиторий
+    # для заметок к installation, обслуживающей ещё и Персональное
+    # руководство, WP-301), нельзя молча сменить guide-репо на первый
+    # попавшийся из selection. repos[0] используется только при первой
+    # привязке или если прежний репозиторий выпал из selection.
+    from db.queries.github_app import find_user_by_installation_id
+    existing_for_installation = await find_user_by_installation_id(installation_id)
+    current_repo = (existing_for_installation or {}).get("app_repo_full_name")
+    repo_by_name = {r.get("full_name", ""): r for r in repos}
+
+    if current_repo and current_repo in repo_by_name:
+        selected_repo = repo_by_name[current_repo]
+    else:
+        selected_repo = repos[0] if repos else None
     repo_full_name = selected_repo.get("full_name", "") if selected_repo else ""
+
     if not repo_full_name:
         logger.warning(
             "[GitHubApp] callback: no repos for installation_id=%d (chat_id=%d)",

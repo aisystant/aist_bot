@@ -4895,6 +4895,9 @@ github:
   connect_desc:
     ru: "Нажмите кнопку ниже, чтобы авторизоваться в GitHub.\n\nПосле авторизации вы сможете записывать исчезающие заметки прямо из Telegram в свой репозиторий."
     en: "Press the button below to authorize with GitHub.\n\nAfter authorization, you can save fleeting notes directly from Telegram to your repository."
+  connect_app_desc:
+    ru: "Нажмите кнопку ниже и выберите на GitHub 1-3 репозитория, к которым бот получит доступ.\n\nВ отличие от старого способа, бот увидит только выбранные вами репозитории, а не все репозитории аккаунта."
+    en: "Press the button below and pick 1-3 repositories on GitHub that the bot will get access to.\n\nUnlike the old method, the bot will only see the repositories you selected, not your entire account."
   config_error:
     ru: "Ошибка конфигурации: {error}"
     en: "Configuration error: {error}"
@@ -4904,6 +4907,12 @@ github:
   repos_error:
     ru: "Не удалось получить список репозиториев."
     en: "Failed to get repository list."
+  app_repos_empty:
+    ru: "Нет доступных репозиториев в установке GitHub App. Добавьте репозиторий: github.com → Settings → Applications → выбранный App → Configure."
+    en: "No repositories available in the GitHub App installation. Add one: github.com → Settings → Applications → the app → Configure."
+  reconnect_required:
+    ru: "Не удалось записать — нужно переподключить GitHub. Используйте /github."
+    en: "Couldn't save — GitHub needs to be reconnected. Use /github."
   select_repo_title:
     ru: "Выберите репозиторий для заметок:"
     en: "Select a repository for notes:"
@@ -6413,6 +6422,38 @@ workshop:
   invite_error:
     ru: "Оплата прошла, но не удалось создать ссылку-приглашение. Пожалуйста, напишите @ssm_tg — вас добавят вручную."
     en: "Payment succeeded but failed to create invite link. Please contact @ssm_tg — you will be added manually."
+
+  direct_offer:
+    ru: "🔧 *Мастерская IWE*\n\nРазборы личных проектов, развитие своего IWE — без Семинара, сразу.\n\nЦена: 8000₽"
+    en: "🔧 *IWE Workshop*\n\nPersonal project reviews, developing your IWE — no Seminar needed, straight in.\n\nPrice: 8000₽"
+
+  direct_already_have:
+    ru: "✅ У вас уже есть доступ в Мастерскую IWE."
+    en: "✅ You already have access to the IWE Workshop."
+
+  btn_pay_rub_direct:
+    ru: "💳 Оплатить картой (8000₽)"
+    en: "💳 Pay by card (8000₽)"
+
+  btn_pay_stars_direct:
+    ru: "⭐ Оплатить звёздами ({stars})"
+    en: "⭐ Pay with stars ({stars})"
+
+  direct_card_invoice_title:
+    ru: "Мастерская IWE"
+    en: "IWE Workshop"
+
+  direct_stars_invoice_description:
+    ru: "Доступ в Мастерскую IWE, без Семинара"
+    en: "Access to the IWE Workshop, no Seminar needed"
+
+  direct_pay_stars_intro:
+    ru: "Оплата через Telegram Stars — {stars} Stars.\n\nПосле оплаты вы получите ссылку в Мастерскую IWE."
+    en: "Pay via Telegram Stars — {stars} Stars.\n\nAfter payment you will receive a link to the IWE Workshop."
+
+  direct_post_payment:
+    ru: "Спасибо за оплату! Вам открыт доступ в Мастерскую IWE.\n\n🔧 Ваша ссылка: {invite_url}\n\nЕсли возникли проблемы — пишите @ssm_tg"
+    en: "Thank you for your payment! You now have access to the IWE Workshop.\n\n🔧 Your link: {invite_url}\n\nIf you have any issues — contact @ssm_tg"
 
 showcase:
   main_title:

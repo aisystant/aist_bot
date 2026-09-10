@@ -2,11 +2,14 @@ from __future__ import annotations
 
 """
 Воронка IWE — допуск в чаты (WP-181). Чат семинара IWE (1-я оплата), Мастерская IWE (2-я оплата).
+Плюс прямая покупка Мастерской в один платёж, минуя Семинар (deep-link masterskaya_direct).
 
 Callbacks:
-- sched_seminar_iwe        — меню «Семинар IWE» (по count оплат)
-- seminar_iwe_pay          — оплата семинара (5000₽)
-- chat_join_request        — одобрение заявки на вход в чат
+- sched_seminar_iwe            — меню «Семинар IWE» (по count оплат)
+- seminar_iwe_pay              — оплата семинара (5000₽)
+- direct_masterskaya_pay_rub   — прямая оплата Мастерской картой (8000₽)
+- direct_masterskaya_pay_stars — прямая оплата Мастерской звёздами (4000⭐)
+- chat_join_request            — одобрение заявки на вход в чат
 
 Также:
 - ChatMemberUpdated        — логирование вступлений/выходов
@@ -34,10 +37,12 @@ from db.queries.aisystant import get_aisystant_id
 from db.queries.workshop import (
     get_workshop_payment_count,
     create_and_confirm_payment,
+    has_direct_masterskaya_payment,
     log_community_join,
     log_community_leave,
     get_community_stats,
 )
+from clients.aisystant import aisystant
 from db.queries.redeem import confirm_burn
 from helpers.redeem_helpers import (
     prepare_burn_offer,
@@ -61,6 +66,11 @@ MASTERSKAYA_IWE_CHAT_ID = int(os.getenv("MASTERSKAYA_IWE_CHAT_ID", "0"))
 SEMINAR_VIDEO_URL = os.getenv("SEMINAR_VIDEO_URL", "https://t.me/c/3674048529/223")
 SEMINAR_AMOUNT = 5000  # рублей
 SEMINAR_STARS = 2500
+
+# Прямая покупка Мастерской, минуя Семинар (WP-181 Ф-direct). Курс звёзд — тот же,
+# что у семинара (2₽/звезда), чтобы не заводить второй прайс.
+DIRECT_MASTERSKAYA_AMOUNT = 8000
+DIRECT_MASTERSKAYA_STARS = 4000
 
 # ЮКасса (WP-181 Ф7) — нативный API, магазин 1317530
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID", "")
@@ -111,6 +121,10 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
     await callback.answer()
 
+    if await has_direct_masterskaya_payment(chat_id):
+        await callback.message.answer(t('workshop.direct_already_have', lang))
+        return
+
     count = await get_workshop_payment_count(chat_id)
 
     if count == 0:
@@ -147,6 +161,158 @@ async def callback_seminar_iwe(callback: CallbackQuery):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+# ── Прямая покупка Мастерской (deep-link /start masterskaya_direct) ──
+
+
+async def show_direct_masterskaya_card(message: Message):
+    """Карточка прямой оплаты Мастерской IWE, минуя Семинар (WP-181 Ф-direct)."""
+    chat_id = message.chat.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    if await has_direct_masterskaya_payment(chat_id) or await get_workshop_payment_count(chat_id) >= 2:
+        await message.answer(t('workshop.direct_already_have', lang))
+        return
+
+    text = t('workshop.direct_offer', lang)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=t('workshop.btn_pay_rub_direct', lang),
+            callback_data="direct_masterskaya_pay_rub",
+        )],
+        [InlineKeyboardButton(
+            text=t('workshop.btn_pay_stars_direct', lang, stars=DIRECT_MASTERSKAYA_STARS),
+            callback_data="direct_masterskaya_pay_stars",
+        )],
+    ])
+    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+@workshop_router.callback_query(F.data == "direct_masterskaya_pay_rub")
+async def callback_direct_masterskaya_pay_rub(callback: CallbackQuery):
+    """Оплата прямой покупки Мастерской картой (ЮКасса, без скидки баллами)."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+    await callback.answer()
+
+    yk = _get_yookassa()
+    if not yk:
+        logger.error(f"[Payment] direct pay_rub error: YOOKASSA credentials missing, tg={chat_id}")
+        await callback.message.answer(t('workshop.pay_error', lang))
+        return
+
+    try:
+        result = await yk.create_payment(
+            amount=DIRECT_MASTERSKAYA_AMOUNT,
+            description=t('workshop.direct_card_invoice_title', lang),
+            return_url="https://t.me/aist_me_bot",
+            metadata={"telegram_id": str(chat_id), "purpose": "WORKSHOP_DIRECT"},
+        )
+        confirmation_url = result["confirmation_url"]
+        logger.info(f"[Payment] direct yookassa payment created: tg={chat_id}, payment_id={result['id']}")
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=t('workshop.btn_pay_rub', lang), url=confirmation_url)],
+            [InlineKeyboardButton(text=t('workshop.btn_paid_check', lang), callback_data="seminar_iwe_check")],
+        ])
+        await callback.message.answer(t('workshop.pay_redirect', lang), reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"[Payment] direct yookassa error: tg={chat_id}, error={e}")
+        await callback.message.answer(t('workshop.pay_error', lang))
+
+
+@workshop_router.callback_query(F.data == "direct_masterskaya_pay_stars")
+async def callback_direct_masterskaya_pay_stars(callback: CallbackQuery):
+    """Оплата прямой покупки Мастерской звёздами Telegram."""
+    chat_id = callback.from_user.id
+    intern = await get_intern(chat_id)
+    lang = _lang(intern)
+
+    logger.info(f"[Payment] direct pay_stars initiated: tg={chat_id}, amount={DIRECT_MASTERSKAYA_STARS} XTR")
+    await callback.answer()
+
+    try:
+        link = await callback.bot.create_invoice_link(
+            title=t('workshop.direct_card_invoice_title', lang),
+            description=t('workshop.direct_stars_invoice_description', lang),
+            payload=f"workshop_direct_{chat_id}",
+            currency="XTR",
+            prices=[LabeledPrice(label="Мастерская IWE", amount=DIRECT_MASTERSKAYA_STARS)],
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=t('workshop.btn_pay_stars_direct', lang, stars=DIRECT_MASTERSKAYA_STARS),
+                url=link,
+            )],
+        ])
+        await callback.message.answer(
+            t('workshop.direct_pay_stars_intro', lang, stars=DIRECT_MASTERSKAYA_STARS),
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        logger.error(f"[Payment] direct stars invoice error: tg={chat_id}, error={e}")
+        await callback.message.answer(t('workshop.pay_error', lang))
+
+
+async def _send_direct_masterskaya_invite(bot: Bot, chat_id: int, lang: str, message=None):
+    """Invite сразу в Мастерскую — без учёта count, воронка Семинара не участвует."""
+    if not MASTERSKAYA_IWE_CHAT_ID:
+        logger.error("[Workshop] MASTERSKAYA_IWE_CHAT_ID not configured for direct purchase")
+        return
+
+    try:
+        invite = await bot.create_chat_invite_link(
+            chat_id=MASTERSKAYA_IWE_CHAT_ID,
+            creates_join_request=True,
+        )
+    except Exception as e:
+        logger.error(f"[Workshop] direct create_chat_invite_link error: {e}")
+        text = t('workshop.invite_error', lang)
+        if message:
+            await message.answer(text)
+        else:
+            await bot.send_message(chat_id, text)
+        return
+
+    text = t('workshop.direct_post_payment', lang, invite_url=invite.invite_link)
+    if message:
+        await message.answer(text, disable_web_page_preview=True)
+    else:
+        await bot.send_message(chat_id, text, disable_web_page_preview=True)
+
+
+async def _emit_stars_payment_received(chat_id: int, charge_id: str, stars: int):
+    """Сырое payment_received для внутреннего welcome/referral-конвейера (WP-266 Ф5c)."""
+    try:
+        from helpers.dual_write import emit_payment_received
+        await emit_payment_received(
+            provider="tg_stars",
+            external_payment_id=charge_id,
+            amount=stars,
+            currency="XTR",
+            payment_kind_code="stars",
+            telegram_id=chat_id,
+        )
+    except Exception as e:
+        logger.error(f"[payment-event] workshop stars emit failed for tg={chat_id}: {e}")
+
+
+async def _notify_aisystant_stars_payment(chat_id: int, charge_id: str, stars: int):
+    """Записать в Aisystant факт оплаты звёздами (деньги остаются в Telegram,
+    Aisystant получает только запись для учёта — WP-181 Ф-direct)."""
+    try:
+        await aisystant.log_action({
+            "event": "workshop_direct_stars_payment",
+            "telegram_id": chat_id,
+            "amount_rub": DIRECT_MASTERSKAYA_AMOUNT,
+            "stars": stars,
+            "charge_id": charge_id,
+        })
+    except Exception as e:
+        logger.error(f"[Payment] aisystant log_action failed: tg={chat_id}, charge_id={charge_id}, error={e}")
 
 
 # ── Оплата ─────────────────────────────────────────────
@@ -378,7 +544,7 @@ async def callback_seminar_check(callback: CallbackQuery):
 # ── Payment handlers ───────────────────────────────────
 
 
-@workshop_router.pre_checkout_query(lambda q: q.invoice_payload.startswith("workshop_seminar_"))
+@workshop_router.pre_checkout_query(lambda q: q.invoice_payload.startswith(("workshop_seminar_", "workshop_direct_")))
 async def on_workshop_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     """Подтверждение платежа за семинар (обязателен в течение 10 сек)."""
     chat_id = pre_checkout_query.from_user.id
@@ -398,7 +564,8 @@ async def on_workshop_payment(message: Message):
 
     logger.info(f"[Payment] successful_payment received: tg={message.chat.id}, currency={payment.currency}, amount={payment.total_amount}, payload={payload}, charge_id={payment.telegram_payment_charge_id}")
 
-    if not payload.startswith("workshop_seminar_"):
+    is_direct = payload.startswith("workshop_direct_")
+    if not is_direct and not payload.startswith("workshop_seminar_"):
         logger.info(f"[Payment] not our payload, skipping: {payload}")
         return
 
@@ -408,14 +575,25 @@ async def on_workshop_payment(message: Message):
 
     charge_id = payment.telegram_payment_charge_id
     source = "stars" if payment.currency == "XTR" else "card"
+    product = "masterskaya_direct" if is_direct else None
 
-    logger.info(f"[Payment] recording payment: tg={chat_id}, source={source}, amount={payment.total_amount}, charge_id={charge_id}")
+    logger.info(f"[Payment] recording payment: tg={chat_id}, source={source}, amount={payment.total_amount}, charge_id={charge_id}, product={product}")
     await create_and_confirm_payment(
         telegram_id=chat_id,
         amount=payment.total_amount,
         source=source,
         payment_id=charge_id,
+        product=product,
     )
+
+    if is_direct:
+        # Прямая покупка Мастерской: минуя count и воронку Семинара, но
+        # welcome/referral-бонус (WP-266 Ф5c) — как для любой первой оплаты.
+        if payment.currency == "XTR":
+            await _notify_aisystant_stars_payment(chat_id, charge_id, payment.total_amount)
+            await _emit_stars_payment_received(chat_id, charge_id, payment.total_amount)
+        await _send_direct_masterskaya_invite(message.bot, chat_id, lang, message)
+        return
 
     # WP-327: подтвердить burn если в payload был provisional_id (Stars-оплата с применением баллов)
     if "_p_" in payload:
@@ -433,18 +611,7 @@ async def on_workshop_payment(message: Message):
     # Telegram-карта (currency != XTR) не эмитится: провайдер вне enum схемы
     # шлюза (payment_received.v1: yookassa|tg_stars|aisystant|stripe|paybox).
     if payment.currency == "XTR":
-        try:
-            from helpers.dual_write import emit_payment_received
-            await emit_payment_received(
-                provider="tg_stars",
-                external_payment_id=charge_id,
-                amount=payment.total_amount,
-                currency="XTR",
-                payment_kind_code="stars",
-                telegram_id=chat_id,
-            )
-        except Exception as e:
-            logger.error(f"[payment-event] workshop stars emit failed for tg={chat_id}: {e}")
+        await _emit_stars_payment_received(chat_id, charge_id, payment.total_amount)
     else:
         logger.warning(
             f"[payment-event] workshop card payment (currency={payment.currency}) "
@@ -544,7 +711,9 @@ async def handle_community_join_request(request: ChatJoinRequest):
         await request.approve()
         logger.info(f"[Workshop] approved join: tg={user_id}, chat=seminar_iwe (auto-approve)")
         return
-    elif request_chat_id == MASTERSKAYA_IWE_CHAT_ID and count >= 2:
+    elif request_chat_id == MASTERSKAYA_IWE_CHAT_ID and (
+        count >= 2 or await has_direct_masterskaya_payment(user_id)
+    ):
         await request.approve()
         logger.info(f"[Workshop] approved join: tg={user_id}, chat=masterskaya, count={count}")
     else:
@@ -654,6 +823,7 @@ async def process_workshop_webhook(data: dict, bot: Bot) -> dict:
     telegram_id = data.get("telegram_id")
     amount = data.get("amount", SEMINAR_AMOUNT)
     payment_id = data.get("payment_id")
+    is_direct = data.get("purpose") == "WORKSHOP_DIRECT"
 
     if not telegram_id:
         return {"ok": False, "error": "missing telegram_id"}
@@ -670,14 +840,19 @@ async def process_workshop_webhook(data: dict, bot: Bot) -> dict:
         source="aisystant_webhook",
         aisystant_id=aisystant_id,
         payment_id=payment_id,
+        product="masterskaya_direct" if is_direct else None,
     )
 
     # Отправляем invite
-    count = await get_workshop_payment_count(telegram_id)
     intern = await get_intern(telegram_id)
     lang = _lang(intern)
 
-    await _send_invite_by_count(bot, telegram_id, count, lang)
+    if is_direct:
+        await _send_direct_masterskaya_invite(bot, telegram_id, lang)
+        count = None
+    else:
+        count = await get_workshop_payment_count(telegram_id)
+        await _send_invite_by_count(bot, telegram_id, count, lang)
 
     # WP-266 Ф5c: сырой payment_received (welcome/referral решает воркер).
     # Без payment_id helper пропустит эмиссию с warning — идемпотентный
@@ -728,6 +903,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
         return {"ok": False, "error": "missing telegram_id in metadata"}
 
     telegram_id = int(telegram_id)
+    is_direct = metadata.get("purpose") == "WORKSHOP_DIRECT"
 
     # Сумма
     amount_obj = payment_obj.get("amount", {})
@@ -739,6 +915,7 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
         amount=amount,
         source="yookassa",
         payment_id=payment_id,
+        product="masterskaya_direct" if is_direct else None,
     )
 
     if row_id == 0:
@@ -760,11 +937,15 @@ async def process_yookassa_webhook(data: dict, bot: Bot) -> dict:
         raise
 
     # Отправляем invite
-    count = await get_workshop_payment_count(telegram_id)
     intern = await get_intern(telegram_id)
     lang = _lang(intern)
 
-    await _send_invite_by_count(bot, telegram_id, count, lang)
+    if is_direct:
+        await _send_direct_masterskaya_invite(bot, telegram_id, lang)
+        count = None
+    else:
+        count = await get_workshop_payment_count(telegram_id)
+        await _send_invite_by_count(bot, telegram_id, count, lang)
 
     # WP-266 Ф5c: сырой payment_received → воркер централизованно решает
     # «первая ли оплата» и начисляет welcome/referral (hook first_payment.py).
