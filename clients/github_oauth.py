@@ -277,14 +277,15 @@ class GitHubOAuthClient:
         return None
 
     async def set_target_repo(self, telegram_user_id: int, repo_full_name: str):
-        """Устанавливает целевой репо для заметок. Определяет default_branch через API."""
-        # Определяем default_branch через GitHub API
-        default_branch = "main"
-        repo_info = await self.api_request(
-            telegram_user_id, "GET", f"/repos/{repo_full_name}"
-        )
-        if repo_info:
-            default_branch = repo_info.get("default_branch", "main")
+        """Устанавливает целевой репо для заметок. Определяет default_branch через API.
+
+        WP-406 Ф22: default_branch ищем через любой доступный источник
+        авторизации (App приоритетнее OAuth) — App-only пользователь без
+        OAuth-токена иначе всегда получал бы захардкоженный "main" и ловил
+        404 при записи в репо с другой default-веткой.
+        """
+        from clients.github_auth import get_repo_default_branch
+        default_branch = await get_repo_default_branch(telegram_user_id, repo_full_name)
 
         data = await self._get_cached(telegram_user_id)
         if data:
@@ -402,14 +403,19 @@ class GitHubOAuthClient:
         )
 
     async def disconnect(self, telegram_user_id: int):
-        """Отключает пользователя от GitHub."""
+        """Отключает OAuth/заметки для пользователя.
+
+        Не трогает GitHub App-установку (WP-406 Ф22) — она может
+        обслуживать и другую функцию («Персональное руководство», WP-301)
+        на той же строке `github_connections`.
+        """
         if telegram_user_id in self._cache:
             del self._cache[telegram_user_id]
 
-        from db.queries.github import delete_github_connection
+        from db.queries.github import disconnect_github_notes
 
-        await delete_github_connection(telegram_user_id)
-        logger.info(f"Disconnected user {telegram_user_id} from GitHub")
+        await disconnect_github_notes(telegram_user_id)
+        logger.info(f"Disconnected user {telegram_user_id} from GitHub (OAuth/notes only)")
 
 
 # Singleton instance

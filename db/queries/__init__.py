@@ -66,6 +66,7 @@ from .github import (
     update_github_knowledge_repo,
     get_users_with_knowledge_repo,
     delete_github_connection,
+    disconnect_github_notes,
 )
 
 from .profile import (
@@ -184,6 +185,7 @@ __all__ = [
     'update_github_knowledge_repo',
     'get_users_with_knowledge_repo',
     'delete_github_connection',
+    'disconnect_github_notes',
 
     # profile
     'get_knowledge_profile',

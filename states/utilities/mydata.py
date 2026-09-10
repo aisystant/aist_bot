@@ -1153,11 +1153,17 @@ class MyDataState(BaseState):
         )
 
     async def _disconnect_github(self, user) -> None:
-        """Отключить GitHub OAuth."""
+        """Отключить GitHub OAuth/заметки.
+
+        WP-406 Ф22: НЕ delete_github_connection напрямую — та стирает всю
+        строку, включая GitHub App-установку, которая может обслуживать ещё и
+        «Персональное руководство» (WP-301) на той же installation. Тот же
+        безопасный путь, что уже применяют /github и настройки.
+        """
         lang = self._get_lang(user)
         chat_id = self._get_chat_id(user)
-        from db.queries.github import delete_github_connection
-        await delete_github_connection(chat_id)
+        from db.queries.github import disconnect_github_notes
+        await disconnect_github_notes(chat_id)
         await self.send(
             user, f"✅ {t('mydata.github_disconnected', lang)}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
