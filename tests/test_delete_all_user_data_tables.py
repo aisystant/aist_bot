@@ -86,25 +86,6 @@ def test_channel_monitors_is_in_optional_block_not_core_transaction():
     assert "'channel_monitors'" not in core_transaction_source
 
 
-def test_request_traces_legacy_is_outside_core_transaction():
-    """Same bug class and same fix as channel_monitors above, found in the
-    same 2026-08-07 review pass: DELETE FROM request_traces (main pool,
-    "will be DROPPED after soak") lived inside the core transaction with its
-    own try/except — same non-fix, since prod runs with SKIP_DB_MIGRATIONS=true
-    (bot.py) so db/models.py's CREATE TABLE is not a reliable signal the table
-    still exists. Moved next to channel_monitors, outside the transaction, kept
-    under its own result key ('request_traces_legacy') because the health-pool
-    copy of this table (migrated destination, WP-253 G4) writes
-    result['request_traces'] further down in the same function — colliding
-    keys would silently drop one of the two counts."""
-    source = inspect.getsource(delete_all_user_data)
-    pre_transaction_source, core_transaction_source = source.split("async with conn.transaction():", 1)
-    assert "request_traces_legacy" in pre_transaction_source
-    assert "request_traces_legacy" not in core_transaction_source
-    # The health-pool copy still exists further down, keyed without '_legacy'.
-    assert "result['request_traces']" in core_transaction_source
-
-
 class _FakeTransaction:
     async def __aenter__(self):
         return self
@@ -515,3 +496,153 @@ def test_optional_table_permission_error_blocks_success(monkeypatch):
         asyncio.run(delete_all_user_data(123456))
 
     assert "main.assessments" in error.value.failed_components
+
+
+# WP-554 Ф11 (пир-сессия с Codex, 09.09): persona-финализатор — bot_profile/
+# consent_grants/ory_identity, гейт `not failures`, счётчики публикуются только
+# после commit.
+
+
+def test_identity_finalizer_runs_after_all_other_legs():
+    """Gate must sit after every other required leg, not interleaved — a leg
+    added later in the function must still be able to block the finalizer."""
+    source = inspect.getsource(delete_all_user_data)
+    finalizer_idx = source.index("persona.identity_finalizer")
+    total_idx = source.index("total = sum(result.values())")
+    assert finalizer_idx < total_idx
+
+
+def test_identity_finalizer_consent_and_ory_identity_gated_by_account_id():
+    """bot_profile is deleted unconditionally (nullable account_id case);
+    consent_grants/ory_identity only when account_id is known — same failure
+    shape as every other account-id-keyed leg in this file."""
+    source = inspect.getsource(delete_all_user_data)
+    finalizer_idx = source.index("persona.identity_finalizer")
+    block_start = source.rindex("if not failures:", 0, finalizer_idx)
+    block = source[block_start:finalizer_idx]
+    bot_profile_idx = block.index("DELETE FROM public.bot_profile")
+    guard_idx = block.rindex("if account_id:", 0, block.index("DELETE FROM public.consent_grants"))
+    assert guard_idx > bot_profile_idx, "bot_profile delete must not sit inside the account_id guard"
+    assert "DELETE FROM public.ory_identity WHERE account_id = $1" in block[guard_idx:]
+
+
+def test_identity_finalizer_deletes_bot_profile_without_account_id(monkeypatch):
+    """No ory_identity row (account_id falsy) must still clean up a
+    bot_profile row matched by chat_id — the nullable-FK case Codex found."""
+    persona_conn = _DeleteConn(fetchval_result=0)
+    _patch_deletion_pools(monkeypatch, persona_pool=_DeletePool(conn=persona_conn))
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    assert "persona_bot_profile" in result
+    assert "persona_consent_grants" not in result
+    assert "persona_ory_identity" not in result
+
+
+def _privacy_pool_with_valid_erasure():
+    """account_id-gated legs (journal.domain_event included) require a
+    non-None fetchrow result from the privacy pool — same fixture shape as
+    test_journal_erasure_uses_verified_account_and_narrow_pool above."""
+    return _DeletePool(conn=_DeleteConn(fetchrow_result={
+        "rows_unlinked": 0,
+        "rows_payload_scrubbed": 0,
+        "tombstone_external_id": "forget-test",
+    }))
+
+
+def test_identity_finalizer_deletes_all_three_with_known_account_id(monkeypatch):
+    account_id = "00000000-0000-0000-0000-000000000002"
+    persona_conn = _DeleteConn(fetchval_result=account_id)
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+
+    result = asyncio.run(delete_all_user_data(123456))
+
+    assert "persona_bot_profile" in result
+    assert "persona_consent_grants" in result
+    assert "persona_ory_identity" in result
+
+
+def test_identity_finalizer_skipped_when_earlier_leg_failed(monkeypatch):
+    """A failure anywhere earlier must leave ory_identity resolvable for the
+    next retry attempt — the finalizer must not even try."""
+    account_id = "00000000-0000-0000-0000-000000000003"
+    persona_conn = _DeleteConn(fetchval_result=account_id)
+    community_pool = _DeletePool(acquire_error=RuntimeError("community unavailable"))
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        community_pool=community_pool,
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "persona.identity_finalizer" not in error.value.failed_components
+    assert "persona_bot_profile" not in error.value.partial_result
+    assert "persona_ory_identity" not in error.value.partial_result
+
+
+def test_identity_finalizer_rollback_does_not_leak_partial_counts(monkeypatch):
+    """A failure on the second DELETE (consent_grants) must not leave the
+    first DELETE's (bot_profile) count in the reported result — the whole
+    persona transaction rolled back, so ory_identity is still there too."""
+    account_id = "00000000-0000-0000-0000-000000000004"
+    persona_conn = _DeleteConn(
+        fetchval_result=account_id,
+        execute_error_for="public.consent_grants",
+        error=RuntimeError("injected consent_grants failure"),
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "persona.identity_finalizer" in error.value.failed_components
+    assert "persona_bot_profile" not in error.value.partial_result
+    assert "persona_consent_grants" not in error.value.partial_result
+    assert "persona_ory_identity" not in error.value.partial_result
+
+
+def test_identity_finalizer_third_delete_failure_does_not_leak_earlier_counts(monkeypatch):
+    """Same rollback guarantee, symmetric case: failure on the THIRD DELETE
+    (ory_identity) must not leak the first two (bot_profile, consent_grants),
+    which by themselves executed without error inside the same transaction."""
+    account_id = "00000000-0000-0000-0000-000000000005"
+    persona_conn = _DeleteConn(
+        fetchval_result=account_id,
+        execute_error_for="public.ory_identity",
+        error=RuntimeError("injected ory_identity failure"),
+    )
+    _patch_deletion_pools(
+        monkeypatch,
+        persona_pool=_DeletePool(conn=persona_conn),
+        privacy_pool=_privacy_pool_with_valid_erasure(),
+    )
+
+    with pytest.raises(IncompleteUserDataDeletion) as error:
+        asyncio.run(delete_all_user_data(123456))
+
+    assert "persona.identity_finalizer" in error.value.failed_components
+    assert "persona_bot_profile" not in error.value.partial_result
+    assert "persona_consent_grants" not in error.value.partial_result
+    assert "persona_ory_identity" not in error.value.partial_result
+
+
+def test_identity_finalizer_deletes_consent_grants_before_ory_identity():
+    """consent_grants.account_id has no ON DELETE CASCADE from ory_identity
+    (mvp/006-persona-schema.sql) — deleting ory_identity first would raise a
+    live FK violation. Position check, not just "both under the same guard"."""
+    source = inspect.getsource(delete_all_user_data)
+    finalizer_idx = source.index("persona.identity_finalizer")
+    block = source[source.rindex("if not failures:", 0, finalizer_idx):finalizer_idx]
+    assert block.index("DELETE FROM public.consent_grants") < block.index(
+        "DELETE FROM public.ory_identity"
+    )

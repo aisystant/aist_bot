@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 
 from aiogram import Router, F
@@ -23,7 +24,10 @@ from aiogram.types import (
 )
 from aiogram.filters import Command
 
+from clients.github_auth import GitHubAuthUnavailable
+from config import GITHUB_APP_NOTES_ENABLED
 from db.queries import get_intern
+from db.queries.github_app import get_app_installation
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,59 @@ def _lang(intern) -> str:
     if not intern:
         return 'ru'
     return intern.get('language', 'ru') or 'ru'
+
+
+async def _active_installation(telegram_user_id: int) -> dict | None:
+    """Активная (не suspended) App-установка пользователя, если есть.
+
+    Одна установка на пользователя обслуживает и заметки, и «Персональное
+    руководство» (WP-301) — см. WP-406 Ф22.
+    """
+    installation = await get_app_installation(telegram_user_id)
+    if installation and not installation.get("app_suspended"):
+        return installation
+    return None
+
+
+async def _list_repo_choices(telegram_user_id: int, limit: int = 10) -> list[dict]:
+    """Список репозиториев для выбора target/knowledge repo.
+
+    App-установка есть → только репозитории, выбранные при установке App
+    (repository_selection=selected, WP-458 ВЫ-13). Иначе — прежний путь
+    через OAuth (все репозитории аккаунта, легаси на льготном периоде).
+    """
+    installation = await _active_installation(telegram_user_id)
+    if installation:
+        from clients.github_app import get_installation_repos
+        repos = await get_installation_repos(installation["app_installation_id"])
+        return repos[:limit]
+
+    from clients.github_oauth import github_oauth
+    return await github_oauth.get_repos(telegram_user_id, limit=limit) or []
+
+
+async def _offer_oauth_connect(message: Message, telegram_user_id: int, lang: str) -> None:
+    """Прежний путь подключения (OAuth scope "repo") — легаси и fallback при
+    незавершённой настройке App (WP-406 Ф22)."""
+    from clients.github_oauth import github_oauth
+
+    try:
+        auth_url, state = await github_oauth.get_authorization_url(telegram_user_id)
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t('github.btn_connect', lang), url=auth_url)]
+            ]
+        )
+
+        await message.answer(
+            f"*{t('github.connect_title', lang)}*\n\n"
+            f"{t('github.connect_desc', lang)}",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    except ValueError as e:
+        await message.answer(t('github.config_error', lang, error=str(e)))
 
 
 @github_router.message(Command("github"))
@@ -73,7 +130,12 @@ async def cmd_github(message: Message):
             await message.answer(t('github.repo_not_selected', lang))
             return
         from clients.github_api import github_notes
-        result = await github_notes.clear_notes(telegram_user_id)
+        try:
+            result = await github_notes.clear_notes(telegram_user_id)
+        except GitHubAuthUnavailable as e:
+            logger.warning("clear_notes auth unavailable for chat_id=%d: %s", telegram_user_id, e)
+            await message.answer(t('github.reconnect_required', lang))
+            return
         if result:
             await message.answer(t('github.notes_cleared', lang))
         else:
@@ -162,24 +224,39 @@ async def cmd_github(message: Message):
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
+    elif GITHUB_APP_NOTES_ENABLED and not os.getenv("GITHUB_APP_SLUG", "").strip():
+        # Флаг включён, но App ещё не зарегистрирован платформой — тихий
+        # откат на OAuth ниже воспроизвёл бы ровно ту проблему (WP-458
+        # ВЫ-13), ради которой флаг вообще включали. Логируем явно, иначе
+        # никто не узнает, почему новые пользователи всё ещё видят OAuth.
+        logger.warning(
+            "[GitHubApp] GITHUB_APP_NOTES_ENABLED=true, но GITHUB_APP_SLUG пуст — "
+            "cmd_github откатывается на OAuth для chat_id=%d", telegram_user_id,
+        )
+        await _offer_oauth_connect(message, telegram_user_id, lang)
+    elif GITHUB_APP_NOTES_ENABLED:
+        # WP-406 Ф22: новые подключения идут через GitHub App
+        # (repository_selection=selected) вместо OAuth scope "repo".
+        # Уже подключённые по OAuth продолжают работать без изменений —
+        # флаг не трогает существующие подключения (peer-сессия раунд 2).
+        base_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
+        if not base_url:
+            await message.answer(t('github.config_error', lang, error="WEBHOOK_URL"))
+            return
+        install_url = f"{base_url}/auth/github_app/setup?telegram_user_id={telegram_user_id}"
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=t('github.btn_connect', lang), url=install_url)]
+            ]
+        )
+        await message.answer(
+            f"*{t('github.connect_title', lang)}*\n\n"
+            f"{t('github.connect_app_desc', lang)}",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
     else:
-        try:
-            auth_url, state = await github_oauth.get_authorization_url(telegram_user_id)
-
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text=t('github.btn_connect', lang), url=auth_url)]
-                ]
-            )
-
-            await message.answer(
-                f"*{t('github.connect_title', lang)}*\n\n"
-                f"{t('github.connect_desc', lang)}",
-                parse_mode="Markdown",
-                reply_markup=keyboard,
-            )
-        except ValueError as e:
-            await message.answer(t('github.config_error', lang, error=str(e)))
+        await _offer_oauth_connect(message, telegram_user_id, lang)
 
 
 @github_router.callback_query(F.data == "github_select_repo")
@@ -197,9 +274,13 @@ async def callback_github_select_repo(callback: CallbackQuery):
 
     await callback.answer()
 
-    repos = await github_oauth.get_repos(telegram_user_id, limit=10)
+    installation = await _active_installation(telegram_user_id)
+    repos = await _list_repo_choices(telegram_user_id, limit=10)
     if not repos:
-        await callback.message.edit_text(t('github.repos_error', lang))
+        if installation:
+            await callback.message.edit_text(t('github.app_repos_empty', lang))
+        else:
+            await callback.message.edit_text(t('github.repos_error', lang))
         return
 
     buttons = []
@@ -286,9 +367,13 @@ async def callback_github_select_knowledge_repo(callback: CallbackQuery):
 
     await callback.answer()
 
-    repos = await github_oauth.get_repos(telegram_user_id, limit=10)
+    installation = await _active_installation(telegram_user_id)
+    repos = await _list_repo_choices(telegram_user_id, limit=10)
     if not repos:
-        await callback.message.edit_text(t('github.repos_error', lang))
+        if installation:
+            await callback.message.edit_text(t('github.app_repos_empty', lang))
+        else:
+            await callback.message.edit_text(t('github.repos_error', lang))
         return
 
     buttons = []
@@ -429,7 +514,12 @@ async def handle_fleeting_note(message: Message):
         # note_text непустой — сохраняем сразу (falls through to append_note)
 
     # Сценарий 1 и 2: записываем
-    result = await github_notes.append_note(telegram_user_id, note_text)
+    try:
+        result = await github_notes.append_note(telegram_user_id, note_text)
+    except GitHubAuthUnavailable as e:
+        logger.warning("append_note auth unavailable for chat_id=%d: %s", telegram_user_id, e)
+        await message.answer(t('github.reconnect_required', lang))
+        return
 
     if result:
         branch = result.get('branch', 'main')
@@ -477,7 +567,12 @@ async def handle_forwarded_message(message: Message):
             else:
                 note_text = pending_comment or fwd_text
 
-            result = await github_notes.append_note(telegram_user_id, note_text)
+            try:
+                result = await github_notes.append_note(telegram_user_id, note_text)
+            except GitHubAuthUnavailable as e:
+                logger.warning("append_note auth unavailable for chat_id=%d: %s", telegram_user_id, e)
+                await message.answer(t('github.reconnect_required', lang))
+                return
 
             if result:
                 branch = result.get('branch', 'main')

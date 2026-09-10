@@ -21,6 +21,7 @@ Installation token: exchange JWT → short-lived token (~1h), не нужно х
 
 import base64
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -36,10 +37,37 @@ GITHUB_API = "https://api.github.com"
 JWT_EXPIRY_SECONDS = 540  # 9 min, < 10 min GitHub limit
 TOKEN_CACHE: dict[int, tuple[str, float]] = {}  # installation_id → (token, expires_at_unix)
 
+# WP-406: известный чужой App ID (DS-MCP/github-integration-service,
+# aisystant-knowledge), по ошибке взятый при регистрации РП-301 —
+# report.md сессии 2026-09-10-19-wp406-fix-github-app-slug. Переопределяемо
+# через env на случай новых находок; не единственная линия защиты — см.
+# verify_app_identity() ниже (сетевая проверка identity через сам GitHub API).
+_FORBIDDEN_APP_IDS_DEFAULT = "3261992"
+
+# Three-state: None = ещё не проверялось при старте, True/False = результат
+# последней verify_app_identity(). Читается гейтами трёх входных точек как
+# вторая линия защиты поверх GITHUB_APP_ENABLED.
+_app_identity_verified: Optional[bool] = None
+
+
+def is_app_enabled() -> bool:
+    """GITHUB_APP_ENABLED — общий флаг фичи (WP-406). Default: выключено."""
+    return os.getenv("GITHUB_APP_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def app_identity_status() -> Optional[bool]:
+    """Результат последней verify_app_identity() при старте (три состояния)."""
+    return _app_identity_verified
+
+
+def _forbidden_app_ids() -> set[str]:
+    raw = os.getenv("GITHUB_APP_FORBIDDEN_IDS", _FORBIDDEN_APP_IDS_DEFAULT)
+    return {x.strip() for x in raw.split(",") if x.strip()}
+
 
 def _load_app_credentials() -> tuple[str, str]:
-    """Прочитать APP_ID + PRIVATE_KEY из env. Кидает RuntimeError если нет."""
-    import os
+    """Прочитать APP_ID + PRIVATE_KEY из env. Кидает RuntimeError если нет
+    или если APP_ID — известный чужой App (WP-406 fail-fast tripwire)."""
     app_id = os.getenv("GITHUB_APP_ID", "").strip()
     private_key = os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip()
     if not app_id or not private_key:
@@ -47,10 +75,138 @@ def _load_app_credentials() -> tuple[str, str]:
             "GITHUB_APP_ID и/или GITHUB_APP_PRIVATE_KEY не установлены. "
             "См. WP-301 Ф7 инструкцию по регистрации App."
         )
+    if app_id in _forbidden_app_ids():
+        logger.warning(
+            "[GitHubApp] gate=forbidden_id app_id=%s — настроен известный чужой App, отказ",
+            app_id,
+        )
+        raise RuntimeError(
+            f"GITHUB_APP_ID={app_id} входит в список запрещённых (GITHUB_APP_FORBIDDEN_IDS) — "
+            "это ID чужого приложения, не платформы. См. WP-406 (report.md сессии "
+            "2026-09-10-19-wp406-fix-github-app-slug)."
+        )
     # PEM может прийти из env с экранированными \n или с raw newlines
     if "\\n" in private_key and "\n" not in private_key:
         private_key = private_key.replace("\\n", "\n")
     return app_id, private_key
+
+
+async def verify_app_identity(timeout: int = 5) -> bool:
+    """Best-effort сверка настроенного App с реальным GitHub API (WP-406 п.3).
+
+    GET /app с App JWT, сверяет id (и slug, если задан в env) с ответом.
+    Не бросает исключений — любая ошибка (сеть, таймаут, mismatch) → False.
+    Обновляет module-level `_app_identity_verified` для трёх входных точек.
+    """
+    global _app_identity_verified
+    try:
+        app_id, _ = _load_app_credentials()
+    except RuntimeError as e:
+        logger.warning("[GitHubApp] gate=identity_check_skipped reason=%s", e)
+        _app_identity_verified = False
+        return False
+
+    try:
+        app_jwt = generate_app_jwt()
+        headers = {
+            "Authorization": f"Bearer {app_jwt}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{GITHUB_API}/app", headers=headers, timeout=timeout) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(
+                        "[GitHubApp] gate=identity_check_failed app_id=%s status=%d body=%s",
+                        app_id, resp.status, body[:200],
+                    )
+                    _app_identity_verified = False
+                    return False
+                data = await resp.json()
+    except Exception as e:
+        logger.warning(
+            "[GitHubApp] gate=identity_check_failed app_id=%s reason=%s: %s",
+            app_id, type(e).__name__, e,
+        )
+        _app_identity_verified = False
+        return False
+
+    remote_id = str(data.get("id", "")).strip()
+    remote_slug = str(data.get("slug", "")).strip()
+    expected_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
+
+    if remote_id != app_id:
+        logger.warning(
+            "[GitHubApp] gate=identity_mismatch expected_id=%s remote_id=%s remote_slug=%s",
+            app_id, remote_id, remote_slug,
+        )
+        _app_identity_verified = False
+        return False
+    if expected_slug and remote_slug != expected_slug:
+        logger.warning(
+            "[GitHubApp] gate=identity_mismatch app_id=%s expected_slug=%s remote_slug=%s",
+            app_id, expected_slug, remote_slug,
+        )
+        _app_identity_verified = False
+        return False
+
+    logger.info("[GitHubApp] identity verified app_id=%s slug=%s", app_id, remote_slug)
+    _app_identity_verified = True
+    return True
+
+
+async def verify_installation_belongs_to_app(installation_id: int, timeout: int = 5) -> bool:
+    """Проверяет, что installation_id принадлежит настроенному в env App (WP-406 п.4).
+
+    GET /app/installations/{id} с App JWT. Fail-closed: любая ошибка (сеть,
+    таймаут, не-200, mismatch) → False — вызывающий код обязан отказать в
+    сохранении установки, не считать отсутствие ответа успехом.
+    """
+    try:
+        app_id, _ = _load_app_credentials()
+    except RuntimeError as e:
+        logger.warning(
+            "[GitHubApp] gate=ownership_check_skipped installation_id=%d reason=%s",
+            installation_id, e,
+        )
+        return False
+
+    try:
+        app_jwt = generate_app_jwt()
+        headers = {
+            "Authorization": f"Bearer {app_jwt}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        url = f"{GITHUB_API}/app/installations/{installation_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=timeout) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(
+                        "[GitHubApp] gate=ownership_check_failed installation_id=%d app_id=%s "
+                        "status=%d body=%s",
+                        installation_id, app_id, resp.status, body[:200],
+                    )
+                    return False
+                data = await resp.json()
+    except Exception as e:
+        logger.warning(
+            "[GitHubApp] gate=ownership_check_failed installation_id=%d app_id=%s reason=%s: %s",
+            installation_id, app_id, type(e).__name__, e,
+        )
+        return False
+
+    remote_app_id = str(data.get("app_id", "")).strip()
+    if remote_app_id != app_id:
+        logger.warning(
+            "[GitHubApp] gate=ownership_mismatch installation_id=%d expected_app_id=%s "
+            "remote_app_id=%s",
+            installation_id, app_id, remote_app_id,
+        )
+        return False
+    return True
 
 
 def generate_app_jwt() -> str:

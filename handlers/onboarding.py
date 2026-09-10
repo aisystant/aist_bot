@@ -61,6 +61,14 @@ async def _personal_guide_button(chat_id: int) -> list[InlineKeyboardButton] | N
         pass  # fallback to T3b below
 
     # T3b: sovereign — предложить подключить GitHub App
+    from clients.github_app import is_app_enabled, app_identity_status
+    if not is_app_enabled():
+        return None
+    if app_identity_status() is False:
+        logger.warning(
+            "[GitHubApp] gate=entry_point_blocked point=_personal_guide_button reason=identity_check_failed"
+        )
+        return None
     app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
     webhook_url = os.getenv("WEBHOOK_URL", "").rstrip("/")
     if not app_slug or not webhook_url:
@@ -165,6 +173,13 @@ async def cmd_start(message: Message, state: FSMContext):
                 return
         except (ValueError, IndexError):
             pass
+
+    # Deep link: /start masterskaya_direct → прямая оплата Мастерской IWE,
+    # минуя Семинар (WP-181 Ф-direct).
+    if len(args) > 1 and args[1] == "masterskaya_direct":
+        from handlers.workshop import show_direct_masterskaya_card
+        await show_direct_masterskaya_card(message)
+        return
 
     # Single DB load — reused across all deep-link branches (latency fix, WP- peer-session)
     _uid = message.from_user.id if message.from_user else message.chat.id

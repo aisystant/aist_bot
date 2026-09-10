@@ -178,6 +178,11 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("handlers/tier_upgrade.py", "nudge_subscription_cta"),
 ("handlers/tier_upgrade.py", "nudge_tier_suggest_t2"),
 ("handlers/workshop.py", "_send_invite_by_count"),
+    # WP-181 Ф-direct (2026-09-10): та же схема message/bot fallback, что и
+    # _send_invite_by_count выше — реактивное уведомление сразу после
+    # оплаты, не batch/scheduled push. Отдельного повода мигрировать на
+    # Доставщик раньше сиблинга нет.
+("handlers/workshop.py", "_send_direct_masterskaya_invite"),
 ("states/base.py", "BaseState.send"),
 ("states/feed/topics.py", "FeedTopicsState._accept_topics"),
 ("states/utilities/feedback.py", "FeedbackState._notify_developer_red"),

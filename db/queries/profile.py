@@ -215,22 +215,6 @@ async def delete_all_user_data(chat_id: int) -> dict:
                 _record_required_cleanup_failure(failures, f"main.{table}", e)
                 result[table] = 0
 
-        # Legacy bot_data.request_traces (main pool) — same treatment as
-        # channel_monitors above and for the same reason (moved out of the core
-        # transaction below). Distinct result key: the health-pool copy further
-        # down writes result['request_traces']. See test_delete_all_user_data_tables.py.
-        try:
-            deleted = await conn.execute(
-                'DELETE FROM public.request_traces WHERE user_id = $1', chat_id
-            )
-            result['request_traces_legacy'] = _parse_delete_count(deleted)
-        except asyncpg.exceptions.UndefinedTableError:
-            logger.warning("[DELETE] legacy request_traces does not exist, skipping")
-            result['request_traces_legacy'] = 0
-        except Exception as e:
-            _record_required_cleanup_failure(failures, "main.request_traces_legacy", e)
-            result['request_traces_legacy'] = 0
-
     async with pool.acquire() as conn:
         async with conn.transaction():
             # WP-268 Phase 3 Block 2: qa_history вынесен в journal БД (см. ниже)
@@ -242,8 +226,7 @@ async def delete_all_user_data(chat_id: int) -> dict:
                     conn, _delete_from_sql(f'public.{table}', 'chat_id = $1'), chat_id, table
                 )
 
-            # Таблицы с user_id вместо chat_id (request_traces legacy — см. выше,
-            # уже удалена вне транзакции, не дублируем здесь)
+            # service_usage — таблица с user_id вместо chat_id.
             result['service_usage'] = await _delete_tolerant(
                 conn, _delete_from_sql('public.service_usage', 'user_id = $1'), chat_id,
                 'service_usage',
@@ -608,6 +591,37 @@ async def delete_all_user_data(chat_id: int) -> dict:
         _record_required_cleanup_failure(failures, "health", e)
         result['user_sessions'] = 0
         result['request_traces'] = 0
+
+    # WP-554 Ф11: identity-финализатор. `not failures` gate — ory_identity
+    # остаётся резолвируемым (см. account_id lookup выше) для повторной
+    # попытки, если любая предыдущая нога упала. result.update() только
+    # после commit — rollback не должен оставлять в result чужие счётчики.
+    # Известное ограничение: "нет ory_identity" неотличимо от "уже удалено
+    # ранее" — полное H-306 требует durable job/tombstone, не строится тут.
+    if not failures:
+        try:
+            from db.connection import get_persona_pool
+            persona_result: dict[str, int] = {}
+            persona_pool = await get_persona_pool()
+            async with persona_pool.acquire() as pconn:
+                async with pconn.transaction():
+                    deleted = await pconn.execute(
+                        'DELETE FROM public.bot_profile WHERE chat_id = $1 OR account_id = $2',
+                        chat_id, account_id,
+                    )
+                    persona_result['persona_bot_profile'] = _parse_delete_count(deleted)
+                    if account_id:
+                        deleted = await pconn.execute(
+                            'DELETE FROM public.consent_grants WHERE account_id = $1', account_id
+                        )
+                        persona_result['persona_consent_grants'] = _parse_delete_count(deleted)
+                        deleted = await pconn.execute(
+                            'DELETE FROM public.ory_identity WHERE account_id = $1', account_id
+                        )
+                        persona_result['persona_ory_identity'] = _parse_delete_count(deleted)
+            result.update(persona_result)
+        except Exception as e:
+            _record_required_cleanup_failure(failures, "persona.identity_finalizer", e)
 
     total = sum(result.values())
     logger.info(

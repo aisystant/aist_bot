@@ -154,6 +154,16 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://aistmebot-production.up.railway.app/auth/github/callback")
 
+# WP-406 Ф22: /github (заметки) на GitHub App с repository_selection=selected
+# вместо OAuth scope "repo" (доступ ко всем репо аккаунта, WP-458 ВЫ-13).
+# Флаг управляет ТОЛЬКО UX новых подключений — уже подключённые по App
+# пользователи пишут через App независимо от значения флага (peer-сессия
+# 2026-09-10-08, раунд 2, решение пилота "вариант А").
+GITHUB_APP_NOTES_ENABLED = os.getenv("GITHUB_APP_NOTES_ENABLED", "false").lower() == "true"
+# GITHUB_APP_OAUTH_GRACE_UNTIL (дедлайн льготного периода OAuth WRITE) читается
+# напрямую в clients/github_auth.py, не здесь — единственный источник, без
+# дублирования (код-ревью peer-сессии 2026-09-10-08, Low).
+
 # ============= GOOGLE CALENDAR OAUTH (WP-128) =============
 GOOGLE_CALENDAR_CLIENT_ID = os.getenv("GOOGLE_CALENDAR_CLIENT_ID")
 GOOGLE_CALENDAR_CLIENT_SECRET = os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET")
