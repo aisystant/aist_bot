@@ -5060,8 +5060,16 @@ milestones:
     en: "\n\n💡 Reminder: the first 30 days are a trial period. After that, Feed and consultations are available with a «Инженерия интеллекта» subscription."
 
   day_14:
-    ru: "🏃 *Две недели развития!*\n\n{marathon_status}\n\nВы входите в число самых активных участников."
-    en: "🏃 *Two weeks in!*\n\n{marathon_status}\n\nYou're among our most active participants."
+    ru: "🏃 *Две недели развития!*\n\n{marathon_status}\n\n{encouragement}"
+    en: "🏃 *Two weeks in!*\n\n{marathon_status}\n\n{encouragement}"
+
+  day_14_active:
+    ru: "Вы входите в число самых активных участников."
+    en: "You're among our most active participants."
+
+  day_14_inactive:
+    ru: "В последние дни активность снизилась — самое время наверстать: следующее занятие уже готово."
+    en: "Your activity has dropped recently — a good time to catch up: your next lesson is ready."
 
   day_14_marathon_done:
     ru: "Марафон пройден — отличный результат! Следующий шаг — программа *Личное развитие*."

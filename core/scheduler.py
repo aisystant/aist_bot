@@ -2404,6 +2404,7 @@ async def send_milestone_notifications():
                 active_days = user.get('active_days_total', 0) or 0
                 streak = user.get('longest_streak', 0) or 0
                 bloom = user.get('complexity_level', 1) or 1
+                events_last_7d = user.get('events_last_7d', 0) or 0
 
                 # Базовое сообщение
                 encouragement = ''
@@ -2412,6 +2413,15 @@ async def send_milestone_notifications():
                         encouragement = t('milestones.day_7_active', lang)
                     else:
                         encouragement = t('milestones.day_7_inactive', lang)
+                elif day == 14:
+                    # Тот же порог, что nudge_low_engagement (engagement_analyzer.py:
+                    # events_7d < 2) — иначе day_14 хвалит за активность, а нудж-система
+                    # через день независимо отмечает её как низкую по тем же данным
+                    # (инцидент 10 сен, Лапыгин: два уведомления подряд противоречили друг другу).
+                    if events_last_7d >= 2:
+                        encouragement = t('milestones.day_14_active', lang)
+                    else:
+                        encouragement = t('milestones.day_14_inactive', lang)
 
                 text = t(f'milestones.day_{day}', lang,
                          topics=topics_count,
