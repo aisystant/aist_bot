@@ -2099,6 +2099,22 @@ async def github_app_setup_handler(request: web.Request) -> web.Response:
             text="Missing or invalid telegram_user_id", status=400,
         )
     chat_id = int(chat_id_param)
+
+    from clients.github_app import is_app_enabled, app_identity_status
+    if not is_app_enabled():
+        return web.Response(
+            text="GitHub App ещё не включён платформой (GITHUB_APP_ENABLED)",
+            status=503,
+        )
+    if app_identity_status() is False:
+        logger.warning(
+            "[GitHubApp] gate=entry_point_blocked point=github_app_setup_handler reason=identity_check_failed"
+        )
+        return web.Response(
+            text="GitHub App настроен неверно — обратитесь к администратору",
+            status=503,
+        )
+
     app_slug = os.getenv("GITHUB_APP_SLUG", "").strip()
     if not app_slug:
         return web.Response(
@@ -2162,6 +2178,27 @@ async def github_app_callback_handler(request: web.Request) -> web.Response:
 </ul>
 </body></html>""",
             content_type="text/html", status=400,
+        )
+
+    # WP-406: проверить, что installation_id принадлежит настроенному в env App,
+    # ДО любого обращения к нему через GitHub API. Только для fresh-install пути —
+    # graceful fallback выше (stale state, уже сохранённая установка) не зависит
+    # от сети и не проходит через эту проверку.
+    from clients.github_app import verify_installation_belongs_to_app
+    if not await verify_installation_belongs_to_app(installation_id):
+        logger.warning(
+            "[GitHubApp] gate=callback_blocked installation_id=%d chat_id=%d reason=ownership_check_failed",
+            installation_id, chat_id,
+        )
+        return web.Response(
+            text="""<!DOCTYPE html>
+<html><head><title>Установка отклонена</title><meta charset="utf-8"></head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 50px auto;">
+<h1>⚠️ Установка не подтверждена</h1>
+<p>Не удалось подтвердить, что это приложение принадлежит платформе. Попробуй ещё раз через
+пару минут — если проблема повторится, напиши администратору.</p>
+</body></html>""",
+            content_type="text/html", status=503,
         )
 
     # Получить репо через App API (нужны installation_token + list repos)
