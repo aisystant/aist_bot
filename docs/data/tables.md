@@ -14,7 +14,7 @@
 |-------|-----------|---------|
 | **public** (явно) | Identity + bot state backbone | `public.users` |
 | **development** (явно) | Bot state + engagement stream | `development.user_state`, `development.user_events`, VIEW `development.engagement`, VIEW `development.notification_engagement` |
-| **default (public implied)** | Всё остальное | 36 таблиц: answers, reminders, feed_weeks, feed_sessions, marathon_content, notification_log, notification_queue, activity_log, qa_history, assessments, feedback_reports, feedback_triage, service_usage, subscriptions, fsm_states, request_traces, error_logs, pending_fixes, content_cache, user_sessions, conversion_events, ory_tokens, dt_tokens, tier_events, training_settings, training_progress, training_attempts, training_children, channel_monitors, channel_mentions_log, github_connections, google_calendar_connections, discourse_accounts, published_posts, scheduled_publications, oauth_pending_states + VIEW `user_knowledge_profile` |
+| **default (public implied)** | Всё остальное | 35 таблиц: answers, reminders, feed_weeks, feed_sessions, marathon_content, notification_log, notification_queue, activity_log, qa_history, assessments, feedback_reports, feedback_triage, service_usage, subscriptions, fsm_states, error_logs, pending_fixes, content_cache, user_sessions, conversion_events, ory_tokens, dt_tokens, tier_events, training_settings, training_progress, training_attempts, training_children, channel_monitors, channel_mentions_log, github_connections, google_calendar_connections, discourse_accounts, published_posts, scheduled_publications, oauth_pending_states + VIEW `user_knowledge_profile` (`request_traces` — с WP-562 живёт только в health-БД, см. §5.2) |
 
 **Важно:** `digital_twins` НЕ в bot DB. Таблица живёт в shared Neon, writer — Profiler (WP-218 Ф2), бот читает через Gateway MCP (`dt_read`). См. [P-07 § 12b](../processes/process-07-dt-engagement-sync.md).
 
@@ -495,9 +495,11 @@
 
 **⚠️ Техдолг:** два поля `alerted` (legacy) + `escalated` (актуальное). Индекс построен на `alerted`. Нужна миграция: поменять индекс на `escalated`, удалить `alerted`.
 
-### 5.2. `request_traces` (latency monitoring)
+### 5.2. `request_traces` (latency monitoring) — живёт в health-БД, не в main pool
 
 > Трассировка запросов для Grafana (p50/p95/p99 latency). См. [P-06 § Performance](../processes/process-06-observability.md).
+>
+> **WP-253 G4 (8 мая 2026):** писатель и читатели переведены на отдельную health-БД. Legacy-копия в main pool удалена миграцией 045 (WP-562, 10.09.2026) — 4 месяца простаивала пустой после соскока. Схема ниже — актуальная схема **health**-БД (`create_tables_health()` в `db/models.py`), не main.
 
 | Поле | Тип | Default | Описание |
 |------|-----|---------|----------|
