@@ -296,6 +296,20 @@ async def main():
     except Exception as _e:
         logger.warning(f"⚠️ Migration 039 (daily_activity_marker) skipped: {_e}", exc_info=True)
 
+    # GitHub App identity verification (WP-406, best-effort — не блокирует старт).
+    # Сверяет настроенный GITHUB_APP_ID/SLUG с реальным GitHub API при старте;
+    # результат читают гейты входных точек (_app_identity_verified) как вторая
+    # линия защиты поверх GITHUB_APP_ENABLED.
+    try:
+        from clients.github_app import is_app_enabled, verify_app_identity
+        if is_app_enabled():
+            if await verify_app_identity():
+                logger.info("✅ GitHub App identity verified (WP-406)")
+            else:
+                logger.warning("⚠️ GitHub App identity verification failed (WP-406) — см. gate=identity_* логи выше")
+    except Exception as _e:
+        logger.warning(f"⚠️ GitHub App identity verification skipped: {_e}", exc_info=True)
+
     # Инициализация health BD таблиц (WP-268 Phase 5 G5, idempotent)
     from config.settings import HEALTH_URL
     if HEALTH_URL != DATABASE_URL:
