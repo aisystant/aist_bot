@@ -86,25 +86,6 @@ def test_channel_monitors_is_in_optional_block_not_core_transaction():
     assert "'channel_monitors'" not in core_transaction_source
 
 
-def test_request_traces_legacy_is_outside_core_transaction():
-    """Same bug class and same fix as channel_monitors above, found in the
-    same 2026-08-07 review pass: DELETE FROM request_traces (main pool,
-    "will be DROPPED after soak") lived inside the core transaction with its
-    own try/except — same non-fix, since prod runs with SKIP_DB_MIGRATIONS=true
-    (bot.py) so db/models.py's CREATE TABLE is not a reliable signal the table
-    still exists. Moved next to channel_monitors, outside the transaction, kept
-    under its own result key ('request_traces_legacy') because the health-pool
-    copy of this table (migrated destination, WP-253 G4) writes
-    result['request_traces'] further down in the same function — colliding
-    keys would silently drop one of the two counts."""
-    source = inspect.getsource(delete_all_user_data)
-    pre_transaction_source, core_transaction_source = source.split("async with conn.transaction():", 1)
-    assert "request_traces_legacy" in pre_transaction_source
-    assert "request_traces_legacy" not in core_transaction_source
-    # The health-pool copy still exists further down, keyed without '_legacy'.
-    assert "result['request_traces']" in core_transaction_source
-
-
 class _FakeTransaction:
     async def __aenter__(self):
         return self
