@@ -166,6 +166,13 @@ async def cmd_start(message: Message, state: FSMContext):
         except (ValueError, IndexError):
             pass
 
+    # Deep link: /start masterskaya_direct → прямая оплата Мастерской IWE,
+    # минуя Семинар (WP-181 Ф-direct).
+    if len(args) > 1 and args[1] == "masterskaya_direct":
+        from handlers.workshop import show_direct_masterskaya_card
+        await show_direct_masterskaya_card(message)
+        return
+
     # Single DB load — reused across all deep-link branches (latency fix, WP- peer-session)
     _uid = message.from_user.id if message.from_user else message.chat.id
     # WP-330 (peer-session 2026-06-05-34): span на первичную загрузку intern.

@@ -69,22 +69,27 @@ async def create_and_confirm_payment(
     source: str = "bot",
     aisystant_id: str | None = None,
     payment_id: str | None = None,
+    product: str | None = None,
 ) -> int:
-    """Создать и сразу подтвердить оплату (для webhook / прямой оплаты). Возвращает id."""
+    """Создать и сразу подтвердить оплату (для webhook / прямой оплаты). Возвращает id.
+
+    product: None — обычный шаг воронки Семинар/Мастерская (текущее поведение).
+             'masterskaya_direct' — прямая покупка Мастерской, минуя Семинар (WP-181 Ф-direct).
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row_id = await conn.fetchval(
             """INSERT INTO public.workshop_payments
-                   (telegram_id, aisystant_id, amount, source, payment_id, status, paid_at, created_at)
-               VALUES ($1, $2, $3, $4, $5, 'success', NOW(), NOW())
+                   (telegram_id, aisystant_id, amount, source, payment_id, product, status, paid_at, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, 'success', NOW(), NOW())
                ON CONFLICT (payment_id) WHERE payment_id IS NOT NULL DO NOTHING
                RETURNING id""",
-            telegram_id, aisystant_id, amount, source, payment_id,
+            telegram_id, aisystant_id, amount, source, payment_id, product,
         )
     if row_id is None:
         logger.info(f"[Workshop] duplicate payment_id={payment_id}, skipped")
         return 0
-    logger.info(f"[Workshop] payment created+confirmed: id={row_id}, tg={telegram_id}, source={source}")
+    logger.info(f"[Workshop] payment created+confirmed: id={row_id}, tg={telegram_id}, source={source}, product={product}")
     return row_id
 
 
@@ -98,6 +103,23 @@ async def get_workshop_payment_count(telegram_id: int) -> int:
             telegram_id,
         )
     return count or 0
+
+
+async def has_direct_masterskaya_payment(telegram_id: int) -> bool:
+    """Есть ли у пользователя прямая покупка Мастерской (минуя Семинар).
+
+    Отдельная метка `product`, а не сумма: Stars и рубли пишут в `amount`
+    разные шкалы чисел за один и тот же товар (WP-181 Ф-direct).
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return bool(await conn.fetchval(
+            """SELECT EXISTS(
+                   SELECT 1 FROM public.workshop_payments
+                   WHERE telegram_id = $1 AND status = 'success' AND product = 'masterskaya_direct'
+               )""",
+            telegram_id,
+        ))
 
 
 async def migrate_payments_to_aisystant(telegram_id: int, aisystant_id: str) -> int:

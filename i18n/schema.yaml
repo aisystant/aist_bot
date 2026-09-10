@@ -6423,6 +6423,38 @@ workshop:
     ru: "Оплата прошла, но не удалось создать ссылку-приглашение. Пожалуйста, напишите @ssm_tg — вас добавят вручную."
     en: "Payment succeeded but failed to create invite link. Please contact @ssm_tg — you will be added manually."
 
+  direct_offer:
+    ru: "🔧 *Мастерская IWE*\n\nРазборы личных проектов, развитие своего IWE — без Семинара, сразу.\n\nЦена: 8000₽"
+    en: "🔧 *IWE Workshop*\n\nPersonal project reviews, developing your IWE — no Seminar needed, straight in.\n\nPrice: 8000₽"
+
+  direct_already_have:
+    ru: "✅ У вас уже есть доступ в Мастерскую IWE."
+    en: "✅ You already have access to the IWE Workshop."
+
+  btn_pay_rub_direct:
+    ru: "💳 Оплатить картой (8000₽)"
+    en: "💳 Pay by card (8000₽)"
+
+  btn_pay_stars_direct:
+    ru: "⭐ Оплатить звёздами ({stars})"
+    en: "⭐ Pay with stars ({stars})"
+
+  direct_card_invoice_title:
+    ru: "Мастерская IWE"
+    en: "IWE Workshop"
+
+  direct_stars_invoice_description:
+    ru: "Доступ в Мастерскую IWE, без Семинара"
+    en: "Access to the IWE Workshop, no Seminar needed"
+
+  direct_pay_stars_intro:
+    ru: "Оплата через Telegram Stars — {stars} Stars.\n\nПосле оплаты вы получите ссылку в Мастерскую IWE."
+    en: "Pay via Telegram Stars — {stars} Stars.\n\nAfter payment you will receive a link to the IWE Workshop."
+
+  direct_post_payment:
+    ru: "Спасибо за оплату! Вам открыт доступ в Мастерскую IWE.\n\n🔧 Ваша ссылка: {invite_url}\n\nЕсли возникли проблемы — пишите @ssm_tg"
+    en: "Thank you for your payment! You now have access to the IWE Workshop.\n\n🔧 Your link: {invite_url}\n\nIf you have any issues — contact @ssm_tg"
+
 showcase:
   main_title:
     ru: "🎬 *Витрина семинаров*\n\nЗаписи семинаров Мастерской инженеров-менеджеров. Бесплатные — для знакомства, платные — для глубокого погружения."
