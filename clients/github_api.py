@@ -20,6 +20,7 @@ import re
 from datetime import datetime, timezone, timedelta
 
 from config import get_logger
+from clients.github_auth import AuthContext, GitHubAuthUnavailable, OperationClass, resolve_auth_context
 from clients.github_oauth import github_oauth
 
 logger = get_logger(__name__)
@@ -141,7 +142,13 @@ class GitHubNotesClient:
         """Добавляет заметку в файл fleeting-notes.md.
 
         Returns:
-            {"repo": "owner/repo", "path": "inbox/...", "sha": "..."} или None
+            {"repo": "owner/repo", "path": "inbox/...", "sha": "..."} или None.
+
+        Raises:
+            GitHubAuthUnavailable: нет валидного источника авторизации для
+            записи (нет подключения, либо истёк льготный период OAuth —
+            WP-406 Ф22). Caller обязан показать понятную инструкцию, не
+            проглатывать молча.
         """
         repo = await github_oauth.get_target_repo(telegram_user_id)
         if not repo:
@@ -149,17 +156,14 @@ class GitHubNotesClient:
             return None
 
         path = await github_oauth.get_notes_path(telegram_user_id)
-        access_token = await github_oauth.get_access_token(telegram_user_id)
-        if not access_token:
-            return None
-
+        auth_ctx = await resolve_auth_context(telegram_user_id, OperationClass.WRITE)
         branch = await github_oauth.get_default_branch(telegram_user_id)
 
         now = datetime.now(MOSCOW_TZ)
         note_lines = self._format_note_lines(text, now)
 
         result = await self._append_to_file(
-            access_token=access_token,
+            auth_ctx=auth_ctx,
             repo=repo,
             path=path,
             note_lines=note_lines,
@@ -175,7 +179,7 @@ class GitHubNotesClient:
 
     async def _append_to_file(
         self,
-        access_token: str,
+        auth_ctx: AuthContext,
         repo: str,
         path: str,
         note_lines: list[str],
@@ -183,12 +187,17 @@ class GitHubNotesClient:
         branch: str = "main",
         max_retries: int = 3,
     ) -> dict | None:
-        """Добавляет заметку в файл через Contents API с retry на 409."""
+        """Добавляет заметку в файл через Contents API с retry на 409.
+
+        auth_ctx выбран ДО вызова (resolve_auth_context) и не меняется внутри
+        операции — сбой этого токена НЕ откатывается на другой источник
+        (WP-406 Ф22, peer-сессия раунд 2).
+        """
         import aiohttp
 
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
         headers = {
-            "Authorization": f"Bearer {access_token}",
+            "Authorization": auth_ctx.auth_header,
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -320,7 +329,11 @@ class GitHubNotesClient:
         self._pending.clear()
 
         for user_id, text, attempt in pending:
-            result = await self.append_note(user_id, text)
+            try:
+                result = await self.append_note(user_id, text)
+            except GitHubAuthUnavailable as e:
+                logger.warning(f"Note retry dropped, no auth ({e}): user={user_id}, text={text[:30]}...")
+                continue
             if result:
                 logger.info(f"Retry succeeded: {text[:30]}...")
             elif attempt < self._MAX_RETRIES:
@@ -330,7 +343,12 @@ class GitHubNotesClient:
                 logger.error(f"Note dropped after {self._MAX_RETRIES} retries: user={user_id}, text={text[:50]}")
 
     async def clear_notes(self, telegram_user_id: int) -> bool:
-        """Очищает файл заметок (сохраняет шапку с описанием)."""
+        """Очищает файл заметок (сохраняет шапку с описанием).
+
+        Raises:
+            GitHubAuthUnavailable: нет валидного источника авторизации для
+            записи (WP-406 Ф22) — caller обязан показать понятную инструкцию.
+        """
         import aiohttp
 
         repo = await github_oauth.get_target_repo(telegram_user_id)
@@ -338,15 +356,12 @@ class GitHubNotesClient:
             return False
 
         path = await github_oauth.get_notes_path(telegram_user_id)
-        access_token = await github_oauth.get_access_token(telegram_user_id)
-        if not access_token:
-            return False
-
+        auth_ctx = await resolve_auth_context(telegram_user_id, OperationClass.WRITE)
         branch = await github_oauth.get_default_branch(telegram_user_id)
 
         url = f"https://api.github.com/repos/{repo}/contents/{path}"
         headers = {
-            "Authorization": f"Bearer {access_token}",
+            "Authorization": auth_ctx.auth_header,
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
