@@ -8,13 +8,13 @@
 
 ## Обзор
 
-**39 таблиц + 4 VIEW** распределены по двум схемам:
+**40 таблиц + 4 VIEW** распределены по двум схемам:
 
 | Схема | Назначение | Таблицы |
 |-------|-----------|---------|
 | **public** (явно) | Identity + bot state backbone | `public.users` |
 | **development** (явно) | Bot state + engagement stream | `development.user_state`, `development.user_events`, VIEW `development.engagement`, VIEW `development.notification_engagement` |
-| **default (public implied)** | Всё остальное | 35 таблиц: answers, reminders, feed_weeks, feed_sessions, marathon_content, notification_log, notification_queue, activity_log, qa_history, assessments, feedback_reports, feedback_triage, service_usage, subscriptions, fsm_states, error_logs, pending_fixes, content_cache, user_sessions, conversion_events, ory_tokens, dt_tokens, tier_events, training_settings, training_progress, training_attempts, training_children, channel_monitors, channel_mentions_log, github_connections, google_calendar_connections, discourse_accounts, published_posts, scheduled_publications, oauth_pending_states + VIEW `user_knowledge_profile` (`request_traces` — с WP-562 живёт только в health-БД, см. §5.2) |
+| **default (public implied)** | Всё остальное | 36 таблиц: answers, reminders, feed_weeks, feed_sessions, marathon_content, notification_log, notification_queue, activity_log, qa_history, assessments, feedback_reports, feedback_triage, service_usage, subscriptions, event_outbox, fsm_states, error_logs, pending_fixes, content_cache, user_sessions, conversion_events, ory_tokens, dt_tokens, tier_events, training_settings, training_progress, training_attempts, training_children, channel_monitors, channel_mentions_log, github_connections, google_calendar_connections, discourse_accounts, published_posts, scheduled_publications, oauth_pending_states + VIEW `user_knowledge_profile` (`request_traces` — с WP-562 живёт только в health-БД, см. §5.2) |
 
 **Важно:** `digital_twins` НЕ в bot DB. Таблица живёт в shared Neon, writer — Profiler (WP-218 Ф2), бот читает через Gateway MCP (`dt_read`). См. [P-07 § 12b](../processes/process-07-dt-engagement-sync.md).
 
@@ -648,7 +648,7 @@
 |------|-----|---------|----------|
 | `id` | SERIAL | — | PK |
 | `chat_id` | BIGINT | — | NOT NULL |
-| `telegram_payment_charge_id` | TEXT | — | NOT NULL |
+| `telegram_payment_charge_id` | TEXT | — | NOT NULL, UNIQUE (`subscriptions_charge_id_unique`, миграция 049, WP-567 Ф3в) |
 | `status` | TEXT | `'active'` | `active` / `cancelled` / `expired` |
 | `stars_amount` | INTEGER | — | NOT NULL |
 | `started_at`, `expires_at` | TIMESTAMP | — | NOT NULL |
@@ -657,6 +657,29 @@
 | `created_at` | TIMESTAMP | `NOW()` | |
 
 **Индексы:** `idx_subscriptions_chat_id`, `idx_subscriptions_active`
+
+**Не FSM-маркер (WP-567, 12.09):** несмотря на более ранние комментарии в коде, это не одноразовый TTL-маркер — durable-запись, читаемая `get_active_subscription`/`cancel_subscription` (`core/access.py`, `states/common/settings.py`). UNIQUE-констрейнт на `telegram_payment_charge_id` защищает от дубля строки при Telegram-редоставке апдейта.
+
+### 6.5a. `event_outbox` (транзакционный outbox, WP-567 Ф3в)
+
+> **Код:** `db/queries/event_outbox.py`, миграция `db/migrations/049_wp567_event_outbox.py`, дренаж/сторож в `core/scheduler.py` (`_drain_event_outbox`, `_watch_event_outbox`). Подробности процесса → [P-12 «Надёжность Stars-платежей»](../processes/process-12-payment-events.md).
+
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| `id` | BIGSERIAL | — | PK |
+| `external_id` | TEXT | — | NOT NULL, UNIQUE — тот же ключ, что уходит в конверт event-gateway (`stars-sub-pay-{charge_id}` для `payment_received`, `sub-granted-{chat_id}-tg_stars-{charge_id}` для `subscription_granted`) |
+| `event_type` | TEXT | — | NOT NULL: `payment_received` / `subscription_granted` |
+| `account_id` | TEXT | — | |
+| `payload` | JSONB | — | NOT NULL, тело события для event-gateway |
+| `occurred_at` | TIMESTAMP | — | NOT NULL |
+| `created_at` | TIMESTAMP | `NOW()` | |
+| `delivered_at` | TIMESTAMP | `NULL` | `NULL` = ожидает дренажа |
+| `attempts` | INTEGER | `0` | инкремент при неудачной доставке |
+| `last_error` | TEXT | `NULL` | текст последней ошибки (обрезан до 500 симв.) |
+
+**Индексы:** `idx_event_outbox_pending` (`created_at WHERE delivered_at IS NULL`)
+
+**Гарантия:** строка вставляется в ТОЙ ЖЕ транзакции, что и бизнес-данные (`save_subscription_with_outbox`, `db/queries/subscription.py`) — существование строки и есть гарантия доставуемости, не последующий шаг, который сам может быть пропущен. Только два типа событий (не общая политика для всех событий бота) — сознательное сужение предложения Codex Кимой (пир-сессия `2026-09-12-09-wp567-stars-retry-parnaya-zapis`).
 
 ### 6.6. `assessments` (ответы assessment flow)
 
@@ -992,6 +1015,7 @@ channel_mentions_log — standalone (по channel_id + message_id)
 
 | Дата | Изменение |
 |------|-----------|
+| 2026-09-12 | **Миграция 049 (WP-567 Ф3в):** `event_outbox` — транзакционный outbox для `payment_received`/`subscription_granted` Stars-оплат (защита от потери события между постановкой фоновой задачи и её выполнением). `subscriptions.telegram_payment_charge_id` получил UNIQUE-констрейнт (`subscriptions_charge_id_unique`) — защита от дубля строки при Telegram-редоставке. Применено на пилотном боте 12.09, детали → [P-12 «Надёжность Stars-платежей»](../processes/process-12-payment-events.md). |
 | 2026-09-04 | **Миграция 043 (WP-117 Ф-milestone-once):** `development.nudge_receipt` — at-most-once claim для milestone-нуджей с атомарной постановкой в очередь и честным ограничением once-per-Telegram-recipient до завершения Ф-identity. (Перенумерована из 039 — номер был дважды занят.) |
 | 2026-08-09 | **WP-46: исправлена семантика `user_sessions`:** `ended_at` теперь означает последний запрос и обновляется вместе с точным `duration_seconds`; разрыв ≥30 минут создаёт новую сессию. Удалена эвристика `30 секунд × request_count`, которая выдумывала длительность legacy-сессий. |
 | 2026-07-17 | **Миграции 236+238 на Railway (WP-117 Ф-onboarding-gap):** `learning.onboarding_state` на Railway пилот-бота — было 29 колонок (только каноническая 233), не хватало 9 из `neon-migrations/mvp/236-wp349-onboarding-state-upgrade-markers.sql` и `238-wp349-onboarding-state-referral.sql` (`msg_f_sent_at`/`msg_g_sent_at`, `cp_stage`, `has_diagnosis`, `msg_b_low/b_high_sent_at`, `msg_c_sent_at`, `msg_e_sent_at`, `referral_source`). Batch-fetch F/G-маркеров (WP-349 Ф6/Ф7, `core/scheduler.py`) падал fail-open на каждый запуск 13:00. Миграции 236+238 применены напрямую к живой Railway-БД; сверка с Neon-прод — 38/38, diff пуст. Миграция 025 (bootstrap) дополнена теми же 9 колонками, чтобы дрейф не повторился при будущем пересоздании базы с нуля. |
