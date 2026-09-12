@@ -333,6 +333,87 @@ async def _watch_delivery_queue():
         await bot.session.close()
 
 
+async def _drain_event_outbox():
+    """WP-567 Ф3(в): дожим public.event_outbox — доставка payment_received/
+    subscription_granted, отложенная транзакционным outbox в
+    handlers/subscription_stars.py и handlers/payments.py.
+
+    Тот же паттерн, что `_drain_delivery_queue` выше (FOR UPDATE SKIP LOCKED
+    внутри явной транзакции — вне неё asyncpg авто-коммитит SELECT и снимает
+    row-locks сразу, тогда конкурентные инстансы во время rolling deploy
+    возьмут одни и те же строки). Отличие: получатель здесь не Telegram, а
+    event-gateway (`post_event_or_raise`), поэтому используется `mark_delivered`/
+    `mark_failed`, а не статусы очереди Доставщика.
+    """
+    from db.queries.event_outbox import fetch_pending_outbox, mark_delivered, mark_failed
+    from helpers.dual_write import post_event_or_raise
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await fetch_pending_outbox(conn, batch=20)
+            for row in rows:
+                # Savepoint per row (cold review, 2026-09-12): without it, a
+                # DB hiccup on THIS row's own mark_delivered/mark_failed
+                # aborts the whole outer transaction -- including rows
+                # earlier in the same batch whose event-gateway POST already
+                # succeeded, forcing an unnecessary re-delivery of those on
+                # the next run. A savepoint confines that failure to the row
+                # that caused it.
+                try:
+                    async with conn.transaction():
+                        try:
+                            await post_event_or_raise(
+                                source="aist-bot",
+                                external_id=row["external_id"],
+                                event_type=row["event_type"],
+                                schema_version="v1",
+                                occurred_at=row["occurred_at"],
+                                account_id=row["account_id"],
+                                payload=row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"]),
+                            )
+                            await mark_delivered(conn, row["id"])
+                        except Exception as exc:
+                            logger.warning(f"[EventOutbox] delivery failed id={row['id']} type={row['event_type']} attempts={row['attempts']}: {exc}")
+                            await mark_failed(conn, row["id"], str(exc))
+                except Exception as savepoint_exc:
+                    logger.error(f"[EventOutbox] row id={row['id']} savepoint itself failed, will retry next run: {savepoint_exc}")
+
+
+_last_outbox_watch_alert_ts: float = 0.0
+
+
+async def _watch_event_outbox():
+    """WP-567 Ф3(в): сторож `event_outbox` — тот же принцип, что
+    `_watch_delivery_queue`: детектит «дренаж не работает» независимо от
+    причины (крон снят, `_drain_event_outbox` падает целиком раньше первой
+    строки и т.п.), не только по накопленным `attempts`. Fail-open (ошибка
+    БД не алертит — не зона этого монитора), cooldown 1 час.
+    """
+    global _last_outbox_watch_alert_ts
+
+    from db.queries.event_outbox import count_stuck_outbox
+    stuck = await count_stuck_outbox(older_than_minutes=10)
+    if not stuck:
+        return
+
+    logger.error(f"[EventOutboxWatch] {stuck} событий висят недоставленными >10 мин")
+    if not _bot_token or not DEVELOPER_CHAT_ID:
+        return
+    if time.time() - _last_outbox_watch_alert_ts < 3600:
+        return
+    bot = Bot(token=_bot_token)
+    try:
+        await bot.send_message(
+            DEVELOPER_CHAT_ID,
+            f"⚠️ event_outbox: {stuck} событий (payment_received/subscription_granted) "
+            "недоставлены >10 мин — дренаж не работает",
+        )
+        _last_outbox_watch_alert_ts = time.time()
+    finally:
+        await bot.session.close()
+
+
 async def _claude_health_probe():
     """Синтетический probe Claude API (каждые 5 мин).
 
@@ -1142,6 +1223,8 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     # WP-418 Ф4: сторож очереди — БЕЗ гейта флага: ловит именно «точки мигрированы,
     # дренаж выключен» (плюс «drain падает»). Fail-open внутри.
     _scheduler.add_job(_watch_delivery_queue, 'cron', minute='*/10', max_instances=1)
+    _scheduler.add_job(_drain_event_outbox, 'cron', minute='*', max_instances=1)  # WP-567 Ф3в: дожим event_outbox
+    _scheduler.add_job(_watch_event_outbox, 'cron', minute='*/10', max_instances=1)  # WP-567 Ф3в: сторож event_outbox
     _scheduler.add_job(_better_stack_heartbeat, 'cron', minute='*')  # WP-244: heartbeat ping каждую минуту
     # DISABLE_DISCOURSE_PUBLISHER=true — отключает автопубликацию в клуб (systemsworld.club),
     # оставляя остальной scheduler активным. Нужно для инстансов, подключённых к общей с прод

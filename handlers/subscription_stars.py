@@ -6,26 +6,31 @@ Stars-подписки «Инженерия интеллекта» (WP-246 Ф1.1
 Поток:
   /subscribe_stars → выбор тарифа → invoice Stars →
   pre_checkout_query → successful_payment →
-    emit payment_received (→ payment.payment_received via projection-worker) +
-    emit subscription_granted (→ subscription.contract via projection-worker) +
-    save_subscription (FSM-state, Railway Postgres, TTL≈24h)
+    одна транзакция: save subscription + outbox(payment_received) +
+    outbox(subscription_granted) (WP-567 Ф3в) →
+    отдельный крон-дожим (core/scheduler.py) отправляет outbox в event-gateway.
 
 Архитектурные решения (Q16, Q18 WP-246):
-- Handler НЕ пишет permanent-данные в bot.subscriptions.
-- Permanent-state = subscription.contract в Neon (через event-gateway + projection-worker).
-- bot.subscriptions = FSM-only (idempotency marker, TTL≈24h).
+- Handler пишет подписку в bot.subscriptions СИНХРОННО с outbox-событиями,
+  одной транзакцией — не "FSM-only, TTL≈24h" (это устаревшее описание не
+  соответствовало реальной схеме: `public.subscriptions` — постоянная
+  запись, читаемая get_active_subscription/cancel_subscription, WP-567 Ф3в).
+- Permanent projection-state (subscription.contract) — в Neon, доставляется
+  через event-gateway + projection-worker, но САМА доставка теперь durable
+  через локальный outbox, не fire-and-forget asyncio.create_task.
 - source в event-gateway = "aist-bot" (уже в ALLOWED_SOURCES wrangler.toml).
 
 Payload-формат invoice: "stars_sub_{chat_id}_{tariff_key}"
   tariff_key: "1m" | "3m" | "6m" | "12m"
 
-# see DP.SC.120 (Payment Receiver), WP-246 Ф1.1
+# see DP.SC.120 (Payment Receiver), WP-246 Ф1.1, WP-567 Ф3(в)
 """
 
 import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -38,9 +43,10 @@ from aiogram.types import (
     LabeledPrice,
 )
 
+from config import DEVELOPER_CHAT_ID
 from db.queries import get_intern
-from db.queries.subscription import save_subscription
-from helpers.dual_write import post_event, resolve_ory_id_from_chat
+from db.queries.subscription import save_subscription_with_outbox
+from helpers.dual_write import resolve_ory_id_from_chat
 from i18n import t
 
 logger = logging.getLogger(__name__)
@@ -206,75 +212,119 @@ async def on_successful_stars_sub(message: Message):
 
     now_utc = datetime.now(timezone.utc)
     valid_to = now_utc + timedelta(days=30 * months)
+    valid_until_iso = valid_to.isoformat()
 
     logger.info(
         f"[SubStars] Payment OK: chat_id={chat_id}, "
         f"tariff={tariff_key}, amount={stars_amount} XTR, "
-        f"charge_id={charge_id}, valid_to={valid_to.isoformat()}"
+        f"charge_id={charge_id}, valid_to={valid_until_iso}"
     )
 
     # ── Resolve account_id (ory_id) — best-effort ──────────────────────────
     account_id = await resolve_ory_id_from_chat(chat_id)
 
-    # ── 1. FSM-state: save_subscription в Railway Postgres (TTL≈24h) ───────
-    # Q18: bot.subscriptions = FSM-only, permanent-state = subscription.contract
-    try:
-        await save_subscription(
-            chat_id=chat_id,
-            charge_id=charge_id,
-            stars_amount=stars_amount,
-            expires_at=valid_to.replace(tzinfo=None),  # naive UTC per bot convention
-            is_first=True,
-        )
-    except Exception as e:
-        logger.warning(f"[SubStars] save_subscription failed (non-blocking): {e}")
-
-    # ── 2. Emit payment_received → payment.payment_received ─────────────────
-    # projection-worker (WP-270) делает UPSERT через rule 104
+    # ── Подписка + оба outbox-события — одна транзакция (WP-567 Ф3в) ───────
+    # Раньше: save_subscription в try/except (проглатывала реальную потерю
+    # записи подписки, не FSM-маркер, как называл этот комментарий раньше) +
+    # два asyncio.create_task(post_event(...)) без ожидания результата
+    # (событие терялось безвозвратно, если процесс убьют между созданием
+    # таска и его выполнением). Теперь либо все три INSERT коммитятся вместе,
+    # либо ни один.
+    #
+    # Ретраи, а не «raise и надейся на повтор от Telegram»: этот хендлер
+    # выполняется В ФОНОВОЙ задаче aiogram (SimpleRequestHandler с
+    # handle_in_background=True по умолчанию) — HTTP 200 Telegram уже ушёл
+    # ДО того, как этот код начал выполняться, независимо от исхода. Telegram
+    # не узнает об ошибке и не передоставит апдейт. Значит бюджет времени на
+    # повтор здесь не ограничен таймаутом вебхука (проверено читкой
+    # aiogram/webhook/aiohttp_server.py) — можно и нужно ретраить самим,
+    # прежде чем сдаваться.
     payment_event_id = str(uuid.uuid4())
-    asyncio.create_task(post_event(
-        source=EVENT_SOURCE,
-        external_id=f"stars-sub-pay-{charge_id}",
-        event_type="payment_received",
-        schema_version="v1",
-        occurred_at=now_utc,
-        account_id=account_id,
-        payload={
-            "payment_id": payment_event_id,
-            "amount": stars_amount,
-            "currency": "XTR",
-            "payment_kind_code": "stars",
-            "external_payment_id": charge_id,
-            "provider": "tg_stars",
-            "paid_at": now_utc.isoformat(),
-            "account_id_resolved": account_id,
-            # telegram_id_lookup убран из payload (FORBIDDEN_FIELDS в gateway).
-            # projection-worker делает lookup через persona.ory_identity.
-        },
-    ))
+    payment_external_id = f"stars-sub-pay-{charge_id}"
+    # regex в rule 103 projection-worker'а: "^sub-granted-(\d+)-" — формат
+    # этого external_id менять нельзя, downstream парсинг на него завязан.
+    # Suffix идентифицирует конкретный платёж (charge_id), не valid_until --
+    # regex rule 103 парсит только "^sub-granted-(\d+)-" (chat_id), suffix
+    # ей не важен, а charge_id делает external_id детерминированным при
+    # повторном вызове хендлера для одного и того же платежа (в отличие от
+    # valid_until_iso, вычисляемого заново из "now" при каждом вызове --
+    # то давало бы разные строки на реальном повторе, срывая ON CONFLICT).
+    granted_external_id = f"sub-granted-{chat_id}-tg_stars-{charge_id}"
 
-    # ── 3. Emit subscription_granted → subscription.contract ─────────────────
-    # projection-worker (WP-270) делает UPSERT через rule 103.
-    # external_id формат: "sub-granted-{telegram_id}-{source}-{valid_until_iso}"
-    # (regex в rule 103: "^sub-granted-(\\d+)-" для извлечения telegram_id → account_id lookup)
-    valid_until_iso = valid_to.isoformat()
-    asyncio.create_task(post_event(
-        source=EVENT_SOURCE,
-        external_id=f"sub-granted-{chat_id}-tg_stars-{valid_until_iso}",
-        event_type="subscription_granted",
-        schema_version="v1",
-        occurred_at=now_utc,
-        account_id=account_id,
-        payload={
-            "product": tariff["name"],   # lookup: reference.tariffs WHERE name = this
-            "source": "tg_stars",
-            "valid_until": valid_until_iso,
-            "mode": "created",
-            "activating_payment_id": payment_event_id,
-        },
-    ))
+    saved = False
+    last_error: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            await save_subscription_with_outbox(
+                chat_id=chat_id,
+                charge_id=charge_id,
+                stars_amount=stars_amount,
+                expires_at=valid_to.replace(tzinfo=None),  # naive UTC per bot convention
+                account_id=account_id,
+                payment_external_id=payment_external_id,
+                payment_payload={
+                    "payment_id": payment_event_id,
+                    "amount": stars_amount,
+                    "currency": "XTR",
+                    "payment_kind_code": "stars",
+                    "external_payment_id": charge_id,
+                    "provider": "tg_stars",
+                    "paid_at": now_utc.isoformat(),
+                    "account_id_resolved": account_id,
+                    # telegram_id_lookup убран из payload (FORBIDDEN_FIELDS в gateway).
+                    # projection-worker делает lookup через persona.ory_identity.
+                },
+                granted_external_id=granted_external_id,
+                granted_payload={
+                    "product": tariff["name"],   # lookup: reference.tariffs WHERE name = this
+                    "source": "tg_stars",
+                    "valid_until": valid_until_iso,
+                    "mode": "created",
+                    "activating_payment_id": payment_event_id,
+                },
+                occurred_at=now_utc,
+            )
+            saved = True
+            break
+        except Exception as e:
+            last_error = e
+            logger.warning(f"[SubStars] save_subscription_with_outbox attempt {attempt + 1}/3 failed: {e}")
+            if attempt < 2:
+                await asyncio.sleep(2 * (attempt + 1))
 
-    # ── 4. Ответ пользователю ────────────────────────────────────────────────
+    if not saved:
+        # Ни одна попытка не прошла — звёзды уже списаны у пользователя,
+        # у нас нет способа получить повторную доставку от Telegram (см.
+        # комментарий выше). Единственный оставшийся путь — алерт живому
+        # человеку с деталями, достаточными для ручного восстановления, и
+        # честный ответ пользователю (не молчание, не ложный "успех").
+        logger.error(
+            f"[SubStars] CRITICAL: subscription+outbox не сохранены после 3 попыток. "
+            f"chat_id={chat_id}, charge_id={charge_id}, amount={stars_amount}, "
+            f"tariff={tariff_key}, last_error={last_error}"
+        )
+        if DEVELOPER_CHAT_ID:
+            try:
+                await message.bot.send_message(
+                    DEVELOPER_CHAT_ID,
+                    f"🔴 Stars-подписка НЕ сохранена (3 попытки): "
+                    f"chat_id={chat_id}, charge_id={charge_id}, "
+                    f"amount={stars_amount} XTR, tariff={tariff_key}. "
+                    f"Ошибка: {last_error}",
+                )
+            except Exception as alert_err:
+                logger.error(f"[SubStars] dev-alert failed too: {alert_err}")
+        await message.answer(
+            "⚠️ Звёзды получены, но подписка обрабатывается дольше обычного. "
+            "Если доступ не появится в течение нескольких минут — напишите в поддержку.",
+        )
+        return
+
+    # Отправка в event-gateway — отдельный крон-дожим (core/scheduler.py
+    # `_drain_event_outbox`), не этот хендлер. Строки уже закоммичены выше —
+    # их доставка не блокирует ответ пользователю.
+
+    # ── Ответ пользователю ────────────────────────────────────────────────
     await message.answer(
         f"✅ *Подписка активирована!*\n\n"
         f"Тариф: {tariff['label']}\n"
@@ -285,6 +335,6 @@ async def on_successful_stars_sub(message: Message):
     )
 
     logger.info(
-        f"[SubStars] Events emitted: payment_received+subscription_granted "
-        f"chat_id={chat_id}, tariff={tariff_key}, valid_to={valid_to.isoformat()}"
+        f"[SubStars] Subscription + outbox committed "
+        f"chat_id={chat_id}, tariff={tariff_key}, valid_to={valid_until_iso}"
     )

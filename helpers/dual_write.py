@@ -83,6 +83,64 @@ def _to_iso_utc(dt: datetime) -> str:
     return dt.isoformat()
 
 
+def _build_envelope(
+    source: str,
+    external_id: str,
+    event_type: str,
+    schema_version: str,
+    occurred_at: datetime,
+    account_id: Optional[str],
+    payload: dict,
+) -> dict:
+    envelope = {
+        "source": source,
+        "external_id": external_id,
+        "event_type": event_type,
+        "schema_version": schema_version,
+        "occurred_at": _to_iso_utc(occurred_at),
+        "payload": payload,
+    }
+    if account_id:
+        envelope["account_id"] = account_id
+    return envelope
+
+
+async def _send_envelope(source: str, event_type: str, envelope: dict) -> None:
+    """POST envelope to the event-gateway. Raises on any failure -- transport,
+    non-2xx, or client-side exception all surface the same way, so callers
+    that need to know whether delivery actually happened (unlike the
+    fire-and-forget `post_event` below) can decide what to do about it."""
+    session = _get_session()
+    body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
+    headers = {"Content-Type": "application/json"}
+    if EVENT_GATEWAY_HMAC_KEY:
+        timestamp = str(int(time.time()))
+        canonical = (
+            f"v1\n{source}\n{EVENT_GATEWAY_HMAC_KEY_ID}\n{timestamp}\n".encode()
+            + body
+        )
+        signature = hmac.new(
+            EVENT_GATEWAY_HMAC_KEY.encode(),
+            canonical,
+            hashlib.sha256,
+        ).hexdigest()
+        headers.update({
+            "X-IWE-Signature-Version": "v1",
+            "X-IWE-Key-Id": EVENT_GATEWAY_HMAC_KEY_ID,
+            "X-IWE-Timestamp": timestamp,
+            "X-IWE-Signature": f"sha256={signature}",
+        })
+
+    async with session.post(
+        f"{EVENT_GATEWAY_URL}/events",
+        data=body,
+        headers=headers,
+    ) as resp:
+        if resp.status >= 400:
+            body_text = await resp.text()
+            raise RuntimeError(f"{event_type} POST failed: {resp.status} {body_text[:200]}")
+
+
 async def post_event(
     source: str,
     external_id: str,
@@ -108,52 +166,34 @@ async def post_event(
     if not EVENT_GATEWAY_ENABLED:
         return
 
-    envelope = {
-        "source": source,
-        "external_id": external_id,
-        "event_type": event_type,
-        "schema_version": schema_version,
-        "occurred_at": _to_iso_utc(occurred_at),
-        "payload": payload,
-    }
-    if account_id:
-        envelope["account_id"] = account_id
-
+    envelope = _build_envelope(source, external_id, event_type, schema_version, occurred_at, account_id, payload)
     try:
-        session = _get_session()
-        body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
-        headers = {"Content-Type": "application/json"}
-        if EVENT_GATEWAY_HMAC_KEY:
-            timestamp = str(int(time.time()))
-            canonical = (
-                f"v1\n{source}\n{EVENT_GATEWAY_HMAC_KEY_ID}\n{timestamp}\n".encode()
-                + body
-            )
-            signature = hmac.new(
-                EVENT_GATEWAY_HMAC_KEY.encode(),
-                canonical,
-                hashlib.sha256,
-            ).hexdigest()
-            headers.update({
-                "X-IWE-Signature-Version": "v1",
-                "X-IWE-Key-Id": EVENT_GATEWAY_HMAC_KEY_ID,
-                "X-IWE-Timestamp": timestamp,
-                "X-IWE-Signature": f"sha256={signature}",
-            })
-
-        async with session.post(
-            f"{EVENT_GATEWAY_URL}/events",
-            data=body,
-            headers=headers,
-        ) as resp:
-            if resp.status >= 400:
-                body = await resp.text()
-                logger.warning(
-                    f"[dual-write] {event_type} POST failed: "
-                    f"{resp.status} {body[:200]}"
-                )
+        await _send_envelope(source, event_type, envelope)
     except Exception as exc:
         logger.warning(f"[dual-write] {event_type} POST exception: {exc}")
+
+
+async def post_event_or_raise(
+    source: str,
+    external_id: str,
+    event_type: str,
+    schema_version: str,
+    occurred_at: datetime,
+    account_id: Optional[str],
+    payload: dict,
+) -> None:
+    """Same POST as `post_event`, but propagates failure instead of swallowing it.
+
+    For callers that persist their own durable record of the attempt (WP-567
+    Ф3(в) outbox dispatcher, core/scheduler.py) and need to know whether
+    delivery actually happened to decide retry/backoff -- `post_event`'s
+    silent swallow is correct for its fire-and-forget callers, but would
+    hide failure from a dispatcher whose whole job is reacting to it.
+    """
+    if not EVENT_GATEWAY_ENABLED:
+        return
+    envelope = _build_envelope(source, external_id, event_type, schema_version, occurred_at, account_id, payload)
+    await _send_envelope(source, event_type, envelope)
 
 
 async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
