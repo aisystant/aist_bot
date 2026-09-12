@@ -47,8 +47,25 @@ Stars-подписки фрагментированы по telegram_id).
 - Событие `subscription_first_purchased` — supersede (WP-327 Этап 22 → WP-266 Ф5c):
   эмиссия убрана, правило закрыто миграцией 264.
 
+## 4. Надёжность Stars-платежей: транзакционный outbox (WP-567 Ф3в)
+
+> Код: `handlers/subscription_stars.py` (`on_successful_stars_sub`), `db/queries/event_outbox.py`, `db/queries/subscription.py` (`save_subscription_with_outbox`), дренаж/сторож — `core/scheduler.py` (`_drain_event_outbox`, `_watch_event_outbox`). Таблица → [tables.md §6.5a `event_outbox`](../data/tables.md).
+>
+> **Вне объёма:** `handlers/payments.py` (донаты, разовые и recurring) вызывает голый `save_subscription()`/`upsert_subscription_grant()`, НЕ `save_subscription_with_outbox` — этот путь outbox не защищён, `subscription_granted` там по-прежнему уходит через старый fire-and-forget `post_event`, `payment_received` не эмитится вовсе. Сужение объёма было сознательным решением сессии (см. ниже), но именно этот файл в него не попал.
+
+**Проблема (найдена при разборе, не совпала с исходной постановкой задачи):** обработчик Stars-оплаты не пишет баллы напрямую и не теряет их при недоступности БД баллов, как предполагала первая формулировка задачи — у отдельного `multi-domain-projection-worker` уже есть свой курсор + DLQ + backoff retry для `learning.domain_event`. Два реальных разрыва были в другом:
+
+1. Событие эмитилось через `asyncio.create_task(post_event(...))` — честный fire-and-forget HTTP-вызов без собственной надёжности. Если процесс бота умирал между постановкой задачи и её фактическим выполнением (OOM на Railway, деплой, стопор event loop под нагрузкой) — событие терялось без следа.
+2. `save_subscription()` вызывался в голом `try/except: logger.warning(...)` без re-raise. `public.subscriptions` — не одноразовый FSM-маркер, как называли устаревшие комментарии в коде, а durable-запись, используемая `get_active_subscription`/`cancel_subscription`. Потеря этого INSERT теряла подписку пользователя уже после списания звёзд.
+
+**Решение:** `on_successful_stars_sub` — одна транзакция, вставляющая строку подписки И обе строки outbox, либо ничего из них. Отдельный дренаж (`_drain_event_outbox`, cron `*/1мин`) вычитывает недоставленные строки `FOR UPDATE SKIP LOCKED` (тот же паттерн, что `core/notification_service.py` `drain()`) и шлёт их в event-gateway; savepoint на строку — ошибка одной строки не откатывает уже успешно отправленные строки того же батча. Сторож (`_watch_event_outbox`, `*/10мин`) алертит разработчика, если что-то висит недоставленным >10 мин, fail-open по своей же ошибке БД.
+
+**Сознательное сужение объёма:** только `payment_received`/`subscription_granted` от Stars-платежей — не общая политика outbox для всех событий бота (Kimi сузил первоначальное предложение Codex, пир-сессия `2026-09-12-09-wp567-stars-retry-parnaya-zapis`). Остальные события бота продолжают идти через существующий fire-and-forget `post_event`.
+
+**Идемпотентность:** `external_id` в `event_outbox` — тот же ключ, что уже уходит в конверт event-gateway для каждого события (не новый составной ключ) — `ON CONFLICT (external_id) DO NOTHING` на вставке.
+
 ## Источники
 
 - Контекст РП: `DS-my-strategy/inbox/WP-266-guest-pass-concept.md` § Ф5c
-- Peer-sessions: 2026-06-11-39 (архитектура), 2026-06-12-03 (стройка)
-- Миграции: neon-migrations mvp/263, 264, 265 + scripts/backfill-first-payment-welcome.py
+- Peer-sessions: 2026-06-11-39 (архитектура), 2026-06-12-03 (стройка); WP-567 Ф3в — 2026-09-12-09-wp567-stars-retry-parnaya-zapis (Claude+Kimi+Codex)
+- Миграции: neon-migrations mvp/263, 264, 265 + scripts/backfill-first-payment-welcome.py; `db/migrations/049_wp567_event_outbox.py` (WP-567 Ф3в, DATABASE_URL основной БД бота — не Neon rewards)
