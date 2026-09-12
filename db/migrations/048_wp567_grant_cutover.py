@@ -78,9 +78,10 @@ Manual run:
 """
 
 import asyncio
-import asyncpg
 import os
 import sys
+
+import asyncpg
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -234,8 +235,9 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
         # match would silently pick an arbitrary overload if one is ever
         # added (cold review, 2026-09-12).
         owner_already_moved = await conn.fetchval(
-            f"SELECT proowner::regrole::text = 'rewards_points_engine_owner' "
-            f"FROM pg_proc WHERE oid = '{FUNCTION_IDENTITY}'::regprocedure"
+            "SELECT proowner::regrole::text = 'rewards_points_engine_owner' "
+            "FROM pg_proc WHERE oid = $1::text::regprocedure",
+            FUNCTION_IDENTITY,
         )
         if owner_already_moved:
             return False

@@ -105,12 +105,8 @@ def _build_envelope(
     return envelope
 
 
-async def _send_envelope(source: str, event_type: str, envelope: dict) -> None:
-    """POST envelope to the event-gateway. Raises on any failure -- transport,
-    non-2xx, or client-side exception all surface the same way, so callers
-    that need to know whether delivery actually happened (unlike the
-    fire-and-forget `post_event` below) can decide what to do about it."""
-    session = _get_session()
+def _build_gateway_request(source: str, envelope: dict) -> tuple[bytes, dict[str, str]]:
+    """Serialize and sign the exact body shared by both delivery policies."""
     body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()
     headers = {"Content-Type": "application/json"}
     if EVENT_GATEWAY_HMAC_KEY:
@@ -130,6 +126,13 @@ async def _send_envelope(source: str, event_type: str, envelope: dict) -> None:
             "X-IWE-Timestamp": timestamp,
             "X-IWE-Signature": f"sha256={signature}",
         })
+    return body, headers
+
+
+async def _send_envelope(source: str, event_type: str, envelope: dict) -> None:
+    """Legacy best-effort transport; HTTP 4xx/5xx and transport failures raise."""
+    session = _get_session()
+    body, headers = _build_gateway_request(source, envelope)
 
     async with session.post(
         f"{EVENT_GATEWAY_URL}/events",
@@ -139,6 +142,49 @@ async def _send_envelope(source: str, event_type: str, envelope: dict) -> None:
         if resp.status >= 400:
             body_text = await resp.text()
             raise RuntimeError(f"{event_type} POST failed: {resp.status} {body_text[:200]}")
+
+
+def _delivery_acknowledged(status: int, payload: object) -> bool:
+    """Match POST /events acknowledgements: inserted 201 or idempotent 200."""
+    if not isinstance(payload, dict):
+        return False
+    if status == 201:
+        return (
+            set(payload) == {"inserted", "id"}
+            and payload["inserted"] is True
+            and isinstance(payload["id"], str)
+            and bool(payload["id"].strip())
+        )
+    return (
+        status == 200
+        and set(payload) == {"inserted", "idempotent"}
+        and payload["inserted"] is False
+        and payload["idempotent"] is True
+    )
+
+
+async def _send_envelope_strict(source: str, event_type: str, envelope: dict) -> None:
+    """Require a direct inserted/idempotent acknowledgement from POST /events."""
+    session = _get_session()
+    body, headers = _build_gateway_request(source, envelope)
+    async with session.post(
+        f"{EVENT_GATEWAY_URL}/events",
+        data=body,
+        headers=headers,
+        allow_redirects=False,
+    ) as resp:
+        if resp.status not in (200, 201):
+            raise RuntimeError(f"{event_type} POST failed: HTTP {resp.status}")
+        try:
+            acknowledgement = await resp.json()
+        except (aiohttp.ClientError, ValueError):
+            raise RuntimeError(
+                f"{event_type} POST returned invalid acknowledgement: HTTP {resp.status}"
+            ) from None
+        if not _delivery_acknowledged(resp.status, acknowledgement):
+            raise RuntimeError(
+                f"{event_type} POST returned invalid acknowledgement: HTTP {resp.status}"
+            )
 
 
 async def post_event(
@@ -189,11 +235,14 @@ async def post_event_or_raise(
     delivery actually happened to decide retry/backoff -- `post_event`'s
     silent swallow is correct for its fire-and-forget callers, but would
     hide failure from a dispatcher whose whole job is reacting to it.
+    A disabled gateway is an explicit delivery failure, so the durable row
+    remains pending. A direct inserted/idempotent gateway acknowledgement
+    is required; HTTP status alone does not prove delivery.
     """
     if not EVENT_GATEWAY_ENABLED:
-        return
+        raise RuntimeError("event gateway is disabled; event was not delivered")
     envelope = _build_envelope(source, external_id, event_type, schema_version, occurred_at, account_id, payload)
-    await _send_envelope(source, event_type, envelope)
+    await _send_envelope_strict(source, event_type, envelope)
 
 
 async def resolve_ory_id_from_chat(chat_id: int) -> Optional[str]:
