@@ -392,7 +392,9 @@ async def _watch_event_outbox():
     """
     global _last_outbox_watch_alert_ts
 
+    from core.operator_alerts import alert_event_outbox_stuck
     from db.queries.event_outbox import count_stuck_outbox
+
     stuck = await count_stuck_outbox(older_than_minutes=10)
     if not stuck:
         return
@@ -404,12 +406,8 @@ async def _watch_event_outbox():
         return
     bot = Bot(token=_bot_token)
     try:
-        await bot.send_message(
-            DEVELOPER_CHAT_ID,
-            f"⚠️ event_outbox: {stuck} событий (payment_received/subscription_granted) "
-            "недоставлены >10 мин — дренаж не работает",
-        )
-        _last_outbox_watch_alert_ts = time.time()
+        if await alert_event_outbox_stuck(bot, stuck_count=stuck):
+            _last_outbox_watch_alert_ts = time.time()
     finally:
         await bot.session.close()
 
