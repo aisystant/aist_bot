@@ -1,0 +1,95 @@
+name: Release drift observation
+
+on:
+  push:
+    branches: [new-architecture]
+  # Pilot pushes request this trusted observer through workflow_run. No code
+  # from the triggering pilot commit is executed with the observer's token.
+  workflow_run:
+    workflows: ["Smoke Tests (L1+L2)"]
+    types: [completed]
+    branches: [pilot]
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'Initialize the first journal only (existing history is never reset)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-drift-observation
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: Release drift observation
+    if: github.event_name == 'workflow_dispatch' || vars.RELEASE_DRIFT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted observer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: new-architecture
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Restore previous journal
+        id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOOTSTRAP: ${{ inputs.bootstrap == true }}
+        run: |
+          args=()
+          if [[ "$BOOTSTRAP" == true ]]; then args+=(--bootstrap); fi
+          python -I scripts/release_drift_ci.py restore --directory drift-state \
+            --seed .github/release-drift-manifest.jsonl "${args[@]}"
+      - name: Observe both remote branches
+        id: observe
+        run: |
+          set +e
+          python -I scripts/release-drift-detector.py \
+            --repo . --manifest drift-state/release-drift-manifest.jsonl \
+            --no-fetch --output drift-report.json
+          result=$?
+          set -e
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          case "$result" in 0|3) ;; *) exit "$result" ;; esac
+      - name: Seal valid journal even after an observation error
+        id: seal
+        if: always() && steps.restore.outcome == 'success'
+        run: python -I scripts/release_drift_ci.py seal --directory drift-state
+      - name: Preserve authoritative journal
+        if: always() && steps.seal.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-drift-state
+          path: |
+            drift-state/release-drift-manifest.jsonl
+            drift-state/release-drift-state.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-drift-report
+          path: drift-report.json
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Enforce observation and 24-hour deadline
+        if: always()
+        env:
+          OBSERVED: ${{ steps.observe.outcome }}
+          RESULT: ${{ steps.observe.outputs.result }}
+        run: |
+          test "$OBSERVED" = success
+          test "$RESULT" = 0

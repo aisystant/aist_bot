@@ -43,7 +43,7 @@ from aiogram.types import (
     LabeledPrice,
 )
 
-from config import DEVELOPER_CHAT_ID
+from core.operator_alerts import alert_stars_subscription_failure
 from db.queries import get_intern
 from db.queries.subscription import save_subscription_with_outbox
 from helpers.dual_write import resolve_ory_id_from_chat
@@ -288,7 +288,11 @@ async def on_successful_stars_sub(message: Message):
             break
         except Exception as e:
             last_error = e
-            logger.warning(f"[SubStars] save_subscription_with_outbox attempt {attempt + 1}/3 failed: {e}")
+            logger.warning(
+                "[SubStars] save_subscription_with_outbox attempt %s/3 failed (%s)",
+                attempt + 1,
+                type(e).__name__,
+            )
             if attempt < 2:
                 await asyncio.sleep(2 * (attempt + 1))
 
@@ -301,19 +305,15 @@ async def on_successful_stars_sub(message: Message):
         logger.error(
             f"[SubStars] CRITICAL: subscription+outbox не сохранены после 3 попыток. "
             f"chat_id={chat_id}, charge_id={charge_id}, amount={stars_amount}, "
-            f"tariff={tariff_key}, last_error={last_error}"
+            f"tariff={tariff_key}, error_type={type(last_error).__name__}"
         )
-        if DEVELOPER_CHAT_ID:
-            try:
-                await message.bot.send_message(
-                    DEVELOPER_CHAT_ID,
-                    f"🔴 Stars-подписка НЕ сохранена (3 попытки): "
-                    f"chat_id={chat_id}, charge_id={charge_id}, "
-                    f"amount={stars_amount} XTR, tariff={tariff_key}. "
-                    f"Ошибка: {last_error}",
-                )
-            except Exception as alert_err:
-                logger.error(f"[SubStars] dev-alert failed too: {alert_err}")
+        await alert_stars_subscription_failure(
+            message.bot,
+            chat_id=chat_id,
+            charge_id=charge_id,
+            stars_amount=stars_amount,
+            tariff_key=tariff_key,
+        )
         await message.answer(
             "⚠️ Звёзды получены, но подписка обрабатывается дольше обычного. "
             "Если доступ не появится в течение нескольких минут — напишите в поддержку.",

@@ -25,7 +25,7 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 
-from config import DEVELOPER_CHAT_ID
+from core.operator_alerts import alert_recurring_donation_failure
 from core.pricing import get_current_price
 from db.queries import get_intern
 from db.queries.subscription import save_subscription, get_active_subscription, upsert_subscription_grant
@@ -153,16 +153,23 @@ async def on_successful_payment(message: Message):
     payment = message.successful_payment
     chat_id = message.chat.id
 
-    intern = await get_intern(chat_id)
-    lang = intern.get('language', 'ru') or 'ru'
+    # A language lookup must not prevent recovery of an already charged payment.
+    lang = "ru"
+    try:
+        intern = await get_intern(chat_id)
+        lang = (intern or {}).get("language", "ru") or "ru"
+    except Exception as exc:  # noqa: BLE001 - Storage recovery must still run.
+        logger.warning("[Payments] Language lookup failed (%s)", type(exc).__name__)
 
-    payload = getattr(payment, 'invoice_payload', '') or ''
+    payload = getattr(payment, "invoice_payload", "") or ""
 
     # Разовый донат — благодарим и предлагаем ежемесячный
     if payload.startswith("donate_once_"):
         amount = payment.total_amount
-        await message.answer(t('donation.once_success', lang))
-        logger.info(f"[Payments] One-time donation: chat_id={chat_id}, amount={amount} Stars")
+        await message.answer(t("donation.once_success", lang))
+        logger.info(
+            f"[Payments] One-time donation: chat_id={chat_id}, amount={amount} Stars"
+        )
 
         # Предложить сделать донат постоянным (всегда, даже при активной подписке)
         try:
@@ -214,18 +221,12 @@ async def on_successful_payment(message: Message):
             is_first=is_first,
         )
     except Exception as e:
-        logger.error(f"[Payments] Error saving recurring donation: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        if DEVELOPER_CHAT_ID:
-            try:
-                await message.bot.send_message(
-                    DEVELOPER_CHAT_ID,
-                    f"🔴 Recurring donation НЕ сохранён: chat_id={chat_id}, "
-                    f"charge_id={charge_id}, error={e}",
-                )
-            except Exception as alert_err:
-                logger.error(f"[Payments] dev-alert failed too: {alert_err}")
+        logger.error(
+            "[Payments] Recurring donation was not saved (%s)", type(e).__name__
+        )
+        await alert_recurring_donation_failure(
+            message.bot, chat_id=chat_id, charge_id=charge_id
+        )
         # НЕ отвечаем "успешно" при реальном сбое сохранения -- раньше
         # `donation.recurring_success` отправлялся при ЛЮБОМ исключении,
         # включая упавший save_subscription (пользователь считал донат

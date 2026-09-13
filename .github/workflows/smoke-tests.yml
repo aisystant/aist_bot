@@ -3,16 +3,11 @@ name: Smoke Tests (L1+L2)
 on:
   push:
     branches: [pilot, new-architecture]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'tests/test_repo/**'
   pull_request:
     branches: [pilot, new-architecture]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'tests/test_repo/**'
+
+permissions:
+  contents: read
 
 jobs:
   smoke-tests:
@@ -22,10 +17,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.11'
 
@@ -34,35 +31,32 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-mock
 
-      - name: Run smoke tests
+      - name: Check release infrastructure
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: >-
+          python -I -B -m pytest -p no:cacheprovider
+          tests/test_release_smoke.py
+          tests/test_release_drift_detector.py
+          tests/test_release_drift_ci.py
+          tests/test_branch_auto_deploy.py
+          -q --tb=short
+
+      - name: Run the exact candidate smoke profile
         run: |
-          python -m pytest tests/smoke/ tests/test_search_path_independence.py \
-            tests/test_db_pool_settings.py tests/test_readiness.py \
-            -v --tb=short --junitxml=smoke-results.xml
+          python -I -B scripts/run_release_smoke.py \
+            --candidate-commit "${GITHUB_SHA}" \
+            --profile l1-l2 \
+            --output-dir "${RUNNER_TEMP}/release-smoke-${GITHUB_RUN_ATTEMPT}"
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: smoke-test-results
-          path: smoke-results.xml
+          path: ${{ runner.temp }}/release-smoke-${{ github.run_attempt }}/
+          if-no-files-found: error
           retention-days: 30
-
-      - name: Test summary
-        if: always()
-        run: |
-          if [ -f smoke-results.xml ]; then
-            TESTS=$(grep -oP 'tests="\K[^"]+' smoke-results.xml | head -1)
-            FAILURES=$(grep -oP 'failures="\K[^"]+' smoke-results.xml | head -1)
-            ERRORS=$(grep -oP 'errors="\K[^"]+' smoke-results.xml | head -1)
-            echo "## 🧪 Smoke Tests (L1+L2)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| Tests | $TESTS |" >> $GITHUB_STEP_SUMMARY
-            echo "| Failures | $FAILURES |" >> $GITHUB_STEP_SUMMARY
-            echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
-          fi
 
   post-deploy-healthcheck:
     name: Post-Deploy Health Check

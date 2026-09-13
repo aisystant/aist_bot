@@ -130,6 +130,10 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/onboarder/x2.py", "_show_topic"),
 ("core/onboarder/x2.py", "run_step"),
 ("core/onboarder/x3.py", "_show_x3_offer"),
+    # WP-562/WP-567: a fixed-recipient operator transport for database/outbox
+    # failures cannot depend on that same database-backed delivery queue.
+    # Only this function is exempt; payment handlers remain under the guard.
+("core/operator_alerts.py", "_send_operator_alert"),
 ("core/scheduler.py", "_check_marathon_missed_checkins"),
 ("core/scheduler.py", "_check_marathon_split_delivery"),
 ("core/scheduler.py", "_check_retry_storm"),
