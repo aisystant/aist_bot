@@ -493,8 +493,11 @@ CLI требует полный commit; Git replacement refs не могут п�
 добавляет его как `/app/release-manifest.json`; обычная сборка Railway
 сохраняет прежний target приложения.
 
-Workflow `.github/workflows/release-candidate-build.yml` запускается вручную
-и использует точный commit самого запуска. Он имеет только `contents: read`,
+После доставки в основную ветку workflow
+`.github/workflows/release-candidate-build.yml` запускается вручную
+и использует точный commit самого запуска. Release ID включает commit,
+номер запуска и попытки: повторная сборка не получает ID прежнего образа.
+Workflow имеет только `contents: read`,
 проверяет отключённое переключение и сохраняет OCI-архив как артефакт CI.
 Публикации в registry, подписи и развёртывания в нём пока нет. Перед сохранением
 `scripts/check_release_image.py` сверяет цепочку digest, платформу и байты

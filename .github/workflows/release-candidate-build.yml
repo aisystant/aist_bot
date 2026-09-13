@@ -35,7 +35,7 @@ jobs:
             --repo . --source-ref "${GITHUB_SHA}" \
             --contract .github/release-control-contract.json \
             --metadata .github/release-metadata.json \
-            --release-id "wp562-${GITHUB_SHA}" \
+            --release-id "wp562-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --output release-manifest.candidate.json \
             --context-output wp562-build-context > "${RUNNER_TEMP}/manifest-build.json"
           install -m 0444 release-manifest.candidate.json \
