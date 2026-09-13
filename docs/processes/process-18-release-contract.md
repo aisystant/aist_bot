@@ -387,6 +387,86 @@ digest в production. Docker Image source пропускает сборку; о�
 проверенным планом с решением пилота. [Railway IaC](https://docs.railway.com/infrastructure-as-code#apply-changes),
 [настройки источника](https://docs.railway.com/infrastructure-as-code/reference#sources).
 
+## 10. Подготовка Ф3 без переключения сред
+
+Ядро `scripts/release_control.py` и схема `release_manifest.py` перенесены
+отдельно от продуктовых и миграционных изменений старого прототипа.
+`.github/release-control-contract.json` сохраняет `cutover.enabled=false`.
+CI `release-control-contract` проверяет это ограничение и поведение ядра;
+проверка не выполняет сборку, публикацию образа или развёртывание.
+
+Предварительный просмотр принимает два JSON-файла и выводит канонический
+JSON в stdout; пути передаёт вызывающий:
+
+```bash
+python -I -B scripts/release_control.py preview-release \
+  .github/release-control-contract.json \
+  --embedded-manifest EMBEDDED_MANIFEST_JSON \
+  --configuration-manifest CONFIGURATION_MANIFEST_JSON
+```
+
+Необязательный `--artifact-reference REGISTRY/REPOSITORY@sha256:DIGEST`
+допускает только точный registry/repository из контракта. Без него digest
+остаётся неизвестным. Код 0 означает согласованность деклараций;
+`readiness=not_verified` и `mutation_authorized=false` сохраняются всегда.
+Список `missing_evidence` перечисляет необходимые внешние проверки,
+включая фактическое содержимое профилей и классификацию дельт. Предварительный
+просмотр не читает профили, не обращается в registry и не создаёт разрешения.
+Его `preview_digest` не является fingerprint исполняемой операции.
+
+Конфигурационный manifest хранится вне образа и связывает release ID,
+хеш embedded manifest, оба профиля и реестр допустимых различий. Каждый
+профиль адресуется полным commit, относительным путём и digest. Эти данные
+задают ожидаемую конфигурацию; для допуска требуется отдельная проверенная
+квитанция фактического состояния среды. Сам JSON квитанцией не является.
+
+При финализации production можно обновить наблюдение текущего состояния
+среды после pilot. Менять принятую пару профилей или реестр различий нельзя:
+это новый manifest и новая операция с новым подтверждением. Хеш
+конфигурационного manifest входит в идентичность операции. Откат также
+должен ссылаться на конфигурационный manifest возвращаемого выпуска.
+
+Проверки с подставными провайдерами доказывают правила ядра, но не свойства
+Railway. Реальные адаптеры должны отдельно обеспечить проверенное
+происхождение образа, полномочия, устойчивую запись журнала и безопасное
+разрешение неопределённого результата. Статус применённой операции не
+заменяет проверку production readiness, canary и инвариантов данных.
+
+### Предлагаемый источник образов
+
+Предлагаемый адрес — `ghcr.io/aisystant/aist_bot@sha256:<digest>`.
+Наличие пакета и доступ Railway к нему пока не подтверждены.
+Сборка должна использовать полный принятый commit в Git context,
+`linux/amd64`, закреплённые Actions и публикацию по digest без пересборки
+между pilot и production. [Git context Docker](https://github.com/docker/build-push-action),
+[публикация по digest](https://docs.docker.com/build/exporters/image-registry/).
+
+Для сборочного CI нужны `contents: read` и `packages: write`; вход в GHCR
+возможен через `GITHUB_TOKEN`. Подписанное GitHub-свидетельство происхождения
+добавляет `id-token: write` и `attestations: write`; для private/internal
+репозитория его доступность требует Enterprise Cloud. Наличие нужного
+тарифа и выбранного способа подписи ещё нужно установить. Неподписанная
+BuildKit provenance не заменяет проверку доверенного подписанта.
+[GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
+[GitHub attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
+
+Если результат сборки — OCI index, нужно сохранить его digest и связь с
+исполняемым манифестом `linux/amd64`. Они не взаимозаменяемы. Поддержка
+index со свидетельствами и источник связи deployment ID с работающим
+digest должны быть проверены до переключения.
+[Хранение attestations](https://docs.docker.com/build/metadata/attestations/attestation-storage/).
+
+Для private registry Railway требует Pro и учётные данные чтения пакета;
+для GHCR — отдельный PAT classic с `read:packages` и ограниченным доступом
+учётной записи. Значение секрета вводится в Railway, а профиль хранит
+только ссылку на его версию. Нужные тариф, права и источник runtime digest
+пока не подтверждены. [Railway private registries](https://docs.railway.com/builds/private-registries).
+
+Следующее решение должно включать владельца пакета и выпуска, доступный
+способ подписания, принятые профили/различия и точный кандидат. Затем можно
+готовить конкретный Railway change set с актуальным `configEtag`.
+Наличие подготовленного кода не разрешает это изменение автоматически.
+
 ## Связанные материалы
 
 - РП562 (`DS-my-strategy/inbox/WP-562/WP-562.md`) — постановка проблемы, гипотеза H-314, фазы Ф2-Ф6.

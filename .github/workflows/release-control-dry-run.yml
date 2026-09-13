@@ -1,0 +1,44 @@
+name: Release Control Contract
+
+on:
+  push:
+    branches: [pilot, new-architecture]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  release-control-contract:
+    name: release-control-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: python -I -m pip install pytest
+
+      - name: Require production mutations to remain disabled
+        run: >-
+          python -I -B scripts/release_control.py validate-contract
+          .github/release-control-contract.json
+          --require-cutover-disabled
+
+      - name: Check release planning and rejected operations
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: >-
+          python -I -B -m pytest --import-mode=importlib
+          -p no:cacheprovider
+          tests/test_release_control.py
+          tests/test_release_manifest.py
+          -q --tb=short
