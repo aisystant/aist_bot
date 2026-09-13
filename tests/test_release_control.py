@@ -1566,35 +1566,93 @@ def test_manifest_from_another_contract_is_rejected_even_with_same_checks() -> N
 @pytest.mark.parametrize("migration_class", [item.value for item in MigrationClass])
 def test_all_literal_migration_classes_are_planned(migration_class) -> None:
     contract = _contract(cutover=False)
-    schema_range = (
-        {"schema_min": 0, "schema_max": 0}
-        if migration_class == MigrationClass.NONE.value
-        else {}
-    )
     manifest = _manifest(
         contract,
         migration_class=migration_class,
-        **schema_range,
     )
 
-    target_resolver = (
-        FakeTargetResolver(current_schema=0)
-        if migration_class == MigrationClass.NONE.value
-        else None
-    )
     operation = _plan(
         contract,
         manifest=manifest,
-        target_resolver=target_resolver,
     ).operations[0]
 
     assert operation.migration_class.value == migration_class
+    assert operation.current_schema == 5
+    assert (operation.schema_min, operation.schema_max) == (4, 6)
+
+
+@pytest.mark.parametrize("target", [TargetName.PILOT, TargetName.PRODUCTION])
+def test_no_migration_release_executes_on_a_compatible_existing_schema(target) -> None:
+    contract = _contract(cutover=True)
+    manifest = _manifest(contract, migration_class="none", schema_min=7, schema_max=9)
+    resolver = FakeTargetResolver(current_schema=8)
+    plan = _plan(contract, manifest=manifest, target_resolver=resolver)
+    ledger = FakeLedger()
+    operation = plan.operations[0]
+    if target is TargetName.PRODUCTION:
+        ledger.pilot_receipt = _pilot_receipt(plan.operations[1])
+        operation = _qualified_production(
+            contract, plan=plan, ledger=ledger, target_resolver=resolver
+        )
+    provider = FakeProvider()
+
+    result = _execute(
+        contract=contract, operation=operation, ledger=ledger, provider=provider
+    )
+
+    assert result.state is ExecutionState.APPLIED
+    assert provider.calls == 1
+    request = provider.requests[0]
+    assert request.operation.target is target
+    assert request.operation.migration_class is MigrationClass.NONE
+    assert request.expected_current_schema == 8
+    assert (request.operation.schema_min, request.operation.schema_max) == (7, 9)
+
+
+@pytest.mark.parametrize("current_schema", [6, 10])
+def test_no_migration_release_rejects_schema_outside_explicit_range(
+    current_schema,
+) -> None:
+    contract = _contract(cutover=True)
+    manifest = _manifest(contract, migration_class="none", schema_min=7, schema_max=9)
+    resolver = FakeTargetResolver(current_schema=current_schema)
+
+    with pytest.raises(EvidenceRejected, match="current_schema.*outside"):
+        _plan(contract, manifest=manifest, target_resolver=resolver)
+
+    assert resolver.calls == 1
+
+
+def test_no_migration_release_rechecks_production_schema_before_execution() -> None:
+    contract = _contract(cutover=True)
+    manifest = _manifest(contract, migration_class="none", schema_min=7, schema_max=9)
+    plan = _plan(
+        contract,
+        manifest=manifest,
+        target_resolver=FakeTargetResolver(current_schema=8),
+    )
+    ledger = FakeLedger()
+    ledger.pilot_receipt = _pilot_receipt(plan.operations[1])
+    resolver = FakeTargetResolver(current_schema=10)
+    provider = FakeProvider()
+
+    with pytest.raises(EvidenceRejected, match="current_schema.*outside"):
+        operation = _qualified_production(
+            contract, plan=plan, ledger=ledger, target_resolver=resolver
+        )
+        _execute(
+            contract=contract, operation=operation, ledger=ledger, provider=provider
+        )
+
+    assert resolver.calls == 1
+    assert ledger.claim_calls == 0
+    assert provider.calls == 0
 
 
 @pytest.mark.parametrize(
     ("migration_class", "schema_min", "schema_max"),
     [
-        (MigrationClass.NONE, 1, 1),
+        (MigrationClass.NONE, 9, 7),
         (MigrationClass.EXPAND, 0, 0),
     ],
 )

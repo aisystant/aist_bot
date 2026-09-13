@@ -175,7 +175,7 @@ def test_builder_uses_committed_metadata_when_worktree_copy_changes(
 
 @pytest.mark.parametrize(
     ("migration_class", "schema_min", "schema_max"),
-    [("none", 1, 1), ("expand", 0, 0)],
+    [("none", 9, 7), ("expand", 0, 0)],
 )
 def test_builder_rejects_semantically_impossible_committed_metadata(
     tmp_path: Path,
@@ -204,6 +204,34 @@ def test_builder_rejects_semantically_impossible_committed_metadata(
             release_id="release-test-1",
             output="release-manifest.candidate.json",
         )
+
+
+def test_builder_preserves_no_migration_compatibility_from_committed_metadata(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    metadata_path = repository / ".github" / "release-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.update(migration_class="none", schema_min=7, schema_max=9)
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    _git(repository, "add", ".github/release-metadata.json")
+    _git(repository, "commit", "-qm", "explicit fixture compatibility declaration")
+    candidate = _git(repository, "rev-parse", "HEAD")
+
+    manifest = build_release_manifest(
+        repository=repository,
+        contract_path=".github/release-control-contract.json",
+        metadata_path=".github/release-metadata.json",
+        source_ref=candidate,
+        release_id="release-test-1",
+        output="release-manifest.candidate.json",
+    )
+
+    payload = json.loads((repository / "release-manifest.candidate.json").read_bytes())
+    assert payload == manifest.to_mapping()
+    assert payload["source_commit"] == candidate
+    assert payload["migration_class"] == "none"
+    assert (payload["schema_min"], payload["schema_max"]) == (7, 9)
 
 
 def test_context_materializer_ignores_archive_export_transformations(
