@@ -2005,6 +2005,38 @@ async def internal_notify_handler(request: web.Request) -> web.Response:
             logger.exception("[InternalNotify] Error sending ops_alert: %s", e)
             return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
 
+    if notify_type == 'installation_orphaned':
+        # WP-559 (live case 13.09, Ivan K.): github-integration-service could not match a
+        # GitHub installation webhook to any user (no state-bearing install on file, no
+        # matching github_user_id) — the event sits in knowledge.orphaned_installation_events
+        # forever, nothing re-reads that table. Surface it the moment it happens instead of
+        # waiting for the user to complain.
+        import html as _html
+        ops_chat_id = os.getenv('OPS_ALERT_CHAT_ID', '')
+        if not ops_chat_id:
+            logger.warning("[InternalNotify] installation_orphaned получен, но OPS_ALERT_CHAT_ID не задан: %s", body)
+            return web.Response(text=json.dumps({"ok": False, "reason": "ops_chat_not_configured"}), content_type="application/json", status=503)
+        if not _bot_instance:
+            logger.warning("[InternalNotify] Bot instance not ready")
+            return web.Response(text=json.dumps({"ok": False, "reason": "bot_not_ready"}), content_type="application/json", status=503)
+        installation_id = _html.escape(str(body.get('installation_id', '?')))
+        github_user_id = _html.escape(str(body.get('github_user_id', '?')))
+        try:
+            await _bot_instance.send_message(
+                chat_id=int(ops_chat_id),
+                text=(
+                    f"⚠️ <b>GitHub-подключение потерялось</b>: установка <code>{installation_id}</code> "
+                    f"не сопоставилась ни с одним пользователем (github_user_id=<code>{github_user_id}</code>).\n"
+                    f"Смотри knowledge.orphaned_installation_events, сопоставляй вручную."
+                ),
+                parse_mode="HTML",
+            )
+            logger.info("[InternalNotify] installation_orphaned installation_id=%s sent", installation_id)
+            return web.Response(text=json.dumps({"ok": True}), content_type="application/json")
+        except Exception as e:
+            logger.exception("[InternalNotify] Error sending installation_orphaned: %s", e)
+            return web.Response(text=json.dumps({"ok": False, "error": str(e)}), content_type="application/json", status=500)
+
     if notify_type != 'repo_indexing_started' or not telegram_id:
         logger.warning("[InternalNotify] Unknown type or missing telegram_id: %s", body)
         return web.Response(text=json.dumps({"ok": False, "reason": "unknown_type"}), content_type="application/json")
