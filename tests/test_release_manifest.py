@@ -4,6 +4,7 @@ import pytest
 
 from release_manifest import (
     EmbeddedManifest,
+    MigrationClass,
     ReleaseConfigurationManifest,
     ReleaseManifestError,
     canonical_sha256,
@@ -61,10 +62,53 @@ def test_manifest_rejects_extra_self_digest() -> None:
 
 
 @pytest.mark.parametrize(
+    ("schema_min", "schema_max"),
+    [(0, 0), (0, 1), (1, 1), (7, 9)],
+)
+def test_no_migration_manifest_preserves_explicit_compatibility_range(
+    schema_min: int, schema_max: int
+) -> None:
+    payload = _payload(
+        migration_class="none", schema_min=schema_min, schema_max=schema_max
+    )
+
+    manifest = EmbeddedManifest.from_mapping(payload)
+
+    assert manifest.to_mapping() == payload
+    assert manifest.manifest_hash == canonical_sha256(payload)
+
+
+@pytest.mark.parametrize("migration_class", [item.value for item in MigrationClass])
+@pytest.mark.parametrize(
+    ("schema_min", "schema_max"),
+    [
+        (-1, 9),
+        (7, -1),
+        (9, 7),
+        (True, 9),
+        (7, False),
+        (7.0, 9),
+        (7, "9"),
+        (0, 2_147_483_648),
+        (2_147_483_648, 2_147_483_648),
+    ],
+)
+def test_compatibility_range_validation_is_independent_of_migration_class(
+    migration_class: str, schema_min: object, schema_max: object
+) -> None:
+    with pytest.raises(ReleaseManifestError, match="integer range|range is inverted"):
+        EmbeddedManifest.from_mapping(
+            _payload(
+                migration_class=migration_class,
+                schema_min=schema_min,
+                schema_max=schema_max,
+            )
+        )
+
+
+@pytest.mark.parametrize(
     ("migration_class", "schema_min", "schema_max"),
     [
-        ("none", 1, 1),
-        ("none", 0, 1),
         ("expand", 0, 0),
         ("contract", 0, 0),
         ("data_rewrite", 0, 0),
@@ -75,7 +119,7 @@ def test_manifest_rejects_semantically_impossible_migration_ranges(
     schema_min: int,
     schema_max: int,
 ) -> None:
-    with pytest.raises(ReleaseManifestError, match="migration|no-migration"):
+    with pytest.raises(ReleaseManifestError, match="must name a schema revision"):
         EmbeddedManifest.from_mapping(
             _payload(
                 migration_class=migration_class,

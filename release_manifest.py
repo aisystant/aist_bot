@@ -41,7 +41,12 @@ def validate_migration_semantics(
     *,
     path: str = "migration",
 ) -> tuple[MigrationClass, int, int]:
-    """Validate the one migration-class/range contract shared by every boundary."""
+    """Validate migration intent and compatibility without conflating them.
+
+    NONE describes a release with no new migration; its explicit compatibility
+    range still constrains the existing target schema. A real migration must
+    name at least one nonzero schema revision.
+    """
 
     try:
         normalized_class = MigrationClass(migration_class)
@@ -61,12 +66,7 @@ def validate_migration_semantics(
     )
     if normalized_min > normalized_max:
         raise ReleaseManifestError(f"{path} schema range is inverted")
-    if normalized_class is MigrationClass.NONE:
-        if normalized_min != 0 or normalized_max != 0:
-            raise ReleaseManifestError(
-                f"{path} no-migration declaration must use schema 0..0"
-            )
-    elif normalized_max == 0:
+    if normalized_class is not MigrationClass.NONE and normalized_max == 0:
         raise ReleaseManifestError(
             f"{path} migration declaration must name a schema revision"
         )
