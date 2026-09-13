@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS application
 
 WORKDIR /app
 
@@ -37,3 +37,11 @@ COPY data/ ./data/
 
 EXPOSE ${PORT:-8080}
 CMD ["python", "bot.py"]
+
+# The preparation workflow supplies this validated file separately from Git.
+# This target is opt-in and cannot build without the candidate manifest.
+FROM application AS release
+COPY release-manifest.candidate.json ./release-manifest.json
+
+# Ordinary Railway builds keep using the existing application target.
+FROM application AS development
