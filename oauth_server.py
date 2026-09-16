@@ -1508,6 +1508,18 @@ async def github_workbook_webhook_handler(request: web.Request) -> web.Response:
     except Exception as e:
         logger.warning("[WorkbookWebhook] ingest_event failed: %s", e)
 
+    # ── WP-522 Ф18: писатель факта С3 чек-листа (event-gateway, не user_events) ──
+    if lesson_files and sender_type != "Bot":
+        lesson_dates = [
+            m.group(1) for f in lesson_files
+            if (m := re.match(r'^lesson/(\d{4}-\d{2}-\d{2})\.md$', f))
+        ]
+        try:
+            from core.lesson.events import emit_lesson_closed_batch
+            await emit_lesson_closed_batch(dt_user_id, lesson_dates)
+        except Exception as e:
+            logger.warning("[WorkbookWebhook] lesson_closed emit failed: %s", e)
+
     # ── On-demand пересчёт ЦД ────────────────────────────────────────────────
     asyncio.create_task(sync_one_user_to_dt(dt_user_id))
 
