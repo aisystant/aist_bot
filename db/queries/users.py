@@ -507,8 +507,11 @@ async def update_intern(chat_id: int, **kwargs):
         logger.warning(f"[dual-write] user_updated fire failed: {exc}")
 
 
+# nosec B608 — колонки из хардкодного whitelist (bot_profile.PROFILE_MIRROR_FIELDS,
+# провалидирован regex), значения параметризованы ($1, $2), тот же паттерн, что
+# db/sql_helpers.py.
 _TG_USERNAME_RETURNING = (
-    "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1 "
+    "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1 "  # nosec B608
     "RETURNING telegram_id AS chat_id, ory_id, updated_at, " + ", ".join(bot_profile.PROFILE_MIRROR_FIELDS)
 )
 

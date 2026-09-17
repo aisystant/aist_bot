@@ -69,15 +69,18 @@ _INSERT_PARAMS = ", ".join(f"${i}" for i in range(1, 4 + len(PROFILE_MIRROR_FIEL
 _UPDATE_SET = ", ".join(f"{col} = EXCLUDED.{col}" for col in PROFILE_MIRROR_FIELDS)
 
 # $1=chat_id $2=account_id $3..$3+len=поля $(N)=updated_at
-MIRROR_SQL = f"""
-INSERT INTO bot_profile ({_INSERT_COLUMNS})
-VALUES ({_INSERT_PARAMS})
-ON CONFLICT (chat_id) DO UPDATE SET
-    {_UPDATE_SET},
-    account_id = COALESCE(EXCLUDED.account_id, bot_profile.account_id),
-    updated_at = EXCLUDED.updated_at
-WHERE bot_profile.updated_at IS NULL OR EXCLUDED.updated_at >= bot_profile.updated_at
-"""
+# nosec B608 — таблица и имена колонок из хардкодного whitelist (PROFILE_MIRROR_FIELDS,
+# провалидирован _IDENTIFIER_RE выше), значения всегда параметризованы ($1..$N), тот же
+# паттерн, что уже используется db/sql_helpers.py.
+MIRROR_SQL = (
+    f"INSERT INTO bot_profile ({_INSERT_COLUMNS}) "  # nosec B608
+    f"VALUES ({_INSERT_PARAMS}) "
+    f"ON CONFLICT (chat_id) DO UPDATE SET "
+    f"{_UPDATE_SET}, "
+    f"account_id = COALESCE(EXCLUDED.account_id, bot_profile.account_id), "
+    f"updated_at = EXCLUDED.updated_at "
+    f"WHERE bot_profile.updated_at IS NULL OR EXCLUDED.updated_at >= bot_profile.updated_at"
+)
 
 _MIRROR_TIMEOUT_S = 5.0
 

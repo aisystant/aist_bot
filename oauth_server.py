@@ -385,8 +385,11 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
             # серверный updated_at, что identity.link_ory — иначе конкурирует
             # с ним и с update_intern за порядок записи в persona.bot_profile
             # без сериализации (cold-review этой сессии).
+            # nosec B608 — колонки из хардкодного whitelist (bot_profile.PROFILE_MIRROR_FIELDS,
+            # провалидирован regex), значения параметризованы ($1, $2), тот же паттерн, что
+            # db/sql_helpers.py.
             dt_link_returning = (
-                "UPDATE public.users SET ory_id = $2, updated_at = (NOW() AT TIME ZONE 'utc') "
+                "UPDATE public.users SET ory_id = $2, updated_at = (NOW() AT TIME ZONE 'utc') "  # nosec B608
                 "WHERE telegram_id = $1 AND ory_id IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2) "
                 "RETURNING telegram_id AS chat_id, ory_id, updated_at, " +

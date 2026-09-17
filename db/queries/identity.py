@@ -89,8 +89,11 @@ async def get_user_uuid(telegram_id: int) -> Optional[UUID]:
         return row['id'] if row else None
 
 
+# nosec B608 — колонки из хардкодного whitelist (bot_profile.PROFILE_MIRROR_FIELDS,
+# провалидирован regex), значения параметризованы ($1..$3), тот же паттерн, что
+# db/sql_helpers.py.
 _LINK_ORY_RETURNING = (
-    "UPDATE public.users SET ory_id = $2, email = COALESCE($3, email), "
+    "UPDATE public.users SET ory_id = $2, email = COALESCE($3, email), "  # nosec B608
     "tier = CASE WHEN tier = 'T0' THEN 'T1' ELSE tier END, updated_at = (NOW() AT TIME ZONE 'utc') "
     "WHERE telegram_id = $1 "
     "RETURNING telegram_id AS chat_id, ory_id, updated_at, " + ", ".join(bot_profile.PROFILE_MIRROR_FIELDS)
