@@ -79,6 +79,15 @@ JOURNAL_URL = os.getenv("JOURNAL_URL") or os.getenv("DATABASE_URL")
 # Наблюдаемость системы и сессии. Health BD — special (не entity).
 HEALTH_URL = os.getenv("HEALTH_URL") or os.getenv("DATABASE_URL")
 
+# WP-578 Ф2: Рабочее место наставника — отдельный Neon-проект (не aisystant),
+# роль mentorship_app. Без fallback на DATABASE_URL: least-privilege граница
+# по прецеденту PRIVACY_DELETION_URL (не тот же случай "виден на dev" — это
+# отдельная БД). Отсутствие переменной НЕ роняет бота: db/connection.py
+# отдаёт None, engines/mentorship при этом молча отключается с WARN — на
+# проде переменной не будет до промоции из neon-migrations/sandbox/.
+MENTORSHIP_URL = os.getenv("MENTORSHIP_URL")
+MENTORSHIP_DISCLAIMER_DAYS = int(os.getenv("MENTORSHIP_DISCLAIMER_DAYS", "14"))
+
 # WP-253 Пробел C: OAuth-токены интеграций (GitHub, etc.) — Neon secrets БД.
 # DP.ARCH.004 §B7.3.1: secrets ∩ PII → pgcrypto column-level + RLS.
 # Fallback на DATABASE_URL только для локального dev; в production обязателен.
