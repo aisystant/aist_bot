@@ -1,5 +1,6 @@
 """
-Рабочее место наставника — команды регистрации потока и согласия (WP-578 Ф2).
+Рабочее место наставника — команды регистрации потока, согласия и заметок
+(WP-578 Ф2/Ф3).
 
 /mentor_stream <STREAM_ID> — группа: наставник/пилот регистрирует эту группу
     за потоком (S1/S2/…). Идемпотентно, аудируемо (stream_chat).
@@ -10,6 +11,11 @@
     (та же кнопка, что у /mentor_consent) — WP-578, обнаружение согласия,
     способ 2 из 3 (решение пилота 17.09, способ 3 — встроить в онбординг —
     не делаем в этом проходе).
+/mentor_note [текст] — группа, ответом на сообщение участника: сохранить
+    сообщение-цель (или явный аргумент команды) как заметку наставника через
+    mentorship-service (WP-578 Ф3, add_participant_note). Бот НЕ пишет в
+    базу наставничества напрямую (принцип «бот = тонкий клиент», MEMORY.md) —
+    только HTTP-вызов в отдельный сервис после подтверждения карантина.
 
 Известное сужение MVP: deep-link из дисклеймера группы (t.me/<bot>?start=…)
 не реализован в этом проходе — `/start` уже занят онбордингом
@@ -22,12 +28,15 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from time import time
 
 from aiogram import Router, F
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from clients.mentorship_service import MentorshipServiceError, mentorship_service
 from db.queries.consent import set_consent_grant
 from db.queries.mentorship import get_stream_reader_role, lookup_stream_chat, register_stream_chat
 from helpers.dual_write import resolve_ory_id_from_chat
@@ -165,3 +174,139 @@ async def cb_mentor_consent(callback: CallbackQuery) -> None:
     await callback.message.edit_text(text)
     await callback.answer()
     logger.info("[Mentorship] consent %s account=%s", "granted" if grant else "revoked", account_id)
+
+
+@dataclass(frozen=True)
+class _PendingNote:
+    mentor_account_id: str
+    stream_id: str
+    participant_account_id: str
+    participant_name: str
+    body: str
+    created_at: float
+
+
+_PENDING_NOTE_TTL_SECONDS = 15 * 60
+
+# (chat_id, mentor_telegram_user_id) -> заметка, ждущая подтверждения карантина
+# кнопкой. In-memory, не переживает рестарт бота (Railway redeploy) — то же
+# осознанное узкое сужение, что _topic_creator_is_mentor_cache в
+# engines/mentorship/archive_tap.py: потеря означает "наставник подтверждает
+# ещё раз", не порчу данных (CLAUDE.md §10.36, исключение для UI-флагов без
+# побочных эффектов). Новый /mentor_note от того же наставника в том же чате
+# молча заменяет предыдущий незавершённый — одна незавершённая заметка на
+# наставника в чате достаточно для MVP.
+_pending_notes: dict[tuple[int, int], _PendingNote] = {}
+
+
+def _note_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, сохранить", callback_data="mentor_note:confirm"),
+                InlineKeyboardButton(text="Отмена", callback_data="mentor_note:cancel"),
+            ]
+        ]
+    )
+
+
+@mentorship_router.message(Command("mentor_note"), F.chat.type.in_({"group", "supergroup"}))
+async def cmd_mentor_note(message: Message, command: CommandObject) -> None:
+    """Наставник отвечает командой на сообщение участника — бот запоминает
+    текст (аргумент команды, если он есть, иначе текст сообщения-цели) и
+    просит подтвердить отсутствие чужих личных данных, прежде чем звать
+    add_participant_note сервиса (тот сам fail-closed без этого подтверждения,
+    WP-578 Ф3 — двойная защита намеренная, не дублирование)."""
+    target_message = message.reply_to_message
+    if target_message is None or target_message.from_user is None:
+        await message.reply("Ответь этой командой на сообщение участника, которое нужно сохранить как заметку.")
+        return
+    if target_message.from_user.id == message.from_user.id:
+        await message.reply("Нельзя сохранить собственное сообщение наставника как заметку об участнике.")
+        return
+
+    body = (command.args or "").strip() or (target_message.text or target_message.caption or "").strip()
+    if not body:
+        await message.reply("В сообщении-цели нет текста — нечего сохранять.")
+        return
+
+    caller_account_id = await resolve_ory_id_from_chat(message.from_user.id)
+    if caller_account_id is None:
+        await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
+        return
+
+    ctx = await lookup_stream_chat(message.chat.id)
+    if ctx is None:
+        await message.reply("Эта группа не зарегистрирована за потоком — сначала /mentor_stream.")
+        return
+    if await get_stream_reader_role(caller_account_id, ctx.stream_id) is None:
+        await message.reply(f"Ты не числишься наставником или пилотом потока {ctx.stream_id}.")
+        return
+
+    participant_account_id = await resolve_ory_id_from_chat(target_message.from_user.id)
+    if participant_account_id is None:
+        await message.reply("У участника нет привязанного аккаунта платформы — заметку сохранить нельзя.")
+        return
+
+    participant_name = target_message.from_user.full_name
+    _pending_notes[(message.chat.id, message.from_user.id)] = _PendingNote(
+        mentor_account_id=caller_account_id,
+        stream_id=ctx.stream_id,
+        participant_account_id=participant_account_id,
+        participant_name=participant_name,
+        body=body,
+        created_at=time(),
+    )
+    await message.reply(
+        f"Сохранить как заметку об участнике {participant_name}?\n\n«{body}»\n\n"
+        "⚠️ Подтверди, что в тексте нет чужих личных данных без согласия.",
+        reply_markup=_note_confirm_keyboard(),
+    )
+
+
+@mentorship_router.callback_query(F.data.in_({"mentor_note:confirm", "mentor_note:cancel"}))
+async def cb_mentor_note(callback: CallbackQuery) -> None:
+    key = (callback.message.chat.id, callback.from_user.id)
+    pending = _pending_notes.pop(key, None)
+    if pending is None:
+        await callback.answer("Заметка устарела или уже обработана — повтори /mentor_note.", show_alert=True)
+        return
+
+    if callback.data == "mentor_note:cancel":
+        await callback.message.edit_text("Отменено — заметка не сохранена.")
+        await callback.answer()
+        return
+
+    if time() - pending.created_at > _PENDING_NOTE_TTL_SECONDS:
+        await callback.answer("Заметка устарела — повтори /mentor_note.", show_alert=True)
+        await callback.message.edit_text("Заметка устарела — повтори /mentor_note.")
+        return
+
+    try:
+        result = await mentorship_service.add_participant_note(
+            pending.mentor_account_id,
+            pending.stream_id,
+            pending.participant_account_id,
+            pending.body,
+            source_hint="telegram-forward",
+            quarantine_confirmed=True,
+        )
+    except MentorshipServiceError as e:
+        logger.warning("[Mentorship] add_participant_note отклонён: %s — %s", e.kind, e)
+        await callback.message.edit_text(f"Не удалось сохранить заметку: {e}")
+        await callback.answer()
+        return
+
+    if result is None:
+        await callback.message.edit_text("Сервис заметок сейчас недоступен — попробуй позже.")
+        await callback.answer()
+        return
+
+    logger.info(
+        "[Mentorship] add_participant_note by=%s participant=%s stream=%s",
+        pending.mentor_account_id,
+        pending.participant_account_id,
+        pending.stream_id,
+    )
+    await callback.message.edit_text(f"✅ Заметка об участнике {pending.participant_name} сохранена.")
+    await callback.answer()

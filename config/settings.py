@@ -112,6 +112,12 @@ GATEWAY_MCP_TIMEOUT: int = int(os.getenv("GATEWAY_MCP_TIMEOUT", "3"))
 CHECKLIST_MCP_URL = os.getenv("CHECKLIST_MCP_URL", "")
 CHECKLIST_MCP_SERVICE_TOKEN_ONBOARDER = os.getenv("CHECKLIST_MCP_SERVICE_TOKEN_ONBOARDER", "")
 CHECKLIST_MCP_TIMEOUT: int = int(os.getenv("CHECKLIST_MCP_TIMEOUT", "3"))
+# WP-578 Ф3: standalone-сервис карточки участника и заметок наставника
+# (Railway, не Cloudflare Worker — редизайн 17.09). Тот же паттерн сервисного
+# токена, что checklist-mcp выше.
+MENTORSHIP_SERVICE_URL = os.getenv("MENTORSHIP_SERVICE_URL", "")
+MENTORSHIP_SERVICE_TOKEN = os.getenv("MENTORSHIP_SERVICE_TOKEN", "")
+MENTORSHIP_SERVICE_TIMEOUT: int = int(os.getenv("MENTORSHIP_SERVICE_TIMEOUT", "5"))
 
 # ============= LANGFUSE (L5 Observability, WP-179) =============
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
