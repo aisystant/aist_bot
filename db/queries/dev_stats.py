@@ -9,8 +9,26 @@ from typing import List
 from config import get_logger
 from db.connection import get_pool, get_journal_pool, get_learning_pool, get_health_pool
 from db.sql_helpers import select_count_from
+from db.queries import bot_profile
 
 logger = get_logger(__name__)
+
+
+# === WP-253 Ф12.6 фаза A — dual-write наблюдаемость ===
+
+def get_bot_profile_mirror_stats() -> dict:
+    """Счётчики зеркалирования в persona.bot_profile за текущий запуск процесса.
+
+    In-memory (не персистентно) — намеренно: это индикатор текущего прогона,
+    не журнал. Флаг выключен → все счётчики 0.
+    """
+    from config import BOT_PROFILE_DUAL_WRITE_ENABLED, BOT_PROFILE_DUAL_WRITE_CHAT_IDS
+
+    return {
+        "dual_write_enabled": BOT_PROFILE_DUAL_WRITE_ENABLED,
+        "allowlist_size": len(BOT_PROFILE_DUAL_WRITE_CHAT_IDS),
+        **bot_profile.get_mirror_counts(),
+    }
 
 
 # === /stats — пользователи и активность ===

@@ -23,6 +23,10 @@ async def test_update_intern_keeps_mapping_for_dual_write(monkeypatch):
 
     connection = AsyncMock()
     connection.transaction = MagicMock(return_value=_AcquireContext(None))
+    # WP-253 Ф12.6 фаза A: профильный UPDATE теперь идёт через fetchrow
+    # (RETURNING для зеркала в persona.bot_profile), не execute — None
+    # имитирует «зеркало отключено флагом» без похода в persona pool.
+    connection.fetchrow = AsyncMock(return_value=None)
     pool = MagicMock()
     pool.acquire.return_value = _AcquireContext(connection)
     monkeypatch.setattr(users, "get_pool", AsyncMock(return_value=pool))
@@ -47,7 +51,9 @@ async def test_update_intern_keeps_mapping_for_dual_write(monkeypatch):
             onboarding_completed=True,
         )
 
-    assert connection.execute.await_count == 2
+    # profile_updates идёт через fetchrow (RETURNING), state_updates — через execute.
+    assert connection.fetchrow.await_count == 1
+    assert connection.execute.await_count == 1
     connection.transaction.assert_called_once_with()
     payload = post_event.call_args.kwargs["payload"]
     assert payload["fields_updated"] == ["name", "onboarding_completed"]

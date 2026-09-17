@@ -227,6 +227,18 @@ ALLOWED_TESTERS: set[int] = {int(x.strip()) for x in _allowed.split(",") if x.st
 # Telegram ID разработчика — освобождён от rate limiting
 DEVELOPER_CHAT_ID: int = int(os.getenv("DEVELOPER_CHAT_ID", "0"))
 
+# WP-253 Ф12.6 фаза A: dual-write профиля в persona.bot_profile за флагом.
+# Default off. Пустой список chat_id при включённом флаге = зеркалим всех
+# (используется на проде ПОСЛЕ поэтапного прохода через непустой allowlist
+# ниже, peer-session 2026-09-17-07). На pilot флаг остаётся выключенным, пока
+# нет отдельной Neon-ветки persona для пилотного окружения (pilot и prod
+# делят одну базу persona — найдено WP-253 Ф12.5, 17.09.2026).
+BOT_PROFILE_DUAL_WRITE_ENABLED: bool = os.getenv("BOT_PROFILE_DUAL_WRITE_ENABLED", "false").lower() == "true"
+_bot_profile_dual_write_chat_ids = os.getenv("BOT_PROFILE_DUAL_WRITE_CHAT_IDS", "")
+BOT_PROFILE_DUAL_WRITE_CHAT_IDS: set[int] = {
+    int(x.strip()) for x in _bot_profile_dual_write_chat_ids.split(",") if x.strip().isdigit()
+}
+
 # Telegram ID канала наставников марафона — алерты о пропусках и failed отправках
 MENTOR_CHANNEL_ID: int = int(os.getenv("MENTOR_CHANNEL_ID", "0"))
 

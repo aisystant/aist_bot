@@ -19,6 +19,7 @@ from typing import Optional, List
 from config import get_logger, MOSCOW_TZ, MULTILANG_ENABLED
 from db.connection import get_pool, get_learning_pool
 from db.sql_helpers import update as _update_sql
+from db.queries import bot_profile
 from helpers.dual_write import post_event, resolve_ory_id_from_chat
 from core.tracing import traced_acquire
 
@@ -410,34 +411,63 @@ async def update_intern(chat_id: int, **kwargs):
     }
     affected_fields = sorted(set(profile_updates) | set(state_updates))
 
-    pool = await get_pool()
-    async with traced_acquire(pool, "db.update_intern") as conn:
-        async with conn.transaction():
-            if profile_updates:
-                set_parts = []
-                params = [chat_id]  # $1 = telegram_id
-                for i, (col, val) in enumerate(profile_updates.items(), start=2):
-                    set_parts.append(f"{col} = ${i}")
-                    params.append(val)
-                update_columns = [sp.split(" = ", 1)[0] for sp in set_parts]
-                query = _update_sql(
-                    'public.users', update_columns, 'telegram_id = $1',
-                    extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
-                )
-                await conn.execute(query, *params)
+    # WP-253 Ф12.6 фаза A: если профиль меняется и зеркалирование включено для этого
+    # chat_id — берём per-chat_id лок ДО транзакции и держим его до конца зеркала,
+    # чтобы конкурентная запись (например, update_tg_username) не обогнала зеркало
+    # и не создала неверный порядок в persona.bot_profile (peer-session
+    # 2026-09-17-07, консенсус с Kimi). Флаг выключен → mirror_enabled_for() всегда
+    # False, лок не берётся, главный путь записи не меняется.
+    mirror_lock = await bot_profile.chat_lock(chat_id) if (
+        profile_updates and bot_profile.mirror_enabled_for(chat_id)
+    ) else None
 
-            if state_updates:
-                set_parts = []
-                params = [chat_id]  # $1 = chat_id
-                for i, (col, val) in enumerate(state_updates.items(), start=2):
-                    set_parts.append(f"{col} = ${i}")
-                    params.append(val)
-                update_columns = [sp.split(" = ", 1)[0] for sp in set_parts]
-                query = _update_sql(
-                    'development.user_state', update_columns, 'chat_id = $1',
-                    extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
-                )
-                await conn.execute(query, *params)
+    async def _write():
+        mirrored_row = None
+        pool = await get_pool()
+        async with traced_acquire(pool, "db.update_intern") as conn:
+            async with conn.transaction():
+                if profile_updates:
+                    set_parts = []
+                    params = [chat_id]  # $1 = telegram_id
+                    for i, (col, val) in enumerate(profile_updates.items(), start=2):
+                        set_parts.append(f"{col} = ${i}")
+                        params.append(val)
+                    update_columns = [sp.split(" = ", 1)[0] for sp in set_parts]
+                    query = _update_sql(
+                        'public.users', update_columns, 'telegram_id = $1',
+                        extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
+                    )
+                    # RETURNING даёт зеркалу закоммиченную строку без лишнего SELECT.
+                    mirror_query = query + " RETURNING telegram_id AS chat_id, ory_id, updated_at, " + \
+                        ", ".join(bot_profile.PROFILE_MIRROR_FIELDS)
+                    mirrored_row = await conn.fetchrow(mirror_query, *params)
+
+                if state_updates:
+                    set_parts = []
+                    params = [chat_id]  # $1 = chat_id
+                    for i, (col, val) in enumerate(state_updates.items(), start=2):
+                        set_parts.append(f"{col} = ${i}")
+                        params.append(val)
+                    update_columns = [sp.split(" = ", 1)[0] for sp in set_parts]
+                    query = _update_sql(
+                        'development.user_state', update_columns, 'chat_id = $1',
+                        extra_set=["updated_at = (NOW() AT TIME ZONE 'utc')"],
+                    )
+                    await conn.execute(query, *params)
+        return mirrored_row
+
+    if mirror_lock is not None:
+        async with mirror_lock:
+            mirrored_row = await _write()
+            if mirrored_row is not None:
+                await bot_profile.mirror_profile_row(dict(mirrored_row))
+    else:
+        mirrored_row = await _write()
+        if mirrored_row is not None:
+            # mirror_lock is None либо потому что profile_updates пуст (тогда
+            # mirrored_row тоже None — до сюда не дойдём), либо потому что флаг
+            # выключен — mirror_profile_row сам вернёт skipped_flag дёшево.
+            await bot_profile.mirror_profile_row(dict(mirrored_row))
 
     # Инкрементальный sync в ЦД (fire-and-forget)
     try:
@@ -477,21 +507,48 @@ async def update_intern(chat_id: int, **kwargs):
         logger.warning(f"[dual-write] user_updated fire failed: {exc}")
 
 
+_TG_USERNAME_RETURNING = (
+    "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1 "
+    "RETURNING telegram_id AS chat_id, ory_id, updated_at, " + ", ".join(bot_profile.PROFILE_MIRROR_FIELDS)
+)
+
+
 async def update_tg_username(chat_id: int, username: str) -> None:
-    """Обновить tg_username если изменился."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        result = await conn.execute(
-            "UPDATE public.users SET tg_username = $1 WHERE telegram_id = $2 AND tg_username IS DISTINCT FROM $1",
-            username, chat_id,
-        )
+    """Обновить tg_username если изменился.
+
+    WP-253 Ф12.6 фаза A: НЕ бампает public.users.updated_at (сознательно —
+    смена семантики этого поля затронула бы существующую логику, peer-session
+    2026-09-17-07). RETURNING отдаёт зеркалу текущую полную строку (не только
+    tg_username) — если updated_at не изменился с последнего зеркалированного
+    состояния, guard в bot_profile пропустит запись как равную по времени.
+    """
+    mirror_lock = await bot_profile.chat_lock(chat_id) if bot_profile.mirror_enabled_for(chat_id) else None
+
+    async def _write():
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            return await conn.fetchrow(_TG_USERNAME_RETURNING, username, chat_id)
+
+    if mirror_lock is not None:
+        async with mirror_lock:
+            row = await _write()
+            if row is not None:
+                await bot_profile.mirror_profile_row(dict(row))
+    else:
+        row = await _write()
+        if row is not None:
+            # mirror_lock is None здесь только потому, что флаг выключен
+            # (row is not None требует, чтобы UPDATE реально сработал) —
+            # mirror_profile_row сам вернёт skipped_flag дёшево, симметрично
+            # с update_intern (cold-review этой сессии).
+            await bot_profile.mirror_profile_row(dict(row))
 
     # WP-268 Phase 2 dual-write: tg_username синхронизирован
-    # Только если действительно был апдейт (UPDATE 1+, не UPDATE 0)
+    # Только если действительно был апдейт (строка вернулась, не None)
     # Audit fix (Phase 2): убран telegram_id из payload (PII), epoch_ns заменён
     # на стабильный hash от (chat_id, username) — retry с тем же значением
     # username идемпотентен.
-    if result and result != "UPDATE 0":
+    if row is not None:
         now = datetime.utcnow()
         ory_id = await resolve_ory_id_from_chat(chat_id)
         username_hash = hashlib.sha256(

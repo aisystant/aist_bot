@@ -375,17 +375,42 @@ async def twin_callback_handler(request: web.Request) -> web.Response:
     try:
         from db.queries.dt_tokens import get_dt_user_id
         from db.connection import get_pool
+        from db.queries import bot_profile
         dt_uid = await get_dt_user_id(telegram_user_id)
         if dt_uid:
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                res = await conn.execute(
-                    '''UPDATE public.users SET ory_id = $2, updated_at = NOW()
-                       WHERE telegram_id = $1 AND ory_id IS NULL
-                         AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2)''',
-                    telegram_user_id, dt_uid,
-                )
-            if res != 'UPDATE 0':
+            # WP-253 Ф12.6 фаза A: второй, более редкий T0→T1 discovery-канал
+            # (первый — identity.link_ory). RETURNING даёт зеркалу закоммиченную
+            # строку в тот же момент, когда у пользователя впервые появляется
+            # ory_id (peer-session 2026-09-17-07). Тот же per-chat_id лок и
+            # серверный updated_at, что identity.link_ory — иначе конкурирует
+            # с ним и с update_intern за порядок записи в persona.bot_profile
+            # без сериализации (cold-review этой сессии).
+            dt_link_returning = (
+                "UPDATE public.users SET ory_id = $2, updated_at = (NOW() AT TIME ZONE 'utc') "
+                "WHERE telegram_id = $1 AND ory_id IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM public.users u2 WHERE u2.ory_id = $2) "
+                "RETURNING telegram_id AS chat_id, ory_id, updated_at, " +
+                ', '.join(bot_profile.PROFILE_MIRROR_FIELDS)
+            )
+
+            async def _dt_link_write():
+                pool = await get_pool()
+                async with pool.acquire() as conn:
+                    return await conn.fetchrow(dt_link_returning, telegram_user_id, dt_uid)
+
+            dt_mirror_lock = await bot_profile.chat_lock(telegram_user_id) \
+                if bot_profile.mirror_enabled_for(telegram_user_id) else None
+            if dt_mirror_lock is not None:
+                async with dt_mirror_lock:
+                    returning_row = await _dt_link_write()
+                    if returning_row is not None:
+                        await bot_profile.mirror_profile_row(dict(returning_row))
+            else:
+                returning_row = await _dt_link_write()
+                if returning_row is not None:
+                    await bot_profile.mirror_profile_row(dict(returning_row))
+
+            if returning_row is not None:
                 logger.info(f"DT: synced ory_id={dt_uid} to users for {telegram_user_id}")
                 # WP-268 Phase 2 dual-write: dt_linked (сохранён после IDCOL1 Ф2 —
                 # downstream-дашборды могут опираться на этот event_type; account_id
