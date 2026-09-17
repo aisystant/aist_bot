@@ -50,6 +50,21 @@ async def lookup_stream_chat(telegram_chat_id: int) -> Optional[StreamChatContex
     return StreamChatContext(stream_id=row["stream_id"], reader_account_id=str(row["reader_account_id"]))
 
 
+async def list_active_stream_chats() -> list[tuple[int, str]]:
+    """Все зарегистрированные (не superseded) телеграм-чаты потоков —
+    (telegram_chat_id, stream_id). SECURITY DEFINER, как lookup_stream_chat:
+    периодическая задача (core/scheduler.py, обнаружение согласия способ 1)
+    не действует от имени конкретного читателя потока, ей нужны все чаты
+    сразу — RLS stream_reader_access этого не даст ни одному отдельному
+    account_id (WP-578, neon-migrations/sandbox/2026-09-17-wp578-list-active-stream-chats.sql).
+    """
+    pool = await get_mentorship_pool()
+    if pool is None:
+        return []
+    rows = await pool.fetch("SELECT telegram_chat_id, stream_id FROM app.list_active_stream_chats()")
+    return [(row["telegram_chat_id"], row["stream_id"]) for row in rows]
+
+
 async def lookup_participant_stream(account_id: str) -> Optional[StreamChatContext]:
     """Поток участника по его account_id — резолв для личных сообщений (DM),
     которые НЕ проходят через stream_chat (у каждого участника свой
