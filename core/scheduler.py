@@ -28,7 +28,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED, DEVELOPER_CHAT_ID
+from config import MOSCOW_TZ, MAX_TOPICS_PER_DAY, MARATHON_DAYS, MarathonStatus, MENTOR_CHANNEL_ID, DELIVERY_LAYER_ENABLED, DEVELOPER_CHAT_ID, MENTORSHIP_DISCLAIMER_DAYS
 from db.connection import get_pool
 from db.queries import get_intern, update_intern, get_all_scheduled_interns, get_topics_today
 from db.queries.users import derive_mode
@@ -930,6 +930,42 @@ async def _send_marathon_weekly_digest():
         await bot.session.close()
 
 
+async def _send_mentorship_disclaimer():
+    """WP-578: обнаружение согласия, способ 1 из 3 (решение пилота 17.09).
+
+    Раз в MENTORSHIP_DISCLAIMER_DAYS дней публикует в каждой зарегистрированной
+    группе потока (public.stream_chat) сообщение с кнопкой согласия — та же
+    формулировка и клавиатура, что у /mentor_consent (handlers/mentorship.py).
+    Дедуп через notification_log (§10.10): ключ меняется ровно раз в N дней
+    на чат, без отдельной колонки "когда отправлено в последний раз".
+    """
+    from db.queries.mentorship import list_active_stream_chats
+    from db.queries.notifications import try_insert_notification
+    from handlers.mentorship import CONSENT_PROMPT_TEXT, consent_keyboard
+
+    if not _bot_token:
+        return
+
+    chats = await list_active_stream_chats()
+    if not chats:
+        return
+
+    bot = Bot(token=_bot_token)
+    period_bucket = int(time.time() // 86400) // MENTORSHIP_DISCLAIMER_DAYS
+    try:
+        for telegram_chat_id, stream_id in chats:
+            dedup_key = f"mentorship_disclaimer:{telegram_chat_id}:{period_bucket}"
+            if not await try_insert_notification(telegram_chat_id, 'mentorship_disclaimer', dedup_key):
+                continue
+            try:
+                await bot.send_message(telegram_chat_id, CONSENT_PROMPT_TEXT, reply_markup=consent_keyboard())
+                logger.info(f"[MentorshipDisclaimer] Sent to chat={telegram_chat_id} stream={stream_id}")
+            except Exception as e:
+                logger.warning(f"[MentorshipDisclaimer] Failed to send to chat={telegram_chat_id}: {e}")
+    finally:
+        await bot.session.close()
+
+
 async def _check_marathon_split_delivery():
     """WP-330 С5 watchdog: убедиться что split-формат уроков уехал утром 31 мая.
 
@@ -1164,6 +1200,7 @@ def init_scheduler(bot_dispatcher, aiogram_dispatcher, bot_token: str) -> AsyncI
     _scheduler.add_job(_process_marathon_queue, 'cron', minute='*/10')  # WP-330: новичок-марафон очередь
     _scheduler.add_job(_send_practice_nudges, 'cron', minute='*/10')  # WP-330 Ф10.D: нуджи +30/+150 мин после доставки
     _scheduler.add_job(_process_marathon_activity_batch, 'cron', hour=3, minute=0)  # WP-253: nightly activity aggregation
+    _scheduler.add_job(_send_mentorship_disclaimer, 'cron', hour=10, minute=13)  # WP-578: обнаружение согласия способ 1, дедуп сам держит каденцию раз в MENTORSHIP_DISCLAIMER_DAYS
     _scheduler.add_job(_check_marathon_missed_checkins, 'cron', hour='*/6')  # WP-330 P1: алерты наставникам о пропусках
     _scheduler.add_job(_send_marathon_nudges, 'cron', hour=10, minute=0)  # WP-330 P2: nudge при пропуске
     _scheduler.add_job(_send_marathon_weekly_digest, 'cron', day_of_week='sun', hour=18, minute=0)  # WP-330 P2: digest вс 18:00
