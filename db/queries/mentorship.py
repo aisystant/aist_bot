@@ -90,7 +90,7 @@ async def get_stream_reader_role(account_id: str, stream_id: str) -> Optional[st
 
     async def _query(conn: asyncpg.Connection) -> Optional[str]:
         row = await conn.fetchrow(
-            "SELECT role FROM stream_reader WHERE account_id = $1 AND stream_id = $2",
+            "SELECT role FROM public.stream_reader WHERE account_id = $1 AND stream_id = $2",
             account_id,
             stream_id,
         )
@@ -126,18 +126,18 @@ async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered
 
     async def _do(conn: asyncpg.Connection) -> str:
         current = await conn.fetchrow(
-            "SELECT stream_id FROM stream_chat WHERE telegram_chat_id = $1 AND superseded_at IS NULL",
+            "SELECT stream_id FROM public.stream_chat WHERE telegram_chat_id = $1 AND superseded_at IS NULL",
             telegram_chat_id,
         )
         if current is not None and current["stream_id"] == stream_id:
             return "already_registered"
         if current is not None:
             await conn.execute(
-                "UPDATE stream_chat SET superseded_at = now() WHERE telegram_chat_id = $1 AND superseded_at IS NULL",
+                "UPDATE public.stream_chat SET superseded_at = now() WHERE telegram_chat_id = $1 AND superseded_at IS NULL",
                 telegram_chat_id,
             )
         await conn.execute(
-            "INSERT INTO stream_chat (telegram_chat_id, stream_id, registered_by) VALUES ($1, $2, $3)",
+            "INSERT INTO public.stream_chat (telegram_chat_id, stream_id, registered_by) VALUES ($1, $2, $3)",
             telegram_chat_id,
             stream_id,
             registered_by_account_id,
@@ -184,7 +184,7 @@ async def find_participant_id(reader_account_id: str, stream_id: str, account_id
 
     async def _do(conn: asyncpg.Connection) -> Optional[int]:
         row = await conn.fetchrow(
-            "SELECT id FROM participant_core WHERE account_id = $1 AND stream_id = $2",
+            "SELECT id FROM public.participant_core WHERE account_id = $1 AND stream_id = $2",
             account_id,
             stream_id,
         )
@@ -205,14 +205,14 @@ async def get_or_create_participant(reader_account_id: str, stream_id: str, part
 
     async def _do(conn: asyncpg.Connection) -> int:
         row = await conn.fetchrow(
-            "SELECT id FROM participant_core WHERE account_id = $1 AND stream_id = $2",
+            "SELECT id FROM public.participant_core WHERE account_id = $1 AND stream_id = $2",
             participant_account_id,
             stream_id,
         )
         if row is not None:
             return row["id"]
         row = await conn.fetchrow(
-            "INSERT INTO participant_core (account_id, stream_id) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO public.participant_core (account_id, stream_id) VALUES ($1, $2) RETURNING id",
             participant_account_id,
             stream_id,
         )
@@ -256,7 +256,7 @@ async def write_archive_entry(
     async def _do(conn: asyncpg.Connection) -> None:
         await conn.execute(
             """
-            INSERT INTO correspondence_archive (
+            INSERT INTO public.correspondence_archive (
                 participant_id, channel, author, text, status,
                 telegram_chat_id, telegram_message_id, reply_to_participant_id,
                 forward_from_participant_id, consent_at_write, message_at,
