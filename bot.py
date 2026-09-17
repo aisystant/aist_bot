@@ -525,6 +525,14 @@ async def main():
     update_dedup = UpdateDedupMiddleware()
     dp.message.middleware(update_dedup)
     dp.callback_query.middleware(update_dedup)
+    # WP-578 Ф2: наблюдатель архива переписки наставника — enqueue-only, сразу
+    # после Dedup, ДО RateLimit (Р1: дроп по частоте сообщений не должен
+    # терять переписку, которую наставник обязан видеть). DRR-f2 §1.
+    from engines.mentorship.archive_tap import ArchiveTapMiddleware, ArchiveTapEditMiddleware, mentorship_archive_worker
+
+    dp.message.middleware(ArchiveTapMiddleware())
+    dp.edited_message.middleware(ArchiveTapEditMiddleware())
+    asyncio.create_task(mentorship_archive_worker())
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
     rate_limiter = RateLimitMiddleware(max_messages=20, window_seconds=60)

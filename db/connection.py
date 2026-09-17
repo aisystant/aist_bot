@@ -20,6 +20,7 @@ from config import (
     INDICATORS_URL,
     LEARNING_URL,
     PRIVACY_DELETION_URL,
+    MENTORSHIP_URL,
     REWARDS_URL,
     CONSENT_URL,
     FSM_URL,
@@ -49,6 +50,12 @@ _learning_pool: Optional[asyncpg.Pool] = None      # learning.domain_event (qa, 
 # WP-554 Ф7: отдельная узкая роль без прав на таблицы journal.
 _privacy_deletion_pool: Optional[asyncpg.Pool] = None
 _rewards_pool: Optional[asyncpg.Pool] = None       # rewards.point_balances (WP-253 Ф9.3 проекция)
+# WP-578 Ф2: отдельный Neon-проект, роль mentorship_app. В отличие от
+# _privacy_deletion_pool отсутствие URL не поднимает исключение — модуль
+# наставника молча выключается (get_mentorship_pool возвращает None), пока
+# переменная не появится после промоции из neon-migrations/sandbox/.
+_mentorship_pool: Optional[asyncpg.Pool] = None
+_mentorship_url_warned = False
 
 # WP-188 Ф17: writer-pool для learning.tracking_consent через роль consent_writer (миграция 113).
 # Отдельный pool — write-граница для GDPR. Размер маленький — операция редкая (онбординг + ручной /consent).
@@ -205,6 +212,29 @@ async def get_privacy_deletion_pool() -> asyncpg.Pool:
         )
         logger.info("Privacy deletion pool created")
     return _privacy_deletion_pool
+
+
+async def get_mentorship_pool() -> Optional[asyncpg.Pool]:
+    """Пул для рабочего места наставника (WP-578 Ф2). Возвращает None, если
+    MENTORSHIP_URL не задан — вызывающий код (engines/mentorship) обязан
+    трактовать None как "модуль выключен", не как ошибку конфигурации."""
+    global _mentorship_pool, _mentorship_url_warned
+    if not MENTORSHIP_URL:
+        if not _mentorship_url_warned:
+            logger.warning("MENTORSHIP_URL не задан — рабочее место наставника (WP-578) отключено")
+            _mentorship_url_warned = True
+        return None
+    if _mentorship_pool is None:
+        _mentorship_pool = await asyncpg.create_pool(
+            MENTORSHIP_URL,
+            statement_cache_size=0,  # Neon pooled endpoint: см. комментарий у _learning_pool
+            min_size=1,
+            max_size=5,
+            command_timeout=30,
+            max_inactive_connection_lifetime=300,
+        )
+        logger.info("✅ Mentorship пул соединений создан")
+    return _mentorship_pool
 
 
 async def _init_rewards_connection(conn: asyncpg.Connection) -> None:
