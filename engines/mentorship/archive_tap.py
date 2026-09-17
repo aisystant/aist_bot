@@ -34,7 +34,7 @@ from helpers.dual_write import resolve_ory_id_from_chat
 logger = logging.getLogger(__name__)
 
 _QUEUE_MAXSIZE = 1000
-_MAX_WRITE_ATTEMPTS = 3
+_MAX_WRITE_ATTEMPTS = 4  # первая попытка + 3 повтора — по одному на каждое значение _BACKOFF_SECONDS
 _BACKOFF_SECONDS = (0.5, 2.0, 5.0)
 
 _dropped_counters: dict[str, int] = {"queue_full": 0, "write_failed": 0}
@@ -138,11 +138,25 @@ def _snapshot(message: Message, *, is_edit: bool) -> Optional[RawMessageEvent]:
 
 
 class _QueueWriterMixin:
-    """Общий безопасный put_nowait + счётчик дропа — используется обоими
-    middleware ниже (P2: было продублировано, вынесено сюда)."""
+    """Общий безопасный put_nowait + счётчик дропа, и общий __call__ (P2:
+    было продублировано между двумя middleware ниже, вынесено сюда).
+
+    __call__ ловит ЛЮБОЕ исключение из _maybe_enqueue — наблюдатель не имеет
+    права уронить основной путь бота ни при каких обстоятельствах (найдено
+    холодным ревью 17.09: неперехваченное исключение здесь сносило бы
+    обработку сообщения ЛЮБОГО пользователя, не только участников WP-578, —
+    тот же класс отказа, что 14-часовой инцидент из CLAUDE.md §10.37, только
+    через доступ к атрибуту, а не через ImportError)."""
 
     def __init__(self, queue: Optional[asyncio.Queue] = None):
         self._queue = queue if queue is not None else get_archive_queue()
+
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        try:
+            self._maybe_enqueue(event)
+        except Exception:  # noqa: BLE001 — наблюдатель не должен ронять основной путь бота
+            logger.exception("[MentorshipArchive] сбой в _maybe_enqueue, сообщение не архивировано")
+        return await handler(event, data)
 
     def _put(self, item: QueueItem) -> None:
         try:
@@ -158,10 +172,6 @@ class _QueueWriterMixin:
 
 class ArchiveTapMiddleware(_QueueWriterMixin, BaseMiddleware):
     """Наблюдатель: enqueue-only, никогда не блокирует и не отменяет обработку."""
-
-    async def __call__(self, handler, event: TelegramObject, data: dict):
-        self._maybe_enqueue(event)
-        return await handler(event, data)
 
     def _maybe_enqueue(self, event: TelegramObject) -> None:
         if not isinstance(event, Message):
@@ -185,10 +195,6 @@ class ArchiveTapMiddleware(_QueueWriterMixin, BaseMiddleware):
 
 class ArchiveTapEditMiddleware(_QueueWriterMixin, BaseMiddleware):
     """Тот же наблюдатель для dp.edited_message — снимок с is_edit=True."""
-
-    async def __call__(self, handler, event: TelegramObject, data: dict):
-        self._maybe_enqueue(event)
-        return await handler(event, data)
 
     def _maybe_enqueue(self, event: TelegramObject) -> None:
         if not isinstance(event, Message):
@@ -224,16 +230,20 @@ async def _resolve_related_participant(
     exclude_account_id: str,
 ) -> Optional[int]:
     """participant_id для reply_to/forward_from цели — None, если цели нет,
-    аккаунт не резолвится, либо это тот же человек, что и сам participant_id
-    строки (нет смысла ссылаться самому на себя)."""
+    аккаунт не резолвится, это тот же человек, что и сам participant_id
+    строки (нет смысла ссылаться самому на себя), либо цель ещё НЕ известна
+    этому потоку. Намеренно ИЩЕТ, не создаёт: reply/forward на постороннего
+    (третье лицо в группе, не участник и не читатель этого потока) не должен
+    молча заводить его как участника — утечка данных не по адресу (найдено
+    холодным ревью 17.09, была через get_or_create_participant)."""
     if telegram_user_id is None:
         return None
-    from db.queries.mentorship import get_or_create_participant
+    from db.queries.mentorship import find_participant_id
 
     account_id = await resolve_ory_id_from_chat(telegram_user_id)
     if account_id is None or account_id == exclude_account_id:
         return None
-    return await get_or_create_participant(reader_account_id, stream_id, account_id)
+    return await find_participant_id(reader_account_id, stream_id, account_id)
 
 
 async def _process_topic_created(event: TopicCreatedEvent) -> None:

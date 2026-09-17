@@ -144,7 +144,23 @@ async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered
         )
         return "registered"
 
-    result = await _with_account_context(pool, registered_by_account_id, _do)
+    # Два одновременных /mentor_stream на один и тот же чат (два наставника
+    # нажали Enter почти синхронно) могут оба пройти SELECT "нет активной
+    # строки" до того, как любой из них успеет вставить — второй INSERT
+    # тогда падает на частичном уникальном индексе stream_chat_active_uidx.
+    # Один повтор после этого — SELECT внутри _do увидит уже закоммиченную
+    # строку конкурента и корректно вернёт "already_registered" (тот же
+    # поток) или проведёт supersede+insert (другой поток) — найдено холодным
+    # ревью 17.09, изначальная версия пробрасывала UniqueViolationError
+    # необработанной прямо в хендлер.
+    try:
+        result = await _with_account_context(pool, registered_by_account_id, _do)
+    except asyncpg.exceptions.UniqueViolationError:
+        logger.info(
+            "[Mentorship] register_stream_chat: гонка на chat=%s, повтор после конфликта",
+            telegram_chat_id,
+        )
+        result = await _with_account_context(pool, registered_by_account_id, _do)
     logger.info(
         "[Mentorship] register_stream_chat chat=%s stream=%s by=%s -> %s",
         telegram_chat_id,
@@ -153,6 +169,28 @@ async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered
         result,
     )
     return result
+
+
+async def find_participant_id(reader_account_id: str, stream_id: str, account_id: str) -> Optional[int]:
+    """participant_core.id, ЕСЛИ он уже существует — в отличие от
+    get_or_create_participant НЕ создаёт новую строку. Для reply-to/forward-
+    from целей: reply/forward на постороннего (третье лицо в группе, не
+    участник и не читатель этого потока) не должен молча заводить его как
+    участника потока — это утечка данных не по адресу (найдено холодным
+    ревью 17.09)."""
+    pool = await get_mentorship_pool()
+    if pool is None:
+        return None
+
+    async def _do(conn: asyncpg.Connection) -> Optional[int]:
+        row = await conn.fetchrow(
+            "SELECT id FROM participant_core WHERE account_id = $1 AND stream_id = $2",
+            account_id,
+            stream_id,
+        )
+        return row["id"] if row else None
+
+    return await _with_account_context(pool, reader_account_id, _do)
 
 
 async def get_or_create_participant(reader_account_id: str, stream_id: str, participant_account_id: str) -> int:
@@ -206,7 +244,11 @@ async def write_archive_entry(
     (`message`), и правку (`edited_message`, Р10: повторная проверка
     согласия на конфликте), и безопасный повтор при сетевой ошибке между
     попыткой и подтверждением (Р1: идемпотентность по UNIQUE делает повтор
-    безопасным)."""
+    безопасным). На конфликте обновляются text/consent_at_write/
+    addressed_to_mentor — все три пересчитываются заново в _process_one на
+    каждый вызов (правка сообщения может добавить упоминание наставника,
+    поэтому addressed_to_mentor тоже обязан обновляться, не только текст —
+    найдено холодным ревью 17.09, изначальная версия эту колонку теряла)."""
     pool = await get_mentorship_pool()
     if pool is None:
         raise RuntimeError("MENTORSHIP_URL is not configured — mentorship module disabled")
@@ -222,7 +264,8 @@ async def write_archive_entry(
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT (telegram_chat_id, telegram_message_id) DO UPDATE SET
                 text = EXCLUDED.text,
-                consent_at_write = EXCLUDED.consent_at_write
+                consent_at_write = EXCLUDED.consent_at_write,
+                addressed_to_mentor = EXCLUDED.addressed_to_mentor
             """,
             participant_id,
             channel,
