@@ -146,6 +146,11 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("core/scheduler.py", "_process_marathon_queue"),
 ("core/scheduler.py", "_refresh_subscribers_snapshot"),
 ("core/scheduler.py", "_send_marathon_weekly_digest"),
+    # WP-578: та же схема, что _send_marathon_weekly_digest выше — cron-задача
+    # с собственным дедупом через notification_log (свой idempotency_key,
+    # не батч из одной email-подобной очереди); мигрировать вместе с
+    # соседним digest-джобом, не по отдельности.
+("core/scheduler.py", "_send_mentorship_disclaimer"),
 ("core/scheduler.py", "_send_slot_daily_prompt"),
     # WP-502: direct send moved under _publisher_scan_lock wrapper (same
     # pattern as _discourse_check_comments_unlocked above); _smart_publisher_scan
@@ -176,6 +181,12 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
 ("handlers/legacy/learning.py", "send_practice_topic"),
 ("handlers/legacy/learning.py", "send_theory_topic"),
 ("handlers/legacy/learning.py", "send_topic"),
+    # WP-578: реактивная отправка сразу по команде наставника (тот же класс,
+    # что handlers/workshop.py: _send_direct_masterskaya_invite ниже) —
+    # адресат неизвестен заранее (берётся из reply в момент вызова), не
+    # батч/расписание, повод переносить на Доставщик отдельно от общей
+    # миграции реактивных инвайтов не сильнее, чем у соседа по паттерну.
+("handlers/mentorship.py", "cmd_mentor_invite"),
 ("handlers/showcase.py", "_send_seminar_access"),
 ("handlers/tier_upgrade.py", "nudge_post_diagnosis_s0"),
 ("handlers/tier_upgrade.py", "nudge_post_diagnosis_sN"),
