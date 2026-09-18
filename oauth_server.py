@@ -1241,16 +1241,35 @@ async def template_update_handler(request: web.Request) -> web.Response:
         return web.Response(text=json.dumps({"ok": True, "sent": 0}), content_type="application/json")
 
     # Рассылка с батчингом (30 msg/sec TG limit)
+    # Idempotency (§10.10): notify-update.yml пересылает один и тот же релиз
+    # повторно, если в окне "сегодня/вчера" ещё нет нового тега (issue: 0.40.1
+    # ушла 17.09 и 18.09). Дедуп по (chat_id, version) через общий
+    # log-before-send механизм (WP-152/WP-268) переживает и повторные ранны
+    # экшена, и ручной workflow_dispatch.
+    from db.queries.notifications import send_idempotent
+
     sent = 0
+    skipped = 0
     failed = 0
     for i, chat_id in enumerate(subscribers):
-        try:
+        idempotency_key = f"template_update:{chat_id}:{version}"
+
+        async def _send(cid=chat_id):
             await _bot_instance.send_message(
-                chat_id=chat_id,
+                chat_id=cid,
                 text=message_text,
                 parse_mode="HTML",
             )
-            sent += 1
+
+        try:
+            delivered = await send_idempotent(
+                chat_id, "template_update", idempotency_key, _send,
+                payload={"version": version},
+            )
+            if delivered:
+                sent += 1
+            else:
+                skipped += 1
         except Exception as e:
             logger.warning(f"[TemplateUpdate] Failed to send to {chat_id}: {e}")
             failed += 1
@@ -1259,9 +1278,9 @@ async def template_update_handler(request: web.Request) -> web.Response:
         if (i + 1) % 25 == 0:
             await asyncio.sleep(1)
 
-    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, failed={failed}")
+    logger.info(f"[TemplateUpdate] Broadcast done: sent={sent}, skipped={skipped}, failed={failed}")
 
-    result = {"ok": True, "sent": sent, "failed": failed}
+    result = {"ok": True, "sent": sent, "skipped": skipped, "failed": failed}
     return web.Response(text=json.dumps(result), content_type="application/json")
 
 
