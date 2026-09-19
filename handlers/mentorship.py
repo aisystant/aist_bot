@@ -16,6 +16,15 @@
     mentorship-service (WP-578 Ф3, add_participant_note). Бот НЕ пишет в
     базу наставничества напрямую (принцип «бот = тонкий клиент», MEMORY.md) —
     только HTTP-вызов в отдельный сервис после подтверждения карантина.
+/mentor_note [текст] — личка, ответом на сообщение, пересланное туда же
+    наставником: тот же поток подтверждения, что и в группе, но участник
+    определяется без группового контекста (WP-578, актуализация 19.09,
+    личные 1:1 переписки наставника с участником вне бота). Если пересылается
+    сообщение, которое написал сам участник — Телеграм называет автора
+    однозначно, бот резолвит его напрямую. Если пересылается собственное
+    сообщение наставника (кому оно было отправлено, Телеграм не хранит) —
+    бот использует участника из последнего однозначно определённого forward
+    этой же личной сессии («активный участник», в памяти процесса).
 
 Известное сужение MVP: deep-link из дисклеймера группы (t.me/<bot>?start=…)
 не реализован в этом проходе — `/start` уже занят онбордингом
@@ -38,7 +47,12 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from clients.mentorship_service import MentorshipServiceError, mentorship_service
 from db.queries.consent import set_consent_grant
-from db.queries.mentorship import get_stream_reader_role, lookup_stream_chat, register_stream_chat
+from db.queries.mentorship import (
+    get_stream_reader_role,
+    lookup_participant_stream,
+    lookup_stream_chat,
+    register_stream_chat,
+)
 from helpers.dual_write import resolve_ory_id_from_chat
 
 logger = logging.getLogger(__name__)
@@ -210,6 +224,34 @@ def _note_confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+async def _stage_pending_note(
+    message: Message,
+    *,
+    mentor_account_id: str,
+    stream_id: str,
+    participant_account_id: str,
+    participant_name: str,
+    body: str,
+) -> None:
+    """Общий хвост group- и DM-версий /mentor_note: запомнить заметку до
+    подтверждения кнопкой и показать наставнику текст на проверку (карантин
+    чужих личных данных — то же требование, что у сообщения-участника,
+    WP-578 Ф3)."""
+    _pending_notes[(message.chat.id, message.from_user.id)] = _PendingNote(
+        mentor_account_id=mentor_account_id,
+        stream_id=stream_id,
+        participant_account_id=participant_account_id,
+        participant_name=participant_name,
+        body=body,
+        created_at=time(),
+    )
+    await message.reply(
+        f"Сохранить как заметку об участнике {participant_name}?\n\n«{body}»\n\n"
+        "⚠️ Подтверди, что в тексте нет чужих личных данных без согласия.",
+        reply_markup=_note_confirm_keyboard(),
+    )
+
+
 @mentorship_router.message(Command("mentor_note"), F.chat.type.in_({"group", "supergroup"}))
 async def cmd_mentor_note(message: Message, command: CommandObject) -> None:
     """Наставник отвечает командой на сообщение участника — бот запоминает
@@ -248,19 +290,119 @@ async def cmd_mentor_note(message: Message, command: CommandObject) -> None:
         await message.reply("У участника нет привязанного аккаунта платформы — заметку сохранить нельзя.")
         return
 
-    participant_name = target_message.from_user.full_name
-    _pending_notes[(message.chat.id, message.from_user.id)] = _PendingNote(
+    await _stage_pending_note(
+        message,
         mentor_account_id=caller_account_id,
         stream_id=ctx.stream_id,
         participant_account_id=participant_account_id,
+        participant_name=target_message.from_user.full_name,
+        body=body,
+    )
+
+
+@dataclass(frozen=True)
+class _ActiveParticipant:
+    stream_id: str
+    participant_account_id: str
+    participant_name: str
+    set_at: float
+
+
+_ACTIVE_PARTICIPANT_TTL_SECONDS = 2 * 60 * 60
+
+# mentor_telegram_user_id -> участник, о котором шла речь в последнем
+# однозначно определённом forward'е этой личной переписки с ботом. Нужен
+# только для DM-версии /mentor_note: пересланное собственное сообщение
+# наставника Телеграм не размечает адресатом (физически не хранит, кому оно
+# было отправлено, WP-578 — обсуждение 17.09), поэтому бот переиспользует
+# последнего участника, определённого однозначно (по forward_origin
+# участника). In-memory, тот же осознанный компромисс, что _pending_notes
+# выше — не переживает рестарт, наставник просто перешлёт сообщение
+# участника ещё раз, данные не портятся.
+_active_participant: dict[int, _ActiveParticipant] = {}
+
+
+async def _resolve_dm_note_target(
+    message: Message, target_message: Message
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Кому адресовать DM-заметку из пересланного в личку сообщения.
+
+    Возвращает (stream_id, participant_account_id, participant_name, error).
+    error непустой ⇒ остальные три поля None, вызывающий просто показывает
+    текст ошибки пилоту как есть."""
+    origin = getattr(target_message, "forward_origin", None)
+    origin_user = getattr(origin, "sender_user", None) if origin is not None else None
+
+    if origin_user is not None and origin_user.id != message.from_user.id:
+        # Переслано сообщение, которое написал сам участник — Телеграм
+        # однозначно называет автора, угадывать не нужно.
+        participant_account_id = await resolve_ory_id_from_chat(origin_user.id)
+        if participant_account_id is None:
+            return None, None, None, "У этого участника нет привязанного аккаунта платформы — заметку сохранить нельзя."
+
+        ctx = await lookup_participant_stream(participant_account_id)
+        if ctx is None:
+            return None, None, None, "Не нашёл поток этого участника — он ещё не классифицирован в группе потока."
+
+        mentor_account_id = await resolve_ory_id_from_chat(message.from_user.id)
+        if mentor_account_id is None or await get_stream_reader_role(mentor_account_id, ctx.stream_id) is None:
+            return None, None, None, f"Ты не числишься наставником или пилотом потока {ctx.stream_id}."
+
+        participant_name = origin_user.full_name
+        _active_participant[message.from_user.id] = _ActiveParticipant(
+            stream_id=ctx.stream_id,
+            participant_account_id=participant_account_id,
+            participant_name=participant_name,
+            set_at=time(),
+        )
+        return ctx.stream_id, participant_account_id, participant_name, None
+
+    # Переслано собственное сообщение наставника (или автор скрыт настройками
+    # приватности) — используем последнего однозначно определённого участника.
+    active = _active_participant.get(message.from_user.id)
+    if active is None or time() - active.set_at > _ACTIVE_PARTICIPANT_TTL_SECONDS:
+        return None, None, None, (
+            "Не могу понять, о ком заметка — сначала перешли сюда сообщение, "
+            "которое написал сам участник, чтобы я его запомнил."
+        )
+    return active.stream_id, active.participant_account_id, active.participant_name, None
+
+
+@mentorship_router.message(Command("mentor_note"), F.chat.type == "private")
+async def cmd_mentor_note_dm(message: Message, command: CommandObject) -> None:
+    """Личка: наставник сначала пересылает сообщение (участника или своё
+    собственное) в чат с ботом, затем отвечает на него этой командой — тот же
+    поток подтверждения карантина, что у групповой версии, но без группового
+    контекста участника (WP-578, актуализация 19.09)."""
+    target_message = message.reply_to_message
+    if target_message is None:
+        await message.reply(
+            "Перешли сюда сообщение, которое хочешь сохранить, и ответь на него этой командой."
+        )
+        return
+
+    body = (command.args or "").strip() or (target_message.text or target_message.caption or "").strip()
+    if not body:
+        await message.reply("В сообщении-цели нет текста — нечего сохранять.")
+        return
+
+    caller_account_id = await resolve_ory_id_from_chat(message.from_user.id)
+    if caller_account_id is None:
+        await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
+        return
+
+    stream_id, participant_account_id, participant_name, error = await _resolve_dm_note_target(message, target_message)
+    if error is not None:
+        await message.reply(error)
+        return
+
+    await _stage_pending_note(
+        message,
+        mentor_account_id=caller_account_id,
+        stream_id=stream_id,
+        participant_account_id=participant_account_id,
         participant_name=participant_name,
         body=body,
-        created_at=time(),
-    )
-    await message.reply(
-        f"Сохранить как заметку об участнике {participant_name}?\n\n«{body}»\n\n"
-        "⚠️ Подтверди, что в тексте нет чужих личных данных без согласия.",
-        reply_markup=_note_confirm_keyboard(),
     )
 
 
