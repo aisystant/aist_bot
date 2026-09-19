@@ -442,11 +442,16 @@ async def _is_in_sm_profile_or_settings_state(callback: CallbackQuery) -> bool |
 
 
 @callbacks_router.callback_query(
-    F.data.startswith("upd_") | F.data.startswith("settings_") | F.data.startswith("duration_") | F.data.startswith("bloom_") | F.data.startswith("lang_") | F.data.startswith("conn_") | F.data.startswith("github_") | F.data.startswith("reset_") | (F.data == "show_resets") | (F.data == "show_commands"),
+    F.data.startswith("upd_") | F.data.startswith("settings_") | F.data.startswith("duration_") | F.data.startswith("bloom_") | F.data.startswith("lang_") | F.data.startswith("conn_") | F.data.startswith("reset_") | (F.data == "show_resets") | (F.data == "show_commands"),
     _is_in_sm_profile_or_settings_state
 )
 async def cb_settings_actions(callback: CallbackQuery, state: FSMContext, intern: dict):
-    """Profile/Settings callback-ы через SM."""
+    """Profile/Settings callback-ы через SM.
+
+    GitHub callback-ы (github_*) намеренно исключены — их забирает
+    github_router (handlers/github.py), чтобы не было дублирующей
+    обработки в SM и в отдельном роутере.
+    """
     from handlers import get_dispatcher
     dispatcher = get_dispatcher()
 

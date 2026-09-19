@@ -480,7 +480,7 @@ async def handle_fleeting_note(message: Message):
     if not target_repo:
         intern = await get_intern(telegram_user_id)
         lang = _lang(intern)
-        await message.answer(t('github.note_needs_github', lang))
+        await message.answer(t('github.repo_not_selected', lang))
         return
 
     intern = await get_intern(telegram_user_id)
