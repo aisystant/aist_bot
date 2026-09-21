@@ -23,8 +23,8 @@ import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from db.queries.mentorship import StreamChatContext
 from clients.mentorship_service import MentorshipServiceError
+from tests.mentorship_helpers import as_stream_reader, assert_only_dm_to_mentor
 
 
 def _make_message(*, reply_to_message=None, from_user_id=100, text="/mentor_note", args=None):
@@ -39,6 +39,7 @@ def _make_message(*, reply_to_message=None, from_user_id=100, text="/mentor_note
     msg.text = text
     msg.reply_to_message = reply_to_message
     msg.reply = AsyncMock()
+    msg.answer = AsyncMock()
     msg.bot = AsyncMock()
     command = MagicMock()
     command.args = args
@@ -81,47 +82,46 @@ def _clear_pending_notes():
     mentorship._pending_notes.clear()
 
 
+MENTOR_ID = "11111111-1111-1111-1111-111111111111"
+PARTICIPANT_ID = "22222222-2222-2222-2222-222222222222"
+
+
 @pytest.mark.asyncio
-async def test_note_without_reply_target_asks_to_reply():
+async def test_note_without_reply_target_tells_mentor_privately(monkeypatch):
     import handlers.mentorship as mentorship
 
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=[MENTOR_ID])
     message, command = _make_message(reply_to_message=None)
+
     await mentorship.cmd_mentor_note(message, command)
 
-    message.reply.assert_awaited_once()
-    assert "ответь" in message.reply.await_args.args[0].lower()
+    assert_only_dm_to_mentor(message, "Ответь этой командой на сообщение участника")
 
 
 @pytest.mark.asyncio
-async def test_note_self_is_rejected():
+async def test_note_self_is_rejected_privately(monkeypatch):
     import handlers.mentorship as mentorship
 
-    target = _make_target_user(100)  # тот же id, что и у наставника
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=[MENTOR_ID])
+    target = _make_target_user(100)  # same id as the mentor
     message, command = _make_message(reply_to_message=target, from_user_id=100)
 
     await mentorship.cmd_mentor_note(message, command)
 
-    message.reply.assert_awaited_once_with("Нельзя сохранить собственное сообщение наставника как заметку об участнике.")
+    assert_only_dm_to_mentor(message, "Нельзя сохранить собственное сообщение наставника как заметку об участнике.")
 
 
 @pytest.mark.asyncio
-async def test_note_rejects_non_stream_reader(monkeypatch):
+async def test_note_reader_of_other_stream_is_told_privately(monkeypatch):
     import handlers.mentorship as mentorship
 
-    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value="11111111-1111-1111-1111-111111111111"))
-    monkeypatch.setattr(
-        mentorship,
-        "lookup_stream_chat",
-        AsyncMock(return_value=StreamChatContext(stream_id="S1", reader_account_id="11111111-1111-1111-1111-111111111111")),
-    )
-    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value=None))
-
+    as_stream_reader(monkeypatch, mentorship, streams=[("S2", "mentor")], account_ids=[MENTOR_ID])
     target = _make_target_user(200)
     message, command = _make_message(reply_to_message=target, from_user_id=100)
 
     await mentorship.cmd_mentor_note(message, command)
 
-    assert "не числишься наставником" in message.reply.await_args.args[0]
+    assert_only_dm_to_mentor(message, "не числишься наставником или пилотом потока S1")
     assert (message.chat.id, 100) not in mentorship._pending_notes
 
 
@@ -129,13 +129,7 @@ async def test_note_rejects_non_stream_reader(monkeypatch):
 async def test_note_stores_pending_and_asks_confirmation(monkeypatch):
     import handlers.mentorship as mentorship
 
-    mentor_id = "11111111-1111-1111-1111-111111111111"
-    participant_id = "22222222-2222-2222-2222-222222222222"
-    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(side_effect=[mentor_id, participant_id]))
-    monkeypatch.setattr(
-        mentorship, "lookup_stream_chat", AsyncMock(return_value=StreamChatContext(stream_id="S1", reader_account_id=mentor_id))
-    )
-    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value="mentor"))
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=[MENTOR_ID, PARTICIPANT_ID])
 
     target = _make_target_user(200, full_name="Иван Иванов", text="переслал скриншот участника")
     message, command = _make_message(reply_to_message=target, from_user_id=100)
@@ -144,7 +138,7 @@ async def test_note_stores_pending_and_asks_confirmation(monkeypatch):
 
     pending = mentorship._pending_notes[(message.chat.id, 100)]
     assert pending.body == "переслал скриншот участника"
-    assert pending.participant_account_id == participant_id
+    assert pending.participant_account_id == PARTICIPANT_ID
     reply_text = message.reply.await_args.args[0]
     assert "Иван Иванов" in reply_text
     assert "переслал скриншот участника" in reply_text
@@ -154,13 +148,7 @@ async def test_note_stores_pending_and_asks_confirmation(monkeypatch):
 async def test_note_command_arg_overrides_target_text(monkeypatch):
     import handlers.mentorship as mentorship
 
-    mentor_id = "11111111-1111-1111-1111-111111111111"
-    participant_id = "22222222-2222-2222-2222-222222222222"
-    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(side_effect=[mentor_id, participant_id]))
-    monkeypatch.setattr(
-        mentorship, "lookup_stream_chat", AsyncMock(return_value=StreamChatContext(stream_id="S1", reader_account_id=mentor_id))
-    )
-    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value="mentor"))
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=[MENTOR_ID, PARTICIPANT_ID])
 
     target = _make_target_user(200, text="исходный текст сообщения")
     message, command = _make_message(reply_to_message=target, from_user_id=100, args="явный текст заметки наставника")
