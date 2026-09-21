@@ -183,6 +183,11 @@ ALLOWED_DIRECT_SENDERS: frozenset[tuple[str, str]] = frozenset({
     # батч/расписание, повод переносить на Доставщик отдельно от общей
     # миграции реактивных инвайтов не сильнее, чем у соседа по паттерну.
 ("handlers/mentorship.py", "cmd_mentor_invite"),
+    # WP-578 Ф9: реактивный ответ наставнику в личку на его же команду
+    # (ошибка использования вместо публичного reply в группу): адресат — сам
+    # вызвавший, не батч и не расписание; та же причина, что у
+    # cmd_mentor_invite выше.
+("handlers/mentorship.py", "_tell_mentor"),
 ("handlers/showcase.py", "_send_seminar_access"),
 ("handlers/tier_upgrade.py", "nudge_post_diagnosis_s0"),
 ("handlers/tier_upgrade.py", "nudge_post_diagnosis_sN"),

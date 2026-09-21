@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from time import time
 
 from aiogram import Router, F
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -49,6 +49,7 @@ from clients.mentorship_service import MentorshipServiceError, mentorship_servic
 from db.queries.consent import set_consent_grant
 from db.queries.mentorship import (
     get_stream_reader_role,
+    list_reader_streams,
     lookup_participant_stream,
     lookup_stream_chat,
     register_stream_chat,
@@ -68,26 +69,85 @@ _REGISTER_RESULT_TEXT = {
 }
 
 
-@mentorship_router.message(Command("mentor_stream"), F.chat.type.in_({"group", "supergroup"}))
-async def cmd_mentor_stream(message: Message, command: CommandObject) -> None:
-    stream_id = (command.args or "").strip().upper()
-    if not stream_id:
-        await message.reply("Укажи поток: /mentor_stream S1")
-        return
+@dataclass(frozen=True)
+class _Reader:
+    account_id: str
+    streams: dict[str, str]  # stream_id -> 'mentor' | 'pilot'
 
+
+async def _resolve_reader(message: Message) -> _Reader | None:
+    """Who called a group mentorship command: a stream reader or an outsider.
+
+    None means stay silent: an outsider gets neither a group reply nor a DM
+    (WP-578 F9). Causes look the same from outside but differ in the log; without
+    the warnings a healthy guard, a disabled module and a failing database would be
+    indistinguishable. Any lookup failure fails closed (silence), never open.
+    """
     account_id = await resolve_ory_id_from_chat(message.from_user.id)
     if account_id is None:
-        await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
+        return None
+    try:
+        streams = await list_reader_streams(account_id)
+    except RuntimeError:
+        logger.warning("[Mentorship] проверка наставника пропущена: модуль отключён (MENTORSHIP_URL не задан)")
+        return None
+    except Exception as exc:
+        logger.warning("[Mentorship] проверка наставника не удалась: %s", type(exc).__name__)
+        return None
+    if not streams:
+        return None
+    return _Reader(account_id=account_id, streams=dict(streams))
+
+
+async def _tell_mentor(message: Message, text: str) -> None:
+    """Usage errors go to the mentor's DM, never to the group; a failed delivery is only logged."""
+    try:
+        await message.bot.send_message(message.from_user.id, text)
+    except TelegramAPIError as exc:
+        # TelegramForbiddenError = the mentor never opened the bot's DM (no group fallback by design)
+        logger.warning("[Mentorship] личное сообщение наставнику не доставлено: %s", type(exc).__name__)
+
+
+async def _stream_of_group(message: Message, reader: _Reader) -> str | None:
+    """Stream the group is registered to, if the caller reads exactly that stream.
+
+    Otherwise None and the reason goes to the mentor's DM: reading another
+    stream does not authorize acting in this group.
+    """
+    ctx = await lookup_stream_chat(message.chat.id)
+    if ctx is None:
+        await _tell_mentor(message, "Эта группа не зарегистрирована за потоком — сначала /mentor_stream.")
+        return None
+    if ctx.stream_id not in reader.streams:
+        await _tell_mentor(message, f"Ты не числишься наставником или пилотом потока {ctx.stream_id}.")
+        return None
+    return ctx.stream_id
+
+
+@mentorship_router.message(Command("mentor_stream"), F.chat.type.in_({"group", "supergroup"}))
+async def cmd_mentor_stream(message: Message, command: CommandObject) -> None:
+    reader = await _resolve_reader(message)
+    if reader is None:
         return
 
-    try:
-        result = await register_stream_chat(message.chat.id, stream_id, account_id)
-    except RuntimeError:
-        logger.warning("[Mentorship] /mentor_stream вызван при отключённом модуле (MENTORSHIP_URL не задан)")
-        await message.reply("Рабочее место наставника сейчас недоступно — обратись к пилоту.")
+    own_streams = ", ".join(sorted(reader.streams))
+    stream_id = (command.args or "").strip().upper()
+    if not stream_id:
+        await _tell_mentor(message, f"Укажи код потока: /mentor_stream <код>. Твои потоки: {own_streams}.")
         return
-    text = _REGISTER_RESULT_TEXT.get(result, "Не удалось зарегистрировать группу.")
-    await message.reply(text.format(stream=stream_id))
+    if stream_id not in reader.streams:
+        await _tell_mentor(
+            message,
+            f"Не удалось: вы не числитесь наставником или пилотом потока {stream_id}. Твои потоки: {own_streams}.",
+        )
+        return
+
+    result = await register_stream_chat(message.chat.id, stream_id, reader.account_id)
+    text = _REGISTER_RESULT_TEXT.get(result, "Не удалось зарегистрировать группу.").format(stream=stream_id)
+    if result == "not_stream_reader":
+        await _tell_mentor(message, text)
+        return
+    await message.reply(text)
 
 
 # Общий текст запроса согласия — три поверхности показа: сама команда
@@ -124,30 +184,24 @@ async def cmd_mentor_invite(message: Message) -> None:
     из 3, решение пилота 17.09). Участника, ещё ни разу не писавшего боту,
     Телеграм не даёт боту заговорить первым — это ожидаемый, не ошибочный,
     исход (см. TelegramForbiddenError ниже)."""
+    reader = await _resolve_reader(message)
+    if reader is None:
+        return
+
     target_message = message.reply_to_message
     if target_message is None or target_message.from_user is None:
-        await message.reply("Ответь этой командой на сообщение участника, которому шлём приглашение.")
+        await _tell_mentor(message, "Ответь этой командой на сообщение участника, которому шлём приглашение.")
         return
     if target_message.from_user.id == message.from_user.id:
-        await message.reply("Нельзя пригласить самого себя.")
+        await _tell_mentor(message, "Нельзя пригласить самого себя.")
         return
 
-    caller_account_id = await resolve_ory_id_from_chat(message.from_user.id)
-    if caller_account_id is None:
-        await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
-        return
-
-    ctx = await lookup_stream_chat(message.chat.id)
-    if ctx is None:
-        await message.reply("Эта группа не зарегистрирована за потоком — сначала /mentor_stream.")
-        return
-    if await get_stream_reader_role(caller_account_id, ctx.stream_id) is None:
-        await message.reply(f"Ты не числишься наставником или пилотом потока {ctx.stream_id}.")
+    if await _stream_of_group(message, reader) is None:
         return
 
     target_account_id = await resolve_ory_id_from_chat(target_message.from_user.id)
     if target_account_id is None:
-        await message.reply("У участника нет привязанного аккаунта платформы — приглашение недоступно.")
+        await _tell_mentor(message, "У участника нет привязанного аккаунта платформы — приглашение недоступно.")
         return
 
     target_name = target_message.from_user.full_name
@@ -162,14 +216,15 @@ async def cmd_mentor_invite(message: Message) -> None:
             "[Mentorship] /mentor_invite: бот не может написать первым account=%s (участник ещё не открывал чат с ботом)",
             target_account_id,
         )
-        await message.reply(
+        await _tell_mentor(
+            message,
             f"Не получилось написать {target_name} — участник ещё ни разу не писал боту в личку, "
             "Телеграм не разрешает боту заговорить первым. Попроси его прислать боту любое сообщение, "
-            "потом повтори приглашение."
+            "потом повтори приглашение.",
         )
         return
 
-    logger.info("[Mentorship] /mentor_invite отправлено by=%s to=%s", caller_account_id, target_account_id)
+    logger.info("[Mentorship] /mentor_invite отправлено by=%s to=%s", reader.account_id, target_account_id)
     await message.reply(f"Приглашение отправлено участнику {target_name} в личку.")
 
 
@@ -262,41 +317,36 @@ async def cmd_mentor_note(message: Message, command: CommandObject) -> None:
     просит подтвердить отсутствие чужих личных данных, прежде чем звать
     add_participant_note сервиса (тот сам fail-closed без этого подтверждения,
     WP-578 Ф3 — двойная защита намеренная, не дублирование)."""
+    reader = await _resolve_reader(message)
+    if reader is None:
+        return
+
     target_message = message.reply_to_message
     if target_message is None or target_message.from_user is None:
-        await message.reply("Ответь этой командой на сообщение участника, которое нужно сохранить как заметку.")
+        await _tell_mentor(message, "Ответь этой командой на сообщение участника, которое нужно сохранить как заметку.")
         return
     if target_message.from_user.id == message.from_user.id:
-        await message.reply("Нельзя сохранить собственное сообщение наставника как заметку об участнике.")
+        await _tell_mentor(message, "Нельзя сохранить собственное сообщение наставника как заметку об участнике.")
         return
 
     body = (command.args or "").strip() or (target_message.text or target_message.caption or "").strip()
     if not body:
-        await message.reply("В сообщении-цели нет текста — нечего сохранять.")
+        await _tell_mentor(message, "В сообщении-цели нет текста — нечего сохранять.")
         return
 
-    caller_account_id = await resolve_ory_id_from_chat(message.from_user.id)
-    if caller_account_id is None:
-        await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
-        return
-
-    ctx = await lookup_stream_chat(message.chat.id)
-    if ctx is None:
-        await message.reply("Эта группа не зарегистрирована за потоком — сначала /mentor_stream.")
-        return
-    if await get_stream_reader_role(caller_account_id, ctx.stream_id) is None:
-        await message.reply(f"Ты не числишься наставником или пилотом потока {ctx.stream_id}.")
+    stream_id = await _stream_of_group(message, reader)
+    if stream_id is None:
         return
 
     participant_account_id = await resolve_ory_id_from_chat(target_message.from_user.id)
     if participant_account_id is None:
-        await message.reply("У участника нет привязанного аккаунта платформы — заметку сохранить нельзя.")
+        await _tell_mentor(message, "У участника нет привязанного аккаунта платформы — заметку сохранить нельзя.")
         return
 
     await _stage_pending_note(
         message,
-        mentor_account_id=caller_account_id,
-        stream_id=ctx.stream_id,
+        mentor_account_id=reader.account_id,
+        stream_id=stream_id,
         participant_account_id=participant_account_id,
         participant_name=target_message.from_user.full_name,
         body=body,
