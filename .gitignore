@@ -9,3 +9,5 @@ __pycache__/
 _backups/
 tests/test-telegram/*.session
 tests/test-telegram/*.session-journal
+*.session
+*.session-journal

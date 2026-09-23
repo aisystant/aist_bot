@@ -177,6 +177,53 @@ async def cmd_mentor_consent(message: Message) -> None:
     await message.answer(CONSENT_PROMPT_TEXT, reply_markup=consent_keyboard())
 
 
+# Отдельная область согласия для уже написанного раньше (WP-578 Ф11, импорт
+# истории из экспорта Telegram Desktop). НЕ добавлена в _CONSENT_SCOPES/
+# consent_keyboard() выше: то согласие смотрит в будущее (что собирать
+# дальше), это — в прошлое (что уже написано), одной кнопкой их путать
+# нельзя (peer-сессия 23.09, инвариант таблицы consent_grant — "Retroactive
+# expansion запрещена", neon-migrations/mvp/229-wp316-consent-grant.sql:29).
+_HISTORY_CONSENT_SCOPE = "mentor_archive_history"
+
+HISTORY_CONSENT_PROMPT_TEXT = (
+    "Наставник хочет перенести в архив и уже написанное вами раньше в общей "
+    "группе потока и в личных сообщениях боту (не только новые сообщения — "
+    "это отдельное решение). Согласны?"
+)
+
+
+def history_consent_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, согласен", callback_data="mentor_consent_history:accept"),
+                InlineKeyboardButton(text="Отозвать", callback_data="mentor_consent_history:revoke"),
+            ]
+        ]
+    )
+
+
+@mentorship_router.message(Command("mentor_consent_history"), F.chat.type == "private")
+async def cmd_mentor_consent_history(message: Message) -> None:
+    await message.answer(HISTORY_CONSENT_PROMPT_TEXT, reply_markup=history_consent_keyboard())
+
+
+@mentorship_router.callback_query(F.data.in_({"mentor_consent_history:accept", "mentor_consent_history:revoke"}))
+async def cb_mentor_consent_history(callback: CallbackQuery) -> None:
+    account_id = await resolve_ory_id_from_chat(callback.from_user.id)
+    if account_id is None:
+        await callback.answer("Не нашёл твой аккаунт платформы.", show_alert=True)
+        return
+
+    grant = callback.data == "mentor_consent_history:accept"
+    await set_consent_grant(account_id, _HISTORY_CONSENT_SCOPE, granted=grant)
+
+    text = "✅ Согласие на перенос прошлой переписки зафиксировано." if grant else "Согласие отозвано."
+    await callback.message.edit_text(text)
+    await callback.answer()
+    logger.info("[Mentorship] history consent %s account=%s", "granted" if grant else "revoked", account_id)
+
+
 @mentorship_router.message(Command("mentor_invite"), F.chat.type.in_({"group", "supergroup"}))
 async def cmd_mentor_invite(message: Message) -> None:
     """Наставник отвечает командой на сообщение участника — бот лично пишет
