@@ -185,8 +185,11 @@ async def cb_mentor_consent(callback: CallbackQuery) -> None:
         await set_consent_grant(account_id, scope, granted=grant)
 
     text = "✅ Согласие зафиксировано." if grant else "Согласие отозвано — новая переписка сохраняться не будет."
-    await callback.message.edit_text(text)
-    await callback.answer()
+    # Не редактируем callback.message: в группе кнопка общая для всех
+    # участников потока (дисклеймер, DRR-f2 §5) — edit_text снял бы клавиатуру
+    # для всех после первого клика, хотя согласие пишется per-account_id и
+    # каждый должен иметь возможность кликнуть сам (найдено пир-сессией 24.09).
+    await callback.answer(text, show_alert=True)
     logger.info("[Mentorship] consent %s account=%s", "granted" if grant else "revoked", account_id)
 
 

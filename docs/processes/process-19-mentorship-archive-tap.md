@@ -142,11 +142,29 @@ Gate, не реализована.
   `TelegramForbiddenError` не роняет хендлер и даёт понятный ответ.
 - `tests/smoke/test_mentorship_middleware.py` — импорт, инициализация,
   `__call__` не падает, команды/чужие типы чатов не попадают в очередь,
-  переполнение очереди не ломает основной путь (правило 10.37).
+  переполнение очереди не ломает основной путь (правило 10.37);
+  `test_inner_middleware_never_fires_without_handler` /
+  `test_outer_middleware_fires_without_handler` — регрессия бага правок
+  сообщений (см. «Правки сообщений» ниже), через настоящий
+  `aiogram.Router.propagate_event()`, не прямой вызов middleware.
+- `tests/test_readiness.py` — `mentorship_archive`-компонент `/ready`.
 
-## Мониторинг (следующий шаг, не реализовано в этом проходе)
+## Правки сообщений (`edited_message`) — фикс 24.09, пир-сессия Claude+Kimi+Codex
 
-`engines.mentorship.archive_tap.queue_stats()` отдаёт глубину очереди и
-счётчики дропа — подключение к существующему `/ready`-эндпоинту не сделано
-здесь (не трогали чужой код без отдельного просмотра), зарегистрировано как
-открытый пункт в карточке WP-578 Ф2.
+`dp.edited_message.middleware(ArchiveTapEditMiddleware())` (регистрация до
+24.09) был INNER middleware — в aiogram он оборачивает только вызов
+СОВПАВШЕГО handler'а (`TelegramEventObserver.trigger()`, цикл
+`for handler in self.handlers`); у `dp.edited_message` в проекте нет ни
+одного зарегистрированного handler'а, поэтому middleware не выполнялся
+никогда. Фикс: `dp.edited_message.outer_middleware(...)` — оборачивает
+`trigger()` целиком, выполняется безусловно. Подтверждено чтением
+исходника aiogram и regression-тестами (см. выше).
+
+## Мониторинг
+
+`engines.mentorship.archive_tap.queue_stats()` подключён к `/ready`
+(`readiness.py::mentorship_archive_readiness()`, 24.09) — компонент
+`mentorship_archive` с полем `status: ready|degraded` (degraded при
+`dropped_queue_full>0` или `dropped_write_failed>0`); НЕ влияет на итоговый
+HTTP-статус эндпоинта — счётчики исторические для жизни процесса, сбрасываются
+рестартом/redeploy, а не отражают текущую работоспособность бота.

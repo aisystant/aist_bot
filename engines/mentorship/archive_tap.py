@@ -9,10 +9,13 @@ DB-проверки (регистрация чата/участника, рол�
 писать ли строку вообще: молчаливо пропускает всё, что не относится ни к
 одному зарегистрированному потоку.
 
-Регистрация (bot.py): dp.message.middleware(ArchiveTapMiddleware()) и
-dp.edited_message.middleware(ArchiveTapEditMiddleware()) сразу после
-UpdateDedupMiddleware, ДО RateLimitMiddleware — чтобы дроп по частоте
+Регистрация (bot.py): dp.message.middleware(ArchiveTapMiddleware()) сразу
+после UpdateDedupMiddleware, ДО RateLimitMiddleware — чтобы дроп по частоте
 сообщений не терял переписку, которую наставник обязан видеть.
+dp.edited_message.outer_middleware(ArchiveTapEditMiddleware()) — outer, не
+inner: у dp.edited_message нет ни одного зарегистрированного handler'а,
+а inner middleware в aiogram выполняется только вокруг совпавшего handler'а
+(найдено пир-сессией 24.09 — .middleware() здесь не срабатывал никогда).
 
 Разбор решения: DS-my-strategy/inbox/WP-578/DRR-f2-telegram-bridge.md
 """

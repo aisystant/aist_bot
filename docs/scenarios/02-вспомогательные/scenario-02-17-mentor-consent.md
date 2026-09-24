@@ -21,7 +21,7 @@ wp: WP-578 Ф2
 
 | Параметр | Значение |
 |----------|----------|
-| Команда | `/mentor_consent`, только в личке (private) |
+| Команда | `/mentor_consent`, только в личке (private); та же клавиатура `consent_keyboard()` шлётся и в группу потока (периодический дисклеймер, `core/scheduler.py`), и в личку через `/mentor_invite` — три поверхности показа, один callback-обработчик |
 | Вид | Вспомогательная (B) — команда → две инлайн-кнопки → подтверждение, без FSM |
 | Файлы | [`handlers/mentorship.py`](../../../handlers/mentorship.py), [`db/queries/consent.py`](../../../db/queries/consent.py) (переиспользован `set_consent_grant`, не новый writer) |
 | БД | Neon `learning.consent_grant` (миграция 229) — те же scope-строки, что и `text_analysis`/`stage_evaluation`, новые направления `mentor_archive_dm`/`mentor_archive_group` |
@@ -37,9 +37,13 @@ wp: WP-578 Ф2
 3. Нажатие «Да» → set_consent_grant(account_id, "mentor_archive_dm", True)
                    set_consent_grant(account_id, "mentor_archive_group", True)
    Оба scope сразу одной кнопкой — не спрашиваем раздельно про группу и личку.
-4. Подтверждение: «✅ Согласие зафиксировано.»
-   ИЛИ нажатие «Отозвать» → granted=False для обоих scope →
-   «Согласие отозвано — новая переписка сохраняться не будет.»
+4. Подтверждение: всплывающий Telegram-алерт (`callback.answer(text, show_alert=True)`)
+   «✅ Согласие зафиксировано.» ИЛИ нажатие «Отозвать» → granted=False для
+   обоих scope → алерт «Согласие отозвано — новая переписка сохраняться не
+   будет.» Сообщение с кнопками НЕ редактируется и не исчезает (фикс 24.09,
+   пир-сессия Claude+Kimi+Codex): в групповом дисклеймере кнопка общая на
+   весь поток, а согласие пишется per-account_id — редактирование общего
+   сообщения после первого клика стирало бы кнопку для остальных участников.
 5. Новые сообщения после этого момента пишутся в архив с текстом
    (consent_at_write=true) или без текста (consent_at_write=false) —
    снимок согласия берётся на КАЖДОЙ записи, не разово.
