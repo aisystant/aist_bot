@@ -159,6 +159,47 @@ class TestArchiveTapCall:
 
         assert result == "handled", "Переполненная очередь не должна ломать основной путь бота"
 
+    async def test_inner_middleware_never_fires_without_handler(self):
+        """Регрессия найденного пир-сессией 24.09 бага: dp.edited_message без
+        зарегистрированных handler'ов (как в проде — только middleware) — inner
+        middleware, зарегистрированный через .middleware(), не выполняется
+        вовсе (aiogram TelegramEventObserver.trigger() оборачивает inner
+        только вокруг СОВПАВШЕГО handler'а). Прямой вызов mw(...) в тестах
+        выше это не ловит — нужен реальный Router.propagate_event()."""
+        from aiogram import Router
+        from engines.mentorship.archive_tap import ArchiveTapEditMiddleware
+
+        queue: asyncio.Queue = asyncio.Queue()
+        router = Router(name="test-inner-regression")
+        router.edited_message.middleware(ArchiveTapEditMiddleware(queue=queue))
+        msg = _make_fake_message(text="исправленный текст")
+
+        await router.propagate_event("edited_message", msg)
+
+        assert queue.qsize() == 0, (
+            "inner middleware не должен срабатывать без зарегистрированных "
+            "handler'ов — если этот assert упал, поведение aiogram изменилось "
+            "и .middleware() снова безопасен для edited_message"
+        )
+
+    async def test_outer_middleware_fires_without_handler(self):
+        """Фикс bot.py:534 (24.09) — outer_middleware выполняется безусловно,
+        независимо от наличия handler'ов на dp.edited_message."""
+        from aiogram import Router
+        from engines.mentorship.archive_tap import ArchiveTapEditMiddleware, RawMessageEvent
+
+        queue: asyncio.Queue = asyncio.Queue()
+        router = Router(name="test-outer-fix")
+        router.edited_message.outer_middleware(ArchiveTapEditMiddleware(queue=queue))
+        msg = _make_fake_message(text="исправленный текст")
+
+        await router.propagate_event("edited_message", msg)
+
+        assert queue.qsize() == 1
+        item = queue.get_nowait()
+        assert isinstance(item, RawMessageEvent)
+        assert item.is_edit is True
+
     async def test_forum_topic_created_enqueues_topic_event(self):
         from engines.mentorship.archive_tap import ArchiveTapMiddleware, TopicCreatedEvent
 

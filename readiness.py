@@ -32,6 +32,19 @@ def scheduler_readiness() -> str:
     return "ready" if _scheduler is not None and _scheduler.running else "unavailable"
 
 
+def mentorship_archive_readiness() -> dict:
+    """Диагностика очереди наблюдателя архива переписки (WP-578) — info-поле,
+    не влияет на итоговый ready/HTTP-статус: счётчики не обнуляются в рамках
+    жизни процесса (сбрасываются рестартом/redeploy, см. queue_stats()
+    docstring). degraded=true — сигнал оператору, что часть переписки
+    потерялась, а не что бот неработоспособен."""
+    from engines.mentorship.archive_tap import queue_stats
+
+    stats = queue_stats()
+    degraded = stats["dropped_queue_full"] > 0 or stats["dropped_write_failed"] > 0
+    return {"status": "degraded" if degraded else "ready", **stats}
+
+
 async def readiness_snapshot(
     *,
     database_probe: DatabaseProbe | None = None,
@@ -47,7 +60,15 @@ async def readiness_snapshot(
         logger.warning("Readiness scheduler probe failed (%s)", type(exc).__name__)
         scheduler_state = "unavailable"
 
-    components = {"database": "unavailable", "scheduler": scheduler_state}
+    components = {
+        "database": "unavailable",
+        "scheduler": scheduler_state,
+        "mentorship_archive": {"status": "unavailable"},
+    }
+    try:
+        components["mentorship_archive"] = mentorship_archive_readiness()
+    except Exception as exc:
+        logger.warning("Readiness mentorship_archive probe failed (%s)", type(exc).__name__)
     try:
         database_ready = await asyncio.wait_for(
             run_database_probe(),

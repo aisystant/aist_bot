@@ -531,7 +531,14 @@ async def main():
     from engines.mentorship.archive_tap import ArchiveTapMiddleware, ArchiveTapEditMiddleware, mentorship_archive_worker
 
     dp.message.middleware(ArchiveTapMiddleware())
-    dp.edited_message.middleware(ArchiveTapEditMiddleware())
+    # outer, не inner: dp.edited_message не имеет ни одного зарегистрированного
+    # handler'а нигде в проекте — TelegramEventObserver.trigger() (aiogram)
+    # оборачивает inner middleware только вокруг СОВПАВШЕГО handler'а (цикл
+    # `for handler in self.handlers`), для пустого списка handlers он не
+    # выполняется вовсе. outer_middleware оборачивает весь trigger() и
+    # выполняется безусловно (найдено пир-сессией 24.09, живым чтением
+    # aiogram/dispatcher/event/telegram.py).
+    dp.edited_message.outer_middleware(ArchiveTapEditMiddleware())
     asyncio.create_task(mentorship_archive_worker())
     dp.message.middleware(MaintenanceMiddleware())
     dp.callback_query.middleware(MaintenanceMiddleware())
