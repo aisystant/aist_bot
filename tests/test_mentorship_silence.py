@@ -1,7 +1,7 @@
 """
-WP-578 F9 - the three group mentorship commands (/mentor_stream, /mentor_invite,
-/mentor_note) stay silent for anyone who is not a stream reader, and tell real
-readers about usage errors in a DM, never in the group.
+WP-578 F9 - the group mentorship commands (/mentor_stream, /mentor_invite,
+/mentor_note, /mentor_card) stay silent for anyone who is not a stream reader,
+and tell real readers about usage errors in a DM, never in the group.
 """
 
 import logging
@@ -39,6 +39,7 @@ _COMMANDS = {
     "stream": lambda mentorship, message: mentorship.cmd_mentor_stream(message, _command(None)),
     "invite": lambda mentorship, message: mentorship.cmd_mentor_invite(message),
     "note": lambda mentorship, message: mentorship.cmd_mentor_note(message, _command(None)),
+    "card": lambda mentorship, message: mentorship.cmd_mentor_card(message),
 }
 
 # (linked account or None, what list_reader_streams yields or raises)
@@ -212,7 +213,7 @@ async def test_undeliverable_dm_to_mentor_is_swallowed_and_logged(monkeypatch, c
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command_name", ["invite", "note"])
+@pytest.mark.parametrize("command_name", ["invite", "note", "card"])
 async def test_unregistered_group_is_told_privately(monkeypatch, command_name):
     import handlers.mentorship as mentorship
 
@@ -263,3 +264,25 @@ async def test_invite_closed_dm_on_both_sides_stays_silent_in_group(monkeypatch)
 
     message.reply.assert_not_awaited()
     assert [call.args[0] for call in message.bot.send_message.await_args_list] == [200, MENTOR_TG_ID]
+
+
+@pytest.mark.asyncio
+async def test_card_undeliverable_dm_gives_no_false_group_confirmation(monkeypatch):
+    """WP-578, найдено ревью 25.09: карточка получена от сервиса, но личка
+    наставнику не открыта — раньше группа всё равно видела "отправлено тебе
+    в личку", хотя карточка (с приватными данными) не дошла никуда."""
+    import handlers.mentorship as mentorship
+
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=("mentor-account", "participant-account"))
+    monkeypatch.setattr(
+        mentorship.mentorship_service,
+        "get_participant_card",
+        AsyncMock(return_value={"manualMinimum": {}, "correspondenceEmpty": True, "recentNotes": []}),
+    )
+    message = make_group_message()
+    message.bot.send_message = AsyncMock(side_effect=_forbidden())
+
+    await mentorship.cmd_mentor_card(message)
+
+    message.reply.assert_not_awaited()
+    message.bot.send_message.assert_awaited_once()
