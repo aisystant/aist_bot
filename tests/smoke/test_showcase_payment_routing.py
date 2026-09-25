@@ -42,9 +42,13 @@ def payment_pipeline(monkeypatch):
     monkeypatch.setattr(
         subscription_stars, "resolve_ory_id_from_chat", AsyncMock(return_value=None)
     )
-    monkeypatch.setattr(
-        subscription_stars, "save_subscription_with_outbox", writes["subscription"]
-    )
+    # Exercise the deployed persister and pilot's outbox variant with the same
+    # routing assertion, without importing the unrelated subscription changes.
+    for name in ("save_subscription", "save_subscription_with_outbox"):
+        if hasattr(subscription_stars, name):
+            monkeypatch.setattr(subscription_stars, name, writes["subscription"])
+    if hasattr(subscription_stars, "post_event"):
+        monkeypatch.setattr(subscription_stars, "post_event", AsyncMock())
     monkeypatch.setattr(payments, "save_subscription", writes["donation"])
     monkeypatch.setattr(payments, "upsert_subscription_grant", AsyncMock())
 
