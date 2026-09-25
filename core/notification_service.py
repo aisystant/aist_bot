@@ -181,11 +181,11 @@ async def drain(
     pool = await get_pool()
     delivered = 0
     failed = 0
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=10) as conn:
         # Явная транзакция: вне её asyncpg авто-коммитит SELECT и row-locks
         # отпускаются сразу — FOR UPDATE SKIP LOCKED переставал разводить
         # конкурентные consumers (redeploy-overlap: два инстанса берут одни строки).
-        async with conn.transaction():
+        async with conn.transaction(isolation='read_committed', timeout=30):
             rows = await conn.fetch(
                 """SELECT id, chat_id, notification_class, payload, priority,
                           journal_key, journal_type
