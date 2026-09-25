@@ -25,6 +25,17 @@
     сообщение наставника (кому оно было отправлено, Телеграм не хранит) —
     бот использует участника из последнего однозначно определённого forward
     этой же личной сессии («активный участник», в памяти процесса).
+/mentor_card — группа, ответом на сообщение участника: показать карточку
+    участника (get_participant_card mentorship-service) — переписка, заметки
+    наставника, статус внешних источников. Карточка содержит приватные данные
+    об участнике — уходит наставнику ЛИЧНЫМ сообщением, не в группу (в группу
+    только короткое подтверждение, тот же принцип, что у F9 — usage-ошибки
+    идут в личку, здесь ещё и сам результат). Бот = тонкий клиент: сервис уже
+    полностью реализован (WP-578 Ф3), команда только вызывает и форматирует
+    (WP-578, новое требование пилота 23.09).
+/mentor_card — личка, ответом на пересланное сообщение: тот же способ
+    определения участника, что у DM-версии /mentor_note; карточка уже в
+    личном чате с ботом, лишней пересылки не нужно.
 
 Известное сужение MVP: deep-link из дисклеймера группы (t.me/<bot>?start=…)
 не реализован в этом проходе — `/start` уже занят онбордингом
@@ -99,13 +110,21 @@ async def _resolve_reader(message: Message) -> _Reader | None:
     return _Reader(account_id=account_id, streams=dict(streams))
 
 
-async def _tell_mentor(message: Message, text: str) -> None:
-    """Usage errors go to the mentor's DM, never to the group; a failed delivery is only logged."""
+async def _tell_mentor(message: Message, text: str) -> bool:
+    """Usage errors go to the mentor's DM, never to the group; a failed delivery is only logged.
+
+    Returns whether the DM was actually delivered — most callers only fire
+    usage-error text and ignore it (silence-on-failure is already the
+    convention there), but a caller that follows up with a group-visible
+    confirmation MUST check this, or the group sees a false "sent" for a DM
+    that never arrived (WP-578, found in review 25.09)."""
     try:
         await message.bot.send_message(message.from_user.id, text)
+        return True
     except TelegramAPIError as exc:
         # TelegramForbiddenError = the mentor never opened the bot's DM (no group fallback by design)
         logger.warning("[Mentorship] личное сообщение наставнику не доставлено: %s", type(exc).__name__)
+        return False
 
 
 async def _stream_of_group(message: Message, reader: _Reader) -> str | None:
@@ -375,10 +394,11 @@ _ACTIVE_PARTICIPANT_TTL_SECONDS = 2 * 60 * 60
 _active_participant: dict[int, _ActiveParticipant] = {}
 
 
-async def _resolve_dm_note_target(
+async def _resolve_dm_participant_target(
     message: Message, target_message: Message
 ) -> tuple[str | None, str | None, str | None, str | None]:
-    """Кому адресовать DM-заметку из пересланного в личку сообщения.
+    """Кому адресован DM-запрос (заметка или карточка) из пересланного в
+    личку сообщения — общий резолвер для /mentor_note и /mentor_card (WP-578).
 
     Возвращает (stream_id, participant_account_id, participant_name, error).
     error непустой ⇒ остальные три поля None, вызывающий просто показывает
@@ -444,7 +464,7 @@ async def cmd_mentor_note_dm(message: Message, command: CommandObject) -> None:
         await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
         return
 
-    stream_id, participant_account_id, participant_name, error = await _resolve_dm_note_target(message, target_message)
+    stream_id, participant_account_id, participant_name, error = await _resolve_dm_participant_target(message, target_message)
     if error is not None:
         await message.reply(error)
         return
@@ -505,3 +525,165 @@ async def cb_mentor_note(callback: CallbackQuery) -> None:
     )
     await callback.message.edit_text(f"✅ Заметка об участнике {pending.participant_name} сохранена.")
     await callback.answer()
+
+
+_CARD_ENTRY_MAX_CHARS = 200
+# Telegram sendMessage caps a message at 4096 characters (CLAUDE.md §10.21).
+# Correspondence and notes are free text of arbitrary length (either the
+# participant's own writing or what the mentor typed via /mentor_note) — the
+# per-entry cap above bounds the common case, this is the last-resort net so
+# a card with many long entries still sends instead of raising.
+_CARD_MAX_CHARS = 4000
+
+
+def _truncate_entry(text: str) -> str:
+    text = text.strip().replace("\n", " ")
+    if len(text) > _CARD_ENTRY_MAX_CHARS:
+        return text[:_CARD_ENTRY_MAX_CHARS] + "…"
+    return text
+
+
+def _format_participant_card(card: dict, participant_name: str, stream_id: str) -> str:
+    """Human-readable срез карточки участника (get_participant_card) —
+    без parse_mode: текст переписки и заметок не наш, экранировать его под
+    Markdown/HTML лишний риск (CLAUDE.md §10.2/§10.38), обычного текста для
+    среза «на пальцах» достаточно."""
+    lines = [f"👤 {participant_name} · поток {stream_id}"]
+
+    manual = card.get("manualMinimum") or {}
+    for prefix, key in (("🚩 ", "red_flag"), ("Зона: ", "screening_zone"), ("Проект: ", "project_note"), ("Дальше: ", "next_step")):
+        value = manual.get(key)
+        if value:
+            lines.append(f"{prefix}{value}")
+
+    if card.get("correspondenceEmpty"):
+        lines.append("\n💬 Переписка: пока нет сообщений, которые бот распознал как адресованные тебе")
+    else:
+        lines.append("\n💬 Последняя переписка:")
+        for entry in (card.get("recentTextCorrespondence") or [])[:5]:
+            author = "наставник" if entry.get("author") == "mentor" else "участник"
+            lines.append(f"· {author}: {_truncate_entry(entry.get('text') or '')}")
+        meta_only = len(card.get("recentMetadataActivity") or [])
+        if meta_only:
+            lines.append(f"(+{meta_only} сообщений без сохранённого текста — нет согласия или запись историческая)")
+    # correspondenceNote — фиксированное предупреждение сервиса
+    # (get-participant-card.ts), не текст пустого состояния: классификатор
+    # «адресовано наставнику» fail-closed, пустой список не доказывает, что
+    # участник ничего не писал. Показываем всегда, не только при пустой
+    # переписке — иначе смысл предупреждения теряется.
+    correspondence_note = card.get("correspondenceNote")
+    if correspondence_note:
+        lines.append(f"ℹ️ {correspondence_note}")
+
+    notes = card.get("recentNotes") or []
+    if notes:
+        lines.append("\n📝 Заметки наставника:")
+        for note in notes[:5]:
+            lines.append(f"· {_truncate_entry(note.get('body') or '')}")
+
+    formatted = "\n".join(lines)
+    if len(formatted) > _CARD_MAX_CHARS:
+        formatted = formatted[:_CARD_MAX_CHARS] + "\n…(карточка обрезана, слишком длинная для одного сообщения)"
+    return formatted
+
+
+async def _send_participant_card(
+    message: Message,
+    mentor_account_id: str,
+    stream_id: str,
+    participant_account_id: str,
+    participant_name: str,
+    *,
+    via_dm: bool,
+) -> None:
+    """Общий хвост group- и DM-версий /mentor_card: вызвать сервис и
+    показать наставнику отформатированный срез (WP-578, третий клиент
+    mentorship-service — архитектура заложена 17.09).
+
+    Карточка несёт приватные данные участника (переписка, заметки) —
+    `via_dm=True` (групповая команда) уходит наставнику личным сообщением,
+    в группе остаётся только короткое подтверждение без содержимого
+    (тот же принцип, что у F9 для usage-ошибок — не публиковать чужие
+    личные данные в чат). `via_dm=False` (сама команда уже в личке с ботом)
+    отвечает прямо, лишней пересылки не нужно."""
+    async def _deliver(text: str) -> None:
+        await (_tell_mentor(message, text) if via_dm else message.reply(text))
+
+    try:
+        card = await mentorship_service.get_participant_card(mentor_account_id, stream_id, participant_account_id)
+    except MentorshipServiceError as e:
+        logger.warning("[Mentorship] get_participant_card отклонён: %s — %s", e.kind, e)
+        await _deliver(f"Не удалось получить карточку: {e}")
+        return
+
+    if card is None:
+        await _deliver("Сервис карточки участника сейчас недоступен — попробуй позже.")
+        return
+
+    logger.info("[Mentorship] get_participant_card by=%s participant=%s stream=%s", mentor_account_id, participant_account_id, stream_id)
+    formatted = _format_participant_card(card, participant_name, stream_id)
+    if via_dm:
+        # Подтверждать в группе можно только если личка реально доставлена —
+        # иначе наставник видит "отправлено", а карточка с приватными
+        # данными не пришла никуда (найдено ревью 25.09, воспроизведено).
+        # Недоставка молчит, как и usage-ошибки этого же файла — тот же
+        # признак "наставник ещё не открывал ЛС с ботом", не новая причина.
+        if await _tell_mentor(message, formatted):
+            await message.reply(f"Карточка участника {participant_name} отправлена тебе в личку.")
+    else:
+        await message.reply(formatted)
+
+
+@mentorship_router.message(Command("mentor_card"), F.chat.type.in_({"group", "supergroup"}))
+async def cmd_mentor_card(message: Message) -> None:
+    """Наставник отвечает командой на сообщение участника — бот показывает
+    карточку этого участника, личным сообщением (WP-578 Ф3, новое требование
+    пилота 23.09)."""
+    reader = await _resolve_reader(message)
+    if reader is None:
+        return
+
+    target_message = message.reply_to_message
+    if target_message is None or target_message.from_user is None:
+        await _tell_mentor(message, "Ответь этой командой на сообщение участника, чью карточку нужно показать.")
+        return
+    if target_message.from_user.id == message.from_user.id:
+        await _tell_mentor(message, "Нельзя посмотреть карточку самого себя.")
+        return
+
+    stream_id = await _stream_of_group(message, reader)
+    if stream_id is None:
+        return
+
+    participant_account_id = await resolve_ory_id_from_chat(target_message.from_user.id)
+    if participant_account_id is None:
+        await _tell_mentor(message, "У участника нет привязанного аккаунта платформы — карточка недоступна.")
+        return
+
+    await _send_participant_card(
+        message, reader.account_id, stream_id, participant_account_id, target_message.from_user.full_name, via_dm=True
+    )
+
+
+@mentorship_router.message(Command("mentor_card"), F.chat.type == "private")
+async def cmd_mentor_card_dm(message: Message) -> None:
+    """Личка: наставник пересылает сюда сообщение участника (или своё
+    собственное — тогда используется последний однозначно определённый
+    участник этой же личной сессии) и отвечает на него этой командой — тот
+    же резолвер, что у DM-версии /mentor_note (WP-578 Ф3)."""
+    target_message = message.reply_to_message
+    if target_message is None:
+        await message.reply("Перешли сюда сообщение от участника (или своё, отправленное ему), и ответь на него этой командой.")
+        return
+
+    caller_account_id = await resolve_ory_id_from_chat(message.from_user.id)
+    if caller_account_id is None:
+        await message.reply("Не нашёл твой аккаунт платформы — сначала привяжи его (/link).")
+        return
+
+    stream_id, participant_account_id, participant_name, error = await _resolve_dm_participant_target(message, target_message)
+    if error is not None:
+        await message.reply(error)
+        return
+
+    await _send_participant_card(message, caller_account_id, stream_id, participant_account_id, participant_name, via_dm=False)
