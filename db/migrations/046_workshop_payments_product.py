@@ -35,7 +35,7 @@ async def migrate_if_needed(pool: asyncpg.Pool) -> bool:
             return False
 
         await conn.execute(
-            """ALTER TABLE public.workshop_payments ADD COLUMN product TEXT"""
+            """ALTER TABLE public.workshop_payments ADD COLUMN IF NOT EXISTS product TEXT"""
         )
     return True
 

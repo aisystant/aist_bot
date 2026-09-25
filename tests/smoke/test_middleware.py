@@ -43,10 +43,26 @@ def _make_fake_message(user_id: int = 999):
     msg.chat.id = user_id
     msg.chat.type = "private"
     msg.text = "/start"
+    msg.successful_payment = None
     msg.date = datetime.now()
     msg.bot = MagicMock()
     msg.bot.send_chat_action = AsyncMock()
     msg.answer = AsyncMock()
+    return msg
+
+
+def _make_payment_message(user_id: int = 999):
+    from aiogram.types import SuccessfulPayment
+
+    msg = _make_fake_message(user_id)
+    msg.text = None
+    msg.successful_payment = SuccessfulPayment(
+        currency="XTR",
+        total_amount=4000,
+        invoice_payload=f"workshop_direct_{user_id}",
+        telegram_payment_charge_id="test-workshop-charge",
+        provider_payment_charge_id="",
+    )
     return msg
 
 
@@ -232,6 +248,68 @@ class TestMiddlewareCall:
         await mw(handler, msg, {})  # должен быть заблокирован
 
         assert len(call_count) == 2, "После лимита handler не должен вызываться"
+
+    async def test_successful_payment_passes_exhausted_rate_limit(self):
+        from core.middleware import RateLimitMiddleware
+
+        mw = RateLimitMiddleware(max_messages=2, window_seconds=60)
+        msg = _make_fake_message(user_id=777)
+        payment = _make_payment_message(user_id=777)
+        handler = AsyncMock(return_value="payment-recorded")
+        for _ in range(2):
+            await mw(handler, msg, {})
+        handler.reset_mock()
+
+        result = await mw(handler, payment, {})
+        await mw(handler, msg, {})
+
+        assert result == "payment-recorded"
+        handler.assert_awaited_once_with(payment, {})
+
+    async def test_successful_payment_does_not_consume_message_limit(self):
+        from core.middleware import RateLimitMiddleware
+
+        mw = RateLimitMiddleware(max_messages=1, window_seconds=60)
+        msg = _make_fake_message(user_id=777)
+        payment = _make_payment_message(user_id=777)
+        handler = AsyncMock()
+
+        await mw(handler, payment, {})
+        handler.reset_mock()
+        await mw(handler, msg, {})
+        await mw(handler, msg, {})
+
+        handler.assert_awaited_once_with(msg, {})
+
+    async def test_successful_payment_passes_maintenance_for_non_tester(self, monkeypatch):
+        from core.middleware import MaintenanceMiddleware
+
+        monkeypatch.setattr("core.middleware.MAINTENANCE_MODE", True)
+        monkeypatch.setattr("core.middleware.ALLOWED_TESTERS", set())
+        payment = _make_payment_message(user_id=777)
+        handler = AsyncMock(return_value="payment-recorded")
+
+        result = await MaintenanceMiddleware()(handler, payment, {})
+
+        assert result == "payment-recorded"
+        handler.assert_awaited_once_with(payment, {})
+        payment.answer.assert_not_awaited()
+
+    async def test_successful_payment_preserves_consultation_state(self):
+        from core.middleware import ConsultationPassthroughMiddleware
+
+        payment = _make_payment_message(user_id=777)
+        state = AsyncMock()
+        data = {"state": state, "raw_state": "consultation"}
+        handler = AsyncMock(return_value="payment-recorded")
+
+        result = await ConsultationPassthroughMiddleware()(handler, payment, data)
+
+        assert result == "payment-recorded"
+        handler.assert_awaited_once_with(payment, data)
+        state.get_state.assert_not_awaited()
+        state.clear.assert_not_awaited()
+        assert data["raw_state"] == "consultation"
 
     async def test_update_dedup_call_does_not_crash(self):
         """UpdateDedupMiddleware пропускает событие без краша, если event_update отсутствует в data."""
