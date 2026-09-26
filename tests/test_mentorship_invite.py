@@ -2,6 +2,9 @@
 WP-578 — /mentor_invite (обнаружение согласия, способ 2 из 3, решение
 пилота 17.09): наставник отвечает на сообщение участника, бот сам пишет
 этому участнику в личку запрос согласия.
+
+F9: usage errors go to the mentor's DM, not the group (silence for an outsider
+is covered by test_mentorship_silence.py).
 """
 
 import os
@@ -20,10 +23,12 @@ os.environ.setdefault("DEVELOPER_CHAT_ID", "123456")
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from db.queries.mentorship import StreamChatContext
+from tests.mentorship_helpers import as_stream_reader, assert_only_dm_to_mentor
+
+MENTOR_TG_ID = 100
 
 
-def _make_message(*, reply_to_message=None, from_user_id=100):
+def _make_message(*, reply_to_message=None, from_user_id=MENTOR_TG_ID):
     from aiogram.types import Message, User, Chat
 
     msg = MagicMock(spec=Message)
@@ -34,6 +39,7 @@ def _make_message(*, reply_to_message=None, from_user_id=100):
     msg.chat.type = "group"
     msg.reply_to_message = reply_to_message
     msg.reply = AsyncMock()
+    msg.answer = AsyncMock()
     msg.bot = AsyncMock()
     return msg
 
@@ -49,95 +55,86 @@ def _make_target_user(user_id: int, full_name: str = "Участник Тест�
 
 
 @pytest.mark.asyncio
-async def test_invite_without_reply_target_asks_to_reply():
+async def test_invite_without_reply_target_tells_mentor_privately(monkeypatch):
     import handlers.mentorship as mentorship
 
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")])
     message = _make_message(reply_to_message=None)
+
     await mentorship.cmd_mentor_invite(message)
 
-    message.reply.assert_awaited_once()
-    assert "ответь" in message.reply.await_args.args[0].lower()
-    message.bot.send_message.assert_not_called()
+    assert_only_dm_to_mentor(message, "Ответь этой командой на сообщение участника")
 
 
 @pytest.mark.asyncio
-async def test_invite_self_is_rejected():
+async def test_invite_self_is_rejected_privately(monkeypatch):
     import handlers.mentorship as mentorship
 
-    target = _make_target_user(100)  # тот же id, что и у наставника
-    message = _make_message(reply_to_message=target, from_user_id=100)
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")])
+    target = _make_target_user(MENTOR_TG_ID)  # тот же id, что и у наставника
+    message = _make_message(reply_to_message=target)
 
     await mentorship.cmd_mentor_invite(message)
 
-    message.reply.assert_awaited_once_with("Нельзя пригласить самого себя.")
-    message.bot.send_message.assert_not_called()
+    assert_only_dm_to_mentor(message, "Нельзя пригласить самого себя.")
 
 
 @pytest.mark.asyncio
-async def test_invite_rejects_non_stream_reader(monkeypatch):
+async def test_invite_reader_of_other_stream_is_told_privately(monkeypatch):
     import handlers.mentorship as mentorship
 
-    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(return_value="mentor-account"))
-    monkeypatch.setattr(
-        mentorship,
-        "lookup_stream_chat",
-        AsyncMock(return_value=StreamChatContext(stream_id="S1", reader_account_id="mentor-account")),
-    )
-    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value=None))
-
-    target = _make_target_user(200)
-    message = _make_message(reply_to_message=target, from_user_id=100)
+    as_stream_reader(monkeypatch, mentorship, streams=[("S2", "mentor")])
+    message = _make_message(reply_to_message=_make_target_user(200))
 
     await mentorship.cmd_mentor_invite(message)
 
-    assert "не числишься наставником" in message.reply.await_args.args[0]
-    message.bot.send_message.assert_not_called()
+    assert_only_dm_to_mentor(message, "не числишься наставником или пилотом потока S1")
+
+
+@pytest.mark.asyncio
+async def test_invite_participant_without_account_is_told_privately(monkeypatch):
+    import handlers.mentorship as mentorship
+
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=("mentor-account", None))
+    message = _make_message(reply_to_message=_make_target_user(200))
+
+    await mentorship.cmd_mentor_invite(message)
+
+    assert_only_dm_to_mentor(message, "У участника нет привязанного аккаунта платформы")
 
 
 @pytest.mark.asyncio
 async def test_invite_success_sends_dm_and_confirms(monkeypatch):
     import handlers.mentorship as mentorship
 
-    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(side_effect=["mentor-account", "participant-account"]))
-    monkeypatch.setattr(
-        mentorship,
-        "lookup_stream_chat",
-        AsyncMock(return_value=StreamChatContext(stream_id="S1", reader_account_id="mentor-account")),
-    )
-    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value="mentor"))
-
-    target = _make_target_user(200, full_name="Иван Иванов")
-    message = _make_message(reply_to_message=target, from_user_id=100)
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=("mentor-account", "participant-account"))
+    message = _make_message(reply_to_message=_make_target_user(200, full_name="Иван Иванов"))
 
     await mentorship.cmd_mentor_invite(message)
 
     message.bot.send_message.assert_awaited_once()
-    sent_chat_id = message.bot.send_message.await_args.args[0]
-    assert sent_chat_id == 200
+    assert message.bot.send_message.await_args.args[0] == 200
     message.reply.assert_awaited_once_with("Приглашение отправлено участнику Иван Иванов в личку.")
 
 
 @pytest.mark.asyncio
-async def test_invite_reports_forbidden_error_without_crashing(monkeypatch):
+async def test_invite_forbidden_participant_is_reported_to_mentor_privately(monkeypatch):
     import handlers.mentorship as mentorship
     from aiogram.exceptions import TelegramForbiddenError
 
-    monkeypatch.setattr(mentorship, "resolve_ory_id_from_chat", AsyncMock(side_effect=["mentor-account", "participant-account"]))
-    monkeypatch.setattr(
-        mentorship,
-        "lookup_stream_chat",
-        AsyncMock(return_value=StreamChatContext(stream_id="S1", reader_account_id="mentor-account")),
-    )
-    monkeypatch.setattr(mentorship, "get_stream_reader_role", AsyncMock(return_value="mentor"))
+    as_stream_reader(monkeypatch, mentorship, streams=[("S1", "mentor")], account_ids=("mentor-account", "participant-account"))
+    message = _make_message(reply_to_message=_make_target_user(200, full_name="Иван Иванов"))
 
-    target = _make_target_user(200, full_name="Иван Иванов")
-    message = _make_message(reply_to_message=target, from_user_id=100)
-    message.bot.send_message = AsyncMock(
-        side_effect=TelegramForbiddenError(method=MagicMock(), message="bot can't initiate conversation")
-    )
+    async def _send(chat_id, text, **kwargs):
+        if chat_id == 200:
+            raise TelegramForbiddenError(method=MagicMock(), message="bot can't initiate conversation")
+
+    message.bot.send_message = AsyncMock(side_effect=_send)
 
     await mentorship.cmd_mentor_invite(message)
 
-    reply_text = message.reply.await_args.args[0]
-    assert "Иван Иванов" in reply_text
-    assert "не разрешает боту заговорить первым" in reply_text
+    message.reply.assert_not_awaited()
+    assert [call.args[0] for call in message.bot.send_message.await_args_list] == [200, MENTOR_TG_ID]
+    dm_text = message.bot.send_message.await_args_list[1].args[1]
+    assert "Иван Иванов" in dm_text
+    assert "не разрешает боту заговорить первым" in dm_text

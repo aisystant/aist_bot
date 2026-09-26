@@ -114,6 +114,28 @@ async def get_stream_reader_role(account_id: str, stream_id: str) -> Optional[st
     return await _with_account_context(pool, account_id, _query)
 
 
+async def list_reader_streams(account_id: str) -> list[tuple[str, str]]:
+    """Streams where the account is a reader: [(stream_id, role)], role 'mentor'|'pilot'.
+
+    [] means "not a reader anywhere"; RuntimeError means the mentorship module is
+    disabled (MENTORSHIP_URL unset). Unlike get_stream_reader_role (None for both),
+    the two must stay distinguishable: otherwise, during an outage, a real mentor
+    is indistinguishable from an outsider in the command guard (WP-578 F9).
+    """
+    pool = await get_mentorship_pool()
+    if pool is None:
+        raise RuntimeError("MENTORSHIP_URL is not configured — mentorship module disabled")
+
+    async def _query(conn: asyncpg.Connection) -> list[tuple[str, str]]:
+        rows = await conn.fetch(
+            "SELECT stream_id, role FROM public.stream_reader WHERE account_id = $1 ORDER BY stream_id",
+            account_id,
+        )
+        return [(row["stream_id"], row["role"]) for row in rows]
+
+    return await _with_account_context(pool, account_id, _query)
+
+
 async def register_stream_chat(telegram_chat_id: int, stream_id: str, registered_by_account_id: str) -> str:
     """Зарегистрировать телеграм-чат за потоком (команда /mentor_stream).
 

@@ -24,7 +24,7 @@ wp: WP-578 актуализация 19.09
 |----------|----------|
 | Команда | `/mentor_note [текст]`, только в личке с ботом, ответом на пересланное туда сообщение |
 | Тип | Вспомогательный (B) — пересылка → команда → подтверждение кнопкой → результат |
-| Файлы | [`handlers/mentorship.py`](../../../handlers/mentorship.py) (`cmd_mentor_note_dm`, `_resolve_dm_note_target`), [`clients/mentorship_service.py`](../../../clients/mentorship_service.py) |
+| Файлы | [`handlers/mentorship.py`](../../../handlers/mentorship.py) (`cmd_mentor_note_dm`, `_resolve_dm_participant_target` — переименована 25.09, WP-578, общий резолвер с `/mentor_card`), [`clients/mentorship_service.py`](../../../clients/mentorship_service.py) |
 | Доступ | Только читатель потока (`stream_reader.role IN ('mentor','pilot')`) потока, в котором классифицирован участник |
 | Внешний сервис | mentorship-service — тот же вызов `add_participant_note`, что у групповой версии, без изменений |
 
