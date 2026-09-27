@@ -136,21 +136,33 @@ def _has_learning_data(intern: dict) -> bool:
 async def _save_entry_source_from_deeplink(chat_id: int, raw_source: str, intern: dict) -> None:
     """Сохранить источник входа из deep-link `/start src_<value>` (WP-406 Ф16-B3).
 
-    Нормализованное значение (site|stand|bot|guide-kit) кладётся в
+    Нормализованное значение из фиксированного списка кладётся в
     current_context['onboarding']['entry_source'] через канонический writer
     Онбордера; локальная копия intern обновляется, чтобы последующие ветки
     cmd_start (update_intern по stale current_context) не затёрли отметку.
+    Уже сохранённый валидный источник не перезаписывается: атрибуция first-touch.
     Fail-open: ошибка сохранения не ломает /start.
     """
     try:
-        from core.onboarder import normalize_entry_source
+        from core.onboarder import ENTRY_SOURCES, normalize_entry_source
         from core.onboarder import storage as onboarder_storage
+
+        ctx = (intern or {}).get("current_context") or {}
+        existing_onboarding_ctx = ctx.get("onboarding") or {}
+        existing_raw = existing_onboarding_ctx.get("entry_source")
+        existing_source = (
+            existing_raw.strip().lower().replace("_", "-")
+            if isinstance(existing_raw, str)
+            else None
+        )
+        if existing_source in ENTRY_SOURCES:
+            return
+
         entry_source = normalize_entry_source(raw_source)
         onboarding_ctx = await onboarder_storage.save_onboarding_context(
             chat_id, {"entry_source": entry_source}
         )
         if intern is not None:
-            ctx = intern.get("current_context") or {}
             ctx["onboarding"] = onboarding_ctx
             intern["current_context"] = ctx
     except Exception as e:
@@ -463,6 +475,7 @@ async def cmd_start(message: Message, state: FSMContext):
     # moment both Х2 and Х3 close (see core/onboarder/x2.py, on_x3_confirm below).
     from db.queries.events import log_event
     from db.queries.onboarding_journey import get_cohort_id_for_chat
+    from core.onboarder import entry_source_from_intern
     cohort_id = 'R1'
     async with span("start.registration_event"):
         if aisystant_id:
@@ -472,6 +485,7 @@ async def cmd_start(message: Message, state: FSMContext):
             'path': 'fast',
             'linked_aisystant': linked,
             'cohort_id': cohort_id,
+            'source': entry_source_from_intern(intern),
         })
 
     if linked:
@@ -788,6 +802,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
         from db.queries.events import log_event
         from db.queries.aisystant import get_aisystant_id
         from db.queries.onboarding_journey import get_cohort_id_for_chat
+        from core.onboarder import entry_source_from_intern
         _fsm_aisystant_id = await get_aisystant_id(chat_id)
         _fsm_cohort_id = 'R1'
         if _fsm_aisystant_id:
@@ -801,6 +816,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext):
             'start_date': str(intern.get('marathon_start_date')),
             'linked_aisystant': _fsm_aisystant_id is not None,
             'cohort_id': _fsm_cohort_id,
+            'source': entry_source_from_intern(intern),
         })
 
         await state.clear()
